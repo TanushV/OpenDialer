@@ -131,6 +131,18 @@ class Application(Service):
                 if scripts
                 else self.fallback_script(s, p, lead)
             )
+            facts = [
+                doc(r)
+                for r in self.scoped(s, "research_facts", p)
+                if r.data.get("domain") == lead.data["domain"]
+                and r.data.get("status") == "supported"
+                and dt(r.data["expires_at"]) > self.clock()
+            ]
+            if not set(script.get("fact_ids_used", [])).issubset({fact["fact_id"] for fact in facts}):
+                script = self.fallback_script(s, p, lead)
+                script["prohibited_claim_checks"] = [
+                    "Personalization evidence expired or was withdrawn; approved fallback retained"
+                ]
             reservations = [
                 r
                 for r in self.scoped(s, "reservations", p)
@@ -153,11 +165,6 @@ class Application(Service):
                         "opener": variant.data["opener"].replace("{rep}", user.data["name"]),
                         "treatment_variant_id": variant.id,
                     }
-            facts = [
-                doc(r)
-                for r in self.scoped(s, "research_facts", p)
-                if r.data.get("domain") == lead.data["domain"]
-            ]
             sources = [
                 doc(r)
                 for r in self.scoped(s, "research_sources", p)
@@ -183,14 +190,37 @@ class Application(Service):
         with self.db.transaction(False) as s:
             if not self.budget_ok(s, p, 0.05):
                 fail(403, "BUDGET_EXHAUSTED")
+            dependencies = {}
+            research = self.scoped(s, "research_facts", p)
             for lead_id in lead_ids:
-                self.required(s, "leads", lead_id, p)
+                lead = self.required(s, "leads", lead_id, p)
+                dependencies[lead_id] = [
+                    lead.version,
+                    sorted(
+                        (r.id, r.version, dt(r.data["expires_at"]) > self.clock())
+                        for r in research
+                        if r.data.get("domain") == lead.data.get("domain")
+                    ),
+                ]
+            conf = self.vault.read(p["tenant_id"])
+            model_context = [
+                conf.get("inference_mode", "api"),
+                conf.get("script_write_model", conf.get("model", "gpt-6-luna")),
+                bool(self.inference(p["tenant_id"], "script_write", p["user_id"])),
+            ]
             playbook = self.approved_playbook(s, p)
             version = playbook.id + ":" + str(playbook.version) if playbook else "none"
         jobs = []
         for offset in range(0, len(lead_ids), 20):
             batch = sorted(set(lead_ids[offset : offset + 20]))
-            key = "prepare:" + hashlib.sha256(json.dumps([batch, version]).encode()).hexdigest()
+            key = (
+                "prepare:"
+                + hashlib.sha256(
+                    json.dumps(
+                        [batch, version, model_context, {lead_id: dependencies[lead_id] for lead_id in batch}]
+                    ).encode()
+                ).hexdigest()
+            )
             jobs.append(
                 self.jobs.enqueue(
                     "research",

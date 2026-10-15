@@ -24,6 +24,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/src-tauri
+          cache-on-failure: true
       - run: uv sync --frozen --python 3.12
       - run: uv run pytest -q
         env:
@@ -34,7 +35,7 @@ jobs:
       - run: npm run build && npm test
         working-directory: apps/desktop
       - run: uv run python scripts/build_sidecar.py
-      - run: cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
+      - run: cargo test --release --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
       - name: Build signed Windows installers
         run: npm run tauri build -- --bundles nsis,msi
         working-directory: apps/desktop
@@ -54,8 +55,11 @@ jobs:
       - name: Match the official Edge WebDriver
         shell: pwsh
         run: |
-          $edge = Get-Item "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
-          $version = $edge.VersionInfo.FileVersion
+          $roots = @("${env:ProgramFiles(x86)}\Microsoft\EdgeWebView\Application", "$env:ProgramFiles\Microsoft\EdgeWebView\Application", "$env:LOCALAPPDATA\Microsoft\EdgeWebView\Application")
+          $runtime = $roots | Where-Object { Test-Path $_ } | ForEach-Object { Get-ChildItem $_ -Directory } | Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } | Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
+          if (-not $runtime) { throw 'Installed WebView2 runtime was not found' }
+          $version = $runtime.Name
+          Write-Host "Testing the installed WebView2 runtime $version"
           $archive = Join-Path $env:RUNNER_TEMP edgedriver.zip
           Invoke-WebRequest "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip" -OutFile $archive
           $directory = Join-Path $env:RUNNER_TEMP edgedriver

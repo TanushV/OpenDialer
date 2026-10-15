@@ -113,3 +113,46 @@ def test_research_pipeline_publishes_versions_without_duplicates(workspace):
     assert packet["script"]["script_version"]
     assert packet["research"]["facts"]
     assert all(fact["source_id"] for fact in packet["research"]["facts"])
+
+
+def test_completed_preparation_can_refresh_after_evidence_expires(workspace, clock):
+    c, h = workspace["client"], workspace["headers"]
+    lead = c.get("/v1/workspace", headers=h).json()["leads"][0]
+    first = c.post("/v1/research/batches", headers=h, json={"lead_ids": [lead["id"]]}).json()
+    c.post("/v1/admin/jobs/run", headers=h)
+    clock.now += timedelta(days=31)
+    token = c.post(
+        "/v1/auth/session", json={"email": "operator@example.test", "password": "a-test-only-password-123"}
+    ).json()["access_token"]
+    h = {"Authorization": "Bearer " + token}
+    again = c.post("/v1/research/batches", headers=h, json={"lead_ids": [lead["id"]]}).json()
+    assert again["jobs"][0]["id"] != first["jobs"][0]["id"]
+
+
+def test_packet_falls_back_when_personalization_evidence_expires(workspace, clock):
+    from app.db import update
+
+    c, h = workspace["client"], workspace["headers"]
+    lead = c.get("/v1/workspace", headers=h).json()["leads"][0]
+    c.post("/v1/research/batches", headers=h, json={"lead_ids": [lead["id"]]})
+    c.post("/v1/admin/jobs/run", headers=h)
+    packet = c.get(f"/v1/leads/{lead['id']}/packet", headers=h).json()
+    service = c.app.state.service
+    with service.db.transaction() as s:
+        script = next(
+            v for v in service.scoped(s, "script_versions", workspace) if v.data["lead_id"] == lead["id"]
+        )
+        update(
+            script,
+            fallback=False,
+            fact_ids_used=[fact["fact_id"] for fact in packet["research"]["facts"]],
+            opener="Your company provides commercial repair services.",
+        )
+    clock.now += timedelta(days=31)
+    token = c.post(
+        "/v1/auth/session", json={"email": "operator@example.test", "password": "a-test-only-password-123"}
+    ).json()["access_token"]
+    h = {"Authorization": "Bearer " + token}
+    packet = c.get(f"/v1/leads/{lead['id']}/packet", headers=h).json()
+    assert packet["script"]["fallback"] is True
+    assert not packet["research"]["facts"]
