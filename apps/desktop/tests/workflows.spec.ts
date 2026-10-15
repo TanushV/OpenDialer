@@ -54,6 +54,8 @@ test('admin inventory, lead import, policy, preparation and real readiness bound
 
 test('connected authentication and shared state survive reconnect', async ({ page }) => {
   await page.goto('/');
+  await expect(page.getByText('Opening your workspace…')).toBeHidden();
+  if (await page.getByTitle('Sign out').isVisible()) await page.getByTitle('Sign out').click();
   await page.getByRole('button', { name: 'Connect to a server' }).click();
   await page.getByLabel('Server URL').fill('http://127.0.0.1:8766');
   await page.getByLabel('Email').fill('team@example.test');

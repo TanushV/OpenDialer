@@ -32,7 +32,10 @@ def app(tmp_path, clock, carrier):
     settings = Settings(database_url=database_url, mode="local", local_token="test-local-secret",
                         simulation=True, data_dir=tmp_path, worker_enabled=False,
                         bootstrap_token="test-bootstrap-secret", secret_key="test-secret-" + "a" * 48)
-    return create_app(settings, clock=clock, carrier=carrier)
+    application = create_app(settings, clock=clock, carrier=carrier)
+    if os.getenv("OPENDIALER_TEST_POSTGRES_URL"):
+        application.state.db.reset()
+    return application
 
 
 @pytest.fixture

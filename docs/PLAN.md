@@ -26,13 +26,13 @@ Source: [complete specification](spec/IMPLEMENTATION_SPEC.md), preserved verbati
 ## B. Safe operations and numbers (§6–7,9–10,18)
 
 - [ ] Schema, migrations, UTC/UUID identity, DB uniqueness, indexes and audit history.
-- [ ] CSV/JSON lead imports, normalization, separate format/ownership/reachability/permission states and import report.
+- [x] CSV/JSON lead imports, normalization, separate format/ownership/reachability/permission states and import report.
 - [ ] Authoritative seller-specific national/state registry staging/publication, checksum/freshness/coverage and change lists.
 - [ ] Internal suppressions survive imports/restores; local offline opt-out journal blocks dialing until synchronized.
 - [ ] Pre-command policy recheck: identity, suppression, registry, consent, timezone, cadence, rep, number, route and budget.
 - [ ] Separate live/prerecorded/transcription/recording/messaging permissions; selective RND evidence adapter.
-- [ ] Atomic lead/endpoint/rep claims, number capacity leases, expiry handling and cross-rep concurrency tests.
-- [ ] Stable lead-number bindings; regional/general fallback, ownership isolation and unhealthy number pause.
+- [x] Atomic lead/endpoint/rep claims, number capacity leases, expiry handling and cross-rep concurrency tests.
+- [x] Stable lead-number bindings; regional/general fallback, ownership isolation and unhealthy number pause.
 - [ ] Existing-number synchronization, demand-based procurement proposal, approved budget, Telnyx purchase/setup adapters.
 - [ ] Registration checklist/evidence, inbound callback tests, legitimate warmup progression and number-health monitoring.
 
@@ -52,7 +52,7 @@ Source: [complete specification](spec/IMPLEMENTATION_SPEC.md), preserved verbati
 - [ ] Telnyx Soniox/Parakeet transcription adapter, permission gates and side/revision/finality lineage.
 - [ ] Conversation state versions, stable-turn updates, opt-out safety trigger outside the model.
 - [ ] Quick and final post-call analysis; evidence-linked problems, objections, commitments, unknowns and proposed CRM updates.
-- [ ] Human notes preserved across late AI revisions with explicit conflict/diff handling.
+- [x] Human notes preserved across late AI revisions with explicit conflict/diff handling.
 - [ ] Review workspace with evidence, permitted recording, timeline, corrections, comments, disputed/low-confidence filters.
 - [ ] Keyword/semantic trackers, versioned observable rubrics, N/A/insufficient evidence, score coverage and human appeals.
 - [ ] Talk/turn/overlap metrics with missing-data denominators; no emotion/personality inference.
@@ -68,7 +68,7 @@ Source: [complete specification](spec/IMPLEMENTATION_SPEC.md), preserved verbati
 ## F. Scheduling, models and measurement (§9–10,19,22)
 
 - [ ] Callback/requested-contact/coverage/ranked priorities, conservative time windows and visible capacity shortfall.
-- [ ] Eligible-only feature snapshots without registry/sensitive/future information.
+- [x] Eligible-only feature snapshots without registry/sensitive/future information.
 - [ ] Smoothed/pooled baseline and calibrated gradient-boosted challenger, chronological grouped evaluation and model artifacts.
 - [ ] Constrained experimentation, stable control, exact action propensities, delayed/censored rewards and manual promotion/rollback.
 - [ ] Cohort denominator, unique right-party reach, meetings, rep time, coverage, opt-outs, costs and billing reconciliation.

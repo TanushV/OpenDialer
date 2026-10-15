@@ -25,3 +25,6 @@ test-results/
 apps/desktop/src-tauri/binaries/
 work/
 .DS_Store
+
+apps/desktop/src-tauri/gen/
+*.spec

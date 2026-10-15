@@ -199,6 +199,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
         while not stop.is_set():
             try:
                 await service.run_jobs()
+                await service.maintenance_tick()
             except Exception as exc:
                 logging.getLogger(__name__).warning("Worker tick deferred: %s", type(exc).__name__)
             try:
@@ -894,5 +895,254 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 tenant_id=p["tenant_id"],
             )
         return result
+
+    @app.post("/v1/admin/registry/import")
+    def registry_import(data: dict, p=Depends(administrator)):
+        from app.compliance.registry import RegistryBitmap
+
+        npas = data.get("npas", [])
+        if (
+            data.get("kind") not in {"national", "state"}
+            or not data.get("subscription_reference")
+            or not npas
+            or any(not isinstance(n, str) or len(n) != 3 or not n.isdigit() for n in npas)
+        ):
+            fail(422, "Seller-authorized subscription, dataset type and area-code coverage required")
+        try:
+            refreshed = dt(data["refreshed_at"])
+            if not refreshed.tzinfo or refreshed > clock():
+                fail(422, "Registry timestamp must be a known past UTC instant")
+            bitmap = RegistryBitmap.build(data.get("numbers", []))
+            if any(n[2:5] not in npas for n in data.get("numbers", [])):
+                fail(422, "Registry includes an unauthorized area code")
+            if data.get("checksum") and data["checksum"] != bitmap.checksum:
+                fail(422, "Registry checksum mismatch")
+        except (ValueError, KeyError, TypeError) as exc:
+            fail(422, f"Invalid registry snapshot: {type(exc).__name__}")
+        with db.transaction() as session:
+            for previous in service.scoped(session, "registry_snapshots", p):
+                if previous.data["kind"] == data["kind"] and previous.data.get(
+                    "jurisdiction", ""
+                ) == data.get("jurisdiction", ""):
+                    update(previous, published=False)
+            subscription = put(
+                session,
+                "registry_subscriptions",
+                p["tenant_id"],
+                p["seller_id"],
+                {"reference": data["subscription_reference"], "npas": npas, "kind": data["kind"]},
+                now=clock(),
+            )
+            snapshot = put(
+                session,
+                "registry_snapshots",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    "kind": data["kind"],
+                    "jurisdiction": data.get("jurisdiction", ""),
+                    "npas": npas,
+                    "subscription_id": subscription.id,
+                    "refreshed_at": refreshed.isoformat(),
+                    "published": True,
+                    "checksum": bitmap.checksum,
+                    "count": len(set(data.get("numbers", []))),
+                    "bitmap": base64.b64encode(bitmap.dump()).decode(),
+                    "synthetic": settings.simulation,
+                },
+                now=clock(),
+            )
+            audit(
+                session,
+                p["tenant_id"],
+                p["seller_id"],
+                p["user_id"],
+                "registry.published",
+                snapshot.id,
+                clock(),
+                {"checksum": bitmap.checksum, "count": snapshot.data["count"]},
+            )
+            return {
+                "id": snapshot.id,
+                "published": True,
+                "checksum": bitmap.checksum,
+                "count": snapshot.data["count"],
+            }
+
+    @app.patch("/v1/leads/{lead_id}/endpoint")
+    def correct_endpoint(lead_id: str, data: dict, p=Depends(administrator)):
+        from app.compliance.phone import normalize_phone
+
+        phone = normalize_phone(data.get("phone", ""))
+        if not phone.e164 or not data.get("evidence"):
+            fail(422, "A valid replacement endpoint and evidence reference are required")
+        with db.transaction() as session:
+            lead = service.required(session, "leads", lead_id, p)
+            endpoint = next(
+                (r for r in service.scoped(session, "phone_endpoints", p) if r.data["phone"] == phone.e164),
+                None,
+            )
+            if not endpoint:
+                endpoint = put(
+                    session,
+                    "phone_endpoints",
+                    p["tenant_id"],
+                    p["seller_id"],
+                    {
+                        "phone": phone.e164,
+                        "extension": phone.extension,
+                        "format_status": "valid",
+                        "assignment_evidence": "unknown",
+                        "ownership_status": "likely_match",
+                        "reachability_status": "unknown",
+                        "evidence_reference": str(data["evidence"])[:1000],
+                    },
+                    key=phone.e164,
+                    now=clock(),
+                )
+            old_endpoint = lead.data["endpoint_id"]
+            update(
+                lead,
+                endpoint_id=endpoint.id,
+                phone=phone.e164,
+                status="eligible",
+                next_attempt_at=clock().isoformat(),
+            )
+            lead.external_key = lead.data["campaign_id"] + ":" + endpoint.id
+            put(
+                session,
+                "lead_phone_links",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    "lead_id": lead.id,
+                    "endpoint_id": endpoint.id,
+                    "previous_endpoint_id": old_endpoint,
+                    "evidence": str(data["evidence"])[:1000],
+                },
+                now=clock(),
+            )
+            audit(
+                session,
+                p["tenant_id"],
+                p["seller_id"],
+                p["user_id"],
+                "lead.endpoint_corrected",
+                lead.id,
+                clock(),
+            )
+            return doc(lead)
+
+    @app.post("/v1/admin/playbooks")
+    def publish_playbook(data: dict, p=Depends(administrator)):
+        from app.research.validation import BANNED
+
+        with db.transaction() as session:
+            seller = service.required(session, "sellers", p["seller_id"], p)
+            if (
+                not data.get("reason")
+                or not data.get("opener")
+                or not data.get("screening_intro")
+                or seller.data["name"].casefold() not in data["screening_intro"].casefold()
+                or BANNED.search(str(data))
+            ):
+                fail(422, "Reviewed truthful identity and publication reason required")
+            cards = data.get("cards", [])
+            if any(not c.get("id") or not c.get("text") or len(c["text"].split()) > 25 for c in cards):
+                fail(422, "Cards require stable IDs and at most 25 guidance words")
+            previous = service.approved_playbook(session, p)
+            obj = put(
+                session,
+                "playbooks",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    "name": str(data.get("name", "Business introduction"))[:200],
+                    "opener": data["opener"][:600],
+                    "screening_intro": data["screening_intro"][:400],
+                    "cards": cards,
+                    "claims": data.get("claims", []),
+                    "approved": bool(data.get("approved")),
+                    "reason": data["reason"],
+                    "previous_id": previous.id if previous else None,
+                },
+                now=clock(),
+            )
+            obj.version = previous.version + 1 if previous else 1
+            audit(
+                session, p["tenant_id"], p["seller_id"], p["user_id"], "playbook.published", obj.id, clock()
+            )
+            return doc(obj)
+
+    @app.patch("/v1/tasks/{task_id}")
+    def task_status(task_id: str, data: dict, p=Depends(principal)):
+        if data.get("status") not in {"open", "completed", "cancelled"}:
+            fail(422, "Invalid task state")
+        with db.transaction() as session:
+            task = service.required(session, "followup_tasks", task_id, p)
+            if p["role"] == "rep" and task.data.get("owner_id") != p["user_id"]:
+                fail(403, "Task belongs to another rep")
+            update(task, status=data["status"])
+            return doc(task)
+
+    @app.post("/v1/calls/{call_id}/dtmf")
+    async def dtmf(call_id: str, data: dict, p=Depends(principal)):
+        import re
+
+        digits = data.get("digits", "")
+        if not isinstance(digits, str) or not re.fullmatch(r"[0-9*#]{1,30}", digits):
+            fail(422, "Keypad digits only")
+        with db.transaction(False) as session:
+            call = service.required(session, "call_attempts", call_id, p)
+            if call.data["state"] in {"ENDED", "FINALIZED"}:
+                fail(409, "Call is no longer active")
+            if call.data["rep_id"] != p["user_id"] and p["role"] == "rep":
+                fail(403, "Call belongs to another rep")
+            provider_id = call.data["provider_id"]
+        await service.carrier(p["tenant_id"]).action(
+            provider_id, "send_dtmf", {"digits": digits, "command_id": str(__import__("uuid").uuid4())}
+        )
+        return {"sent": True}
+
+    @app.post("/v1/admin/seller/approve")
+    def approve_seller(data: dict, p=Depends(administrator)):
+        if not data.get("identity_reference"):
+            fail(422, "Verified business identity evidence is required")
+        with db.transaction() as session:
+            seller = service.required(session, "sellers", p["seller_id"], p)
+            update(seller, approved=bool(data.get("approved")), identity_reference=data["identity_reference"])
+            audit(
+                session,
+                p["tenant_id"],
+                p["seller_id"],
+                p["user_id"],
+                "seller.identity_reviewed",
+                seller.id,
+                clock(),
+            )
+            return doc(seller)
+
+    @app.post("/v1/admin/consent")
+    def consent(data: dict, p=Depends(administrator)):
+        if not data.get("evidence_reference") or not data.get("permissions"):
+            fail(422, "Permission scope and evidence required")
+        with db.transaction() as session:
+            endpoint = service.required(session, "phone_endpoints", data.get("endpoint_id"), p)
+            return doc(
+                put(
+                    session,
+                    "consent_evidence",
+                    p["tenant_id"],
+                    p["seller_id"],
+                    {
+                        "endpoint_id": endpoint.id,
+                        "permissions": data["permissions"],
+                        "revoked": bool(data.get("revoked")),
+                        "evidence_reference": data["evidence_reference"],
+                        "acquired_at": data.get("acquired_at", clock().isoformat()),
+                    },
+                    now=clock(),
+                )
+            )
 
     return app

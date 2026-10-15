@@ -424,6 +424,12 @@ class Service:
         granted = any(permission in c.get("permissions", []) and not c.get("revoked") for c in consents)
         registry_valid = bool(registry and (self.settings.simulation or not registry.data.get("synthetic")))
         listed = lead.data["phone"] in (registry.data.get("listed_numbers", []) if registry_valid else [])
+        if registry_valid and registry.data.get("bitmap"):
+            from app.compliance.registry import RegistryBitmap
+
+            listed = RegistryBitmap.load(
+                base64.b64decode(registry.data["bitmap"]), registry.data["checksum"]
+            ).contains(lead.data["phone"])
         healthy = number and number.data["lifecycle"] in {"healthy", "limited_real_use"}
         authorized_number = bool(
             number

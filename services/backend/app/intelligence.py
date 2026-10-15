@@ -4,7 +4,7 @@ import re
 from datetime import timedelta
 
 from app.coaching.engine import CardRejected, validate_card
-from app.db import audit, doc, emit, put, uid, update
+from app.db import audit, doc, emit, put, rows, uid, update
 from app.postcall.analysis import build_analysis
 from app.providers.groq import GroqCoach
 from app.providers.inference import InferenceClient
@@ -77,7 +77,7 @@ class Application(Service):
 
     def approved_playbook(self, s, p):
         candidates = [r for r in self.scoped(s, "playbooks", p) if r.data.get("approved")]
-        return max(candidates, key=lambda r: r.created_at) if candidates else None
+        return max(candidates, key=lambda r: (r.version, r.created_at)) if candidates else None
 
     def fallback_script(self, s, p, lead):
         playbook = self.approved_playbook(s, p)
@@ -632,3 +632,22 @@ class Application(Service):
                 {**result, "active": False},
                 now=self.clock(),
             )
+
+    async def maintenance_tick(self):
+        with self.db.transaction(False) as session:
+            users = [r for r in rows(session, "users") if not r.data.get("disabled")]
+        for user in users:
+            p = {
+                "tenant_id": user.tenant_id,
+                "seller_id": user.seller_id,
+                "user_id": user.id,
+                "role": "admin",
+            }
+            try:
+                await self.recover(p)
+            except Exception as exc:
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "Maintenance reconciliation deferred: %s", type(exc).__name__
+                )
