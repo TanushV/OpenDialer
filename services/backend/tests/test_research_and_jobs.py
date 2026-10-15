@@ -1,16 +1,28 @@
 from datetime import timedelta
 
 import pytest
-
-from app.research.fetch import UnsafeURL, validate_url
-from app.research.validation import validate_script, ValidationFailure
 from app.jobs.queue import JobQueue
 from app.providers.batch import join_batch_results
+from app.research.fetch import UnsafeURL, validate_url
+from app.research.validation import ValidationFailure, validate_script
 
 
-@pytest.mark.parametrize("url", ["http://127.0.0.1/a", "http://localhost", "http://[::1]/", "http://169.254.169.254/latest",
-    "http://10.0.0.1", "http://192.168.1.1", "file:///etc/passwd", "https://example.com:8443/",
-    "http://user:password@example.com", "https://metadata.google.internal", "http://2130706433"])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1/a",
+        "http://localhost",
+        "http://[::1]/",
+        "http://169.254.169.254/latest",
+        "http://10.0.0.1",
+        "http://192.168.1.1",
+        "file:///etc/passwd",
+        "https://example.com:8443/",
+        "http://user:password@example.com",
+        "https://metadata.google.internal",
+        "http://2130706433",
+    ],
+)
 def test_ssrf_destinations_are_rejected(url):
     with pytest.raises(UnsafeURL):
         validate_url(url, resolver=lambda host: ["127.0.0.1"])
@@ -23,12 +35,25 @@ def test_safe_fetch_rejects_dns_rebinding():
 
 
 def test_script_rejects_wrong_company_stale_and_unsupported_claims(clock):
-    facts = [{"fact_id": "f1", "entity_domain": "example.test", "statement": "Commercial repair",
-        "source_id": "s1", "source_url": "https://example.test/services", "status": "supported",
-        "expires_at": (clock.now + timedelta(days=1)).isoformat()}]
-    script = {"lead_id": "lead-1", "opener": "Hi, this is Ada from Seller.",
-        "screening_intro": "Ada from Seller calling about repair.", "discovery_questions": ["What needs repair?"],
-        "fact_ids_used": ["f1"], "claims": [{"text": "Commercial repair", "fact_ids": ["f1"]}]}
+    facts = [
+        {
+            "fact_id": "f1",
+            "entity_domain": "example.test",
+            "statement": "Commercial repair",
+            "source_id": "s1",
+            "source_url": "https://example.test/services",
+            "status": "supported",
+            "expires_at": (clock.now + timedelta(days=1)).isoformat(),
+        }
+    ]
+    script = {
+        "lead_id": "lead-1",
+        "opener": "Hi, this is Ada from Seller.",
+        "screening_intro": "Ada from Seller calling about repair.",
+        "discovery_questions": ["What needs repair?"],
+        "fact_ids_used": ["f1"],
+        "claims": [{"text": "Commercial repair", "fact_ids": ["f1"]}],
+    }
     assert validate_script(script, facts, "example.test", "Seller", clock.now)
     with pytest.raises(ValidationFailure):
         validate_script(script, facts, "other.test", "Seller", clock.now)
@@ -41,8 +66,10 @@ def test_script_rejects_wrong_company_stale_and_unsupported_claims(clock):
 
 
 def test_batch_outputs_join_by_id_never_output_order():
-    rows = [{"custom_id": "lead-b:v1", "response": {"body": {"value": "B"}}},
-            {"custom_id": "lead-a:v1", "error": {"code": "failed"}}]
+    rows = [
+        {"custom_id": "lead-b:v1", "response": {"body": {"value": "B"}}},
+        {"custom_id": "lead-a:v1", "error": {"code": "failed"}},
+    ]
     results = join_batch_results(["lead-a:v1", "lead-b:v1", "lead-c:v1"], rows)
     assert results["completed"] == {"lead-b:v1": {"value": "B"}}
     assert set(results["retry"]) == {"lead-a:v1", "lead-c:v1"}

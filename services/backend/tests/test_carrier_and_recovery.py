@@ -1,29 +1,30 @@
 import base64
-import json
 from datetime import timedelta
 
 import pytest
+from app.providers.telnyx import verify_webhook
+from app.telephony.reducer import reduce_state
+from conftest import start
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from app.telephony.reducer import reduce_state
-from app.providers.telnyx import verify_webhook
-from conftest import start
 
-
-@pytest.mark.parametrize("state,event,expected", [
-    ("DIALING", "call.ringing", "RINGING"),
-    ("RINGING", "call.answered", "ANSWERED_UNCLASSIFIED"),
-    ("ENDED", "call.ringing", "ENDED"),
-    ("FINALIZED", "call.answered", "FINALIZED"),
-    ("HUMAN", "call.machine.detection.ended:machine", "HUMAN"),
-    ("ANSWERED_UNCLASSIFIED", "call.machine.detection.ended:human", "HUMAN"),
-    ("ANSWERED_UNCLASSIFIED", "call.machine.detection.ended:machine", "VOICEMAIL_GREETING"),
-    ("VOICEMAIL_GREETING", "call.machine.greeting.ended:beep_detected", "VOICEMAIL_READY"),
-    ("VOICEMAIL_GREETING", "call.machine.greeting.ended:no_beep_detected", "VOICEMAIL_GREETING"),
-    ("SCREENING", "call.answered", "SCREENING"),
-    ("HUMAN", "call.hangup", "ENDED"),
-])
+@pytest.mark.parametrize(
+    "state,event,expected",
+    [
+        ("DIALING", "call.ringing", "RINGING"),
+        ("RINGING", "call.answered", "ANSWERED_UNCLASSIFIED"),
+        ("ENDED", "call.ringing", "ENDED"),
+        ("FINALIZED", "call.answered", "FINALIZED"),
+        ("HUMAN", "call.machine.detection.ended:machine", "HUMAN"),
+        ("ANSWERED_UNCLASSIFIED", "call.machine.detection.ended:human", "HUMAN"),
+        ("ANSWERED_UNCLASSIFIED", "call.machine.detection.ended:machine", "VOICEMAIL_GREETING"),
+        ("VOICEMAIL_GREETING", "call.machine.greeting.ended:beep_detected", "VOICEMAIL_READY"),
+        ("VOICEMAIL_GREETING", "call.machine.greeting.ended:no_beep_detected", "VOICEMAIL_GREETING"),
+        ("SCREENING", "call.answered", "SCREENING"),
+        ("HUMAN", "call.hangup", "ENDED"),
+    ],
+)
 def test_monotonic_call_reducer(state, event, expected):
     assert reduce_state(state, event) == expected
 
@@ -58,8 +59,11 @@ def test_duplicate_and_late_events_are_durable_and_idempotent(workspace):
     b = c.post("/v1/simulation/event", headers=h, json=body)
     assert a.status_code == b.status_code == 200
     assert b.json()["duplicate"] is True
-    c.post("/v1/simulation/event", headers=h,
-        json={**body, "event_id": "late-ringing", "event_type": "call.ringing"})
+    c.post(
+        "/v1/simulation/event",
+        headers=h,
+        json={**body, "event_id": "late-ringing", "event_type": "call.ringing"},
+    )
     assert c.get(f"/v1/calls/{call['id']}", headers=h).json()["state"] == "ENDED"
 
 
@@ -68,15 +72,16 @@ def test_same_event_id_with_different_payload_is_not_silently_accepted(workspace
     c, h = workspace["client"], workspace["headers"]
     body = {"event_id": "collision", "event_type": "call.ringing", "call_id": call["id"]}
     assert c.post("/v1/simulation/event", headers=h, json=body).status_code == 200
-    assert c.post("/v1/simulation/event", headers=h,
-                  json={**body, "event_type": "call.hangup"}).status_code == 409
+    assert (
+        c.post("/v1/simulation/event", headers=h, json={**body, "event_type": "call.hangup"}).status_code
+        == 409
+    )
 
 
 def test_backup_restore_does_not_resurrect_optouts(workspace, tmp_path):
     c, h = workspace["client"], workspace["headers"]
     backup = c.post("/v1/admin/backup", headers=h).json()
-    r = c.post("/v1/suppressions", headers=h,
-               json={"phone": "+14155550101", "reason": "opt_out"})
+    r = c.post("/v1/suppressions", headers=h, json={"phone": "+14155550101", "reason": "opt_out"})
     assert r.status_code == 200
     r = c.post("/v1/admin/restore", headers=h, json={"backup_id": backup["backup_id"]})
     assert r.status_code == 200, r.text
@@ -88,7 +93,9 @@ def test_backup_restore_does_not_resurrect_optouts(workspace, tmp_path):
 def test_voicemail_cannot_run_over_greeting_or_without_separate_permission(workspace):
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
-    r = c.post(f"/v1/calls/{call['id']}/voicemail", headers=h, json={"asset_id": "approved-vm", "detach": False})
+    r = c.post(
+        f"/v1/calls/{call['id']}/voicemail", headers=h, json={"asset_id": "approved-vm", "detach": False}
+    )
     assert r.status_code == 409
     assert "MAILBOX_NOT_READY" in r.text
 
@@ -96,26 +103,44 @@ def test_voicemail_cannot_run_over_greeting_or_without_separate_permission(works
 def test_monitored_voicemail_waits_for_start_confirmation(workspace, carrier):
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
-    for i, event in enumerate(["call.answered", "call.machine.detection.ended:machine", "call.machine.greeting.ended:beep_detected"]):
-        c.post("/v1/simulation/event", headers=h,
-            json={"event_id": f"vm-{i}", "event_type": event, "call_id": call["id"]})
-    c.post(f"/v1/admin/policies/{workspace['policy_id']}/publish", headers=h, json={
-        "approved": True, "permissions": ["live", "prerecorded", "transcription"],
-        "voicemail_enabled": True, "voicemail_optout_supported": True,
-        "approved_assets": ["approved-vm"], "reason": "Synthetic permission fixture"})
-    r = c.post(f"/v1/calls/{call['id']}/voicemail", headers=h,
-               json={"asset_id": "approved-vm", "detach": False})
+    for i, event in enumerate(
+        ["call.answered", "call.machine.detection.ended:machine", "call.machine.greeting.ended:beep_detected"]
+    ):
+        c.post(
+            "/v1/simulation/event",
+            headers=h,
+            json={"event_id": f"vm-{i}", "event_type": event, "call_id": call["id"]},
+        )
+    c.post(
+        f"/v1/admin/policies/{workspace['policy_id']}/publish",
+        headers=h,
+        json={
+            "approved": True,
+            "permissions": ["live", "prerecorded", "transcription"],
+            "voicemail_enabled": True,
+            "voicemail_optout_supported": True,
+            "approved_assets": ["approved-vm"],
+            "reason": "Synthetic permission fixture",
+        },
+    )
+    r = c.post(
+        f"/v1/calls/{call['id']}/voicemail", headers=h, json={"asset_id": "approved-vm", "detach": False}
+    )
     assert r.status_code == 200, r.text
     assert r.json()["state"] == "VM_PENDING"
     assert carrier.playbacks[-1]["target_legs"] == "self"
     assert carrier.playbacks[-1]["media_name"] == "approved-vm"
-    assert c.post("/v1/queue/next", headers=h, json={"campaign_id": workspace["campaign_id"]}).status_code == 409
+    assert (
+        c.post("/v1/queue/next", headers=h, json={"campaign_id": workspace["campaign_id"]}).status_code == 409
+    )
 
 
 def test_detachment_requires_proven_topology_and_recovery_destination(workspace):
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
-    r = c.post(f"/v1/calls/{call['id']}/voicemail", headers=h, json={"asset_id": "approved-vm", "detach": True})
+    r = c.post(
+        f"/v1/calls/{call['id']}/voicemail", headers=h, json={"asset_id": "approved-vm", "detach": True}
+    )
     assert r.status_code in (403, 409)
 
 

@@ -11,9 +11,10 @@ from app.db import MODELS, ActiveClaim, Job, audit, doc, emit, put, rows, uid, u
 from app.intelligence import Application
 from app.service import dt, fail
 from app.telephony.reducer import TERMINAL
+from app.telephony.workflows import TelephonyWorkflows
 
 
-class Dialer(Application):
+class Dialer(TelephonyWorkflows, Application):
     def metrics(self, p):
         with self.db.transaction(False) as s:
             leads = self.scoped(s, "leads", p)
@@ -109,7 +110,7 @@ class Dialer(Application):
             )
         else:
             warnings.append("Simulated providers: no real calls, purchases, inference, or carrier billing")
-        if not self.inference(p["tenant_id"], "research_extract"):
+        if not self.inference(p["tenant_id"], "research_extract", p["user_id"]):
             warnings.append("Research inference is unconfigured; approved fallback scripts remain available")
         if not conf.get("groq_api_key"):
             warnings.append("Groq is unconfigured; approved static coaching remains available")

@@ -9,6 +9,7 @@ class SimulatedCarrier:
     simulated = True
 
     def __init__(self):
+        self.actions = []
         self.dials = []
         self.playbacks = []
         self.hangups = []
@@ -41,6 +42,7 @@ class SimulatedCarrier:
         return {"status": "accepted"}
 
     async def action(self, provider_id, action, payload):
+        self.actions.append({"provider_id": provider_id, "action": action, "payload": payload})
         return {"status": "accepted", "action": action}
 
     async def token(self, credential_id):

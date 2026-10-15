@@ -41,12 +41,18 @@ def main():
     if settings.mode == "connected" and settings.database_url.startswith("sqlite"):
         raise SystemExit("Connected deployments require OPENDIALER_DATABASE_URL=postgresql+psycopg://...")
     clock = (lambda: datetime(2026, 10, 14, 18, 0, tzinfo=UTC)) if settings.simulation else None
+    from app.migrate import migrate_database
+
+    migrate_database(settings.database_url)
     app = create_app(settings, clock=clock)
     if args.command == "worker":
 
         async def run():
             while True:
-                await app.state.service.run_jobs(queues=args.queue)
+                if args.queue and "call_control" in args.queue:
+                    await app.state.service.maintenance_tick()
+                else:
+                    await app.state.service.run_jobs(queues=args.queue)
                 await asyncio.sleep(0.5)
 
         asyncio.run(run())

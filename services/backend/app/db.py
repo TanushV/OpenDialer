@@ -57,6 +57,7 @@ TABLES = [
     "call_attempts",
     "call_legs",
     "provider_events",
+    "webhook_inbox",
     "command_outbox",
     "transcript_segments",
     "transcript_revisions",

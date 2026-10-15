@@ -121,3 +121,16 @@ class TelnyxCarrier:
     async def rnd(self, phone, reference_date):
         # RND requires an independently authorized account adapter; carrier lookup is not a substitute.
         raise ValueError("Configure an authorized Reassigned Numbers Database subscription adapter")
+
+    async def verify_incoming_only_credential(self, credential_id):
+        credential = await self.request("GET", f"/telephony_credentials/{credential_id}")
+        connection_id = credential.get("data", {}).get("connection_id")
+        if not connection_id:
+            raise ValueError("Credential does not identify a scoped SIP connection")
+        connection = (await self.request("GET", f"/credential_connections/{connection_id}")).get("data", {})
+        outbound = connection.get("outbound")
+        if not isinstance(outbound, dict) or outbound.get("outbound_voice_profile_id"):
+            raise ValueError(
+                "WebRTC credential must have no outbound PSTN voice profile; server controls prospect dialing"
+            )
+        return True

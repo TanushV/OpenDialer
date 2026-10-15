@@ -1,0 +1,46 @@
+name: Signed desktop release
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-2022, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux webview prerequisites
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libdbus-1-dev
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.10.12'
+      - run: uv sync --frozen --python 3.12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci && npm run build && npm test
+        working-directory: apps/desktop
+      - run: uv run pytest -q
+      - run: uv run python scripts/build_sidecar.py
+      - name: Build and publish signed update artifacts
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: apps/desktop
+          tagName: v__VERSION__
+          releaseName: OpenDialer __VERSION__
+          releaseBody: 'Local and connected OpenDialer desktop. Provider credentials, reviewed policies and live platform certification are configured separately. See the acceptance report in the repository.'
+          releaseDraft: true
+          prerelease: true
+          includeUpdaterJson: true

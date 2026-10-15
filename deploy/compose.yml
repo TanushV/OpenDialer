@@ -1,0 +1,90 @@
+name: opendialer
+x-backend: &backend
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile
+  environment: &environment
+    OPENDIALER_MODE: connected
+    OPENDIALER_DATABASE_URL: postgresql+psycopg://opendialer:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres/opendialer
+    OPENDIALER_SECRET_KEY: ${OPENDIALER_SECRET_KEY:?set a persistent random secret}
+    OPENDIALER_BOOTSTRAP_TOKEN: ${OPENDIALER_BOOTSTRAP_TOKEN:?set a one-time random bootstrap token}
+    OPENDIALER_ALLOWED_ORIGINS: '["tauri://localhost","http://tauri.localhost","https://tauri.localhost"]'
+    OPENDIALER_WORKER_ENABLED: 'false'
+    OPENDIALER_SIMULATION: 'false'
+    OPENDIALER_DATA_DIR: /var/lib/opendialer
+  volumes:
+    - app_data:/var/lib/opendialer
+  networks: [private]
+  depends_on:
+    postgres:
+      condition: service_healthy
+  restart: unless-stopped
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+  read_only: true
+  tmpfs: [/tmp]
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: opendialer
+      POSTGRES_USER: opendialer
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    networks: [private]
+    restart: unless-stopped
+    shm_size: 128mb
+    mem_limit: 768m
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U opendialer -d opendialer]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+  api:
+    <<: *backend
+    command: [serve, --mode, connected, --host, 0.0.0.0]
+    mem_limit: 384m
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+  worker-call-control:
+    <<: *backend
+    command: [worker, --mode, connected, --queue, call_control]
+    mem_limit: 256m
+  worker-live:
+    <<: *backend
+    command: [worker, --mode, connected, --queue, live_coach]
+    mem_limit: 256m
+  worker-batch:
+    <<: *backend
+    command: [worker, --mode, connected, --queue, research, --queue, scripts]
+    mem_limit: 512m
+  worker-postcall:
+    <<: *backend
+    command: [worker, --mode, connected, --queue, postcall]
+    mem_limit: 384m
+  worker-ml:
+    <<: *backend
+    profiles: [training]
+    command: [worker, --mode, connected, --queue, ml]
+    mem_limit: 1024m
+    cpus: 0.5
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      OPENDIALER_DOMAIN: ${OPENDIALER_DOMAIN:?set the DNS hostname}
+    ports: ['80:80', '443:443']
+    volumes: ['./Caddyfile:/etc/caddy/Caddyfile:ro', 'caddy_data:/data', 'caddy_config:/config']
+    networks: [private, public]
+    restart: unless-stopped
+    depends_on: [api]
+networks:
+  private:
+  public:
+volumes:
+  postgres_data:
+  app_data:
+  caddy_data:
+  caddy_config:

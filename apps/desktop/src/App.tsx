@@ -41,6 +41,7 @@ export function App() {
   useEffect(() => { void (async () => {
     try {
       const saved = await loadSession();
+      if (native() && !saved) { setStartup(false); return; }
       if (saved?.connection === 'connected' && saved.url && saved.session) {
         await validateServer(saved.url);
         const snap = await request<Workspace>(saved.url, saved.session.access_token, '/v1/workspace');

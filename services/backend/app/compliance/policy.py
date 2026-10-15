@@ -18,6 +18,7 @@ class CallContext:
     registry_listed: bool = False
     state_registry_required: bool = False
     state_registry_current: bool = False
+    state_registry_listed: bool = False
     internal_suppressed: bool = True
     consent_required: bool = False
     consent_valid: bool = False
@@ -64,6 +65,7 @@ def authorize(c: CallContext) -> Decision:
         require(c.registry_covered, "REGISTRY_COVERAGE_MISSING")
         require(not c.registry_listed, "REGISTRY_LISTED")
     require(not c.state_registry_required or c.state_registry_current, "STATE_REGISTRY_MISSING")
+    require(not c.state_registry_required or not c.state_registry_listed, "STATE_REGISTRY_LISTED")
     require(not c.consent_required or c.consent_valid, "CONSENT_MISSING")
     require(not c.consent_revoked, "CONSENT_REVOKED")
     if c.timezone and c.timezone_confidence in {"confirmed", "high"}:

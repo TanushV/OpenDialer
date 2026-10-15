@@ -27,15 +27,24 @@ export async function request<T>(url: string, token: string | null, path: string
 export interface SavedSession { connection: 'local' | 'connected'; simulation: boolean; url?: string; session?: Session; }
 export async function saveSession(data: SavedSession) {
   const value = JSON.stringify(data);
-  if (native()) await invoke('save_session', { value });
-  else sessionStorage.setItem('opendialer.session', value);
+  if (native()) {
+    if (data.connection === 'connected') { await invoke('save_session', { value }); localStorage.setItem('opendialer.mode', 'connected'); }
+    else localStorage.setItem('opendialer.mode', value);
+  } else sessionStorage.setItem('opendialer.session', value);
 }
 export async function loadSession(): Promise<SavedSession | null> {
-  const value = native() ? await invoke<string | null>('load_session') : sessionStorage.getItem('opendialer.session');
+  if (native()) {
+    const mode = localStorage.getItem('opendialer.mode');
+    if (!mode) return null;
+    if (mode !== 'connected') return JSON.parse(mode) as SavedSession;
+    const value = await invoke<string | null>('load_session');
+    return value ? JSON.parse(value) as SavedSession : null;
+  }
+  const value = sessionStorage.getItem('opendialer.session');
   return value ? JSON.parse(value) as SavedSession : null;
 }
 export async function clearSession() {
-  if (native()) await invoke('clear_session');
+  if (native()) { if (localStorage.getItem('opendialer.mode') === 'connected') await invoke('clear_session'); localStorage.removeItem('opendialer.mode'); }
   else sessionStorage.removeItem('opendialer.session');
 }
 export async function openSource(url: string) {

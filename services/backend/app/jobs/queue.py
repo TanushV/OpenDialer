@@ -49,7 +49,7 @@ class JobQueue:
             s.flush()
             return jobdoc(job)
 
-    def claim(self, queue, worker, lease_seconds=60):
+    def claim(self, queue, worker, lease_seconds=60, tenant_id=None):
         with self.db.transaction() as s:
             query = (
                 select(Job)
@@ -57,6 +57,8 @@ class JobQueue:
                 .order_by(Job.priority.desc(), Job.available_at, Job.id)
                 .limit(1)
             )
+            if tenant_id:
+                query = query.where(Job.tenant_id == tenant_id)
             if not self.db.sqlite:
                 query = query.with_for_update(skip_locked=True)
             job = s.scalar(query)

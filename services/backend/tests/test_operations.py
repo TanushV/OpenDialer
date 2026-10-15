@@ -1,8 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
-import pytest
-
 from conftest import ready, reserve, start
 
 
@@ -29,10 +27,15 @@ def test_local_setup_idempotency_and_scoped_session(workspace):
 def test_import_normalizes_dedupes_and_preserves_suppression(workspace):
     c, h = workspace["client"], workspace["headers"]
     suppressed = "+14155550177"
-    assert c.post("/v1/suppressions", headers=h,
-        json={"phone": suppressed, "reason": "opt_out"}).status_code == 200
-    rows = [{"name": "Ada", "phone": "415-555-0177", "timezone": "America/Los_Angeles"},
-            {"name": "Ada again", "phone": suppressed}, {"name": "Bad", "phone": "bad"}]
+    assert (
+        c.post("/v1/suppressions", headers=h, json={"phone": suppressed, "reason": "opt_out"}).status_code
+        == 200
+    )
+    rows = [
+        {"name": "Ada", "phone": "415-555-0177", "timezone": "America/Los_Angeles"},
+        {"name": "Ada again", "phone": suppressed},
+        {"name": "Bad", "phone": "bad"},
+    ]
     r = c.post("/v1/leads/import", headers=h, json={"campaign_id": workspace["campaign_id"], "rows": rows})
     assert r.status_code == 200, r.text
     assert r.json()["imported"] == 1
@@ -48,14 +51,20 @@ def test_claim_cannot_double_reserve_and_is_kept_during_active_call(workspace, c
     r = reserve(workspace)
     assert r.status_code == 409
     assert "LIVE_OBLIGATION" in r.text
-    assert workspace["client"].post(f"/v1/calls/{call['id']}/hangup", headers=workspace["headers"]).status_code == 200
+    assert (
+        workspace["client"].post(f"/v1/calls/{call['id']}/hangup", headers=workspace["headers"]).status_code
+        == 200
+    )
 
 
 def test_concurrent_requests_create_one_endpoint_claim(workspace):
     ready(workspace)
+
     def get_next(_):
-        return workspace["client"].post("/v1/queue/next", headers=workspace["headers"],
-                                       json={"campaign_id": workspace["campaign_id"]})
+        return workspace["client"].post(
+            "/v1/queue/next", headers=workspace["headers"], json={"campaign_id": workspace["campaign_id"]}
+        )
+
     with ThreadPoolExecutor(max_workers=6) as pool:
         responses = list(pool.map(get_next, range(6)))
     assert sum(r.status_code == 200 for r in responses) == 1
@@ -66,8 +75,11 @@ def test_permission_is_rechecked_after_queueing(workspace, carrier):
     packet = reserve(workspace).json()
     c, h = workspace["client"], workspace["headers"]
     c.post("/v1/suppressions", headers=h, json={"phone": packet["lead"]["phone"], "reason": "opt_out"})
-    r = c.post("/v1/calls/start", headers=h,
-        json={"reservation_id": packet["reservation_id"], "idempotency_key": "suppressed-key"})
+    r = c.post(
+        "/v1/calls/start",
+        headers=h,
+        json={"reservation_id": packet["reservation_id"], "idempotency_key": "suppressed-key"},
+    )
     assert r.status_code in (403, 409)
     assert carrier.dials == []
 
@@ -75,10 +87,16 @@ def test_permission_is_rechecked_after_queueing(workspace, carrier):
 def test_policy_change_after_reservation_blocks_start(workspace, carrier):
     packet = reserve(workspace).json()
     c, h = workspace["client"], workspace["headers"]
-    c.post(f"/v1/admin/policies/{workspace['policy_id']}/publish", headers=h,
-           json={"approved": False, "reason": "Stop campaign"})
-    r = c.post("/v1/calls/start", headers=h,
-               json={"reservation_id": packet["reservation_id"], "idempotency_key": "policy-changed"})
+    c.post(
+        f"/v1/admin/policies/{workspace['policy_id']}/publish",
+        headers=h,
+        json={"approved": False, "reason": "Stop campaign"},
+    )
+    r = c.post(
+        "/v1/calls/start",
+        headers=h,
+        json={"reservation_id": packet["reservation_id"], "idempotency_key": "policy-changed"},
+    )
     assert r.status_code in (403, 409)
     assert not carrier.dials
 
@@ -103,8 +121,9 @@ def test_call_start_idempotency_and_explicit_identity(workspace, carrier):
 
 def test_no_audio_prevents_prospect_dial(workspace, carrier):
     ready(workspace, audio_ready=False)
-    r = workspace["client"].post("/v1/queue/next", headers=workspace["headers"],
-                                json={"campaign_id": workspace["campaign_id"]})
+    r = workspace["client"].post(
+        "/v1/queue/next", headers=workspace["headers"], json={"campaign_id": workspace["campaign_id"]}
+    )
     assert r.status_code in (403, 409)
     assert carrier.dials == []
 
@@ -133,19 +152,37 @@ def test_wrong_number_holds_endpoint_but_keeps_lead_for_correction(workspace):
 
 def test_rep_cannot_forge_destination_or_clearance(workspace):
     packet = reserve(workspace).json()
-    r = workspace["client"].post("/v1/calls/start", headers=workspace["headers"], json={
-        "reservation_id": packet["reservation_id"], "idempotency_key": "forged",
-        "to": "+19005550101", "from": "+14155550999", "dnc_clear": True})
+    r = workspace["client"].post(
+        "/v1/calls/start",
+        headers=workspace["headers"],
+        json={
+            "reservation_id": packet["reservation_id"],
+            "idempotency_key": "forged",
+            "to": "+19005550101",
+            "from": "+14155550999",
+            "dnc_clear": True,
+        },
+    )
     assert r.status_code == 422
 
 
 def test_optout_cancels_pending_commands_and_local_outbox_blocks_new_calls(workspace):
     c, h = workspace["client"], workspace["headers"]
-    r = c.post("/v1/rep/presence", headers=h, json={"status": "ready", "audio_ready": True,
-        "telephony_ready": True, "pending_optouts": 1, "agent_call_control_id": "agent-test-id"})
+    r = c.post(
+        "/v1/rep/presence",
+        headers=h,
+        json={
+            "status": "ready",
+            "audio_ready": True,
+            "telephony_ready": True,
+            "pending_optouts": 1,
+            "agent_call_control_id": "agent-test-id",
+        },
+    )
     assert r.status_code == 200
-    assert c.post("/v1/queue/next", headers=h,
-        json={"campaign_id": workspace["campaign_id"]}).status_code == 409
+    assert (
+        c.post("/v1/queue/next", headers=h, json={"campaign_id": workspace["campaign_id"]}).status_code == 409
+    )
 
 
 def test_events_have_durable_cursor_and_no_replay_duplicates(workspace):

@@ -195,25 +195,35 @@ def create_app(settings=None, *, clock=None, carrier=None):
     service = Dialer(db, settings, clock, carrier)
     stop = asyncio.Event()
 
-    async def worker():
+    async def worker(queues):
         while not stop.is_set():
             try:
-                await service.run_jobs()
-                await service.maintenance_tick()
+                if queues == ["call_control"]:
+                    await service.maintenance_tick()
+                else:
+                    await service.run_jobs(queues=queues)
             except Exception as exc:
                 logging.getLogger(__name__).warning("Worker tick deferred: %s", type(exc).__name__)
             try:
-                await asyncio.wait_for(stop.wait(), 1)
+                await asyncio.wait_for(stop.wait(), 0.5)
             except TimeoutError:
                 continue
 
     @asynccontextmanager
     async def lifespan(app):
-        task = asyncio.create_task(worker()) if settings.worker_enabled else None
+        tasks = (
+            [
+                asyncio.create_task(worker(lanes))
+                for lanes in [["call_control"], ["live_coach"], ["postcall"], ["research", "scripts"], ["ml"]]
+            ]
+            if settings.worker_enabled
+            else []
+        )
         yield
         stop.set()
-        if task:
-            await task
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
         db.engine.dispose()
 
     app = FastAPI(title="OpenDialer authority", version=settings.version, lifespan=lifespan)
@@ -587,6 +597,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
             )
         if not credential and not settings.simulation:
             fail(503, "Scoped rep telephony credential is not configured")
+        if not settings.simulation:
+            await provider.verify_incoming_only_credential(credential)
         return {"token": await provider.token(credential or "simulated"), "simulation": settings.simulation}
 
     @app.post("/v1/admin/policies/{policy_id}/publish")
@@ -600,6 +612,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.get("/v1/admin/settings")
     def read_settings(p=Depends(administrator)):
         config = service.vault.read(p["tenant_id"])
+        own_profile = service.vault.read("plan-" + p["user_id"])
+        config["chatgpt_access_token"] = own_profile.get("access_token", "")
         return {
             **{k: v for k, v in config.items() if k not in SECRET_FIELDS},
             "configured": {k: bool(config.get(k)) for k in SECRET_FIELDS},
@@ -622,6 +636,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
                     fail(422, "Endpoint requires a valid HTTP(S) URL without embedded credentials")
                 if parsed.scheme == "http" and parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
                     fail(422, "Remote provider endpoints require HTTPS")
+        if "chatgpt_access_token" in values:
+            service.vault.write("plan-" + p["user_id"], {"access_token": values.pop("chatgpt_access_token")})
         service.vault.write(p["tenant_id"], values)
         with db.transaction() as s:
             audit(
@@ -819,16 +835,17 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 voicemail_asset=data.asset_id,
                 voicemail_deadline=(clock() + timedelta(seconds=120)).isoformat(),
             )
-            provider_id = call.data["provider_id"]
             result = doc(call)
-        await service.carrier(p["tenant_id"]).playback(
-            provider_id,
-            {
-                "media_name": data.asset_id,
-                "target_legs": "self",
-                "command_id": call_id + ":voicemail:" + data.asset_id,
-            },
-        )
+        with db.transaction() as session:
+            service.control_intent(
+                session,
+                p,
+                call_id,
+                "playback_start",
+                {"media_name": data.asset_id, "target_legs": "self"},
+                suffix="voicemail:" + data.asset_id,
+            )
+        await service.dispatch_controls(p)
         return result
 
     @app.post("/webhooks/telnyx")
@@ -859,6 +876,10 @@ def create_app(settings=None, *, clock=None, carrier=None):
             payload = event["payload"]
         except (ValueError, KeyError):
             fail(422, "Invalid provider event")
+        if service.agent_event(owner.tenant_id, payload, event["event_type"]):
+            return {"received": True, "agent_event": True}
+        if event["event_type"] == "call.initiated" and payload.get("direction") == "incoming":
+            return await service.inbound_callback(owner.tenant_id, payload, event["id"])
         with db.transaction(False) as s:
             calls = rows(s, "call_attempts", owner.tenant_id)
             call = next(
@@ -871,6 +892,20 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 except (ValueError, TypeError):
                     pass
             if not call:
+                put(
+                    s,
+                    "webhook_inbox",
+                    owner.tenant_id,
+                    "",
+                    {
+                        "event_id": event["id"],
+                        "payload": event,
+                        "hash": hashlib.sha256(body).hexdigest(),
+                        "status": "unmatched",
+                    },
+                    key=event["id"],
+                    now=clock(),
+                )
                 return {"received": True, "unmatched": True}
             p = {
                 "tenant_id": call.tenant_id,
@@ -886,7 +921,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
             for segment in normalize_transcription(payload, call.id, event["id"]):
                 segment.pop("content_hash", None)
                 segment.pop("call_id", None)
-                await service.transcript(p, call.id, segment)
+                await service.transcript(p, call.id, segment, defer_coach=True)
         if event["event_type"] == "call.hangup":
             service.jobs.enqueue(
                 "postcall",
@@ -1144,5 +1179,330 @@ def create_app(settings=None, *, clock=None, carrier=None):
                     now=clock(),
                 )
             )
+
+    @app.post("/v1/telephony/agent")
+    async def agent_leg(p=Depends(principal)):
+        return await service.create_agent(p)
+
+    @app.get("/v1/telephony/agent/{provider_id:path}")
+    def agent_status(provider_id: str, p=Depends(principal)):
+        with db.transaction(False) as session:
+            leg = next(
+                (
+                    r
+                    for r in service.scoped(session, "call_legs", p)
+                    if r.data.get("kind") == "agent"
+                    and r.data.get("rep_id") == p["user_id"]
+                    and r.data.get("provider_id") == provider_id
+                ),
+                None,
+            )
+            if not leg:
+                fail(404, "Verified agent leg not found")
+            return {"state": leg.data["state"], "agent_call_control_id": provider_id}
+
+    @app.post("/v1/admin/control/run")
+    async def control_run(p=Depends(administrator)):
+        return await service.dispatch_controls(p)
+
+    @app.get("/v1/calls/{call_id}/recording")
+    def recording(call_id: str, p=Depends(principal)):
+        with db.transaction(False) as session:
+            call = service.required(session, "call_attempts", call_id, p)
+            if not call.data.get("recording_url"):
+                fail(404, "No permitted recording available")
+            audit(
+                session, p["tenant_id"], p["seller_id"], p["user_id"], "recording.accessed", call.id, clock()
+            )
+            return {"url": call.data["recording_url"], "provider_signed": True}
+
+    @app.post("/v1/admin/trackers")
+    def publish_tracker(data: dict, p=Depends(administrator)):
+        if (
+            data.get("kind") not in {"keyword", "semantic"}
+            or not data.get("name")
+            or not data.get("definition")
+        ):
+            fail(422, "Tracker type, name and definition are required")
+        if data["kind"] == "keyword" and not data.get("phrases"):
+            fail(422, "Keyword tracker needs phrases")
+        if data["kind"] == "semantic" and (
+            not data.get("positive_examples") or not data.get("negative_examples")
+        ):
+            fail(422, "Semantic trackers need reviewed positive and negative examples")
+        with db.transaction() as session:
+            obj = put(
+                session,
+                "trackers",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    "name": str(data["name"])[:200],
+                    "kind": data["kind"],
+                    "definition": str(data["definition"])[:1000],
+                    "phrases": data.get("phrases", []),
+                    "positive_examples": data.get("positive_examples", []),
+                    "negative_examples": data.get("negative_examples", []),
+                    "evaluation_status": "review_required",
+                },
+                now=clock(),
+            )
+            return doc(obj)
+
+    @app.post("/v1/admin/billing/reconcile")
+    def reconcile_billing(data: dict, p=Depends(administrator)):
+        if not data.get("source_reference") or len(data.get("rows", [])) > 10000:
+            fail(422, "Bounded provider record batch and original source reference required")
+        matched = duplicates = 0
+        duration = 0
+        with db.transaction() as session:
+            for record in data.get("rows", []):
+                if (
+                    not record.get("provider_record_id")
+                    or float(record.get("cost_usd", -1)) < 0
+                    or int(record.get("duration_seconds", -1)) < 0
+                ):
+                    fail(422, "Provider ID, nonnegative billed amount and duration required")
+                call = service.required(session, "call_attempts", record.get("call_id"), p)
+                key = "cdr:" + record["provider_record_id"]
+                if any(r.external_key == key for r in service.scoped(session, "usage_ledger", p)):
+                    duplicates += 1
+                    continue
+                put(
+                    session,
+                    "usage_ledger",
+                    p["tenant_id"],
+                    p["seller_id"],
+                    {
+                        "call_id": call.id,
+                        "provider": "telnyx",
+                        "provider_record_id": record["provider_record_id"],
+                        "leg_id": record.get("leg_id"),
+                        "kind": record.get("kind", "voice"),
+                        "duration_seconds": int(record["duration_seconds"]),
+                        "cost_usd": float(record["cost_usd"]),
+                        "source_reference": data["source_reference"],
+                        "billing_verified": True,
+                        "at": clock().isoformat(),
+                    },
+                    key=key,
+                    now=clock(),
+                )
+                for reserved in service.scoped(session, "usage_ledger", p):
+                    if (
+                        reserved.data.get("call_id") == call.id
+                        and reserved.data.get("kind") == "call_authorization"
+                    ):
+                        update(
+                            reserved,
+                            reserved_usd=0,
+                            reconciled_to_provider_records=True,
+                            billing_verified=True,
+                        )
+                matched += 1
+                duration += int(record["duration_seconds"])
+            audit(
+                session,
+                p["tenant_id"],
+                p["seller_id"],
+                p["user_id"],
+                "billing.reconciled",
+                p["tenant_id"],
+                clock(),
+                {"matched": matched, "duplicates": duplicates},
+            )
+        return {
+            "matched": matched,
+            "duplicates": duplicates,
+            "duration_seconds": duration,
+            "evidence": "operator-imported provider records",
+            "invoice_verified": False,
+        }
+
+    @app.post("/v1/admin/models/train")
+    def train_model(data: dict, p=Depends(administrator)):
+        if len(data.get("rows", [])) < 100:
+            fail(422, "At least 100 immutable labeled rows are required")
+        return service.jobs.enqueue(
+            "ml",
+            {"rows": data["rows"], "seller_id": p["seller_id"], "user_id": p["user_id"]},
+            "train:" + hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest(),
+            tenant_id=p["tenant_id"],
+        )
+
+    @app.post("/v1/admin/models/{model_id}/rollback")
+    def rollback_model(model_id: str, data: dict, p=Depends(administrator)):
+        if not data.get("reason"):
+            fail(422, "Rollback reason required")
+        with db.transaction() as session:
+            model = service.required(session, "model_versions", model_id, p)
+            for item in service.scoped(session, "model_versions", p):
+                update(item, active=item.id == model.id)
+            audit(
+                session,
+                p["tenant_id"],
+                p["seller_id"],
+                p["user_id"],
+                "model.rollback",
+                model.id,
+                clock(),
+                {"reason": data["reason"]},
+            )
+            return doc(model)
+
+    @app.post("/v1/admin/snippets")
+    def publish_snippet(data: dict, p=Depends(administrator)):
+        with db.transaction() as session:
+            call = service.required(session, "call_attempts", data.get("call_id"), p)
+            segments = {seg["segment_id"] for seg in service.transcript_rows(session, p, call.id)}
+            if (
+                not data.get("evidence")
+                or not set(data["evidence"]).issubset(segments)
+                or not data.get("review_reference")
+            ):
+                fail(422, "Reviewed transcript evidence required before publishing a snippet")
+            return doc(
+                put(
+                    session,
+                    "snippets",
+                    p["tenant_id"],
+                    p["seller_id"],
+                    {
+                        "call_id": call.id,
+                        "evidence": data["evidence"],
+                        "title": str(data.get("title", "Reviewed example"))[:200],
+                        "review_reference": data["review_reference"],
+                        "approved": True,
+                    },
+                    now=clock(),
+                )
+            )
+
+    @app.post("/v1/admin/rnd/results")
+    def import_rnd(data: dict, p=Depends(administrator)):
+        if (
+            not data.get("subscription_reference")
+            or not data.get("reference_date")
+            or data.get("result") not in {"yes", "no", "no_data"}
+        ):
+            fail(
+                422,
+                "Authorized RND subscription, meaningful prior reference date and provider result required",
+            )
+        with db.transaction() as session:
+            endpoint = service.required(session, "phone_endpoints", data.get("endpoint_id"), p)
+            result = put(
+                session,
+                "rnd_queries",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    "endpoint_id": endpoint.id,
+                    "reference_date": data["reference_date"],
+                    "query_date": clock().isoformat(),
+                    "result": data["result"],
+                    "subscription_reference": data["subscription_reference"],
+                    "provider_receipt": data.get("provider_receipt"),
+                },
+                now=clock(),
+            )
+            if data["result"] in {"yes", "no_data"}:
+                update(endpoint, reassignment_review_required=True)
+            return doc(result)
+
+    @app.post("/v1/inference/chatgpt/start")
+    def chatgpt_start(request: Request, p=Depends(principal)):
+        from app.providers.oauth import PlanOAuth
+
+        if settings.mode != "local":
+            fail(
+                409,
+                "Complete the official OAuth flow on your local desktop, then import your protected registration into your own server user profile",
+            )
+        profile_key = "plan-" + p["user_id"]
+        profile = service.vault.read(profile_key)
+        host_id = service.host_id()
+        pending = PlanOAuth(host_id, clock).begin(
+            str(request.base_url).rstrip("/") + "/auth/callback", profile
+        )
+        service.vault.write(profile_key, {"pending": pending})
+        return {"authorization_url": pending["authorization_url"], "expires_in": 600}
+
+    @app.get("/auth/callback")
+    async def chatgpt_callback(
+        state: str, code: str | None = None, client_id: str | None = None, error: str | None = None
+    ):
+        from fastapi.responses import HTMLResponse
+
+        from app.providers.oauth import OAuthError, PlanOAuth
+
+        if settings.mode != "local":
+            fail(403, "Loopback authorization is local only")
+        with db.transaction(False) as session:
+            users = rows(session, "users")
+        matched = next(
+            (u for u in users if service.vault.read("plan-" + u.id).get("pending", {}).get("state") == state),
+            None,
+        )
+        if not matched:
+            fail(400, "OAuth state does not match a pending local authorization")
+        key = "plan-" + matched.id
+        pending = service.vault.read(key)["pending"]
+        service.vault.write(key, {"pending": {**pending, "used": True}})
+        try:
+            result = await PlanOAuth(service.host_id(), clock).finish(
+                pending, state=state, code=code, client_id=client_id, error=error
+            )
+        except (OAuthError, Exception) as exc:
+            fail(400, "Authorization was not completed: " + type(exc).__name__)
+        service.vault.write(key, {**result, "pending": None})
+        service.vault.write(matched.tenant_id, {"inference_mode": "chatgpt_plan"})
+        return HTMLResponse(
+            "<!doctype html><title>OpenDialer authorization</title><h1>ChatGPT is connected to your OpenDialer user.</h1><p>You may return to the desktop application.</p>"
+        )
+
+    @app.post("/v1/inference/chatgpt/import")
+    async def import_chatgpt_profile(data: dict, p=Depends(principal)):
+        import httpx
+
+        from app.providers.oauth import PlanOAuth
+
+        if (
+            data.get("client_id") == "dynamic_agent_client"
+            or not data.get("access_token")
+            or not data.get("id_token")
+        ):
+            fail(422, "A complete protected official registration is required")
+        async with httpx.AsyncClient() as http:
+            identity = await PlanOAuth(service.host_id(), clock).identity(
+                data["id_token"], data["client_id"], http
+            )
+        if identity["sub"] != data.get("subject") or "chatgpt.tokens.use.direct" not in data.get(
+            "scopes", []
+        ):
+            fail(403, "Identity or plan permission mismatch")
+        service.vault.write("plan-" + p["user_id"], {**data, "ext_agent_host_id": service.host_id()})
+        return {"imported": True, "client_id": data["client_id"], "personal_user_id": p["user_id"]}
+
+    @app.get("/v1/inference/chatgpt/models")
+    async def chatgpt_models(p=Depends(principal)):
+        import httpx
+
+        profile = service.vault.read("plan-" + p["user_id"])
+        if not profile.get("access_token"):
+            fail(409, "Sign in with your own eligible ChatGPT account first")
+        async with httpx.AsyncClient(timeout=10) as http:
+            response = await http.get(
+                "https://api.openai.com/v1/models",
+                headers={"Authorization": "Bearer " + profile["access_token"]},
+            )
+            response.raise_for_status()
+            return {
+                "models": [
+                    {"slug": m["slug"], "display_name": m["display_name"]}
+                    for m in response.json().get("models", [])
+                    if m.get("visibility") == "list"
+                ]
+            }
 
     return app

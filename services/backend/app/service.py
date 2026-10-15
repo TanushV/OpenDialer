@@ -43,6 +43,12 @@ class Service:
         obj = get(s, kind, object_id, p["tenant_id"])
         if not obj or (obj.seller_id and obj.seller_id != p["seller_id"]):
             fail(404, "Object not found")
+        if p.get("role") == "rep" and kind == "call_attempts" and obj.data.get("rep_id") != p["user_id"]:
+            fail(404, "Object not found")
+        if p.get("role") == "rep" and kind in {"notes", "scorecards"}:
+            call = get(s, "call_attempts", obj.data.get("call_id"), p["tenant_id"])
+            if not call or call.data["rep_id"] != p["user_id"]:
+                fail(404, "Object not found")
         return obj
 
     def scoped(self, s, kind, p):
@@ -344,6 +350,8 @@ class Service:
                         ),
                         "region": raw.get("region", phone.e164[2:5]),
                         "segment": raw.get("segment", "general"),
+                        "jurisdiction": raw.get("jurisdiction"),
+                        "originally_eligible": not self.suppressed(s, p, phone.e164),
                         "status": "eligible",
                         "coverage_due_at": raw.get("coverage_due_at", (now + timedelta(days=1)).isoformat()),
                         "next_attempt_at": now.isoformat(),
@@ -442,7 +450,8 @@ class Service:
             policy_published=config.get("approved", False)
             and (self.settings.simulation or not config.get("synthetic")),
             endpoint_valid=endpoint.data["format_status"] == "valid"
-            and endpoint.data.get("reachability_status") != "invalid_endpoint",
+            and endpoint.data.get("reachability_status") != "invalid_endpoint"
+            and not endpoint.data.get("reassignment_review_required", False),
             ownership=endpoint.data.get("ownership_status", "unknown"),
             timezone=lead.data.get("timezone"),
             timezone_confidence=lead.data.get("timezone_confidence", "unknown"),
@@ -452,6 +461,7 @@ class Service:
             registry_listed=listed,
             state_registry_required=config.get("state_registry_required", False),
             state_registry_current=state_current,
+            state_registry_listed=any(lead.data["phone"] in r.data.get("listed_numbers", []) for r in state),
             internal_suppressed=self.suppressed(s, p, lead.data["phone"]),
             consent_required=config.get("consent_required", False),
             consent_valid=granted,
@@ -524,6 +534,11 @@ class Service:
         for claim in s.scalars(select(ActiveClaim).where(ActiveClaim.seller_id == p["seller_id"])):
             counts[claim.number_id] = counts.get(claim.number_id, 0) + 1
 
+        for lease in self.scoped(s, "number_leases", p):
+            if lease.data.get("active"):
+                number_id = lease.data["number_id"]
+                counts[number_id] = counts.get(number_id, 0) + 1
+
         def usable(n):
             today = sum(
                 1
@@ -575,8 +590,33 @@ class Service:
                 for r in self.scoped(s, "leads", p)
                 if r.data["campaign_id"] == campaign.id and r.data["status"] == "eligible"
             ]
+            from app.scheduling.models import pooled_predictions
+
+            history = []
+            for historical_call in self.scoped(s, "call_attempts", p):
+                historical_lead = get(s, "leads", historical_call.data["lead_id"], p["tenant_id"])
+                if historical_lead:
+                    at = dt(historical_call.data["started_at"])
+                    ended = dt(historical_call.data.get("ended_at"))
+                    history.append(
+                        {
+                            "segment": historical_lead.data.get("segment"),
+                            "local_hour": at.hour,
+                            "outcome": historical_call.data.get("outcome"),
+                            "duration_seconds": (ended - at).total_seconds() if ended else 0,
+                        }
+                    )
+            predictions = {}
+            for candidate_lead in leads:
+                timezone = candidate_lead.data.get("timezone")
+                hour = now.astimezone(ZoneInfo(timezone)).hour if timezone else 12
+                predictions[candidate_lead.id] = pooled_predictions(
+                    history, segment=candidate_lead.data["segment"], hour=hour
+                )
             by_id = {r.id: r for r in leads}
-            candidates = rank_candidates([{"id": r.id, **r.data} for r in leads], now)
+            candidates = rank_candidates(
+                [{"id": r.id, **r.data, "propensity": predictions[r.id]["p_human"]} for r in leads], now
+            )
             claimed_endpoints = set(
                 s.scalars(select(ActiveClaim.endpoint_id).where(ActiveClaim.seller_id == p["seller_id"]))
             )
@@ -663,6 +703,7 @@ class Service:
                         "feature_snapshot_id": snapshot.id,
                         **choice,
                         "policy_version": "coverage-first-v1",
+                        "predictions": predictions[lead.id],
                         "experiment_arm": "control" if control else "baseline",
                         "outcome_window_days": 14,
                     },
@@ -738,6 +779,7 @@ class Service:
                 "from": number.data["phone"],
                 "link_to": presence["agent_call_control_id"],
                 "bridge_on_answer": True,
+                "park_after_unbridge": "self",
                 "prevent_double_bridge": True,
                 "time_limit_secs": self.settings.max_call_seconds,
                 "command_id": call.id,
