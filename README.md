@@ -6,9 +6,9 @@ A Tauri desktop calling workspace with two complete authority modes: a private l
 
 ## Install and try
 
-Download the matching package from [Releases](https://github.com/TanushV/OpenDialer/releases). The current locally verified target is macOS Apple Silicon, minimum macOS 12. Move OpenDialer to Applications once, open it, and choose **Try a simulated workspace**. All sample people and provider responses are fictional. Nothing is called, purchased or sent to an inference provider. The simulation uses a fixed, visibly labeled clock so permission tests remain reproducible.
+Download the matching package from [Releases](https://github.com/TanushV/OpenDialer/releases). The current locally verified target is macOS Apple Silicon, minimum macOS 14. Move OpenDialer to Applications once, open it, and choose **Try a simulated workspace**. All sample people and provider responses are fictional. Nothing is called, purchased or sent to an inference provider. The simulation uses a fixed, visibly labeled clock so permission tests remain reproducible.
 
-The preview is signed for updater integrity; a trusted Apple Developer ID and notarization are not configured. macOS may require the standard user approval for an app downloaded outside the App Store. Do not disable Gatekeeper or remove quarantine as an installation procedure. Windows/Linux packaging is configured in release CI; hardware certification is pending.
+The preview is signed for updater integrity; a trusted Apple Developer ID and notarization are not configured. macOS may require the standard user approval for an app downloaded outside the App Store. Do not disable Gatekeeper or remove quarantine as an installation procedure. Windows x64 NSIS/MSI packages are built and exercised on a disposable Windows runner with bundled WebView2 and timezone data. Hardware certification and trusted OS publisher signing remain separate gates. Linux is not in this preview distribution.
 
 Try: Go ready → Get next lead → Start call → Simulate human answer → add a fictional turn → Hang up → Save outcome → Review → edit and save notes. Leads, Numbers, Intelligence, and Settings expose the remaining workflows. No inference key is needed for approved fallback scripts and static coaching.
 

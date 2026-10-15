@@ -31,6 +31,8 @@ subprocess.run(  # noqa: S603 - fixed current interpreter and repository build e
         "app",
         "--collect-all",
         "phonenumbers",
+        "--collect-all",
+        "tzdata",
         "--add-data",
         f"{root / 'services/backend/migrations'}{os.pathsep}migrations",
         "--add-data",

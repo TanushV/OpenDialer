@@ -36,3 +36,15 @@ def test_deployment_orders_migration_before_all_authority_workers():
     compose = (ROOT / "deploy/compose.yml").read_text()
     assert "service_completed_successfully" in compose
     assert "command: [migrate" in compose
+
+
+def test_declared_macos_minimum_covers_the_bundled_numeric_wheels():
+    config = json.loads((ROOT / "apps/desktop/src-tauri/tauri.conf.json").read_text())
+    assert int(config["bundle"]["macOS"]["minimumSystemVersion"].split(".")[0]) >= 14
+
+
+def test_windows_package_bundles_webview_and_timezone_data_for_clean_install():
+    config = json.loads((ROOT / "apps/desktop/src-tauri/tauri.conf.json").read_text())
+    assert config["bundle"]["windows"]["webviewInstallMode"]["type"] == "offlineInstaller"
+    assert "tzdata" in (ROOT / "pyproject.toml").read_text()
+    assert '"tzdata"' in (ROOT / "scripts/build_sidecar.py").read_text()
