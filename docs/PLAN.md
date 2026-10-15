@@ -7,7 +7,7 @@ Source: [complete specification](spec/IMPLEMENTATION_SPEC.md), preserved verbati
 - [x] Read the full source specification and supplementary context; inspect the empty repository and tools.
 - [x] Record user extension: fully isolated local operation as well as authenticated connected operation.
 - [x] Record user constraint: no carrier/OpenAI/Groq API keys available; implement and test without them.
-- [ ] Write all initial domain, API, provider, recovery, UI, and installer acceptance tests before implementation; record an actual failing run.
+- [x] Write all initial domain, API, provider, recovery, UI, and installer acceptance tests before implementation; record an actual failing run.
 - [ ] SQLite local authority, bundled backend and worker, loopback nonce, OS-protected credentials, persistent app data.
 - [ ] PostgreSQL connected authority, scoped authentication, tenant/seller isolation, durable worker lanes.
 - [ ] Explicit simulation workspace with no accidental network side effects; live configuration and readiness separate.
