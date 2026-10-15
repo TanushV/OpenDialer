@@ -2,6 +2,8 @@
 
 Keep the stable identifier `com.opendialer.desktop`. Bump Python, desktop package/lock, Cargo/lock and Tauri versions together. Complete the acceptance matrix and preserve an installed baseline with a human note and suppression. Freeze the backend with `scripts/build_sidecar.py`; the release must not contain a shell wrapper or depend on a source checkout/Python installation.
 
+On macOS, finish with `uv run python scripts/package_macos.py --build` after freezing. It gives only the frozen Python sidecar the documented library-validation exception, re-seals the main bundle without broadening its entitlements, probes the signed backend, recreates the archive/DMG and signs the final bytes with their version. Running `tauri build` alone is not the final macOS release step.
+
 Keep `TAURI_SIGNING_PRIVATE_KEY` and its password outside Git. The repository Actions secret store is configured; the pinned public key is in Tauri config. Build native packages on the corresponding OS. `.app.tar.gz.sig`/Windows/Linux signatures and the updater JSON must refer to the exact uploaded bytes. Publish a reviewed release only after verification; draft CI packages do not update users. The configured latest endpoint requires a published non-prerelease release. Developer previews must clearly disclose missing platform/provider certification.
 
 For macOS public distribution, configure a real Apple Developer ID certificate, hardened runtime entitlements and notarization credentials, then validate a quarantined clean install. Updater integrity signing is separate from Apple trust. Windows signing and Linux WebRTC/headset certification have independent gates. Never claim these are passed because compilation succeeds.

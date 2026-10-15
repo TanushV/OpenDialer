@@ -1,0 +1,3 @@
+OpenDialer developer preview for macOS and Windows: self-contained local authority, authenticated connected PostgreSQL mode, isolated simulation, permissioned server call control, owned number pools/procurement, evidence-backed preparation and review, protected persistence and signed updates.
+
+Existing installations update from Settings → App updates; do not uninstall or erase workspace data. Mac preview builds use ad-hoc code signing and a Python-only library-loading entitlement. Windows packages include WebView2 and timezone data. Trusted Apple/Windows publisher signing, notarization, provider accounts, reviewed calling policies, and hardware/carrier certification remain external gates. See the validation record and runbooks before live use.

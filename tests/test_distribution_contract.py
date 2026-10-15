@@ -53,3 +53,13 @@ def test_windows_package_bundles_webview_and_timezone_data_for_clean_install():
 def test_development_macos_bundle_is_explicitly_signed_as_a_complete_bundle():
     config = json.loads((ROOT / "apps/desktop/src-tauri/tauri.conf.json").read_text())
     assert config["bundle"]["macOS"]["signingIdentity"] == "-"
+
+
+def test_frozen_python_library_entitlement_is_scoped_away_from_the_webview():
+    import plistlib
+
+    app = plistlib.loads((ROOT / "apps/desktop/src-tauri/Entitlements.plist").read_bytes())
+    backend = plistlib.loads((ROOT / "apps/desktop/src-tauri/BackendEntitlements.plist").read_bytes())
+    assert backend["com.apple.security.cs.disable-library-validation"] is True
+    assert not app.get("com.apple.security.cs.disable-library-validation")
+    assert (ROOT / "scripts/package_macos.py").exists()
