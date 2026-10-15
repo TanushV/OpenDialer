@@ -18,6 +18,7 @@ async function enterSimulation(page: import("@playwright/test").Page) {
 test("local setup, readiness, calling, evidence, human notes and opt-out", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1028, height: 749 });
   await enterSimulation(page);
   await expect(
     page.getByRole("heading", { name: "Your next conversation" }),

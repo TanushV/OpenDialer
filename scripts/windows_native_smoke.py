@@ -36,6 +36,9 @@ def click_button(text):
         element = d.find_element(By.XPATH, f"//button[normalize-space(.)='{text}']")
         if not element.is_displayed() or not element.is_enabled():
             return False
+        # Leave the fixed call controls clear in the runner's small desktop viewport.
+        # Keep the actual interaction a WebDriver click, with normal hit testing.
+        d.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", element)
         element.click()
         return True
 
