@@ -90,7 +90,7 @@ Source: [complete specification](spec/IMPLEMENTATION_SPEC.md), preserved verbati
 ## Delivery, validation and cleanliness (§3,17–24)
 
 - [x] Full test matrix in SQLite and real PostgreSQL, API integration/contract/replay/recovery and frontend end-to-end tests.
-- [ ] Docker/Caddy deployment, separate worker priorities, migrations, encrypted backup/restore and audit-journal reconciliation.
+- [x] Docker/Caddy deployment, separate worker priorities, migrations, encrypted backup/restore and audit-journal reconciliation.
 - [ ] Installable self-contained desktop bundle, persistent app data and signed update infrastructure.
 - [ ] CI for Python/TypeScript/Rust/security/build and cross-platform release packaging with lockfiles/licenses.
 - [ ] Use native desktop app through computer use; exercise local and connected workflows and record evidence.
