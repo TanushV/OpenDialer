@@ -84,19 +84,19 @@ Source: [complete specification](spec/IMPLEMENTATION_SPEC.md), preserved verbati
 
 - [x] Preserve the installed Mac identity; all subsequent delivery is an update, with no reinstall/reset.
 - [x] Add Windows clean-install prerequisites: bundled WebView2 offline installer and IANA timezone data.
-- [ ] Build Windows NSIS/MSI installers with updater signatures and exercise the installed native app/restart in WebView2.
-- [ ] Publish matching Mac and Windows packages plus a shared signed-update manifest.
+- [x] Build Windows NSIS/MSI installers with updater signatures and exercise the installed native app/restart in WebView2.
+- [x] Publish matching Mac and Windows packages plus a shared signed-update manifest.
 
 ## Delivery, validation and cleanliness (§3,17–24)
 
 - [x] Full test matrix in SQLite and real PostgreSQL, API integration/contract/replay/recovery and frontend end-to-end tests.
 - [x] Docker/Caddy deployment, separate worker priorities, migrations, encrypted backup/restore and audit-journal reconciliation.
-- [ ] Installable self-contained desktop bundle, persistent app data and signed update infrastructure.
-- [ ] CI for Python/TypeScript/Rust/security/build and cross-platform release packaging with lockfiles/licenses.
-- [ ] Use native desktop app through computer use; exercise local and connected workflows and record evidence.
-- [ ] Validate update replaces app in place and preserves data without uninstalling/reinstalling.
-- [ ] Final preflight: tests/types/lint/build/security/secret scan, database checks, no tracked/untracked junk and clean git status.
-- [ ] Frequent milestone commits pushed to TanushV/OpenDialer; deliver artifacts and honest acceptance report.
+- [x] Installable self-contained desktop bundle, persistent app data and signed update infrastructure.
+- [x] CI for Python/TypeScript/Rust/security/build and cross-platform release packaging with lockfiles/licenses.
+- [x] Use native desktop app through computer use; exercise local and connected workflows and record evidence.
+- [x] Validate update replaces app in place and preserves data without uninstalling/reinstalling.
+- [x] Final preflight: tests/types/lint/build/security/secret scan, database checks, no tracked/untracked junk and clean git status.
+- [x] Frequent milestone commits pushed to TanushV/OpenDialer; deliver artifacts and honest acceptance report.
 
 
 ## External gates (cannot be certified without accounts/hardware/deployment)
@@ -105,7 +105,7 @@ Source: [complete specification](spec/IMPLEMENTATION_SPEC.md), preserved verbati
 - [ ] Live Soniox/Parakeet attribution/finality/latency and Groq/OpenAI model availability/quotas/quality trials.
 - [ ] Permissioned real-call review set, outcome trial, calibrated scorecards and proven cohort lift.
 - [ ] Seller registry access and counsel-approved destination/recording/prerecorded policies.
-- [ ] Windows/Linux hardware audio/NAT/Bluetooth/sleep/long-call certification and production VM/ARM64 capacity.
+- [ ] Mac/Windows hardware audio/NAT/Bluetooth/sleep/long-call certification and production VM/ARM64 capacity; Linux is outside preview distribution.
 - [ ] Public distribution signing/notarization and configured public server/DNS/provider credentials.
 
 User explicitly instructed continuing without unavailable APIs. External gates stay visible and associated features fail closed where required.

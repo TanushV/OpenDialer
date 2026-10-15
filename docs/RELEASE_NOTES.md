@@ -1,3 +1,7 @@
 OpenDialer developer preview for macOS and Windows: self-contained local authority, authenticated connected PostgreSQL mode, isolated simulation, permissioned server call control, owned number pools/procurement, evidence-backed preparation and review, protected persistence and signed updates.
 
 Existing installations update from Settings → App updates; do not uninstall or erase workspace data. Mac preview builds use ad-hoc code signing and a Python-only library-loading entitlement. Windows packages include WebView2 and timezone data. Trusted Apple/Windows publisher signing, notarization, provider accounts, reviewed calling policies, and hardware/carrier certification remain external gates. See the validation record and runbooks before live use.
+
+Mac Apple Silicon (macOS 14+) was updated in place from 0.1.0 to 0.1.1 with exact saved records, human notes and opt-outs preserved. Windows x64 NSIS was installed and exercised in its native WebView2, including persisted notes after restart; MSI is also built and signature-verified. Native Mac local and PostgreSQL-connected workflows pass. No real provider calls or purchases were made.
+
+[Acceptance record](https://github.com/TanushV/OpenDialer/releases/download/v0.1.1/VALIDATION.md) · [Setup and source](https://github.com/TanushV/OpenDialer#readme). Packages, pinned-key updater signatures, SHA-256 checksums, dependency notices and sanitized acceptance evidence are attached.
