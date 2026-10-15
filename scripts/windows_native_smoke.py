@@ -88,6 +88,15 @@ try:
     driver.quit()
     driver = None
     driver = webdriver.Remote("http://127.0.0.1:4444", options=options)
+    # A new WebDriver session may use a fresh webview profile; the native store is independent.
+    WebDriverWait(driver, 60).until(
+        lambda d: (
+            "SIMULATION" in d.find_element(By.TAG_NAME, "body").text
+            or d.find_elements(By.XPATH, "//button[normalize-space(.)='Try a simulated workspace']")
+        )
+    )
+    if driver.find_elements(By.XPATH, "//button[normalize-space(.)='Try a simulated workspace']"):
+        click_button("Try a simulated workspace")
     visible("SIMULATION")
     click_button("Review")
     WebDriverWait(driver, 30).until(
@@ -128,6 +137,7 @@ try:
                 ],
                 "provider_calls": 0,
                 "hardware_audio_certified": False,
+                "restart_scope": "reopen the native sample store after a new WebDriver session",
             },
             indent=2,
         )
