@@ -156,3 +156,55 @@ def test_packet_falls_back_when_personalization_evidence_expires(workspace, cloc
     packet = c.get(f"/v1/leads/{lead['id']}/packet", headers=h).json()
     assert packet["script"]["fallback"] is True
     assert not packet["research"]["facts"]
+
+
+def test_completed_script_inputs_are_cached_before_another_paid_request(workspace, monkeypatch):
+    from app.providers.inference import InferenceResult
+
+    c, h = workspace["client"], workspace["headers"]
+    lead = c.get("/v1/workspace", headers=h).json()["leads"][0]
+    service = c.app.state.service
+    calls = []
+
+    class Provider:
+        async def complete(self, instructions, context, schema):
+            calls.append(context["lead_id"])
+            baseline = context["approved_fallback"]
+            return InferenceResult(
+                {k: baseline[k] for k in schema["properties"]},
+                {"input_tokens": 20, "output_tokens": 20},
+                "cached-response",
+            )
+
+    monkeypatch.setattr(service, "inference", lambda *args: Provider())
+    for _ in range(2):
+        c.post("/v1/research/batches", headers=h, json={"lead_ids": [lead["id"]]})
+        c.post("/v1/admin/jobs/run", headers=h)
+    assert calls == [lead["id"]]
+
+
+def test_partial_preparation_retries_only_failed_objects(workspace, monkeypatch, clock):
+    from app.providers.inference import InferenceResult
+
+    c, h = workspace["client"], workspace["headers"]
+    leads = c.get("/v1/workspace", headers=h).json()["leads"][:2]
+    service = c.app.state.service
+    calls = {lead["id"]: 0 for lead in leads}
+    failing = leads[1]["id"]
+
+    class Provider:
+        async def complete(self, instructions, context, schema):
+            ident = context["lead_id"]
+            calls[ident] += 1
+            if ident == failing and calls[ident] == 1:
+                raise TimeoutError("One object has no provider receipt")
+            return InferenceResult(
+                {k: context["approved_fallback"][k] for k in schema["properties"]}, {}, "independent-response"
+            )
+
+    monkeypatch.setattr(service, "inference", lambda *args: Provider())
+    c.post("/v1/research/batches", headers=h, json={"lead_ids": [lead["id"] for lead in leads]})
+    c.post("/v1/admin/jobs/run", headers=h)
+    clock.now += timedelta(minutes=5)
+    c.post("/v1/admin/jobs/run", headers=h)
+    assert calls == {leads[0]["id"]: 1, failing: 2}

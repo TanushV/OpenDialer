@@ -182,6 +182,10 @@ def test_failed_hangup_keeps_live_claim_until_provider_terminal_event(workspace,
     result = c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
     assert result.status_code == 200
     assert result.json()["state"] == "ENDING"
+    assert (
+        c.post(f"/v1/calls/{call['id']}/disposition", headers=h, json={"outcome": "right_party"}).status_code
+        == 409
+    )
     with c.app.state.db.transaction(False) as s:
         assert s.scalar(select(ActiveClaim).where(ActiveClaim.call_id == call["id"])) is not None
     c.post(

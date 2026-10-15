@@ -1,6 +1,6 @@
 from alembic import context
-from sqlalchemy import engine_from_config, pool
 from app.db import Base
+from sqlalchemy import engine_from_config, pool
 
 config = context.config
 if context.is_offline_mode():

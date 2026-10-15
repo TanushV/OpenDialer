@@ -33,6 +33,7 @@ CARD_SCHEMA = {
 class GroqCoach:
     def __init__(self, api_key, model="openai/gpt-oss-20b", *, http=None):
         self.api_key, self.model, self.http = api_key, model, http
+        self.last_usage, self.last_request_id = {}, None
 
     async def suggest(self, request, deadline_ms=1200):
         async def send(http):
@@ -58,7 +59,9 @@ class GroqCoach:
                 timeout=deadline_ms / 1000,
             )
             r.raise_for_status()
-            message = r.json()["choices"][0]["message"]
+            payload = r.json()
+            self.last_usage, self.last_request_id = payload.get("usage", {}), payload.get("id")
+            message = payload["choices"][0]["message"]
             if message.get("refusal"):
                 raise InferenceError("Coach refused")
             return json.loads(message["content"])

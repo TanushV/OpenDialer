@@ -1,16 +1,18 @@
 import hashlib
 import json
 import re
+import time
 from datetime import timedelta
 
 from app.coaching.engine import CardRejected, validate_card
 from app.db import audit, doc, emit, put, rows, uid, update
 from app.postcall.analysis import build_analysis
 from app.providers.groq import GroqCoach
-from app.providers.inference import InferenceClient
+from app.providers.inference import InferenceClient, InferenceResult
 from app.research.fetch import SafeFetcher
 from app.research.validation import ValidationFailure, validate_script
 from app.service import Service, dt, fail
+from app.telephony.reducer import TERMINAL
 
 RESEARCH_SCHEMA = {
     "type": "object",
@@ -253,6 +255,7 @@ class Application(Service):
             )
 
     async def prepare(self, p, lead_ids):
+        failures = []
         for lead_id in lead_ids:
             with self.db.transaction(False) as s:
                 lead = self.required(s, "leads", lead_id, p)
@@ -271,8 +274,32 @@ class Application(Service):
                 script = self.fallback_script(s, p, lead)
                 seller_name = self.required(s, "sellers", p["seller_id"], p).data["name"]
             provider = self.inference(p["tenant_id"], "script_write", p["user_id"])
+            config = self.vault.read(p["tenant_id"])
+            input_key = hashlib.sha256(
+                json.dumps(
+                    [
+                        lead_id,
+                        lead.version,
+                        packet["research"]["facts"],
+                        script["playbook_version"],
+                        config.get("inference_mode", "api"),
+                        config.get("script_write_model", config.get("model", "gpt-6-luna")),
+                        bool(provider),
+                        packet["commitments"],
+                        "script-v2",
+                    ],
+                    sort_keys=True,
+                ).encode()
+            ).hexdigest()
+            with self.db.transaction(False) as session:
+                if any(
+                    r.data.get("input_cache_key") == input_key
+                    for r in self.scoped(session, "script_versions", p)
+                ):
+                    continue
+            provider_failed = False
             if provider and self.reserve_optional_budget(
-                p, "script:" + lead_id + ":" + str(lead.version), 0.10
+                p, "script:" + input_key + ":" + uid(), 0.10, object_id=lead_id, work_kind="script_write"
             ):
                 try:
                     result = await provider.complete(
@@ -282,6 +309,8 @@ class Application(Service):
                             "seller": seller_name,
                             "approved_fallback": script,
                             "facts": packet["research"]["facts"],
+                            "prior_commitments": packet["commitments"],
+                            "prior_outcomes": [call.get("outcome") for call in packet["previous_calls"][-3:]],
                         },
                         SCRIPT_SCHEMA,
                     )
@@ -292,6 +321,8 @@ class Application(Service):
                     script = {**script, **candidate, "fallback": False}
                     self.usage(p, "openai", "script_write", result, object_id=lead_id)
                 except Exception:
+                    provider_failed = True
+                    failures.append(lead_id)
                     script["prohibited_claim_checks"] = [
                         "Provider result rejected; approved fallback retained"
                     ]
@@ -300,7 +331,7 @@ class Application(Service):
                 previous = max(versions, key=lambda r: r.created_at, default=None)
                 cache_key = hashlib.sha256(
                     json.dumps(
-                        [lead_id, packet["research"]["facts"], script["playbook_version"], script["opener"]],
+                        [input_key, script["opener"], uid() if provider_failed else None],
                         sort_keys=True,
                     ).encode()
                 ).hexdigest()
@@ -309,6 +340,10 @@ class Application(Service):
                 version = uid()
                 script.update(
                     script_version=version,
+                    input_cache_key=input_key
+                    if not provider_failed and (not provider or not script.get("fallback"))
+                    else None,
+                    prompt_version="script-v2",
                     created_at=self.clock().isoformat(),
                     previous_version=previous.id if previous else None,
                     diff={
@@ -327,6 +362,10 @@ class Application(Service):
                     now=self.clock(),
                 )
                 emit(s, p["tenant_id"], "lead.packet_ready", obj, self.clock(), {"lead_id": lead_id})
+        if failures:
+            raise RuntimeError(
+                f"Optional script generation failed for {len(failures)} objects; approved fallbacks retained for bounded retry"
+            )
 
     async def research_company(self, p, domain, lead):
         # Durable single-flight claim per tenant/domain. Stale work may be reclaimed after bounded lease.
@@ -368,7 +407,11 @@ class Application(Service):
         else:
             provider = self.inference(p["tenant_id"], "research_extract", p["user_id"])
             if provider and self.reserve_optional_budget(
-                p, "research:" + domain + ":" + self.clock().date().isoformat(), 0.10
+                p,
+                "research:" + domain + ":" + self.clock().date().isoformat() + ":" + uid(),
+                0.10,
+                object_id=company.id,
+                work_kind="research_extract",
             ):
                 try:
                     source = await SafeFetcher(allowed_domains={domain}).fetch("https://" + domain)
@@ -512,7 +555,7 @@ class Application(Service):
             call = self.required(s, "call_attempts", call_id, p)
             stable = [r for r in self.transcript_rows(s, p, call_id) if r.get("is_final")]
             playbook = self.approved_playbook(s, p)
-            if not stable or not playbook or call.data["state"] in {"ENDED", "FINALIZED"}:
+            if not stable or not playbook or call.data["state"] in TERMINAL | {"ENDING"}:
                 return {"action": "NO_ACTION"}
             last = stable[-1]
             if not urgent and not re.search(
@@ -551,13 +594,28 @@ class Application(Service):
             }
         conf = self.vault.read(p["tenant_id"])
         result = fallback
-        if conf.get("groq_api_key") and not self.settings.simulation:
-            result = await self.coach.suggest(
-                call_id,
-                request,
-                GroqCoach(conf["groq_api_key"], conf.get("groq_model", "openai/gpt-oss-20b")),
-                fallback,
+        source = "approved_static"
+        if (
+            conf.get("groq_api_key")
+            and not self.settings.simulation
+            and time.monotonic() >= self.coach.open_until
+            and self.reserve_optional_budget(
+                p, f"coach:{call_id}:{version}:{uid()}", 0.01, object_id=call_id, work_kind="live_coach"
             )
+        ):
+            provider = GroqCoach(conf["groq_api_key"], conf.get("groq_model", "openai/gpt-oss-20b"))
+            result = await self.coach.suggest(call_id, request, provider, fallback)
+            if result is not fallback:
+                source = "groq"
+            if provider.last_usage or provider.last_request_id:
+                self.usage(
+                    p,
+                    "groq",
+                    "live_coach",
+                    InferenceResult(result, provider.last_usage, provider.last_request_id),
+                    object_id=call_id,
+                    reserved=0,
+                )
         try:
             validate_card(
                 result,
@@ -569,7 +627,7 @@ class Application(Service):
             return {"action": "NO_ACTION"}
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
-            if call.data["transcript_version"] != version or call.data["state"] in {"ENDED", "FINALIZED"}:
+            if call.data["transcript_version"] != version or call.data["state"] in TERMINAL | {"ENDING"}:
                 return {"action": "NO_ACTION"}
             if result["action"] != "NO_ACTION":
                 obj = put(
@@ -584,9 +642,7 @@ class Application(Service):
                         "expires_at": (
                             self.clock() + timedelta(milliseconds=result["expires_in_ms"])
                         ).isoformat(),
-                        "provider": "groq"
-                        if conf.get("groq_api_key") and not self.settings.simulation
-                        else "approved_static",
+                        "provider": source,
                     },
                     now=self.clock(),
                 )
@@ -735,7 +791,7 @@ class Application(Service):
                     "Maintenance reconciliation deferred: %s", type(exc).__name__
                 )
 
-    def reserve_optional_budget(self, p, request_key, estimate_usd):
+    def reserve_optional_budget(self, p, request_key, estimate_usd, *, object_id=None, work_kind=None):
         if estimate_usd <= 0:
             raise ValueError("Optional work requires a positive reserved estimate")
         key = "optional:" + request_key
@@ -752,6 +808,9 @@ class Application(Service):
                 p["seller_id"],
                 {
                     "kind": "optional_work_reservation",
+                    "object_id": object_id,
+                    "work_kind": work_kind,
+                    "user_id": p.get("user_id"),
                     "request_key": request_key,
                     "reserved_usd": estimate_usd,
                     "at": self.clock().isoformat(),
@@ -800,7 +859,11 @@ class Application(Service):
             provider
             and initial["transcript"]
             and self.reserve_optional_budget(
-                p, f"analysis:{call_id}:{initial['notes']['transcript_version']}", 0.10
+                p,
+                f"analysis:{call_id}:{initial['notes']['transcript_version']}:{uid()}",
+                0.10,
+                object_id=call_id,
+                work_kind="postcall_extract",
             )
         ):
             try:
@@ -889,7 +952,9 @@ class Application(Service):
         if not trackers:
             return
         provider = self.inference(p["tenant_id"], "postcall_extract", p["user_id"])
-        if not provider or not self.reserve_optional_budget(p, "semantic:" + call_id, 0.05):
+        if not provider or not self.reserve_optional_budget(
+            p, "semantic:" + call_id + ":" + uid(), 0.05, object_id=call_id, work_kind="semantic_tracker"
+        ):
             return
         schema = {
             "type": "object",

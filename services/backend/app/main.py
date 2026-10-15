@@ -24,6 +24,7 @@ from app.db import Database, Event, audit, doc, get, put, rows, update
 from app.providers.telnyx import verify_webhook
 from app.security import DUMMY_HASH, PASSWORDS, admin, decode_session, issue_session
 from app.service import dt, fail
+from app.telephony.reducer import TERMINAL
 from app.transcripts import normalize_transcription
 
 
@@ -383,7 +384,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
             return {
                 **doc(call),
                 "transcript": service.transcript_rows(s, p, call_id),
-                "coach": coach[-1] if coach and call.data["state"] not in {"ENDED", "FINALIZED"} else None,
+                "coach": coach[-1] if coach and call.data["state"] not in TERMINAL | {"ENDING"} else None,
             }
 
     @app.post("/v1/calls/{call_id}/hangup")
@@ -396,7 +397,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
             call = service.required(s, "call_attempts", call_id, p)
             if p["role"] == "rep" and call.data["rep_id"] != p["user_id"]:
                 fail(403, "Call belongs to another rep")
-            if call.data["state"] not in {"ENDED", "FINALIZED"}:
+            if call.data["state"] not in TERMINAL:
                 fail(409, "End the call before wrap-up")
             update(
                 call,

@@ -162,3 +162,27 @@ def test_first_final_postcall_analysis_has_a_final_status(workspace):
     c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
     c.post("/v1/admin/jobs/run", headers=h)
     assert c.get(f"/v1/calls/{call['id']}/analysis", headers=h).json()["status"] == "ai_finalized"
+
+
+def test_ending_call_suppresses_coaching_before_a_terminal_receipt(workspace, carrier, monkeypatch):
+    call = start(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    c.post(
+        f"/v1/calls/{call['id']}/transcript",
+        headers=h,
+        json={
+            "segment_id": "ending-card",
+            "revision": 1,
+            "side": "remote",
+            "text": "We use another provider.",
+            "is_final": True,
+        },
+    )
+
+    async def unavailable(*args):
+        raise TimeoutError("No carrier receipt")
+
+    monkeypatch.setattr(carrier, "hangup", unavailable)
+    c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
+    assert c.get(f"/v1/calls/{call['id']}", headers=h).json()["coach"] is None
+    assert c.post(f"/v1/calls/{call['id']}/coach", headers=h).json()["action"] == "NO_ACTION"

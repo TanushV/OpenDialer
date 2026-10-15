@@ -246,6 +246,7 @@ export function DialerPage() {
     if (!call) return;
     try {
       setCall(await api(`/v1/calls/${call.id}/hangup`, "POST"));
+      await telephony.current.emergencyHangup();
     } catch (e) {
       await telephony.current.emergencyHangup();
       throw e;

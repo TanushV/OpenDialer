@@ -159,3 +159,80 @@ def test_cdr_reconciliation_is_idempotent_and_keeps_leg_units(workspace):
     assert a.status_code == b.status_code == 200, a.text
     assert a.json()["matched"] == 1 and b.json()["duplicates"] == 1
     assert a.json()["duration_seconds"] == 61
+
+
+def test_live_coach_respects_the_optional_budget_before_provider_effect(workspace, monkeypatch):
+    from app.providers.groq import GroqCoach
+    from conftest import start
+
+    call = start(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    c.post(
+        f"/v1/calls/{call['id']}/transcript",
+        headers=h,
+        json={
+            "segment_id": "budget-turn",
+            "revision": 1,
+            "side": "remote",
+            "text": "We use another provider.",
+            "is_final": True,
+        },
+    )
+    service = c.app.state.service
+    service.settings.simulation = False
+    service.vault.write(workspace["tenant_id"], {"groq_api_key": "contract-only-key"})
+    c.put("/v1/admin/budget", headers=h, json={"daily_limit_usd": 0, "monthly_limit_usd": 0})
+    calls = []
+
+    async def suggest(self, request, deadline_ms):
+        calls.append(request)
+        return {"action": "NO_ACTION"}
+
+    monkeypatch.setattr(GroqCoach, "suggest", suggest)
+    r = c.post(f"/v1/calls/{call['id']}/coach", headers=h)
+    assert r.status_code == 200
+    assert not calls
+
+
+def test_repeated_failed_provider_attempts_each_need_a_fresh_budget_hold(workspace, monkeypatch):
+    import asyncio
+
+    from conftest import start
+
+    call = start(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    c.post(
+        f"/v1/calls/{call['id']}/transcript",
+        headers=h,
+        json={
+            "segment_id": "retry-budget",
+            "revision": 1,
+            "side": "remote",
+            "text": "We need help.",
+            "is_final": True,
+        },
+    )
+    service = c.app.state.service
+    with service.db.transaction(False) as s:
+        base = sum(r.data.get("reserved_usd", 0) for r in service.scoped(s, "usage_ledger", workspace))
+    c.put(
+        "/v1/admin/budget", headers=h, json={"daily_limit_usd": base + 0.21, "monthly_limit_usd": base + 0.21}
+    )
+    calls = []
+
+    class Failing:
+        async def complete(self, *args):
+            calls.append(True)
+            raise TimeoutError("No provider receipt")
+
+    monkeypatch.setattr(service, "inference", lambda *args: Failing())
+    for _ in range(3):
+        asyncio.run(service.analyze_postcall(workspace, call["id"]))
+    assert len(calls) == 2
+    with service.db.transaction(False) as s:
+        attempts = [
+            r
+            for r in service.scoped(s, "usage_ledger", workspace)
+            if r.data.get("work_kind") == "postcall_extract"
+        ]
+        assert len(attempts) == 2 and all(r.data["object_id"] == call["id"] for r in attempts)

@@ -87,7 +87,10 @@ export class Telephony {
     return await navigator.mediaDevices.enumerateDevices();
   }
   async emergencyHangup() {
-    await this.call?.hangup();
+    const call = this.call;
+    this.call = null;
+    if (call && !["hangup", "destroy"].includes(call.state))
+      await call.hangup();
   }
   disconnect() {
     this.client?.disconnect();

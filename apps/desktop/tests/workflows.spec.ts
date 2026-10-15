@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 
 async function enterSimulation(page: import("@playwright/test").Page) {
   await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
   if (
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
