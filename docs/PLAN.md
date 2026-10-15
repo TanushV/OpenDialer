@@ -84,7 +84,7 @@ Source: [complete specification](spec/IMPLEMENTATION_SPEC.md), preserved verbati
 
 - [x] Preserve the installed Mac identity; all subsequent delivery is an update, with no reinstall/reset.
 - [x] Add Windows clean-install prerequisites: bundled WebView2 offline installer and IANA timezone data.
-- [ ] Build signed Windows NSIS/MSI installers on Windows and exercise the installed native app/restart in WebView2.
+- [ ] Build Windows NSIS/MSI installers with updater signatures and exercise the installed native app/restart in WebView2.
 - [ ] Publish matching Mac and Windows packages plus a shared signed-update manifest.
 
 ## Delivery, validation and cleanliness (§3,17–24)

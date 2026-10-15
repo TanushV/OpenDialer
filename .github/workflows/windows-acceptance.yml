@@ -1,0 +1,79 @@
+name: Verify existing Windows installer
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Windows installer workflow run containing the exact packages to test
+        required: true
+        type: string
+      expected_build_sha:
+        description: Exact reviewed source commit used to build those packages
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify installer provenance
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN: ${{ inputs.build_run_id }}
+          EXPECTED_SHA: ${{ inputs.expected_build_sha }}
+        run: |
+          if ($env:BUILD_RUN -notmatch '^\d+$' -or $env:EXPECTED_SHA -notmatch '^[0-9a-f]{40}$') { throw 'Invalid immutable build identity' }
+          $run = gh api "repos/${{ github.repository }}/actions/runs/$env:BUILD_RUN" | ConvertFrom-Json
+          if ($run.head_sha -ne $env:EXPECTED_SHA -or $run.path -ne '.github/workflows/windows.yml') { throw 'Installer provenance mismatch' }
+          Write-Host "Testing installers from $($run.head_sha), run $env:BUILD_RUN"
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installers-and-native-evidence
+          path: work/reused-installer
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.10.12'
+      - run: uv sync --frozen --python 3.12
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+          cache-on-failure: true
+      - name: Install the unchanged package on a fresh runner
+        shell: pwsh
+        run: |
+          $version = (Get-Content apps/desktop/src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          $packages = @(Get-ChildItem work/reused-installer -Recurse -Filter "OpenDialer_${version}_x64-setup.exe")
+          if ($packages.Count -ne 1) { throw 'Expected exactly one version-matched installer' }
+          $destination = Join-Path $env:RUNNER_TEMP OpenDialer
+          $installed = Start-Process $packages[0].FullName -ArgumentList '/S', "/D=$destination" -Wait -PassThru
+          if ($installed.ExitCode -ne 0) { throw "NSIS install failed: $($installed.ExitCode)" }
+          $application = Get-ChildItem $destination -Filter *.exe | Where-Object { $_.Name -in @('opendialer-desktop.exe','OpenDialer.exe') } | Select-Object -First 1
+          if (-not $application) { throw 'Installed application is missing' }
+          "OPENDIALER_TEST_APPLICATION=$($application.FullName)" >> $env:GITHUB_ENV
+      - name: Match the installed WebView2 runtime
+        shell: pwsh
+        run: |
+          $roots = @("${env:ProgramFiles(x86)}\Microsoft\EdgeWebView\Application", "$env:ProgramFiles\Microsoft\EdgeWebView\Application", "$env:LOCALAPPDATA\Microsoft\EdgeWebView\Application")
+          $runtime = $roots | Where-Object { Test-Path $_ } | ForEach-Object { Get-ChildItem $_ -Directory } | Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } | Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
+          if (-not $runtime) { throw 'WebView2 runtime is missing' }
+          $archive = Join-Path $env:RUNNER_TEMP edgedriver.zip
+          Invoke-WebRequest "https://msedgedriver.microsoft.com/$($runtime.Name)/edgedriver_win64.zip" -OutFile $archive
+          $directory = Join-Path $env:RUNNER_TEMP edgedriver
+          Expand-Archive $archive $directory
+          "OPENDIALER_EDGE_DRIVER=$directory\msedgedriver.exe" >> $env:GITHUB_ENV
+      - run: cargo install tauri-driver --locked
+      - run: uv run python scripts/windows_native_smoke.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-native-verification
+          path: work/windows-native/*

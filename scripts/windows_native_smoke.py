@@ -9,6 +9,7 @@ from pathlib import Path
 
 import httpx
 from selenium import webdriver
+from selenium.common.exceptions import StaleElementReferenceException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.options import ArgOptions
 from selenium.webdriver.support.ui import Select, WebDriverWait
@@ -30,17 +31,16 @@ driver = None
 note = "Windows native acceptance: preserve this human note across restart."
 
 
-def button(text):
-    return WebDriverWait(driver, 60).until(
-        lambda d: next(
-            (
-                e
-                for e in d.find_elements(By.TAG_NAME, "button")
-                if e.text.strip() == text and e.is_displayed() and e.is_enabled()
-            ),
-            False,
-        )
-    )
+def click_button(text):
+    def click_current(d):
+        element = d.find_element(By.XPATH, f"//button[normalize-space(.)='{text}']")
+        if not element.is_displayed() or not element.is_enabled():
+            return False
+        element.click()
+        return True
+
+    # React can replace a button between lookup and click while refreshing a packet.
+    WebDriverWait(driver, 60, ignored_exceptions=(StaleElementReferenceException,)).until(click_current)
 
 
 def visible(text):
@@ -56,37 +56,37 @@ try:
             pass
         time.sleep(0.1)
     driver = webdriver.Remote("http://127.0.0.1:4444", options=options)
-    button("Try a simulated workspace").click()
+    click_button("Try a simulated workspace")
     visible("SIMULATION")
-    button("Go ready").click()
-    button("Get next lead").click()
-    button("Start call").click()
+    click_button("Go ready")
+    click_button("Get next lead")
+    click_button("Start call")
     visible("RINGING")
-    button("Simulate human answer").click()
+    click_button("Simulate human answer")
     visible("HUMAN")
     box = driver.find_element(By.CSS_SELECTOR, 'input[aria-label="Simulation transcript"]')
     box.send_keys("We already use another provider.")
     driver.find_element(By.CSS_SELECTOR, 'button[aria-label="Add prospect turn"]').click()
     visible("We already use another provider.")
-    button("Hang up").click()
+    click_button("Hang up")
     visible("How did the conversation go?")
     Select(driver.find_element(By.CSS_SELECTOR, ".wrap-up select")).select_by_value("callback_requested")
-    button("Save outcome").click()
-    button("Review").click()
+    click_button("Save outcome")
+    click_button("Review")
     WebDriverWait(driver, 30).until(
         lambda d: d.find_element(By.CSS_SELECTOR, 'button[aria-label^="Review call"]')
     ).click()
     textarea = WebDriverWait(driver, 30).until(lambda d: d.find_element(By.CSS_SELECTOR, "textarea"))
     textarea.clear()
     textarea.send_keys(note)
-    button("Save notes").click()
+    click_button("Save notes")
     visible("Notes saved")
     driver.save_screenshot(str(output / "review-before-restart.png"))
     driver.quit()
     driver = None
     driver = webdriver.Remote("http://127.0.0.1:4444", options=options)
     visible("SIMULATION")
-    button("Review").click()
+    click_button("Review")
     WebDriverWait(driver, 30).until(
         lambda d: d.find_element(By.CSS_SELECTOR, 'button[aria-label^="Review call"]')
     ).click()
@@ -96,9 +96,9 @@ try:
         .get_attribute("value")
         == note
     )
-    button("All conversations").click()
-    button("Settings").click()
-    button("Run preflight").click()
+    click_button("All conversations")
+    click_button("Settings")
+    click_button("Run preflight")
     visible("Simulation checks passed")
     driver.save_screenshot(str(output / "preflight.png"))
     (output / "result.json").write_text(
