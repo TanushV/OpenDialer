@@ -48,3 +48,8 @@ def test_windows_package_bundles_webview_and_timezone_data_for_clean_install():
     assert config["bundle"]["windows"]["webviewInstallMode"]["type"] == "offlineInstaller"
     assert "tzdata" in (ROOT / "pyproject.toml").read_text()
     assert '"tzdata"' in (ROOT / "scripts/build_sidecar.py").read_text()
+
+
+def test_development_macos_bundle_is_explicitly_signed_as_a_complete_bundle():
+    config = json.loads((ROOT / "apps/desktop/src-tauri/tauri.conf.json").read_text())
+    assert config["bundle"]["macOS"]["signingIdentity"] == "-"
