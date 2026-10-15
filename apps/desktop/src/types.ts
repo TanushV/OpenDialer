@@ -18,7 +18,7 @@ export interface Packet { lead: Lead; script: Script; research: { facts: Fact[];
 export interface Reservation { reservation_id: string; expires_at: string; lead: Lead; number: NumberRecord; }
 export interface Readiness { integrity_ok: boolean; ready_to_call: boolean; blockers: string[]; warnings: string[]; mode: string; simulation: boolean; version: string; }
 export interface Policy { id: string; approved: boolean; registry_required: boolean; state_registry_required: boolean; local_start_hour: number;
-  local_end_hour: number; max_attempts: number; permissions: string[]; review_reference: string; reason?: string; }
+  local_end_hour: number; max_attempts: number; permissions: string[]; review_reference: string; reason?: string; voicemail_enabled?: boolean; voicemail_optout_supported?: boolean; approved_assets?: string[]; detached_topology_verified?: boolean; topology_test_reference?: string; late_human_recovery_destination?: string; }
 export interface Playbook { id: string; name: string; approved: boolean; opener: string; screening_intro: string; cards: { id: string; text: string; tags: string[] }[]; }
 export interface Workspace { mode: string; simulation: boolean; seller: { id: string; name: string; approved: boolean };
   user: { id: string; name: string; role: string; presence: { status: string; audio_ready?: boolean; agent_call_control_id?: string } };
@@ -26,6 +26,7 @@ export interface Workspace { mode: string; simulation: boolean; seller: { id: st
   metrics: Record<string, number | boolean>; readiness: Readiness; playbooks: Playbook[];
   registries: { id: string; kind: string; npas: string[]; refreshed_at: string; checksum: string; synthetic?: boolean }[];
   jobs: { id: string; queue: string; status: string; attempts: number; error?: string }[];
+  trackers: { id: string; name: string; kind: string; version: number }[];
   models: { id: string; active: boolean; metrics: Record<string, number>; checksum: string }[];
   tasks: { id: string; action: string; due_at: string | null; status: string; lead_id: string }[];
 }

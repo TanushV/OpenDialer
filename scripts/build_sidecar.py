@@ -10,7 +10,7 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 os.chdir(root)
 triple = (
-    subprocess.check_output([shutil.which("rustc") or "/usr/bin/rustc", "-vV"], text=True)
+    subprocess.check_output([shutil.which("rustc") or "/usr/bin/rustc", "-vV"], text=True)  # noqa: S603 - fixed toolchain probe
     .split("host: ")[1]
     .splitlines()[0]
 )  # noqa: S603 - fixed toolchain probe

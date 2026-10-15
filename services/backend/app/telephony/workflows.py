@@ -115,6 +115,32 @@ class TelephonyWorkflows:
                 else:
                     self.control_intent(s, p, call_id, "hangup", {}, suffix="late-human-no-destination")
                 update(call, late_human=True, recovery_required=True)
+            if (
+                event_type == "call.gather.ended"
+                and call.data.get("voicemail_asset")
+                and call.data["state"] not in TERMINAL
+            ):
+                if payload.get("digits") == "9":
+                    optout_phone = lead.data["phone"]
+                    self.control_intent(s, p, call_id, "playback_stop", {}, suffix="optout-stop")
+                    self.control_intent(s, p, call_id, "hangup", {}, suffix="optout-hangup")
+                    self.finish_call(s, p, call, "voicemail_optout")
+                else:
+                    self.control_intent(
+                        s,
+                        p,
+                        call_id,
+                        "gather",
+                        {
+                            "minimum_digits": 1,
+                            "maximum_digits": 1,
+                            "valid_digits": "9",
+                            "timeout_millis": 60000,
+                            "initial_timeout_millis": 60000,
+                            "gather_id": call_id,
+                        },
+                        suffix="optout-rearm:" + event_id,
+                    )
             if event_type in {"call.playback.ended", "call.playback.failed"}:
                 self.control_intent(s, p, call_id, "hangup", {}, suffix="voicemail-completion")
                 update(
@@ -170,7 +196,10 @@ class TelephonyWorkflows:
                 current = self.required(s, "command_outbox", command["id"], p)
                 if current.data["status"] not in {"pending", "uncertain"}:
                     continue
-                call = self.required(s, "call_attempts", command["call_id"], p)
+                inbound = command.get("inbound", False)
+                call = self.required(
+                    s, "followup_tasks" if inbound else "call_attempts", command["call_id"], p
+                )
                 if command["action"] in {"transcription_start", "record_start"}:
                     lead = self.required(s, "leads", call.data["lead_id"], p)
                     number = self.required(s, "number_inventory", call.data["number_id"], p)
@@ -245,6 +274,20 @@ class TelephonyWorkflows:
         await carrier.verify_incoming_only_credential(credential)
         leg_id = uid()
         with self.db.transaction() as s:
+            prior = next(
+                (
+                    r
+                    for r in self.scoped(s, "call_legs", p)
+                    if r.data.get("kind") == "agent"
+                    and r.data.get("rep_id") == p["user_id"]
+                    and r.data.get("state") in {"submitting", "uncertain", "ringing", "answered"}
+                ),
+                None,
+            )
+            if prior:
+                if prior.data.get("provider_id"):
+                    return {"agent_call_control_id": prior.data["provider_id"]}
+                fail(409, "An agent leg is awaiting provider reconciliation; do not create a second leg")
             leg = put(
                 s,
                 "call_legs",
@@ -260,17 +303,22 @@ class TelephonyWorkflows:
                 object_id=leg_id,
                 now=self.clock(),
             )
-        receipt = await carrier.dial(
-            {
-                "to": f"sip:{sip}@sip.telnyx.com;secure=srtp",
-                "from": inventory[0].data["phone"],
-                "time_limit_secs": self.settings.max_call_seconds,
-                "command_id": leg_id,
-                "client_state": base64.b64encode(
-                    json.dumps({"agent_leg_id": leg_id, "tenant_id": p["tenant_id"]}).encode()
-                ).decode(),
-            }
-        )
+        try:
+            receipt = await carrier.dial(
+                {
+                    "to": f"sip:{sip}@sip.telnyx.com;secure=srtp",
+                    "from": inventory[0].data["phone"],
+                    "time_limit_secs": self.settings.max_call_seconds,
+                    "command_id": leg_id,
+                    "client_state": base64.b64encode(
+                        json.dumps({"agent_leg_id": leg_id, "tenant_id": p["tenant_id"]}).encode()
+                    ).decode(),
+                }
+            )
+        except Exception:
+            with self.db.transaction() as s:
+                update(self.required(s, "call_legs", leg.id, p), state="uncertain")
+            fail(503, "Agent submission is uncertain; await its signed receipt or reconcile before retrying")
         with self.db.transaction() as s:
             update(
                 self.required(s, "call_legs", leg.id, p),
@@ -373,8 +421,18 @@ class TelephonyWorkflows:
             )
             if route == "responsible_rep":
                 p = {"tenant_id": tenant_id, "seller_id": seller_id}
+                answer = self.control_intent(
+                    s,
+                    p,
+                    task.id,
+                    "answer",
+                    {},
+                    target=payload.get("call_control_id"),
+                    suffix="inbound-answer",
+                )
+                update(answer, inbound=True)
                 # A callback is scoped to the called seller before matching the caller.
-                self.control_intent(
+                transfer = self.control_intent(
                     s,
                     p,
                     task.id,
@@ -383,4 +441,5 @@ class TelephonyWorkflows:
                     target=payload.get("call_control_id"),
                     suffix="inbound-transfer",
                 )
+                update(transfer, inbound=True)
             return doc(task)

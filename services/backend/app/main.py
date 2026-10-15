@@ -3,6 +3,7 @@ import base64
 import hashlib
 import json
 import logging
+import re
 import secrets
 import time
 from contextlib import asynccontextmanager
@@ -191,7 +192,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
     if not settings.secret_key:
         raise ValueError("A persistent OPENDIALER_SECRET_KEY is required; use the desktop or CLI bootstrap")
     clock = clock or (lambda: datetime.now(UTC))
-    db = Database(settings.database_url)
+    db = Database(settings.database_url, encryption_key=settings.secret_key)
     service = Dialer(db, settings, clock, carrier)
     stop = asyncio.Event()
 
@@ -245,7 +246,11 @@ def create_app(settings=None, *, clock=None, carrier=None):
         ):
             return JSONResponse({"detail": "Request too large"}, status_code=413)
         host = request.headers.get("host", "").split(":")[0]
-        if settings.mode == "local" and host not in {"127.0.0.1", "localhost", "testserver", "["}:
+        if (
+            settings.mode == "local"
+            and request.url.path != "/webhooks/telnyx"
+            and host not in {"127.0.0.1", "localhost", "testserver", "["}
+        ):
             return JSONResponse({"detail": "Local authority host rejected"}, status_code=403)
         origin = request.headers.get("origin")
         if origin and origin not in settings.allowed_origins:
@@ -378,7 +383,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
             return {
                 **doc(call),
                 "transcript": service.transcript_rows(s, p, call_id),
-                "coach": coach[-1] if coach else None,
+                "coach": coach[-1] if coach and call.data["state"] not in {"ENDED", "FINALIZED"} else None,
             }
 
     @app.post("/v1/calls/{call_id}/hangup")
@@ -592,8 +597,10 @@ def create_app(settings=None, *, clock=None, carrier=None):
         provider = service.carrier(p["tenant_id"])
         with db.transaction(False) as s:
             user = service.required(s, "users", p["user_id"], p)
-            credential = user.data.get("telephony_credential_id") or service.vault.read(p["tenant_id"]).get(
-                "telephony_credential_id"
+            credential = user.data.get("telephony_credential_id") or (
+                service.vault.read(p["tenant_id"]).get("telephony_credential_id")
+                if p["role"] in {"owner", "admin"}
+                else None
             )
         if not credential and not settings.simulation:
             fail(503, "Scoped rep telephony credential is not configured")
@@ -700,25 +707,106 @@ def create_app(settings=None, *, clock=None, carrier=None):
                     raise
         return {"added": added, "provider_count": len(inventory)}
 
+    @app.post("/v1/admin/numbers/search")
+    async def search_numbers(data: dict, p=Depends(administrator)):
+        from decimal import Decimal, InvalidOperation
+
+        region = str(data.get("region", ""))
+        if not re.fullmatch(r"[2-9][0-9]{2}", region):
+            fail(422, "A US area code is required")
+        found = await service.carrier(p["tenant_id"]).search_numbers(region)
+        quotes = []
+        with db.transaction() as s:
+            for candidate in found[:10]:
+                cost = candidate.get("cost_information", {})
+                try:
+                    upfront, monthly = Decimal(cost["upfront_cost"]), Decimal(cost["monthly_cost"])
+                    if not upfront.is_finite() or not monthly.is_finite() or min(upfront, monthly) < 0:
+                        continue
+                except (KeyError, InvalidOperation, TypeError):
+                    continue
+                phone = candidate.get("phone_number", "")
+                if cost.get("currency") != "USD" or not re.fullmatch(r"\+1[2-9][0-9]{9}", phone):
+                    continue
+                value = {
+                    "phone": phone,
+                    "region": region,
+                    "monthly_cost_usd": float(monthly),
+                    "initial_commitment_usd": float(upfront + monthly),
+                    "expires_at": (clock() + timedelta(minutes=5)).isoformat(),
+                    "currency": "USD",
+                }
+                put(
+                    s,
+                    "command_outbox",
+                    p["tenant_id"],
+                    p["seller_id"],
+                    {"kind": "number_quote", "status": "quoted", **value},
+                    now=clock(),
+                )
+                quotes.append(value)
+        return {"numbers": quotes, "simulation": settings.simulation}
+
     @app.post("/v1/admin/numbers/purchase")
     async def purchase_numbers(data: dict, p=Depends(administrator)):
+        import math
+
         numbers, budget = data.get("phone_numbers", []), data.get("approved_budget_usd", 0)
-        if not numbers or budget < len(numbers):
-            fail(403, "Number purchase requires an adequate operator-approved budget")
+        identifier = data.get("idempotency_key", "")
+        if (
+            not isinstance(numbers, list)
+            or not 1 <= len(numbers) <= 10
+            or len(set(numbers)) != len(numbers)
+            or not isinstance(budget, (int, float))
+            or not math.isfinite(budget)
+            or budget < 0
+            or not isinstance(identifier, str)
+            or not 1 <= len(identifier) <= 128
+        ):
+            fail(422, "Unique numbers, an explicit finite budget and an idempotency key are required")
         with db.transaction() as s:
-            configured = service.scoped(s, "budgets", p)[0].data.get("number_purchase_limit_usd", 0)
-            if budget > configured:
-                fail(403, "Number purchase exceeds configured procurement budget")
-            key = "purchase:" + str(data.get("idempotency_key", ""))
+            key = "purchase:" + identifier
             prior = next((c for c in service.scoped(s, "command_outbox", p) if c.external_key == key), None)
             if prior:
+                if prior.data["numbers"] != numbers or prior.data["approved_budget_usd"] != budget:
+                    fail(409, "Idempotency key belongs to another purchase")
                 return doc(prior)
+            quotes = [
+                q
+                for q in service.scoped(s, "command_outbox", p)
+                if q.data["kind"] == "number_quote" and dt(q.data["expires_at"]) > clock()
+            ]
+            total = 0.0
+            for phone in numbers:
+                quote = next((q for q in reversed(quotes) if q.data["phone"] == phone), None)
+                if not quote:
+                    fail(403, "Each number requires a fresh carrier quote")
+                if any(n.data["phone"] == phone for n in service.scoped(s, "number_inventory", p)):
+                    fail(409, "Number is already in inventory")
+                total += quote.data["initial_commitment_usd"]
+            configured = service.scoped(s, "budgets", p)[0].data.get("number_purchase_limit_usd", 0)
+            committed = sum(
+                c.data.get("committed_usd", 0)
+                for c in service.scoped(s, "command_outbox", p)
+                if c.data["kind"] == "purchase"
+                and c.data["status"] in {"sending", "uncertain", "completed"}
+                and c.created_at.replace(tzinfo=clock().tzinfo).date().replace(day=1)
+                == clock().date().replace(day=1)
+            )
+            if total > budget or budget > configured or committed + total > configured:
+                fail(403, "Quote exceeds the approved or monthly procurement ceiling")
             intent = put(
                 s,
                 "command_outbox",
                 p["tenant_id"],
                 p["seller_id"],
-                {"kind": "purchase", "status": "sending", "numbers": numbers, "approved_budget_usd": budget},
+                {
+                    "kind": "purchase",
+                    "status": "sending",
+                    "numbers": numbers,
+                    "approved_budget_usd": budget,
+                    "committed_usd": total,
+                },
                 key=key,
                 now=clock(),
             )
@@ -731,8 +819,44 @@ def create_app(settings=None, *, clock=None, carrier=None):
         with db.transaction() as s:
             update(service.required(s, "command_outbox", intent.id, p), status="completed", receipt=receipt)
         for n in numbers:
-            service.add_number(p, {"phone": n, "lifecycle": "purchased"})
-        return {"order_id": receipt.get("id"), "purchased": True}
+            service.add_number(p, {"phone": n, "lifecycle": "purchased", "region": n[2:5]})
+        return {"order_id": receipt.get("data", receipt).get("id"), "purchased": True}
+
+    @app.post("/v1/admin/variants")
+    def create_variant(data: dict, p=Depends(administrator)):
+        opener = data.get("opener", "")
+        with db.transaction() as s:
+            service.required(s, "campaigns", data.get("campaign_id", ""), p)
+            seller = service.required(s, "sellers", p["seller_id"], p)
+            if (
+                not data.get("approved")
+                or not data.get("review_reference")
+                or not isinstance(opener, str)
+                or not 10 <= len(opener) <= 500
+                or seller.data["name"].casefold() not in opener.casefold()
+                or any(
+                    term in opener.casefold()
+                    for term in ["guarantee", "we spoke before", "double your revenue"]
+                )
+            ):
+                fail(422, "Reviewed truthful language with the approved business identity is required")
+            variant = put(
+                s,
+                "treatment_variants",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    "campaign_id": data["campaign_id"],
+                    "name": str(data.get("name", "Variant"))[:100],
+                    "opener": opener,
+                    "approved": True,
+                    "review_reference": str(data["review_reference"])[:1000],
+                    "reviewed_by": p["user_id"],
+                },
+                now=clock(),
+            )
+            audit(s, p["tenant_id"], p["seller_id"], p["user_id"], "variant.approved", variant.id, clock())
+            return doc(variant)
 
     @app.post("/v1/admin/recovery")
     async def recovery(p=Depends(administrator)):
@@ -837,6 +961,21 @@ def create_app(settings=None, *, clock=None, carrier=None):
             )
             result = doc(call)
         with db.transaction() as session:
+            service.control_intent(
+                session,
+                p,
+                call_id,
+                "gather",
+                {
+                    "minimum_digits": 1,
+                    "maximum_digits": 1,
+                    "valid_digits": "9",
+                    "timeout_millis": 60000,
+                    "initial_timeout_millis": 60000,
+                    "gather_id": call_id,
+                },
+                suffix="voicemail-optout",
+            )
             service.control_intent(
                 session,
                 p,
@@ -1335,6 +1474,19 @@ def create_app(settings=None, *, clock=None, carrier=None):
         if not data.get("reason"):
             fail(422, "Rollback reason required")
         with db.transaction() as session:
+            if model_id == "baseline":
+                for item in service.scoped(session, "model_versions", p):
+                    update(item, active=False)
+                audit(
+                    session,
+                    p["tenant_id"],
+                    p["seller_id"],
+                    p["user_id"],
+                    "model.baseline_restored",
+                    p["tenant_id"],
+                    clock(),
+                )
+                return {"active": "pooled-beta-v1"}
             model = service.required(session, "model_versions", model_id, p)
             for item in service.scoped(session, "model_versions", p):
                 update(item, active=item.id == model.id)
@@ -1504,5 +1656,41 @@ def create_app(settings=None, *, clock=None, carrier=None):
                     if m.get("visibility") == "list"
                 ]
             }
+
+    @app.post("/v1/admin/restore/reconcile")
+    async def reconcile_restore(data: dict, p=Depends(administrator)):
+        return await service.reconcile_restore(p, data.get("review_reference"), data.get("provider_ids"))
+
+    @app.post("/v1/admin/models/{model_id}/trial")
+    def save_trial(model_id: str, data: dict, p=Depends(administrator)):
+        if (
+            not data.get("report_reference")
+            or not isinstance(data.get("policy_violations"), int)
+            or "coverage_delta" not in data
+        ):
+            fail(
+                422,
+                "A reviewed controlled-trial report, coverage delta and policy violation count are required",
+            )
+        with db.transaction() as session:
+            model = service.required(session, "model_versions", model_id, p)
+            update(
+                model,
+                online_trial_passed=bool(data.get("online_trial_passed")),
+                report_reference=data["report_reference"],
+                coverage_delta=float(data["coverage_delta"]),
+                policy_violations=data["policy_violations"],
+                trial_reviewed_by=p["user_id"],
+            )
+            audit(
+                session,
+                p["tenant_id"],
+                p["seller_id"],
+                p["user_id"],
+                "model.trial_reviewed",
+                model.id,
+                clock(),
+            )
+            return doc(model)
 
     return app

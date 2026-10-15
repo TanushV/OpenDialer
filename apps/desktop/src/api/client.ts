@@ -58,3 +58,10 @@ export async function validateServer(url: string) {
   if (parsed.username || parsed.password || parsed.search || parsed.hash || (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(parsed.hostname))))
     throw new Error('Use HTTPS for your server, or a loopback HTTP development server.');
 }
+export async function readCache(namespace: string, simulation: boolean): Promise<string | null> {
+  if (!native()) return null;
+  return await invoke('cache_read', { namespace, simulation });
+}
+export async function writeCache(namespace: string, value: unknown, simulation: boolean): Promise<void> {
+  if (native()) await invoke('cache_write', { namespace, value: JSON.stringify(value), simulation });
+}

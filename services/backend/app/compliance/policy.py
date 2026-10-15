@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 class CallContext:
     now: datetime
     seller_approved: bool = False
+    authorization_reconciled: bool = True
     policy_published: bool = False
     endpoint_valid: bool = False
     ownership: str = "unknown"
@@ -54,6 +55,7 @@ def authorize(c: CallContext) -> Decision:
             reasons.append(reason)
 
     require(c.seller_approved, "SELLER_NOT_APPROVED")
+    require(c.authorization_reconciled, "RESTORE_RECONCILIATION_REQUIRED")
     require(c.policy_published, "POLICY_NOT_PUBLISHED")
     require(c.endpoint_valid, "INVALID_ENDPOINT")
     require(c.ownership != "wrong_party", "WRONG_PARTY")

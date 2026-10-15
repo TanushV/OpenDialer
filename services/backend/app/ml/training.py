@@ -78,3 +78,24 @@ def promotion_allowed(model):
         and model.get("policy_violations", 1) == 0
         and model.get("metrics", {}).get("brier", 1) < model.get("metrics", {}).get("baseline_brier", 0)
     )
+
+
+def predict_challenger(model, features, artifact_root):
+    """Only load checksum-verified artifacts written by this authority's training lane."""
+    try:
+        path = Path(model["artifact"]).resolve()
+        if not path.is_relative_to(Path(artifact_root).resolve()) or not path.is_file():
+            return None
+        if hashlib.sha256(path.read_bytes()).hexdigest() != model["checksum"]:
+            return None
+        key = (str(path), model["checksum"])
+        if key not in _MODELS:
+            _MODELS.clear()
+            _MODELS[key] = joblib.load(path)
+        vector = [[float(features.get(k, 0)) for k in model["feature_order"]]]
+        return float(_MODELS[key].predict_proba(vector)[0][1])
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+_MODELS = {}

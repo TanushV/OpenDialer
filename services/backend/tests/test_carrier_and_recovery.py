@@ -152,3 +152,17 @@ def test_watchdog_ends_orphan_without_resubmitting_dial(workspace, carrier, cloc
     assert r.status_code == 200
     assert c.get(f"/v1/calls/{call['id']}", headers=h).json()["state"] == "ENDED"
     assert len(carrier.dials) == 1
+
+
+def test_restore_holds_new_outbound_until_authorization_journal_is_reconciled(workspace):
+    c, h = workspace["client"], workspace["headers"]
+    backup = c.post("/v1/admin/backup", headers=h).json()
+    c.post("/v1/admin/restore", headers=h, json={"backup_id": backup["backup_id"]})
+    check = c.get("/v1/admin/preflight", headers=h).json()
+    assert "RESTORE_RECONCILIATION_REQUIRED" in check["blockers"]
+    result = c.post(
+        "/v1/admin/restore/reconcile",
+        headers=h,
+        json={"review_reference": "Reviewed synthetic empty carrier state"},
+    )
+    assert result.status_code == 200, result.text

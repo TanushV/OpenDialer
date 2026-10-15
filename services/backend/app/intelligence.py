@@ -131,6 +131,28 @@ class Application(Service):
                 if scripts
                 else self.fallback_script(s, p, lead)
             )
+            reservations = [
+                r
+                for r in self.scoped(s, "reservations", p)
+                if r.data["lead_id"] == lead.id and r.data["rep_id"] == p["user_id"]
+            ]
+            if reservations:
+                selected = max(reservations, key=lambda r: r.created_at).data.get("treatment_variant_id")
+                variant = next(
+                    (
+                        v
+                        for v in self.scoped(s, "treatment_variants", p)
+                        if v.id == selected and v.data.get("approved")
+                    ),
+                    None,
+                )
+                if variant:
+                    user = self.required(s, "users", p["user_id"], p)
+                    script = {
+                        **script,
+                        "opener": variant.data["opener"].replace("{rep}", user.data["name"]),
+                        "treatment_variant_id": variant.id,
+                    }
             facts = [
                 doc(r)
                 for r in self.scoped(s, "research_facts", p)
@@ -563,7 +585,7 @@ class Application(Service):
                         "call_id": call_id,
                         "notes": generated["notes"],
                         "human_text": None,
-                        "status": "draft",
+                        "status": "ai_finalized" if force else "draft",
                         "suggested_update": None,
                     },
                     key=call_id,

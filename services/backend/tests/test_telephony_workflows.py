@@ -113,3 +113,63 @@ def test_inbound_callback_resolves_seller_and_ambiguous_caller_is_queued(workspa
         )
     )
     assert unknown["route"] == "callback_queue" and unknown["lead_id"] is None
+
+
+def test_ready_responsible_rep_receives_inbound_transfer_through_durable_outbox(workspace, carrier):
+    import asyncio
+
+    from app.db import get, update
+
+    call = start(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
+    service = c.app.state.service
+    with service.db.transaction() as s:
+        user = get(s, "users", workspace["user_id"])
+        update(user, sip_username="scoped-rep", presence={"status": "ready"})
+    task = asyncio.run(
+        service.inbound_callback(
+            workspace["tenant_id"],
+            {"call_control_id": "incoming-controlled", "to": "+14155550100", "from": "+14155550101"},
+            "transfer-event",
+        )
+    )
+    assert task["route"] == "responsible_rep"
+    asyncio.run(service.dispatch_controls(workspace))
+    assert any(
+        a["action"] == "transfer" and a["provider_id"] == "incoming-controlled" for a in carrier.actions
+    )
+
+
+def test_voicemail_optout_gather_stays_active_until_call_ends(workspace, carrier):
+    call = start(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    c.post(
+        f"/v1/admin/policies/{workspace['policy_id']}/publish",
+        headers=h,
+        json={
+            "approved": True,
+            "permissions": ["live", "prerecorded"],
+            "voicemail_enabled": True,
+            "voicemail_optout_supported": True,
+            "approved_assets": ["reviewed-vm"],
+        },
+    )
+    for name in [
+        "call.answered",
+        "call.machine.detection.ended:machine",
+        "call.machine.greeting.ended:beep_detected",
+    ]:
+        event(workspace, call, name)
+    assert (
+        c.post(
+            f"/v1/calls/{call['id']}/voicemail", headers=h, json={"asset_id": "reviewed-vm", "detach": False}
+        ).status_code
+        == 200
+    )
+    assert any(a["action"] == "gather" and a["payload"]["valid_digits"] == "9" for a in carrier.actions)
+    event(workspace, call, "call.gather.ended", {"status": "timeout", "gather_id": call["id"]})
+    c.post("/v1/admin/control/run", headers=h)
+    assert len([a for a in carrier.actions if a["action"] == "gather"]) == 2
+    event(workspace, call, "call.dtmf.received", {"digit": "9"})
+    assert c.get("/v1/workspace", headers=h).json()["leads"][0]["suppressed"]

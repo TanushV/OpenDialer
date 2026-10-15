@@ -102,6 +102,20 @@ class TelnyxCarrier:
             page += 1
         return found
 
+    async def search_numbers(self, region):
+        from urllib.parse import urlencode
+
+        query = urlencode(
+            {
+                "filter[country_code]": "US",
+                "filter[national_destination_code]": region,
+                "filter[features]": "voice",
+                "filter[limit]": 10,
+            }
+        )
+        response = await self.request("GET", "/available_phone_numbers?" + query)
+        return response.get("data", [])
+
     async def purchase(self, numbers, command_id):
         # Number order API has no invented idempotency field; durable outbox prevents unknown-outcome resubmission.
         return await self.request(

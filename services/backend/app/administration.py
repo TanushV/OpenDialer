@@ -7,7 +7,7 @@ import re
 
 from sqlalchemy import delete, select
 
-from app.db import MODELS, ActiveClaim, Job, audit, doc, emit, put, rows, uid, update
+from app.db import MODELS, ActiveClaim, Job, audit, doc, emit, get, put, rows, uid, update
 from app.intelligence import Application
 from app.service import dt, fail
 from app.telephony.reducer import TERMINAL
@@ -71,6 +71,8 @@ class Dialer(TelephonyWorkflows, Application):
                 blockers.append("POLICY_NOT_PUBLISHED")
             if not seller.data.get("approved"):
                 blockers.append("SELLER_NOT_APPROVED")
+            if seller.data.get("restore_hold"):
+                blockers.append("RESTORE_RECONCILIATION_REQUIRED")
             if not any(
                 n.data["lifecycle"] in {"healthy", "limited_real_use"}
                 for n in self.scoped(s, "number_inventory", p)
@@ -467,6 +469,8 @@ class Dialer(TelephonyWorkflows, Application):
             for command in self.scoped(s, "command_outbox", p):
                 if command.data.get("status") in {"pending", "sending"}:
                     update(command, status="uncertain", restore_hold=True)
+            seller = self.required(s, "sellers", p["seller_id"], p)
+            update(seller, restore_hold=True)
             for user in self.scoped(s, "users", p):
                 update(user, presence={"status": "paused", "audio_ready": False, "pending_optouts": 0})
             audit(
@@ -480,3 +484,72 @@ class Dialer(TelephonyWorkflows, Application):
                 {"journal_replayed": len(events)},
             )
         return {"restored": True, "suppression_journal_replayed": len(events), "outbound_paused": True}
+
+    async def reconcile_restore(self, p, review_reference, provider_ids=None):
+        if not review_reference:
+            fail(422, "A reviewed carrier and authorization-journal reconciliation reference is required")
+        journal_path = self.settings.data_dir / "authorization-journal.enc"
+        records = {}
+        if journal_path.exists():
+            for line in journal_path.read_bytes().splitlines():
+                entry = json.loads(self.vault.cipher.decrypt(line))
+                if entry["tenant_id"] == p["tenant_id"] and entry["seller_id"] == p["seller_id"]:
+                    previous = records.get(entry["call_id"], {})
+                    records[entry["call_id"]] = {
+                        **previous,
+                        **entry,
+                        "provider_id": entry.get("provider_id") or previous.get("provider_id"),
+                    }
+        unresolved = []
+        for call_id, entry in records.items():
+            with self.db.transaction(False) as session:
+                current = get(session, "call_attempts", call_id, p["tenant_id"])
+                if current and current.data["state"] in TERMINAL:
+                    continue
+            provider_id = (provider_ids or {}).get(call_id) or entry.get("provider_id")
+            receipt = await self.carrier(p["tenant_id"]).reconcile(call_id, provider_id)
+            ended = receipt and (
+                receipt.get("is_alive") is False or receipt.get("state") in {"hangup", "ended", "completed"}
+            )
+            if not ended:
+                unresolved.append(call_id)
+                continue
+            with self.db.transaction() as session:
+                current = get(session, "call_attempts", call_id, p["tenant_id"])
+                if not current:
+                    current = put(
+                        session,
+                        "call_attempts",
+                        p["tenant_id"],
+                        p["seller_id"],
+                        {
+                            **entry["intent"],
+                            "provider_id": receipt.get("call_control_id", provider_id),
+                            "state": "ENDED",
+                            "restore_recovered": True,
+                        },
+                        object_id=call_id,
+                        now=self.clock(),
+                    )
+                else:
+                    self.finish_call(session, p, current, "restored_provider_terminal_receipt")
+        if unresolved:
+            fail(409, {"code": "AUTHORIZATION_RECONCILIATION_PENDING", "call_ids": unresolved})
+        with self.db.transaction() as session:
+            seller = self.required(session, "sellers", p["seller_id"], p)
+            update(seller, restore_hold=False, restore_review_reference=review_reference)
+            audit(
+                session,
+                p["tenant_id"],
+                p["seller_id"],
+                p["user_id"],
+                "restore.reconciled",
+                seller.id,
+                self.clock(),
+                {"journal_calls": len(records), "reference": review_reference},
+            )
+        return {
+            "reconciled": True,
+            "journal_calls": len(records),
+            "outbound_remains_paused_until_rep_ready": True,
+        }

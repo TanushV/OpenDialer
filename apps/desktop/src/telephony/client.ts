@@ -5,6 +5,7 @@ export class Telephony {
   private client: TelnyxRTC | null = null;
   private call: Call | null = null;
   private expectedAgent = false;
+  private inputId = ''; private outputId = '';
   status = 'disconnected';
   onStatus: (status: string) => void = () => {};
   async connect(token: string, audio: HTMLAudioElement) {
@@ -15,6 +16,8 @@ export class Telephony {
     this.client = new TelnyxRTC({ login_token: token, debug: false, enableCallReports: false, enableCallRecording: false,
       keepConnectionAliveOnSocketClose: true, maxReconnectAttempts: 8 });
     this.client.remoteElement = audio;
+    if (this.inputId) this.client.micId = this.inputId;
+    if (this.outputId) this.client.speaker = this.outputId;
     this.client.on('telnyx.notification', event => {
       if (event.type === 'callUpdate' && event.call) {
         if (event.call.state === 'ringing' && this.expectedAgent) { this.call = event.call; event.call.answer({ remoteElement: audio, video: false }); }
@@ -33,8 +36,8 @@ export class Telephony {
   expectAgentLeg() { this.expectedAgent = true; }
   mute() { this.call?.toggleAudioMute(); }
   dtmf(value: string) { if (!/^[0-9*#]+$/.test(value)) throw new Error('Use keypad digits only.'); this.call?.dtmf(value); }
-  async input(id: string) { await this.call?.setAudioInDevice(id); }
-  async output(id: string) { await this.call?.setAudioOutDevice(id); }
+  async input(id: string) { this.inputId = id; if (this.client) this.client.micId = id; if (this.call) await this.call.setAudioInDevice(id); }
+  async output(id: string) { this.outputId = id; if (this.client) this.client.speaker = id; if (this.call) await this.call.setAudioOutDevice(id); }
   async devices() { return await navigator.mediaDevices.enumerateDevices(); }
   async emergencyHangup() { await this.call?.hangup(); }
   disconnect() { this.client?.disconnect(); this.client = null; this.call = null; }

@@ -67,3 +67,33 @@ test('connected authentication and shared state survive reconnect', async ({ pag
   await page.reload();
   await expect(page.getByText('Connected', { exact: true })).toBeVisible();
 });
+
+test('advanced administration exposes evidence-controlled workflows', async ({ page }) => {
+  await enterSimulation(page);
+  await page.getByRole('button', { name: 'Intelligence', exact: true }).click();
+  await page.getByLabel('Tracker name').fill('Existing supplier');
+  await page.getByLabel('Tracker definition').fill('A prospect explicitly mentions an existing supplier.');
+  await page.getByRole('textbox', { name: 'Keyword phrases', exact: true }).fill('another provider\nexisting supplier');
+  await page.getByRole('button', { name: 'Publish tracker' }).click();
+  await expect(page.getByText('Existing supplier', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Policy & DNC', exact: true }).click();
+  await expect(page.getByLabel('Business identity evidence')).toBeVisible();
+});
+
+test('approved variants and quoted procurement are operable from administration', async ({ page }) => {
+  await enterSimulation(page);
+  await page.getByRole('button', { name: 'Intelligence', exact: true }).click();
+  await page.getByLabel('Variant name').fill('Purpose first');
+  await page.getByLabel('Variant introduction').fill('Hi, this is {rep} from Example Seller. May I explain why I called?');
+  await page.getByLabel('Variant review reference').fill('Synthetic review only');
+  await page.getByRole('button', { name: 'Publish approved variant' }).click();
+  await expect(page.getByText('Approved treatment published.')).toBeVisible();
+  await page.getByRole('button', { name: 'Numbers', exact: true }).click();
+  await page.getByLabel('Procurement area code').fill('415');
+  await page.getByRole('button', { name: 'Get carrier quotes' }).click();
+  await expect(page.getByText('First month + setup')).toBeVisible();
+  await page.getByRole('button', { name: 'Dialer', exact: true }).click();
+  await page.getByRole('button', { name: 'Audio devices', exact: true }).click();
+  await expect(page.getByLabel('Microphone')).toBeVisible();
+});

@@ -3,6 +3,7 @@ import hashlib
 import json
 import logging
 import os
+import secrets
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -424,7 +425,24 @@ class Service:
             for r in snapshots
             if r.data.get("kind") == "state" and r.data.get("jurisdiction") == lead.data.get("jurisdiction")
         ]
-        state_current = any((self.clock() - dt(r.data["refreshed_at"])).days <= 31 for r in state)
+        state = [
+            r
+            for r in state
+            if (self.settings.simulation or not r.data.get("synthetic"))
+            and lead.data["phone"][2:5] in r.data.get("npas", [])
+            and (self.clock() - dt(r.data["refreshed_at"])).total_seconds() <= 31 * 86400
+        ]
+        state_current = bool(state)
+
+        def registry_contains(snapshot):
+            if snapshot.data.get("bitmap"):
+                from app.compliance.registry import RegistryBitmap
+
+                return RegistryBitmap.load(
+                    base64.b64decode(snapshot.data["bitmap"]), snapshot.data["checksum"]
+                ).contains(lead.data["phone"])
+            return lead.data["phone"] in snapshot.data.get("listed_numbers", [])
+
         consents = [
             r.data for r in self.scoped(s, "consent_evidence", p) if r.data.get("endpoint_id") == endpoint.id
         ]
@@ -447,6 +465,7 @@ class Service:
         return CallContext(
             now=self.clock(),
             seller_approved=seller.data.get("approved", False),
+            authorization_reconciled=not seller.data.get("restore_hold", False),
             policy_published=config.get("approved", False)
             and (self.settings.simulation or not config.get("synthetic")),
             endpoint_valid=endpoint.data["format_status"] == "valid"
@@ -461,7 +480,7 @@ class Service:
             registry_listed=listed,
             state_registry_required=config.get("state_registry_required", False),
             state_registry_current=state_current,
-            state_registry_listed=any(lead.data["phone"] in r.data.get("listed_numbers", []) for r in state),
+            state_registry_listed=any(registry_contains(r) for r in state),
             internal_suppressed=self.suppressed(s, p, lead.data["phone"]),
             consent_required=config.get("consent_required", False),
             consent_valid=granted,
@@ -601,18 +620,45 @@ class Service:
                     history.append(
                         {
                             "segment": historical_lead.data.get("segment"),
-                            "local_hour": at.hour,
+                            "local_hour": at.astimezone(
+                                ZoneInfo(historical_lead.data.get("timezone") or "UTC")
+                            ).hour,
                             "outcome": historical_call.data.get("outcome"),
                             "duration_seconds": (ended - at).total_seconds() if ended else 0,
                         }
                     )
-            predictions = {}
+            predictions, pooled_cache = {}, {}
             for candidate_lead in leads:
                 timezone = candidate_lead.data.get("timezone")
                 hour = now.astimezone(ZoneInfo(timezone)).hour if timezone else 12
-                predictions[candidate_lead.id] = pooled_predictions(
-                    history, segment=candidate_lead.data["segment"], hour=hour
-                )
+                cache_key = (candidate_lead.data["segment"], hour)
+                if cache_key not in pooled_cache:
+                    pooled_cache[cache_key] = pooled_predictions(history, segment=cache_key[0], hour=hour)
+                predictions[candidate_lead.id] = dict(pooled_cache[cache_key])
+            active_model = next(
+                (m for m in self.scoped(s, "model_versions", p) if m.data.get("active")), None
+            )
+            if active_model:
+                from app.ml.training import predict_challenger
+
+                for candidate_lead in leads:
+                    control = int(hashlib.sha256(candidate_lead.id.encode()).hexdigest()[:8], 16) % 10 == 0
+                    if not control:
+                        estimate = predict_challenger(
+                            active_model.data,
+                            {
+                                "local_hour": now.astimezone(
+                                    ZoneInfo(candidate_lead.data.get("timezone") or "UTC")
+                                ).hour,
+                                "attempt_count": candidate_lead.data.get("attempt_count", 0),
+                                "number_health": 0.5,
+                            },
+                            self.settings.data_dir / "models",
+                        )
+                        if estimate is not None:
+                            predictions[candidate_lead.id].update(
+                                p_human=estimate, model_version=active_model.id
+                            )
             by_id = {r.id: r for r in leads}
             candidates = rank_candidates(
                 [{"id": r.id, **r.data, "propensity": predictions[r.id]["p_human"]} for r in leads], now
@@ -691,8 +737,44 @@ class Service:
                     {"lead_id": lead.id, "as_of": now.isoformat(), "features": features},
                     now=now,
                 )
-                choice = choose_action(["approved-default"], "approved-default")
+                variants = [
+                    v
+                    for v in self.scoped(s, "treatment_variants", p)
+                    if v.data.get("approved") and v.data["campaign_id"] == campaign.id
+                ]
+                actions = [v.id for v in variants] or ["approved-default"]
                 control = int(hashlib.sha256(lead.id.encode()).hexdigest()[:8], 16) % 10 == 0
+                urgent = bool(
+                    lead.data.get("callback_due_at")
+                    or lead.data.get("requested_contact")
+                    or dt(lead.data["coverage_due_at"]) <= now
+                )
+                choice = choose_action(
+                    actions,
+                    actions[0],
+                    exploration=0 if control or urgent else 0.1,
+                    random_value=secrets.randbelow(1000000) / 1000000,
+                    exploration_index=secrets.randbelow(len(actions)),
+                )
+                update(reservation, treatment_variant_id=choice["action"])
+                assignment = next(
+                    (a for a in self.scoped(s, "experiment_assignments", p) if a.external_key == lead.id),
+                    None,
+                )
+                if not assignment:
+                    put(
+                        s,
+                        "experiment_assignments",
+                        p["tenant_id"],
+                        p["seller_id"],
+                        {
+                            "lead_id": lead.id,
+                            "arm": "control" if control else "candidate",
+                            "assigned_at": now.isoformat(),
+                        },
+                        key=lead.id,
+                        now=now,
+                    )
                 put(
                     s,
                     "policy_decisions",
@@ -760,6 +842,7 @@ class Service:
                     "endpoint_id": lead.data["endpoint_id"],
                     "number_id": number.id,
                     "reservation_id": reservation.id,
+                    "treatment_variant_id": reservation.data.get("treatment_variant_id"),
                     "state": "AUTHORIZED",
                     "started_at": now.isoformat(),
                     "provider_id": None,
@@ -845,6 +928,7 @@ class Service:
                 self.finish_call(s, p, call, "policy_cancelled")
                 return
             payload = command.data["payload"]
+            self.journal_authorization(p, call, payload)
             update(command, status="sending", attempts=1, submitted_at=self.clock().isoformat())
             update(call, state="DIALING")
             update(
@@ -870,6 +954,7 @@ class Service:
                 )
                 self.finish_call(s, p, self.required(s, "call_attempts", call_id, p), "provider_failure")
             return
+        self.journal_authorization(p, call, payload, provider_id=receipt["call_control_id"])
         cancel = False
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
@@ -1063,3 +1148,22 @@ class Service:
                             update(command, status="completed", provider_id=payload["call_control_id"])
                 emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": target})
             return {"duplicate": False, "event_id": event_id, "state": target}
+
+    def journal_authorization(self, p, call, payload, provider_id=None):
+        record = {
+            "call_id": call.id,
+            "tenant_id": p["tenant_id"],
+            "seller_id": p["seller_id"],
+            "user_id": p["user_id"],
+            "at": self.clock().isoformat(),
+            "provider_id": provider_id,
+            "intent": call.data,
+            "command_id": payload["command_id"],
+            "command_hash": hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest(),
+        }
+        path = self.settings.data_dir / "authorization-journal.enc"
+        descriptor = os.open(path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
+        with os.fdopen(descriptor, "ab") as journal:
+            journal.write(self.vault.cipher.encrypt(json.dumps(record).encode()) + b"\n")
+            journal.flush()
+            os.fsync(journal.fileno())

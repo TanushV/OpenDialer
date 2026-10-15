@@ -51,6 +51,14 @@ class SimulatedCarrier:
     async def list_numbers(self):
         return []
 
+    async def search_numbers(self, region):
+        return [
+            {
+                "phone_number": "+1" + region + "5550188",
+                "cost_information": {"currency": "USD", "upfront_cost": "0.00", "monthly_cost": "1.00"},
+            }
+        ]
+
     async def purchase(self, numbers, command_id):
         self.purchases.append({"numbers": numbers, "command_id": command_id})
         return {"id": command_id, "phone_numbers": numbers}

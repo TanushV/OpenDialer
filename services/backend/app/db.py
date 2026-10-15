@@ -1,12 +1,52 @@
+import base64
+import contextvars
 import hashlib
+import hmac
+import json
 import threading
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import JSON, DateTime, Integer, String, UniqueConstraint, create_engine, event, select, text
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
+from sqlalchemy.orm.attributes import flag_modified
+from sqlalchemy.types import TypeDecorator
+
+_DATABASE_CIPHER = contextvars.ContextVar("opendialer_database_cipher", default=None)
+_DATABASE_LOOKUP_KEY = contextvars.ContextVar("opendialer_database_lookup_key", default=None)
+
+
+class EncryptedJSON(TypeDecorator):
+    impl = JSON
+    cache_ok = True
+
+    def coerce_compared_value(self, op, value):
+        return self.impl.coerce_compared_value(op, value)
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        cipher = _DATABASE_CIPHER.get()
+        if cipher is None:
+            raise ValueError("A database encryption context is required")
+        return {
+            "od_encrypted": 1,
+            "token": cipher.encrypt(json.dumps(value, separators=(",", ":")).encode()).decode(),
+        }
+
+    def process_result_value(self, value, dialect):
+        if isinstance(value, dict) and value.get("od_encrypted") == 1:
+            cipher = _DATABASE_CIPHER.get()
+            if cipher is None:
+                raise ValueError("A database encryption context is required")
+            try:
+                return json.loads(cipher.decrypt(value["token"].encode()))
+            except (InvalidToken, KeyError, ValueError) as exc:
+                raise ValueError("Stored data cannot be authenticated with this authority key") from exc
+        return value
 
 
 def uid():
@@ -26,7 +66,7 @@ class Document:
     tenant_id: Mapped[str] = mapped_column(String(36), index=True, default="")
     seller_id: Mapped[str] = mapped_column(String(36), index=True, default="")
     external_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    data: Mapped[dict] = mapped_column(MutableDict.as_mutable(JSON), default=dict)
+    data: Mapped[dict] = mapped_column(MutableDict.as_mutable(EncryptedJSON), default=dict)
     version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -131,7 +171,7 @@ class Event(Base):
     entity_id: Mapped[str] = mapped_column(String(36))
     entity_version: Mapped[int] = mapped_column(Integer, default=1)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    payload: Mapped[dict] = mapped_column(EncryptedJSON, default=dict)
 
 
 class Job(Base):
@@ -140,7 +180,7 @@ class Job(Base):
     tenant_id: Mapped[str] = mapped_column(String(36), index=True)
     queue: Mapped[str] = mapped_column(String(40), index=True)
     key: Mapped[str] = mapped_column(String(512))
-    payload: Mapped[dict] = mapped_column(JSON)
+    payload: Mapped[dict] = mapped_column(EncryptedJSON)
     status: Mapped[str] = mapped_column(String(20), default="queued", index=True)
     priority: Mapped[int] = mapped_column(Integer, default=0)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
@@ -153,7 +193,13 @@ class Job(Base):
 
 
 class Database:
-    def __init__(self, url):
+    def __init__(self, url, encryption_key=None):
+        if not encryption_key:
+            raise ValueError("A persistent authority encryption key is required")
+        self.cipher = Fernet(
+            base64.urlsafe_b64encode(hashlib.sha256((encryption_key + ":database:v1").encode()).digest())
+        )
+        self.identity_key = hashlib.sha256((encryption_key + ":lookup:v1").encode()).digest()
         self.url = url
         self.sqlite = url.startswith("sqlite")
         self.engine = create_engine(
@@ -168,15 +214,51 @@ class Database:
                 connection.execute("PRAGMA journal_mode=WAL")
                 connection.execute("PRAGMA foreign_keys=ON")
                 connection.execute("PRAGMA synchronous=FULL")
+                connection.execute("PRAGMA secure_delete=ON")
 
         self.sessions = sessionmaker(self.engine, expire_on_commit=False)
         self.lock = threading.RLock()
         Base.metadata.create_all(self.engine)
+        self.encrypt_legacy_records()
+
+    def encrypt_legacy_records(self):
+        # A one-time transactional codec migration preserves IDs and human edits during an app update.
+        changed = False
+        with self.transaction() as session:
+            for model in MODELS.values():
+                session.scalar(
+                    select(model).limit(1)
+                )  # Authenticate an existing encrypted store before any rewrite.
+                for obj in session.scalars(
+                    select(model).where(model.data["od_encrypted"].as_integer().is_(None))
+                ):
+                    if (
+                        obj.external_key
+                        and model.__tablename__ in {"phone_endpoints", "number_inventory", "suppressions"}
+                        and obj.external_key.startswith("+")
+                    ):
+                        obj.external_key = hmac.new(
+                            self.identity_key, obj.external_key.encode(), hashlib.sha256
+                        ).hexdigest()
+                    flag_modified(obj, "data")
+                    changed = True
+            for model in (Event, Job):
+                for obj in session.scalars(
+                    select(model).where(model.payload["od_encrypted"].as_integer().is_(None))
+                ):
+                    flag_modified(obj, "payload")
+                    changed = True
+        if changed and self.sqlite:
+            with self.engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+                connection.exec_driver_sql("VACUUM")
+                connection.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
 
     @contextmanager
     def transaction(self, write=True):
         # SQLite has one writer; PostgreSQL uses a transaction-scoped fence. No network I/O in here.
         with self.lock, self.sessions() as session:
+            context_token = _DATABASE_CIPHER.set(self.cipher)
+            lookup_token = _DATABASE_LOOKUP_KEY.set(self.identity_key)
             try:
                 if write:
                     session.execute(
@@ -189,6 +271,9 @@ class Database:
             except Exception:
                 session.rollback()
                 raise
+            finally:
+                _DATABASE_CIPHER.reset(context_token)
+                _DATABASE_LOOKUP_KEY.reset(lookup_token)
 
     def reset(self):
         Base.metadata.drop_all(self.engine)
@@ -218,6 +303,12 @@ def get(s, kind, object_id, tenant_id=None):
 
 
 def put(s, kind, tenant_id, seller_id, data, *, object_id=None, key=None, now=None):
+    if key and kind in {"phone_endpoints", "number_inventory", "suppressions"} and key.startswith("+"):
+        # Lookup keys expose no phone digits at rest. The authoritative endpoint lives in encrypted JSON.
+        cipher = _DATABASE_CIPHER.get()
+        if cipher is None:
+            raise ValueError("Encryption context missing")
+        key = hmac.new(_DATABASE_LOOKUP_KEY.get(), key.encode(), hashlib.sha256).hexdigest()
     obj = MODELS[kind](
         id=object_id or uid(),
         tenant_id=tenant_id,

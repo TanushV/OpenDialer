@@ -136,3 +136,29 @@ def test_notes_optimistic_concurrency_and_scorecard_appeal(workspace):
     )
     assert r.status_code == 200
     assert r.json()["reviewer_id"] == workspace["user_id"]
+
+
+def test_ended_call_never_delivers_a_stale_coaching_card(workspace):
+    call = start(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    c.post(
+        f"/v1/calls/{call['id']}/transcript",
+        headers=h,
+        json={
+            "segment_id": "end-card",
+            "revision": 1,
+            "side": "remote",
+            "text": "We use another provider.",
+            "is_final": True,
+        },
+    )
+    c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
+    assert c.get(f"/v1/calls/{call['id']}", headers=h).json()["coach"] is None
+
+
+def test_first_final_postcall_analysis_has_a_final_status(workspace):
+    call = start(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
+    c.post("/v1/admin/jobs/run", headers=h)
+    assert c.get(f"/v1/calls/{call['id']}/analysis", headers=h).json()["status"] == "ai_finalized"

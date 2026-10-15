@@ -28,3 +28,20 @@ async fn slow_credential_io_does_not_block_the_runtime() {
     }
     assert_eq!(operation.await.unwrap(), "ready");
 }
+
+#[test]
+fn cached_contact_data_is_confidential_authenticated_and_bound_to_its_namespace() {
+    let secret = "test-cache-secret";
+    let text = br#"{"phone":"+14155550101","reason":"opt_out"}"#;
+    let encrypted = opendialer_lib::encrypt_blob(secret, "tenant-a", text).unwrap();
+    assert!(!encrypted.windows(12).any(|w| w == b"+14155550101"));
+    assert_eq!(
+        opendialer_lib::decrypt_blob(secret, "tenant-a", &encrypted).unwrap(),
+        text
+    );
+    assert!(opendialer_lib::decrypt_blob(secret, "tenant-b", &encrypted).is_err());
+    let mut tampered = encrypted.clone();
+    let index = tampered.len() - 1;
+    tampered[index] ^= 1;
+    assert!(opendialer_lib::decrypt_blob(secret, "tenant-a", &tampered).is_err());
+}
