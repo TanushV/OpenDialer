@@ -1,10 +1,20 @@
-import { useEffect, useRef, useState } from 'react';
-import { Activity, ArrowDownToLine, ArrowRight, Check, CircleCheck, Cloud, Database, Download, Globe2, KeyRound, LoaderCircle, LockKeyhole, RefreshCw, ShieldCheck, SlidersHorizontal, Terminal, Wifi } from 'lucide-react';
-import type { Update } from '@tauri-apps/plugin-updater';
-import { date, label, useWorkspace } from '../context';
-import type { Readiness } from '../types';
-import { AccessAndRecovery } from './AdminWorkflows';
-import { native } from '../api/client';
+import type { Update } from "@tauri-apps/plugin-updater";
+import {
+  ArrowDownToLine,
+  Check,
+  Database,
+  Download,
+  LoaderCircle,
+  LockKeyhole,
+  RefreshCw,
+  ShieldCheck,
+  Wifi,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { native, openSource } from "../api/client";
+import { date, label, useWorkspace } from "../context";
+import type { Readiness } from "../types";
+import { AccessAndRecovery } from "./AdminWorkflows";
 
 type SettingsData = Record<string, string | Record<string, boolean>>;
 export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
@@ -12,24 +22,937 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
   const [config, setConfig] = useState<Record<string, string>>({});
   const [configured, setConfigured] = useState<Record<string, boolean>>({});
   const [preflight, setPreflight] = useState<Readiness | null>(null);
-  const [section, setSection] = useState('Providers');
-  const [policy, setPolicy] = useState({ approved: w.policy.approved, registry_required: w.policy.registry_required,
-    state_registry_required: w.policy.state_registry_required, local_start_hour: w.policy.local_start_hour,
-    local_end_hour: w.policy.local_end_hour, max_attempts: w.policy.max_attempts, review_reference: w.policy.review_reference || '', reason: '', permissions: w.policy.permissions, voicemail_enabled: w.policy.voicemail_enabled || false, voicemail_optout_supported: w.policy.voicemail_optout_supported || false, approved_assets: w.policy.approved_assets || [], detached_topology_verified: w.policy.detached_topology_verified || false, topology_test_reference: w.policy.topology_test_reference || '', late_human_recovery_destination: w.policy.late_human_recovery_destination || '' });
-  const [registry, setRegistry] = useState({ numbers: '', npas: '', reference: '', refreshed_at: new Date().toISOString().slice(0, 10), kind: 'national', jurisdiction: '' });
-  const [identityEvidence, setIdentityEvidence] = useState('');
-  const [backupId, setBackupId] = useState(''); const [restoreId, setRestoreId] = useState('');
-  const [budget, setBudget] = useState({ daily_limit_usd: 10, monthly_limit_usd: 100, number_purchase_limit_usd: 0 });
-  const [updateInfo, setUpdateInfo] = useState<{ version: string; body: string } | null>(null);
-  const [updateBusy, setUpdateBusy] = useState(false); const update = useRef<Update | null>(null);
-  useEffect(() => { void run(async () => { const settings = await api<SettingsData>('/v1/admin/settings'); setConfigured(settings.configured as Record<string, boolean>); setConfig(Object.fromEntries(Object.entries(settings).filter(([, value]) => typeof value === 'string')) as Record<string, string>); }); }, []);
-  const field = (key: string, title: string, secret = false, placeholder = '') => <label key={key}>{title}<input type={secret ? 'password' : 'text'} autoComplete="off" spellCheck={false} value={config[key] || ''} placeholder={secret && configured[key] ? 'Configured · enter a value to replace' : placeholder} onChange={e => setConfig({ ...config, [key]: e.target.value })}/>{secret && <small className="field-note">{configured[key] ? 'Protected credential is configured' : 'Optional until this provider is enabled'}</small>}</label>;
-  return <><div className="page-heading"><div><span className="eyebrow">A WORKSPACE YOU CAN TRUST</span><h1>Settings &amp; readiness</h1><p>Connect your providers, review permissions, and keep a recoverable record.</p></div><button className="primary" onClick={() => void run(async () => setPreflight(await api('/v1/admin/preflight')))}><ShieldCheck size={17}/>Run preflight</button></div>
-    {preflight && <section className={`preflight card ${preflight.ready_to_call ? 'passed' : ''}`}><div><ShieldCheck size={24}/><div><h3>{preflight.ready_to_call ? (w.simulation ? 'Simulation checks passed' : 'Configuration checks passed') : 'A few things need attention'}</h3><p>{preflight.integrity_ok ? 'Database integrity verified' : 'Database integrity check failed'} · {preflight.version} · {preflight.mode}</p></div></div>{preflight.blockers.map(b => <p className="preflight-blocker" key={b}>● {label(b)}</p>)}{preflight.warnings.map(warning => <p className="small" key={warning}>{warning}</p>)}</section>}
-    <div className="tabs">{['Providers', 'Policy & DNC', 'Operations', 'App updates'].map(tab => <button className={section === tab ? 'selected' : ''} onClick={() => setSection(tab)} key={tab}>{tab}</button>)}</div>
-    {section === 'Providers' && <><div className="two-column"><section className="card padded"><span className="eyebrow">CALLING &amp; TRANSCRIPTION</span><h2>Telnyx</h2><p className="muted small">Account credentials stay with this authority. Desktop clients receive scoped telephony tokens only.</p>{field('telnyx_api_key', 'Telnyx API key', true)}{field('telnyx_connection_id', 'Call Control connection ID')}{field('telnyx_public_key', 'Ed25519 webhook public key')}{field('telephony_credential_id', 'Scoped telephony credential ID')}{field('sip_username', 'Agent SIP username')}{field('webhook_url', 'Public HTTPS webhook URL', false, 'https://your-endpoint/webhooks/telnyx')}{field('traffic_approval_reference', 'Carrier traffic approval reference')}<p className="fine">Standalone calling uses your local authority. Signed carrier callbacks need a public HTTPS route to its webhook endpoint. Keep administrative routes private.</p></section><div><section className="card padded"><span className="eyebrow">PREPARATION &amp; ANALYSIS</span><h2>OpenAI / LiteLLM</h2><label>Inference route<select value={config.inference_mode || 'api'} onChange={e => setConfig({ ...config, inference_mode: e.target.value })}><option value="api">OpenAI Responses API</option><option value="litellm">Explicit OpenAI-compatible LiteLLM endpoint</option><option value="chatgpt_plan">Official eligible ChatGPT plan usage</option></select></label>{field('openai_api_key', config.inference_mode === 'litellm' ? 'LiteLLM API key' : 'OpenAI API key', true)}{config.inference_mode === 'litellm' && field('inference_base_url', 'Inference base URL', false, 'http://127.0.0.1:4000/v1')}{config.inference_mode === 'chatgpt_plan' && <>{field('chatgpt_access_token', 'Official registered OAuth access token', true)}<p className="fine">Use an eligible registered application session. Inference uses the public Responses API with stream=true and store=false. It never uses browser cookies or undocumented endpoints.</p></>}{field('model', 'Default evaluated model', false, 'gpt-6-luna')}{field('script_write_model', 'Script-writing model', false, 'gpt-6.1-sol')}{field('postcall_extract_model', 'Post-call extraction model', false, 'gpt-6-luna')}</section><section className="card padded"><span className="eyebrow">LIVE GUIDANCE</span><h2>Groq</h2>{field('groq_api_key', 'Groq API key', true)}{field('groq_model', 'Evaluated coach model', false, 'openai/gpt-oss-20b')}<p className="fine">Guidance uses short structured text responses. Telephony continues if inference is unavailable.</p></section></div></div><div className="settings-save"><LockKeyhole size={16}/><span>Write-only secrets · encrypted at rest · no credentials in workspace snapshots</span><button className="primary" onClick={() => void run(async () => { const data = Object.fromEntries(Object.entries(config).filter(([, v]) => v !== '')); const result = await api<SettingsData>('/v1/admin/settings', 'PUT', data); setConfigured(result.configured as Record<string, boolean>); setConfig(Object.fromEntries(Object.entries(result).filter(([, v]) => typeof v === 'string')) as Record<string, string>); notice('Provider configuration saved securely.'); await refresh(); })}>Save provider settings<Check size={15}/></button></div></>}
-    {section === 'Policy & DNC' && <div className="two-column"><section className="card padded"><span className="eyebrow">VERSIONED CAMPAIGN POLICY</span><h2>Permission before every dial</h2><label>Business identity evidence<input value={identityEvidence} onChange={e => setIdentityEvidence(e.target.value)} placeholder="Verified business registration / identity reference"/></label><button className="secondary" disabled={!identityEvidence} onClick={() => void run(async () => { await api('/v1/admin/seller/approve', 'POST', { approved: true, identity_reference: identityEvidence }); await refresh(); notice('Business identity review recorded. Campaign permission remains separately controlled.'); })}>Record business identity approval</button><div className="section-rule"/><label className="check-label"><input type="checkbox" checked={policy.approved} onChange={e => setPolicy({ ...policy, approved: e.target.checked })}/>Campaign approved for live use</label><label className="check-label"><input type="checkbox" checked={policy.registry_required} onChange={e => setPolicy({ ...policy, registry_required: e.target.checked })}/>Require current national registry coverage</label><label className="check-label"><input type="checkbox" checked={policy.state_registry_required} onChange={e => setPolicy({ ...policy, state_registry_required: e.target.checked })}/>Require applicable state registry data</label><div className="three-fields"><label>Local start hour<input type="number" min="0" max="23" value={policy.local_start_hour} onChange={e => setPolicy({ ...policy, local_start_hour: Number(e.target.value) })}/></label><label>Local end hour<input type="number" min="1" max="24" value={policy.local_end_hour} onChange={e => setPolicy({ ...policy, local_end_hour: Number(e.target.value) })}/></label><label>Attempt limit<input type="number" min="1" max="20" value={policy.max_attempts} onChange={e => setPolicy({ ...policy, max_attempts: Number(e.target.value) })}/></label></div><h3>Separate treatment permissions</h3>{['live', 'transcription', 'recording', 'prerecorded', 'messaging'].map(permission => <label className="check-label" key={permission}><input type="checkbox" checked={policy.permissions.includes(permission)} onChange={e => setPolicy({ ...policy, permissions: e.target.checked ? [...policy.permissions, permission] : policy.permissions.filter(p => p !== permission) })}/>{label(permission)}</label>)}<h3>Approved voicemail assets</h3><label className="check-label"><input type="checkbox" checked={policy.voicemail_enabled} onChange={e => setPolicy({ ...policy, voicemail_enabled: e.target.checked })}/>Enable permissioned voicemail</label><label className="check-label"><input type="checkbox" checked={policy.voicemail_optout_supported} onChange={e => setPolicy({ ...policy, voicemail_optout_supported: e.target.checked })}/>Reviewed message explains the digit 9 opt-out</label><label>Approved Telnyx media names<input value={policy.approved_assets.join(', ')} onChange={e => setPolicy({ ...policy, approved_assets: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}/></label><label className="check-label"><input type="checkbox" checked={policy.detached_topology_verified} onChange={e => setPolicy({ ...policy, detached_topology_verified: e.target.checked })}/>Detached topology verified on the actual account</label><label>Topology test reference<input value={policy.topology_test_reference} onChange={e => setPolicy({ ...policy, topology_test_reference: e.target.value })}/></label><label>Late human recovery destination<input value={policy.late_human_recovery_destination} onChange={e => setPolicy({ ...policy, late_human_recovery_destination: e.target.value })}/></label><label>Reviewed policy reference<input value={policy.review_reference} onChange={e => setPolicy({ ...policy, review_reference: e.target.value })}/></label><label>Publication reason<input value={policy.reason} onChange={e => setPolicy({ ...policy, reason: e.target.value })}/></label><button className="primary" disabled={!policy.reason} onClick={() => void run(async () => { await api(`/v1/admin/policies/${w.policy.id}/publish`, 'POST', policy); await refresh(); notice('New policy version published. Queued calls will recheck it.'); })}>Publish policy version<ShieldCheck size={15}/></button></section><section className="card padded"><span className="eyebrow">AUTHORITATIVE DATA</span><h2>Registry snapshots</h2>{w.registries.map(r => <div className="registry-row" key={r.id}><strong>{label(r.kind)} {r.synthetic && <span className="pill subtle">Synthetic</span>}</strong><small>Updated {date(r.refreshed_at)} · {r.npas.join(', ')}</small><small>SHA-256 {r.checksum.slice(0, 18)}…</small></div>)}<p className="muted small">Import seller-authorized data only. Missing or stale coverage blocks calling. Registry membership never enters scheduling features.</p><label>Dataset type<select value={registry.kind} onChange={e => setRegistry({ ...registry, kind: e.target.value })}><option value="national">National</option><option value="state">State</option></select></label>{registry.kind === 'state' && <label>State jurisdiction<input value={registry.jurisdiction} onChange={e => setRegistry({ ...registry, jurisdiction: e.target.value })}/></label>}<label>Authorized area codes (comma separated)<input value={registry.npas} onChange={e => setRegistry({ ...registry, npas: e.target.value })}/></label><label>Subscription / authorization reference<input value={registry.reference} onChange={e => setRegistry({ ...registry, reference: e.target.value })}/></label><label>Dataset refreshed on<input type="date" value={registry.refreshed_at} onChange={e => setRegistry({ ...registry, refreshed_at: e.target.value })}/></label><label>Listed E.164 numbers (one per line)<textarea rows={4} value={registry.numbers} onChange={e => setRegistry({ ...registry, numbers: e.target.value })}/></label><button className="secondary" disabled={!registry.npas || !registry.reference} onClick={() => void run(async () => { await api('/v1/admin/registry/import', 'POST', { kind: registry.kind, jurisdiction: registry.jurisdiction, npas: registry.npas.split(',').map(s => s.trim()), subscription_reference: registry.reference, refreshed_at: new Date(registry.refreshed_at+'T00:00:00Z').toISOString(), numbers: registry.numbers.split(/\s+/).filter(Boolean) }); await refresh(); notice('Validated registry snapshot published atomically.'); })}>Validate &amp; publish dataset</button></section></div>}
-    {section === 'Operations' && <><div className="two-column"><section className="card padded"><span className="eyebrow">ACCOUNTABLE LIMITS</span><h2>Budgets &amp; usage</h2><label>Daily optional-work limit (USD)<input type="number" min="0" value={budget.daily_limit_usd} onChange={e => setBudget({ ...budget, daily_limit_usd: Number(e.target.value) })}/></label><label>Monthly limit (USD)<input type="number" min="0" value={budget.monthly_limit_usd} onChange={e => setBudget({ ...budget, monthly_limit_usd: Number(e.target.value) })}/></label><label>Approved number-procurement ceiling (USD)<input type="number" min="0" value={budget.number_purchase_limit_usd} onChange={e => setBudget({ ...budget, number_purchase_limit_usd: Number(e.target.value) })}/></label><button className="primary" onClick={() => void run(async () => { await api('/v1/admin/budget', 'PUT', budget); notice('Budget limits saved'); await refresh(); })}>Save budget limits</button><div className="section-rule"/><p>Reserved usage: ${Number(w.metrics.reserved_cost_usd).toFixed(2)}</p><p>Verified provider billing: {w.metrics.billing_verified ? 'Reconciled' : 'Not yet reconciled'}</p><p className="fine">Reserved amounts are internal controls. Provider receipts establish actual billed costs.</p></section><section className="card padded"><span className="eyebrow">RECOVERABLE BY DESIGN</span><h2>Encrypted backups</h2><p className="muted small">Restore reconciles the encrypted suppression journal and pauses outbound work. Backups contain business records, never unencrypted provider credentials.</p><button className="primary" onClick={() => void run(async () => { const r = await api<{ backup_id: string }>('/v1/admin/backup', 'POST'); setBackupId(r.backup_id); notice('Encrypted backup created'); })}><Database size={15}/>Create encrypted backup</button>{backupId && <p className="mono small">Backup ID: {backupId}</p>}<label>Backup ID to restore<input value={restoreId} onChange={e => setRestoreId(e.target.value)}/></label><button className="secondary" disabled={!restoreId} onClick={() => void run(async () => { await api('/v1/admin/restore', 'POST', { backup_id: restoreId }); await refresh(); notice('Backup restored and suppression journal reconciled. Outbound calling is paused.'); })}>Restore selected backup</button><div className="section-rule"/><button className="secondary" onClick={() => void run(async () => { await api('/v1/admin/recovery', 'POST'); await refresh(); notice('Recovery sweep completed'); })}><RefreshCw size={15}/>Run recovery sweep</button></section></div><section className="card padded"><h2>Workspace connection</h2><p className="muted">Current authority: {w.mode === 'connected' ? 'Authenticated shared server' : 'Private authority on this computer'}.</p><button className="secondary" onClick={onDisconnect}><Wifi size={15}/>Switch workspace or server</button></section><AccessAndRecovery/></>}
-    {section === 'App updates' && <section className="card padded update-card"><span className="eyebrow">SAME APP. SAME DATA.</span><h2>Updates without starting over</h2><p className="muted">OpenDialer verifies signed update artifacts before replacing the installed app. Your workspace database and protected credentials stay in the application's data directory.</p><div className="update-version"><span className="brand-symbol"><Download size={22}/></span><div><strong>OpenDialer {w.readiness.version}</strong><small>{native() ? 'Native desktop application' : 'Browser development session'}</small></div></div><button className="primary" disabled={updateBusy || !native()} onClick={() => void run(async () => { setUpdateBusy(true); try { const { check } = await import('@tauri-apps/plugin-updater'); update.current = await check(); if (update.current) setUpdateInfo({ version: update.current.version, body: update.current.body || 'A signed OpenDialer update is available.' }); else notice('You are running the current release.'); } finally { setUpdateBusy(false); } })}>{updateBusy ? <LoaderCircle className="spin" size={16}/> : <RefreshCw size={16}/>}Check for updates</button>{updateInfo && <div className="info-note"><h3>Version {updateInfo.version}</h3><p>{updateInfo.body}</p><button className="primary" disabled={updateBusy} onClick={() => void run(async () => { if (w.calls.some(c => !['ENDED', 'FINALIZED'].includes(c.state))) throw new Error('Finish the current call before installing an update.'); setUpdateBusy(true); try { await update.current?.downloadAndInstall(); notice('Update installed. Quit and reopen OpenDialer to use the new version.'); } finally { setUpdateBusy(false); } })}><ArrowDownToLine size={16}/>Install signed update</button></div>}<p className="fine">Local builds are validated on this Mac. Distribution signing, notarization, and other operating-system audio certification have separate release gates.</p></section>}
-  </>;
+  const [section, setSection] = useState("Providers");
+  const [policy, setPolicy] = useState({
+    approved: w.policy.approved,
+    registry_required: w.policy.registry_required,
+    state_registry_required: w.policy.state_registry_required,
+    local_start_hour: w.policy.local_start_hour,
+    local_end_hour: w.policy.local_end_hour,
+    max_attempts: w.policy.max_attempts,
+    review_reference: w.policy.review_reference || "",
+    reason: "",
+    permissions: w.policy.permissions,
+    voicemail_enabled: w.policy.voicemail_enabled || false,
+    voicemail_optout_supported: w.policy.voicemail_optout_supported || false,
+    approved_assets: w.policy.approved_assets || [],
+    detached_topology_verified: w.policy.detached_topology_verified || false,
+    topology_test_reference: w.policy.topology_test_reference || "",
+    late_human_recovery_destination:
+      w.policy.late_human_recovery_destination || "",
+  });
+  const [registry, setRegistry] = useState({
+    numbers: "",
+    npas: "",
+    reference: "",
+    refreshed_at: new Date().toISOString().slice(0, 10),
+    kind: "national",
+    jurisdiction: "",
+  });
+  const [identityEvidence, setIdentityEvidence] = useState("");
+  const [backupId, setBackupId] = useState("");
+  const [restoreId, setRestoreId] = useState("");
+  const [budget, setBudget] = useState({
+    daily_limit_usd: 10,
+    monthly_limit_usd: 100,
+    number_purchase_limit_usd: 0,
+  });
+  const [updateInfo, setUpdateInfo] = useState<{
+    version: string;
+    body: string;
+  } | null>(null);
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const update = useRef<Update | null>(null);
+  useEffect(() => {
+    void run(async () => {
+      const settings = await api<SettingsData>("/v1/admin/settings");
+      setConfigured(settings.configured as Record<string, boolean>);
+      setConfig(
+        Object.fromEntries(
+          Object.entries(settings).filter(
+            ([, value]) => typeof value === "string",
+          ),
+        ) as Record<string, string>,
+      );
+    });
+  }, []);
+  const field = (
+    key: string,
+    title: string,
+    secret = false,
+    placeholder = "",
+  ) => (
+    <label key={key}>
+      {title}
+      <input
+        type={secret ? "password" : "text"}
+        autoComplete="off"
+        spellCheck={false}
+        value={config[key] || ""}
+        placeholder={
+          secret && configured[key]
+            ? "Configured · enter a value to replace"
+            : placeholder
+        }
+        onChange={(e) => setConfig({ ...config, [key]: e.target.value })}
+      />
+      {secret && (
+        <small className="field-note">
+          {configured[key]
+            ? "Protected credential is configured"
+            : "Optional until this provider is enabled"}
+        </small>
+      )}
+    </label>
+  );
+  return (
+    <>
+      <div className="page-heading">
+        <div>
+          <span className="eyebrow">A WORKSPACE YOU CAN TRUST</span>
+          <h1>Settings &amp; readiness</h1>
+          <p>
+            Connect your providers, review permissions, and keep a recoverable
+            record.
+          </p>
+        </div>
+        <button
+          className="primary"
+          onClick={() =>
+            void run(async () => setPreflight(await api("/v1/admin/preflight")))
+          }
+        >
+          <ShieldCheck size={17} />
+          Run preflight
+        </button>
+      </div>
+      {preflight && (
+        <section
+          className={`preflight card ${preflight.ready_to_call ? "passed" : ""}`}
+        >
+          <div>
+            <ShieldCheck size={24} />
+            <div>
+              <h3>
+                {preflight.ready_to_call
+                  ? w.simulation
+                    ? "Simulation checks passed"
+                    : "Configuration checks passed"
+                  : "A few things need attention"}
+              </h3>
+              <p>
+                {preflight.integrity_ok
+                  ? "Database integrity verified"
+                  : "Database integrity check failed"}{" "}
+                · {preflight.version} · {preflight.mode}
+              </p>
+            </div>
+          </div>
+          {preflight.blockers.map((b) => (
+            <p className="preflight-blocker" key={b}>
+              ● {label(b)}
+            </p>
+          ))}
+          {preflight.warnings.map((warning) => (
+            <p className="small" key={warning}>
+              {warning}
+            </p>
+          ))}
+        </section>
+      )}
+      <div className="tabs">
+        {["Providers", "Policy & DNC", "Operations", "App updates"].map(
+          (tab) => (
+            <button
+              className={section === tab ? "selected" : ""}
+              onClick={() => setSection(tab)}
+              key={tab}
+            >
+              {tab}
+            </button>
+          ),
+        )}
+      </div>
+      {section === "Providers" && (
+        <>
+          <div className="two-column">
+            <section className="card padded">
+              <span className="eyebrow">CALLING &amp; TRANSCRIPTION</span>
+              <h2>Telnyx</h2>
+              <p className="muted small">
+                Account credentials stay with this authority. Desktop clients
+                receive scoped telephony tokens only.
+              </p>
+              {field("telnyx_api_key", "Telnyx API key", true)}
+              {field("telnyx_connection_id", "Call Control connection ID")}
+              {field("telnyx_public_key", "Ed25519 webhook public key")}
+              {field(
+                "telephony_credential_id",
+                "Scoped telephony credential ID",
+              )}
+              {field("sip_username", "Agent SIP username")}
+              {field(
+                "webhook_url",
+                "Public HTTPS webhook URL",
+                false,
+                "https://your-endpoint/webhooks/telnyx",
+              )}
+              {field(
+                "traffic_approval_reference",
+                "Carrier traffic approval reference",
+              )}
+              <p className="fine">
+                Standalone calling uses your local authority. Signed carrier
+                callbacks need a public HTTPS route to its webhook endpoint.
+                Keep administrative routes private.
+              </p>
+            </section>
+            <div>
+              <section className="card padded">
+                <span className="eyebrow">PREPARATION &amp; ANALYSIS</span>
+                <h2>OpenAI / LiteLLM</h2>
+                <label>
+                  Inference route
+                  <select
+                    value={config.inference_mode || "api"}
+                    onChange={(e) =>
+                      setConfig({ ...config, inference_mode: e.target.value })
+                    }
+                  >
+                    <option value="api">OpenAI Responses API</option>
+                    <option value="litellm">
+                      Explicit OpenAI-compatible LiteLLM endpoint
+                    </option>
+                    <option value="chatgpt_plan">
+                      Official eligible ChatGPT plan usage
+                    </option>
+                  </select>
+                </label>
+                {field(
+                  "openai_api_key",
+                  config.inference_mode === "litellm"
+                    ? "LiteLLM API key"
+                    : "OpenAI API key",
+                  true,
+                )}
+                {config.inference_mode === "litellm" &&
+                  field(
+                    "inference_base_url",
+                    "Inference base URL",
+                    false,
+                    "http://127.0.0.1:4000/v1",
+                  )}
+                {config.inference_mode === "chatgpt_plan" && (
+                  <>
+                    {field(
+                      "chatgpt_access_token",
+                      "Official registered OAuth access token",
+                      true,
+                    )}
+                    {w.mode === "local" && (
+                      <button
+                        className="secondary"
+                        onClick={() =>
+                          void run(async () => {
+                            const flow = await api<{
+                              authorization_url: string;
+                            }>("/v1/inference/chatgpt/start", "POST");
+                            await openSource(flow.authorization_url);
+                            notice(
+                              "Complete the official authorization in your browser, then return here.",
+                            );
+                          })
+                        }
+                      >
+                        Continue with ChatGPT
+                      </button>
+                    )}
+                    <p className="fine">
+                      Use an eligible registered application session. Inference
+                      uses the public Responses API with stream=true and
+                      store=false. It never uses browser cookies or undocumented
+                      endpoints.
+                    </p>
+                  </>
+                )}
+                {field("model", "Default evaluated model", false, "gpt-6-luna")}
+                {field(
+                  "script_write_model",
+                  "Script-writing model",
+                  false,
+                  "gpt-6.1-sol",
+                )}
+                {field(
+                  "postcall_extract_model",
+                  "Post-call extraction model",
+                  false,
+                  "gpt-6-luna",
+                )}
+              </section>
+              <section className="card padded">
+                <span className="eyebrow">LIVE GUIDANCE</span>
+                <h2>Groq</h2>
+                {field("groq_api_key", "Groq API key", true)}
+                {field(
+                  "groq_model",
+                  "Evaluated coach model",
+                  false,
+                  "openai/gpt-oss-20b",
+                )}
+                <p className="fine">
+                  Guidance uses short structured text responses. Telephony
+                  continues if inference is unavailable.
+                </p>
+              </section>
+            </div>
+          </div>
+          <div className="settings-save">
+            <LockKeyhole size={16} />
+            <span>
+              Write-only secrets · encrypted at rest · no credentials in
+              workspace snapshots
+            </span>
+            <button
+              className="primary"
+              onClick={() =>
+                void run(async () => {
+                  const data = Object.fromEntries(
+                    Object.entries(config).filter(([, v]) => v !== ""),
+                  );
+                  const result = await api<SettingsData>(
+                    "/v1/admin/settings",
+                    "PUT",
+                    data,
+                  );
+                  setConfigured(result.configured as Record<string, boolean>);
+                  setConfig(
+                    Object.fromEntries(
+                      Object.entries(result).filter(
+                        ([, v]) => typeof v === "string",
+                      ),
+                    ) as Record<string, string>,
+                  );
+                  notice("Provider configuration saved securely.");
+                  await refresh();
+                })
+              }
+            >
+              Save provider settings
+              <Check size={15} />
+            </button>
+          </div>
+        </>
+      )}
+      {section === "Policy & DNC" && (
+        <div className="two-column">
+          <section className="card padded">
+            <span className="eyebrow">VERSIONED CAMPAIGN POLICY</span>
+            <h2>Permission before every dial</h2>
+            <label>
+              Business identity evidence
+              <input
+                value={identityEvidence}
+                onChange={(e) => setIdentityEvidence(e.target.value)}
+                placeholder="Verified business registration / identity reference"
+              />
+            </label>
+            <button
+              className="secondary"
+              disabled={!identityEvidence}
+              onClick={() =>
+                void run(async () => {
+                  await api("/v1/admin/seller/approve", "POST", {
+                    approved: true,
+                    identity_reference: identityEvidence,
+                  });
+                  await refresh();
+                  notice(
+                    "Business identity review recorded. Campaign permission remains separately controlled.",
+                  );
+                })
+              }
+            >
+              Record business identity approval
+            </button>
+            <div className="section-rule" />
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={policy.approved}
+                onChange={(e) =>
+                  setPolicy({ ...policy, approved: e.target.checked })
+                }
+              />
+              Campaign approved for live use
+            </label>
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={policy.registry_required}
+                onChange={(e) =>
+                  setPolicy({ ...policy, registry_required: e.target.checked })
+                }
+              />
+              Require current national registry coverage
+            </label>
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={policy.state_registry_required}
+                onChange={(e) =>
+                  setPolicy({
+                    ...policy,
+                    state_registry_required: e.target.checked,
+                  })
+                }
+              />
+              Require applicable state registry data
+            </label>
+            <div className="three-fields">
+              <label>
+                Local start hour
+                <input
+                  type="number"
+                  min="0"
+                  max="23"
+                  value={policy.local_start_hour}
+                  onChange={(e) =>
+                    setPolicy({
+                      ...policy,
+                      local_start_hour: Number(e.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label>
+                Local end hour
+                <input
+                  type="number"
+                  min="1"
+                  max="24"
+                  value={policy.local_end_hour}
+                  onChange={(e) =>
+                    setPolicy({
+                      ...policy,
+                      local_end_hour: Number(e.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label>
+                Attempt limit
+                <input
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={policy.max_attempts}
+                  onChange={(e) =>
+                    setPolicy({
+                      ...policy,
+                      max_attempts: Number(e.target.value),
+                    })
+                  }
+                />
+              </label>
+            </div>
+            <h3>Separate treatment permissions</h3>
+            {[
+              "live",
+              "transcription",
+              "recording",
+              "prerecorded",
+              "messaging",
+            ].map((permission) => (
+              <label className="check-label" key={permission}>
+                <input
+                  type="checkbox"
+                  checked={policy.permissions.includes(permission)}
+                  onChange={(e) =>
+                    setPolicy({
+                      ...policy,
+                      permissions: e.target.checked
+                        ? [...policy.permissions, permission]
+                        : policy.permissions.filter((p) => p !== permission),
+                    })
+                  }
+                />
+                {label(permission)}
+              </label>
+            ))}
+            <h3>Approved voicemail assets</h3>
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={policy.voicemail_enabled}
+                onChange={(e) =>
+                  setPolicy({ ...policy, voicemail_enabled: e.target.checked })
+                }
+              />
+              Enable permissioned voicemail
+            </label>
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={policy.voicemail_optout_supported}
+                onChange={(e) =>
+                  setPolicy({
+                    ...policy,
+                    voicemail_optout_supported: e.target.checked,
+                  })
+                }
+              />
+              Reviewed message explains the digit 9 opt-out
+            </label>
+            <label>
+              Approved Telnyx media names
+              <input
+                value={policy.approved_assets.join(", ")}
+                onChange={(e) =>
+                  setPolicy({
+                    ...policy,
+                    approved_assets: e.target.value
+                      .split(",")
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                  })
+                }
+              />
+            </label>
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={policy.detached_topology_verified}
+                onChange={(e) =>
+                  setPolicy({
+                    ...policy,
+                    detached_topology_verified: e.target.checked,
+                  })
+                }
+              />
+              Detached topology verified on the actual account
+            </label>
+            <label>
+              Topology test reference
+              <input
+                value={policy.topology_test_reference}
+                onChange={(e) =>
+                  setPolicy({
+                    ...policy,
+                    topology_test_reference: e.target.value,
+                  })
+                }
+              />
+            </label>
+            <label>
+              Late human recovery destination
+              <input
+                value={policy.late_human_recovery_destination}
+                onChange={(e) =>
+                  setPolicy({
+                    ...policy,
+                    late_human_recovery_destination: e.target.value,
+                  })
+                }
+              />
+            </label>
+            <label>
+              Reviewed policy reference
+              <input
+                value={policy.review_reference}
+                onChange={(e) =>
+                  setPolicy({ ...policy, review_reference: e.target.value })
+                }
+              />
+            </label>
+            <label>
+              Publication reason
+              <input
+                value={policy.reason}
+                onChange={(e) =>
+                  setPolicy({ ...policy, reason: e.target.value })
+                }
+              />
+            </label>
+            <button
+              className="primary"
+              disabled={!policy.reason}
+              onClick={() =>
+                void run(async () => {
+                  await api(
+                    `/v1/admin/policies/${w.policy.id}/publish`,
+                    "POST",
+                    policy,
+                  );
+                  await refresh();
+                  notice(
+                    "New policy version published. Queued calls will recheck it.",
+                  );
+                })
+              }
+            >
+              Publish policy version
+              <ShieldCheck size={15} />
+            </button>
+          </section>
+          <section className="card padded">
+            <span className="eyebrow">AUTHORITATIVE DATA</span>
+            <h2>Registry snapshots</h2>
+            {w.registries.map((r) => (
+              <div className="registry-row" key={r.id}>
+                <strong>
+                  {label(r.kind)}{" "}
+                  {r.synthetic && (
+                    <span className="pill subtle">Synthetic</span>
+                  )}
+                </strong>
+                <small>
+                  Updated {date(r.refreshed_at)} · {r.npas.join(", ")}
+                </small>
+                <small>SHA-256 {r.checksum.slice(0, 18)}…</small>
+              </div>
+            ))}
+            <p className="muted small">
+              Import seller-authorized data only. Missing or stale coverage
+              blocks calling. Registry membership never enters scheduling
+              features.
+            </p>
+            <label>
+              Dataset type
+              <select
+                value={registry.kind}
+                onChange={(e) =>
+                  setRegistry({ ...registry, kind: e.target.value })
+                }
+              >
+                <option value="national">National</option>
+                <option value="state">State</option>
+              </select>
+            </label>
+            {registry.kind === "state" && (
+              <label>
+                State jurisdiction
+                <input
+                  value={registry.jurisdiction}
+                  onChange={(e) =>
+                    setRegistry({ ...registry, jurisdiction: e.target.value })
+                  }
+                />
+              </label>
+            )}
+            <label>
+              Authorized area codes (comma separated)
+              <input
+                value={registry.npas}
+                onChange={(e) =>
+                  setRegistry({ ...registry, npas: e.target.value })
+                }
+              />
+            </label>
+            <label>
+              Subscription / authorization reference
+              <input
+                value={registry.reference}
+                onChange={(e) =>
+                  setRegistry({ ...registry, reference: e.target.value })
+                }
+              />
+            </label>
+            <label>
+              Dataset refreshed on
+              <input
+                type="date"
+                value={registry.refreshed_at}
+                onChange={(e) =>
+                  setRegistry({ ...registry, refreshed_at: e.target.value })
+                }
+              />
+            </label>
+            <label>
+              Listed E.164 numbers (one per line)
+              <textarea
+                rows={4}
+                value={registry.numbers}
+                onChange={(e) =>
+                  setRegistry({ ...registry, numbers: e.target.value })
+                }
+              />
+            </label>
+            <button
+              className="secondary"
+              disabled={!registry.npas || !registry.reference}
+              onClick={() =>
+                void run(async () => {
+                  await api("/v1/admin/registry/import", "POST", {
+                    kind: registry.kind,
+                    jurisdiction: registry.jurisdiction,
+                    npas: registry.npas.split(",").map((s) => s.trim()),
+                    subscription_reference: registry.reference,
+                    refreshed_at: new Date(
+                      registry.refreshed_at + "T00:00:00Z",
+                    ).toISOString(),
+                    numbers: registry.numbers.split(/\s+/).filter(Boolean),
+                  });
+                  await refresh();
+                  notice("Validated registry snapshot published atomically.");
+                })
+              }
+            >
+              Validate &amp; publish dataset
+            </button>
+          </section>
+        </div>
+      )}
+      {section === "Operations" && (
+        <>
+          <div className="two-column">
+            <section className="card padded">
+              <span className="eyebrow">ACCOUNTABLE LIMITS</span>
+              <h2>Budgets &amp; usage</h2>
+              <label>
+                Daily optional-work limit (USD)
+                <input
+                  type="number"
+                  min="0"
+                  value={budget.daily_limit_usd}
+                  onChange={(e) =>
+                    setBudget({
+                      ...budget,
+                      daily_limit_usd: Number(e.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label>
+                Monthly limit (USD)
+                <input
+                  type="number"
+                  min="0"
+                  value={budget.monthly_limit_usd}
+                  onChange={(e) =>
+                    setBudget({
+                      ...budget,
+                      monthly_limit_usd: Number(e.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label>
+                Approved number-procurement ceiling (USD)
+                <input
+                  type="number"
+                  min="0"
+                  value={budget.number_purchase_limit_usd}
+                  onChange={(e) =>
+                    setBudget({
+                      ...budget,
+                      number_purchase_limit_usd: Number(e.target.value),
+                    })
+                  }
+                />
+              </label>
+              <button
+                className="primary"
+                onClick={() =>
+                  void run(async () => {
+                    await api("/v1/admin/budget", "PUT", budget);
+                    notice("Budget limits saved");
+                    await refresh();
+                  })
+                }
+              >
+                Save budget limits
+              </button>
+              <div className="section-rule" />
+              <p>
+                Reserved usage: $
+                {Number(w.metrics.reserved_cost_usd).toFixed(2)}
+              </p>
+              <p>
+                Verified provider billing:{" "}
+                {w.metrics.billing_verified
+                  ? "Reconciled"
+                  : "Not yet reconciled"}
+              </p>
+              <p className="fine">
+                Reserved amounts are internal controls. Provider receipts
+                establish actual billed costs.
+              </p>
+            </section>
+            <section className="card padded">
+              <span className="eyebrow">RECOVERABLE BY DESIGN</span>
+              <h2>Encrypted backups</h2>
+              <p className="muted small">
+                Restore reconciles the encrypted suppression journal and pauses
+                outbound work. Backups contain business records, never
+                unencrypted provider credentials.
+              </p>
+              <button
+                className="primary"
+                onClick={() =>
+                  void run(async () => {
+                    const r = await api<{ backup_id: string }>(
+                      "/v1/admin/backup",
+                      "POST",
+                    );
+                    setBackupId(r.backup_id);
+                    notice("Encrypted backup created");
+                  })
+                }
+              >
+                <Database size={15} />
+                Create encrypted backup
+              </button>
+              {backupId && <p className="mono small">Backup ID: {backupId}</p>}
+              <label>
+                Backup ID to restore
+                <input
+                  value={restoreId}
+                  onChange={(e) => setRestoreId(e.target.value)}
+                />
+              </label>
+              <button
+                className="secondary"
+                disabled={!restoreId}
+                onClick={() =>
+                  void run(async () => {
+                    await api("/v1/admin/restore", "POST", {
+                      backup_id: restoreId,
+                    });
+                    await refresh();
+                    notice(
+                      "Backup restored and suppression journal reconciled. Outbound calling is paused.",
+                    );
+                  })
+                }
+              >
+                Restore selected backup
+              </button>
+              <div className="section-rule" />
+              <button
+                className="secondary"
+                onClick={() =>
+                  void run(async () => {
+                    await api("/v1/admin/recovery", "POST");
+                    await refresh();
+                    notice("Recovery sweep completed");
+                  })
+                }
+              >
+                <RefreshCw size={15} />
+                Run recovery sweep
+              </button>
+            </section>
+          </div>
+          <section className="card padded">
+            <h2>Workspace connection</h2>
+            <p className="muted">
+              Current authority:{" "}
+              {w.mode === "connected"
+                ? "Authenticated shared server"
+                : "Private authority on this computer"}
+              .
+            </p>
+            <button className="secondary" onClick={onDisconnect}>
+              <Wifi size={15} />
+              Switch workspace or server
+            </button>
+          </section>
+          <AccessAndRecovery />
+        </>
+      )}
+      {section === "App updates" && (
+        <section className="card padded update-card">
+          <span className="eyebrow">SAME APP. SAME DATA.</span>
+          <h2>Updates without starting over</h2>
+          <p className="muted">
+            OpenDialer verifies signed update artifacts before replacing the
+            installed app. Your workspace database and protected credentials
+            stay in the application's data directory.
+          </p>
+          <div className="update-version">
+            <span className="brand-symbol">
+              <Download size={22} />
+            </span>
+            <div>
+              <strong>OpenDialer {w.readiness.version}</strong>
+              <small>
+                {native()
+                  ? "Native desktop application"
+                  : "Browser development session"}
+              </small>
+            </div>
+          </div>
+          <button
+            className="primary"
+            disabled={updateBusy || !native()}
+            onClick={() =>
+              void run(async () => {
+                setUpdateBusy(true);
+                try {
+                  const { check } = await import("@tauri-apps/plugin-updater");
+                  update.current = await check();
+                  if (update.current)
+                    setUpdateInfo({
+                      version: update.current.version,
+                      body:
+                        update.current.body ||
+                        "A signed OpenDialer update is available.",
+                    });
+                  else notice("You are running the current release.");
+                } finally {
+                  setUpdateBusy(false);
+                }
+              })
+            }
+          >
+            {updateBusy ? (
+              <LoaderCircle className="spin" size={16} />
+            ) : (
+              <RefreshCw size={16} />
+            )}
+            Check for updates
+          </button>
+          {updateInfo && (
+            <div className="info-note">
+              <h3>Version {updateInfo.version}</h3>
+              <p>{updateInfo.body}</p>
+              <button
+                className="primary"
+                disabled={updateBusy}
+                onClick={() =>
+                  void run(async () => {
+                    if (
+                      w.calls.some(
+                        (c) => !["ENDED", "FINALIZED"].includes(c.state),
+                      )
+                    )
+                      throw new Error(
+                        "Finish the current call before installing an update.",
+                      );
+                    setUpdateBusy(true);
+                    try {
+                      await update.current?.downloadAndInstall();
+                      notice(
+                        "Update installed. Quit and reopen OpenDialer to use the new version.",
+                      );
+                    } finally {
+                      setUpdateBusy(false);
+                    }
+                  })
+                }
+              >
+                <ArrowDownToLine size={16} />
+                Install signed update
+              </button>
+            </div>
+          )}
+          <p className="fine">
+            Local builds are validated on this Mac. Distribution signing,
+            notarization, and other operating-system audio certification have
+            separate release gates.
+          </p>
+        </section>
+      )}
+    </>
+  );
 }

@@ -166,3 +166,43 @@ def test_restore_holds_new_outbound_until_authorization_journal_is_reconciled(wo
         json={"review_reference": "Reviewed synthetic empty carrier state"},
     )
     assert result.status_code == 200, result.text
+
+
+def test_failed_hangup_keeps_live_claim_until_provider_terminal_event(workspace, carrier, monkeypatch):
+    from app.db import ActiveClaim
+    from sqlalchemy import select
+
+    call = start(workspace)
+
+    async def unavailable(*args):
+        raise TimeoutError("carrier unreachable")
+
+    monkeypatch.setattr(carrier, "hangup", unavailable)
+    c, h = workspace["client"], workspace["headers"]
+    result = c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
+    assert result.status_code == 200
+    assert result.json()["state"] == "ENDING"
+    with c.app.state.db.transaction(False) as s:
+        assert s.scalar(select(ActiveClaim).where(ActiveClaim.call_id == call["id"])) is not None
+    c.post(
+        "/v1/simulation/event",
+        headers=h,
+        json={"event_id": "terminal-after-failed-hangup", "event_type": "call.hangup", "call_id": call["id"]},
+    )
+    with c.app.state.db.transaction(False) as s:
+        assert s.scalar(select(ActiveClaim).where(ActiveClaim.call_id == call["id"])) is None
+
+
+def test_playback_completion_is_not_proof_that_carrier_leg_ended(workspace):
+    call = start(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    c.post(
+        "/v1/simulation/event",
+        headers=h,
+        json={
+            "event_id": "playback-complete-open-leg",
+            "event_type": "call.playback.ended",
+            "call_id": call["id"],
+        },
+    )
+    assert c.get(f"/v1/calls/{call['id']}", headers=h).json()["state"] != "ENDED"

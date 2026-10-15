@@ -13,7 +13,7 @@ from app.main import create_app
 
 def main():
     parser = argparse.ArgumentParser(description="OpenDialer local/shared authority")
-    parser.add_argument("command", nargs="?", choices=["serve", "worker"], default="serve")
+    parser.add_argument("command", nargs="?", choices=["serve", "worker", "migrate"], default="serve")
     parser.add_argument("--host", default=None)
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--data-dir", type=Path, default=None)
@@ -44,6 +44,8 @@ def main():
     from app.migrate import migrate_database
 
     migrate_database(settings.database_url)
+    if args.command == "migrate":
+        return
     app = create_app(settings, clock=clock)
     if args.command == "worker":
 

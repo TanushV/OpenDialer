@@ -41,7 +41,7 @@ Source: [complete specification](spec/IMPLEMENTATION_SPEC.md), preserved verbati
 - [x] OpenAI Responses adapter, configurable model roles, schema/refusal/deadline handling, usage ledger.
 - [x] Explicit OpenAI-compatible LiteLLM adapter with configurable endpoint and credentials.
 - [x] Official eligible ChatGPT-plan adapter: public Responses, stream=true/store=false, terminal-event checks; optional OAuth registration/sign-in.
-- [ ] OpenAI Batch submission/result reconciliation by custom_id, partial retry and no Batch assumption for plan usage.
+- [x] OpenAI Batch submission/result reconciliation by custom_id, partial retry and no Batch assumption for plan usage.
 - [x] Bounded multi-lead preparation, company caching/single-flight, priorities, retries/dead-letter and independent outcomes.
 - [x] Safe fetcher with DNS/redirect/size/content/port restrictions; wrong-entity, stale evidence and prompt-injection rejection.
 - [x] Source/fact provenance, approved playbooks, script writer/modifier versions/diffs, deterministic claims validation and fallback.
@@ -63,7 +63,7 @@ Source: [complete specification](spec/IMPLEMENTATION_SPEC.md), preserved verbati
 - [x] Groq strict JSON adapter, bounded context, approved retrieval and no live web search.
 - [x] Useful triggers, NO_ACTION, one request/card per call, version/TTL/cooldown enforcement and cancellation.
 - [x] Grounding and claims validation, static fallback, deadline/circuit breaker and service status.
-- [ ] Replay evaluation harness and measured software latency; reproducible 20B/120B benchmark command.
+- [x] Replay evaluation harness and measured software latency; reproducible 20B/120B benchmark command.
 
 ## F. Scheduling, models and measurement (§9–10,19,22)
 
@@ -82,7 +82,7 @@ Source: [complete specification](spec/IMPLEMENTATION_SPEC.md), preserved verbati
 
 ## Delivery, validation and cleanliness (§3,17–24)
 
-- [ ] Full test matrix in SQLite and real PostgreSQL, API integration/contract/replay/recovery and frontend end-to-end tests.
+- [x] Full test matrix in SQLite and real PostgreSQL, API integration/contract/replay/recovery and frontend end-to-end tests.
 - [ ] Docker/Caddy deployment, separate worker priorities, migrations, encrypted backup/restore and audit-journal reconciliation.
 - [ ] Installable self-contained desktop bundle, persistent app data and signed update infrastructure.
 - [ ] CI for Python/TypeScript/Rust/security/build and cross-platform release packaging with lockfiles/licenses.

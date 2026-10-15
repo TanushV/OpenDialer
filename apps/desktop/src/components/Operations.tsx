@@ -1,37 +1,759 @@
-import { useState } from 'react';
-import { ArrowRight, Check, CheckCheck, ChevronRight, Download, FileText, Globe2, Layers3, Plus, Radio, RefreshCw, Search, ShieldCheck, Sparkles, Upload, Users } from 'lucide-react';
-import { date, label, useWorkspace } from '../context';
-import { parseCSV } from '../state/csv';
-import type { Lead, NumberRecord, Packet } from '../types';
-import { openSource } from '../api/client';
-import { Procurement, Variants } from './AdminWorkflows';
-import { AdvancedIntelligence } from './AdvancedIntelligence';
+import {
+  ArrowRight,
+  Check,
+  CheckCheck,
+  ChevronRight,
+  Layers3,
+  Plus,
+  Radio,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  Sparkles,
+  Upload,
+} from "lucide-react";
+import { useState } from "react";
+import { openSource } from "../api/client";
+import { date, label, useWorkspace } from "../context";
+import { parseCSV } from "../state/csv";
+import type { Lead, NumberRecord, Packet } from "../types";
+import { Procurement, Variants, DeferredScripts } from "./AdminWorkflows";
+import { AdvancedIntelligence } from "./AdvancedIntelligence";
 
 export function LeadsPage() {
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
-  const [csv, setCSV] = useState(''); const [query, setQuery] = useState(''); const [report, setReport] = useState<{ imported: number; duplicates: number; invalid: number } | null>(null);
+  const [csv, setCSV] = useState("");
+  const [query, setQuery] = useState("");
+  const [report, setReport] = useState<{
+    imported: number;
+    duplicates: number;
+    invalid: number;
+  } | null>(null);
   const [packet, setPacket] = useState<Packet | null>(null);
-  const leads = w.leads.filter(l => `${l.name} ${l.company} ${l.phone}`.toLowerCase().includes(query.toLowerCase()));
-  return <><div className="page-heading"><div><span className="eyebrow">THE WHOLE COHORT</span><h1>Good conversations start here<span className="soft-dot">.</span></h1><p>Every lead stays visible. Context improves; coverage stays accountable.</p></div><button className="primary" onClick={() => void run(async () => { await api('/v1/research/batches', 'POST', { lead_ids: w.leads.filter(l => !l.suppressed).map(l => l.id) }); notice('Preparation queued. Lead packets will update as work completes.'); await refresh(); })}><Sparkles size={16}/>Prepare lead packets</button></div><section className="card table-card"><div className="table-toolbar"><h3>{w.leads.length} leads <span className="subtle-count">{w.metrics.suppressed} suppressed</span></h3><div className="search"><Search size={16}/><input aria-label="Search leads" placeholder="Find a person or company" value={query} onChange={e => setQuery(e.target.value)}/></div></div><table><thead><tr><th>PERSON / COMPANY</th><th>ENDPOINT</th><th>STATUS</th><th>COVERAGE DUE</th><th>ATTEMPTS</th><th/></tr></thead><tbody>{leads.map(lead => <tr key={lead.id}><td><strong>{lead.name}</strong><small>{lead.company || 'Company not provided'}</small></td><td>{lead.phone}<small>{lead.timezone || 'Timezone needs review'}</small></td><td><span className={`pill ${lead.suppressed ? 'red' : 'green'}`}>{lead.suppressed ? 'Suppressed' : label(lead.status)}</span></td><td>{date(lead.coverage_due_at)}</td><td>{lead.attempt_count}</td><td><button className="icon-button" aria-label={`Open lead ${lead.name}`} onClick={() => void run(async () => setPacket(await api(`/v1/leads/${lead.id}/packet`)))}><ChevronRight size={18}/></button></td></tr>)}</tbody></table>{!leads.length && <Empty text="Your next cohort starts with an import."/>}</section><section className="card import-card"><div><span className="eyebrow">BRING YOUR OWN LIST</span><h2>Import a lead cohort</h2><p className="muted">Use headers: name, phone, company, domain, timezone, region, segment. Suppressions are preserved across every import.</p></div><div><label>CSV lead data<textarea rows={5} value={csv} onChange={e => setCSV(e.target.value)} placeholder={'name,phone,company,timezone\nJordan Example,+14155550101,Example Co,America/Los_Angeles'}/></label><div className="button-row"><label className="secondary file-button"><Upload size={15}/>Choose CSV file<input type="file" accept=".csv,text/csv" onChange={e => { const file = e.target.files?.[0]; if (file) void file.text().then(setCSV); }}/></label><button className="primary" disabled={!csv.trim()} onClick={() => void run(async () => { const report = await api<{ imported: number; duplicates: number; invalid: number }>('/v1/leads/import', 'POST', { campaign_id: w.campaign.id, rows: parseCSV(csv) }); setReport(report); await refresh(); notice(`${report.imported} leads imported`); })}>Import leads<ArrowRight size={15}/></button></div>{report && <p className="small">{report.imported} imported · {report.duplicates} duplicate rows · {report.invalid} invalid endpoints</p>}</div></section>{packet && <div className="modal-shade"><section className="modal"><button className="close-modal" onClick={() => setPacket(null)}>Close</button><span className="eyebrow">LEAD PACKET</span><h2>{packet.lead.name}</h2><p>{packet.lead.company} · {packet.lead.phone}</p><div className="section-rule"/><h3>Approved opener</h3><p>{packet.script.opener}</p><h3>Verified facts</h3>{packet.research.facts.map(f => <p key={f.id}>{f.statement}<button className="source-link" onClick={() => void openSource(f.source_url)}>Source ↗</button></p>)}<h3>Previous outcomes</h3>{packet.previous_calls.map(c => <p key={c.id}>{date(c.started_at)} · {c.outcome || c.state}</p>)}<h3>Endpoint correction</h3><p className="muted small">Wrong-party endpoints stay suppressed. Attach a verified replacement endpoint to continue this lead.</p><EndpointCorrection lead={packet.lead} onDone={() => setPacket(null)}/></section></div>}</>;
+  const leads = w.leads.filter((l) =>
+    `${l.name} ${l.company} ${l.phone}`
+      .toLowerCase()
+      .includes(query.toLowerCase()),
+  );
+  return (
+    <>
+      <div className="page-heading">
+        <div>
+          <span className="eyebrow">THE WHOLE COHORT</span>
+          <h1>
+            Good conversations start here<span className="soft-dot">.</span>
+          </h1>
+          <p>
+            Every lead stays visible. Context improves; coverage stays
+            accountable.
+          </p>
+        </div>
+        <button
+          className="primary"
+          onClick={() =>
+            void run(async () => {
+              await api("/v1/research/batches", "POST", {
+                lead_ids: w.leads.filter((l) => !l.suppressed).map((l) => l.id),
+              });
+              notice(
+                "Preparation queued. Lead packets will update as work completes.",
+              );
+              await refresh();
+            })
+          }
+        >
+          <Sparkles size={16} />
+          Prepare lead packets
+        </button>
+      </div>
+      <section className="card table-card">
+        <div className="table-toolbar">
+          <h3>
+            {w.leads.length} leads{" "}
+            <span className="subtle-count">
+              {w.metrics.suppressed} suppressed
+            </span>
+          </h3>
+          <div className="search">
+            <Search size={16} />
+            <input
+              aria-label="Search leads"
+              placeholder="Find a person or company"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>PERSON / COMPANY</th>
+              <th>ENDPOINT</th>
+              <th>STATUS</th>
+              <th>COVERAGE DUE</th>
+              <th>ATTEMPTS</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {leads.map((lead) => (
+              <tr key={lead.id}>
+                <td>
+                  <strong>{lead.name}</strong>
+                  <small>{lead.company || "Company not provided"}</small>
+                </td>
+                <td>
+                  {lead.phone}
+                  <small>{lead.timezone || "Timezone needs review"}</small>
+                </td>
+                <td>
+                  <span className={`pill ${lead.suppressed ? "red" : "green"}`}>
+                    {lead.suppressed ? "Suppressed" : label(lead.status)}
+                  </span>
+                </td>
+                <td>{date(lead.coverage_due_at)}</td>
+                <td>{lead.attempt_count}</td>
+                <td>
+                  <button
+                    className="icon-button"
+                    aria-label={`Open lead ${lead.name}`}
+                    onClick={() =>
+                      void run(async () =>
+                        setPacket(await api(`/v1/leads/${lead.id}/packet`)),
+                      )
+                    }
+                  >
+                    <ChevronRight size={18} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!leads.length && (
+          <Empty text="Your next cohort starts with an import." />
+        )}
+      </section>
+      <section className="card import-card">
+        <div>
+          <span className="eyebrow">BRING YOUR OWN LIST</span>
+          <h2>Import a lead cohort</h2>
+          <p className="muted">
+            Use headers: name, phone, company, domain, timezone, region,
+            segment. Suppressions are preserved across every import.
+          </p>
+        </div>
+        <div>
+          <label>
+            CSV lead data
+            <textarea
+              rows={5}
+              value={csv}
+              onChange={(e) => setCSV(e.target.value)}
+              placeholder={
+                "name,phone,company,timezone\nJordan Example,+14155550101,Example Co,America/Los_Angeles"
+              }
+            />
+          </label>
+          <div className="button-row">
+            <label className="secondary file-button">
+              <Upload size={15} />
+              Choose CSV file
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void file.text().then(setCSV);
+                }}
+              />
+            </label>
+            <button
+              className="primary"
+              disabled={!csv.trim()}
+              onClick={() =>
+                void run(async () => {
+                  const report = await api<{
+                    imported: number;
+                    duplicates: number;
+                    invalid: number;
+                  }>("/v1/leads/import", "POST", {
+                    campaign_id: w.campaign.id,
+                    rows: parseCSV(csv),
+                  });
+                  setReport(report);
+                  await refresh();
+                  notice(`${report.imported} leads imported`);
+                })
+              }
+            >
+              Import leads
+              <ArrowRight size={15} />
+            </button>
+          </div>
+          {report && (
+            <p className="small">
+              {report.imported} imported · {report.duplicates} duplicate rows ·{" "}
+              {report.invalid} invalid endpoints
+            </p>
+          )}
+        </div>
+      </section>
+      {packet && (
+        <div className="modal-shade">
+          <section className="modal">
+            <button className="close-modal" onClick={() => setPacket(null)}>
+              Close
+            </button>
+            <span className="eyebrow">LEAD PACKET</span>
+            <h2>{packet.lead.name}</h2>
+            <p>
+              {packet.lead.company} · {packet.lead.phone}
+            </p>
+            <div className="section-rule" />
+            <h3>Approved opener</h3>
+            <p>{packet.script.opener}</p>
+            <h3>Verified facts</h3>
+            {packet.research.facts.map((f) => (
+              <p key={f.id}>
+                {f.statement}
+                <button
+                  className="source-link"
+                  onClick={() => void openSource(f.source_url)}
+                >
+                  Source ↗
+                </button>
+              </p>
+            ))}
+            <h3>Previous outcomes</h3>
+            {packet.previous_calls.map((c) => (
+              <p key={c.id}>
+                {date(c.started_at)} · {c.outcome || c.state}
+              </p>
+            ))}
+            <h3>Endpoint correction</h3>
+            <p className="muted small">
+              Wrong-party endpoints stay suppressed. Attach a verified
+              replacement endpoint to continue this lead.
+            </p>
+            <EndpointCorrection
+              lead={packet.lead}
+              onDone={() => setPacket(null)}
+            />
+          </section>
+        </div>
+      )}
+    </>
+  );
 }
-function EndpointCorrection({ lead, onDone }: { lead: Lead; onDone: () => void }) {
-  const { api, run, refresh, notice } = useWorkspace(); const [phone, setPhone] = useState(''); const [evidence, setEvidence] = useState('');
-  return <div><label>Verified replacement phone<input value={phone} onChange={e => setPhone(e.target.value)}/></label><label>Evidence reference<input value={evidence} onChange={e => setEvidence(e.target.value)}/></label><button className="secondary" disabled={!phone || !evidence} onClick={() => void run(async () => { await api(`/v1/leads/${lead.id}/endpoint`, 'PATCH', { phone, evidence }); await refresh(); onDone(); notice('Replacement endpoint saved. Previous suppressions retained.'); })}>Save corrected endpoint</button></div>;
+function EndpointCorrection({
+  lead,
+  onDone,
+}: {
+  lead: Lead;
+  onDone: () => void;
+}) {
+  const { api, run, refresh, notice } = useWorkspace();
+  const [phone, setPhone] = useState("");
+  const [evidence, setEvidence] = useState("");
+  return (
+    <div>
+      <label>
+        Verified replacement phone
+        <input value={phone} onChange={(e) => setPhone(e.target.value)} />
+      </label>
+      <label>
+        Evidence reference
+        <input value={evidence} onChange={(e) => setEvidence(e.target.value)} />
+      </label>
+      <button
+        className="secondary"
+        disabled={!phone || !evidence}
+        onClick={() =>
+          void run(async () => {
+            await api(`/v1/leads/${lead.id}/endpoint`, "PATCH", {
+              phone,
+              evidence,
+            });
+            await refresh();
+            onDone();
+            notice(
+              "Replacement endpoint saved. Previous suppressions retained.",
+            );
+          })
+        }
+      >
+        Save corrected endpoint
+      </button>
+    </div>
+  );
 }
 
-interface Proposal { regions: { region: string; eligible_leads: number; healthy_existing: number; required: number; proposed_additional: number }[]; monthly_rental_estimate_usd: number; }
+interface Proposal {
+  regions: {
+    region: string;
+    eligible_leads: number;
+    healthy_existing: number;
+    required: number;
+    proposed_additional: number;
+  }[];
+  monthly_rental_estimate_usd: number;
+}
 export function NumbersPage() {
-  const { snapshot: w, api, run, refresh, notice } = useWorkspace(); const [proposal, setProposal] = useState<Proposal | null>(null); const [phone, setPhone] = useState('');
-  return <><div className="page-heading"><div><span className="eyebrow">A CONSISTENT CALLING IDENTITY</span><h1>Numbers &amp; callbacks</h1><p>Use owned numbers, keep familiar identities, and stay reachable.</p></div><button className="primary" onClick={() => void run(async () => setProposal(await api('/v1/admin/numbers/proposal', 'POST', { campaign_id: w.campaign.id, daily_capacity_per_number: 40 })))}><Layers3 size={17}/>Plan regional capacity</button></div><div className="number-summary"><div className="card"><Radio size={23}/><strong>{w.numbers.length}</strong><p>Owned numbers in inventory</p></div><div className="card"><ShieldCheck size={23}/><strong>{w.numbers.filter(n => n.lifecycle === 'healthy').length}</strong><p>Healthy and available</p></div><div className="card"><RefreshCw size={23}/><strong>Stable</strong><p>Prospect-to-number assignments</p></div></div><section className="card table-card"><div className="table-toolbar"><h3>Your number inventory</h3><button className="secondary small" onClick={() => void run(async () => { const r = await api<{ added: number }>('/v1/admin/numbers/sync', 'POST'); await refresh(); notice(`${r.added} existing Telnyx numbers added`); })}><RefreshCw size={14}/>Sync existing Telnyx numbers</button></div><table><thead><tr><th>CALLER ID</th><th>REGION</th><th>LIFECYCLE</th><th>DAILY LIMIT</th><th>CAPACITY</th><th>ACTIONS</th></tr></thead><tbody>{w.numbers.map(number => <NumberRow key={number.id} number={number}/>)}</tbody></table>{!w.numbers.length && <Empty text="Connect Telnyx to sync your existing owned numbers."/>}</section><section className="card import-card"><div><span className="eyebrow">LEGITIMATE WARMUP</span><h2>Start small. Stay reachable.</h2><p className="muted">New inventory moves through identity setup, a real inbound callback test, and limited legitimate use. Evidence is required before each promotion.</p><div className="lifecycle">Purchased<ChevronRight size={12}/>Identity<ChevronRight size={12}/>Callback tested<ChevronRight size={12}/>Limited use<ChevronRight size={12}/>Healthy</div></div><div><label>Existing owned phone number<input value={phone} onChange={e => setPhone(e.target.value)} placeholder="+14155550100"/></label><button className="secondary" disabled={!phone} onClick={() => void run(async () => { await api('/v1/admin/numbers', 'POST', { phone }); await refresh(); setPhone(''); notice('Number added in purchased state. Complete its onboarding evidence.'); })}><Plus size={16}/>Add owned number</button></div></section>{proposal && <section className="card proposal"><span className="eyebrow">PLAN BEFORE PROCUREMENT</span><h2>Regional capacity proposal</h2><table><thead><tr><th>REGION</th><th>ELIGIBLE LEADS</th><th>HEALTHY EXISTING</th><th>ADDITIONAL PROPOSED</th></tr></thead><tbody>{proposal.regions.map(r => <tr key={r.region}><td>{r.region}</td><td>{r.eligible_leads}</td><td>{r.healthy_existing}</td><td>{r.proposed_additional}</td></tr>)}</tbody></table><p className="small muted">Indicative monthly rental: ${proposal.monthly_rental_estimate_usd.toFixed(2)}. Actual provider quote and a procurement budget are required. No numbers purchased.</p></section>}<Procurement/></>;
+  const { snapshot: w, api, run, refresh, notice } = useWorkspace();
+  const [proposal, setProposal] = useState<Proposal | null>(null);
+  const [phone, setPhone] = useState("");
+  return (
+    <>
+      <div className="page-heading">
+        <div>
+          <span className="eyebrow">A CONSISTENT CALLING IDENTITY</span>
+          <h1>Numbers &amp; callbacks</h1>
+          <p>
+            Use owned numbers, keep familiar identities, and stay reachable.
+          </p>
+        </div>
+        <button
+          className="primary"
+          onClick={() =>
+            void run(async () =>
+              setProposal(
+                await api("/v1/admin/numbers/proposal", "POST", {
+                  campaign_id: w.campaign.id,
+                  daily_capacity_per_number: 40,
+                }),
+              ),
+            )
+          }
+        >
+          <Layers3 size={17} />
+          Plan regional capacity
+        </button>
+      </div>
+      <div className="number-summary">
+        <div className="card">
+          <Radio size={23} />
+          <strong>{w.numbers.length}</strong>
+          <p>Owned numbers in inventory</p>
+        </div>
+        <div className="card">
+          <ShieldCheck size={23} />
+          <strong>
+            {w.numbers.filter((n) => n.lifecycle === "healthy").length}
+          </strong>
+          <p>Healthy and available</p>
+        </div>
+        <div className="card">
+          <RefreshCw size={23} />
+          <strong>Stable</strong>
+          <p>Prospect-to-number assignments</p>
+        </div>
+      </div>
+      <section className="card table-card">
+        <div className="table-toolbar">
+          <h3>Your number inventory</h3>
+          <button
+            className="secondary small"
+            onClick={() =>
+              void run(async () => {
+                const r = await api<{ added: number }>(
+                  "/v1/admin/numbers/sync",
+                  "POST",
+                );
+                await refresh();
+                notice(`${r.added} existing Telnyx numbers added`);
+              })
+            }
+          >
+            <RefreshCw size={14} />
+            Sync existing Telnyx numbers
+          </button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>CALLER ID</th>
+              <th>REGION</th>
+              <th>LIFECYCLE</th>
+              <th>DAILY LIMIT</th>
+              <th>CAPACITY</th>
+              <th>ACTIONS</th>
+            </tr>
+          </thead>
+          <tbody>
+            {w.numbers.map((number) => (
+              <NumberRow key={number.id} number={number} />
+            ))}
+          </tbody>
+        </table>
+        {!w.numbers.length && (
+          <Empty text="Connect Telnyx to sync your existing owned numbers." />
+        )}
+      </section>
+      <section className="card import-card">
+        <div>
+          <span className="eyebrow">LEGITIMATE WARMUP</span>
+          <h2>Start small. Stay reachable.</h2>
+          <p className="muted">
+            New inventory moves through identity setup, a real inbound callback
+            test, and limited legitimate use. Evidence is required before each
+            promotion.
+          </p>
+          <div className="lifecycle">
+            Purchased
+            <ChevronRight size={12} />
+            Identity
+            <ChevronRight size={12} />
+            Callback tested
+            <ChevronRight size={12} />
+            Limited use
+            <ChevronRight size={12} />
+            Healthy
+          </div>
+        </div>
+        <div>
+          <label>
+            Existing owned phone number
+            <input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="+14155550100"
+            />
+          </label>
+          <button
+            className="secondary"
+            disabled={!phone}
+            onClick={() =>
+              void run(async () => {
+                await api("/v1/admin/numbers", "POST", { phone });
+                await refresh();
+                setPhone("");
+                notice(
+                  "Number added in purchased state. Complete its onboarding evidence.",
+                );
+              })
+            }
+          >
+            <Plus size={16} />
+            Add owned number
+          </button>
+        </div>
+      </section>
+      {proposal && (
+        <section className="card proposal">
+          <span className="eyebrow">PLAN BEFORE PROCUREMENT</span>
+          <h2>Regional capacity proposal</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>REGION</th>
+                <th>ELIGIBLE LEADS</th>
+                <th>HEALTHY EXISTING</th>
+                <th>ADDITIONAL PROPOSED</th>
+              </tr>
+            </thead>
+            <tbody>
+              {proposal.regions.map((r) => (
+                <tr key={r.region}>
+                  <td>{r.region}</td>
+                  <td>{r.eligible_leads}</td>
+                  <td>{r.healthy_existing}</td>
+                  <td>{r.proposed_additional}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="small muted">
+            Indicative monthly rental: $
+            {proposal.monthly_rental_estimate_usd.toFixed(2)}. Actual provider
+            quote and a procurement budget are required. No numbers purchased.
+          </p>
+        </section>
+      )}
+      <Procurement />
+    </>
+  );
 }
 function NumberRow({ number }: { number: NumberRecord }) {
-  const { api, refresh, run, notice } = useWorkspace(); const [editing, setEditing] = useState(false); const [reference, setReference] = useState('');
-  const stages = ['purchased', 'identity_configured', 'callback_tested', 'limited_real_use', 'healthy']; const next = stages[stages.indexOf(number.lifecycle)+1];
-  return <tr><td><strong>{number.phone}</strong><small>{number.callback_tested ? 'Callbacks tested' : 'Callback test pending'}</small></td><td>{number.region}</td><td><span className={`pill ${number.lifecycle === 'healthy' ? 'green' : 'subtle'}`}>{label(number.lifecycle)}</span></td><td>{number.daily_limit}</td><td>{number.capacity} concurrent</td><td>{editing ? <div className="input-row"><input aria-label={`Evidence for ${number.phone}`} placeholder="Evidence reference" value={reference} onChange={e => setReference(e.target.value)}/><button className="secondary small" disabled={!reference} onClick={() => void run(async () => { await api(`/v1/admin/numbers/${number.id}`, 'PATCH', { lifecycle: next, reason: reference, identity_configured: true, callback_tested: stages.indexOf(next) >= 2, registration_reference: reference, callback_test_reference: reference, real_use_review_reference: reference }); await refresh(); setEditing(false); notice('Number lifecycle updated'); })}>Save</button></div> : <div className="button-row">{next && <button className="text-button small" onClick={() => setEditing(true)}>Advance stage</button>}<button className="text-button small" onClick={() => void run(async () => { await api(`/v1/admin/numbers/${number.id}`, 'PATCH', { lifecycle: 'paused_for_outbound', reason: 'Operator paused outbound; inbound retained' }); await refresh(); })}>Pause outbound</button></div>}</td></tr>;
+  const { api, refresh, run, notice } = useWorkspace();
+  const [editing, setEditing] = useState(false);
+  const [reference, setReference] = useState("");
+  const stages = [
+    "purchased",
+    "identity_configured",
+    "callback_tested",
+    "limited_real_use",
+    "healthy",
+  ];
+  const next = stages[stages.indexOf(number.lifecycle) + 1];
+  return (
+    <tr>
+      <td>
+        <strong>{number.phone}</strong>
+        <small>
+          {number.callback_tested
+            ? "Callbacks tested"
+            : "Callback test pending"}
+        </small>
+      </td>
+      <td>{number.region}</td>
+      <td>
+        <span
+          className={`pill ${number.lifecycle === "healthy" ? "green" : "subtle"}`}
+        >
+          {label(number.lifecycle)}
+        </span>
+      </td>
+      <td>{number.daily_limit}</td>
+      <td>{number.capacity} concurrent</td>
+      <td>
+        {editing ? (
+          <div className="input-row">
+            <input
+              aria-label={`Evidence for ${number.phone}`}
+              placeholder="Evidence reference"
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+            />
+            <button
+              className="secondary small"
+              disabled={!reference}
+              onClick={() =>
+                void run(async () => {
+                  await api(`/v1/admin/numbers/${number.id}`, "PATCH", {
+                    lifecycle: next,
+                    reason: reference,
+                    identity_configured: true,
+                    callback_tested: stages.indexOf(next) >= 2,
+                    registration_reference: reference,
+                    callback_test_reference: reference,
+                    real_use_review_reference: reference,
+                  });
+                  await refresh();
+                  setEditing(false);
+                  notice("Number lifecycle updated");
+                })
+              }
+            >
+              Save
+            </button>
+          </div>
+        ) : (
+          <div className="button-row">
+            {next && (
+              <button
+                className="text-button small"
+                onClick={() => setEditing(true)}
+              >
+                Advance stage
+              </button>
+            )}
+            <button
+              className="text-button small"
+              onClick={() =>
+                void run(async () => {
+                  await api(`/v1/admin/numbers/${number.id}`, "PATCH", {
+                    lifecycle: "paused_for_outbound",
+                    reason: "Operator paused outbound; inbound retained",
+                  });
+                  await refresh();
+                })
+              }
+            >
+              Pause outbound
+            </button>
+          </div>
+        )}
+      </td>
+    </tr>
+  );
 }
 export function IntelligencePage() {
-  const { snapshot: w, api, run, refresh, notice } = useWorkspace(); const playbook = w.playbooks[0];
-  const [opener, setOpener] = useState(playbook?.opener || ''); const [intro, setIntro] = useState(playbook?.screening_intro || ''); const [reason, setReason] = useState('');
-  return <><div className="page-heading"><div><span className="eyebrow">LEARN WITHOUT LOSING THE THREAD</span><h1>Intelligence with evidence<span className="soft-dot">.</span></h1><p>Approved language, reviewable analysis, and accountable experiments.</p></div></div><div className="two-column"><section className="card padded"><span className="eyebrow">APPROVED PLAYBOOK</span><h2>{playbook?.name || 'Create a playbook'}</h2><label>Opener<textarea value={opener} onChange={e => setOpener(e.target.value)} rows={4}/></label><label>Screening introduction<textarea value={intro} onChange={e => setIntro(e.target.value)} rows={3}/></label><label>Publication reason<input value={reason} onChange={e => setReason(e.target.value)}/></label><button className="primary" disabled={!reason} onClick={() => void run(async () => { await api('/v1/admin/playbooks', 'POST', { name: playbook?.name || 'Business introduction', opener, screening_intro: intro, cards: playbook?.cards || [], reason, approved: true }); await refresh(); notice('New playbook version published. Active call scripts stay stable.'); })}>Publish reviewed version<Check size={15}/></button></section><section className="card padded"><span className="eyebrow">FOLLOW-THROUGH</span><h2>Promises worth keeping</h2>{w.tasks.length ? w.tasks.map(t => <div className="task" key={t.id}><div><strong>{t.action}</strong><p>{date(t.due_at)} · {label(t.status)}</p></div><button className="icon-button" aria-label={`Complete task ${t.action}`} onClick={() => void run(async () => { await api(`/v1/tasks/${t.id}`, 'PATCH', { status: 'completed' }); await refresh(); })}><CheckCheck size={18}/></button></div>) : <Empty text="Agreed next steps will appear here, with their evidence."/>}<div className="section-rule"/><span className="eyebrow">COVERAGE BEFORE PROPENSITY</span><p className="muted small">Requested callbacks come first, then requested contacts and coverage obligations. Low predicted pickup cannot hide a lead. Delayed outcome windows stay pending until mature.</p></section></div><section className="card table-card"><div className="table-toolbar"><h3>Preparation &amp; analysis jobs</h3><button className="secondary small" onClick={() => void run(async () => { const r = await api<{ processed: number }>('/v1/admin/jobs/run', 'POST'); await refresh(); notice(`${r.processed} queued jobs processed`); })}>Process queued work</button></div><table><thead><tr><th>LANE</th><th>STATUS</th><th>ATTEMPTS</th><th>DETAIL</th></tr></thead><tbody>{w.jobs.map(j => <tr key={j.id}><td>{label(j.queue)}</td><td><span className="pill subtle">{label(j.status)}</span></td><td>{j.attempts}</td><td>{j.error || '—'}</td></tr>)}</tbody></table>{!w.jobs.length && <Empty text="Preparation and analysis run in bounded, durable work units."/>}</section><section className="card padded"><span className="eyebrow">MODEL REGISTRY</span><h2>A baseline you can compare against</h2><p className="muted">The scheduler starts with coverage rules and pooled estimates. Challengers need chronological evaluation, calibration, a controlled outcome trial, and manual activation.</p>{w.models.length ? w.models.map(m => <p key={m.id}>{m.active ? 'Active' : 'Challenger'} · Brier {m.metrics.brier?.toFixed(4)} · {m.checksum.slice(0, 12)}</p>) : <span className="pill green">Coverage-first baseline active</span>}<p className="fine">Observed associations are correlations. Emotion, honesty, and personality inference are excluded.</p></section><Variants/><AdvancedIntelligence/></>;
+  const { snapshot: w, api, run, refresh, notice } = useWorkspace();
+  const playbook = w.playbooks[0];
+  const [opener, setOpener] = useState(playbook?.opener || "");
+  const [intro, setIntro] = useState(playbook?.screening_intro || "");
+  const [reason, setReason] = useState("");
+  return (
+    <>
+      <div className="page-heading">
+        <div>
+          <span className="eyebrow">LEARN WITHOUT LOSING THE THREAD</span>
+          <h1>
+            Intelligence with evidence<span className="soft-dot">.</span>
+          </h1>
+          <p>
+            Approved language, reviewable analysis, and accountable experiments.
+          </p>
+        </div>
+      </div>
+      <div className="two-column">
+        <section className="card padded">
+          <span className="eyebrow">APPROVED PLAYBOOK</span>
+          <h2>{playbook?.name || "Create a playbook"}</h2>
+          <label>
+            Opener
+            <textarea
+              value={opener}
+              onChange={(e) => setOpener(e.target.value)}
+              rows={4}
+            />
+          </label>
+          <label>
+            Screening introduction
+            <textarea
+              value={intro}
+              onChange={(e) => setIntro(e.target.value)}
+              rows={3}
+            />
+          </label>
+          <label>
+            Publication reason
+            <input value={reason} onChange={(e) => setReason(e.target.value)} />
+          </label>
+          <button
+            className="primary"
+            disabled={!reason}
+            onClick={() =>
+              void run(async () => {
+                await api("/v1/admin/playbooks", "POST", {
+                  name: playbook?.name || "Business introduction",
+                  opener,
+                  screening_intro: intro,
+                  cards: playbook?.cards || [],
+                  reason,
+                  approved: true,
+                });
+                await refresh();
+                notice(
+                  "New playbook version published. Active call scripts stay stable.",
+                );
+              })
+            }
+          >
+            Publish reviewed version
+            <Check size={15} />
+          </button>
+        </section>
+        <section className="card padded">
+          <span className="eyebrow">FOLLOW-THROUGH</span>
+          <h2>Promises worth keeping</h2>
+          {w.tasks.length ? (
+            w.tasks.map((t) => (
+              <div className="task" key={t.id}>
+                <div>
+                  <strong>{t.action}</strong>
+                  <p>
+                    {date(t.due_at)} · {label(t.status)}
+                  </p>
+                </div>
+                <button
+                  className="icon-button"
+                  aria-label={`Complete task ${t.action}`}
+                  onClick={() =>
+                    void run(async () => {
+                      await api(`/v1/tasks/${t.id}`, "PATCH", {
+                        status: "completed",
+                      });
+                      await refresh();
+                    })
+                  }
+                >
+                  <CheckCheck size={18} />
+                </button>
+              </div>
+            ))
+          ) : (
+            <Empty text="Agreed next steps will appear here, with their evidence." />
+          )}
+          <div className="section-rule" />
+          <span className="eyebrow">COVERAGE BEFORE PROPENSITY</span>
+          <p className="muted small">
+            Requested callbacks come first, then requested contacts and coverage
+            obligations. Low predicted pickup cannot hide a lead. Delayed
+            outcome windows stay pending until mature.
+          </p>
+        </section>
+      </div>
+      <section className="card table-card">
+        <div className="table-toolbar">
+          <h3>Preparation &amp; analysis jobs</h3>
+          <button
+            className="secondary small"
+            onClick={() =>
+              void run(async () => {
+                const r = await api<{ processed: number }>(
+                  "/v1/admin/jobs/run",
+                  "POST",
+                );
+                await refresh();
+                notice(`${r.processed} queued jobs processed`);
+              })
+            }
+          >
+            Process queued work
+          </button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>LANE</th>
+              <th>STATUS</th>
+              <th>ATTEMPTS</th>
+              <th>DETAIL</th>
+            </tr>
+          </thead>
+          <tbody>
+            {w.jobs.map((j) => (
+              <tr key={j.id}>
+                <td>{label(j.queue)}</td>
+                <td>
+                  <span className="pill subtle">{label(j.status)}</span>
+                </td>
+                <td>{j.attempts}</td>
+                <td>{j.error || "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!w.jobs.length && (
+          <Empty text="Preparation and analysis run in bounded, durable work units." />
+        )}
+      </section>
+      <section className="card padded">
+        <span className="eyebrow">MODEL REGISTRY</span>
+        <h2>A baseline you can compare against</h2>
+        <p className="muted">
+          The scheduler starts with coverage rules and pooled estimates.
+          Challengers need chronological evaluation, calibration, a controlled
+          outcome trial, and manual activation.
+        </p>
+        {w.models.length ? (
+          w.models.map((m) => (
+            <p key={m.id}>
+              {m.active ? "Active" : "Challenger"} · Brier{" "}
+              {m.metrics.brier?.toFixed(4)} · {m.checksum.slice(0, 12)}
+            </p>
+          ))
+        ) : (
+          <span className="pill green">Coverage-first baseline active</span>
+        )}
+        <p className="fine">
+          Observed associations are correlations. Emotion, honesty, and
+          personality inference are excluded.
+        </p>
+      </section>
+      <Variants />
+      <DeferredScripts />
+      <AdvancedIntelligence />
+    </>
+  );
 }
-export function Empty({ text }: { text: string }) { return <div className="empty"><Layers3 size={25} strokeWidth={1.2}/><p>{text}</p></div>; }
+export function Empty({ text }: { text: string }) {
+  return (
+    <div className="empty">
+      <Layers3 size={25} strokeWidth={1.2} />
+      <p>{text}</p>
+    </div>
+  );
+}

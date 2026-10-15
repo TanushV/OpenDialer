@@ -359,19 +359,47 @@ class Dialer(TelephonyWorkflows, Application):
                                 status="completed",
                                 provider_id=receipt["call_control_id"],
                             )
-            elif command["kind"] == "hangup" and command.get("provider_id"):
+            elif command["kind"] == "hangup":
+                with self.db.transaction(False) as s:
+                    target_call = self.required(s, "call_attempts", command["call_id"], p)
+                    provider_id = command.get("provider_id") or target_call.data.get("provider_id")
+                if not provider_id:
+                    continue
                 try:
-                    await self.carrier(p["tenant_id"]).hangup(
-                        command["provider_id"], command["call_id"] + ":hangup"
-                    )
+                    await self.carrier(p["tenant_id"]).hangup(provider_id, command["call_id"] + ":hangup")
                     with self.db.transaction() as s:
-                        update(self.required(s, "command_outbox", command["id"], p), status="completed")
+                        update(
+                            self.required(s, "command_outbox", command["id"], p),
+                            status="completed",
+                            provider_id=provider_id,
+                        )
+                        if self.settings.simulation:
+                            self.finish_call(
+                                s,
+                                p,
+                                self.required(s, "call_attempts", command["call_id"], p),
+                                "simulated_recovery_hangup",
+                            )
                 except Exception as exc:
                     logging.getLogger(__name__).warning(
                         "Carrier reconciliation deferred: %s", type(exc).__name__
                     )
                     continue
         for call in calls:
+            if call["state"] == "ENDING" and call.get("provider_id"):
+                receipt = await self.carrier(p["tenant_id"]).reconcile(call["id"], call["provider_id"])
+                if receipt and (
+                    receipt.get("is_alive") is False
+                    or receipt.get("state") in {"hangup", "ended", "completed"}
+                ):
+                    with self.db.transaction() as s:
+                        self.finish_call(
+                            s,
+                            p,
+                            self.required(s, "call_attempts", call["id"], p),
+                            "provider_terminal_reconciliation",
+                        )
+                    continue
             if (self.clock() - dt(call["started_at"])).total_seconds() > self.settings.max_call_seconds:
                 await self.hangup(p, call["id"])
         return {"reconciled": len(commands), "examined_calls": len(calls)}

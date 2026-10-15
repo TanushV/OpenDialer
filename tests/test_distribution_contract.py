@@ -30,3 +30,9 @@ def test_deployment_database_is_private_and_workers_have_separate_lanes():
         assert lane in compose
     assert (ROOT / "deploy/backup/restore.py").exists()
     assert (ROOT / "docs/PLAN.md").exists()
+
+
+def test_deployment_orders_migration_before_all_authority_workers():
+    compose = (ROOT / "deploy/compose.yml").read_text()
+    assert "service_completed_successfully" in compose
+    assert "command: [migrate" in compose

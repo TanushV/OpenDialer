@@ -11,6 +11,13 @@ FEATURE_ORDER = ["local_hour", "attempt_count", "number_health"]
 
 
 def train_challenger(rows, output_dir):
+    from threadpoolctl import threadpool_limits
+
+    with threadpool_limits(limits=1):
+        return _train_challenger(rows, output_dir)
+
+
+def _train_challenger(rows, output_dir):
     if len(rows) < 100:
         raise ValueError("At least 100 outcome-labeled rows required for a challenger")
     ordered = sorted(rows, key=lambda r: r["at"])

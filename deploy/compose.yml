@@ -18,6 +18,8 @@ x-backend: &backend
   depends_on:
     postgres:
       condition: service_healthy
+    migrate:
+      condition: service_completed_successfully
   restart: unless-stopped
   security_opt: [no-new-privileges:true]
   cap_drop: [ALL]
@@ -40,6 +42,13 @@ services:
       interval: 5s
       timeout: 3s
       retries: 15
+  migrate:
+    <<: *backend
+    command: [migrate, --mode, connected]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
   api:
     <<: *backend
     command: [serve, --mode, connected, --host, 0.0.0.0]

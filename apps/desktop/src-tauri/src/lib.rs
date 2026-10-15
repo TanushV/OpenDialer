@@ -75,6 +75,12 @@ fn master_key(simulation: bool, directory: &std::path::Path) -> Result<String, S
     }
 }
 
+pub fn managed_sidecar(
+    command: tauri_plugin_shell::process::Command,
+) -> tauri_plugin_shell::process::Command {
+    command.set_process_group(true)
+}
+
 pub async fn secure_io<T: Send + 'static, F: FnOnce() -> Result<T, String> + Send + 'static>(
     operation: F,
 ) -> Result<T, String> {
@@ -140,15 +146,16 @@ fn start_backend(
     if simulation {
         args.push("--simulation".into());
     }
-    let command = app
-        .shell()
-        .sidecar("opendialer-backend")
-        .map_err(|_| "Bundled local service is missing")?
-        .args(args)
-        .env("OPENDIALER_LOCAL_TOKEN", &nonce)
-        .env("OPENDIALER_SECRET_KEY", master_key(simulation, &directory)?)
-        .env("OMP_NUM_THREADS", "1")
-        .env("OPENBLAS_NUM_THREADS", "1");
+    let command = managed_sidecar(
+        app.shell()
+            .sidecar("opendialer-backend")
+            .map_err(|_| "Bundled local service is missing")?,
+    )
+    .args(args)
+    .env("OPENDIALER_LOCAL_TOKEN", &nonce)
+    .env("OPENDIALER_SECRET_KEY", master_key(simulation, &directory)?)
+    .env("OMP_NUM_THREADS", "1")
+    .env("OPENBLAS_NUM_THREADS", "1");
     let (mut receiver, child) = command
         .spawn()
         .map_err(|_| "Cannot start the bundled local service")?;

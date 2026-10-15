@@ -18,6 +18,7 @@ ORDER = {
             "VM_PENDING",
             "VM_PLAYING",
             "HUMAN",
+            "ENDING",
             "ENDED",
             "FINALIZED",
         ]
@@ -42,8 +43,8 @@ def reduce_state(state, event):
         "call.machine.premium.detection.ended:machine": "VOICEMAIL_GREETING",
         "call.machine.premium.detection.ended:screening": "SCREENING",
         "call.playback.started": "VM_PLAYING",
-        "call.playback.ended": "ENDED",
-        "call.playback.failed": "ENDED",
+        "call.playback.ended": "ENDING",
+        "call.playback.failed": "ENDING",
         "human.confirmed": "HUMAN",
     }
     target = mapping.get(event, state)

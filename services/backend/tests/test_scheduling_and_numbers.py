@@ -153,3 +153,23 @@ def test_metrics_keep_original_cohort_denominator(workspace):
     assert after["right_party_unique"] == 0
     assert after["attempts"] == 1
     assert after["held_meetings_per_original_lead"] == 0
+
+
+def test_only_verified_local_model_artifact_can_influence_probability(tmp_path):
+    from app.ml.training import predict_challenger
+
+    directory = tmp_path / "models"
+    rows = [
+        {
+            "lead_id": str(i),
+            "endpoint_id": str(i),
+            "at": f"2026-09-{1 + i // 10:02d}",
+            "features": {"local_hour": 10 + i % 4, "attempt_count": i % 3, "number_health": 0.8},
+            "human": i % 3 == 0,
+        }
+        for i in range(120)
+    ]
+    model = train_challenger(rows, directory)
+    assert 0 <= predict_challenger(model, {"local_hour": 11}, directory) <= 1
+    assert predict_challenger(model, {}, tmp_path / "another-root") is None
+    assert predict_challenger({**model, "checksum": "tampered"}, {}, directory) is None

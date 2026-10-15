@@ -57,7 +57,11 @@ class TelephonyWorkflows:
                     decision = authorize(self.context(s, p, lead, number, permission=permission, active=True))
                     if decision.allowed:
                         self.control_intent(s, p, call_id, action, command)
-            if event_type == "call.playback.started" and call.data.get("detach_requested"):
+            if (
+                event_type == "call.playback.started"
+                and call.data.get("detach_requested")
+                and call.data["state"] == "VM_PLAYING"
+            ):
                 if not policy.get("detached_topology_verified") or not policy.get(
                     "late_human_recovery_destination"
                 ):
@@ -222,10 +226,21 @@ class TelephonyWorkflows:
                 provider = self.carrier(p["tenant_id"])
                 if command["action"] == "playback_start":
                     await provider.playback(target, command["payload"])
+                elif command["action"] == "hangup":
+                    await provider.hangup(target, command["payload"]["command_id"])
                 else:
                     await provider.action(target, command["action"], command["payload"])
                 with self.db.transaction() as s:
                     update(self.required(s, "command_outbox", command["id"], p), status="completed")
+                    if (
+                        self.settings.simulation
+                        and not inbound
+                        and command["action"] == "hangup"
+                        and target == call.data.get("provider_id")
+                    ):
+                        self.finish_call(
+                            s, p, self.required(s, "call_attempts", call.id, p), "simulated_control_hangup"
+                        )
             except Exception as exc:
                 with self.db.transaction() as s:
                     update(

@@ -130,7 +130,15 @@ def test_ready_responsible_rep_receives_inbound_transfer_through_durable_outbox(
     task = asyncio.run(
         service.inbound_callback(
             workspace["tenant_id"],
-            {"call_control_id": "incoming-controlled", "to": "+14155550100", "from": "+14155550101"},
+            {
+                "call_control_id": "incoming-controlled",
+                "to": "+14155550100",
+                "from": next(
+                    lead["phone"]
+                    for lead in c.get("/v1/workspace", headers=h).json()["leads"]
+                    if lead["id"] == call["lead_id"]
+                ),
+            },
             "transfer-event",
         )
     )

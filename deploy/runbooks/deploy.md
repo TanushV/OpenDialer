@@ -1,0 +1,12 @@
+# Deploy one shared authority
+
+1. Provision a Linux VM with encrypted persistent volumes, time synchronization, restricted SSH, a firewall and a tested off-host backup destination. The reference is one small VM; actual capacity requires workload testing.
+2. Copy `deploy/.env.example` to a protected path outside the checkout. Generate independent random PostgreSQL password, authority secret and one-time bootstrap token. Store recovery copies separately; losing the authority secret loses access to encrypted records. Set the DNS hostname. Do not commit this file or put secrets in shell history.
+3. Run `docker compose --env-file /protected/opendialer.env -f deploy/compose.yml up -d --build`. The migration service completes before API/workers. PostgreSQL has no published host port; only Caddy exposes HTTP/HTTPS. Confirm DNS/TLS and `/health`. Inspect service status without printing environment/secret values.
+4. Bootstrap once with `POST /v1/setup`, the `X-Bootstrap-Token` header and seller/campaign/admin details over HTTPS. Remove the bootstrap value from routine operator access afterwards; setup cannot initialize a second first workspace. The platform owner can create additional isolated workspaces explicitly.
+5. In the desktop connect to the HTTPS server, sign in and configure provider/policy/registry/budget settings. Create users with individual incoming-only WebRTC credentials. Never share the carrier account master key with rep desktops.
+6. Exercise backup/restore and signed events on permissioned test endpoints. Obtain traffic approval and certify actual media/callback/billing behavior before admitting production traffic. Unconfigured providers and missing legal evidence fail closed.
+
+API ingress and lightweight worker lanes run separately. Research concurrency, optional-job budgets, request deadlines, token caps and off-peak bounded ML protect call-control work. Use `docker compose ... --profile training run --rm worker-ml` only during the reviewed training window. Monitor queue age, uncertain commands, registry freshness, budget consumption, carrier errors and disk growth. Do not infer provider availability from an HTTP health response.
+
+For local container acceptance only, bind the API port to 127.0.0.1 and use synthetic credentials. `OPENDIALER_SIMULATION=true` is an explicit test override; production Compose defaults false. The reset-based pytest database is always separate from a running acceptance server.

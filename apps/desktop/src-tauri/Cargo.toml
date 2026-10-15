@@ -1,6 +1,6 @@
 [package]
 name = "opendialer-desktop"
-version = "0.1.0"
+version = "0.1.1"
 description = "OpenDialer desktop"
 authors = ["OpenDialer contributors"]
 edition = "2021"
@@ -28,4 +28,5 @@ keyring = { version = "3", features = ["windows-native"] }
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3", features = ["sync-secret-service"] }
 [dev-dependencies]
+tauri = { version = "2", features = ["test"] }
 tokio = { version = "1", features = ["macros", "rt", "time"] }

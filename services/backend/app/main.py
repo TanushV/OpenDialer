@@ -1693,4 +1693,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
             )
             return doc(model)
 
+    from app.preparation.batches import register_batches
+
+    register_batches(app, service, administrator)
     return app

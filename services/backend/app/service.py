@@ -999,6 +999,8 @@ class Service:
             call = self.required(s, "call_attempts", call_id, p)
             if p["role"] == "rep" and call.data["rep_id"] != p["user_id"]:
                 fail(403, "Call belongs to another rep")
+            if call.data["state"] in TERMINAL:
+                return doc(call)
             provider_id = call.data.get("provider_id")
             command_id = call.id + ":hangup"
             existing = next(
@@ -1014,21 +1016,31 @@ class Service:
                     key=command_id,
                     now=self.clock(),
                 )
-            self.finish_call(s, p, call)
-            result = doc(call)
+            update(call, state="ENDING")
+            emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": "ENDING"})
         if provider_id:
             try:
                 await self.carrier(p["tenant_id"]).hangup(provider_id, command_id)
                 with self.db.transaction() as s:
                     update(self.required(s, "command_outbox", existing.id, p), status="completed")
+                    if self.settings.simulation:
+                        self.finish_call(
+                            s, p, self.required(s, "call_attempts", call_id, p), "simulated_hangup_receipt"
+                        )
             except Exception as exc:
+                with self.db.transaction() as s:
+                    update(self.required(s, "command_outbox", existing.id, p), status="uncertain")
                 logging.getLogger(__name__).warning("Durable hangup pending: %s", type(exc).__name__)
-        self.jobs.enqueue(
-            "postcall",
-            {"call_id": call_id, "seller_id": p["seller_id"], "user_id": p["user_id"]},
-            "postcall:" + call_id + ":" + str(call.version),
-            tenant_id=p["tenant_id"],
-        )
+        with self.db.transaction(False) as s:
+            call = self.required(s, "call_attempts", call_id, p)
+            result = doc(call)
+        if result["state"] in TERMINAL:
+            self.jobs.enqueue(
+                "postcall",
+                {"call_id": call_id, "seller_id": p["seller_id"], "user_id": p["user_id"]},
+                "postcall:" + call_id + ":" + str(call.version),
+                tenant_id=p["tenant_id"],
+            )
         return result
 
     def suppress(self, p, phone, reason, *, event_id=None):

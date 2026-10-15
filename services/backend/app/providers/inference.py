@@ -38,6 +38,7 @@ class InferenceClient:
                     "json_schema": {"name": "result", "strict": True, "schema": schema},
                 },
                 stream=False,
+                max_tokens=2000,
             )
         else:
             path = "/responses"
@@ -48,6 +49,7 @@ class InferenceClient:
             if self.mode == "chatgpt_plan":
                 body["stream"] = True
             else:
+                body["max_output_tokens"] = 2000
                 body["text"] = {
                     "format": {"type": "json_schema", "name": "result", "strict": True, "schema": schema}
                 }
