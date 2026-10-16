@@ -65,7 +65,7 @@ def test_forecast_subtracts_existing_used_reserved_and_warmup_capacity(clock):
     ]
     inventory = [
         number(used_today=2, reserved_attempts=1),
-        number("new", lifecycle="purchased", daily_limit=100),
+        number("new", region="212", lifecycle="purchased", daily_limit=100),
     ]
     result = capacity_forecast(
         leads,
@@ -145,3 +145,34 @@ def test_forecast_accounts_for_due_callbacks_and_future_horizon(clock):
 def test_invalid_capacity_is_rejected(clock):
     with pytest.raises(ValueError):
         capacity_forecast([], [], now=clock.now, daily_capacity_per_number=0)
+
+
+def test_existing_inventory_waiting_for_setup_or_review_does_not_trigger_identity_churn(clock):
+    leads = [
+        {
+            "id": str(i),
+            "region": "415",
+            "timezone": "America/Los_Angeles",
+            "status": "eligible",
+            "attempt_count": 0,
+        }
+        for i in range(7)
+    ]
+    for state in [
+        "purchased",
+        "identity_configured",
+        "callback_tested",
+        "investigating",
+        "paused_for_outbound",
+    ]:
+        result = capacity_forecast(
+            leads,
+            [number(lifecycle=state, daily_limit=20)],
+            now=clock.now,
+            daily_capacity_per_number=20,
+            policy={"max_attempts": 1},
+        )
+        region = result["regions"][0]
+        assert region["usable_existing_capacity"] == 0
+        assert region["capacity_waiting_for_review"] >= 7
+        assert region["proposed_additional"] == 0

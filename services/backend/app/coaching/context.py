@@ -46,6 +46,7 @@ def evidence(segment, **extra):
         "text": segment["text"],
         "quote": segment["text"],
         "evidence_segment_ids": [segment["segment_id"]],
+        "evidence_revisions": {segment["segment_id"]: segment.get("revision", 1)},
         **extra,
     }
 
@@ -132,6 +133,37 @@ def build_context(segments, *, version, facts, commitments, prior=None):
             )
     state["asked_questions"] = state["asked_questions"][-12:]
     state["answered_questions"] = state["answered_questions"][-12:]
+    sources = {s["segment_id"]: s for s in stable}
+    for key in (
+        "needs",
+        "business_impact",
+        "objections",
+        "answered_questions",
+        "buying_signals",
+        "commitments",
+    ):
+        for item in (prior or {}).get(key, []):
+            ids, revisions, quote = (
+                item.get("evidence_segment_ids", []),
+                item.get("evidence_revisions", {}),
+                item.get("quote"),
+            )
+            if not ids or not quote or item.get("text") != quote:
+                continue
+            if any(
+                identifier not in sources
+                or revisions.get(identifier) != sources[identifier].get("revision", 1)
+                for identifier in ids
+            ):
+                continue
+            if quote.casefold() not in " ".join(sources[identifier]["text"] for identifier in ids).casefold():
+                continue
+            if not any(
+                current.get("text") == item["text"] and current.get("evidence_segment_ids") == ids
+                for current in state[key]
+            ):
+                state[key].append(item)
+        state[key] = state[key][-12:]
     return state
 
 
@@ -160,7 +192,7 @@ def retrieve_cards(state, cards):
         ):
             continue
         tags = set(card.get("tags", []))
-        resolved = {o["kind"] for o in state["objections"] if o["status"] == "resolved"}
+        resolved = {o.get("kind") for o in state["objections"] if o["status"] == "resolved"}
         if tags & resolved:
             continue
         score = 10 * bool(tags & wanted) + len(tokens & query) / max(1, len(tokens))
@@ -228,7 +260,19 @@ def merge_semantic_state(state, update, segments):
             if quote.casefold() not in " ".join(sources[i] for i in ids).casefold():
                 raise CardRejected("State evidence is absent")
         if values:
-            merged[key] = values
+            revisions = {s["segment_id"]: s.get("revision", 1) for s in segments}
+            merged[key] = (
+                state.get(key, [])
+                + [
+                    {
+                        **item,
+                        "evidence_revisions": {
+                            identifier: revisions[identifier] for identifier in item["evidence_segment_ids"]
+                        },
+                    }
+                    for item in values
+                ]
+            )[-12:]
     if state["stage"] != "declined":
         merged["stage"] = update["stage"]
     return merged

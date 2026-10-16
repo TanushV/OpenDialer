@@ -50,6 +50,28 @@ def test_context_ignores_partials_system_audio_and_does_not_infer_emotion():
     assert "emotion" not in state and "personality" not in state
 
 
+def test_quoted_semantic_state_survives_new_turns_but_not_a_revised_source():
+    original = segment("s1", "Duplicated entries consume two hours every week.", revision=1)
+    prior = {
+        "version": 1,
+        "needs": [
+            {
+                "text": original["text"],
+                "quote": original["text"],
+                "evidence_segment_ids": ["s1"],
+                "evidence_revisions": {"s1": 1},
+                "status": "confirmed",
+            }
+        ],
+    }
+    next_turn = segment("s2", "Can we arrange a meeting?", revision=1)
+    state = build_context([original, next_turn], version=2, facts=[], commitments=[], prior=prior)
+    assert state["needs"] and state["needs"][0]["text"] == original["text"]
+    revised = {**original, "revision": 2, "text": "We do not have duplicated entries."}
+    state = build_context([revised, next_turn], version=3, facts=[], commitments=[], prior=prior)
+    assert not state["needs"]
+
+
 def test_card_retrieval_matches_semantic_budget_objection_instead_of_first_card():
     state = build_context(
         [segment("s", "We cannot afford another subscription.")], version=1, facts=[], commitments=[]

@@ -176,6 +176,18 @@ def capacity_forecast(
         for n in inventory
         if n.get("region") == "general" and n.get("lifecycle") in {"healthy", "limited_real_use"}
     )
+    waiting_states = {
+        "purchased",
+        "identity_configured",
+        "callback_tested",
+        "investigating",
+        "paused_for_outbound",
+    }
+    general_waiting = sum(
+        max(daily_capacity_per_number, n.get("daily_limit", 0)) * days
+        for n in inventory
+        if n.get("region") == "general" and n.get("lifecycle") in waiting_states
+    )
     for region in sorted(demand, key=lambda r: (-callback_demand.get(r, 0), -demand[r], r)):
         raw = demand[region]
         planned = min(raw, remaining_rep)
@@ -192,6 +204,14 @@ def capacity_forecast(
         shared = min(general_available, max(0, planned - usable)) if region != "general" else 0
         general_available -= shared
         deficit = max(0, planned - usable - shared)
+        waiting = sum(
+            max(daily_capacity_per_number, n.get("daily_limit", 0)) * days
+            for n in inventory
+            if n.get("region") == region and n.get("lifecycle") in waiting_states
+        )
+        shared_waiting = min(general_waiting, max(0, deficit - waiting)) if region != "general" else 0
+        general_waiting -= shared_waiting
+        awaiting_review = min(deficit, waiting + shared_waiting)
         regions.append(
             {
                 "region": region,
@@ -201,10 +221,14 @@ def capacity_forecast(
                 "healthy_existing": len(owned),
                 "usable_existing_capacity": usable,
                 "general_fallback_capacity": shared,
+                "capacity_waiting_for_review": awaiting_review,
+                "outbound_capacity_shortfall": deficit,
                 "callback_demand": callback_demand.get(region, 0),
                 "required": math.ceil(planned / (daily_capacity_per_number * days)),
-                "proposed_additional": math.ceil(deficit / (daily_capacity_per_number * days)),
-                "reason": "Existing and general inventory subtracted before any proposed purchase",
+                "proposed_additional": math.ceil(
+                    (deficit - awaiting_review) / (daily_capacity_per_number * days)
+                ),
+                "reason": "Review owned pending inventory before procurement; waiting capacity cannot dial",
             }
         )
     return {

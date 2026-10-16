@@ -596,15 +596,18 @@ class Application(Service):
             commitments = [
                 doc(r) for r in self.scoped(s, "commitments", p) if r.data.get("lead_id") == lead.id
             ]
+            state_record = next(
+                (r for r in self.scoped(s, "conversation_states", p) if r.external_key == call_id), None
+            )
             state = build_context(
                 stable,
                 version=version,
                 facts=facts,
                 commitments=commitments,
-                prior={"previous_guidance": [r.data["say_or_ask"] for r in prior]},
-            )
-            state_record = next(
-                (r for r in self.scoped(s, "conversation_states", p) if r.external_key == call_id), None
+                prior={
+                    **(state_record.data if state_record else {}),
+                    "previous_guidance": [r.data["say_or_ask"] for r in prior],
+                },
             )
             values = {"call_id": call_id, **state, "updated_at": self.clock().isoformat()}
             if state_record:

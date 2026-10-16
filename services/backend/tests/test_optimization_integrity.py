@@ -310,3 +310,55 @@ def test_control_and_candidate_get_explicit_capacity_and_callbacks_remain_first(
     rows[1]["callback_due_at"] = (clock.now - timedelta(minutes=1)).isoformat()
     urgent = choose_cohort_candidate(rows, now=clock.now, draw=0.01)
     assert urgent["lead_id"] == "candidate" and urgent["lead_selection_probability"] == 1
+
+
+def test_reviewed_owned_candidate_can_run_a_bounded_pilot_and_expire_without_full_activation(
+    workspace, app, clock
+):
+    import hashlib
+    import joblib
+    from sklearn.dummy import DummyClassifier
+    from app.db import put
+    from app.ml.training import FEATURE_ORDER
+
+    root = app.state.settings.data_dir / "models" / "fixture"
+    root.mkdir(parents=True)
+    artifact = root / "candidate.joblib"
+    estimator = DummyClassifier(strategy="prior").fit([[0] * len(FEATURE_ORDER)] * 4, [0, 1, 0, 1])
+    joblib.dump({"human": estimator}, artifact)
+    with app.state.db.transaction() as s:
+        model = put(
+            s,
+            "model_versions",
+            workspace["tenant_id"],
+            workspace["seller_id"],
+            {
+                "active": False,
+                "source_dataset_id": "fixture-dataset",
+                "goal": "meeting_held",
+                "artifact": str(artifact),
+                "checksum": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+                "feature_order": FEATURE_ORDER,
+                "metrics": {"brier": 0.1, "pooled_baseline_brier": 0.2},
+            },
+            now=clock.now,
+        )
+        model_id = model.id
+    c, h = workspace["client"], workspace["headers"]
+    response = c.post(
+        f"/v1/admin/models/{model_id}/start-trial",
+        headers=h,
+        json={"review_reference": "Explicit synthetic pilot review", "max_leads": 100, "duration_days": 1},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["trial_active"] and response.json()["active"] is False
+    report = c.get("/v1/optimization", headers=h).json()
+    assert report["trial"]["trial_model_id"] == model_id and not report["trial"]["sufficient_evidence"]
+    p = {k: workspace[k] for k in ("tenant_id", "seller_id", "user_id")} | {"role": "owner"}
+    with app.state.db.transaction(False) as s:
+        assert (
+            app.state.service.serving_model(s, p, app.state.service.optimization_config(s, p)).id == model_id
+        )
+    clock.now += timedelta(days=2)
+    with app.state.db.transaction(False) as s:
+        assert app.state.service.serving_model(s, p, app.state.service.optimization_config(s, p)) is None
