@@ -105,6 +105,17 @@ jobs:
           }
           if (-not $ready) { throw 'Matching update has not been published; no native update claim is possible' }
       - run: uv run python scripts/windows_native_smoke.py
+      - name: Record installed executable and owned-process diagnostics
+        if: always()
+        shell: pwsh
+        run: |
+          if ($env:OPENDIALER_TEST_APPLICATION) {
+            $directory = Split-Path $env:OPENDIALER_TEST_APPLICATION
+            $files = @(Get-ChildItem $directory -File | ForEach-Object { @{name=$_.Name;length=$_.Length;sha256=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower();version=$_.VersionInfo.ProductVersion} })
+            $processes = @(Get-CimInstance Win32_Process -Filter "Name='opendialer-backend.exe' OR Name='opendialer-desktop.exe'" | Select-Object Name,ExecutablePath,ProcessId,ParentProcessId)
+            New-Item -ItemType Directory -Force work/windows-native | Out-Null
+            @{installed_files=$files;owned_processes=$processes} | ConvertTo-Json -Depth 6 | Set-Content work/windows-native/installed-diagnostics.json
+          }
       - uses: actions/upload-artifact@v4
         if: always()
         with:

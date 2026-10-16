@@ -228,6 +228,17 @@ try:
     print("PASS: installed Windows native workflow and persisted human notes through restart.")
 except Exception:
     if driver:
+        if update_to:
+            try:
+                diagnostic = driver.execute_async_script(
+                    "const done = arguments[0];"
+                    "window.__TAURI_INTERNALS__.invoke('backend_config', {simulation: true})"
+                    ".then(() => done({backend_config_succeeded: true}))"
+                    ".catch(error => done({native_error: String(error).slice(0, 500)}));"
+                )
+                (output / "native-startup-diagnostic.json").write_text(json.dumps(diagnostic, indent=2))
+            except WebDriverException:
+                pass
         try:
             driver.save_screenshot(str(output / "failure.png"))
             (output / "failure-page.txt").write_text(driver.find_element(By.TAG_NAME, "body").text or "")
