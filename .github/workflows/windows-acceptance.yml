@@ -68,8 +68,8 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Could not download the published baseline' }
             $packages = @(Get-ChildItem work/baseline-installer -Filter "*-setup.exe")
             $actual = (Get-FileHash $packages[0].FullName -Algorithm SHA256).Hash.ToLower()
-            $expected = Get-Content work/baseline-installer/SHA256SUMS.txt | Where-Object { $_ -match [regex]::Escape($packages[0].Name) }
-            if (-not $expected.StartsWith($actual)) { throw 'Baseline checksum differs from the published release' }
+            $expected = @(Get-Content work/baseline-installer/SHA256SUMS.txt | Where-Object { $_.EndsWith('  ' + $packages[0].Name) })
+            if ($expected.Count -ne 1 -or -not $expected[0].StartsWith($actual + '  ')) { throw 'Baseline checksum differs from the published release' }
             "OPENDIALER_UPDATE_TO_VERSION=$version" >> $env:GITHUB_ENV
           }
           $destination = Join-Path $env:RUNNER_TEMP OpenDialer
