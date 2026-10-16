@@ -58,7 +58,7 @@ with tempfile.TemporaryDirectory(prefix="opendialer-frozen-proof-") as directory
                     time.sleep(0.1)
             else:
                 raise RuntimeError("Frozen backend failed to boot")
-            assert health.json()["version"] == "0.2.0"
+            assert health.json()["version"] == "0.2.1"
             session = c.post(
                 "/v1/setup",
                 headers={"X-Local-Token": nonce},
@@ -161,7 +161,7 @@ with tempfile.TemporaryDirectory(prefix="opendialer-frozen-proof-") as directory
             assert check["integrity_ok"]
             assert b"frozen@example.test" not in (Path(directory) / "opendialer.db").read_bytes()
             print(
-                "PASS: frozen 0.2.0 boot/setup/encryption/calling/grounded coaching/feedback/conversion correction/learning/comparisons/preflight; no source checkout or Python installation used by the packaged runtime."
+                "PASS: frozen 0.2.1 boot/setup/encryption/calling/grounded coaching/feedback/conversion correction/learning/comparisons/preflight; no source checkout or Python installation used by the packaged runtime."
             )
     finally:
         os.killpg(proc.pid, signal.SIGTERM)

@@ -87,3 +87,25 @@ async fn sidecar_exit_also_terminates_the_frozen_runtime_child() {
         "a packaged child must not outlive the authority launcher"
     );
 }
+
+#[test]
+fn updater_cleanup_releases_owned_runtime_without_a_run_event() {
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+    let closed = Arc::new(AtomicBool::new(false));
+    let effect = closed.clone();
+    let app = tauri::test::mock_builder()
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap();
+    opendialer_lib::register_exit_cleanup(app.handle(), move || {
+        effect.store(true, Ordering::SeqCst);
+    });
+    assert!(!closed.load(Ordering::SeqCst));
+    app.cleanup_before_exit();
+    assert!(
+        closed.load(Ordering::SeqCst),
+        "Windows updater cleanup must stop owned runtimes before process::exit"
+    );
+}

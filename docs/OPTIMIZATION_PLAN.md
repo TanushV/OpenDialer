@@ -78,3 +78,12 @@ Implementation checks above are software contracts and synthetic/operational fix
 - Endpoint-specific JSON-schema support: https://openrouter.ai/docs/guides/features/structured-outputs
 - Candidate endpoint metadata: https://openrouter.ai/api/v1/models/openai/gpt-oss-120b/endpoints
 - Original Telnyx, Tauri, scheduling, consent and provider sources remain in spec/IMPLEMENTATION_SPEC.md.
+
+## 0.2.1 upgrade-correctness regression gate
+
+- [x] Reproduce the actual Windows 0.1.1→0.2.0 upgrade retaining an old backend; withdraw the affected candidate.
+- [x] Write and run a failing cleanup-before-exit native test; add an exact-path PowerShell cleanup scope test.
+- [x] Add resource-owned runtime cleanup for updater early exit and an NSIS legacy-backend preinstall hook without deleting workspace data.
+- [ ] Pass Windows cleanup scope, build both formats, fresh native workflow, and actual signed 0.1.1→0.2.1 upgrade with new backend version and preserved IDs/note/opt-out.
+- [ ] Build/verify Mac 0.2.1 and update the installed 0.2.0 app through its signed updater, preserving the current saved baseline.
+- [ ] Repeat final native preflight, publish accurate receipts, finish clean pushed Git state and scoped service cleanup.

@@ -26,6 +26,7 @@ jobs:
           workspaces: apps/desktop/src-tauri
           cache-on-failure: true
       - run: uv sync --frozen --python 3.12
+      - run: pwsh -File scripts/test_windows_update_scope.ps1
       - run: uv run pytest -q
         env:
           OMP_NUM_THREADS: '1'

@@ -124,10 +124,13 @@ try:
     if update_to:
         # The updater exits the old app and finishes its verified installer asynchronously.
         probe_env = {**os.environ, "OPENDIALER_INSTALL_PATH": str(application)}
+        powershell = shutil.which("powershell.exe")
+        if not powershell:
+            raise RuntimeError("The official Windows version probe is unavailable")
         for _attempt in range(120):
             installed = subprocess.check_output(  # noqa: S603 - fixed read-only version probe
                 [
-                    "powershell.exe",
+                    powershell,
                     "-NoProfile",
                     "-Command",
                     "[Diagnostics.FileVersionInfo]::GetVersionInfo($env:OPENDIALER_INSTALL_PATH).ProductVersion",

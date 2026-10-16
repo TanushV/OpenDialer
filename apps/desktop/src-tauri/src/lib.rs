@@ -17,6 +17,27 @@ struct BackendConfig {
 #[derive(Default, Clone)]
 struct LocalBackend(Arc<Mutex<Option<Backend>>>);
 
+struct ExitCleanup(Mutex<Option<Box<dyn FnOnce() + Send>>>);
+impl tauri::Resource for ExitCleanup {}
+impl Drop for ExitCleanup {
+    fn drop(&mut self) {
+        if let Ok(callback) = self.0.get_mut() {
+            if let Some(callback) = callback.take() {
+                callback();
+            }
+        }
+    }
+}
+
+/// Updater cleanup clears resources before process::exit, without a RunEvent::Exit.
+pub fn register_exit_cleanup<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    callback: impl FnOnce() + Send + 'static,
+) {
+    app.resources_table()
+        .add(ExitCleanup(Mutex::new(Some(Box::new(callback)))));
+}
+
 pub fn validate_backend_url(value: &str) -> Result<(), String> {
     let parsed = url::Url::parse(value).map_err(|_| "Invalid server URL".to_string())?;
     let local = matches!(parsed.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
@@ -353,6 +374,17 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .manage(LocalBackend::default())
+        .setup(|app| {
+            let backend = app.state::<LocalBackend>().inner().clone();
+            register_exit_cleanup(app.handle(), move || {
+                if let Ok(mut state) = backend.0.lock() {
+                    if let Some(backend) = state.take() {
+                        let _ = backend.child.kill();
+                    }
+                }
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             backend_config,
             save_session,
