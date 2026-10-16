@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 import httpx
+from native_update import update_installed_or_window_closed
 from selenium import webdriver
 from selenium.common.exceptions import StaleElementReferenceException, WebDriverException
 from selenium.webdriver.common.by import By
@@ -111,9 +112,7 @@ try:
         driver.save_screenshot(str(output / "signed-update-offer.png"))
         try:
             click_button("Install signed update")
-            WebDriverWait(driver, 120).until(
-                lambda d: "Update installed." in (d.find_element(By.TAG_NAME, "body").text or "")
-            )
+            WebDriverWait(driver, 120).until(update_installed_or_window_closed)
         except WebDriverException:
             pass  # Windows updater may exit the old process after verified download.
     try:

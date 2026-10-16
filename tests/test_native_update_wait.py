@@ -1,8 +1,14 @@
+import importlib.util
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from scripts.native_update import update_installed_or_window_closed
+spec = importlib.util.spec_from_file_location(
+    "native_update", Path(__file__).resolve().parents[1] / "scripts" / "native_update.py"
+)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
 
 
 @pytest.mark.parametrize(
@@ -16,4 +22,4 @@ from scripts.native_update import update_installed_or_window_closed
 )
 def test_updater_wait_handles_the_native_window_closing(body, expected):
     driver = SimpleNamespace(find_element=lambda *_args: body)
-    assert update_installed_or_window_closed(driver) is expected
+    assert module.update_installed_or_window_closed(driver) is expected
