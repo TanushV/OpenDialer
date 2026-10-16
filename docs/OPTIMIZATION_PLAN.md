@@ -57,8 +57,8 @@ Optimize qualified conversions per original eligible lead and per rep-hour, repo
 - [x] Migrate the existing store additively; preserve exact IDs, human notes, suppressions and protected session state.
 - [x] Verify SQLite/PostgreSQL domain/API contracts, frontend unit/browser workflows, formatting/types/security/native checks and builds.
 - [x] Build matching Mac ARM64 and Windows x64 updates; sign and verify artifacts, publish the shared update manifest, and update the existing Mac app in place.
-- [ ] Use native computer control to exercise updated local and connected workflows and record sanitized evidence; exercise installed Windows package/update continuity.
-- [ ] Finish with clean pushed Git state, coherent release/docs, intact database, no active sample claims, no task-owned orphan services and no credentials/build products in Git.
+- [x] Use native computer control to exercise updated local and connected workflows and record sanitized evidence; exercise installed Windows package/update continuity.
+- [x] Finish with clean pushed Git state, coherent release/docs, intact database, no active sample claims, no task-owned orphan services and no credentials/build products in Git.
 
 ## Live acceptance gates (require unavailable account/data/hardware evidence)
 
@@ -84,6 +84,6 @@ Implementation checks above are software contracts and synthetic/operational fix
 - [x] Reproduce the actual Windows 0.1.1→0.2.0 upgrade retaining an old backend; withdraw the affected candidate.
 - [x] Write and run a failing cleanup-before-exit native test; add an exact-path PowerShell cleanup scope test.
 - [x] Add resource-owned runtime cleanup for updater early exit and an NSIS legacy-backend preinstall hook without deleting workspace data.
-- [ ] Pass Windows cleanup scope, build both formats, fresh native workflow, and actual signed 0.1.1→0.2.1 upgrade with new backend version and preserved IDs/note/opt-out.
+- [x] Pass Windows cleanup scope, build both formats, fresh native workflow, and actual signed 0.1.1→0.2.1 upgrade with new backend version and preserved IDs/note/opt-out.
 - [x] Build/verify Mac 0.2.1 and update the installed 0.2.0 app through its signed updater, preserving the current saved baseline.
-- [ ] Repeat final native preflight, publish accurate receipts, finish clean pushed Git state and scoped service cleanup.
+- [x] Repeat final native preflight, publish accurate receipts, finish clean pushed Git state and scoped service cleanup.

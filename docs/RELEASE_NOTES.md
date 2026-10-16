@@ -6,4 +6,4 @@ Provider/media/hardware certification, representative model-quality review and m
 
 See [optimization and evaluation](https://github.com/TanushV/OpenDialer/blob/main/docs/OPTIMIZATION.md), [validation](https://github.com/TanushV/OpenDialer/blob/main/docs/VALIDATION.md) and [setup](https://github.com/TanushV/OpenDialer#readme).
 
-0.2.1 fixes Windows in-place upgrades that could leave the old backend executable locked. Installer cleanup is restricted to the exact installation path; a resource drop guard also stops the owned process tree during the updater's early-exit path. Existing workspace data remains in place. Upgrade continuity from the published 0.1.1 baseline is a release gate.
+0.2.1 fixes Windows in-place upgrades that could leave the old backend executable locked. Installer cleanup is restricted to the exact installation path; a resource drop guard also stops the owned process tree during the updater's early-exit path. Existing workspace data remains in place. The signed Windows 0.1.1→0.2.1 upgrade and Mac 0.2.0→0.2.1 update pass native version/data-preservation checks. See the validation record for exact source and receipts.
