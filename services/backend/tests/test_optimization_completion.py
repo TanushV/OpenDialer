@@ -366,11 +366,14 @@ def test_home_metrics_use_the_same_funnel_and_later_conversion_evidence(workspac
     )
     assert c.get("/v1/workspace", headers=h).json()["metrics"]["held_meetings"] == 0
     c.post(
+        "/v1/suppressions", headers=h, json={"phone": "+12125550190", "reason": "opt_out"}
+    ).raise_for_status()
+    c.post(
         "/v1/leads/import",
         headers=h,
         json={
             "campaign_id": workspace["campaign_id"],
-            "rows": [{"name": "No verified timezone", "phone": "+12125550190"}],
+            "rows": [{"name": "Excluded existing opt-out", "phone": "+12125550190"}],
         },
     )
     metrics = c.get("/v1/workspace", headers=h).json()["metrics"]
