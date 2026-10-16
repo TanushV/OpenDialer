@@ -9,12 +9,13 @@ from sqlalchemy import delete, select
 
 from app.db import MODELS, ActiveClaim, Job, audit, doc, emit, get, put, rows, uid, update
 from app.intelligence import Application
+from app.optimization.workflows import OptimizationWorkflows
 from app.service import dt, fail
 from app.telephony.reducer import TERMINAL
 from app.telephony.workflows import TelephonyWorkflows
 
 
-class Dialer(TelephonyWorkflows, Application):
+class Dialer(OptimizationWorkflows, TelephonyWorkflows, Application):
     def metrics(self, p):
         with self.db.transaction(False) as s:
             leads = self.scoped(s, "leads", p)
@@ -292,40 +293,7 @@ class Dialer(TelephonyWorkflows, Application):
         if capacity < 1:
             fail(422, "Positive daily capacity required")
         with self.db.transaction(False) as s:
-            self.required(s, "campaigns", campaign_id, p)
-            leads = [
-                lead
-                for lead in self.scoped(s, "leads", p)
-                if lead.data["campaign_id"] == campaign_id and not self.suppressed(s, p, lead.data["phone"])
-            ]
-            regions = {}
-            for lead in leads:
-                region = lead.data.get("region", "general")
-                regions[region] = regions.get(region, 0) + 1
-            inventory = self.scoped(s, "number_inventory", p)
-            planned = []
-            for region, count in regions.items():
-                healthy = sum(
-                    n.data.get("region") == region and n.data["lifecycle"] in {"healthy", "limited_real_use"}
-                    for n in inventory
-                )
-                required = math.ceil(count / capacity)
-                planned.append(
-                    {
-                        "region": region,
-                        "eligible_leads": count,
-                        "healthy_existing": healthy,
-                        "required": required,
-                        "proposed_additional": max(0, required - healthy),
-                    }
-                )
-            return {
-                "regions": planned,
-                "purchased": False,
-                "approval_required": True,
-                "monthly_rental_estimate_usd": sum(r["proposed_additional"] for r in planned),
-                "estimate_requires_provider_quote": True,
-            }
+            return self.forecast(s, p, campaign_id=campaign_id, capacity=capacity)
 
     async def recover(self, p):
         self.jobs.recover_expired()

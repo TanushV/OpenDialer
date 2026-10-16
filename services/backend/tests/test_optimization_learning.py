@@ -97,6 +97,14 @@ def test_no_timezone_and_exhausted_leads_are_not_scheduled(clock):
                         policy={"max_attempts": 4}) == []
 
 
+def test_a_possible_coverage_deadline_is_not_replaced_with_a_later_slot(clock):
+    deadline = clock.now + timedelta(hours=2)
+    slots = future_slots({"id": "covered", "timezone": "America/Los_Angeles",
+                          "coverage_due_at": deadline.isoformat()}, [], now=clock.now,
+                         policy={"local_start_hour": 9, "local_end_hour": 20})
+    assert slots and slots[0]["at"] <= deadline.isoformat()
+
+
 def test_trial_reports_use_unique_matured_leads_and_do_not_claim_lift_from_tiny_samples(clock):
     assigned = [{"lead_id": str(i), "arm": "control" if i < 2 else "candidate",
                  "assigned_at": (clock.now - timedelta(days=20)).isoformat()} for i in range(4)]

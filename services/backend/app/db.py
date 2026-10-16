@@ -127,6 +127,12 @@ TABLES = [
     "comments",
     "batch_requests",
     "rnd_queries",
+    "learning_datasets",
+    "conversion_events",
+    "allocation_decisions",
+    "scheduling_plans",
+    "evaluation_reports",
+    "coaching_feedback",
 ]
 MODELS = {}
 for _name in TABLES:
@@ -340,7 +346,8 @@ def emit(s, tenant_id, kind, obj, now, payload=None):
             entity_id=obj.id,
             entity_version=obj.version,
             occurred_at=now,
-            payload=payload or {},
+            payload={**(payload or {}), "_seller_id": getattr(obj, "seller_id", ""),
+                     "_rep_id": obj.data.get("rep_id") if hasattr(obj, "data") else None},
         )
     )
 

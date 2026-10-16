@@ -85,6 +85,9 @@ def test_refresh_reconciles_delayed_windows_without_rewriting_features(workspace
     first = c.get("/v1/optimization", headers=h).json()["dataset"]
     assert first["pending_rows"] == 1
     clock.now += timedelta(days=20)
+    # Advancing beyond the outcome window also expires the original protected session.
+    login = c.post("/v1/auth/session", json={"email": "operator@example.test", "password": "a-test-only-password-123"})
+    h = {"Authorization": "Bearer " + login.json()["access_token"]}
     c.post("/v1/admin/optimization/refresh", headers=h)
     later = c.get("/v1/optimization", headers=h).json()["dataset"]
     assert later["pending_rows"] == 0 and later["matured_rows"] == 1
@@ -147,6 +150,7 @@ def test_learning_state_survives_authority_restart_and_backup(workspace, app):
 
 def test_training_is_queued_once_from_real_stored_snapshots_and_produces_a_candidate(workspace, app, clock):
     c, h = workspace["client"], workspace["headers"]
+    number_id = c.get("/v1/workspace", headers=h).json()["numbers"][0]["id"]
     with app.state.db.transaction() as session:
         for i in range(120):
             at = clock.now - timedelta(days=40, minutes=120 - i)
@@ -157,7 +161,7 @@ def test_training_is_queued_once_from_real_stored_snapshots_and_produces_a_candi
                            now=at)
             put(session, "call_attempts", workspace["tenant_id"], workspace["seller_id"],
                 {"lead_id": f"historic-{i}", "endpoint_id": f"endpoint-{i}", "feature_snapshot_id": snapshot.id,
-                 "rep_id": workspace["user_id"], "number_id": workspace["number_ids"][0],
+                 "rep_id": workspace["user_id"], "number_id": number_id,
                  "started_at": at.isoformat(), "ended_at": (at + timedelta(seconds=60)).isoformat(),
                  "state": "FINALIZED", "outcome": "right_party" if i % 3 == 0 else "no_answer",
                  "transcript_version": 0}, now=at)
@@ -198,3 +202,31 @@ def test_future_conversion_and_conflicting_call_attribution_are_rejected(workspa
         "event_id": "wrong-call", "kind": "meeting_held", "call_id": "missing",
         "occurred_at": clock.now.isoformat(), "source_reference": "mismatch"})
     assert mismatch.status_code in {403, 404, 422}
+
+
+def test_observed_delivery_failures_pause_outbound_but_keep_incoming_identity(workspace, app, clock):
+    c, h = workspace["client"], workspace["headers"]
+    w = c.get("/v1/workspace", headers=h).json()
+    number, lead = w["numbers"][0], w["leads"][0]
+    with app.state.db.transaction() as s:
+        for i in range(25):
+            put(s, "call_attempts", workspace["tenant_id"], workspace["seller_id"], {
+                "lead_id": lead["id"], "endpoint_id": lead["endpoint_id"], "rep_id": workspace["user_id"],
+                "number_id": number["id"], "started_at": clock.now.isoformat(), "ended_at": clock.now.isoformat(),
+                "state": "ENDED", "end_reason": "provider_failure", "outcome": None, "transcript_version": 0,
+            }, now=clock.now)
+    result = c.post("/v1/admin/optimization/refresh", headers=h)
+    assert result.status_code == 200, result.text
+    after = next(n for n in c.get("/v1/workspace", headers=h).json()["numbers"] if n["id"] == number["id"])
+    assert after["lifecycle"] == "investigating" and after["inbound_retained"]
+
+
+async def test_enabled_worker_schedules_bounded_automatic_learning_without_operator_requests(workspace, app):
+    app.state.settings.worker_enabled = True
+    await app.state.service.run_jobs(tenant_id=workspace["tenant_id"], queues=["ml"])
+    c, h = workspace["client"], workspace["headers"]
+    report = c.get("/v1/optimization", headers=h).json()
+    assert report["dataset"]["snapshots"]
+    before = len(c.get("/v1/workspace", headers=h).json()["jobs"])
+    await app.state.service.run_jobs(tenant_id=workspace["tenant_id"], queues=["ml"])
+    assert len(c.get("/v1/workspace", headers=h).json()["jobs"]) == before

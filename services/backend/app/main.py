@@ -107,6 +107,8 @@ class Disposition(Strict):
         "not_interested",
         "invalid_endpoint",
         "temporary_failure",
+        "qualified_conversation",
+        "sale_won",
     ]
     callback_at: datetime | None = None
     callback_note: str = Field(default="", max_length=1000)
@@ -182,9 +184,12 @@ class ProviderSettings(Strict):
     chatgpt_access_token: str | None = None
     groq_api_key: str | None = None
     groq_model: str | None = None
+    coach_provider: Literal["openrouter", "static", "groq"] | None = None
+    openrouter_api_key: str | None = None
+    coach_model: str | None = Field(default=None, min_length=3, max_length=200)
 
 
-SECRET_FIELDS = {"telnyx_api_key", "openai_api_key", "groq_api_key", "chatgpt_access_token"}
+SECRET_FIELDS = {"telnyx_api_key", "openai_api_key", "groq_api_key", "openrouter_api_key", "chatgpt_access_token"}
 
 
 def create_app(settings=None, *, clock=None, carrier=None):
@@ -381,10 +386,13 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 and dt(r.data["expires_at"]) > clock()
                 and r.data["state_version"] == call.data["transcript_version"]
             ]
+            state = next((r.data for r in service.scoped(s, "conversation_states", p)
+                          if r.external_key == call_id), None)
             return {
                 **doc(call),
                 "transcript": service.transcript_rows(s, p, call_id),
                 "coach": coach[-1] if coach and call.data["state"] not in TERMINAL | {"ENDING"} else None,
+                "conversation_state": state,
             }
 
     @app.post("/v1/calls/{call_id}/hangup")
@@ -549,6 +557,20 @@ def create_app(settings=None, *, clock=None, carrier=None):
                     .limit(500)
                 )
             )
+            def visible(e):
+                from app.db import MODELS
+
+                seller = e.payload.get("_seller_id")
+                rep = e.payload.get("_rep_id")
+                if seller is None:
+                    # Old release events lack scope metadata. Resolve their entity, otherwise fail closed.
+                    for model in MODELS.values():
+                        target = s.get(model, e.entity_id)
+                        if target and target.tenant_id == p["tenant_id"]:
+                            seller, rep = target.seller_id, target.data.get("rep_id")
+                            break
+                return seller == p["seller_id"] and (p["role"] != "rep" or not rep or rep == p["user_id"])
+
             result = [
                 {
                     "event_id": e.event_id,
@@ -558,11 +580,12 @@ def create_app(settings=None, *, clock=None, carrier=None):
                     "entity_id": e.entity_id,
                     "entity_version": e.entity_version,
                     "occurred_at": e.occurred_at.isoformat(),
-                    "payload": e.payload,
+                    "payload": {k: v for k, v in e.payload.items() if not k.startswith("_")},
                 }
-                for e in found
+                for e in found if visible(e)
             ]
-            return {"events": result, "cursor": found[-1].sequence if found else after}
+            return {"events": result, "cursor": found[-1].sequence if found else after,
+                    "server_time": clock().isoformat()}
 
     @app.websocket("/v1/live")
     async def live(ws: WebSocket):
@@ -577,10 +600,10 @@ def create_app(settings=None, *, clock=None, carrier=None):
             while True:
                 decode_session(db, settings, auth["token"], clock())
                 batch = events(cursor, p)
-                if batch["events"]:
+                if batch["events"] or batch["cursor"] != cursor:
                     await ws.send_json(batch)
-                    cursor = batch["cursor"]
-                await asyncio.sleep(0.5)
+                cursor = batch["cursor"]
+                await asyncio.sleep(0.1)
         except (WebSocketDisconnect, HTTPException, TimeoutError, ValueError):
             try:
                 await ws.close(code=4401)
@@ -1695,6 +1718,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
             return doc(model)
 
     from app.preparation.batches import register_batches
+    from app.optimization.api import register_optimization
 
     register_batches(app, service, administrator)
+    register_optimization(app, service, principal, administrator)
     return app
