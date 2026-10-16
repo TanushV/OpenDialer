@@ -111,7 +111,7 @@ try:
         try:
             click_button("Install signed update")
             WebDriverWait(driver, 120).until(
-                lambda d: "Update installed." in d.find_element(By.TAG_NAME, "body").text
+                lambda d: "Update installed." in (d.find_element(By.TAG_NAME, "body").text or "")
             )
         except WebDriverException:
             pass  # Windows updater may exit the old process after verified download.
@@ -121,6 +121,25 @@ try:
         if not update_to:
             raise
     driver = None
+    if update_to:
+        # The updater exits the old app and finishes its verified installer asynchronously.
+        probe_env = {**os.environ, "OPENDIALER_INSTALL_PATH": str(application)}
+        for _attempt in range(120):
+            installed = subprocess.check_output(  # noqa: S603 - fixed read-only version probe
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-Command",
+                    "[Diagnostics.FileVersionInfo]::GetVersionInfo($env:OPENDIALER_INSTALL_PATH).ProductVersion",
+                ],
+                env=probe_env,
+                text=True,
+            ).strip()
+            if installed.startswith(update_to):
+                break
+            time.sleep(1)
+        else:
+            raise RuntimeError("The verified update did not replace the installed executable")
     driver = webdriver.Remote("http://127.0.0.1:4444", options=options)
     # A new WebDriver session may use a fresh webview profile; the native store is independent.
     WebDriverWait(driver, 60).until(
@@ -198,8 +217,11 @@ try:
     print("PASS: installed Windows native workflow and persisted human notes through restart.")
 except Exception:
     if driver:
-        driver.save_screenshot(str(output / "failure.png"))
-        (output / "failure-page.txt").write_text(driver.find_element(By.TAG_NAME, "body").text)
+        try:
+            driver.save_screenshot(str(output / "failure.png"))
+            (output / "failure-page.txt").write_text(driver.find_element(By.TAG_NAME, "body").text or "")
+        except WebDriverException:
+            pass  # Preserve the original error when the old updater window has already exited.
     raise
 finally:
     if driver:
