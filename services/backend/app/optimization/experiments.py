@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import timedelta
 
 from app.db import doc, put
-from app.optimization.learning import trial_report
+from app.optimization.learning import derive_labels, trial_report
 from app.optimization.numbering import timestamp
 
 
@@ -27,6 +27,11 @@ def assign_arm(family, epoch, lead_id, stratum, assignments):
 
 
 def comparison_report(study, assignments, calls, events, feedback, *, now, goal, window_days):
+    events = events + [
+        {"lead_id": call["lead_id"], "kind": goal, "occurred_at": call.get("ended_at") or call["started_at"]}
+        for call in calls
+        if derive_labels(call.get("outcome")).get("qualified" if goal == "qualified_conversation" else goal)
+    ]
     selected = [a for a in assignments if a.get("comparison_id") == study["id"]]
     by_lead = defaultdict(list)
     for call in calls:

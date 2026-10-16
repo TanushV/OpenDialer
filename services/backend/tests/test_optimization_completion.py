@@ -299,6 +299,47 @@ def test_baseline_calling_and_planning_do_not_import_the_optional_ml_runtime(wor
         assert service.slot_predictor(s, p, lead, service.optimization_config(s, p)) is None
 
 
+def test_comparison_keeps_its_declared_goal_when_the_campaign_goal_later_changes(clock):
+    from app.optimization.experiments import comparison_report
+
+    assigned_at = (clock.now - timedelta(days=3)).isoformat()
+    ended_at = (clock.now - timedelta(days=2)).isoformat()
+    study = {
+        "id": "study",
+        "family": "coaching",
+        "population": ["lead"],
+        "starts_at": assigned_at,
+        "ends_at": ended_at,
+        "goal": "meeting_held",
+        "window_days": 14,
+    }
+    assignments = [
+        {
+            "comparison_id": "study",
+            "lead_id": "lead",
+            "assigned_at": assigned_at,
+            "family": "coaching",
+            "arm": "candidate",
+            "rep_id": "r",
+        }
+    ]
+    calls = [
+        {
+            "id": "call",
+            "lead_id": "lead",
+            "started_at": assigned_at,
+            "ended_at": ended_at,
+            "outcome": "meeting_held",
+            "submitted_at": assigned_at,
+            "submission_allowed": True,
+        }
+    ]
+    result = comparison_report(
+        study, assignments, calls, [], [], now=clock.now, goal="meeting_held", window_days=14
+    )
+    assert result["arms"]["candidate"]["conversions"] == 1
+
+
 def test_visible_card_ttl_is_reported_by_the_authority(workspace, clock):
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
