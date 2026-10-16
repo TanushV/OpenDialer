@@ -8,6 +8,7 @@ from sqlalchemy import delete, select
 
 from app.db import MODELS, ActiveClaim, Job, audit, doc, emit, get, put, rows, uid, update
 from app.intelligence import Application
+from app.optimization.learning import derive_labels
 from app.optimization.workflows import OptimizationWorkflows
 from app.service import dt, fail
 from app.telephony.reducer import TERMINAL
@@ -20,19 +21,18 @@ class Dialer(OptimizationWorkflows, TelephonyWorkflows, Application):
             leads = self.scoped(s, "leads", p)
             calls = self.scoped(s, "call_attempts", p)
             suppressed = [lead for lead in leads if self.suppressed(s, p, lead.data["phone"])]
-            eligible = [lead for lead in leads if lead not in suppressed]
-            right = {
-                c.data["lead_id"]
-                for c in calls
-                if c.data.get("outcome")
-                in {"right_party", "meeting_booked", "meeting_held", "callback_requested"}
-            }
+            eligible = [
+                lead for lead in leads if lead not in suppressed and lead.data.get("status") == "eligible"
+            ]
+            original = sum(lead.data.get("originally_eligible", True) for lead in leads)
+            right = {c.data["lead_id"] for c in calls if derive_labels(c.data.get("outcome"))["right_party"]}
             held = {c.data["lead_id"] for c in calls if c.data.get("outcome") == "meeting_held"}
-            human = sum(
-                c.data.get("outcome")
-                in {"right_party", "gatekeeper", "meeting_booked", "meeting_held", "callback_requested"}
-                for c in calls
-            )
+            held |= {
+                event.data["lead_id"]
+                for event in self.scoped(s, "conversion_events", p)
+                if event.data["kind"] == "meeting_held" and not event.data.get("retracted")
+            }
+            human = sum(derive_labels(c.data.get("outcome"))["human"] for c in calls)
             costs = [r.data for r in self.scoped(s, "usage_ledger", p)]
             overdue = sum(
                 dt(lead.data["coverage_due_at"]) < self.clock() and not lead.data.get("attempt_count")
@@ -46,14 +46,14 @@ class Dialer(OptimizationWorkflows, TelephonyWorkflows, Application):
                 "human_pickups": human,
                 "right_party_unique": len(right),
                 "held_meetings": len(held),
-                "unique_reach_per_original_lead": len(right) / len(leads) if leads else 0,
-                "held_meetings_per_original_lead": len(held) / len(leads) if leads else 0,
+                "unique_reach_per_original_lead": len(right) / original if original else 0,
+                "held_meetings_per_original_lead": len(held) / original if original else 0,
                 "coverage_overdue": overdue,
                 "coverage_shortfall": max(0, overdue - 40),
                 "reserved_cost_usd": sum(r.get("reserved_usd", 0) for r in costs),
                 "verified_cost_usd": sum(r.get("cost_usd") or 0 for r in costs if r.get("billing_verified")),
                 "billing_verified": bool(costs) and all(r.get("billing_verified") for r in costs),
-                "original_eligible_denominator": len(leads),
+                "original_eligible_denominator": original,
                 "pending_outcome_windows": sum(
                     (self.clock() - dt(c.data["started_at"])).days < 14 for c in calls
                 ),

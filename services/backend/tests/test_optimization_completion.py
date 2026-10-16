@@ -340,6 +340,43 @@ def test_comparison_keeps_its_declared_goal_when_the_campaign_goal_later_changes
     assert result["arms"]["candidate"]["conversions"] == 1
 
 
+def test_home_metrics_use_the_same_funnel_and_later_conversion_evidence(workspace, clock):
+    call = start(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
+    c.post(f"/v1/calls/{call['id']}/disposition", headers=h, json={"outcome": "qualified_conversation"})
+    metrics = c.get("/v1/workspace", headers=h).json()["metrics"]
+    assert metrics["human_pickups"] == 1 and metrics["right_party_unique"] == 1
+    event = c.post(
+        f"/v1/leads/{call['lead_id']}/conversions",
+        headers=h,
+        json={
+            "event_id": "home-evidence",
+            "kind": "meeting_held",
+            "call_id": call["id"],
+            "occurred_at": clock.now.isoformat(),
+            "source_reference": "Observed held meeting",
+        },
+    ).json()
+    assert c.get("/v1/workspace", headers=h).json()["metrics"]["held_meetings"] == 1
+    c.post(
+        f"/v1/leads/{call['lead_id']}/conversions/{event['id']}/retract",
+        headers=h,
+        json={"reason": "Incorrect entry"},
+    )
+    assert c.get("/v1/workspace", headers=h).json()["metrics"]["held_meetings"] == 0
+    c.post(
+        "/v1/leads/import",
+        headers=h,
+        json={
+            "campaign_id": workspace["campaign_id"],
+            "rows": [{"name": "No verified timezone", "phone": "+12125550190"}],
+        },
+    )
+    metrics = c.get("/v1/workspace", headers=h).json()["metrics"]
+    assert metrics["original_cohort"] == 4 and metrics["original_eligible_denominator"] == 3
+
+
 def test_visible_card_ttl_is_reported_by_the_authority(workspace, clock):
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]

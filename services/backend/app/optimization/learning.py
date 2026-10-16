@@ -20,7 +20,7 @@ HUMAN = {
     "qualified_conversation",
     "sale_won",
 }
-RIGHT = HUMAN - {"wrong_party", "gatekeeper"}
+RIGHT = HUMAN - {"wrong_party", "gatekeeper", "opt_out", "not_interested"}
 QUALIFIED = {"qualified_conversation", "meeting_booked", "meeting_held", "sale_won"}
 
 

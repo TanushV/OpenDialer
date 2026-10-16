@@ -22,6 +22,8 @@ from app.optimization.learning import (
         ("ivr", False, False, False),
         ("voicemail", False, False, False),
         ("no_answer", False, False, False),
+        ("opt_out", True, False, False),
+        ("not_interested", True, False, False),
         ("right_party", True, True, False),
         ("qualified_conversation", True, True, True),
         ("meeting_held", True, True, True),
