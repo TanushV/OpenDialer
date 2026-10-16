@@ -124,7 +124,8 @@ try:
     if update_to:
         # The updater exits the old app and finishes its verified installer asynchronously.
         probe_env = {**os.environ, "OPENDIALER_INSTALL_PATH": str(application)}
-        powershell = shutil.which("powershell.exe")
+        probe_env.pop("PSModulePath", None)
+        powershell = shutil.which("pwsh.exe") or shutil.which("powershell.exe")
         if not powershell:
             raise RuntimeError("The official Windows version probe is unavailable")
         expected_backend_hash = os.environ["OPENDIALER_EXPECTED_BACKEND_SHA256"]
@@ -134,6 +135,7 @@ try:
                     powershell,
                     "-NoProfile",
                     "-Command",
+                    "$ErrorActionPreference='Stop';"
                     "$version=[Diagnostics.FileVersionInfo]::GetVersionInfo($env:OPENDIALER_INSTALL_PATH).ProductVersion;"
                     "$prefix='OpenDialer-'+$env:OPENDIALER_UPDATE_TO_VERSION+'-updater-';"
                     "$active=@(Get-CimInstance Win32_Process -Filter \"Name LIKE 'OpenDialer-%-installer.exe'\" | "
@@ -148,6 +150,8 @@ try:
                 text=True,
             ).strip()
             status = json.loads(installed)
+            status["expected_backend_sha256"] = expected_backend_hash
+            (output / "installation-probe.json").write_text(json.dumps(status, indent=2))
             if installation_ready(status, update_to, expected_backend_hash):
                 (output / "completed-installation.json").write_text(json.dumps(status, indent=2))
                 break
