@@ -9,7 +9,7 @@ Optimize qualified conversions per original eligible lead and per rep-hour, repo
 ## 0. TDD and records
 
 - [x] Re-ingest original requirements, inspect the clean existing release, and record this extension.
-- [ ] Commit the complete initial acceptance tests before production changes; retain their actual red output.
+- [x] Commit the complete initial acceptance tests before production changes; retain their actual red output.
 - [ ] Add a failing regression before each newly discovered defect; maintain meaningful domain, API, UI and recovery checks.
 - [ ] Update this checklist and STATUS.md at each milestone; commit and push coherent milestones frequently.
 
