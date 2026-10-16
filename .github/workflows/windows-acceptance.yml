@@ -61,6 +61,13 @@ jobs:
           $version = (Get-Content apps/desktop/src-tauri/tauri.conf.json | ConvertFrom-Json).version
           $packages = @(Get-ChildItem work/reused-installer -Recurse -Filter "OpenDialer_${version}_x64-setup.exe")
           if ($packages.Count -ne 1) { throw 'Expected exactly one version-matched installer' }
+          $unpack = Join-Path $env:RUNNER_TEMP candidate-installer-bytes
+          & 7z x $packages[0].FullName "-o$unpack" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the unchanged NSIS package' }
+          $backend = @(Get-ChildItem $unpack -Recurse -Filter opendialer-backend.exe)
+          if ($backend.Count -ne 1) { throw 'Expected one packaged backend executable' }
+          $backendHash = (Get-FileHash $backend[0].FullName -Algorithm SHA256).Hash.ToLower()
+          "OPENDIALER_EXPECTED_BACKEND_SHA256=$backendHash" >> $env:GITHUB_ENV
           if ($env:BASELINE_VERSION) {
             if ($env:BASELINE_VERSION -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid baseline version' }
             New-Item -ItemType Directory -Force work/baseline-installer | Out-Null

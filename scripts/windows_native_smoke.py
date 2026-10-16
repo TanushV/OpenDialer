@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 import httpx
-from native_update import update_installed_or_window_closed
+from native_update import installation_ready, update_installed_or_window_closed
 from selenium import webdriver
 from selenium.common.exceptions import StaleElementReferenceException, WebDriverException
 from selenium.webdriver.common.by import By
@@ -127,22 +127,35 @@ try:
         powershell = shutil.which("powershell.exe")
         if not powershell:
             raise RuntimeError("The official Windows version probe is unavailable")
+        expected_backend_hash = os.environ["OPENDIALER_EXPECTED_BACKEND_SHA256"]
         for _attempt in range(120):
-            installed = subprocess.check_output(  # noqa: S603 - fixed read-only version probe
+            installed = subprocess.check_output(  # noqa: S603 - fixed read-only installation probe
                 [
                     powershell,
                     "-NoProfile",
                     "-Command",
-                    "[Diagnostics.FileVersionInfo]::GetVersionInfo($env:OPENDIALER_INSTALL_PATH).ProductVersion",
+                    "$version=[Diagnostics.FileVersionInfo]::GetVersionInfo($env:OPENDIALER_INSTALL_PATH).ProductVersion;"
+                    "$prefix='OpenDialer-'+$env:OPENDIALER_UPDATE_TO_VERSION+'-updater-';"
+                    "$active=@(Get-CimInstance Win32_Process -Filter \"Name LIKE 'OpenDialer-%-installer.exe'\" | "
+                    "Where-Object { $_.ExecutablePath -and "
+                    "[IO.Path]::GetFileName([IO.Path]::GetDirectoryName($_.ExecutablePath)).StartsWith($prefix) });"
+                    "$hash=$null; $backend=Join-Path (Split-Path $env:OPENDIALER_INSTALL_PATH) 'opendialer-backend.exe';"
+                    "if($active.Count -eq 0 -and (Test-Path $backend)) {"
+                    "$hash=(Get-FileHash $backend -Algorithm SHA256).Hash.ToLower() };"
+                    "@{version=$version;active_updaters=$active.Count;backend_sha256=$hash}|ConvertTo-Json -Compress",
                 ],
                 env=probe_env,
                 text=True,
             ).strip()
-            if installed.startswith(update_to):
+            status = json.loads(installed)
+            if installation_ready(status, update_to, expected_backend_hash):
+                (output / "completed-installation.json").write_text(json.dumps(status, indent=2))
                 break
             time.sleep(1)
         else:
-            raise RuntimeError("The verified update did not replace the installed executable")
+            raise RuntimeError(
+                "The verified installer did not finish with the expected desktop and backend bytes"
+            )
     driver = webdriver.Remote("http://127.0.0.1:4444", options=options)
     # A new WebDriver session may use a fresh webview profile; the native store is independent.
     WebDriverWait(driver, 60).until(
