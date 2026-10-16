@@ -285,6 +285,20 @@ def test_paid_replay_attributes_each_actual_provider_attempt(workspace, app, mon
     assert len(usage) == 2 and all(row["object_id"] for row in usage)
 
 
+def test_baseline_calling_and_planning_do_not_import_the_optional_ml_runtime(workspace, app, monkeypatch):
+    import sys
+
+    from conftest import reserve
+
+    monkeypatch.setitem(sys.modules, "app.ml.training", None)
+    result = reserve(workspace)
+    assert result.status_code == 200, result.text
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction(False) as s:
+        lead = service.scoped(s, "leads", p)[0]
+        assert service.slot_predictor(s, p, lead, service.optimization_config(s, p)) is None
+
+
 def test_visible_card_ttl_is_reported_by_the_authority(workspace, clock):
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]

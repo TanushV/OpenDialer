@@ -649,11 +649,11 @@ class Service:
                 )
                 feature_values[candidate_lead.id] = features
                 predictions[candidate_lead.id] = funnel_predictions(history, features)
-            from app.ml.training import predict_funnel
-
             for candidate_lead in leads:
                 active_model = self.serving_model(s, p, config, candidate_lead.id)
                 if active_model:
+                    from app.ml.training import predict_funnel
+
                     estimates = predict_funnel(
                         active_model.data,
                         feature_values[candidate_lead.id],

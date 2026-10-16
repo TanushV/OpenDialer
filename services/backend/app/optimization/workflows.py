@@ -108,11 +108,11 @@ class OptimizationWorkflows(ComparisonWorkflows):
         return next((m for m in eligible if m.data.get("trial_active")), eligible[0] if eligible else None)
 
     def slot_predictor(self, s, p, lead, config):
-        from app.ml.training import predict_funnel
-
         model = self.serving_model(s, p, config, lead.id)
         if model is None:
             return None
+        from app.ml.training import predict_funnel
+
         features = self.prediction_features(s, p, lead)
 
         def predict(hour, weekday):

@@ -165,4 +165,8 @@ with tempfile.TemporaryDirectory(prefix="opendialer-frozen-proof-") as directory
             )
     finally:
         os.killpg(proc.pid, signal.SIGTERM)
-        proc.wait(timeout=10)
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait(timeout=5)
