@@ -90,6 +90,20 @@ jobs:
           Expand-Archive $archive $directory
           "OPENDIALER_EDGE_DRIVER=$directory\msedgedriver.exe" >> $env:GITHUB_ENV
       - run: cargo install tauri-driver --locked
+      - name: Await the matching published update for baseline continuity
+        if: inputs.baseline_version != ''
+        shell: pwsh
+        run: |
+          $version = (Get-Content apps/desktop/src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          $ready = $false
+          for ($attempt = 0; $attempt -lt 90; $attempt++) {
+            try {
+              $manifest = Invoke-RestMethod 'https://github.com/TanushV/OpenDialer/releases/latest/download/latest.json' -Headers @{'Cache-Control'='no-cache'}
+              if ($manifest.version -eq $version) { $ready = $true; break }
+            } catch { }
+            Start-Sleep -Seconds 10
+          }
+          if (-not $ready) { throw 'Matching update has not been published; no native update claim is possible' }
       - run: uv run python scripts/windows_native_smoke.py
       - uses: actions/upload-artifact@v4
         if: always()
