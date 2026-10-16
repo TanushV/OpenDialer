@@ -531,9 +531,23 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 "trial": trial,
                 "coaching": {
                     **{
-                        "p95_" + key: sorted(r["latency"][key] for r in coach_events if r.get("latency", {}).get(key) is not None)[
-                            max(0, int(sum(r.get("latency", {}).get(key) is not None for r in coach_events) * 0.95 + 0.999) - 1)]
-                        if any(r.get("latency", {}).get(key) is not None for r in coach_events) else None
+                        "p95_" + key: sorted(
+                            r["latency"][key]
+                            for r in coach_events
+                            if r.get("latency", {}).get(key) is not None
+                        )[
+                            max(
+                                0,
+                                int(
+                                    sum(r.get("latency", {}).get(key) is not None for r in coach_events)
+                                    * 0.95
+                                    + 0.999
+                                )
+                                - 1,
+                            )
+                        ]
+                        if any(r.get("latency", {}).get(key) is not None for r in coach_events)
+                        else None
                         for key in ("state_ms", "retrieval_ms", "stt_ms")
                     },
                     "reviewed_cards": sum(
