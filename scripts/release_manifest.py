@@ -48,7 +48,7 @@ if not archive or not exe:
     raise SystemExit("Both Mac and Windows signed artifacts are required for this release")
 manifest = {
     "version": version,
-    "notes": "OpenDialer developer preview: local and authenticated connected modes, encrypted persistence, durable calling, evidence-linked preparation and review. Provider credentials, reviewed policies, live hardware certification and trusted OS publisher signing are configured separately.",
+    "notes": f"OpenDialer {version} adds measured number capacity and health, conversion learning, reviewed model pilots, conversion corrections and grounded live guidance through Cerebras via OpenRouter. Local and connected workspaces are preserved. Live providers require configured accounts and reviewed permissions; hardware and campaign outcome certification remain separate.",
     "pub_date": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
     "platforms": platforms,
 }
