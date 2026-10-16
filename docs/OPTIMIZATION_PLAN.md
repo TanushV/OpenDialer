@@ -10,8 +10,8 @@ Optimize qualified conversions per original eligible lead and per rep-hour, repo
 
 - [x] Re-ingest original requirements, inspect the clean existing release, and record this extension.
 - [x] Commit the complete initial acceptance tests before production changes; retain their actual red output.
-- [ ] Add a failing regression before each newly discovered defect; maintain meaningful domain, API, UI and recovery checks.
-- [ ] Update this checklist and STATUS.md at each milestone; commit and push coherent milestones frequently.
+- [x] Add a failing regression before each newly discovered defect; maintain meaningful domain, API, UI and recovery checks.
+- [x] Update this checklist and STATUS.md at each milestone; commit and push coherent milestones frequently.
 
 ## 1. Number allocation and procurement
 
@@ -55,7 +55,7 @@ Optimize qualified conversions per original eligible lead and per rep-hour, repo
 - [x] Expose goal/window/exploration/training settings, forecast/health/reassignment explanations, future slots, datasets/model/drift/trial reports, conversion recording and coaching quality/latency in the desktop.
 - [x] Implement identical authority services for local SQLite and shared PostgreSQL, with scoped roles, encrypted persistence and protected provider secrets.
 - [x] Migrate the existing store additively; preserve exact IDs, human notes, suppressions and protected session state.
-- [ ] Verify SQLite/PostgreSQL domain/API contracts, frontend unit/browser workflows, formatting/types/security/native checks and builds.
+- [x] Verify SQLite/PostgreSQL domain/API contracts, frontend unit/browser workflows, formatting/types/security/native checks and builds.
 - [ ] Build matching Mac ARM64 and Windows x64 updates; sign and verify artifacts, publish the shared update manifest, and update the existing Mac app in place.
 - [ ] Use native computer control to exercise updated local and connected workflows and record sanitized evidence; exercise installed Windows package/update continuity.
 - [ ] Finish with clean pushed Git state, coherent release/docs, intact database, no active sample claims, no task-owned orphan services and no credentials/build products in Git.
