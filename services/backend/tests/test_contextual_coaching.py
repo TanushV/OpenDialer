@@ -151,3 +151,22 @@ def test_call_state_and_quality_feedback_are_persisted_and_scoped(workspace):
     assert feedback.status_code == 200, feedback.text
     report = c.get("/v1/optimization", headers=h).json()["coaching"]
     assert report["reviewed_cards"] == 1 and report["useful_fraction"] == 1
+
+
+def test_state_and_retrieval_timing_are_distinct_and_transcript_receipt_is_idempotent(workspace):
+    call = start(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    segment = {
+        "segment_id": "measured",
+        "revision": 1,
+        "side": "remote",
+        "text": "We have no budget.",
+        "is_final": True,
+    }
+    response = c.post(f"/v1/calls/{call['id']}/transcript", headers=h, json=segment)
+    assert response.status_code == 200
+    assert c.post(f"/v1/calls/{call['id']}/transcript", headers=h, json=segment).json()["duplicate"]
+    detailed = c.get(f"/v1/calls/{call['id']}", headers=h).json()
+    assert detailed["transcript"][0]["server_received_at"]
+    assert detailed["coach"]["latency"]["state_ms"] >= 0
+    assert detailed["coach"]["latency"]["retrieval_ms"] >= 0

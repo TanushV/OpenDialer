@@ -92,3 +92,18 @@ def test_model_and_provider_settings_are_secure_and_do_not_erase_other_provider_
     assert result.json()["configured"]["openrouter_api_key"]
     assert result.json()["configured"]["telnyx_api_key"]
     assert result.json()["coach_provider"] == "openrouter"
+
+
+async def test_reused_adapter_does_not_attribute_the_previous_receipt_to_a_failed_attempt():
+    attempts = []
+
+    def handler(request):
+        attempts.append(request)
+        return httpx.Response(200, json=completion()) if len(attempts) == 1 else httpx.Response(429)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        adapter = OpenRouterCoach("fixture", http=http)
+        await adapter.suggest({})
+        with pytest.raises(httpx.HTTPStatusError):
+            await adapter.suggest({})
+        assert adapter.last_request_id is None and adapter.last_usage == {}

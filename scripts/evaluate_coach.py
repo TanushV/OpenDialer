@@ -1,4 +1,4 @@
-"""Compare configured Groq models without placing calls or uploading recordings."""
+"""Evaluate the dedicated OpenRouter Cerebras route without placing calls or uploading recordings."""
 
 import argparse
 import asyncio
@@ -8,15 +8,18 @@ from pathlib import Path
 
 from app.coaching.replay import evaluate
 from app.providers.groq import GroqCoach
+from app.providers.openrouter import OpenRouterCoach
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--fixtures", type=Path, default=Path("packages/evaluation-fixtures/coach.jsonl"))
-parser.add_argument("--models", nargs="+", default=["openai/gpt-oss-20b", "openai/gpt-oss-120b"])
+parser.add_argument("--provider", choices=["openrouter", "groq"], default="openrouter")
+parser.add_argument("--models", nargs="+", default=["openai/gpt-oss-120b"])
 parser.add_argument("--output", type=Path, required=True)
 args = parser.parse_args()
-if not os.getenv("GROQ_API_KEY"):
+key_name = "OPENROUTER_API_KEY" if args.provider == "openrouter" else "GROQ_API_KEY"
+if not os.getenv(key_name):
     raise SystemExit(
-        "Set GROQ_API_KEY in your protected environment to run live model inference. No calls are placed."
+        f"Set {key_name} in your protected environment to run live model inference. No calls are placed."
     )
 cases = [json.loads(line) for line in args.fixtures.read_text().splitlines() if line.strip()]
 
@@ -24,7 +27,15 @@ cases = [json.loads(line) for line in args.fixtures.read_text().splitlines() if 
 async def main():
     reports = []
     for model in args.models:
-        reports.append(await evaluate(cases, GroqCoach(os.environ["GROQ_API_KEY"], model), model=model))
+        reports.append(
+            await evaluate(
+                cases,
+                (OpenRouterCoach if args.provider == "openrouter" else GroqCoach)(
+                    os.environ[key_name], model
+                ),
+                model=model,
+            )
+        )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(reports, indent=2) + "\n")
     print("Replay report written. This measures inference and grounding, not live-call outcome lift.")

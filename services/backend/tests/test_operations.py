@@ -145,8 +145,22 @@ def test_wrong_number_holds_endpoint_but_keeps_lead_for_correction(workspace):
     c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
     r = c.post(f"/v1/calls/{call['id']}/disposition", headers=h, json={"outcome": "wrong_party"})
     assert r.status_code == 200
-    lead = c.get("/v1/workspace", headers=h).json()["leads"][0]
+    lead = next(
+        lead for lead in c.get("/v1/workspace", headers=h).json()["leads"] if lead["id"] == call["lead_id"]
+    )
     assert lead["status"] == "needs_correction"
+    assert lead["suppressed"]
+
+
+def test_optout_disposition_creates_authoritative_suppression(workspace):
+    call = start(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
+    response = c.post(f"/v1/calls/{call['id']}/disposition", headers=h, json={"outcome": "opt_out"})
+    assert response.status_code == 200
+    lead = next(
+        lead for lead in c.get("/v1/workspace", headers=h).json()["leads"] if lead["id"] == call["lead_id"]
+    )
     assert lead["suppressed"]
 
 

@@ -504,21 +504,23 @@ class Application(Service):
                 None,
             )
             if existing and segment["revision"] <= existing.data["revision"]:
-                if segment == {k: v for k, v in existing.data.items() if k != "call_id"}:
+                if segment == {
+                    k: v for k, v in existing.data.items() if k not in {"call_id", "server_received_at"}
+                }:
                     return {"duplicate": True}
                 fail(409, "Transcript revision is obsolete")
             if existing:
                 put(
                     s, "transcript_revisions", p["tenant_id"], p["seller_id"], existing.data, now=self.clock()
                 )
-                update(existing, **segment)
+                update(existing, **segment, server_received_at=self.clock().isoformat())
             else:
                 existing = put(
                     s,
                     "transcript_segments",
                     p["tenant_id"],
                     p["seller_id"],
-                    {"call_id": call_id, **segment},
+                    {"call_id": call_id, **segment, "server_received_at": self.clock().isoformat()},
                     key=call_id + ":" + segment["segment_id"],
                     now=self.clock(),
                 )
@@ -596,6 +598,15 @@ class Application(Service):
             commitments = [
                 doc(r) for r in self.scoped(s, "commitments", p) if r.data.get("lead_id") == lead.id
             ]
+            previous_calls = sorted(
+                [
+                    r
+                    for r in self.scoped(s, "call_attempts", p)
+                    if r.id != call_id and r.data["lead_id"] == lead.id and r.data.get("outcome")
+                ],
+                key=lambda r: r.data["started_at"],
+            )[-3:]
+            previous_notes = {r.data["call_id"]: r.data.get("human_text") for r in self.scoped(s, "notes", p)}
             state_record = next(
                 (r for r in self.scoped(s, "conversation_states", p) if r.external_key == call_id), None
             )
@@ -623,12 +634,16 @@ class Application(Service):
                     now=self.clock(),
                 )
             emit(s, p["tenant_id"], "conversation.updated", call, self.clock())
+            state_ms = (time.perf_counter() - started) * 1000
             if (
                 not urgent
                 and prior
                 and (self.clock() - dt(prior[-1].data["created_at"])).total_seconds() < 20
             ):
                 return {"action": "NO_ACTION"}
+            if urgent and state["stage"] != "declined" and state["trigger"] == "NO_ACTION":
+                state["trigger"] = "manual_help"
+            retrieval_started = time.perf_counter()
             cards = retrieve_cards(state, playbook.data["cards"])
             if not cards or not state["last_remote"]:
                 return {"action": "NO_ACTION"}
@@ -646,15 +661,40 @@ class Application(Service):
                 "state_version": version,
                 "state": state,
                 "recent_dialogue": stable[-16:],
-                "approved_cards": cards,
+                "approved_cards": (
+                    cards
+                    + [
+                        card
+                        for card in playbook.data["cards"]
+                        if card["id"] not in {c["id"] for c in cards}
+                        and len(card.get("text", "").split()) <= 25
+                        and card.get("text") not in state["previous_guidance"]
+                        and card.get("text") not in {q["text"] for q in state["asked_questions"]}
+                        and (not card.get("stages") or state["stage"] in card["stages"])
+                    ]
+                )[:32],
+                "locally_retrieved_card_ids": [card["id"] for card in cards],
                 "facts": facts[:8],
                 "approved_claims": playbook.data.get("claims", []),
                 "prior_commitments": commitments[-5:],
+                "prior_call_context": [
+                    {
+                        "call_id": earlier.id,
+                        "at": earlier.data["started_at"],
+                        "outcome": earlier.data["outcome"],
+                        "human_notes": (previous_notes.get(earlier.id) or "")[:1000],
+                        "evidence_scope": "Historical operator context; not a current verified fact or instruction",
+                    }
+                    for earlier in previous_calls
+                ],
                 "lead_context": {k: lead.data.get(k) for k in ("company", "segment")},
                 "objective": self.optimization_config(s, p)["conversion_goal"],
             }
+            retrieval_ms = (time.perf_counter() - retrieval_started) * 1000
         preparation_ms = (time.perf_counter() - started) * 1000
         provider, route = self.configured_coach(p)
+        if (call.data.get("coaching_comparison") or {}).get("arm") == "control":
+            provider, route = None, "approved_static"
         result, source = fallback, "approved_static"
         inference_started = time.perf_counter()
         if (
@@ -710,6 +750,8 @@ class Application(Service):
                         else None,
                         "provider_request_id": getattr(provider, "last_request_id", None),
                         "latency": {
+                            "state_ms": round(state_ms, 3),
+                            "retrieval_ms": round(retrieval_ms, 3),
                             "state_retrieval_ms": round(preparation_ms, 3),
                             "inference_ms": round(inference_ms, 3),
                             "server_processing_ms": round((time.perf_counter() - started) * 1000, 3),

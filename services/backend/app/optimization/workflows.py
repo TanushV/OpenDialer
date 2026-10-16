@@ -5,6 +5,7 @@ from datetime import timedelta
 from sqlalchemy import select
 
 from app.db import ActiveClaim, audit, doc, emit, get, put, update
+from app.optimization.experiments import ComparisonWorkflows
 from app.optimization.learning import (
     derive_labels,
     drift_report,
@@ -28,7 +29,7 @@ DEFAULTS = {
 }
 
 
-class OptimizationWorkflows:
+class OptimizationWorkflows(ComparisonWorkflows):
     def ensure_experiment_cohort(self, s, p, campaign_id=None):
         from app.optimization.learning import stable_control
 
@@ -71,6 +72,7 @@ class OptimizationWorkflows:
                     "family": "optimization",
                     "trial_model_id": study.get("model_id"),
                     "goal": self.optimization_config(s, p)["conversion_goal"],
+                    "outcome_window_days": self.optimization_config(s, p)["window_days"],
                     "assignment_source": "enrollment_before_optimization; no historical treatment imputed",
                 },
                 key=key,
@@ -302,7 +304,7 @@ class OptimizationWorkflows:
             policy=policy,
         )
 
-    def optimization_report(self, p):
+    def optimization_report(self, p, epoch=None):
         with self.db.transaction(False) as s:
             config = self.optimization_config(s, p)
             data = self.operational_dataset(s, p, config)
@@ -333,7 +335,25 @@ class OptimizationWorkflows:
             latency = sorted(r["latency"]["inference_ms"] for r in coach_events if r.get("latency"))
             delivery = sorted(r["delivery_ms"] for r in feedback if r.get("delivery_ms") is not None)
             campaign = self.scoped(s, "campaigns", p)[0]
-            epoch = campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
+            current_epoch = campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
+            epoch = epoch or current_epoch
+            historical = [
+                r
+                for r in self.scoped(s, "experiment_assignments", p)
+                if r.data.get("epoch") == epoch and r.data.get("family", "optimization") == "optimization"
+            ]
+            if epoch != current_epoch and not historical:
+                from app.service import fail
+
+                fail(404, "Controlled cohort not found")
+            trial_goal = (
+                historical[0].data.get("goal", config["conversion_goal"])
+                if historical
+                else config["conversion_goal"]
+            )
+            trial_days = (
+                historical[0].data.get("outcome_window_days", 14) if historical else config["window_days"]
+            )
             decisions_by_id = {r.id: r.data for r in self.scoped(s, "compliance_decisions", p)}
             assignments = []
             for record in self.scoped(s, "experiment_assignments", p):
@@ -365,22 +385,71 @@ class OptimizationWorkflows:
             derived_events = events + [
                 {
                     "lead_id": c.data["lead_id"],
-                    "kind": config["conversion_goal"],
+                    "kind": trial_goal,
                     "occurred_at": c.data.get("ended_at", c.data["started_at"]),
                 }
                 for c in calls
-                if derive_labels(c.data.get("outcome")).get(goal_label)
+                if derive_labels(c.data.get("outcome")).get(
+                    "qualified" if trial_goal == "qualified_conversation" else trial_goal
+                )
             ]
             trial = trial_report(
                 assignments,
                 derived_events,
                 now=self.clock(),
-                goal=config["conversion_goal"],
-                window_days=config["window_days"],
+                goal=trial_goal,
+                window_days=trial_days,
             )
             study = campaign.data.get("optimization_trial") or {}
+            if epoch != current_epoch:
+                study = next(
+                    (
+                        r.data.get("trial_study", {})
+                        for r in self.scoped(s, "model_versions", p)
+                        if r.data.get("trial_epoch") == epoch
+                    ),
+                    {},
+                )
             trial.update(epoch=epoch, trial_model_id=study.get("model_id"), study=study)
-            if study and self.clock() < timestamp(study["ends_at"]) + timedelta(days=config["window_days"]):
+            exposure = {
+                "candidate_tested_model_attempts": 0,
+                "candidate_other_model_attempts": 0,
+                "control_tested_model_attempts": 0,
+            }
+            if study:
+                snapshots = {r.id: r.data for r in self.scoped(s, "feature_snapshots", p)}
+                by_lead = {a["lead_id"]: a for a in assignments}
+                for call in calls:
+                    assigned = by_lead.get(call.data["lead_id"])
+                    if not assigned or not call.data.get("submitted_at"):
+                        continue
+                    started = timestamp(call.data["started_at"])
+                    if not timestamp(assigned["assigned_at"]) <= started <= timestamp(study["ends_at"]):
+                        continue
+                    actual = (
+                        snapshots.get(call.data.get("feature_snapshot_id"), {})
+                        .get("predictions", {})
+                        .get("model_version")
+                    )
+                    tested = actual == study["model_id"]
+                    key = (
+                        ("candidate_tested_model_attempts" if tested else "candidate_other_model_attempts")
+                        if assigned["arm"] == "candidate"
+                        else "control_tested_model_attempts"
+                        if tested
+                        else None
+                    )
+                    if key:
+                        exposure[key] += 1
+                trial["sufficient_evidence"] &= (
+                    exposure["candidate_tested_model_attempts"] > 0
+                    and exposure["candidate_other_model_attempts"] == 0
+                    and exposure["control_tested_model_attempts"] == 0
+                )
+            else:
+                trial["sufficient_evidence"] = False
+            trial["model_exposure"] = exposure
+            if study and self.clock() < timestamp(study["ends_at"]) + timedelta(days=trial_days):
                 trial["sufficient_evidence"] = False
                 trial["analysis_status"] = "Enrollment and all predeclared outcome windows must close"
             decision_rows = self.scoped(s, "policy_decisions", p)
@@ -408,6 +477,14 @@ class OptimizationWorkflows:
             durations = sum(r.get("duration_seconds", 0) for r in data)
             return {
                 "settings": config,
+                "comparisons": self.comparison_reports(s, p, campaign, calls, derived_events, feedback),
+                "cohort_history": sorted(
+                    {
+                        r.data["epoch"]
+                        for r in self.scoped(s, "experiment_assignments", p)
+                        if r.data.get("epoch") and r.data.get("family", "optimization") == "optimization"
+                    }
+                ),
                 "forecast": self.forecast(s, p),
                 "numbers": self.inventory_evidence(s, p),
                 "metrics": {
@@ -453,7 +530,24 @@ class OptimizationWorkflows:
                 "drift": model_drift,
                 "trial": trial,
                 "coaching": {
-                    "reviewed_cards": len(feedback),
+                    **{
+                        "p95_" + key: sorted(r["latency"][key] for r in coach_events if r.get("latency", {}).get(key) is not None)[
+                            max(0, int(sum(r.get("latency", {}).get(key) is not None for r in coach_events) * 0.95 + 0.999) - 1)]
+                        if any(r.get("latency", {}).get(key) is not None for r in coach_events) else None
+                        for key in ("state_ms", "retrieval_ms", "stt_ms")
+                    },
+                    "reviewed_cards": sum(
+                        any(r.get(key) is not None for key in ("useful", "grounded", "timely", "distracting"))
+                        for r in feedback
+                    ),
+                    **{
+                        "p95_" + key: sorted(r[key] for r in feedback if r.get(key) is not None)[
+                            max(0, int(sum(r.get(key) is not None for r in feedback) * 0.95 + 0.999) - 1)
+                        ]
+                        if any(r.get(key) is not None for r in feedback)
+                        else None
+                        for key in ("render_ms", "event_to_render_ms")
+                    },
                     **{
                         key + "_fraction": sum(r.get(key) is True for r in feedback)
                         / sum(r.get(key) is not None for r in feedback)

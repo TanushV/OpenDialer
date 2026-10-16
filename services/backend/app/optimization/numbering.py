@@ -78,7 +78,7 @@ def number_health(attempts, *, pooled_attempts, now):
     }
 
 
-def select_number(lead, inventory, *, bound_id=None):
+def select_number(lead, inventory, *, bound_id=None, strategy="regional_first"):
     usable = [
         n
         for n in inventory
@@ -89,7 +89,9 @@ def select_number(lead, inventory, *, bound_id=None):
     bound = next((n for n in usable if n["id"] == bound_id), None)
     regional = [n for n in usable if n.get("region") == lead.get("region")]
     general = [n for n in usable if n.get("region") == "general"]
-    candidates = [bound] if bound else regional or general
+    candidates = (
+        [bound] if bound else (general or regional) if strategy == "general_first" else regional or general
+    )
     if not candidates:
         return {
             "number_id": None,
@@ -106,9 +108,12 @@ def select_number(lead, inventory, *, bound_id=None):
             n["id"],
         ),
     )
-    reason = "existing_binding" if bound else "regional_capacity" if regional else "general_capacity"
+    reason = (
+        "existing_binding" if bound else "general_capacity" if selected in general else "regional_capacity"
+    )
     return {
         "number_id": selected["id"],
+        "strategy": strategy,
         "reason": reason,
         "previous_number_id": bound_id,
         "reassignment_reason": "Previous identity is unavailable, paused or at capacity"
@@ -217,7 +222,7 @@ def capacity_forecast(
                 "region": region,
                 "forecast_attempts": raw,
                 "planned_attempts": planned,
-                "eligible_leads": sum(l.get("region", "general") == region for l in leads),
+                "eligible_leads": sum(lead_item.get("region", "general") == region for lead_item in leads),
                 "healthy_existing": len(owned),
                 "usable_existing_capacity": usable,
                 "general_fallback_capacity": shared,

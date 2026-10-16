@@ -51,12 +51,18 @@ def main():
         settings.worker_enabled = True  # Separate worker processes also own bounded automatic scheduling.
 
         async def run():
-            while True:
-                if args.queue and "call_control" in args.queue:
-                    await app.state.service.maintenance_tick()
-                else:
-                    await app.state.service.run_jobs(queues=args.queue)
-                await asyncio.sleep(0.5)
+            import httpx
+
+            async with httpx.AsyncClient(
+                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10)
+            ) as http:
+                app.state.service.coach_http = http
+                while True:
+                    if args.queue and "call_control" in args.queue:
+                        await app.state.service.maintenance_tick()
+                    else:
+                        await app.state.service.run_jobs(queues=args.queue)
+                    await asyncio.sleep(0.5)
 
         asyncio.run(run())
     else:

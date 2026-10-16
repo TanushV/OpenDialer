@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useWorkspace } from "../context";
+import { useCallback, useEffect, useState } from "react";
+import { date, label, useWorkspace } from "../context";
 import type { Call } from "../types";
 
 export function ConversionForm({ call }: { call: Call }) {
@@ -8,6 +8,22 @@ export function ConversionForm({ call }: { call: Call }) {
   const [reference, setReference] = useState("");
   const [eventId, setEventId] = useState(() => crypto.randomUUID());
   const [saved, setSaved] = useState(false);
+  const [correction, setCorrection] = useState("");
+  const [events, setEvents] = useState<
+    {
+      id: string;
+      kind: string;
+      source_reference: string;
+      occurred_at: string;
+      retracted?: boolean;
+    }[]
+  >([]);
+  const load = useCallback(async () => {
+    setEvents(await api("/v1/leads/" + call.lead_id + "/conversions"));
+  }, [api, call.lead_id]);
+  useEffect(() => {
+    void run(load);
+  }, [load, run]);
   return (
     <section className="card padded optimization-panel">
       <h3>Record a later conversion</h3>
@@ -52,6 +68,7 @@ export function ConversionForm({ call }: { call: Call }) {
                 : new Date().toISOString(),
             });
             setSaved(true);
+            await load();
             await refresh();
             notice("Conversion recorded");
           })
@@ -59,6 +76,51 @@ export function ConversionForm({ call }: { call: Call }) {
       >
         Record conversion
       </button>
+      {events.length > 0 && (
+        <details open>
+          <summary>Observed conversion history</summary>
+          <label>
+            Conversion correction reason
+            <input
+              value={correction}
+              onChange={(e) => setCorrection(e.target.value)}
+            />
+          </label>
+          {events.map((event) => (
+            <div key={event.id} className="conversion-entry">
+              <p>
+                {label(event.kind)} · {date(event.occurred_at)} ·{" "}
+                {event.source_reference}
+                {event.retracted ? " · Retracted" : ""}
+              </p>
+              {!event.retracted && (
+                <button
+                  className="text-button"
+                  disabled={correction.trim().length < 3}
+                  onClick={() =>
+                    void run(async () => {
+                      await api(
+                        "/v1/leads/" +
+                          call.lead_id +
+                          "/conversions/" +
+                          event.id +
+                          "/retract",
+                        "POST",
+                        { reason: correction },
+                      );
+                      await load();
+                      await refresh();
+                      notice("Conversion retracted");
+                    })
+                  }
+                >
+                  Retract conversion
+                </button>
+              )}
+            </div>
+          ))}
+        </details>
+      )}
     </section>
   );
 }

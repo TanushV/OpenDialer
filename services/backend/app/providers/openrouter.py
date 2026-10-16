@@ -54,6 +54,7 @@ class OpenRouterCoach:
         self.last_model, self.last_latency_ms = model, 0.0
 
     async def suggest(self, request, deadline_ms=1200):
+        self.last_usage, self.last_request_id, self.last_provider = {}, None, None
         started = time.perf_counter()
 
         async def send(http):

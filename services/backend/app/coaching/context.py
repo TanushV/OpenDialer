@@ -175,6 +175,7 @@ def retrieve_cards(state, cards):
     aliases = {
         "question": {"question", "discovery"},
         "conversation_gap": {"discovery"},
+        "manual_help": {"discovery", "question"},
         "next_step": {"next_step", "meeting", "callback"},
         "timing": {"timing", "callback"},
     }

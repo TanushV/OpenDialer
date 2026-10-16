@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { date, label, useWorkspace } from "../context";
+import { TrialControls, type ControlledComparison } from "./TrialControls";
 
 interface OptimizationSettings {
   conversion_goal: string;
@@ -22,6 +23,7 @@ interface OptimizationReport {
       planned_attempts: number;
       usable_existing_capacity: number;
       general_fallback_capacity: number;
+      capacity_waiting_for_review: number;
       proposed_additional: number;
     }[];
   };
@@ -75,6 +77,7 @@ interface OptimizationReport {
     reference_brier: number | null;
   };
   trial: {
+    epoch: string;
     sufficient_evidence: boolean;
     pending_leads: number;
     required_per_arm: number;
@@ -90,6 +93,8 @@ interface OptimizationReport {
       }
     >;
   };
+  comparisons: ControlledComparison[];
+  cohort_history: string[];
   coaching: {
     reviewed_cards: number;
     useful_fraction: number | null;
@@ -98,6 +103,10 @@ interface OptimizationReport {
     distracting_fraction: number | null;
     p95_inference_ms: number | null;
     p95_delivery_ms: number | null;
+    p95_state_ms: number | null;
+    p95_retrieval_ms: number | null;
+    p95_event_to_render_ms: number | null;
+    p95_render_ms: number | null;
   };
 }
 const percent = (value: number | null | undefined) =>
@@ -119,6 +128,7 @@ export function OptimizationPanel({
   const [replay, setReplay] = useState("");
   const [replayReference, setReplayReference] = useState("");
   const [replayResult, setReplayResult] = useState<string | null>(null);
+  const [cohortReportId, setCohortReportId] = useState("");
   const admin = ["owner", "admin"].includes(w.user.role);
   const load = useCallback(async () => {
     const next = await api<OptimizationReport>("/v1/optimization");
@@ -334,6 +344,7 @@ export function OptimizationPanel({
                 <th>Rep capacity allocated</th>
                 <th>Existing capacity</th>
                 <th>General fallback</th>
+                <th>Owned capacity awaiting review</th>
                 <th>Additional numbers</th>
               </tr>
             </thead>
@@ -345,6 +356,7 @@ export function OptimizationPanel({
                   <td>{region.planned_attempts}</td>
                   <td>{region.usable_existing_capacity}</td>
                   <td>{region.general_fallback_capacity}</td>
+                  <td>{region.capacity_waiting_for_review}</td>
                   <td>{region.proposed_additional}</td>
                 </tr>
               ))}
@@ -562,7 +574,12 @@ export function OptimizationPanel({
                   className="secondary"
                   onClick={() =>
                     void run(async () => {
-                      await api("/v1/admin/optimization/trial", "POST", {});
+                      const saved = await api<{ id: string }>(
+                        "/v1/admin/optimization/trial",
+                        "POST",
+                        {},
+                      );
+                      setCohortReportId(saved.id);
                       await load();
                       notice("Controlled cohort report saved for review");
                     })
@@ -572,7 +589,31 @@ export function OptimizationPanel({
                 </button>
               </div>
             )}
+            {cohortReportId && (
+              <p className="fine">Saved cohort report: {cohortReportId}</p>
+            )}
             <h3>Controlled conversion comparison</h3>
+            <label>
+              Cohort history
+              <select
+                value={report.trial.epoch}
+                onChange={(e) =>
+                  void run(async () => {
+                    const next = await api<OptimizationReport>(
+                      "/v1/optimization?epoch=" +
+                        encodeURIComponent(e.target.value),
+                    );
+                    setReport(next);
+                  })
+                }
+              >
+                {report.cohort_history.map((epoch) => (
+                  <option key={epoch} value={epoch}>
+                    {epoch}
+                  </option>
+                ))}
+              </select>
+            </label>
             <div className="optimization-table">
               <table>
                 <thead>
@@ -611,6 +652,11 @@ export function OptimizationPanel({
                 : "There is not enough evidence to claim conversion improvement."}
             </p>
           </section>
+          <TrialControls
+            comparisons={report.comparisons}
+            cohortReportId={cohortReportId}
+            load={load}
+          />
           <section className="card padded optimization-panel">
             <h2>Coaching quality and timing</h2>
             <p>
@@ -626,6 +672,16 @@ export function OptimizationPanel({
                 : report.coaching.p95_inference_ms.toFixed(0) + " ms"}
               . The 2.5-second full live guidance objective requires measured
               transcription, delivery and representative calls.
+            </p>
+            <p className="fine">
+              State: {report.coaching.p95_state_ms?.toFixed(0) ?? "Unknown"} ms
+              · Retrieval:{" "}
+              {report.coaching.p95_retrieval_ms?.toFixed(0) ?? "Unknown"} ms ·
+              Event receipt to render:{" "}
+              {report.coaching.p95_event_to_render_ms?.toFixed(0) ?? "Unknown"}{" "}
+              ms · Render:{" "}
+              {report.coaching.p95_render_ms?.toFixed(0) ?? "Unknown"} ms. STT
+              and full network delivery need live measurement.
             </p>
             {admin && (
               <details>

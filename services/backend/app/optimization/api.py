@@ -51,6 +51,8 @@ class Feedback(Strict):
     timely: bool | None = None
     distracting: bool | None = None
     delivery_ms: float | None = Field(default=None, ge=0, le=300000)
+    render_ms: float | None = Field(default=None, ge=0, le=300000)
+    event_to_render_ms: float | None = Field(default=None, ge=0, le=300000)
     note: str = Field(default="", max_length=1000)
 
 
@@ -69,10 +71,94 @@ class Replay(Strict):
     review_reference: str = Field(min_length=3, max_length=1000)
 
 
+class Comparison(Strict):
+    family: Literal["number_allocation", "coaching"]
+    review_reference: str = Field(min_length=3, max_length=1000)
+    duration_days: int = Field(default=14, ge=1, le=90)
+
+
 def register_optimization(app, service, principal, administrator):
     @app.get("/v1/optimization")
-    def report(p=Depends(principal)):
-        return service.optimization_report(p)
+    def report(epoch: str | None = None, p=Depends(principal)):
+        return service.optimization_report(p, epoch=epoch)
+
+    @app.post("/v1/admin/optimization/comparisons")
+    def start_comparison(body: Comparison, p=Depends(administrator)):
+        from datetime import timedelta
+
+        with service.db.transaction() as s:
+            campaign = service.scoped(s, "campaigns", p)[0]
+            config = service.optimization_config(s, p)
+            studies = campaign.data.get("controlled_comparisons", [])
+            if any(
+                r["family"] == body.family
+                and not r.get("stopped_at")
+                and timestamp(r["ends_at"]) > service.clock()
+                for r in studies
+            ):
+                fail(409, "This comparison already has an active protocol")
+            if len(studies) >= 20:
+                fail(409, "Retain and review existing comparison history before opening another protocol")
+            population = [
+                lead.id
+                for lead in service.scoped(s, "leads", p)
+                if lead.data.get("campaign_id") == campaign.id and lead.data.get("originally_eligible", True)
+            ]
+            study = {
+                **body.model_dump(),
+                "id": uid(),
+                "starts_at": service.clock().isoformat(),
+                "ends_at": (service.clock() + timedelta(days=body.duration_days)).isoformat(),
+                "population": population,
+                "goal": config["conversion_goal"],
+                "window_days": config["window_days"],
+                "control": "general_first" if body.family == "number_allocation" else "approved_static",
+                "candidate": "regional_first" if body.family == "number_allocation" else "configured_coach",
+                "reviewed_by": p["user_id"],
+            }
+            update(campaign, controlled_comparisons=studies + [study])
+            if body.family == "number_allocation":
+                for lead in service.scoped(s, "leads", p):
+                    service.comparison_assignment(s, p, campaign, lead, body.family)
+            audit(
+                s,
+                p["tenant_id"],
+                p["seller_id"],
+                p["user_id"],
+                "comparison.started",
+                study["id"],
+                service.clock(),
+                {"family": body.family, "review_reference": body.review_reference},
+            )
+            emit(s, p["tenant_id"], "optimization.updated", campaign, service.clock())
+            return {k: v for k, v in study.items() if k != "population"}
+
+    @app.post("/v1/admin/optimization/comparisons/{comparison_id}/stop")
+    def stop_comparison(comparison_id: str, body: Retraction, p=Depends(administrator)):
+        with service.db.transaction() as s:
+            campaign = service.scoped(s, "campaigns", p)[0]
+            studies = campaign.data.get("controlled_comparisons", [])
+            if not any(r["id"] == comparison_id for r in studies):
+                fail(404, "Comparison not found")
+            studies = [
+                {**r, "stopped_at": service.clock().isoformat(), "stop_reason": body.reason}
+                if r["id"] == comparison_id
+                else r
+                for r in studies
+            ]
+            update(campaign, controlled_comparisons=studies)
+            audit(
+                s,
+                p["tenant_id"],
+                p["seller_id"],
+                p["user_id"],
+                "comparison.stopped",
+                comparison_id,
+                service.clock(),
+                {"reason": body.reason},
+            )
+            emit(s, p["tenant_id"], "optimization.updated", campaign, service.clock())
+            return {"stopped": True}
 
     @app.put("/v1/admin/optimization")
     def configure(body: OptimizationSettings, p=Depends(administrator)):
@@ -124,10 +210,20 @@ def register_optimization(app, service, principal, administrator):
             model = service.required(s, "model_versions", model_id, p)
             config = service.optimization_config(s, p)
             metrics = model.data.get("metrics", {})
+            source = next(
+                (
+                    r
+                    for r in service.scoped(s, "learning_datasets", p)
+                    if r.id == model.data.get("source_dataset_id")
+                ),
+                None,
+            )
             if (
                 model.data.get("active")
                 or model.data.get("goal") != config["conversion_goal"]
                 or not model.data.get("source_dataset_id")
+                or not source
+                or source.data.get("goal") != config["conversion_goal"]
                 or metrics.get("brier", 1) >= metrics.get("pooled_baseline_brier", 0)
                 or not predict_funnel(model.data, {}, service.settings.data_dir / "models")
             ):
@@ -153,6 +249,7 @@ def register_optimization(app, service, principal, administrator):
                 trial_active=True,
                 trial_ends_at=ends.isoformat(),
                 trial_epoch=epoch,
+                trial_study=study,
                 trial_review_reference=body.review_reference,
             )
             audit(
@@ -189,6 +286,22 @@ def register_optimization(app, service, principal, administrator):
                 {"reason": body.reason},
             )
             return doc(model)
+
+    @app.get("/v1/leads/{lead_id}/conversions")
+    def list_conversions(lead_id: str, p=Depends(principal)):
+        with service.db.transaction(False) as s:
+            service.required(s, "leads", lead_id, p)
+            allowed_calls = {
+                r.id
+                for r in service.scoped(s, "call_attempts", p)
+                if p["role"] != "rep" or r.data.get("rep_id") == p["user_id"]
+            }
+            return [
+                doc(r)
+                for r in service.scoped(s, "conversion_events", p)
+                if r.data["lead_id"] == lead_id
+                and (p["role"] != "rep" or r.data.get("call_id") in allowed_calls)
+            ]
 
     @app.post("/v1/leads/{lead_id}/conversions")
     def conversion(lead_id: str, body: Conversion, p=Depends(principal)):
@@ -393,12 +506,38 @@ def register_optimization(app, service, principal, administrator):
         provider = ReplayProvider() if service.settings.simulation else service.configured_coach(p)[0]
         if provider is None:
             fail(409, "Configure the live coach before running a provider replay")
-        if not service.settings.simulation and not service.reserve_optional_budget(
-            p, "replay:" + uid(), 0.01 * len(body.cases), work_kind="coach_replay"
-        ):
-            fail(409, "Replay exceeds the optional inference budget")
+        usage_object_id = "coach-replay:" + uid()
+
+        class MeteredReplay:
+            def __getattr__(self, name):
+                return getattr(provider, name)
+
+            async def suggest(self, request, deadline_ms=1200):
+                from app.providers.inference import InferenceError, InferenceResult
+
+                if not service.reserve_optional_budget(
+                    p, "replay:" + uid(), 0.01, object_id=usage_object_id, work_kind="coach_replay"
+                ):
+                    raise InferenceError("Replay exceeds the optional inference budget")
+                result = None
+                try:
+                    result = await provider.suggest(request, deadline_ms)
+                    return result
+                finally:
+                    if provider.last_usage or provider.last_request_id:
+                        service.usage(
+                            p,
+                            "openrouter" if getattr(provider, "last_provider", None) else "groq",
+                            "coach_replay",
+                            InferenceResult(result or {}, provider.last_usage, provider.last_request_id),
+                            object_id=usage_object_id,
+                            reserved=0,
+                        )
+
         report = await evaluate(
-            body.cases, provider, model="approved_static" if service.settings.simulation else provider.model
+            body.cases,
+            provider if service.settings.simulation else MeteredReplay(),
+            model="approved_static" if service.settings.simulation else provider.model,
         )
         with service.db.transaction() as s:
             result = put(
@@ -409,6 +548,7 @@ def register_optimization(app, service, principal, administrator):
                 {
                     **report,
                     "kind": "coaching_replay",
+                    "usage_object_id": usage_object_id,
                     "review_reference": body.review_reference,
                     "created_at": service.clock().isoformat(),
                     "simulation": service.settings.simulation,

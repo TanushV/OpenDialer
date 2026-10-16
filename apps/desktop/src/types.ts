@@ -192,6 +192,26 @@ export interface Workspace {
   models: {
     id: string;
     active: boolean;
+    trial_active?: boolean;
+    trial_ends_at?: string;
+    goal?: string;
+    calibration?: {
+      expected_calibration_error: number | null;
+      bins: {
+        lower: number;
+        upper: number;
+        samples: number;
+        mean_prediction: number;
+        observed_rate: number;
+      }[];
+      subgroups: Record<
+        string,
+        Record<
+          string,
+          { samples: number; brier: number; seen_during_training: boolean }
+        >
+      >;
+    };
     metrics: Record<string, number>;
     checksum: string;
   }[];

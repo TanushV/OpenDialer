@@ -619,9 +619,19 @@ class Service:
             }
             allocations, feature_values, predictions = {}, {}, {}
             for candidate_lead in leads:
+                comparison = self.comparison_assignment(s, p, campaign, candidate_lead, "number_allocation")
                 allocation = select_number(
-                    doc(candidate_lead), inventory, bound_id=bindings.get(candidate_lead.id)
+                    doc(candidate_lead),
+                    inventory,
+                    bound_id=bindings.get(candidate_lead.id),
+                    strategy="general_first"
+                    if comparison and comparison["arm"] == "control"
+                    else "regional_first",
                 )
+                if comparison:
+                    allocation.update(
+                        comparison_id=comparison["comparison_id"], comparison_arm=comparison["arm"]
+                    )
                 allocations[candidate_lead.id] = allocation
                 number_view = next((n for n in inventory if n["id"] == allocation["number_id"]), None)
                 endpoint = get(s, "phone_endpoints", candidate_lead.data["endpoint_id"], p["tenant_id"])
@@ -714,6 +724,9 @@ class Service:
             )
             for candidate in [{"id": selection["lead_id"]}] if selection else []:
                 lead, number, record = allowed[candidate["id"]]
+                coach_comparison = self.comparison_assignment(
+                    s, p, campaign, lead, "coaching", rep_id=p["user_id"]
+                )
                 reservation = put(
                     s,
                     "reservations",
@@ -728,6 +741,7 @@ class Service:
                         "status": "reserved",
                         "decision_id": record.id,
                         "policy_id": campaign.data["policy_id"],
+                        "coaching_comparison": coach_comparison,
                     },
                     now=now,
                 )
@@ -906,6 +920,7 @@ class Service:
                     "feature_snapshot_id": reservation.data.get("feature_snapshot_id"),
                     "decision_id": reservation.data.get("policy_decision_id"),
                     "allocation_decision_id": reservation.data.get("allocation_decision_id"),
+                    "coaching_comparison": reservation.data.get("coaching_comparison"),
                     "state": "AUTHORIZED",
                     "started_at": now.isoformat(),
                     "provider_id": None,

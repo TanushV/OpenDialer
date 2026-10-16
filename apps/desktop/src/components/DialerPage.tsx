@@ -51,6 +51,9 @@ export function DialerPage() {
   const [audioStatus, setAudioStatus] = useState("");
   const [showDevices, setShowDevices] = useState(false);
   const [vmAsset, setVMAsset] = useState("");
+  const [feedbackId, setFeedbackId] = useState("");
+  const eventReceived = useRef<number | null>(null);
+  const responseReceived = useRef<number | null>(null);
   const audio = useRef<HTMLAudioElement>(null);
   const telephony = useRef(new Telephony());
   const journalStore = useRef(native() ? new MemoryStorage() : localStorage);
@@ -79,12 +82,20 @@ export function DialerPage() {
     if (!call) return;
     let disposed = false;
     let pending = false;
+    let dirty = false;
     const load = () => {
-      if (pending || disposed) return;
+      if (disposed) return;
+      if (pending) {
+        dirty = true;
+        return;
+      }
       pending = true;
       void api<Call>("/v1/calls/" + call.id)
         .then((value) => {
-          if (!disposed) setCall(value);
+          if (!disposed) {
+            responseReceived.current = performance.now();
+            setCall(value);
+          }
         })
         .catch(() => {
           if (!disposed)
@@ -92,17 +103,41 @@ export function DialerPage() {
         })
         .finally(() => {
           pending = false;
+          if (dirty && !disposed) {
+            dirty = false;
+            load();
+          }
         });
     };
     load();
     const unsubscribe = subscribe((events) => {
-      if (events.some((e) => e.entity_id === call.id)) load();
+      if (events.some((e) => e.entity_id === call.id)) {
+        eventReceived.current = performance.now();
+        load();
+      }
     });
     return () => {
       disposed = true;
       unsubscribe();
     };
   }, [call?.id, api, subscribe]);
+  useEffect(() => {
+    if (!call?.coach || responseReceived.current == null) return;
+    const id = call.id,
+      coachId = call.coach.id;
+    const frame = requestAnimationFrame(() => {
+      const at = performance.now();
+      void api("/v1/calls/" + id + "/coach/feedback", "POST", {
+        coach_event_id: coachId,
+        render_ms: at - responseReceived.current!,
+        event_to_render_ms:
+          eventReceived.current == null
+            ? undefined
+            : at - eventReceived.current,
+      }).catch(() => {});
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [call?.coach?.id, api]);
   useEffect(() => {
     if (!call?.coach) return;
     const remaining = call.coach.remaining_ms ?? 7000;
@@ -723,6 +758,36 @@ export function DialerPage() {
                 Grounded in the current turn ·{" "}
                 {w.simulation ? "Approved static card" : "Approved guidance"}
               </small>
+              <div className="guidance-feedback" aria-label="Guidance feedback">
+                {[
+                  ["Guidance was useful", { useful: true }],
+                  ["Guidance was not useful", { useful: false }],
+                  ["Guidance was distracting", { distracting: true }],
+                  ["Guidance arrived too late", { timely: false }],
+                ].map(([title, fields]) => (
+                  <button
+                    className="text-button"
+                    key={String(title)}
+                    disabled={feedbackId === call.coach!.id}
+                    onClick={() =>
+                      void run(async () => {
+                        await api(
+                          "/v1/calls/" + call.id + "/coach/feedback",
+                          "POST",
+                          {
+                            coach_event_id: call.coach!.id,
+                            ...(fields as Record<string, boolean>),
+                          },
+                        );
+                        setFeedbackId(call.coach!.id);
+                        notice("Guidance feedback saved");
+                      })
+                    }
+                  >
+                    {String(title)}
+                  </button>
+                ))}
+              </div>
             </div>
           ) : (
             <div className="coach-placeholder">
@@ -838,6 +903,7 @@ export function DialerPage() {
                 "no_answer",
                 "wrong_party",
                 "not_interested",
+                "opt_out",
                 "temporary_failure",
               ].map((o) => (
                 <option key={o} value={o}>

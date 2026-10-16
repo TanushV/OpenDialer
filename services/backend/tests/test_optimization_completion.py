@@ -2,8 +2,6 @@
 
 from datetime import timedelta
 
-import pytest
-
 from app.db import put, update
 from conftest import start
 
@@ -115,6 +113,59 @@ def test_rollback_cannot_activate_an_unreviewed_candidate(workspace, app, clock)
     assert response.status_code == 409
 
 
+def test_legacy_training_route_cannot_import_arbitrary_historical_features(workspace):
+    response = workspace["client"].post(
+        "/v1/admin/models/train",
+        headers=workspace["headers"],
+        json={"rows": [{"human": 1, "features": {"future_outcome": 1}}] * 100},
+    )
+    assert response.status_code == 422
+
+
+def test_trial_cannot_start_from_a_nonexistent_owned_dataset(workspace, app, clock):
+    with app.state.db.transaction() as s:
+        model = put(
+            s,
+            "model_versions",
+            workspace["tenant_id"],
+            workspace["seller_id"],
+            {
+                "active": False,
+                "source_dataset_id": "missing-source",
+                "goal": "meeting_held",
+                "metrics": {"brier": 0.1, "pooled_baseline_brier": 0.2},
+            },
+            now=clock.now,
+        )
+        model_id = model.id
+    response = workspace["client"].post(
+        f"/v1/admin/models/{model_id}/start-trial",
+        headers=workspace["headers"],
+        json={"review_reference": "Missing source must fail"},
+    )
+    assert response.status_code == 409
+
+
+def test_model_trial_exposure_report_preserves_uncalled_population(workspace, app, clock):
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        campaign = service.scoped(s, "campaigns", p)[0]
+        study = {
+            "model_id": "fixture-model",
+            "starts_at": clock.now.isoformat(),
+            "ends_at": (clock.now + timedelta(days=1)).isoformat(),
+            "max_leads": 100,
+        }
+        update(campaign, optimization_trial=study)
+    report = service.optimization_report(p)
+    assert report["trial"]["model_exposure"]["candidate_tested_model_attempts"] == 0
+    assert not report["trial"]["sufficient_evidence"]
+    assert (
+        sum(r["leads"] for r in report["trial"]["arms"].values())
+        == report["metrics"]["original_eligible_leads"]
+    )
+
+
 def test_later_conversions_have_a_scoped_auditable_list(workspace, clock):
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
@@ -190,9 +241,48 @@ async def test_semantic_card_selection_and_prior_state_survive_two_live_turns(
         )
         await service.coach_turn(p, call["id"], urgent=True)
     assert requests[1]["state"]["needs"][0]["text"] == quote
+    assert requests[0]["prior_call_context"] == []
     c, h = workspace["client"], workspace["headers"]
     # The older card is obsolete after a new state version.
     assert c.get(f"/v1/calls/{call['id']}", headers=h).json()["coach"] is None
+
+
+def test_paid_replay_attributes_each_actual_provider_attempt(workspace, app, monkeypatch):
+    class Provider:
+        model, last_provider, last_model = "fixture", "Cerebras", "fixture"
+        last_usage, last_request_id = {}, None
+
+        async def suggest(self, request, deadline_ms=1200):
+            self.last_usage = {"prompt_tokens": 2, "cost": 0.001}
+            self.last_request_id = "fixture-" + request["id"]
+            return {"action": "NO_ACTION"}
+
+    monkeypatch.setattr(app.state.service, "configured_coach", lambda p: (Provider(), "openrouter"))
+    app.state.settings.simulation = False
+    cases = [
+        {
+            "id": str(i),
+            "state_version": 1,
+            "expected_action": "NO_ACTION",
+            "recent_dialogue": [],
+            "approved_cards": [],
+        }
+        for i in range(2)
+    ]
+    response = workspace["client"].post(
+        "/v1/admin/coaching/replay",
+        headers=workspace["headers"],
+        json={"cases": cases, "review_reference": "Permissioned fixture without network"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["valid_fraction"] == 1
+    with app.state.db.transaction(False) as s:
+        usage = [
+            r.data
+            for r in app.state.service.scoped(s, "usage_ledger", principal(workspace))
+            if r.data.get("kind") == "coach_replay"
+        ]
+    assert len(usage) == 2 and all(row["object_id"] for row in usage)
 
 
 def test_visible_card_ttl_is_reported_by_the_authority(workspace, clock):
@@ -213,3 +303,50 @@ def test_visible_card_ttl_is_reported_by_the_authority(workspace, clock):
     card = c.get(f"/v1/calls/{call['id']}", headers=h).json()["coach"]
     assert 0 < card["remaining_ms"] <= 4000
     assert card["latency"]["stt_ms"] is None
+
+
+def test_render_measurements_do_not_count_as_human_quality_reviews(workspace):
+    call = start(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    c.post(
+        f"/v1/calls/{call['id']}/transcript",
+        headers=h,
+        json={
+            "segment_id": "timing",
+            "revision": 1,
+            "side": "remote",
+            "text": "We have no budget.",
+            "is_final": True,
+        },
+    )
+    card = c.get(f"/v1/calls/{call['id']}", headers=h).json()["coach"]
+    c.post(
+        f"/v1/calls/{call['id']}/coach/feedback",
+        headers=h,
+        json={"coach_event_id": card["id"], "render_ms": 12, "event_to_render_ms": 80},
+    )
+    report = c.get("/v1/optimization", headers=h).json()["coaching"]
+    assert report["reviewed_cards"] == 0 and report["useful_fraction"] is None
+    assert report["p95_render_ms"] == 12
+    assert report["p95_event_to_render_ms"] == 80
+
+
+def test_won_sale_does_not_invent_a_held_meeting():
+    from app.optimization.learning import derive_labels
+
+    assert derive_labels("sale_won")["sale_won"]
+    assert not derive_labels("sale_won")["meeting_held"]
+
+
+def test_calibration_and_subgroup_reports_include_sample_and_seen_group_boundaries():
+    from app.ml.training import calibration_diagnostics
+
+    rows = [
+        {"human": i % 2, "features": {"segment": "s" + str(i % 2)}, "rep_id": "r", "number_id": "n"}
+        for i in range(20)
+    ]
+    result = calibration_diagnostics(rows, [0.4] * 20, train=rows[:5])
+    assert sum(bin["samples"] for bin in result["bins"]) == 20
+    assert result["subgroups"]["rep_id"]["r"]["seen_during_training"]
+    assert result["subgroups"]["number_id"]["n"]["samples"] == 20
+    assert result["expected_calibration_error"] >= 0

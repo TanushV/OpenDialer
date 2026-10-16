@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 
+import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -105,6 +106,7 @@ class Disposition(Strict):
         "meeting_booked",
         "meeting_held",
         "not_interested",
+        "opt_out",
         "invalid_endpoint",
         "temporary_failure",
         "qualified_conversation",
@@ -224,6 +226,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @asynccontextmanager
     async def lifespan(app):
+        service.coach_http = httpx.AsyncClient(
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10)
+        )
         tasks = (
             [
                 asyncio.create_task(worker(lanes))
@@ -237,6 +242,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        await service.coach_http.aclose()
         db.engine.dispose()
 
     app = FastAPI(title="OpenDialer authority", version=settings.version, lifespan=lifespan)
@@ -399,7 +405,14 @@ def create_app(settings=None, *, clock=None, carrier=None):
             return {
                 **doc(call),
                 "transcript": service.transcript_rows(s, p, call_id),
-                "coach": coach[-1] if coach and call.data["state"] not in TERMINAL | {"ENDING"} else None,
+                "coach": {
+                    **coach[-1],
+                    "remaining_ms": max(
+                        0, int((dt(coach[-1]["expires_at"]) - clock()).total_seconds() * 1000)
+                    ),
+                }
+                if coach and call.data["state"] not in TERMINAL | {"ENDING"}
+                else None,
                 "conversation_state": state,
             }
 
@@ -475,7 +488,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
             service.reconcile_goal_status(s, p, lead)
             emit(s, p["tenant_id"], "call.updated", call, clock())
             result = doc(call)
-        if data.outcome in {"wrong_party", "invalid_endpoint"}:
+        if data.outcome in {"wrong_party", "invalid_endpoint", "opt_out"}:
             service.suppress(p, phone, data.outcome)
         return result
 
@@ -962,7 +975,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
             for previous in service.scoped(s, "model_versions", p):
                 if previous.data.get("active"):
                     update(previous, active=False, trial_active=False)
-            update(model, **candidate, active=True, trial_active=False)
+            update(model, **candidate, active=True, trial_active=False, ever_activated=True)
             audit(s, p["tenant_id"], p["seller_id"], p["user_id"], "model.activated", model.id, clock())
             return doc(model)
 
@@ -1499,14 +1512,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/admin/models/train")
     def train_model(data: dict, p=Depends(administrator)):
-        if len(data.get("rows", [])) < 100:
-            fail(422, "At least 100 immutable labeled rows are required")
-        return service.jobs.enqueue(
-            "ml",
-            {"rows": data["rows"], "seller_id": p["seller_id"], "user_id": p["user_id"]},
-            "train:" + hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest(),
-            tenant_id=p["tenant_id"],
-        )
+        if data:
+            fail(422, "Training accepts only authority-owned call-history snapshots")
+        return service.train_operational(p)
 
     @app.post("/v1/admin/models/{model_id}/rollback")
     def rollback_model(model_id: str, data: dict, p=Depends(administrator)):
@@ -1527,8 +1535,13 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 )
                 return {"active": "pooled-beta-v1"}
             model = service.required(session, "model_versions", model_id, p)
+            if (
+                not model.data.get("ever_activated")
+                or model.data.get("goal") != service.optimization_config(session, p)["conversion_goal"]
+            ):
+                fail(409, "Rollback requires a previously activated model for the current goal")
             for item in service.scoped(session, "model_versions", p):
-                update(item, active=item.id == model.id)
+                update(item, active=item.id == model.id, trial_active=False)
             audit(
                 session,
                 p["tenant_id"],
@@ -1738,6 +1751,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 coverage_delta=float(data["coverage_delta"]),
                 policy_violations=data["policy_violations"],
                 trial_reviewed_by=p["user_id"],
+                cohort_report_id=data.get("cohort_report_id"),
             )
             audit(
                 session,

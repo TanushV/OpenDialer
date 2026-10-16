@@ -50,6 +50,57 @@ def independent_partitions(rows):
     return train, calibration, validation
 
 
+def calibration_diagnostics(rows, probabilities, *, train):
+    pairs = list(zip(rows, probabilities, strict=True))
+    bins = []
+    for index in range(10):
+        selected = [
+            (row, probability) for row, probability in pairs if min(9, int(probability * 10)) == index
+        ]
+        if selected:
+            bins.append(
+                {
+                    "lower": index / 10,
+                    "upper": (index + 1) / 10,
+                    "samples": len(selected),
+                    "mean_prediction": sum(p for _, p in selected) / len(selected),
+                    "observed_rate": sum(row["human"] for row, _ in selected) / len(selected),
+                }
+            )
+    subgroups = {}
+    for field in ("segment", "rep_id", "number_id"):
+
+        def group(row, field=field):
+            return str(
+                row.get("features", {}).get(field, "unknown")
+                if field == "segment"
+                else row.get(field, "unknown")
+            )
+
+        seen = {group(row) for row in train}
+        groups = sorted({group(row) for row in rows})
+        subgroups[field] = {}
+        for value in groups[:100]:
+            selected = [(row, p) for row, p in pairs if group(row) == value]
+            subgroups[field][value] = {
+                "samples": len(selected),
+                "brier": sum((row["human"] - p) ** 2 for row, p in selected) / len(selected),
+                "seen_during_training": value in seen,
+                "observed_rate": sum(row["human"] for row, _ in selected) / len(selected),
+            }
+    return {
+        "bins": bins,
+        "subgroups": subgroups,
+        "expected_calibration_error": sum(
+            b["samples"] * abs(b["mean_prediction"] - b["observed_rate"]) for b in bins
+        )
+        / len(rows)
+        if rows
+        else None,
+        "evidence_scope": "Out-of-time held-out groups; small groups are descriptive and do not establish generalization",
+    }
+
+
 def train_challenger(rows, output_dir):
     from threadpoolctl import threadpool_limits
 
@@ -121,6 +172,9 @@ def _train_challenger(rows, output_dir):
     ]
     baseline = [funnel_predictions(history, r["features"])["p_human"] for r in validation]
     baseline_brier = float(brier_score_loss([r["human"] for r in validation], baseline))
+    probabilities = human[0].predict_proba(
+        np.array([vector(r["features"], FEATURE_ORDER) for r in validation])
+    )[:, 1]
     directory = Path(output_dir)
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "challenger.joblib"
@@ -134,6 +188,7 @@ def _train_challenger(rows, output_dir):
         "validation_samples": len(validation),
         "feature_order": FEATURE_ORDER,
         "funnel_metrics": metrics,
+        "calibration": calibration_diagnostics(validation, probabilities, train=train),
         "metrics": {**human[1], "baseline_brier": baseline_brier, "pooled_baseline_brier": baseline_brier},
         "manual_approved": False,
         "online_trial_passed": False,

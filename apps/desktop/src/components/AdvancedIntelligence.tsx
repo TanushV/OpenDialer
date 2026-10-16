@@ -1,4 +1,4 @@
-import { Check, FlaskConical, Plus } from "lucide-react";
+import { Check, Plus } from "lucide-react";
 import { useState } from "react";
 import { label, useWorkspace } from "../context";
 
@@ -12,9 +12,6 @@ export function AdvancedIntelligence() {
     positive: "",
     negative: "",
   });
-  const [training, setTraining] = useState("");
-  const [trial, setTrial] = useState("");
-  const [modelId, setModelId] = useState("");
   const [billing, setBilling] = useState("");
   const [reference, setReference] = useState("");
   const lines = (value: string) =>
@@ -125,113 +122,18 @@ export function AdvancedIntelligence() {
           </p>
         </section>
         <section className="card padded">
-          <span className="eyebrow">COMPARE BEFORE ACTIVATING</span>
-          <h2>Model evaluation</h2>
+          <h2>Authority-owned model evaluation</h2>
           <p className="muted small">
-            Upload immutable training rows containing lead_id, endpoint_id, at,
-            permitted pre-call features, and the human-answer outcome. Training
-            is a bounded background job.
+            Use the operational training dataset and reviewed model pilot above.
+            Each candidate is trained from frozen pre-call records, calibrated
+            on independent chronological data, and compared with the deployed
+            pooled baseline.
           </p>
-          <label>
-            Training snapshot JSON
-            <textarea
-              rows={4}
-              value={training}
-              onChange={(e) => setTraining(e.target.value)}
-              placeholder="An array of at least 100 reviewed outcome rows"
-            />
-          </label>
-          <button
-            className="secondary"
-            disabled={!training}
-            onClick={() =>
-              void run(async () => {
-                const rows = JSON.parse(training) as unknown[];
-                await api("/v1/admin/models/train", "POST", { rows });
-                await refresh();
-                notice(
-                  "Chronological training and calibration queued. Production stays on its current model.",
-                );
-              })
-            }
-          >
-            <FlaskConical size={15} />
-            Train challenger
-          </button>
-          <div className="section-rule" />
-          <label>
-            Challenger model
-            <select
-              value={modelId}
-              onChange={(e) => setModelId(e.target.value)}
-            >
-              <option value="">Choose a model</option>
-              {w.models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.id.slice(0, 12)} · Brier {m.metrics.brier?.toFixed(4)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Reviewed online trial report JSON
-            <textarea
-              rows={3}
-              value={trial}
-              onChange={(e) => setTrial(e.target.value)}
-              placeholder="Report reference, coverage delta, policy violations, controlled outcome evidence"
-            />
-          </label>
-          <div className="button-row">
-            <button
-              className="secondary"
-              disabled={!modelId || !trial}
-              onClick={() =>
-                void run(async () => {
-                  await api(
-                    `/v1/admin/models/${modelId}/trial`,
-                    "POST",
-                    JSON.parse(trial),
-                  );
-                  await refresh();
-                  notice("Trial evidence saved for the model review.");
-                })
-              }
-            >
-              Save trial evidence
-            </button>
-            <button
-              className="primary"
-              disabled={!modelId}
-              onClick={() =>
-                void run(async () => {
-                  await api(`/v1/admin/models/${modelId}/activate`, "POST", {
-                    approved: true,
-                  });
-                  await refresh();
-                  notice(
-                    "Validated challenger activated. Baseline control retained.",
-                  );
-                })
-              }
-            >
-              Activate after gates
-            </button>
-          </div>
-          <button
-            className="text-button"
-            onClick={() =>
-              void run(async () => {
-                await api("/v1/admin/models/baseline/rollback", "POST", {
-                  reason: "Operator restored the coverage-first baseline",
-                });
-                await refresh();
-                notice("Baseline restored.");
-              })
-            }
-          >
-            Restore baseline
-          </button>
+          <p className="fine">
+            Saved live cohort evidence and explicit review are required before
+            production activation. Restore the pooled baseline at any time from
+            the pilot controls.
+          </p>
         </section>
       </div>
       <section className="card import-card">

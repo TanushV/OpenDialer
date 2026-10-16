@@ -29,7 +29,7 @@ def derive_labels(outcome):
         "human": outcome in HUMAN,
         "right_party": outcome in RIGHT,
         "qualified": outcome in QUALIFIED,
-        "meeting_held": outcome in {"meeting_held", "sale_won"},
+        "meeting_held": outcome == "meeting_held",
         "sale_won": outcome == "sale_won",
     }
 
@@ -96,6 +96,8 @@ def training_rows(calls, snapshots, events, *, now, goal, window_days):
                 "call_id": call["id"],
                 "lead_id": call["lead_id"],
                 "endpoint_id": call.get("endpoint_id", call["lead_id"]),
+                "rep_id": call.get("rep_id", "unknown"),
+                "number_id": call.get("number_id", "unknown"),
                 "at": at.isoformat(),
                 "features": dict(snapshot["features"]),
                 **labels,

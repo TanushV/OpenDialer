@@ -10,6 +10,11 @@ on:
         description: Exact reviewed source commit used to build those packages
         required: true
         type: string
+      baseline_version:
+        description: Optional published baseline to update through the signed in-app updater
+        required: false
+        default: ''
+        type: string
 permissions:
   contents: read
   actions: read
@@ -49,10 +54,24 @@ jobs:
           cache-on-failure: true
       - name: Install the unchanged package on a fresh runner
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASELINE_VERSION: ${{ inputs.baseline_version }}
         run: |
           $version = (Get-Content apps/desktop/src-tauri/tauri.conf.json | ConvertFrom-Json).version
           $packages = @(Get-ChildItem work/reused-installer -Recurse -Filter "OpenDialer_${version}_x64-setup.exe")
           if ($packages.Count -ne 1) { throw 'Expected exactly one version-matched installer' }
+          if ($env:BASELINE_VERSION) {
+            if ($env:BASELINE_VERSION -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid baseline version' }
+            New-Item -ItemType Directory -Force work/baseline-installer | Out-Null
+            gh release download "v$env:BASELINE_VERSION" --repo "${{ github.repository }}" --dir work/baseline-installer --pattern "OpenDialer_$($env:BASELINE_VERSION)_x64-setup.exe" --pattern SHA256SUMS.txt
+            if ($LASTEXITCODE -ne 0) { throw 'Could not download the published baseline' }
+            $packages = @(Get-ChildItem work/baseline-installer -Filter "*-setup.exe")
+            $actual = (Get-FileHash $packages[0].FullName -Algorithm SHA256).Hash.ToLower()
+            $expected = Get-Content work/baseline-installer/SHA256SUMS.txt | Where-Object { $_ -match [regex]::Escape($packages[0].Name) }
+            if (-not $expected.StartsWith($actual)) { throw 'Baseline checksum differs from the published release' }
+            "OPENDIALER_UPDATE_TO_VERSION=$version" >> $env:GITHUB_ENV
+          }
           $destination = Join-Path $env:RUNNER_TEMP OpenDialer
           $installed = Start-Process $packages[0].FullName -ArgumentList '/S', "/D=$destination" -Wait -PassThru
           if ($installed.ExitCode -ne 0) { throw "NSIS install failed: $($installed.ExitCode)" }

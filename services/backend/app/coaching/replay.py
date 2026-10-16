@@ -4,7 +4,7 @@ import asyncio
 import math
 import time
 
-from app.coaching.engine import validate_card
+from app.coaching.context import ground_guidance
 
 
 async def evaluate(cases, provider, *, model, deadline_ms=1200):
@@ -14,12 +14,7 @@ async def evaluate(cases, provider, *, model, deadline_ms=1200):
         valid, matched, failure, expected_card = False, False, None, None
         try:
             result = await asyncio.wait_for(provider.suggest(case, deadline_ms), deadline_ms / 1000)
-            validate_card(
-                result,
-                state_version=case["state_version"],
-                segment_ids={s["segment_id"] for s in case["recent_dialogue"]},
-                card_ids={c["id"] for c in case["approved_cards"]},
-            )
+            ground_guidance(result, case)
             valid = True
             matched = result["action"] == case["expected_action"]
             if "expected_card_ids" in case:
@@ -40,6 +35,10 @@ async def evaluate(cases, provider, *, model, deadline_ms=1200):
                 "inference_ms": round((time.perf_counter() - started) * 1000, 3),
                 "failure": failure,
                 "expected_card": expected_card,
+                "provider": getattr(provider, "last_provider", None),
+                "model": getattr(provider, "last_model", model),
+                "request_id": getattr(provider, "last_request_id", None),
+                "usage": getattr(provider, "last_usage", {}),
             }
         )
     durations = sorted(r["inference_ms"] for r in results)

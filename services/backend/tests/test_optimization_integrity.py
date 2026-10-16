@@ -35,7 +35,11 @@ def test_a_conversion_finishes_the_current_campaign_without_deleting_history(wor
         },
     )
     assert result.status_code == 200
-    lead = next(l for l in c.get("/v1/workspace", headers=h).json()["leads"] if l["id"] == call["lead_id"])
+    lead = next(
+        lead_item
+        for lead_item in c.get("/v1/workspace", headers=h).json()["leads"]
+        if lead_item["id"] == call["lead_id"]
+    )
     assert lead["status"] == "converted" and lead["conversion_goal_achieved"] == "meeting_held"
     assert c.get(f"/v1/calls/{call['id']}/analysis", headers=h).status_code == 200
 
@@ -57,7 +61,9 @@ def test_conversion_correction_is_audited_and_never_removes_an_optout(workspace,
         },
     ).json()
     phone = next(
-        l["phone"] for l in c.get("/v1/workspace", headers=h).json()["leads"] if l["id"] == call["lead_id"]
+        lead_item["phone"]
+        for lead_item in c.get("/v1/workspace", headers=h).json()["leads"]
+        if lead_item["id"] == call["lead_id"]
     )
     c.post("/v1/suppressions", headers=h, json={"phone": phone, "reason": "opt_out"})
     correction = c.post(
@@ -68,7 +74,11 @@ def test_conversion_correction_is_audited_and_never_removes_an_optout(workspace,
     assert correction.status_code == 200, correction.text
     report = c.get("/v1/optimization", headers=h).json()
     assert report["metrics"]["unique_conversions"] == 0
-    lead = next(l for l in c.get("/v1/workspace", headers=h).json()["leads"] if l["id"] == call["lead_id"])
+    lead = next(
+        lead_item
+        for lead_item in c.get("/v1/workspace", headers=h).json()["leads"]
+        if lead_item["id"] == call["lead_id"]
+    )
     assert lead["suppressed"] is True
 
 
@@ -316,10 +326,11 @@ def test_reviewed_owned_candidate_can_run_a_bounded_pilot_and_expire_without_ful
     workspace, app, clock
 ):
     import hashlib
+
     import joblib
-    from sklearn.dummy import DummyClassifier
     from app.db import put
     from app.ml.training import FEATURE_ORDER
+    from sklearn.dummy import DummyClassifier
 
     root = app.state.settings.data_dir / "models" / "fixture"
     root.mkdir(parents=True)
@@ -327,6 +338,14 @@ def test_reviewed_owned_candidate_can_run_a_bounded_pilot_and_expire_without_ful
     estimator = DummyClassifier(strategy="prior").fit([[0] * len(FEATURE_ORDER)] * 4, [0, 1, 0, 1])
     joblib.dump({"human": estimator}, artifact)
     with app.state.db.transaction() as s:
+        dataset = put(
+            s,
+            "learning_datasets",
+            workspace["tenant_id"],
+            workspace["seller_id"],
+            {"goal": "meeting_held", "rows": [], "as_of": clock.now.isoformat()},
+            now=clock.now,
+        )
         model = put(
             s,
             "model_versions",
@@ -334,7 +353,7 @@ def test_reviewed_owned_candidate_can_run_a_bounded_pilot_and_expire_without_ful
             workspace["seller_id"],
             {
                 "active": False,
-                "source_dataset_id": "fixture-dataset",
+                "source_dataset_id": dataset.id,
                 "goal": "meeting_held",
                 "artifact": str(artifact),
                 "checksum": hashlib.sha256(artifact.read_bytes()).hexdigest(),

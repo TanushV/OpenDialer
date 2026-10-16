@@ -301,7 +301,7 @@ def test_observed_delivery_failures_pause_outbound_but_keep_incoming_identity(wo
     w = c.get("/v1/workspace", headers=h).json()
     number, lead = w["numbers"][0], w["leads"][0]
     with app.state.db.transaction() as s:
-        for i in range(25):
+        for _index in range(25):
             put(
                 s,
                 "call_attempts",

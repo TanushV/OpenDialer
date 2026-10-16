@@ -3,13 +3,14 @@
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import time
 from pathlib import Path
 
 import httpx
 from selenium import webdriver
-from selenium.common.exceptions import StaleElementReferenceException
+from selenium.common.exceptions import StaleElementReferenceException, WebDriverException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.options import ArgOptions
 from selenium.webdriver.support.ui import Select, WebDriverWait
@@ -29,6 +30,19 @@ options.set_capability("browserName", "wry")
 options.set_capability("tauri:options", {"application": str(application)})
 driver = None
 note = "Windows native acceptance: preserve this human note across restart."
+update_to = os.environ.get("OPENDIALER_UPDATE_TO_VERSION")
+baseline_ids = None
+
+
+def saved_ids():
+    database = Path(os.environ["APPDATA"]) / "com.opendialer.desktop" / "simulation" / "opendialer.db"
+    if not database.is_file():
+        raise RuntimeError("Native sample database is missing")
+    with sqlite3.connect("file:" + str(database) + "?mode=ro", uri=True) as connection:
+        return {
+            table: sorted(row[0] for row in connection.execute("SELECT id FROM " + table))  # noqa: S608 - fixed table allowlist
+            for table in ("leads", "call_attempts", "notes", "suppressions")
+        }
 
 
 def click_button(text):
@@ -71,7 +85,7 @@ try:
     box.send_keys("We already use another provider.")
     driver.find_element(By.CSS_SELECTOR, 'button[aria-label="Add prospect turn"]').click()
     visible("We already use another provider.")
-    click_button("Hang up")
+    click_button("Opt out")
     visible("How did the conversation go?")
     Select(driver.find_element(By.CSS_SELECTOR, ".wrap-up select")).select_by_value("callback_requested")
     click_button("Save outcome")
@@ -85,7 +99,27 @@ try:
     click_button("Save notes")
     visible("Notes saved")
     driver.save_screenshot(str(output / "review-before-restart.png"))
-    driver.quit()
+    if update_to:
+        baseline_ids = saved_ids()
+        assert baseline_ids["notes"] and baseline_ids["suppressions"]
+        click_button("All conversations")
+        click_button("Settings")
+        click_button("App updates")
+        click_button("Check for updates")
+        visible("Version " + update_to)
+        driver.save_screenshot(str(output / "signed-update-offer.png"))
+        try:
+            click_button("Install signed update")
+            WebDriverWait(driver, 120).until(
+                lambda d: "Update installed." in d.find_element(By.TAG_NAME, "body").text
+            )
+        except WebDriverException:
+            pass  # Windows updater may exit the old process after verified download.
+    try:
+        driver.quit()
+    except WebDriverException:
+        if not update_to:
+            raise
     driver = None
     driver = webdriver.Remote("http://127.0.0.1:4444", options=options)
     # A new WebDriver session may use a fresh webview profile; the native store is independent.
@@ -98,6 +132,23 @@ try:
     if driver.find_elements(By.XPATH, "//button[normalize-space(.)='Try a simulated workspace']"):
         click_button("Try a simulated workspace")
     visible("SIMULATION")
+    if baseline_ids:
+        assert saved_ids() == baseline_ids, "Update changed saved identities, notes or opt-outs"
+        click_button("Settings")
+        click_button("App updates")
+        visible("OpenDialer " + update_to)
+        click_button("Dialer")
+    # Exercise optimization in the actual installed/updated WebView2.
+    if json.loads(Path("apps/desktop/src-tauri/tauri.conf.json").read_text())["version"] != "0.1.1":
+        click_button("Intelligence")
+        visible("Reviewed model pilot")
+        Select(
+            driver.find_element(By.XPATH, "//label[contains(.,'Conversion goal')]/select")
+        ).select_by_value("sale_won")
+        click_button("Save optimization settings")
+        visible("Optimization settings saved")
+        driver.save_screenshot(str(output / "optimization.png"))
+        click_button("Dialer")
     click_button("Review")
     WebDriverWait(driver, 30).until(
         lambda d: d.find_element(By.CSS_SELECTOR, 'button[aria-label^="Review call"]')
@@ -137,6 +188,8 @@ try:
                 ],
                 "provider_calls": 0,
                 "hardware_audio_certified": False,
+                "signed_in_place_update_to": update_to,
+                "saved_ids_preserved": baseline_ids is not None,
                 "restart_scope": "reopen the native sample store after a new WebDriver session",
             },
             indent=2,

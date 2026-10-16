@@ -180,4 +180,6 @@ def test_voicemail_optout_gather_stays_active_until_call_ends(workspace, carrier
     c.post("/v1/admin/control/run", headers=h)
     assert len([a for a in carrier.actions if a["action"] == "gather"]) == 2
     event(workspace, call, "call.dtmf.received", {"digit": "9"})
-    assert c.get("/v1/workspace", headers=h).json()["leads"][0]["suppressed"]
+    assert next(
+        lead for lead in c.get("/v1/workspace", headers=h).json()["leads"] if lead["id"] == call["lead_id"]
+    )["suppressed"]

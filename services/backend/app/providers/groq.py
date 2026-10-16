@@ -36,6 +36,8 @@ class GroqCoach:
         self.last_usage, self.last_request_id = {}, None
 
     async def suggest(self, request, deadline_ms=1200):
+        self.last_usage, self.last_request_id = {}, None
+
         async def send(http):
             r = await http.post(
                 "https://api.groq.com/openai/v1/chat/completions",

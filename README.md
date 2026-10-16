@@ -20,9 +20,11 @@ Choose **Set up on this computer**. The bundled authority binds only to a random
 
 Import CSV with `name,phone,company,domain,timezone,region,segment,jurisdiction`. Use an explicit IANA timezone. Valid formatting is not proof of ownership or calling permission. In Settings, configure Telnyx, approve the business identity, publish a reviewed campaign policy, import authorized registry data and set budgets. In Numbers, sync existing owned inventory, review capacity, or search fresh carrier quotes before approving a bounded purchase. Advance onboarding only with actual identity and callback evidence. Run preflight before going ready.
 
-Optional inference supports OpenAI Responses, an explicit OpenAI-compatible LiteLLM endpoint, and eligible official per-user ChatGPT plan usage. Groq powers configured live coaching; inference failure leaves calling controls and approved fallbacks available. The plan route uses public APIs and never pools consumer sessions. Read [provider setup](deploy/runbooks/providers.md).
+Optional inference supports OpenAI Responses, an explicit OpenAI-compatible LiteLLM endpoint, and eligible official per-user ChatGPT plan usage. Cerebras through a dedicated OpenRouter route powers configured live coaching; inference failure leaves calling controls and approved fallbacks available. The plan route uses public APIs and never pools consumer sessions. Read [provider setup](deploy/runbooks/providers.md).
 
 A private machine still needs a reachable **HTTPS webhook-only route** for signed Telnyx events. Forward only `/webhooks/telnyx`; keep administrative routes private. There is no offline outbound bypass when authoritative permissions cannot be checked.
+
+See [optimization and evaluation](docs/OPTIMIZATION.md) for number forecasting, frozen operational learning, controlled model pilots, conversion corrections and grounded live guidance.
 
 ## Connect a team
 

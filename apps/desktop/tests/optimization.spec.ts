@@ -35,6 +35,25 @@ test("optimization goals, forecast, learning state and provider settings persist
   await expect(
     page.getByText("Operational training dataset", { exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByText("Reviewed model pilot", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByLabel("Comparison review reference")
+    .fill("Synthetic protocol review");
+  await page
+    .getByRole("button", { name: "Start coaching comparison", exact: true })
+    .click();
+  await expect(
+    page.getByText("Rep-balanced coaching", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Stop coaching comparison", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Generate trial report", exact: true })
+    .click();
+  await expect(page.getByText(/Saved cohort report:/)).toBeVisible();
   await page.reload();
   await page.getByRole("button", { name: "Intelligence", exact: true }).click();
   await expect(page.getByLabel("Conversion goal")).toHaveValue("sale_won");
@@ -65,6 +84,12 @@ test("live events deliver contextual guidance and conversion recording without c
       exact: false,
     }),
   ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Guidance was useful", exact: true })
+    .click();
+  await expect(
+    page.getByText("Guidance feedback saved", { exact: true }),
+  ).toBeVisible();
   expect(sockets.some((url) => url.endsWith("/v1/live"))).toBeTruthy();
   await page.getByRole("button", { name: "Hang up", exact: true }).click();
   await page.getByLabel("Disposition").selectOption("qualified_conversation");
@@ -81,5 +106,15 @@ test("live events deliver contextual guidance and conversion recording without c
   await page.getByRole("button", { name: "Record conversion" }).click();
   await expect(
     page.getByText("Conversion recorded", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByLabel("Conversion correction reason")
+    .fill("Meeting entry was a simulation mistake");
+  await page
+    .getByRole("button", { name: "Retract conversion", exact: true })
+    .first()
+    .click();
+  await expect(
+    page.getByText("Conversion retracted", { exact: true }),
   ).toBeVisible();
 });

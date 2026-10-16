@@ -16,12 +16,12 @@ Optimize qualified conversions per original eligible lead and per rep-hour, repo
 ## 1. Number allocation and procurement
 
 - [x] Forecast attempts by region/time horizon from eligibility, due retries, callbacks, campaign limits, available rep time and calling windows.
-- [ ] Subtract usable existing capacity, warmup limits, today's use, active claims and detached voicemail obligations before procurement.
+- [x] Subtract usable existing capacity, warmup limits, today's use, active claims and detached voicemail obligations before procurement.
 - [x] Replace fixed number-health values with first-party observed delivery/answer/callback/short-call evidence, pooled case-mix adjustment, sample counts and uncertainty; unknown is explicit.
 - [x] Make selection explainable: stable prospect binding, permitted regional/general fallback, capacity/load and evidence; audit every reassignment.
-- [ ] Review genuine limited use and advance or reduce bounded warmup limits; retain incoming callbacks during outbound pauses/retirement.
-- [ ] Produce fresh-quote purchase proposals inside approved budgets; preserve uncertain order intents across retries and restarts.
-- [ ] Evaluate regional allocation with stable cluster assignments, counts, conversion outcomes and uncertainty; never churn identity to evade enforcement.
+- [x] Review genuine limited use and advance or reduce bounded warmup limits; retain incoming callbacks during outbound pauses/retirement.
+- [x] Produce fresh-quote purchase proposals inside approved budgets; preserve uncertain order intents across retries and restarts.
+- [x] Evaluate regional allocation with stable cluster assignments, counts, conversion outcomes and uncertainty; never churn identity to evade enforcement.
 
 ## 2. Operational statistical learning
 
@@ -31,30 +31,30 @@ Optimize qualified conversions per original eligible lead and per rep-hour, repo
 - [x] Build authority-owned training snapshots automatically from operational records with seller isolation and no future/DNC/sensitive features.
 - [x] Replace the narrow prediction input with local hour/weekday, attempts, elapsed time, evidence, source freshness, segment, callback history and measured health/missingness.
 - [x] Estimate funnel probabilities, handling time and observed carrier costs; rank expected conversions per rep time subject to eligibility and coverage.
-- [ ] Generate future allowed slots and retries, prioritize requested callbacks and coverage, and expose infeasible capacity instead of postponing leads forever.
+- [x] Generate future allowed slots and retries, prioritize requested callbacks and coverage, and expose infeasible capacity instead of postponing leads forever.
 - [x] Learn approved treatment preferences from matured outcomes with shrinkage, fixed control, bounded exploration and exact logged propensities.
-- [ ] Queue bounded automatic retraining from immutable datasets; evaluate independent chronological/entity partitions against the deployed pooled baseline, not an unrelated constant.
-- [ ] Monitor calibration, drift, subgroup performance and coverage; require reviewed trial evidence before activation and support audited rollback.
-- [ ] Provide controlled-trial reports with stable denominators, confidence intervals and sample sufficiency; software reports cannot manufacture a live lift claim.
+- [x] Queue bounded automatic retraining from immutable datasets; evaluate independent chronological/entity partitions against the deployed pooled baseline, not an unrelated constant.
+- [x] Monitor calibration, drift, subgroup performance and coverage; require reviewed trial evidence before activation and support audited rollback.
+- [x] Provide controlled-trial reports with stable denominators, confidence intervals and sample sufficiency; software reports cannot manufacture a live lift claim.
 
 ## 3. Live guidance and Cerebras via OpenRouter
 
 - [x] Add secure dedicated coach provider/model settings and an OpenRouter adapter defaulting to openai/gpt-oss-120b, pinned to Cerebras with provider fallbacks disabled and required parameter/JSON-schema support.
 - [x] Bound reasoning/output/deadlines; handle refusals, invalid objects, rate limits, disconnects and cancellations; record actual model/provider/request/usage/cost/latency receipts.
-- [ ] Maintain versioned conversation state: stage, evidenced needs/impact, unresolved objections, answered questions, signals, commitments and earlier call context.
-- [ ] Retrieve relevant approved cards/claims/fresh lead facts by meaning/tags/stage instead of always selecting the existing-provider card.
+- [x] Maintain versioned conversation state: stage, evidenced needs/impact, unresolved objections, answered questions, signals, commitments and earlier call context.
+- [x] Retrieve relevant approved cards/claims/fresh lead facts by meaning/tags/stage instead of always selecting the existing-provider card.
 - [x] Trigger useful opportunities, suppress repeats/declines/stale work and support manual help; deterministic opt-out/hangup controls remain independent.
 - [x] Validate grounded meaning as well as IDs; restrict spoken suggestions to reviewed approved formulations and evidenced context, rejecting unsupported numerical/identity claims.
-- [ ] Deliver one short card at a useful pause with expiry/cancellation/static fallback and feedback; no model failure may block audio or calling controls.
+- [x] Deliver one short card at a useful pause with expiry/cancellation/static fallback and feedback; no model failure may block audio or calling controls.
 - [x] Connect the desktop to authenticated scoped live events with cursor replay, deduplication, reconnect and session expiry; remove normal active-call polling.
-- [ ] Measure STT/state/retrieval/inference/delivery separately; initial p95 useful-card objective is 2.5 seconds after a qualifying utterance, explicitly unproven until live tests.
-- [ ] Provide reviewed replay evaluations and rep-balanced controlled comparisons measuring usefulness, grounding, timing, distraction and conversions.
+- [x] Measure STT/state/retrieval/inference/delivery separately; initial p95 useful-card objective is 2.5 seconds after a qualifying utterance, explicitly unproven until live tests.
+- [x] Provide reviewed replay evaluations and rep-balanced controlled comparisons measuring usefulness, grounding, timing, distraction and conversions.
 
 ## 4. Product, compatibility, and delivery
 
-- [ ] Expose goal/window/exploration/training settings, forecast/health/reassignment explanations, future slots, datasets/model/drift/trial reports, conversion recording and coaching quality/latency in the desktop.
+- [x] Expose goal/window/exploration/training settings, forecast/health/reassignment explanations, future slots, datasets/model/drift/trial reports, conversion recording and coaching quality/latency in the desktop.
 - [x] Implement identical authority services for local SQLite and shared PostgreSQL, with scoped roles, encrypted persistence and protected provider secrets.
-- [ ] Migrate the existing store additively; preserve exact IDs, human notes, suppressions and protected session state.
+- [x] Migrate the existing store additively; preserve exact IDs, human notes, suppressions and protected session state.
 - [ ] Verify SQLite/PostgreSQL domain/API contracts, frontend unit/browser workflows, formatting/types/security/native checks and builds.
 - [ ] Build matching Mac ARM64 and Windows x64 updates; sign and verify artifacts, publish the shared update manifest, and update the existing Mac app in place.
 - [ ] Use native computer control to exercise updated local and connected workflows and record sanitized evidence; exercise installed Windows package/update continuity.
@@ -69,6 +69,8 @@ Optimize qualified conversions per original eligible lead and per rep-hour, repo
 - [ ] Configured production host/DNS/TLS and public publisher-trust credentials when required for distribution.
 
 No live gate becomes checked because simulation or a mock returned success. Existing user instruction is to continue without unavailable API credentials; complete software and reproducible fixtures and leave these evidence gates explicit.
+
+Implementation checks above are software contracts and synthetic/operational fixtures. Additive migration preservation is verified at schema level; the installed-app update remains a separate unchecked delivery gate. Timing instrumentation preserves unknown STT/full-path values.
 
 ## Documentation checked
 
