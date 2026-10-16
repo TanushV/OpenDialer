@@ -291,13 +291,46 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
               </section>
               <section className="card padded">
                 <span className="eyebrow">LIVE GUIDANCE</span>
-                <h2>Groq</h2>
-                {field("groq_api_key", "Groq API key", true)}
-                {field(
-                  "groq_model",
-                  "Evaluated coach model",
-                  false,
-                  "openai/gpt-oss-20b",
+                <h2>Conversation coach</h2>
+                <label>
+                  Live coach provider
+                  <select
+                    value={config.coach_provider || "openrouter"}
+                    onChange={(e) =>
+                      setConfig({ ...config, coach_provider: e.target.value })
+                    }
+                  >
+                    <option value="openrouter">OpenRouter · Cerebras</option>
+                    <option value="static">Approved static guidance</option>
+                    <option value="groq">Legacy Groq configuration</option>
+                  </select>
+                </label>
+                {(config.coach_provider || "openrouter") === "openrouter" && (
+                  <>
+                    {field("openrouter_api_key", "OpenRouter API key", true)}
+                    {field(
+                      "coach_model",
+                      "Cerebras coach model",
+                      false,
+                      "openai/gpt-oss-120b",
+                    )}
+                    <p className="fine">
+                      Cerebras only · other-provider fallbacks disabled · strict
+                      structured responses. Endpoint support and live timing
+                      must pass your account checks.
+                    </p>
+                  </>
+                )}
+                {config.coach_provider === "groq" && (
+                  <>
+                    {field("groq_api_key", "Groq API key", true)}
+                    {field(
+                      "groq_model",
+                      "Evaluated coach model",
+                      false,
+                      "openai/gpt-oss-20b",
+                    )}
+                  </>
                 )}
                 <p className="fine">
                   Guidance uses short structured text responses. Telephony

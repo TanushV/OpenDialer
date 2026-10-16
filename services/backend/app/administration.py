@@ -1,7 +1,6 @@
 import hashlib
 import json
 import logging
-import math
 import os
 import re
 
@@ -115,7 +114,10 @@ class Dialer(OptimizationWorkflows, TelephonyWorkflows, Application):
             warnings.append("Simulated providers: no real calls, purchases, inference, or carrier billing")
         if not self.inference(p["tenant_id"], "research_extract", p["user_id"]):
             warnings.append("Research inference is unconfigured; approved fallback scripts remain available")
-        if not conf.get("groq_api_key"):
+        provider = conf.get("coach_provider", "openrouter")
+        if provider == "openrouter" and not conf.get("openrouter_api_key"):
+            warnings.append("OpenRouter/Cerebras is unconfigured; approved static coaching remains available")
+        elif provider == "groq" and not conf.get("groq_api_key"):
             warnings.append("Groq is unconfigured; approved static coaching remains available")
         integrity = self.db.integrity()
         if not integrity:

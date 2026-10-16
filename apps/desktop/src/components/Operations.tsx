@@ -330,6 +330,7 @@ export function NumbersPage() {
           Plan regional capacity
         </button>
       </div>
+      <OptimizationPanel numbersOnly />
       <div className="number-summary">
         <div className="card">
           <Radio size={23} />
@@ -587,6 +588,7 @@ export function IntelligencePage() {
           </p>
         </div>
       </div>
+      <OptimizationPanel />
       <div className="two-column">
         <section className="card padded">
           <span className="eyebrow">APPROVED PLAYBOOK</span>
@@ -757,3 +759,4 @@ export function Empty({ text }: { text: string }) {
     </div>
   );
 }
+import { OptimizationPanel } from "./OptimizationPanel";

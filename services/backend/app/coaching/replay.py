@@ -11,7 +11,7 @@ async def evaluate(cases, provider, *, model, deadline_ms=1200):
     results = []
     for case in cases:
         started = time.perf_counter()
-        valid, matched, failure = False, False, None
+        valid, matched, failure, expected_card = False, False, None, None
         try:
             result = await asyncio.wait_for(provider.suggest(case, deadline_ms), deadline_ms / 1000)
             validate_card(
@@ -22,6 +22,14 @@ async def evaluate(cases, provider, *, model, deadline_ms=1200):
             )
             valid = True
             matched = result["action"] == case["expected_action"]
+            if "expected_card_ids" in case:
+                actual = set(result.get("playbook_card_ids", []))
+                expected = set(case["expected_card_ids"])
+                expected_card = (
+                    bool(actual) and actual.issubset(expected)
+                    if expected
+                    else result["action"] == "NO_ACTION"
+                )
         except Exception as exc:
             failure = type(exc).__name__
         results.append(
@@ -31,6 +39,7 @@ async def evaluate(cases, provider, *, model, deadline_ms=1200):
                 "expected_action": matched,
                 "inference_ms": round((time.perf_counter() - started) * 1000, 3),
                 "failure": failure,
+                "expected_card": expected_card,
             }
         )
     durations = sorted(r["inference_ms"] for r in results)
@@ -41,6 +50,12 @@ async def evaluate(cases, provider, *, model, deadline_ms=1200):
         "expected_action_fraction": sum(r["expected_action"] for r in results) / len(results)
         if results
         else None,
+        "expected_card_fraction": (
+            sum(bool(r["expected_card"]) for r in results if r["expected_card"] is not None)
+            / sum(r["expected_card"] is not None for r in results)
+            if any(r["expected_card"] is not None for r in results)
+            else None
+        ),
         "p95_inference_ms": durations[max(0, math.ceil(0.95 * len(durations)) - 1)] if durations else None,
         "evidence_scope": "synthetic replay; excludes STT, network delivery and hardware audio",
         "results": results,

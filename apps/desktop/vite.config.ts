@@ -5,6 +5,9 @@ export default defineConfig({
   server: { port: 1420, strictPort: true },
   test: {
     include: ["tests/**/*.test.ts"],
-    coverage: { provider: "v8", include: ["src/state/**/*.ts"] },
+    coverage: {
+      provider: "v8",
+      include: ["src/state/**/*.ts", "src/api/live.ts"],
+    },
   },
 });

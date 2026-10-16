@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react";
 import type { Session, Workspace } from "./types";
+import type { LiveEvent } from "./api/live";
 export interface WorkspaceContext {
   snapshot: Workspace;
   session: Session;
@@ -7,6 +8,8 @@ export interface WorkspaceContext {
   refresh: () => Promise<void>;
   notice: (message: string) => void;
   run: (work: () => Promise<void>) => Promise<void>;
+  subscribe: (handler: (events: LiveEvent[]) => void) => () => void;
+  liveStatus: string;
 }
 export const Context = createContext<WorkspaceContext | null>(null);
 export function useWorkspace() {

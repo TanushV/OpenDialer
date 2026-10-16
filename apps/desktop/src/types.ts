@@ -47,11 +47,15 @@ export interface Segment {
   end_ms: number | null;
 }
 export interface Coach {
+  id: string;
   action: string;
   kind: string;
   say_or_ask: string;
   reason: string;
   expires_at?: string;
+  remaining_ms?: number;
+  provider?: string;
+  latency?: Record<string, number | null>;
   state_version: number;
   evidence_segment_ids: string[];
 }
@@ -70,6 +74,11 @@ export interface Call {
   provider_id: string | null;
   transcript?: Segment[];
   coach?: Coach | null;
+  conversation_state?: {
+    stage: string;
+    trigger: string;
+    version: number;
+  } | null;
 }
 export interface Script {
   opener: string;

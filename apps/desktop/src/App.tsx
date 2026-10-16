@@ -32,6 +32,7 @@ import {
   writeCache,
 } from "./api/client";
 import { DialerPage } from "./components/DialerPage";
+import { LiveConnection, type LiveEvent } from "./api/live";
 import {
   IntelligencePage,
   LeadsPage,
@@ -71,6 +72,14 @@ export function Brand() {
 }
 
 export function App() {
+  const liveListeners = useRef(new Set<(events: LiveEvent[]) => void>());
+  const [liveStatus, setLiveStatus] = useState("connecting");
+  const subscribe = useCallback((handler: (events: LiveEvent[]) => void) => {
+    liveListeners.current.add(handler);
+    return () => {
+      liveListeners.current.delete(handler);
+    };
+  }, []);
   const [runtime, setRuntime] = useState<Runtime | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [snapshot, setSnapshot] = useState<Workspace | null>(null);
@@ -238,13 +247,49 @@ export function App() {
     })();
   }, []);
   useEffect(() => {
-    if (!session) return;
+    if (!session || !runtime) return;
     void run(refresh);
-    const id = setInterval(() => {
-      void refresh().catch(() => {});
-    }, 2500);
-    return () => clearInterval(id);
-  }, [session, refresh, run]);
+    let connected = false;
+    let pending: ReturnType<typeof setTimeout> | null = null;
+    const live = new LiveConnection({
+      url: runtime.url,
+      token: session.access_token,
+      tenantId: session.tenant_id,
+      onStatus: (status) => {
+        connected = status === "live";
+        setLiveStatus(status);
+      },
+      onEvents: (events) => {
+        liveListeners.current.forEach((handler) => handler(events));
+        if (
+          !pending &&
+          events.some(
+            (event) =>
+              ![
+                "coach.card_ready",
+                "transcript.updated",
+                "conversation.updated",
+              ].includes(event.type),
+          )
+        ) {
+          pending = setTimeout(() => {
+            pending = null;
+            void refresh().catch(() => {});
+          }, 40);
+        }
+      },
+    });
+    live.start();
+    // A sparse workspace refresh is a disconnected recovery path, not the live call transport.
+    const recovery = setInterval(() => {
+      if (!connected) void refresh().catch(() => {});
+    }, 15000);
+    return () => {
+      live.stop();
+      clearInterval(recovery);
+      if (pending) clearTimeout(pending);
+    };
+  }, [session, runtime, refresh, run]);
   useEffect(() => {
     if (!toast || toast.error) return;
     const id = setTimeout(() => setToast(null), 5000);
@@ -571,7 +616,18 @@ export function App() {
     );
 
   return (
-    <Context.Provider value={{ snapshot, session, api, refresh, notice, run }}>
+    <Context.Provider
+      value={{
+        snapshot,
+        session,
+        api,
+        refresh,
+        notice,
+        run,
+        subscribe,
+        liveStatus,
+      }}
+    >
       <div className="app-shell">
         <aside className="sidebar">
           <Brand />

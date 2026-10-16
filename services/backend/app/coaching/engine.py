@@ -52,6 +52,10 @@ class CoachEngine:
         self.active[call_id] = task
         try:
             return await task
+        except asyncio.CancelledError:
+            if asyncio.current_task().cancelling():
+                raise
+            return {"action": "NO_ACTION"}
         finally:
             if self.active.get(call_id) is task:
                 self.active.pop(call_id, None)

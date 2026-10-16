@@ -15,45 +15,45 @@ Optimize qualified conversions per original eligible lead and per rep-hour, repo
 
 ## 1. Number allocation and procurement
 
-- [ ] Forecast attempts by region/time horizon from eligibility, due retries, callbacks, campaign limits, available rep time and calling windows.
+- [x] Forecast attempts by region/time horizon from eligibility, due retries, callbacks, campaign limits, available rep time and calling windows.
 - [ ] Subtract usable existing capacity, warmup limits, today's use, active claims and detached voicemail obligations before procurement.
-- [ ] Replace fixed number-health values with first-party observed delivery/answer/callback/short-call evidence, pooled case-mix adjustment, sample counts and uncertainty; unknown is explicit.
-- [ ] Make selection explainable: stable prospect binding, permitted regional/general fallback, capacity/load and evidence; audit every reassignment.
+- [x] Replace fixed number-health values with first-party observed delivery/answer/callback/short-call evidence, pooled case-mix adjustment, sample counts and uncertainty; unknown is explicit.
+- [x] Make selection explainable: stable prospect binding, permitted regional/general fallback, capacity/load and evidence; audit every reassignment.
 - [ ] Review genuine limited use and advance or reduce bounded warmup limits; retain incoming callbacks during outbound pauses/retirement.
 - [ ] Produce fresh-quote purchase proposals inside approved budgets; preserve uncertain order intents across retries and restarts.
 - [ ] Evaluate regional allocation with stable cluster assignments, counts, conversion outcomes and uncertainty; never churn identity to evade enforcement.
 
 ## 2. Operational statistical learning
 
-- [ ] Capture immutable, versioned pre-decision features and the complete allowed action set/selection probability; use snapshots rather than mutable current lead fields for historical learning.
-- [ ] Derive human/right-party/qualified/meeting/sale labels consistently, preserving wrong party, screening, IVR, voicemail and unsuccessful attempts.
-- [ ] Attach idempotent later conversion events to leads/calls, retain multi-attempt lineage, and mature delayed windows without turning pending outcomes into failures.
-- [ ] Build authority-owned training snapshots automatically from operational records with seller isolation and no future/DNC/sensitive features.
-- [ ] Replace the narrow prediction input with local hour/weekday, attempts, elapsed time, evidence, source freshness, segment, callback history and measured health/missingness.
-- [ ] Estimate funnel probabilities, handling time and observed carrier costs; rank expected conversions per rep time subject to eligibility and coverage.
+- [x] Capture immutable, versioned pre-decision features and the complete allowed action set/selection probability; use snapshots rather than mutable current lead fields for historical learning.
+- [x] Derive human/right-party/qualified/meeting/sale labels consistently, preserving wrong party, screening, IVR, voicemail and unsuccessful attempts.
+- [x] Attach idempotent later conversion events to leads/calls, retain multi-attempt lineage, and mature delayed windows without turning pending outcomes into failures.
+- [x] Build authority-owned training snapshots automatically from operational records with seller isolation and no future/DNC/sensitive features.
+- [x] Replace the narrow prediction input with local hour/weekday, attempts, elapsed time, evidence, source freshness, segment, callback history and measured health/missingness.
+- [x] Estimate funnel probabilities, handling time and observed carrier costs; rank expected conversions per rep time subject to eligibility and coverage.
 - [ ] Generate future allowed slots and retries, prioritize requested callbacks and coverage, and expose infeasible capacity instead of postponing leads forever.
-- [ ] Learn approved treatment preferences from matured outcomes with shrinkage, fixed control, bounded exploration and exact logged propensities.
+- [x] Learn approved treatment preferences from matured outcomes with shrinkage, fixed control, bounded exploration and exact logged propensities.
 - [ ] Queue bounded automatic retraining from immutable datasets; evaluate independent chronological/entity partitions against the deployed pooled baseline, not an unrelated constant.
 - [ ] Monitor calibration, drift, subgroup performance and coverage; require reviewed trial evidence before activation and support audited rollback.
 - [ ] Provide controlled-trial reports with stable denominators, confidence intervals and sample sufficiency; software reports cannot manufacture a live lift claim.
 
 ## 3. Live guidance and Cerebras via OpenRouter
 
-- [ ] Add secure dedicated coach provider/model settings and an OpenRouter adapter defaulting to openai/gpt-oss-120b, pinned to Cerebras with provider fallbacks disabled and required parameter/JSON-schema support.
-- [ ] Bound reasoning/output/deadlines; handle refusals, invalid objects, rate limits, disconnects and cancellations; record actual model/provider/request/usage/cost/latency receipts.
+- [x] Add secure dedicated coach provider/model settings and an OpenRouter adapter defaulting to openai/gpt-oss-120b, pinned to Cerebras with provider fallbacks disabled and required parameter/JSON-schema support.
+- [x] Bound reasoning/output/deadlines; handle refusals, invalid objects, rate limits, disconnects and cancellations; record actual model/provider/request/usage/cost/latency receipts.
 - [ ] Maintain versioned conversation state: stage, evidenced needs/impact, unresolved objections, answered questions, signals, commitments and earlier call context.
 - [ ] Retrieve relevant approved cards/claims/fresh lead facts by meaning/tags/stage instead of always selecting the existing-provider card.
-- [ ] Trigger useful opportunities, suppress repeats/declines/stale work and support manual help; deterministic opt-out/hangup controls remain independent.
-- [ ] Validate grounded meaning as well as IDs; restrict spoken suggestions to reviewed approved formulations and evidenced context, rejecting unsupported numerical/identity claims.
+- [x] Trigger useful opportunities, suppress repeats/declines/stale work and support manual help; deterministic opt-out/hangup controls remain independent.
+- [x] Validate grounded meaning as well as IDs; restrict spoken suggestions to reviewed approved formulations and evidenced context, rejecting unsupported numerical/identity claims.
 - [ ] Deliver one short card at a useful pause with expiry/cancellation/static fallback and feedback; no model failure may block audio or calling controls.
-- [ ] Connect the desktop to authenticated scoped live events with cursor replay, deduplication, reconnect and session expiry; remove normal active-call polling.
+- [x] Connect the desktop to authenticated scoped live events with cursor replay, deduplication, reconnect and session expiry; remove normal active-call polling.
 - [ ] Measure STT/state/retrieval/inference/delivery separately; initial p95 useful-card objective is 2.5 seconds after a qualifying utterance, explicitly unproven until live tests.
 - [ ] Provide reviewed replay evaluations and rep-balanced controlled comparisons measuring usefulness, grounding, timing, distraction and conversions.
 
 ## 4. Product, compatibility, and delivery
 
 - [ ] Expose goal/window/exploration/training settings, forecast/health/reassignment explanations, future slots, datasets/model/drift/trial reports, conversion recording and coaching quality/latency in the desktop.
-- [ ] Implement identical authority services for local SQLite and shared PostgreSQL, with scoped roles, encrypted persistence and protected provider secrets.
+- [x] Implement identical authority services for local SQLite and shared PostgreSQL, with scoped roles, encrypted persistence and protected provider secrets.
 - [ ] Migrate the existing store additively; preserve exact IDs, human notes, suppressions and protected session state.
 - [ ] Verify SQLite/PostgreSQL domain/API contracts, frontend unit/browser workflows, formatting/types/security/native checks and builds.
 - [ ] Build matching Mac ARM64 and Windows x64 updates; sign and verify artifacts, publish the shared update manifest, and update the existing Mac app in place.

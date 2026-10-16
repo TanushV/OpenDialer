@@ -1,7 +1,7 @@
 from datetime import timedelta
 
-from app.db import doc, put, rows, update
-from conftest import ready, reserve, start
+from app.db import put, rows, update
+from conftest import start
 
 
 def auth(workspace):
@@ -17,9 +17,18 @@ def finish(workspace, call, outcome="right_party"):
 
 def test_optimization_goal_settings_are_validated_and_reported(workspace):
     c, h = workspace["client"], workspace["headers"]
-    result = c.put("/v1/admin/optimization", headers=h, json={
-        "conversion_goal": "sale_won", "window_days": 30, "exploration": 0.1,
-        "auto_train": True, "horizon_hours": 48, "rep_minutes": 240})
+    result = c.put(
+        "/v1/admin/optimization",
+        headers=h,
+        json={
+            "conversion_goal": "sale_won",
+            "window_days": 30,
+            "exploration": 0.1,
+            "auto_train": True,
+            "horizon_hours": 48,
+            "rep_minutes": 240,
+        },
+    )
     assert result.status_code == 200, result.text
     report = c.get("/v1/optimization", headers=h)
     assert report.status_code == 200
@@ -52,8 +61,13 @@ def test_later_conversion_is_idempotent_attributed_and_not_counted_twice(workspa
     call = start(workspace)
     finish(workspace, call)
     c, h = workspace["client"], workspace["headers"]
-    body = {"event_id": "crm-meeting-001", "kind": "meeting_held", "call_id": call["id"],
-            "occurred_at": clock.now.isoformat(), "source_reference": "permissioned-test-outcome"}
+    body = {
+        "event_id": "crm-meeting-001",
+        "kind": "meeting_held",
+        "call_id": call["id"],
+        "occurred_at": clock.now.isoformat(),
+        "source_reference": "permissioned-test-outcome",
+    }
     a = c.post(f"/v1/leads/{call['lead_id']}/conversions", headers=h, json=body)
     b = c.post(f"/v1/leads/{call['lead_id']}/conversions", headers=h, json=body)
     assert a.status_code == b.status_code == 200, a.text
@@ -86,7 +100,9 @@ def test_refresh_reconciles_delayed_windows_without_rewriting_features(workspace
     assert first["pending_rows"] == 1
     clock.now += timedelta(days=20)
     # Advancing beyond the outcome window also expires the original protected session.
-    login = c.post("/v1/auth/session", json={"email": "operator@example.test", "password": "a-test-only-password-123"})
+    login = c.post(
+        "/v1/auth/session", json={"email": "operator@example.test", "password": "a-test-only-password-123"}
+    )
     h = {"Authorization": "Bearer " + login.json()["access_token"]}
     c.post("/v1/admin/optimization/refresh", headers=h)
     later = c.get("/v1/optimization", headers=h).json()["dataset"]
@@ -99,17 +115,25 @@ def test_automatic_training_uses_owned_dataset_and_is_bounded_when_sparse(worksp
     assert result.status_code == 200, result.text
     assert result.json()["status"] == "insufficient_data"
     assert result.json()["rows"] == 0
-    assert c.post("/v1/admin/optimization/train", headers=h, json={"rows": [{"fake": True}]}).status_code == 422
+    assert (
+        c.post("/v1/admin/optimization/train", headers=h, json={"rows": [{"fake": True}]}).status_code == 422
+    )
 
 
 def test_number_health_review_requires_observed_evidence_and_retains_callbacks(workspace):
     c, h = workspace["client"], workspace["headers"]
     number = c.get("/v1/workspace", headers=h).json()["numbers"][0]
-    bad = c.post(f"/v1/admin/numbers/{number['id']}/review", headers=h,
-                 json={"decision": "increase", "review_reference": "no observations", "daily_limit": 100})
+    bad = c.post(
+        f"/v1/admin/numbers/{number['id']}/review",
+        headers=h,
+        json={"decision": "increase", "review_reference": "no observations", "daily_limit": 100},
+    )
     assert bad.status_code == 409
-    paused = c.post(f"/v1/admin/numbers/{number['id']}/review", headers=h,
-                    json={"decision": "pause", "review_reference": "Investigate failures"})
+    paused = c.post(
+        f"/v1/admin/numbers/{number['id']}/review",
+        headers=h,
+        json={"decision": "pause", "review_reference": "Investigate failures"},
+    )
     assert paused.status_code == 200, paused.text
     assert paused.json()["lifecycle"] == "paused_for_outbound"
     assert paused.json()["inbound_retained"] is True
@@ -121,13 +145,27 @@ def test_optimization_endpoints_require_auth_and_seller_scoping(workspace, app):
     report = c.get("/v1/optimization", headers=h)
     assert report.status_code == 200
     assert "registry" not in report.text.lower() and "password_hash" not in report.text
-    other = app.state.service.setup({"seller_name": "Other Seller", "campaign_name": "Other",
-                                     "email": "other-opt@example.test", "password": "another-password-123"}, first=False)
+    other = app.state.service.setup(
+        {
+            "seller_name": "Other Seller",
+            "campaign_name": "Other",
+            "email": "other-opt@example.test",
+            "password": "another-password-123",
+        },
+        first=False,
+    )
     foreign = {"Authorization": "Bearer " + other["access_token"]}
     call = start(workspace)
-    assert c.post(f"/v1/leads/{call['lead_id']}/conversions", headers=foreign, json={
-        "event_id": "foreign", "kind": "meeting_held", "occurred_at": call["started_at"],
-        "source_reference": "wrong seller"}).status_code in {403, 404}
+    assert c.post(
+        f"/v1/leads/{call['lead_id']}/conversions",
+        headers=foreign,
+        json={
+            "event_id": "foreign",
+            "kind": "meeting_held",
+            "occurred_at": call["started_at"],
+            "source_reference": "wrong seller",
+        },
+    ).status_code in {403, 404}
 
 
 def test_future_plan_explains_callback_and_does_not_reserve_or_call(workspace):
@@ -154,17 +192,43 @@ def test_training_is_queued_once_from_real_stored_snapshots_and_produces_a_candi
     with app.state.db.transaction() as session:
         for i in range(120):
             at = clock.now - timedelta(days=40, minutes=120 - i)
-            snapshot = put(session, "feature_snapshots", workspace["tenant_id"], workspace["seller_id"],
-                           {"lead_id": f"historic-{i}", "as_of": at.isoformat(),
-                            "features": {"local_hour": 9 + i % 8, "attempt_count": i % 3,
-                                         "number_health": None, "number_health_missing": 1, "segment": "roofing"}},
-                           now=at)
-            put(session, "call_attempts", workspace["tenant_id"], workspace["seller_id"],
-                {"lead_id": f"historic-{i}", "endpoint_id": f"endpoint-{i}", "feature_snapshot_id": snapshot.id,
-                 "rep_id": workspace["user_id"], "number_id": number_id,
-                 "started_at": at.isoformat(), "ended_at": (at + timedelta(seconds=60)).isoformat(),
-                 "state": "FINALIZED", "outcome": "right_party" if i % 3 == 0 else "no_answer",
-                 "transcript_version": 0}, now=at)
+            snapshot = put(
+                session,
+                "feature_snapshots",
+                workspace["tenant_id"],
+                workspace["seller_id"],
+                {
+                    "lead_id": f"historic-{i}",
+                    "as_of": at.isoformat(),
+                    "features": {
+                        "local_hour": 9 + i % 8,
+                        "attempt_count": i % 3,
+                        "number_health": None,
+                        "number_health_missing": 1,
+                        "segment": "roofing",
+                    },
+                },
+                now=at,
+            )
+            put(
+                session,
+                "call_attempts",
+                workspace["tenant_id"],
+                workspace["seller_id"],
+                {
+                    "lead_id": f"historic-{i}",
+                    "endpoint_id": f"endpoint-{i}",
+                    "feature_snapshot_id": snapshot.id,
+                    "rep_id": workspace["user_id"],
+                    "number_id": number_id,
+                    "started_at": at.isoformat(),
+                    "ended_at": (at + timedelta(seconds=60)).isoformat(),
+                    "state": "FINALIZED",
+                    "outcome": "right_party" if i % 3 == 0 else "no_answer",
+                    "transcript_version": 0,
+                },
+                now=at,
+            )
     first = c.post("/v1/admin/optimization/train", headers=h, json={})
     second = c.post("/v1/admin/optimization/train", headers=h, json={})
     assert first.status_code == second.status_code == 200, first.text
@@ -182,11 +246,23 @@ def test_new_events_never_cross_seller_boundaries_within_a_tenant(workspace, app
     c, h = workspace["client"], workspace["headers"]
     with app.state.db.transaction() as session:
         own = next(r for r in rows(session, "users") if r.id == workspace["user_id"])
-        other = put(session, "users", workspace["tenant_id"], "different-seller",
-                    {**own.data, "email": "same-tenant-other-seller@example.test"})
+        other = put(
+            session,
+            "users",
+            workspace["tenant_id"],
+            "different-seller",
+            {**own.data, "email": "same-tenant-other-seller@example.test"},
+        )
         from app.db import emit
-        emit(session, workspace["tenant_id"], "call.updated", other, app.state.service.clock(),
-             {"secret_other_seller": "never-distribute"})
+
+        emit(
+            session,
+            workspace["tenant_id"],
+            "call.updated",
+            other,
+            app.state.service.clock(),
+            {"secret_other_seller": "never-distribute"},
+        )
     events = c.get("/v1/events", headers=h).json()
     assert "secret_other_seller" not in str(events)
 
@@ -194,13 +270,29 @@ def test_new_events_never_cross_seller_boundaries_within_a_tenant(workspace, app
 def test_future_conversion_and_conflicting_call_attribution_are_rejected(workspace, clock):
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
-    future = c.post(f"/v1/leads/{call['lead_id']}/conversions", headers=h, json={
-        "event_id": "future", "kind": "meeting_held", "call_id": call["id"],
-        "occurred_at": (clock.now + timedelta(days=1)).isoformat(), "source_reference": "future"})
+    future = c.post(
+        f"/v1/leads/{call['lead_id']}/conversions",
+        headers=h,
+        json={
+            "event_id": "future",
+            "kind": "meeting_held",
+            "call_id": call["id"],
+            "occurred_at": (clock.now + timedelta(days=1)).isoformat(),
+            "source_reference": "future",
+        },
+    )
     assert future.status_code == 422
-    mismatch = c.post(f"/v1/leads/{call['lead_id']}/conversions", headers=h, json={
-        "event_id": "wrong-call", "kind": "meeting_held", "call_id": "missing",
-        "occurred_at": clock.now.isoformat(), "source_reference": "mismatch"})
+    mismatch = c.post(
+        f"/v1/leads/{call['lead_id']}/conversions",
+        headers=h,
+        json={
+            "event_id": "wrong-call",
+            "kind": "meeting_held",
+            "call_id": "missing",
+            "occurred_at": clock.now.isoformat(),
+            "source_reference": "mismatch",
+        },
+    )
     assert mismatch.status_code in {403, 404, 422}
 
 
@@ -210,11 +302,25 @@ def test_observed_delivery_failures_pause_outbound_but_keep_incoming_identity(wo
     number, lead = w["numbers"][0], w["leads"][0]
     with app.state.db.transaction() as s:
         for i in range(25):
-            put(s, "call_attempts", workspace["tenant_id"], workspace["seller_id"], {
-                "lead_id": lead["id"], "endpoint_id": lead["endpoint_id"], "rep_id": workspace["user_id"],
-                "number_id": number["id"], "started_at": clock.now.isoformat(), "ended_at": clock.now.isoformat(),
-                "state": "ENDED", "end_reason": "provider_failure", "outcome": None, "transcript_version": 0,
-            }, now=clock.now)
+            put(
+                s,
+                "call_attempts",
+                workspace["tenant_id"],
+                workspace["seller_id"],
+                {
+                    "lead_id": lead["id"],
+                    "endpoint_id": lead["endpoint_id"],
+                    "rep_id": workspace["user_id"],
+                    "number_id": number["id"],
+                    "started_at": clock.now.isoformat(),
+                    "ended_at": clock.now.isoformat(),
+                    "state": "ENDED",
+                    "end_reason": "provider_failure",
+                    "outcome": None,
+                    "transcript_version": 0,
+                },
+                now=clock.now,
+            )
     result = c.post("/v1/admin/optimization/refresh", headers=h)
     assert result.status_code == 200, result.text
     after = next(n for n in c.get("/v1/workspace", headers=h).json()["numbers"] if n["id"] == number["id"])

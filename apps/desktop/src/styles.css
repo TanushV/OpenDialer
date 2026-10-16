@@ -1891,3 +1891,26 @@ tbody tr:hover {
     gap: 16px;
   }
 }
+
+.optimization-panel {
+  margin-bottom: 22px;
+}
+.optimization-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-block: 16px;
+}
+.optimization-table {
+  max-width: 100%;
+  overflow-x: auto;
+  margin-block: 14px;
+}
+.optimization-panel details {
+  margin-top: 16px;
+}
+.optimization-panel summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 12px;
+}

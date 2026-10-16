@@ -48,6 +48,7 @@ def main():
         return
     app = create_app(settings, clock=clock)
     if args.command == "worker":
+        settings.worker_enabled = True  # Separate worker processes also own bounded automatic scheduling.
 
         async def run():
             while True:

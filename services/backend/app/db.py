@@ -346,8 +346,11 @@ def emit(s, tenant_id, kind, obj, now, payload=None):
             entity_id=obj.id,
             entity_version=obj.version,
             occurred_at=now,
-            payload={**(payload or {}), "_seller_id": getattr(obj, "seller_id", ""),
-                     "_rep_id": obj.data.get("rep_id") if hasattr(obj, "data") else None},
+            payload={
+                **(payload or {}),
+                "_seller_id": getattr(obj, "seller_id", ""),
+                "_rep_id": obj.data.get("rep_id") if hasattr(obj, "data") else None,
+            },
         )
     )
 

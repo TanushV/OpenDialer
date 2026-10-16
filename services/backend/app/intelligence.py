@@ -4,13 +4,13 @@ import re
 import time
 from datetime import timedelta
 
-from app.coaching.engine import CardRejected
 from app.coaching.context import build_context, ground_guidance, merge_semantic_state, retrieve_cards
+from app.coaching.engine import CardRejected
 from app.db import audit, doc, emit, put, rows, uid, update
 from app.postcall.analysis import build_analysis
 from app.providers.groq import GroqCoach
-from app.providers.openrouter import OpenRouterCoach
 from app.providers.inference import InferenceClient, InferenceResult
+from app.providers.openrouter import OpenRouterCoach
 from app.research.fetch import SafeFetcher
 from app.research.validation import ValidationFailure, validate_script
 from app.service import Service, dt, fail
@@ -556,18 +556,28 @@ class Application(Service):
         conf = self.vault.read(p["tenant_id"])
         provider = conf.get("coach_provider", "openrouter")
         if provider == "openrouter" and conf.get("openrouter_api_key"):
-            return OpenRouterCoach(conf["openrouter_api_key"], conf.get("coach_model", "openai/gpt-oss-120b"),
-                                   http=getattr(self, "coach_http", None)), "openrouter"
+            return OpenRouterCoach(
+                conf["openrouter_api_key"],
+                conf.get("coach_model", "openai/gpt-oss-120b"),
+                http=getattr(self, "coach_http", None),
+            ), "openrouter"
         if provider == "groq" and conf.get("groq_api_key"):
-            return GroqCoach(conf["groq_api_key"], conf.get("groq_model", "openai/gpt-oss-20b"),
-                             http=getattr(self, "coach_http", None)), "groq"
+            return GroqCoach(
+                conf["groq_api_key"],
+                conf.get("groq_model", "openai/gpt-oss-20b"),
+                http=getattr(self, "coach_http", None),
+            ), "groq"
         return None, "approved_static"
 
     async def coach_turn(self, p, call_id, urgent=False):
         started = time.perf_counter()
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
-            stable = [r for r in self.transcript_rows(s, p, call_id) if r.get("is_final") and not r.get("system_audio")]
+            stable = [
+                r
+                for r in self.transcript_rows(s, p, call_id)
+                if r.get("is_final") and not r.get("system_audio")
+            ]
             playbook = self.approved_playbook(s, p)
             if not stable or not playbook or call.data["state"] in TERMINAL | {"ENDING"}:
                 return {"action": "NO_ACTION"}
@@ -576,46 +586,93 @@ class Application(Service):
                 return {"action": "NO_ACTION"}
             prior = [r for r in self.scoped(s, "coach_events", p) if r.data["call_id"] == call_id]
             version = call.data["transcript_version"]
-            facts = [doc(r) for r in self.scoped(s, "research_facts", p)
-                     if r.data.get("domain") == lead.data.get("domain") and r.data.get("status") == "supported"
-                     and dt(r.data["expires_at"]) > self.clock()]
-            commitments = [doc(r) for r in self.scoped(s, "commitments", p) if r.data.get("lead_id") == lead.id]
-            state = build_context(stable, version=version, facts=facts, commitments=commitments,
-                                  prior={"previous_guidance": [r.data["say_or_ask"] for r in prior]})
-            state_record = next((r for r in self.scoped(s, "conversation_states", p) if r.external_key == call_id), None)
+            facts = [
+                doc(r)
+                for r in self.scoped(s, "research_facts", p)
+                if r.data.get("domain") == lead.data.get("domain")
+                and r.data.get("status") == "supported"
+                and dt(r.data["expires_at"]) > self.clock()
+            ]
+            commitments = [
+                doc(r) for r in self.scoped(s, "commitments", p) if r.data.get("lead_id") == lead.id
+            ]
+            state = build_context(
+                stable,
+                version=version,
+                facts=facts,
+                commitments=commitments,
+                prior={"previous_guidance": [r.data["say_or_ask"] for r in prior]},
+            )
+            state_record = next(
+                (r for r in self.scoped(s, "conversation_states", p) if r.external_key == call_id), None
+            )
             values = {"call_id": call_id, **state, "updated_at": self.clock().isoformat()}
             if state_record:
                 update(state_record, **values)
             else:
-                state_record = put(s, "conversation_states", p["tenant_id"], p["seller_id"], values,
-                                   key=call_id, now=self.clock())
+                state_record = put(
+                    s,
+                    "conversation_states",
+                    p["tenant_id"],
+                    p["seller_id"],
+                    values,
+                    key=call_id,
+                    now=self.clock(),
+                )
             emit(s, p["tenant_id"], "conversation.updated", call, self.clock())
-            if not urgent and prior and (self.clock() - dt(prior[-1].data["created_at"])).total_seconds() < 20:
+            if (
+                not urgent
+                and prior
+                and (self.clock() - dt(prior[-1].data["created_at"])).total_seconds() < 20
+            ):
                 return {"action": "NO_ACTION"}
             cards = retrieve_cards(state, playbook.data["cards"])
             if not cards or not state["last_remote"]:
                 return {"action": "NO_ACTION"}
-            fallback = {"action": "SHOW_CARD", "kind": state["trigger"], "say_or_ask": cards[0]["text"],
-                        "reason": "Relevant approved prompt for the evidenced conversation state.",
-                        "evidence_segment_ids": state["last_remote"]["evidence_segment_ids"],
-                        "playbook_card_ids": [cards[0]["id"]], "state_version": version, "expires_in_ms": 7000}
-            request = {"state_version": version, "state": state, "recent_dialogue": stable[-16:],
-                       "approved_cards": cards, "facts": facts[:8], "approved_claims": playbook.data.get("claims", []),
-                       "prior_commitments": commitments[-5:],
-                       "lead_context": {k: lead.data.get(k) for k in ("company", "segment")},
-                       "objective": self.optimization_config(s, p)["conversion_goal"]}
+            fallback = {
+                "action": "SHOW_CARD",
+                "kind": state["trigger"],
+                "say_or_ask": cards[0]["text"],
+                "reason": "Relevant approved prompt for the evidenced conversation state.",
+                "evidence_segment_ids": state["last_remote"]["evidence_segment_ids"],
+                "playbook_card_ids": [cards[0]["id"]],
+                "state_version": version,
+                "expires_in_ms": 7000,
+            }
+            request = {
+                "state_version": version,
+                "state": state,
+                "recent_dialogue": stable[-16:],
+                "approved_cards": cards,
+                "facts": facts[:8],
+                "approved_claims": playbook.data.get("claims", []),
+                "prior_commitments": commitments[-5:],
+                "lead_context": {k: lead.data.get(k) for k in ("company", "segment")},
+                "objective": self.optimization_config(s, p)["conversion_goal"],
+            }
         preparation_ms = (time.perf_counter() - started) * 1000
         provider, route = self.configured_coach(p)
         result, source = fallback, "approved_static"
         inference_started = time.perf_counter()
-        if (provider and not self.settings.simulation and time.monotonic() >= self.coach.open_until
-                and self.reserve_optional_budget(p, f"coach:{call_id}:{version}:{uid()}", 0.01,
-                                                 object_id=call_id, work_kind="live_coach")):
+        if (
+            provider
+            and not self.settings.simulation
+            and time.monotonic() >= self.coach.open_until
+            and self.reserve_optional_budget(
+                p, f"coach:{call_id}:{version}:{uid()}", 0.01, object_id=call_id, work_kind="live_coach"
+            )
+        ):
             result = await self.coach.suggest(call_id, request, provider, fallback)
             source = route if result is not fallback else "approved_static"
             if provider.last_usage or provider.last_request_id:
-                self.usage(p, route, "live_coach", InferenceResult(result, provider.last_usage, provider.last_request_id),
-                           object_id=call_id, reserved=0)
+                self.usage(
+                    p,
+                    route,
+                    "live_coach",
+                    InferenceResult(result, provider.last_usage, provider.last_request_id),
+                    object_id=call_id,
+                    reserved=0,
+                )
         inference_ms = (time.perf_counter() - inference_started) * 1000
         try:
             ground_guidance(result, request)
@@ -626,21 +683,38 @@ class Application(Service):
             call = self.required(s, "call_attempts", call_id, p)
             if call.data["transcript_version"] != version or call.data["state"] in TERMINAL | {"ENDING"}:
                 return {"action": "NO_ACTION"}
-            current_state = next(r for r in self.scoped(s, "conversation_states", p) if r.external_key == call_id)
+            current_state = next(
+                r for r in self.scoped(s, "conversation_states", p) if r.external_key == call_id
+            )
             update(current_state, **state, updated_at=self.clock().isoformat())
             if result["action"] != "NO_ACTION":
-                obj = put(s, "coach_events", p["tenant_id"], p["seller_id"], {
-                    "call_id": call_id, **{k: v for k, v in result.items() if k != "state_update"},
-                    "created_at": self.clock().isoformat(),
-                    "expires_at": (self.clock() + timedelta(milliseconds=result["expires_in_ms"])).isoformat(),
-                    "provider": source, "actual_provider": getattr(provider, "last_provider", None),
-                    "model": getattr(provider, "last_model", getattr(provider, "model", None)) if source != "approved_static" else None,
-                    "provider_request_id": getattr(provider, "last_request_id", None),
-                    "latency": {"state_retrieval_ms": round(preparation_ms, 3),
-                                "inference_ms": round(inference_ms, 3),
-                                "server_processing_ms": round((time.perf_counter() - started) * 1000, 3),
-                                "stt_ms": None},
-                }, now=self.clock())
+                obj = put(
+                    s,
+                    "coach_events",
+                    p["tenant_id"],
+                    p["seller_id"],
+                    {
+                        "call_id": call_id,
+                        **{k: v for k, v in result.items() if k != "state_update"},
+                        "created_at": self.clock().isoformat(),
+                        "expires_at": (
+                            self.clock() + timedelta(milliseconds=result["expires_in_ms"])
+                        ).isoformat(),
+                        "provider": source,
+                        "actual_provider": getattr(provider, "last_provider", None),
+                        "model": getattr(provider, "last_model", getattr(provider, "model", None))
+                        if source != "approved_static"
+                        else None,
+                        "provider_request_id": getattr(provider, "last_request_id", None),
+                        "latency": {
+                            "state_retrieval_ms": round(preparation_ms, 3),
+                            "inference_ms": round(inference_ms, 3),
+                            "server_processing_ms": round((time.perf_counter() - started) * 1000, 3),
+                            "stt_ms": None,
+                        },
+                    },
+                    now=self.clock(),
+                )
                 emit(s, p["tenant_id"], "coach.card_ready", call, self.clock(), doc(obj))
         return result
 
@@ -720,6 +794,8 @@ class Application(Service):
             return {"notes_version": note.version, "human_notes": text}
 
     async def run_jobs(self, tenant_id=None, queues=None):
+        if (queues is None or "ml" in queues) and self.settings.worker_enabled:
+            self.schedule_optimization(tenant_id)
         processed = 0
         worker_id = "worker-" + uid()
         for lane in queues or ["research", "scripts", "postcall", "live_coach", "ml"]:
@@ -741,7 +817,12 @@ class Application(Service):
                     elif lane == "live_coach":
                         await self.coach_turn(p, job["payload"]["call_id"])
                     elif lane == "ml":
-                        await self.train_model_job(p, job["payload"])
+                        if job["payload"].get("kind") == "optimization_refresh":
+                            import asyncio
+
+                            await asyncio.to_thread(self.refresh_optimization, p)
+                        else:
+                            await self.train_model_job(p, job["payload"])
                     self.jobs.complete(job["id"], worker_id)
                     processed += 1
                 except Exception as e:
@@ -762,8 +843,12 @@ class Application(Service):
                 "model_versions",
                 p["tenant_id"],
                 p["seller_id"],
-                {**result, "active": False, "source_dataset_id": payload.get("source_dataset_id"),
-                 "goal": payload.get("goal", "meeting_held")},
+                {
+                    **result,
+                    "active": False,
+                    "source_dataset_id": payload.get("source_dataset_id"),
+                    "goal": payload.get("goal", "meeting_held"),
+                },
                 now=self.clock(),
             )
 

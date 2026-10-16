@@ -27,7 +27,16 @@ import type { Call, Packet, Reservation } from "../types";
 import { terminal } from "../types";
 
 export function DialerPage() {
-  const { snapshot: w, session, api, refresh, notice, run } = useWorkspace();
+  const {
+    snapshot: w,
+    session,
+    api,
+    refresh,
+    notice,
+    run,
+    subscribe,
+    liveStatus,
+  } = useWorkspace();
   const [reservation, setReservation] = useState<Reservation | null>(null);
   const [packet, setPacket] = useState<Packet | null>(null);
   const [call, setCall] = useState<Call | null>(null);
@@ -68,13 +77,47 @@ export function DialerPage() {
   }, [w.calls]);
   useEffect(() => {
     if (!call) return;
-    const id = setInterval(() => {
-      void reloadCall(call.id).catch(() =>
-        setAudioStatus("Authority unavailable; calling is paused."),
-      );
-    }, 800);
-    return () => clearInterval(id);
-  }, [call?.id]);
+    let disposed = false;
+    let pending = false;
+    const load = () => {
+      if (pending || disposed) return;
+      pending = true;
+      void api<Call>("/v1/calls/" + call.id)
+        .then((value) => {
+          if (!disposed) setCall(value);
+        })
+        .catch(() => {
+          if (!disposed)
+            setAudioStatus("Authority unavailable; calling is paused.");
+        })
+        .finally(() => {
+          pending = false;
+        });
+    };
+    load();
+    const unsubscribe = subscribe((events) => {
+      if (events.some((e) => e.entity_id === call.id)) load();
+    });
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [call?.id, api, subscribe]);
+  useEffect(() => {
+    if (!call?.coach) return;
+    const remaining = call.coach.remaining_ms ?? 7000;
+    const version = call.coach.state_version;
+    const timeout = setTimeout(
+      () =>
+        setCall((current) =>
+          current?.coach?.state_version === version
+            ? { ...current, coach: null }
+            : current,
+        ),
+      Math.max(0, remaining),
+    );
+    return () => clearTimeout(timeout);
+  }, [call?.coach?.id]);
   useEffect(() => {
     telephony.current.onStatus = (status) => {
       setAudioStatus(status);
@@ -293,6 +336,7 @@ export function DialerPage() {
   return (
     <>
       <audio ref={audio} autoPlay />
+      <p className="fine">Conversation updates: {label(liveStatus)}</p>
       <button
         className="text-button"
         onClick={() =>
@@ -782,6 +826,8 @@ export function DialerPage() {
             >
               {[
                 "right_party",
+                "qualified_conversation",
+                "sale_won",
                 "callback_requested",
                 "meeting_booked",
                 "meeting_held",

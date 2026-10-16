@@ -20,7 +20,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.administration import Dialer
 from app.config import Settings
-from app.db import Database, Event, audit, doc, get, put, rows, update
+from app.db import Database, Event, audit, doc, emit, get, put, rows, update
 from app.providers.telnyx import verify_webhook
 from app.security import DUMMY_HASH, PASSWORDS, admin, decode_session, issue_session
 from app.service import dt, fail
@@ -189,7 +189,13 @@ class ProviderSettings(Strict):
     coach_model: str | None = Field(default=None, min_length=3, max_length=200)
 
 
-SECRET_FIELDS = {"telnyx_api_key", "openai_api_key", "groq_api_key", "openrouter_api_key", "chatgpt_access_token"}
+SECRET_FIELDS = {
+    "telnyx_api_key",
+    "openai_api_key",
+    "groq_api_key",
+    "openrouter_api_key",
+    "chatgpt_access_token",
+}
 
 
 def create_app(settings=None, *, clock=None, carrier=None):
@@ -386,8 +392,10 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 and dt(r.data["expires_at"]) > clock()
                 and r.data["state_version"] == call.data["transcript_version"]
             ]
-            state = next((r.data for r in service.scoped(s, "conversation_states", p)
-                          if r.external_key == call_id), None)
+            state = next(
+                (r.data for r in service.scoped(s, "conversation_states", p) if r.external_key == call_id),
+                None,
+            )
             return {
                 **doc(call),
                 "transcript": service.transcript_rows(s, p, call_id),
@@ -464,6 +472,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 },
                 now=clock(),
             )
+            service.reconcile_goal_status(s, p, lead)
+            emit(s, p["tenant_id"], "call.updated", call, clock())
             result = doc(call)
         if data.outcome in {"wrong_party", "invalid_endpoint"}:
             service.suppress(p, phone, data.outcome)
@@ -557,6 +567,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
                     .limit(500)
                 )
             )
+
             def visible(e):
                 from app.db import MODELS
 
@@ -582,10 +593,14 @@ def create_app(settings=None, *, clock=None, carrier=None):
                     "occurred_at": e.occurred_at.isoformat(),
                     "payload": {k: v for k, v in e.payload.items() if not k.startswith("_")},
                 }
-                for e in found if visible(e)
+                for e in found
+                if visible(e)
             ]
-            return {"events": result, "cursor": found[-1].sequence if found else after,
-                    "server_time": clock().isoformat()}
+            return {
+                "events": result,
+                "cursor": found[-1].sequence if found else after,
+                "server_time": clock().isoformat(),
+            }
 
     @app.websocket("/v1/live")
     async def live(ws: WebSocket):
@@ -607,7 +622,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
         except (WebSocketDisconnect, HTTPException, TimeoutError, ValueError):
             try:
                 await ws.close(code=4401)
-            except RuntimeError:
+            except (RuntimeError, WebSocketDisconnect):
                 pass
 
     @app.post("/v1/simulation/event")
@@ -946,8 +961,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 fail(409, "Model has not passed calibration, online trial, coverage and policy gates")
             for previous in service.scoped(s, "model_versions", p):
                 if previous.data.get("active"):
-                    update(previous, active=False)
-            update(model, **candidate, active=True)
+                    update(previous, active=False, trial_active=False)
+            update(model, **candidate, active=True, trial_active=False)
             audit(s, p["tenant_id"], p["seller_id"], p["user_id"], "model.activated", model.id, clock())
             return doc(model)
 
@@ -1500,7 +1515,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
         with db.transaction() as session:
             if model_id == "baseline":
                 for item in service.scoped(session, "model_versions", p):
-                    update(item, active=False)
+                    update(item, active=False, trial_active=False)
                 audit(
                     session,
                     p["tenant_id"],
@@ -1698,6 +1713,24 @@ def create_app(settings=None, *, clock=None, carrier=None):
             )
         with db.transaction() as session:
             model = service.required(session, "model_versions", model_id, p)
+            if model.data.get("source_dataset_id"):
+                report_id = data.get("cohort_report_id")
+                if not report_id:
+                    fail(409, "A saved controlled cohort report is required for an operational candidate")
+                report = service.required(session, "evaluation_reports", report_id, p)
+                if (
+                    report.data.get("kind") != "conversion_trial"
+                    or report.data.get("simulation")
+                    or not report.data.get("sufficient_evidence")
+                    or report.data.get("goal") != model.data.get("goal")
+                    or report.data.get("trial_model_id") != model.id
+                ):
+                    fail(409, "The saved report lacks sufficient independent live conversion evidence")
+                data = {
+                    **data,
+                    "coverage_delta": report.data.get("coverage_delta", -1),
+                    "policy_violations": report.data.get("policy_violations", 1),
+                }
             update(
                 model,
                 online_trial_passed=bool(data.get("online_trial_passed")),
@@ -1717,8 +1750,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
             )
             return doc(model)
 
-    from app.preparation.batches import register_batches
     from app.optimization.api import register_optimization
+    from app.preparation.batches import register_batches
 
     register_batches(app, service, administrator)
     register_optimization(app, service, principal, administrator)

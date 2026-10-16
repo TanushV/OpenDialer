@@ -411,6 +411,8 @@ class TelephonyWorkflows:
                 route = "responsible_rep"
             data = {
                 "provider_id": payload.get("call_control_id"),
+                "number_id": number.id,
+                "inbound": True,
                 "seller_id": seller_id,
                 "lead_id": lead.id if lead else None,
                 "route": route,

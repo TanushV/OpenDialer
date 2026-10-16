@@ -13,6 +13,8 @@ async function enterSimulation(page: import("@playwright/test").Page) {
       .click();
   }
   await expect(page.getByText("SIMULATION", { exact: true })).toBeVisible();
+  if (await page.getByRole("button", { name: "Pause dialing" }).isVisible())
+    await page.getByRole("button", { name: "Pause dialing" }).click();
 }
 
 test("local setup, readiness, calling, evidence, human notes and opt-out", async ({
