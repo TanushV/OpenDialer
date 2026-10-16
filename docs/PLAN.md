@@ -4,6 +4,8 @@ Source: [complete specification](spec/IMPLEMENTATION_SPEC.md), preserved verbati
 
 ## Scope and operating modes
 
+October 16 extension: [optimization completion plan](OPTIMIZATION_PLAN.md) is the active checklist for measured number health/demand, operational funnel learning, future scheduling, grounded live guidance and Cerebras through OpenRouter. The original checked items below describe the initial release, including its simplified baseline; they do not certify advanced optimization or live performance.
+
 - [x] Read the full source specification and supplementary context; inspect the empty repository and tools.
 - [x] Record user extension: fully isolated local operation as well as authenticated connected operation.
 - [x] Record user constraint: no carrier/OpenAI/Groq API keys available; implement and test without them.

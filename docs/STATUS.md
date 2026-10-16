@@ -1,5 +1,7 @@
 # Execution log and continuation state
 
+2026-10-16 active extension: user authorized writing and implementing every item in the preceding allocation/ML/coaching/Cerebras completion proposal. New authoritative checklist is docs/OPTIMIZATION_PLAN.md. Starting checkout is clean main f1c0882; installed app 0.1.1 must be updated in place, never reinstalled/reset. GitHub connector still returns UNAUTHORIZED/re-authentication; authenticated gh CLI remains available. No new provider keys or controlled destinations supplied. Default goal is held meetings, configurable to qualified conversation/won sale. Next: commit the complete new acceptance suite and actual red output before production implementation. Original local and connected modes, protected data and signed updater remain required.
+
 2026-10-14: Source specification and supplement fully ingested. Repository initially contained README and Apache-2.0 license only. GitHub plugin requires reauthentication; local GitHub CLI is authenticated as TanushV and clone succeeded. User confirmed no API credentials except a possible ChatGPT/LiteLLM endpoint and explicitly instructed proceeding without APIs.
 
 Historical baseline: the initial acceptance suite was committed before production code. Current execution state is recorded in the newest entries below. Full plan in `docs/PLAN.md`; re-read the source on every compaction. Live account/hardware/legal/outcome gates cannot be represented as test passes.
