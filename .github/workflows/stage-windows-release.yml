@@ -1,0 +1,64 @@
+name: Verify and stage existing Windows release bytes
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        required: true
+        type: string
+      expected_build_sha:
+        required: true
+        type: string
+permissions:
+  contents: write
+  actions: read
+jobs:
+  stage:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BUILD_RUN: ${{ inputs.build_run_id }}
+      EXPECTED_SHA: ${{ inputs.expected_build_sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require the exact successful native build and an unpublished draft
+        shell: pwsh
+        run: |
+          if ($env:BUILD_RUN -notmatch '^\d+$' -or $env:EXPECTED_SHA -notmatch '^[0-9a-f]{40}$') { throw 'Invalid immutable source identity' }
+          $run = gh api "repos/${{ github.repository }}/actions/runs/$env:BUILD_RUN" | ConvertFrom-Json
+          if ($run.head_sha -ne $env:EXPECTED_SHA -or $run.path -ne '.github/workflows/windows.yml' -or $run.conclusion -ne 'success') { throw 'Build/native provenance failed' }
+          $version = (Get-Content apps/desktop/src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          $release = gh release view "v$version" --json isDraft | ConvertFrom-Json
+          if (-not $release.isDraft) { throw 'Only an existing unpublished draft can be staged' }
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installers-and-native-evidence
+          path: work/native-build
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify pinned signatures, version and tamper rejection then upload unchanged bytes
+        shell: pwsh
+        run: |
+          $config = Get-Content apps/desktop/src-tauri/tauri.conf.json | ConvertFrom-Json
+          $version = $config.version
+          New-Item -ItemType Directory -Force work/verified-windows | Out-Null
+          Set-Content -NoNewline work/updater-public.txt $config.plugins.updater.pubkey
+          $exe = @(Get-ChildItem work/native-build -Recurse -Filter "OpenDialer_$($version)_x64-setup.exe")
+          $msi = @(Get-ChildItem work/native-build -Recurse -Filter "OpenDialer_$($version)_x64_en-US.msi")
+          if ($exe.Count -ne 1 -or $msi.Count -ne 1) { throw 'Expected one exact versioned installer of each format' }
+          cargo run --locked --manifest-path tools/artifact-verifier/Cargo.toml -- work/updater-public.txt $version $exe[0].FullName $msi[0].FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Cryptographic verification failed' }
+          $proof = @{}
+          foreach ($item in @($exe[0], $msi[0])) {
+            foreach ($path in @($item.FullName, ($item.FullName + '.sig'))) {
+              Copy-Item $path work/verified-windows/
+              $proof[[IO.Path]::GetFileName($path)] = (Get-FileHash $path -Algorithm SHA256).Hash.ToLower()
+            }
+          }
+          $result = @(Get-ChildItem work/native-build -Recurse -Filter result.json)
+          if ($result.Count -ne 1 -or -not (Get-Content $result[0].FullName | ConvertFrom-Json).passed) { throw 'Installed native acceptance did not pass' }
+          Copy-Item $result[0].FullName work/verified-windows/WINDOWS_NATIVE_ACCEPTANCE.json
+          @{version=$version;build_run=$env:BUILD_RUN;source_commit=$env:EXPECTED_SHA;signature_verified=$true;version_authenticated=$true;tamper_rejected=$true;sha256=$proof} | ConvertTo-Json -Depth 5 | Set-Content work/verified-windows/WINDOWS_VERIFICATION.json
+          gh release upload "v$version" work/verified-windows/* --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Draft upload failed' }
