@@ -43,11 +43,12 @@ jobs:
           $config = Get-Content apps/desktop/src-tauri/tauri.conf.json | ConvertFrom-Json
           $version = $config.version
           New-Item -ItemType Directory -Force work/verified-windows | Out-Null
-          Set-Content -NoNewline work/updater-public.txt $config.plugins.updater.pubkey
+          $publicKeyPath = Join-Path $env:GITHUB_WORKSPACE 'work/updater-public.txt'
+          Set-Content -Path $publicKeyPath -Value $config.plugins.updater.pubkey -NoNewline
           $exe = @(Get-ChildItem work/native-build -Recurse -Filter "OpenDialer_$($version)_x64-setup.exe")
           $msi = @(Get-ChildItem work/native-build -Recurse -Filter "OpenDialer_$($version)_x64_en-US.msi")
           if ($exe.Count -ne 1 -or $msi.Count -ne 1) { throw 'Expected one exact versioned installer of each format' }
-          cargo run --locked --manifest-path tools/artifact-verifier/Cargo.toml -- work/updater-public.txt $version $exe[0].FullName $msi[0].FullName
+          cargo run --locked --manifest-path tools/artifact-verifier/Cargo.toml -- $publicKeyPath $version $exe[0].FullName $msi[0].FullName
           if ($LASTEXITCODE -ne 0) { throw 'Cryptographic verification failed' }
           $proof = @{}
           foreach ($item in @($exe[0], $msi[0])) {
@@ -60,5 +61,6 @@ jobs:
           if ($result.Count -ne 1 -or -not (Get-Content $result[0].FullName | ConvertFrom-Json).passed) { throw 'Installed native acceptance did not pass' }
           Copy-Item $result[0].FullName work/verified-windows/WINDOWS_NATIVE_ACCEPTANCE.json
           @{version=$version;build_run=$env:BUILD_RUN;source_commit=$env:EXPECTED_SHA;signature_verified=$true;version_authenticated=$true;tamper_rejected=$true;sha256=$proof} | ConvertTo-Json -Depth 5 | Set-Content work/verified-windows/WINDOWS_VERIFICATION.json
-          gh release upload "v$version" work/verified-windows/* --clobber
+          $uploads = @(Get-ChildItem work/verified-windows -File | ForEach-Object { $_.FullName })
+          gh release upload "v$version" @uploads --clobber
           if ($LASTEXITCODE -ne 0) { throw 'Draft upload failed' }
