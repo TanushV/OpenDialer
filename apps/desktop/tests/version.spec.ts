@@ -6,5 +6,8 @@ test("welcome displays the packaged desktop version", async ({ page }) => {
     readFileSync(new URL("../package.json", import.meta.url), "utf8"),
   );
   await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (await page.getByTitle("Sign out").isVisible())
+    await page.getByTitle("Sign out").click();
   await expect(page.locator(".version")).toHaveText("DESKTOP · " + version);
 });

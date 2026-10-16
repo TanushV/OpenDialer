@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -185,6 +186,13 @@ try:
     click_button("Settings")
     click_button("Run preflight")
     visible("Simulation checks passed")
+    expected_version = (
+        update_to or json.loads(Path("apps/desktop/src-tauri/tauri.conf.json").read_text())["version"]
+    )
+    preflight_text = driver.find_element(By.CSS_SELECTOR, ".preflight").text
+    reported_version = re.search(r"·\s*(\d+\.\d+\.\d+)\s*·\s*local", preflight_text)
+    assert reported_version, "Native preflight did not report a local backend version"
+    assert reported_version.group(1) == expected_version, "Updated backend version differs from the package"
     driver.save_screenshot(str(output / "preflight.png"))
     (output / "result.json").write_text(
         json.dumps(
@@ -211,6 +219,7 @@ try:
                 "provider_calls": 0,
                 "hardware_audio_certified": False,
                 "signed_in_place_update_to": update_to,
+                "backend_version": reported_version.group(1),
                 "saved_ids_preserved": baseline_ids is not None,
                 "restart_scope": "reopen the native sample store after a new WebDriver session",
             },

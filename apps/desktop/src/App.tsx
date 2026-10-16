@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { version as desktopVersion } from "../package.json";
 import {
   canUseOfflineCache,
   clearSession,
@@ -453,7 +454,7 @@ export function App() {
           </footer>
         </aside>
         <main className="welcome-actions">
-          <span className="version">DESKTOP · 0.1.1</span>
+          <span className="version">DESKTOP · {desktopVersion}</span>
           <div className="welcome-card">
             {welcomeMode === "choose" ? (
               <>
