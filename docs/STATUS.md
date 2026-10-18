@@ -352,6 +352,10 @@ RED: coaching-library-red.txt (seven failures/three input-rejection passes), coa
 
 Next tests-first: coach-knowledge-red.txt reproduces changed live product/lead/fact/commitment/note/example context and stale display/retry. These are separate unfinished source-fence repairs, not certified by the practice checks. Continue them before the remaining M1–M9 gates.
 
+2026-10-18 LIVE KNOWLEDGE FENCES. Tests-first 42ce7ca/a49dac1 precede fixes that recheck content-free source receipts before admission, publication, current display and private replay. Changed seller/product knowledge, lead brief, facts, reviewed examples, prior outcomes/notes and commitments invalidate old advice; adding a previously absent human note also invalidates it. Unrelated preparation bookkeeping does not. Practice shares the knowledge validator; discarded submitted guidance retains its actual cost. No new service, table or dependency. RED: coach-knowledge-red.txt (ten failures), coach-missing-note-red.txt (one failure/one pass). The charge assertion was corrected to select live inference separately from the existing call hold (3692133).
+
+GREEN: **111 SQLite / 111 PostgreSQL compatibility cases**, followed by **12 focused cases in each database** after the absent-note boundary; **five browser workflows**, Ruff/format/diff checks. Receipts: coach-knowledge-compatibility.txt, coach-knowledge-postgres.txt, coach-note-boundary-{green,postgres}.txt and coach-knowledge-ui.txt. Scoped M3.01b is checked. Current source lookup still decrypts historical playbooks, and product knowledge lacks an editor: f9f2633/2085c98 add eleven failing authoring/index/migration cases plus the missing-editor browser case (product-knowledge-red.txt, knowledge-migration-red.txt, product-knowledge-ui-red.txt). Implement that slice next. No native update, funded request, real call or new computer-use certification; installed Mac remains 0.2.1.
+
 ## Historical record (superseded where the current contract differs)
 
 

@@ -183,6 +183,7 @@ def persistent_document(kind, data, *, legacy=False):
                 "user_id",
                 "strategy",
                 "status",
+                "context_sources",
             }
         }
     if kind in {"call_attempts", "provider_events", "webhook_inbox"}:

@@ -3,6 +3,7 @@
 import hashlib
 from datetime import timedelta
 
+from app.coaching import sources
 from app.db import emit, put, update
 from app.service import dt, fail
 
@@ -65,6 +66,8 @@ def begin(service, p, call_id, identity, question):
                 fail(409, "Private request identity already describes different work")
             content = service.raw.get("help:" + p["tenant_id"] + ":" + prior.get("event_id", ""))
             if content and prior["status"] == "complete":
+                if not sources.current(service, s, p, content.get("context_sources")):
+                    return {"action": "NO_ACTION", "status": "source_changed"}
                 return content
             return {"action": "NO_ACTION", "status": prior["status"]}
         if service._request_hold(s, p, request_key(call_id, identity)):

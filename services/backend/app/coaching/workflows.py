@@ -7,7 +7,7 @@ from datetime import timedelta
 
 from sqlalchemy import or_, select
 
-from app.coaching import library
+from app.coaching import library, sources
 from app.coaching import requests as help_requests
 from app.coaching.context import (
     build_context,
@@ -103,10 +103,8 @@ class LiveHelper:
                         "expires_at": expires.isoformat(),
                         "status": "pending",
                         "privacy_contract": 1,
-                        "knowledge": {
-                            "book": [book.id, book.version] if book else None,
-                            "examples": {item["id"]: item["version"] for item in examples},
-                            "seller_name": seller.data["name"],
+                        "knowledge": sources.knowledge(book, seller.data["name"], examples),
+                        "personal_context": {
                             "goals_version": user.data.get("coaching_goals_version", 0),
                         },
                     },
@@ -184,19 +182,12 @@ class LiveHelper:
             return self._coach_authority(s, p)
 
     def _practice_knowledge_current(self, s, p, record):
-        knowledge = record.data.get("knowledge", {})
-        book = self.approved_playbook(s, p)
-        if knowledge.get("book") != ([book.id, book.version] if book else None):
+        if not sources.knowledge_current(self, s, p, record.data.get("knowledge")):
             return False
-        seller = self.required(s, "sellers", p["seller_id"], p)
         user = self.required(s, "users", p["user_id"], p)
-        if knowledge.get("seller_name") != seller.data["name"] or knowledge.get(
-            "goals_version"
-        ) != user.data.get("coaching_goals_version", 0):
-            return False
-        expected = knowledge.get("examples", {})
-        current = {item["id"]: item["version"] for item in library.examples(self, s, p)} if expected else {}
-        return all(current.get(identity) == version for identity, version in expected.items())
+        return record.data.get("personal_context", {}).get("goals_version") == user.data.get(
+            "coaching_goals_version", 0
+        )
 
     def _finish_practice(self, p, key, raw_key, expires, result):
         with self.db.transaction() as s:
@@ -245,7 +236,7 @@ class LiveHelper:
             ):
                 continue
             content = self.coach_content(p, doc(row))
-            if content:
+            if content and sources.current(self, s, p, row.data.get("context_sources")):
                 return {
                     **content,
                     "pinned": is_pinned,
@@ -427,7 +418,7 @@ class LiveHelper:
             )
             note_model = MODELS["notes"]
             notes = {
-                r.data["call_id"]: r.data
+                r.data["call_id"]: doc(r)
                 for r in s.scalars(
                     select(note_model).where(
                         note_model.tenant_id == p["tenant_id"],
@@ -457,9 +448,7 @@ class LiveHelper:
                     "knowledge": book.data.get("product_description", "") if book else "",
                 },
                 "prepared_script": script,
-                "lead_context": {
-                    k: lead.data.get(k) for k in ("name", "company", "segment", "prospect_brief")
-                },
+                "lead_context": sources.lead_context(lead),
                 "prior_commitments": commitments,
                 "prior_call_context": [
                     {
@@ -481,6 +470,18 @@ class LiveHelper:
                     for c in previous_calls
                 ],
                 "objective": self.optimization_config(s, p)["conversion_goal"],
+            }
+            request["context_sources"] = {
+                "knowledge": sources.knowledge(book, seller.data["name"], request["reviewed_examples"]),
+                "lead_id": lead.id,
+                "lead_hash": sources.digest(request["lead_context"]),
+                "note_call_ids": [r.id for r in previous_calls],
+                "rows": {
+                    "research_facts": {r["id"]: r["version"] for r in facts},
+                    "commitments": {r["id"]: r["version"] for r in commitments},
+                    "call_attempts": {r.id: r.version for r in previous_calls},
+                    "notes": {r["id"]: r["version"] for r in notes.values()},
+                },
             }
             from app.optimization.conversations import guidance_context
 
@@ -673,6 +674,7 @@ class LiveHelper:
                 or not self._help_allowed(s, p, call)
                 or call.data["transcript_version"] != request["state_version"]
                 or self.suppressed(s, p, lead.data["phone"])
+                or not sources.current(self, s, p, request.get("context_sources"))
             ):
                 return False
             update(state, coach_request_key=request["help_request_id"])
@@ -773,6 +775,7 @@ class LiveHelper:
             lead = self.required(s, "leads", call.data["lead_id"], p)
             if (
                 not self._help_allowed(s, p, call)
+                or not sources.current(self, s, p, request.get("context_sources"))
                 or self.suppressed(s, p, lead.data["phone"])
                 or not help_requests.current(self, state_record, request)
                 or key
@@ -832,6 +835,7 @@ class LiveHelper:
                     "coach_events",
                     {
                         "call_id": call_id,
+                        "context_sources": request["context_sources"],
                         **result,
                         "user_id": p["user_id"],
                         "created_at": self.clock().isoformat(),
