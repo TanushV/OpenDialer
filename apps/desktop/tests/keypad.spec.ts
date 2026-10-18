@@ -64,3 +64,51 @@ test("keypad preserves a lost-response identity through reload and distinguishes
     .getByRole("button", { name: "Pause dialing", exact: true })
     .click();
 });
+
+test("uncertain keypad lets the rep explicitly resume after checking the live menu", async ({
+  page,
+}) => {
+  let submissions = 0;
+  await page.route("**/v1/calls/*/dtmf", async (route) => {
+    submissions++;
+    await route.fulfill({
+      json: {
+        command_id: `tone-${submissions}`,
+        status: "review_required",
+        sent: false,
+      },
+    });
+  });
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await page.getByRole("button", { name: "Go ready" }).click();
+  await page
+    .getByRole("button", { name: "Get next lead", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Start call", exact: true }).click();
+  await page.getByRole("button", { name: /Keypad$/ }).click();
+  const digit = page
+    .getByRole("region", { name: "Call keypad" })
+    .getByRole("button", { name: "2", exact: true });
+  await digit.click();
+  await expect(digit).toBeDisabled();
+  await page
+    .getByRole("button", { name: "I checked the menu; allow a new key" })
+    .click();
+  await expect(digit).toBeEnabled();
+  expect(submissions).toBe(1);
+  await page.getByRole("button", { name: "Hang up", exact: true }).click();
+  await page.getByLabel("Disposition").selectOption("no_answer");
+  await page.getByRole("button", { name: "Save outcome", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Pause dialing", exact: true })
+    .click();
+});
