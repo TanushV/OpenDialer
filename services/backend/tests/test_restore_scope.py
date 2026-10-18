@@ -78,3 +78,38 @@ def test_restore_replays_optout_over_an_older_inactive_suppression(workspace, ap
         assert restored.data["active"] is True
         assert restored.data["permanent"] is True
         assert restored.data["reason"] == "opt_out"
+
+
+def test_restore_does_not_roll_back_password_role_or_session_revocation(workspace, app):
+    service, p = app.state.service, principal(workspace)
+    receipt = service.backup(p)
+    with service.db.transaction() as s:
+        update(get(s, "users", p["user_id"]), password_hash="newer-protected-hash", role="admin")
+        sessions = list(service.scoped(s, "sessions", p))
+        assert sessions
+        session_id = sessions[0].id
+        update(sessions[0], revoked=True)
+    service.restore(p, receipt["backup_id"])
+    with service.db.transaction(False) as s:
+        user = get(s, "users", p["user_id"])
+        assert user.data["password_hash"] == "newer-protected-hash"
+        assert user.data["role"] == "admin"
+        assert get(s, "sessions", session_id).data["revoked"] is True
+
+
+def test_restore_keeps_newer_revocation_even_when_consent_marked_inactive(workspace, app):
+    service, p = app.state.service, principal(workspace)
+    receipt = service.backup(p)
+    with service.db.transaction() as s:
+        revoked = put(
+            s,
+            "consent_evidence",
+            p["tenant_id"],
+            p["seller_id"],
+            {"endpoint_id": "revoked-endpoint", "active": False, "revoked": True, "permissions": ["live"]},
+        )
+        identity = revoked.id
+    service.restore(p, receipt["backup_id"])
+    with service.db.transaction(False) as s:
+        row = get(s, "consent_evidence", identity)
+        assert row is not None and row.data["revoked"] is True

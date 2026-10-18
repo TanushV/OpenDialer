@@ -20,7 +20,7 @@ def held_call(workspace, app):
 def held(service, p, call):
     with service.db.transaction(False) as s:
         assert get(s, "sellers", p["seller_id"]).data["restore_hold"] is True
-        assert get(s, "call_attempts", call["id"]).data["state"] == "DIALING"
+        assert get(s, "call_attempts", call["id"]).data["state"] == call["state"]
 
 
 @pytest.mark.parametrize(
