@@ -119,3 +119,40 @@ def test_knowledge_index_backfill_preserves_source_data_and_revision(workspace, 
         assert doc(row) == saved and row.ctx_key == "approved"
     assert "ix_playbooks_current" in {i["name"] for i in inspect(service.db.engine).get_indexes("playbooks")}
     assert hasattr(MODELS["playbooks"], "ctx_key")
+
+
+def test_knowledge_migration_is_additive_and_repeatable(tmp_path):
+    from datetime import UTC, datetime
+    from pathlib import Path
+    from alembic import command
+    from alembic.config import Config
+    from app.migrate import migrate_database
+    from sqlalchemy import create_engine
+
+    root = Path(__file__).resolve().parents[1]
+    url = f"sqlite:///{tmp_path}/knowledge-migration.db"
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "migrations"))
+    config.set_main_option("sqlalchemy.url", url)
+    command.upgrade(config, "0013_call_recovery_due")
+    engine = create_engine(url)
+    with engine.begin() as c:
+        c.execute(
+            text(
+                "INSERT INTO playbooks (id,tenant_id,seller_id,data,version,created_at) VALUES ('saved','t','s',:data,7,:at)"
+            ),
+            {
+                "data": '{"protected":"unchanged-original-content"}',
+                "at": datetime.now(UTC),
+            },
+        )
+        before = c.execute(text("SELECT id,tenant_id,seller_id,data,version,created_at FROM playbooks")).all()
+    migrate_database(url)
+    migrate_database(url)
+    assert {"ctx_key", "ctx_index_version"} <= {r["name"] for r in inspect(engine).get_columns("playbooks")}
+    with engine.connect() as c:
+        assert (
+            c.execute(text("SELECT id,tenant_id,seller_id,data,version,created_at FROM playbooks")).all()
+            == before
+        )
+    engine.dispose()
