@@ -300,16 +300,22 @@ interface Proposal {
     eligible_leads: number;
     healthy_existing: number;
     required: number;
-    proposed_additional: number;
+    proposed_additional: number | null;
   }[];
-  monthly_rental_estimate_usd: number;
+  monthly_rental_estimate_usd: number | null;
   existing_only_capacity: number;
-  staffing_shortfall: number;
-  number_shortfall: number;
-  minimum_additional_numbers: number;
-  proposed_additional_numbers: number;
+  staffing_shortfall: number | null;
+  number_shortfall: number | null;
+  minimum_additional_numbers: number | null;
+  proposed_additional_numbers: number | null;
   forecast_attempts: number;
   optimality_scope: string;
+  optimality?: string;
+  schedule_scope?: string;
+  binding_shortfall?: number | null;
+  setup_shortfall?: number | null;
+  planning_limited?: boolean;
+  existing_schedule?: { lead_id: string; number_id: string; at: string }[];
 }
 export function NumbersPage() {
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
@@ -458,6 +464,17 @@ export function NumbersPage() {
         <section className="card proposal" data-testid="capacity-proposal">
           <span className="eyebrow">PLAN BEFORE PROCUREMENT</span>
           <h2>Regional capacity proposal</h2>
+          {proposal.schedule_scope && (
+            <p className="pill subtle">Declared staffed periods</p>
+          )}
+          {proposal.planning_limited && (
+            <p className="notice">
+              The bounded planning pass is incomplete. Shown schedules are
+              feasible examples; a minimum or remaining bottleneck has not been
+              established. Narrow the horizon or cohort to review a smaller
+              plan.
+            </p>
+          )}
           <dl className="capacity-summary">
             <div>
               <dt>Due attempt demand</dt>
@@ -469,16 +486,34 @@ export function NumbersPage() {
             </div>
             <div>
               <dt>Staffing shortfall</dt>
-              <dd>{proposal.staffing_shortfall}</dd>
+              <dd>{proposal.staffing_shortfall ?? "Not established"}</dd>
             </div>
             <div>
               <dt>Number shortfall</dt>
-              <dd>{proposal.number_shortfall}</dd>
+              <dd>{proposal.number_shortfall ?? "Not established"}</dd>
             </div>
             <div>
-              <dt>Minimum additional numbers</dt>
-              <dd>{proposal.minimum_additional_numbers}</dd>
+              <dt>
+                {proposal.optimality === "best_feasible_found"
+                  ? "Best additional-number proposal"
+                  : "Minimum additional numbers"}
+              </dt>
+              <dd>
+                {proposal.minimum_additional_numbers ?? "Not established"}
+              </dd>
             </div>
+            {proposal.schedule_scope && (
+              <>
+                <div>
+                  <dt>Stable-identity shortfall</dt>
+                  <dd>{proposal.binding_shortfall ?? "Not established"}</dd>
+                </div>
+                <div>
+                  <dt>Setup-delay shortfall</dt>
+                  <dd>{proposal.setup_shortfall ?? "Not established"}</dd>
+                </div>
+              </>
+            )}
           </dl>
           <p className="fine">
             {proposal.optimality_scope}. Pending inventory requires review
@@ -499,16 +534,19 @@ export function NumbersPage() {
                   <td>{r.region}</td>
                   <td>{r.eligible_leads}</td>
                   <td>{r.healthy_existing}</td>
-                  <td>{r.proposed_additional}</td>
+                  <td>{r.proposed_additional ?? "Not established"}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           <p className="small muted">
-            Indicative monthly rental: $
-            {proposal.monthly_rental_estimate_usd.toFixed(2)}. New rentals are
-            blocked under the no-subscription policy. Additional shared numbers
-            are planning scenarios only. Existing rental obligations remain.
+            Indicative monthly rental:{" "}
+            {proposal.monthly_rental_estimate_usd === null
+              ? "Not established"
+              : `$${proposal.monthly_rental_estimate_usd.toFixed(2)}`}
+            . New rentals are blocked under the no-subscription policy.
+            Additional shared numbers are planning scenarios only. Existing
+            rental obligations remain.
           </p>
         </section>
       )}

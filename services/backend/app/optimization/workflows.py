@@ -27,6 +27,8 @@ DEFAULTS = {
     "handling_seconds": 120,
     "daily_capacity_per_number": 40,
     "training_min_rows": 100,
+    "staffed_windows": [],
+    "additional_ready_after_hours": 0,
 }
 
 
@@ -357,8 +359,13 @@ class OptimizationWorkflows(ComparisonWorkflows):
             else self.scoped(s, "campaigns", p)[0]
         )
         policy = self.required(s, "policy_versions", campaign.data["policy_id"], p).data
+        bindings = {r.data["lead_id"]: r.data["number_id"] for r in self.scoped(s, "lead_number_bindings", p)}
         leads = [
-            {**doc(lead), "suppressed": self.suppressed(s, p, lead.data["phone"])}
+            {
+                **doc(lead),
+                "suppressed": self.suppressed(s, p, lead.data["phone"]),
+                "bound_number_id": bindings.get(lead.id),
+            }
             for lead in self.scoped(s, "leads", p)
             if lead.data["campaign_id"] == campaign.id
         ]
@@ -399,6 +406,8 @@ class OptimizationWorkflows(ComparisonWorkflows):
             handling_seconds=config["handling_seconds"],
             daily_capacity_per_number=capacity or config["daily_capacity_per_number"],
             policy=policy,
+            staffed_windows=config["staffed_windows"],
+            additional_ready_after_hours=config["additional_ready_after_hours"],
         )
 
     def optimization_report(self, p, epoch=None):

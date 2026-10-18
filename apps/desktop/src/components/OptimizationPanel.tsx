@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { date, label, useWorkspace } from "../context";
 import { TrialControls, type ControlledComparison } from "./TrialControls";
 import { ConversationLearning } from "./ConversationLearning";
+import { Staffing, type StaffedWindow } from "./Staffing";
 
 interface OptimizationSettings {
   conversion_goal: string;
@@ -13,6 +14,8 @@ interface OptimizationSettings {
   handling_seconds: number;
   daily_capacity_per_number: number;
   training_min_rows: number;
+  staffed_windows: StaffedWindow[];
+  additional_ready_after_hours: number;
 }
 interface GoalPreview {
   campaign_version: number;
@@ -28,8 +31,9 @@ interface OptimizationReport {
   settings: OptimizationSettings;
   forecast: {
     capacity_shortfall: number;
-    staffing_shortfall: number;
-    number_shortfall: number;
+    staffing_shortfall: number | null;
+    number_shortfall: number | null;
+    planning_limited?: boolean;
     regions: {
       region: string;
       forecast_attempts: number;
@@ -37,7 +41,7 @@ interface OptimizationReport {
       usable_existing_capacity: number;
       general_fallback_capacity: number;
       capacity_waiting_for_review: number;
-      proposed_additional: number;
+      proposed_additional: number | null;
     }[];
   };
   numbers: {
@@ -299,6 +303,14 @@ export function OptimizationPanel({
                   />
                 </label>
               </div>
+              <Staffing
+                windows={settings.staffed_windows || []}
+                delay={settings.additional_ready_after_hours || 0}
+                onChange={(value) => change("staffed_windows", value)}
+                onDelay={(value) =>
+                  change("additional_ready_after_hours", value)
+                }
+              />
               <label className="check-row">
                 <input
                   type="checkbox"
@@ -439,18 +451,24 @@ export function OptimizationPanel({
                   <td>{region.usable_existing_capacity}</td>
                   <td>{region.general_fallback_capacity}</td>
                   <td>{region.capacity_waiting_for_review}</td>
-                  <td>{region.proposed_additional}</td>
+                  <td>{region.proposed_additional ?? "Not established"}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        {report.forecast.capacity_shortfall > 0 && (
-          <p className="fine">
-            {report.forecast.staffing_shortfall} attempts exceed declared rep
-            time; {report.forecast.number_shortfall} staffed attempts lack
-            usable number capacity. These are separate constraints.
+        {report.forecast.planning_limited ? (
+          <p className="notice">
+            Allocation is incomplete; remaining bottlenecks are not established.
           </p>
+        ) : (
+          report.forecast.capacity_shortfall > 0 && (
+            <p className="fine">
+              {report.forecast.staffing_shortfall} attempts exceed declared rep
+              time; {report.forecast.number_shortfall} staffed attempts lack
+              usable number capacity. These are separate constraints.
+            </p>
+          )
         )}
         <h3>Number evidence and workload</h3>
         <div className="optimization-table">

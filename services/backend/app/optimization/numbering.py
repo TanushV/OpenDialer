@@ -153,6 +153,8 @@ def capacity_forecast(
     handling_seconds=120,
     daily_capacity_per_number=40,
     policy=None,
+    staffed_windows=None,
+    additional_ready_after_hours=0,
 ):
     if (
         daily_capacity_per_number < 1
@@ -162,6 +164,21 @@ def capacity_forecast(
     ):
         raise ValueError("Positive bounded horizon/capacity and nonnegative available rep time required")
     policy = policy or {}
+    if staffed_windows:
+        from app.optimization.capacity import time_forecast
+
+        return time_forecast(
+            leads,
+            inventory,
+            now=now,
+            horizon_hours=horizon_hours,
+            rep_minutes=rep_minutes,
+            handling_seconds=handling_seconds,
+            daily_capacity_per_number=daily_capacity_per_number,
+            policy=policy,
+            staffed_windows=staffed_windows,
+            additional_ready_after_hours=additional_ready_after_hours,
+        )
     end, demand = now + timedelta(hours=horizon_hours), {}
     callback_demand, eligible_counts = {}, {}
     unknown_windows = 0

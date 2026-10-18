@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 
 from fastapi import Depends
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 from app.db import audit, doc, emit, put, uid, update
 from app.optimization.goals import goal_plan
@@ -12,6 +12,18 @@ from app.service import fail
 
 class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class StaffedWindow(Strict):
+    start_at: AwareDatetime
+    end_at: AwareDatetime
+    reps: int = Field(ge=1, le=100, strict=True)
+
+    @model_validator(mode="after")
+    def ordered(self):
+        if self.end_at <= self.start_at or (self.end_at - self.start_at).total_seconds() > 7 * 86400:
+            raise ValueError("A staffed window must be positive and at most seven days")
+        return self
 
 
 class OptimizationSettings(Strict):
@@ -25,6 +37,15 @@ class OptimizationSettings(Strict):
     handling_seconds: float | None = Field(default=None, ge=10, le=7200)
     daily_capacity_per_number: int | None = Field(default=None, ge=1, le=1000)
     training_min_rows: int | None = Field(default=None, ge=100, le=20000)
+    staffed_windows: list[StaffedWindow] | None = Field(default=None, max_length=100)
+    additional_ready_after_hours: int | None = Field(default=None, ge=0, le=168)
+
+    @model_validator(mode="after")
+    def distinct_windows(self):
+        windows = sorted(self.staffed_windows or [], key=lambda w: w.start_at)
+        if any(a.end_at > b.start_at for a, b in zip(windows, windows[1:], strict=False)):
+            raise ValueError("Staffed windows cannot overlap; specify the concurrent rep count once")
+        return self
 
 
 class Conversion(Strict):
@@ -301,6 +322,11 @@ def register_optimization(app, service, principal, administrator):
     @app.put("/v1/admin/optimization")
     def configure(body: OptimizationSettings, p=Depends(administrator)):
         values = body.model_dump(exclude_none=True, exclude={"expected_campaign_version"})
+        if body.staffed_windows is not None:
+            values["staffed_windows"] = [
+                {"start_at": w.start_at.isoformat(), "end_at": w.end_at.isoformat(), "reps": w.reps}
+                for w in sorted(body.staffed_windows, key=lambda w: w.start_at)
+            ]
         with service.db.transaction() as s:
             service.db.authorize_stream(s, p)
             campaign = service.scoped(s, "campaigns", p)[0]
