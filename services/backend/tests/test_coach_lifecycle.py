@@ -182,6 +182,12 @@ async def test_cancel_during_budget_storage_releases_proven_unsent_hold(workspac
         task.cancel()
         release.set()
         await asyncio.gather(task, return_exceptions=True)
+        await asyncio.sleep(0.05)
+        assert requests == []
+        assert holds(service, p)[0]["status"] == "released"
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
 
 
 @pytest.mark.asyncio
@@ -192,12 +198,16 @@ async def test_private_practice_uses_the_same_capacity_before_billing(workspace,
     await service.practice(p, "How should I clarify a process constraint?")
     assert requests == []
     with service.db.transaction(False) as s:
-        assert not [r for r in service.scoped(s, "usage_ledger", p) if r.data.get("work_kind") == "coaching_practice"]
+        assert not [
+            r for r in service.scoped(s, "usage_ledger", p) if r.data.get("work_kind") == "coaching_practice"
+        ]
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("change", ["disabled", "transcription_disabled", "rep_changed"])
-async def test_authority_changed_during_inference_cannot_publish_private_advice(workspace, app, monkeypatch, change):
+async def test_authority_changed_during_inference_cannot_publish_private_advice(
+    workspace, app, monkeypatch, change
+):
     call, p, _, changes = setup(workspace, app, monkeypatch)
     service = app.state.service
     turn(service, p, call, "authority")
@@ -213,13 +223,17 @@ async def test_authority_changed_during_inference_cannot_publish_private_advice(
                 update(get(s, "call_attempts", call["id"]), transcription_disabled=True)
 
     changes["during"] = revoke
-    assert (await service.coach_turn(p, call["id"], urgent=True, question="Clarify?"))["action"] == "NO_ACTION"
+    assert (await service.coach_turn(p, call["id"], urgent=True, question="Clarify?"))[
+        "action"
+    ] == "NO_ACTION"
     with service.db.transaction(False) as s:
         assert not service.scoped(s, "coach_events", p)
 
 
 @pytest.mark.asyncio
-async def test_provider_breaker_keeps_current_cached_knowledge_without_more_charges(workspace, app, monkeypatch):
+async def test_provider_breaker_keeps_current_cached_knowledge_without_more_charges(
+    workspace, app, monkeypatch
+):
     call, p, _, _ = setup(workspace, app, monkeypatch)
     service, requests = app.state.service, []
     turn(service, p, call, "fallback", text="We have no budget for this.")
@@ -236,9 +250,3 @@ async def test_provider_breaker_keeps_current_cached_knowledge_without_more_char
         result = await service.coach_turn(p, call["id"], urgent=True)
         assert result["action"] == "SHOW_CARD" and result["kind"] == "cached_tip"
     assert len(requests) == 3 and len(holds(service, p)) == 3
-        await asyncio.sleep(0.05)
-        assert requests == []
-        assert holds(service, p)[0]["status"] == "released"
-    finally:
-        release.set()
-        await asyncio.gather(task, return_exceptions=True)
