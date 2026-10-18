@@ -312,3 +312,14 @@ async def test_slow_budget_admission_does_not_send_expired_raw_text(workspace, a
         entries = service.scoped(s, "usage_ledger", p)
         holds = [item for item in entries if item.data.get("work_kind") == "live_coach"]
         assert holds and all(item.data["status"] == "released" for item in holds)
+
+
+@pytest.mark.asyncio
+async def test_help_hotkey_bypasses_muting_without_requiring_a_typed_question(workspace, app, monkeypatch):
+    call, p, _, _ = setup(workspace, app, monkeypatch)
+    service = app.state.service
+    with service.db.transaction() as s:
+        update(get(s, "call_attempts", call["id"]), coach_preferences={"muted": True})
+    turn(service, p, call, "hotkey")
+    result = await service.coach_turn(p, call["id"], urgent=True)
+    assert result["action"] == "SHOW_CARD"
