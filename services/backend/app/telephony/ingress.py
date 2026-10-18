@@ -62,6 +62,20 @@ class WebhookIngress:
                     now=self.clock(),
                 )
             receipt_id, expires = receipt.id, dt(receipt.data["raw_expires_at"])
+            scope = None
+            if event["event_type"] == "call.transcription":
+                call = self._webhook_call(s, tenant_id, event["payload"])
+                if call:
+                    p = {"tenant_id": tenant_id, "seller_id": call.seller_id}
+                    scope = tenant_id + ":" + call.id
+                    if self.speech_revoked(s, p, call):
+                        update(
+                            receipt,
+                            status="processed",
+                            ignored_reason="permission_revoked",
+                            processed_at=self.clock().isoformat(),
+                        )
+                        return {"received": True, "receipt_id": receipt_id, "status": "processed"}
             self.jobs.enqueue_in(
                 s,
                 "webhook",
@@ -72,7 +86,7 @@ class WebhookIngress:
             )
             if event["event_type"] == "call.transcription":
                 # The worker must see the short-lived payload as soon as its job commits.
-                self.raw.put("webhook:" + receipt_id, event["payload"], expires_at=expires)
+                self.raw.put("webhook:" + receipt_id, event["payload"], expires_at=expires, scope=scope)
         return {"received": True, "receipt_id": receipt_id, "status": receipt.data["status"]}
 
     async def process_webhook(self, tenant_id, receipt_id):
@@ -118,7 +132,12 @@ class WebhookIngress:
                         status = "unmatched"
                 else:
                     call = self._webhook_call(s, tenant_id, data["payload"])
-                    if call:
+                    if call and self.speech_revoked(
+                        s, {"tenant_id": tenant_id, "seller_id": call.seller_id}, call
+                    ):
+                        status = "processed"
+                        update(receipt, ignored_reason="permission_revoked")
+                    elif call:
                         update(
                             call,
                             raw_expires_at=max(call.data.get("raw_expires_at", ""), data["raw_expires_at"]),

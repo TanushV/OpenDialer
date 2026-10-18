@@ -27,11 +27,13 @@ class EphemeralBuffer:
         self.max_entries = max_entries
         self.per_call_bytes, self.per_call_entries = min(per_call_bytes, max_bytes), per_call_entries
         self._items = OrderedDict()
+        self._revoked = {}
         self._lock = threading.RLock()
         self.bytes_used = 0
 
     def _purge(self):
         now, mono = self.clock(), time.monotonic()
+        self._revoked = {scope: until for scope, until in self._revoked.items() if until > mono}
         for key, (deadline, monotonic_deadline, _, size, _) in list(self._items.items()):
             if deadline <= now or monotonic_deadline <= mono:
                 del self._items[key]
@@ -40,6 +42,8 @@ class EphemeralBuffer:
     def put(self, key, value, *, expires_at=None, scope=None, revision=None):
         with self._lock:
             self._purge()
+            if scope in self._revoked:
+                return
             deadline = min(
                 expires_at or self.clock() + timedelta(seconds=self.ttl),
                 self.clock() + timedelta(seconds=self.ttl),
@@ -89,7 +93,16 @@ class EphemeralBuffer:
     def clear(self):
         with self._lock:
             self._items.clear()
+            self._revoked.clear()
             self.bytes_used = 0
+
+    def revoke_scope(self, scope):
+        with self._lock:
+            self._purge()
+            self._revoked[scope] = time.monotonic() + self.ttl
+            for key, item in list(self._items.items()):
+                if item[4] == scope:
+                    self.discard(key)
 
 
 def event_metadata(payload):
@@ -220,6 +233,24 @@ class SpeechPrivacy:
     def raw_key(self, p, call_id, segment_id):
         return f"speech:{p['tenant_id']}:{p['seller_id']}:{call_id}:{segment_id}"
 
+    def speech_revoked(self, s, p, call):
+        from app.compliance.consent import permission_state
+        from app.db import update
+
+        if (
+            call.data.get("transcription_disabled")
+            or permission_state(self, s, p, call.data.get("endpoint_id"), "transcription")[1]
+        ):
+            if not call.data.get("transcription_disabled"):
+                update(
+                    call,
+                    transcription_disabled=True,
+                    transcript_version=call.data.get("transcript_version", 0) + 1,
+                )
+            self.raw.revoke_scope(p["tenant_id"] + ":" + call.id)
+            return True
+        return False
+
     def transcript_metadata(self, s, p, call_id):
         from sqlalchemy import select
 
@@ -266,6 +297,8 @@ class SpeechPrivacy:
         return sorted(result, key=lambda item: (item.get("server_received_at", ""), item["segment_id"]))
 
     def raw_status(self, call, segments):
+        if call.data.get("transcription_disabled"):
+            return "permission_revoked"
         if segments:
             return "available_temporarily"
         from app.service import dt
@@ -424,6 +457,10 @@ class SpeechPrivacy:
         from sqlalchemy import select
 
         from app.db import MODELS, update
+
+        call = self.required(s, "call_attempts", call_id, p)
+        if self.speech_revoked(s, p, call):
+            return {"unavailable": "permission_revoked", "expired": True}, False
 
         result, phone = self._accept_transcript(
             p, call_id, segment, received_at, session=s, raw_writes=raw_writes

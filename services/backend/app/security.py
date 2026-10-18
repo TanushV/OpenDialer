@@ -37,6 +37,59 @@ class Vault:
             os.fsync(f.fileno())
         temp.replace(path)
 
+    def append_journal(self, name, record):
+        path = self.directory.parent / (name + "-journal.enc")
+        encoded = self.cipher.encrypt(json.dumps(record, sort_keys=True).encode()) + b"\n"
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        try:
+            # A partial append is an error, never an acknowledged durable denial.
+            if os.write(descriptor, encoded) != len(encoded):
+                raise OSError("Incomplete journal write")
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        if os.name != "nt":
+            descriptor = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+
+    def read_journal(self, name):
+        path = self.directory.parent / (name + "-journal.enc")
+        if not path.exists():
+            return []
+        result = []
+        try:
+            with path.open("rb") as stream:
+                while line := stream.readline(1_000_001):
+                    if len(line) > 1_000_000 or not line.endswith(b"\n"):
+                        raise ValueError("Incomplete journal record")
+                    value = json.loads(self.cipher.decrypt(line.strip()))
+                    if not isinstance(value, dict):
+                        raise ValueError("Invalid journal record")
+                    result.append(value)
+        except Exception:
+            raise HTTPException(
+                409, "Journal cannot be verified; recover its protected copy before resuming"
+            ) from None
+        return result
+
+    def sync_journal(self, name):
+        """Confirm repaired storage before releasing an earlier failed append hold."""
+        path = self.directory.parent / (name + "-journal.enc")
+        descriptor = os.open(path, os.O_RDWR)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        if os.name != "nt":
+            descriptor = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+
 
 def issue_session(s, settings, user, now):
     session_id = uid()

@@ -526,19 +526,9 @@ class Service(ReservationPlanner):
         ]
         state_current = bool(state)
 
-        consent_rows = s.info.get("row_cache", {}).get(("consent_evidence", p["tenant_id"], p["seller_id"]))
-        if consent_rows is None:
-            model = MODELS["consent_evidence"]
-            consent_rows = s.scalars(
-                select(model).where(
-                    model.tenant_id == p["tenant_id"],
-                    model.seller_id == p["seller_id"],
-                    model.ctx_key == endpoint.id,
-                )
-            )
-        consents = [r.data for r in consent_rows if r.data.get("endpoint_id") == endpoint.id]
-        revoked = any(c.get("revoked") for c in consents)
-        granted = any(permission in c.get("permissions", []) and not c.get("revoked") for c in consents)
+        from app.compliance.consent import permission_state
+
+        granted, revoked = permission_state(self, s, p, endpoint.id, permission)
         registry_valid = bool(registry and (self.settings.simulation or not registry.data.get("synthetic")))
         listed = registry_contains(s, registry, lead.data["phone"]) if registry_valid else False
         healthy = number and number.data["lifecycle"] in {"healthy", "limited_real_use"}
@@ -558,6 +548,8 @@ class Service(ReservationPlanner):
             now=self.clock(),
             seller_approved=seller.data.get("approved", False),
             authorization_reconciled=not seller.data.get("restore_hold", False),
+            journal_reconciled=not seller.data.get("journal_recovery_required", False)
+            and (p["tenant_id"], p["seller_id"]) not in self.__dict__.get("_journal_faults", set()),
             policy_published=config.get("approved", False)
             and (self.settings.simulation or not config.get("synthetic")),
             outreach_hold=bool(lead.data.get("outreach_hold") or lead.data.get("conversion_goal_achieved"))

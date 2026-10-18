@@ -95,6 +95,11 @@ class Dialer(
                 blockers.append("SELLER_NOT_APPROVED")
             if seller.data.get("restore_hold"):
                 blockers.append("RESTORE_RECONCILIATION_REQUIRED")
+            if seller.data.get("journal_recovery_required") or (
+                p["tenant_id"],
+                p["seller_id"],
+            ) in self.__dict__.get("_journal_faults", set()):
+                blockers.append("JOURNAL_RECOVERY_REQUIRED")
             if not any(
                 n.data["lifecycle"] in {"healthy", "limited_real_use"}
                 for n in self.scoped(s, "number_inventory", p)
@@ -324,6 +329,7 @@ class Dialer(
         return {"backup_id": backup_id, "checksum": hashlib.sha256(blob).hexdigest(), "encrypted": True}
 
     def restore(self, p, backup_id):
+        from app.compliance.consent import journal_entries, replay_in
         from app.privacy import persistent_document
 
         if not re.fullmatch(r"[0-9a-f-]{36}", backup_id):
@@ -348,6 +354,7 @@ class Dialer(
             if journal.exists()
             else []
         )
+        revoked = journal_entries(self)
         for kind, values in payload.get("tables", {}).items():
             if kind not in MODELS or any(
                 raw.get("tenant_id") != p["tenant_id"]
@@ -358,6 +365,9 @@ class Dialer(
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             self._restore_operator(s, p)
+            current_seller = self.required(s, "sellers", p["seller_id"], p).data
+            recovery_required = current_seller.get("journal_recovery_required", False)
+            expected_denials = dict(current_seller.get("journal_expected", {}))
             # Preserve newer denials and append-only audit records across rollback.
             denials = {
                 kind: [
@@ -403,6 +413,19 @@ class Dialer(
                     current = {r["external_key"] or r["id"]: r for r in denials[kind]}
                     values = list({**{r["external_key"] or r["id"]: r for r in values}, **current}.values())
                 for raw in values:
+                    if kind == "sellers":
+                        raw = {
+                            **raw,
+                            "data": {
+                                **raw["data"],
+                                "journal_recovery_required": recovery_required
+                                or raw["data"].get("journal_recovery_required", False),
+                                "journal_expected": {
+                                    **raw["data"].get("journal_expected", {}),
+                                    **expected_denials,
+                                },
+                            },
+                        }
                     s.add(
                         model(
                             **{
@@ -449,6 +472,7 @@ class Dialer(
             for command in self.scoped(s, "command_outbox", p):
                 if command.data.get("status") in {"pending", "sending"}:
                     update(command, status="uncertain", restore_hold=True)
+            replay_in(self, s, p=p, entries=revoked)
             seller = self.required(s, "sellers", p["seller_id"], p)
             update(seller, restore_hold=True)
             for user in self.scoped(s, "users", p):
@@ -472,6 +496,8 @@ class Dialer(
             fail(403, "Current administrator authority is required for restore")
 
     def _restore_journal(self, p):
+        from app.compliance.consent import journal_entries
+
         records, fingerprint = {}, hashlib.sha256()
         path = self.settings.data_dir / "authorization-journal.enc"
         if path.exists():
@@ -487,6 +513,9 @@ class Dialer(
                         **entry,
                         "provider_id": entry.get("provider_id") or previous.get("provider_id"),
                     }
+        for entry in journal_entries(self):
+            if entry["tenant_id"] == p["tenant_id"] and entry["seller_id"] == p["seller_id"]:
+                fingerprint.update(json.dumps(entry, sort_keys=True).encode())
         return records, fingerprint.hexdigest()
 
     def _restore_snapshot(self, p, provider_ids):
@@ -572,13 +601,24 @@ class Dialer(
         return True
 
     def _restore_release(self, p, fingerprint, seller_version, review_reference, count):
+        from app.compliance.consent import journal_entries, replay_in, verify_recovery
+
         with self.db.transaction() as session:
             self.db.authorize_stream(session, p)
             self._restore_operator(session, p)
             seller = self.required(session, "sellers", p["seller_id"], p)
             if seller.version != seller_version or self._restore_journal(p)[1] != fingerprint:
                 fail(409, "Restore or authorization journal changed; reconcile again before resuming")
-            update(seller, restore_hold=False, restore_review_reference=review_reference)
+            revocations = journal_entries(self)
+            verify_recovery(self, session, p, revocations)
+            replay_in(self, session, p=p, entries=revocations)
+            update(
+                seller,
+                restore_hold=False,
+                journal_recovery_required=False,
+                journal_expected={},
+                restore_review_reference=review_reference,
+            )
             audit(
                 session,
                 p["tenant_id"],
@@ -589,6 +629,7 @@ class Dialer(
                 self.clock(),
                 {"journal_calls": count, "reference": review_reference},
             )
+        self.__dict__.get("_journal_faults", set()).discard((p["tenant_id"], p["seller_id"]))
         return {"reconciled": True, "journal_calls": count, "outbound_remains_paused_until_rep_ready": True}
 
     async def reconcile_restore(self, p, review_reference, provider_ids=None):

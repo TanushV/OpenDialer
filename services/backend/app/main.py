@@ -19,6 +19,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.administration import Dialer
+from app.compliance.consent import ConsentChange
+from app.compliance.consent import record as record_consent
+from app.compliance.consent import replay as replay_consent
 from app.compliance.operating import DNCAuthorization, bind_operating_api
 from app.config import Settings
 from app.db import Database, Event, audit, doc, put, rows, update
@@ -248,6 +251,11 @@ def create_app(settings=None, *, clock=None, carrier=None):
     db = Database(settings.database_url, encryption_key=settings.secret_key)
     service = Dialer(db, settings, clock, carrier)
     service.privacy_cutover()
+    try:
+        replay_consent(service)
+    except Exception:
+        db.engine.dispose()
+        raise
 
     @asynccontextmanager
     async def lifespan(app):
@@ -1251,27 +1259,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
             return doc(seller)
 
     @app.post("/v1/admin/consent")
-    def consent(data: dict, p=Depends(administrator)):
-        if not data.get("evidence_reference") or not data.get("permissions"):
-            fail(422, "Permission scope and evidence required")
-        with db.transaction() as session:
-            endpoint = service.required(session, "phone_endpoints", data.get("endpoint_id"), p)
-            return doc(
-                put(
-                    session,
-                    "consent_evidence",
-                    p["tenant_id"],
-                    p["seller_id"],
-                    {
-                        "endpoint_id": endpoint.id,
-                        "permissions": data["permissions"],
-                        "revoked": bool(data.get("revoked")),
-                        "evidence_reference": data["evidence_reference"],
-                        "acquired_at": data.get("acquired_at", clock().isoformat()),
-                    },
-                    now=clock(),
-                )
-            )
+    def consent(data: ConsentChange, p=Depends(administrator)):
+        return record_consent(service, p, data.model_dump(mode="json"))
 
     @app.post("/v1/telephony/agent")
     async def agent_leg(p=Depends(principal)):
