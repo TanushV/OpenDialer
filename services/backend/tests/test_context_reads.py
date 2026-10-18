@@ -449,3 +449,27 @@ def test_helper_preserves_human_notes_but_does_not_reuse_invalidated_ai_summary(
     assert prior["human_notes"] == "Prior human note 0"
     assert not prior["rundown"]
     assert prior["analysis_stale"] is True
+
+
+def test_context_migration_still_accepts_the_documented_unversioned_bootstrap(tmp_path):
+    from pathlib import Path
+
+    from alembic import command
+    from alembic.config import Config
+    from app.migrate import migrate_database
+    from sqlalchemy import create_engine, text
+
+    root = Path(__file__).resolve().parents[1]
+    url = f"sqlite:///{tmp_path}/bootstrap.db"
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "migrations"))
+    config.set_main_option("sqlalchemy.url", url)
+    command.upgrade(config, "0001_initial")
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        connection.execute(text("DROP TABLE alembic_version"))
+    engine.dispose()
+    migrate_database(url)
+    engine = create_engine(url)
+    assert "ctx_key" in {c["name"] for c in inspect(engine).get_columns("research_facts")}
+    engine.dispose()
