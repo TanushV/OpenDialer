@@ -51,7 +51,7 @@ def test_additive_optimization_upgrade_preserves_existing_encrypted_records(tmp_
             )
         assert (
             connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
-            == "0007_command_kinds"
+            == "0008_usage_receipts"
         )
     migrate_database(url)
     engine.dispose()

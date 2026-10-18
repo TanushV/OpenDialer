@@ -241,6 +241,7 @@ def test_recorded_provider_cost_reconciles_the_optional_budget_hold(workspace, a
         InferenceResult({}, {"cost": 0.0001}, "receipt"),
         object_id="call",
         reserved=0,
+        request_key="one-request",
     )
     with service.db.transaction(False) as s:
         assert service.budget_ok(s, p, estimated=0.001), [
