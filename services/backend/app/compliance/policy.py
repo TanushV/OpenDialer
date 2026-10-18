@@ -9,6 +9,8 @@ class CallContext:
     seller_approved: bool = False
     authorization_reconciled: bool = True
     policy_published: bool = False
+    outreach_hold: bool = False
+    callback_owner_matches: bool = True
     endpoint_valid: bool = False
     ownership: str = "unknown"
     timezone: str | None = None
@@ -57,6 +59,8 @@ def authorize(c: CallContext) -> Decision:
     require(c.seller_approved, "SELLER_NOT_APPROVED")
     require(c.authorization_reconciled, "RESTORE_RECONCILIATION_REQUIRED")
     require(c.policy_published, "POLICY_NOT_PUBLISHED")
+    require(not c.outreach_hold, "OUTREACH_HOLD")
+    require(c.callback_owner_matches, "CALLBACK_ASSIGNED_TO_ANOTHER_REP")
     require(c.endpoint_valid, "INVALID_ENDPOINT")
     require(c.ownership != "wrong_party", "WRONG_PARTY")
     require(not c.internal_suppressed, "INTERNAL_SUPPRESSION")

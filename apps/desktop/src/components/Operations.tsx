@@ -1,7 +1,6 @@
 import {
   ArrowRight,
   Check,
-  CheckCheck,
   ChevronRight,
   Layers3,
   Plus,
@@ -20,6 +19,8 @@ import type { Lead, NumberRecord, Packet } from "../types";
 import { Procurement, Variants, DeferredScripts } from "./AdminWorkflows";
 import { AdvancedIntelligence } from "./AdvancedIntelligence";
 import { NumberOrders } from "./NumberOrders";
+import { FollowupTasks } from "./FollowupTasks";
+import { ProspectBrief } from "./ProspectBrief";
 
 export function LeadsPage() {
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
@@ -226,6 +227,7 @@ export function LeadsPage() {
                 </button>
               </p>
             ))}
+            <ProspectBrief packet={packet} onChange={setPacket} />
             <h3>Previous outcomes</h3>
             {packet.previous_calls.map((c) => (
               <p key={c.id}>
@@ -703,34 +705,7 @@ export function IntelligencePage() {
         <section className="card padded">
           <span className="eyebrow">FOLLOW-THROUGH</span>
           <h2>Promises worth keeping</h2>
-          {w.tasks.length ? (
-            w.tasks.map((t) => (
-              <div className="task" key={t.id}>
-                <div>
-                  <strong>{t.action}</strong>
-                  <p>
-                    {date(t.due_at)} · {label(t.status)}
-                  </p>
-                </div>
-                <button
-                  className="icon-button"
-                  aria-label={`Complete task ${t.action}`}
-                  onClick={() =>
-                    void run(async () => {
-                      await api(`/v1/tasks/${t.id}`, "PATCH", {
-                        status: "completed",
-                      });
-                      await refresh();
-                    })
-                  }
-                >
-                  <CheckCheck size={18} />
-                </button>
-              </div>
-            ))
-          ) : (
-            <Empty text="Agreed next steps will appear here, with their evidence." />
-          )}
+          <FollowupTasks />
           <div className="section-rule" />
           <span className="eyebrow">COVERAGE BEFORE PROPENSITY</span>
           <p className="muted small">

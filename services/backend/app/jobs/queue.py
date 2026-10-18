@@ -32,22 +32,28 @@ class JobQueue:
 
     def enqueue(self, queue, payload, key, *, tenant_id, priority=0, max_attempts=3):
         with self.db.transaction() as s:
-            previous = s.scalar(select(Job).where(Job.tenant_id == tenant_id, Job.key == key))
-            if previous:
-                return jobdoc(previous)
-            job = Job(
-                id=uid(),
-                tenant_id=tenant_id,
-                queue=queue,
-                key=key,
-                payload=payload,
-                priority=priority,
-                max_attempts=max_attempts,
-                available_at=self.clock(),
+            return self.enqueue_in(
+                s, queue, payload, key, tenant_id=tenant_id, priority=priority, max_attempts=max_attempts
             )
-            s.add(job)
-            s.flush()
-            return jobdoc(job)
+
+    def enqueue_in(self, s, queue, payload, key, *, tenant_id, priority=0, max_attempts=3):
+        """Commit follow-on work in the same transaction as the change that requires it."""
+        previous = s.scalar(select(Job).where(Job.tenant_id == tenant_id, Job.key == key))
+        if previous:
+            return jobdoc(previous)
+        job = Job(
+            id=uid(),
+            tenant_id=tenant_id,
+            queue=queue,
+            key=key,
+            payload=payload,
+            priority=priority,
+            max_attempts=max_attempts,
+            available_at=self.clock(),
+        )
+        s.add(job)
+        s.flush()
+        return jobdoc(job)
 
     def claim(self, queue, worker, lease_seconds=60, tenant_id=None):
         with self.db.transaction() as s:

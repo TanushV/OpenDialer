@@ -13,6 +13,7 @@ export interface Runtime {
 }
 export interface Lead {
   id: string;
+  version: number;
   name: string;
   phone: string;
   company: string;
@@ -26,6 +27,19 @@ export interface Lead {
   coverage_due_at: string;
   attempt_count: number;
   callback_due_at?: string;
+  outreach_hold?: string | null;
+}
+export interface FollowupTask {
+  id: string;
+  version: number;
+  call_id?: string | null;
+  lead_id: string;
+  owner_id?: string | null;
+  action: string;
+  due_at: string | null;
+  timezone?: string | null;
+  status: string;
+  source?: string;
 }
 export interface NumberRecord {
   id: string;
@@ -71,6 +85,7 @@ export interface Coach {
   evidence_segment_ids: string[];
 }
 export interface Call {
+  version: number;
   raw_evidence_status?: string;
   coach_preferences?: { muted?: boolean; pinned?: boolean };
   detached?: boolean;
@@ -113,6 +128,37 @@ export interface Fact {
   expires_at: string;
 }
 export interface Packet {
+  tasks?: FollowupTask[];
+  prospect_brief?: {
+    version: number;
+    evidence_status: string;
+    summary: string;
+    needs: EvidenceItem[];
+    unresolved: EvidenceItem[];
+    unknowns: string[];
+    human_notes: { call_id: string; text: string }[];
+    next_question: string;
+    last_outcome: string | null;
+    meeting: {
+      status: string;
+      due_at: string | null;
+      timezone: string | null;
+      source: string;
+      held: boolean;
+      invitation_sent: false;
+    } | null;
+  };
+  statistical_guidance?: {
+    human_probability: number;
+    right_party_given_human: number;
+    conversion_given_right_party: number;
+    conversion_goal: string;
+    samples: number;
+    conversion_samples: number;
+    uncertainty: string;
+    why_now: string;
+    as_of: string | null;
+  };
   lead: Lead;
   script: Script;
   research: {
@@ -228,13 +274,8 @@ export interface Workspace {
     metrics: Record<string, number>;
     checksum: string;
   }[];
-  tasks: {
-    id: string;
-    action: string;
-    due_at: string | null;
-    status: string;
-    lead_id: string;
-  }[];
+  tasks: FollowupTask[];
+  task_owners?: { id: string; name: string }[];
 }
 export interface EvidenceItem {
   text: string;

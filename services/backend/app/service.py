@@ -518,6 +518,11 @@ class Service(ReservationPlanner):
             authorization_reconciled=not seller.data.get("restore_hold", False),
             policy_published=config.get("approved", False)
             and (self.settings.simulation or not config.get("synthetic")),
+            outreach_hold=bool(lead.data.get("outreach_hold") or lead.data.get("conversion_goal_achieved"))
+            and not active,
+            callback_owner_matches=active
+            or not lead.data.get("callback_due_at")
+            or lead.data.get("callback_owner_id") in {None, p["user_id"]},
             endpoint_valid=endpoint.data["format_status"] == "valid"
             and endpoint.data.get("reachability_status") != "invalid_endpoint"
             and not endpoint.data.get("reassignment_review_required", False),
@@ -756,9 +761,13 @@ class Service(ReservationPlanner):
                 self.required(s, "campaigns", lead.data["campaign_id"], p).data["policy_id"],
                 p,
             )
+            ordinal = lead.data.get("attempt_count", 0) + 1
+            allowance = max(lead.data.get("attempt_allowance", 0), policy.data.get("max_attempts", 4))
+            update(call, attempt_ordinal=ordinal, attempt_allowance=allowance)
             update(
                 lead,
-                attempt_count=lead.data.get("attempt_count", 0) + 1,
+                attempt_count=ordinal,
+                attempt_allowance=allowance,
                 last_attempt_at=self.clock().isoformat(),
                 next_attempt_at=(
                     self.clock() + timedelta(seconds=policy.data.get("min_retry_seconds", 3600))

@@ -1986,3 +1986,22 @@ tbody tr:hover {
   font-size: 24px;
   margin: 6px 0;
 }
+
+.followup-task {
+  border-top: 1px solid var(--border, #ddd);
+  padding: 16px 0;
+}
+.followup-task .button-row {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.prospect-context {
+  margin: 12px 0;
+}
+.prospect-context summary {
+  cursor: pointer;
+  padding: 6px 0;
+}
+.prospect-context p {
+  margin: 6px 0;
+}

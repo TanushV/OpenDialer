@@ -185,6 +185,31 @@ class TelephonyWorkflows:
             if lease.data.get("call_id") == call.id and lease.data.get("active"):
                 update(lease, active=False)
 
+    def voicemail_reasons(self, s, p, call, asset, detach=False):
+        lead = self.required(s, "leads", call.data["lead_id"], p)
+        number = self.required(s, "number_inventory", call.data["number_id"], p)
+        campaign = self.required(s, "campaigns", lead.data["campaign_id"], p)
+        policy = self.required(s, "policy_versions", campaign.data["policy_id"], p).data
+        reasons = []
+        # Freeze the original allowance. A policy/list edit cannot manufacture a final attempt.
+        ordinal = call.data.get("attempt_ordinal")
+        allowance = call.data.get("attempt_allowance")
+        if not ordinal or not allowance or ordinal < max(allowance, policy.get("max_attempts", 4)):
+            reasons.append("FINAL_ATTEMPT_REQUIRED")
+        if not authorize(self.context(s, p, lead, number, permission="prerecorded", active=True)).allowed:
+            reasons.append("PRERECORDED_PERMISSION_NOT_APPROVED")
+        if (
+            not policy.get("voicemail_enabled")
+            or not policy.get("voicemail_optout_supported")
+            or asset not in policy.get("approved_assets", [])
+        ):
+            reasons.append("PRERECORDED_PERMISSION_OR_ASSET_NOT_APPROVED")
+        if detach and (
+            not policy.get("detached_topology_verified") or not policy.get("late_human_recovery_destination")
+        ):
+            reasons.append("DETACHED_TOPOLOGY_AND_HUMAN_RECOVERY_NOT_VERIFIED")
+        return reasons
+
     async def dispatch_controls(self, p):
         with self.db.transaction(False) as s:
             commands = [
@@ -203,6 +228,7 @@ class TelephonyWorkflows:
             await self.hangup(p, call["id"])
         for command in commands:
             with self.db.transaction() as s:
+                self.db.authorize_stream(s, p)
                 current = self.required(s, "command_outbox", command["id"], p)
                 if current.data["status"] != "pending":
                     continue
@@ -210,6 +236,20 @@ class TelephonyWorkflows:
                 call = self.required(
                     s, "followup_tasks" if inbound else "call_attempts", command["call_id"], p
                 )
+                if not inbound and command["action"] == "playback_start":
+                    reasons = self.voicemail_reasons(
+                        s,
+                        p,
+                        call,
+                        command["payload"].get("media_name"),
+                        call.data.get("detach_requested", False),
+                    )
+                    if call.data["state"] != "VM_PENDING":
+                        reasons.append("MAILBOX_NOT_READY")
+                    if reasons:
+                        update(current, status="cancelled", reasons=reasons)
+                        update(call, voicemail_result="blocked_before_playback")
+                        continue
                 if command["action"] in {"transcription_start", "record_start"}:
                     privacy = self.required(s, "sellers", p["seller_id"], p).data.get("operating_policy", {})
                     if command["action"] == "record_start" or (

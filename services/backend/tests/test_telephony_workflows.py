@@ -35,13 +35,13 @@ def test_agent_leg_is_server_created_and_live_ready_requires_verified_answer(wor
 
 
 def test_detached_voicemail_releases_rep_only_after_playback_and_retains_number_capacity(workspace, carrier):
-    call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
     c.post(
         f"/v1/admin/policies/{workspace['policy_id']}/publish",
         headers=h,
         json={
             "approved": True,
+            "max_attempts": 1,
             "permissions": ["live", "transcription", "prerecorded"],
             "voicemail_enabled": True,
             "voicemail_optout_supported": True,
@@ -51,6 +51,7 @@ def test_detached_voicemail_releases_rep_only_after_playback_and_retains_number_
             "late_human_recovery_destination": "sip:recovery@sip.telnyx.com",
         },
     )
+    call = start(workspace)
     for name in [
         "call.answered",
         "call.machine.detection.ended:machine",
@@ -150,19 +151,20 @@ def test_ready_responsible_rep_receives_inbound_transfer_through_durable_outbox(
 
 
 def test_voicemail_optout_gather_stays_active_until_call_ends(workspace, carrier):
-    call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
     c.post(
         f"/v1/admin/policies/{workspace['policy_id']}/publish",
         headers=h,
         json={
             "approved": True,
+            "max_attempts": 1,
             "permissions": ["live", "prerecorded"],
             "voicemail_enabled": True,
             "voicemail_optout_supported": True,
             "approved_assets": ["reviewed-vm"],
         },
     )
+    call = start(workspace)
     for name in [
         "call.answered",
         "call.machine.detection.ended:machine",

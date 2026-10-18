@@ -11,13 +11,16 @@ from app.intelligence import Application
 from app.number_operations import NumberOperations
 from app.optimization.learning import derive_labels
 from app.optimization.workflows import OptimizationWorkflows
+from app.rep_workflows import RepWorkflows
 from app.service import dt, fail
 from app.telephony.ingress import WebhookIngress
 from app.telephony.reducer import TERMINAL
 from app.telephony.workflows import TelephonyWorkflows
 
 
-class Dialer(NumberOperations, WebhookIngress, OptimizationWorkflows, TelephonyWorkflows, Application):
+class Dialer(
+    RepWorkflows, NumberOperations, WebhookIngress, OptimizationWorkflows, TelephonyWorkflows, Application
+):
     def metrics(self, p):
         with self.db.transaction(False) as s:
             leads = self.scoped(s, "leads", p)
@@ -166,6 +169,11 @@ class Dialer(NumberOperations, WebhookIngress, OptimizationWorkflows, TelephonyW
                 for j in s.scalars(select(Job).where(Job.tenant_id == p["tenant_id"]))
             ]
             current = {
+                "task_owners": [
+                    {"id": u.id, "name": u.data["name"]}
+                    for u in self.scoped(s, "users", p)
+                    if not u.data.get("disabled")
+                ],
                 "mode": self.settings.mode,
                 "simulation": self.settings.simulation,
                 "seller": doc(self.required(s, "sellers", p["seller_id"], p)),

@@ -1,5 +1,6 @@
 import { useSpeechExpiry } from "../state/useSpeechExpiry";
 import { LiveCoach } from "./LiveCoach";
+import { ProspectBrief } from "./ProspectBrief";
 import {
   ArrowRight,
   Check,
@@ -72,10 +73,15 @@ export function DialerPage() {
     setCall(await api<Call>(`/v1/calls/${id}`));
   }
   useEffect(() => {
-    const current = w.calls.find((c) => !terminal(c));
-    if (current && !call) {
+    const owned = w.calls.filter((c) => c.rep_id === w.user.id);
+    const current =
+      owned.find((c) => !terminal(c)) ||
+      owned.find((c) => c.state !== "FINALIZED" && terminal(c));
+    if (current && !call && !reservation) {
       setCall(current);
-      void api<Packet>(`/v1/leads/${current.lead_id}/packet`).then(setPacket);
+      void run(async () =>
+        setPacket(await api<Packet>(`/v1/leads/${current.lead_id}/packet`)),
+      );
     }
   }, [w.calls]);
   useEffect(() => {
@@ -513,6 +519,11 @@ export function DialerPage() {
                 </p>
               </div>
               <div className="section-rule" />
+              <ProspectBrief
+                key={packet.lead.id}
+                packet={packet}
+                onChange={setPacket}
+              />
               <span className="eyebrow">WHAT WE KNOW</span>
               {packet.research.facts.length ? (
                 packet.research.facts.map((f) => (
@@ -847,14 +858,23 @@ export function DialerPage() {
                   "POST",
                   {
                     outcome,
-                    callback_at: callbackAt
-                      ? new Date(callbackAt).toISOString()
-                      : null,
+                    expected_version: call.version,
+                    callback_at:
+                      outcome === "callback_requested" && callbackAt
+                        ? new Date(callbackAt).toISOString()
+                        : null,
                   },
                 );
                 setCall(result);
                 await refresh();
-                notice("Outcome saved. Analysis continues in the background.");
+                setPacket(
+                  await api<Packet>(`/v1/leads/${call.lead_id}/packet`),
+                );
+                notice(
+                  outcome === "meeting_booked" || outcome === "meeting_held"
+                    ? "Meeting recorded as rep-reported. Outreach is paused."
+                    : "Outcome saved. Analysis continues in the background.",
+                );
               })
             }
           >

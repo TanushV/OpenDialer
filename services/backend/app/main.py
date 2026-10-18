@@ -14,7 +14,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket,
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
@@ -22,8 +22,9 @@ from sqlalchemy.orm.exc import StaleDataError
 from app.administration import Dialer
 from app.compliance.operating import DNCAuthorization, bind_operating_api
 from app.config import Settings
-from app.db import Database, Event, audit, doc, emit, put, rows, update
+from app.db import Database, Event, audit, doc, put, rows, update
 from app.providers.telnyx import verify_webhook
+from app.rep_workflows import MeetingEdit, TaskEdit
 from app.security import DUMMY_HASH, PASSWORDS, admin, decode_session, issue_session
 from app.service import dt, fail
 from app.telephony.reducer import TERMINAL
@@ -126,7 +127,8 @@ class Disposition(Strict):
         "qualified_conversation",
         "sale_won",
     ]
-    callback_at: datetime | None = None
+    callback_at: AwareDatetime | None = None
+    expected_version: int | None = Field(default=None, ge=1)
     callback_note: str = Field(default="", max_length=1000)
 
 
@@ -436,75 +438,11 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/calls/{call_id}/disposition")
     def disposition(call_id: str, data: Disposition, p=Depends(principal)):
-        with db.transaction() as s:
-            call = service.required(s, "call_attempts", call_id, p)
-            if p["role"] == "rep" and call.data["rep_id"] != p["user_id"]:
-                fail(403, "Call belongs to another rep")
-            if call.data["state"] not in TERMINAL:
-                fail(409, "End the call before wrap-up")
-            update(
-                call,
-                outcome=data.outcome,
-                state="FINALIZED",
-                callback_at=data.callback_at.isoformat() if data.callback_at else None,
-            )
-            lead = service.required(s, "leads", call.data["lead_id"], p)
-            phone = lead.data["phone"]
-            if data.outcome in {"wrong_party", "invalid_endpoint"}:
-                update(lead, status="needs_correction")
-                endpoint = service.required(s, "phone_endpoints", lead.data["endpoint_id"], p)
-                update(
-                    endpoint,
-                    **(
-                        {"ownership_status": "wrong_party"}
-                        if data.outcome == "wrong_party"
-                        else {"reachability_status": "invalid_endpoint"}
-                    ),
-                )
-            if data.outcome == "callback_requested":
-                update(
-                    lead,
-                    callback_due_at=data.callback_at.isoformat() if data.callback_at else None,
-                    next_attempt_at=data.callback_at.isoformat()
-                    if data.callback_at
-                    else lead.data["next_attempt_at"],
-                )
-                put(
-                    s,
-                    "followup_tasks",
-                    p["tenant_id"],
-                    p["seller_id"],
-                    {
-                        "lead_id": lead.id,
-                        "call_id": call_id,
-                        "owner_id": p["user_id"],
-                        "action": "Confirm callback time" if not data.callback_at else "Call back",
-                        "due_at": data.callback_at.isoformat() if data.callback_at else None,
-                        "note": data.callback_note,
-                        "status": "open",
-                    },
-                    now=clock(),
-                )
-            put(
-                s,
-                "outcomes",
-                p["tenant_id"],
-                p["seller_id"],
-                {
-                    "call_id": call_id,
-                    "lead_id": lead.id,
-                    "outcome": data.outcome,
-                    "at": clock().isoformat(),
-                    "window_status": "pending",
-                },
-                now=clock(),
-            )
-            service.reconcile_goal_status(s, p, lead)
-            emit(s, p["tenant_id"], "call.updated", call, clock())
-            result = doc(call)
-        if data.outcome in {"wrong_party", "invalid_endpoint", "opt_out"}:
-            service.suppress(p, phone, data.outcome)
-        return result
+        return service.save_disposition(p, call_id, data.model_dump(mode="json"))
+
+    @app.post("/v1/leads/{lead_id}/meeting")
+    def report_meeting(lead_id: str, data: MeetingEdit, p=Depends(principal)):
+        return service.report_meeting(p, lead_id, data.model_dump(exclude_unset=True))
 
     @app.post("/v1/suppressions")
     def suppress(data: Suppress, p=Depends(principal)):
@@ -656,22 +594,36 @@ def create_app(settings=None, *, clock=None, carrier=None):
             await ws.close(code=4403)
             return
         await ws.accept()
+        incoming = None
         try:
             auth = await asyncio.wait_for(ws.receive_json(), 10)
             p = decode_session(db, settings, auth.get("token", ""), clock())
             cursor = int(auth.get("after", 0))
             while True:
-                decode_session(db, settings, auth["token"], clock())
-                batch = events(cursor, p)
+                await asyncio.to_thread(decode_session, db, settings, auth["token"], clock())
+                batch = await asyncio.to_thread(events, cursor, p)
                 if batch["events"] or batch["cursor"] != cursor:
                     await ws.send_json(batch)
                 cursor = batch["cursor"]
-                await asyncio.sleep(0.1)
+                # Receive disconnect even when no new event is available to send.
+                # Otherwise quiet closed sockets keep polling and prevent shutdown.
+                incoming = incoming or asyncio.create_task(ws.receive())
+                done, _ = await asyncio.wait({incoming}, timeout=0.1)
+                if done:
+                    message = incoming.result()
+                    incoming = None
+                    if message["type"] != "websocket.disconnect":
+                        await ws.close(code=1008)
+                    return
         except (WebSocketDisconnect, HTTPException, TimeoutError, ValueError):
             try:
                 await ws.close(code=4401)
             except (RuntimeError, WebSocketDisconnect):
                 pass
+        finally:
+            if incoming is not None:
+                incoming.cancel()
+                await asyncio.gather(incoming, return_exceptions=True)
 
     @app.post("/v1/simulation/event")
     def simulation_event(data: SimulationEvent, p=Depends(principal)):
@@ -951,29 +903,16 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/calls/{call_id}/voicemail")
     async def voicemail(call_id: str, data: Voicemail, p=Depends(principal)):
-        from app.compliance.policy import authorize
-
         with db.transaction() as s:
+            service.db.authorize_stream(s, p)
             call = service.required(s, "call_attempts", call_id, p)
+            if p["role"] == "rep" and call.data["rep_id"] != p["user_id"]:
+                fail(403, "Call belongs to another rep")
             if call.data["state"] != "VOICEMAIL_READY":
                 fail(409, "MAILBOX_NOT_READY")
-            lead = service.required(s, "leads", call.data["lead_id"], p)
-            number = service.required(s, "number_inventory", call.data["number_id"], p)
-            campaign = service.required(s, "campaigns", lead.data["campaign_id"], p)
-            policy = service.required(s, "policy_versions", campaign.data["policy_id"], p).data
-            decision = authorize(service.context(s, p, lead, number, permission="prerecorded", active=True))
-            if (
-                not decision.allowed
-                or not policy.get("voicemail_enabled")
-                or not policy.get("voicemail_optout_supported")
-                or data.asset_id not in policy.get("approved_assets", [])
-            ):
-                fail(403, "PRERECORDED_PERMISSION_OR_ASSET_NOT_APPROVED")
-            if data.detach and (
-                not policy.get("detached_topology_verified")
-                or not policy.get("late_human_recovery_destination")
-            ):
-                fail(403, "DETACHED_TOPOLOGY_AND_HUMAN_RECOVERY_NOT_VERIFIED")
+            reasons = service.voicemail_reasons(s, p, call, data.asset_id, data.detach)
+            if reasons:
+                fail(403, {"code": "VOICEMAIL_DENIED", "reasons": reasons})
             update(
                 call,
                 state="VM_PENDING",
@@ -982,9 +921,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 voicemail_deadline=(clock() + timedelta(seconds=120)).isoformat(),
             )
             result = doc(call)
-        with db.transaction() as session:
             service.control_intent(
-                session,
+                s,
                 p,
                 call_id,
                 "gather",
@@ -999,7 +937,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 suffix="voicemail-optout",
             )
             service.control_intent(
-                session,
+                s,
                 p,
                 call_id,
                 "playback_start",
@@ -1217,15 +1155,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
             return doc(obj)
 
     @app.patch("/v1/tasks/{task_id}")
-    def task_status(task_id: str, data: dict, p=Depends(principal)):
-        if data.get("status") not in {"open", "completed", "cancelled"}:
-            fail(422, "Invalid task state")
-        with db.transaction() as session:
-            task = service.required(session, "followup_tasks", task_id, p)
-            if p["role"] == "rep" and task.data.get("owner_id") != p["user_id"]:
-                fail(403, "Task belongs to another rep")
-            update(task, status=data["status"])
-            return doc(task)
+    def task_status(task_id: str, data: TaskEdit, p=Depends(principal)):
+        return service.edit_task(p, task_id, data.model_dump(exclude_unset=True))
 
     @app.post("/v1/calls/{call_id}/dtmf")
     async def dtmf(call_id: str, data: dict, p=Depends(principal)):

@@ -184,11 +184,10 @@ class Application(LiveHelper, SpeechPrivacy, RequestAccounting, Service):
             binding = next(
                 (r for r in self.scoped(s, "lead_number_bindings", p) if r.data["lead_id"] == lead.id), None
             )
-            calls = [doc(r) for r in self.scoped(s, "call_attempts", p) if r.data["lead_id"] == lead.id]
-            commitments = [
-                doc(r) for r in self.scoped(s, "commitments", p) if r.data.get("lead_id") == lead.id
-            ]
+            calls = [doc(r) for r in self.lead_records(s, p, "call_attempts", lead.id)]
+            commitments = [doc(r) for r in self.lead_records(s, p, "commitments", lead.id)]
             return {
+                **self.prospect_context_in(s, p, lead, calls, commitments),
                 "lead": {**doc(lead), "suppressed": self.suppressed(s, p, lead.data["phone"])},
                 "script": script,
                 "research": {"facts": facts, "sources": sources},
