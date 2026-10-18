@@ -330,6 +330,8 @@ class Dialer(
 
     def restore(self, p, backup_id):
         from app.compliance.consent import journal_entries, replay_in
+        from app.compliance.suppressions import journal_entries as suppression_entries
+        from app.compliance.suppressions import replay_in as replay_suppressions_in
         from app.privacy import persistent_document
 
         if not re.fullmatch(r"[0-9a-f-]{36}", backup_id):
@@ -348,12 +350,7 @@ class Dialer(
         optional = {"work_intervals", "report_projections"}
         if set(MODELS) - optional - payload.get("tables", {}).keys():
             fail(422, "Backup is missing required source tables")
-        journal = self.settings.data_dir / "suppression-journal.enc"
-        events = (
-            [json.loads(self.vault.cipher.decrypt(line)) for line in journal.read_bytes().splitlines()]
-            if journal.exists()
-            else []
-        )
+        events = suppression_entries(self)
         revoked = journal_entries(self)
         for kind, values in payload.get("tables", {}).items():
             if kind not in MODELS or any(
@@ -437,32 +434,7 @@ class Dialer(
                         recovered += 1
                     s.flush()
             s.flush()
-            suppressions = {r.data["phone"]: r for r in self.scoped(s, "suppressions", p)}
-            for entry in events:
-                if entry["tenant_id"] != p["tenant_id"] or entry.get("seller_id") != p["seller_id"]:
-                    continue
-                existing = suppressions.get(entry["phone"])
-                if existing and existing.data.get("active") and existing.data.get("permanent"):
-                    continue
-                values = {
-                    "phone": entry["phone"],
-                    "reason": entry["reason"],
-                    "permanent": entry["reason"] != "temporary_hold",
-                    "active": True,
-                    "effective_at": entry["at"],
-                }
-                if existing:
-                    update(existing, **values)
-                else:
-                    suppressions[entry["phone"]] = put(
-                        s,
-                        "suppressions",
-                        p["tenant_id"],
-                        p["seller_id"],
-                        values,
-                        key=entry["phone"],
-                        now=self.clock(),
-                    )
+            replay_suppressions_in(self, s, p=p, entries=events)
             for command in self.scoped(s, "command_outbox", p):
                 if command.data.get("status") in {"pending", "sending"}:
                     update(command, status="uncertain", restore_hold=True)
@@ -501,6 +473,7 @@ class Dialer(
 
     def _restore_journal(self, p):
         from app.compliance.consent import journal_entries
+        from app.compliance.suppressions import journal_entries as suppression_entries
 
         records, fingerprint = {}, hashlib.sha256()
         path = self.settings.data_dir / "authorization-journal.enc"
@@ -517,7 +490,7 @@ class Dialer(
                         **entry,
                         "provider_id": entry.get("provider_id") or previous.get("provider_id"),
                     }
-        for entry in journal_entries(self):
+        for entry in [*journal_entries(self), *suppression_entries(self)]:
             if entry["tenant_id"] == p["tenant_id"] and entry["seller_id"] == p["seller_id"]:
                 fingerprint.update(json.dumps(entry, sort_keys=True).encode())
         return records, fingerprint.hexdigest()
@@ -615,6 +588,7 @@ class Dialer(
 
     def _restore_release(self, p, fingerprint, seller_version, review_reference, count):
         from app.compliance.consent import journal_entries, replay_in, verify_recovery
+        from app.compliance.suppressions import replay_in as replay_suppressions_in
 
         with self.db.transaction() as session:
             self.db.authorize_stream(session, p)
@@ -635,6 +609,7 @@ class Dialer(
                 fail(409, "A live call obligation remains; reconcile before resuming")
             revocations = journal_entries(self)
             verify_recovery(self, session, p, revocations)
+            replay_suppressions_in(self, session, p=p)
             replay_in(self, session, p=p, entries=revocations)
             update(
                 seller,

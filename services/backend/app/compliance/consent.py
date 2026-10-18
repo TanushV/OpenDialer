@@ -85,12 +85,22 @@ def permission_state(service, s, p, endpoint_id, permission):
 
 
 def verify_recovery(service, s, p, entries):
+    from app.compliance.suppressions import fingerprint, identity
+    from app.compliance.suppressions import journal_entries as suppression_entries
+
     seller = service.required(s, "sellers", p["seller_id"], p)
     available = {
         e["id"]: e["request_hash"]
         for e in entries
         if e["tenant_id"] == p["tenant_id"] and e["seller_id"] == p["seller_id"]
     }
+    available.update(
+        {
+            identity(e): fingerprint(e)
+            for e in suppression_entries(service)
+            if e["tenant_id"] == p["tenant_id"] and e["seller_id"] == p["seller_id"]
+        }
+    )
     if any(
         available.get(identity) != digest
         for identity, digest in seller.data.get("journal_expected", {}).items()
@@ -104,7 +114,9 @@ def verify_recovery(service, s, p, entries):
         p["seller_id"],
     ) in service.__dict__.get("_journal_faults", set()):
         try:
-            service.vault.sync_journal("consent")
+            for name in ("consent", "suppression"):
+                if (service.settings.data_dir / (name + "-journal.enc")).exists():
+                    service.vault.sync_journal(name)
         except OSError:
             fail(503, "Journal storage is still unavailable; outbound remains held")
 

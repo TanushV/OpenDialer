@@ -258,6 +258,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
     service = Dialer(db, settings, clock, carrier)
     service.privacy_cutover()
     try:
+        from app.compliance.suppressions import replay as replay_suppressions
+
+        replay_suppressions(service)
         replay_consent(service)
     except Exception:
         db.engine.dispose()

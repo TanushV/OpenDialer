@@ -419,11 +419,17 @@ class Database:
                 yield session
                 session.commit()
             except Exception:
+                for callback in session.info.pop("before_rollback", []):
+                    callback()
                 session.rollback()
                 raise
             finally:
                 _DATABASE_CIPHER.reset(context_token)
                 _DATABASE_LOOKUP_KEY.reset(lookup_token)
+                # A journal failure inside a caller-owned transaction must persist
+                # its hold only after that transaction releases its write lock.
+                for callback in session.info.pop("after_transaction", []):
+                    callback()
 
     def authorize_stream(self, session, principal):
         if not self.sqlite:

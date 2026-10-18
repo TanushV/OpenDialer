@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import HTTPException
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from app.compliance.phone import normalize_phone
 from app.compliance.policy import CallContext, authorize
@@ -1047,76 +1047,9 @@ class Service(ReservationPlanner):
         return await asyncio.to_thread(self._hangup_result, p, call_id)
 
     def suppress(self, p, phone, reason, *, event_id=None, session=None):
-        normalized = normalize_phone(phone)
-        if not normalized.e164:
-            fail(422, "Valid phone endpoint required")
-        phone, now = normalized.e164, self.clock()
-        journal = {
-            "event_id": event_id or uid(),
-            "tenant_id": p["tenant_id"],
-            "seller_id": p["seller_id"],
-            "phone": phone,
-            "reason": reason,
-            "at": now.isoformat(),
-        }
-        # Append and fsync before DB acknowledgement; replay on restore. Encrypted independently of database backup.
-        path = self.settings.data_dir / "suppression-journal.enc"
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-        with os.fdopen(fd, "ab") as f:
-            f.write(self.vault.cipher.encrypt(json.dumps(journal).encode()) + b"\n")
-            f.flush()
-            os.fsync(f.fileno())
-        with self.db.transaction(session=session) as s:
-            self.db.authorize_stream(s, p)
-            existing = next((r for r in self.scoped(s, "suppressions", p) if r.data["phone"] == phone), None)
-            if existing:
-                if not existing.data.get("permanent"):
-                    update(existing, reason=reason, permanent=reason != "temporary_hold", active=True)
-                result = existing
-            else:
-                result = put(
-                    s,
-                    "suppressions",
-                    p["tenant_id"],
-                    p["seller_id"],
-                    {
-                        "phone": phone,
-                        "reason": reason,
-                        "permanent": reason != "temporary_hold",
-                        "active": True,
-                        "effective_at": now.isoformat(),
-                        "origin_event_id": journal["event_id"],
-                    },
-                    key=phone,
-                    now=now,
-                )
-            for command in self.scoped(s, "command_outbox", p):
-                if (
-                    command.data.get("kind") == "dial"
-                    and command.data.get("status") == "pending"
-                    and command.data["payload"]["to"] == phone
-                ):
-                    update(command, status="cancelled", reason="INTERNAL_SUPPRESSION")
-                    call = self.required(s, "call_attempts", command.data["call_id"], p)
-                    self.finish_call(s, p, call, "opt_out")
-            for reservation in self.scoped(s, "reservations", p):
-                if reservation.data["status"] == "reserved":
-                    lead = self.required(s, "leads", reservation.data["lead_id"], p)
-                    if lead.data["phone"] == phone:
-                        update(reservation, status="cancelled")
-                        s.execute(delete(ActiveClaim).where(ActiveClaim.reservation_id == reservation.id))
-            audit(
-                s,
-                p["tenant_id"],
-                p["seller_id"],
-                p["user_id"],
-                "endpoint.suppressed",
-                result.id,
-                now,
-                {"reason": reason},
-            )
-            emit(s, p["tenant_id"], "suppression.created", result, now)
-            return doc(result)
+        from app.compliance.suppressions import record
+
+        return record(self, p, phone, reason, event_id=event_id, session=session)
 
     def event(self, p, event_id, event_type, call_id, payload=None, *, session=None):
         payload = payload or {}
