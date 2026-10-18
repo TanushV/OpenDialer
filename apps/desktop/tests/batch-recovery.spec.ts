@@ -91,3 +91,61 @@ test("deferred preparation recovers an original receipt after reload without res
   expect(posts).toHaveLength(2);
   expect(submissions).toBe(0);
 });
+
+test("partial deferred preparation retries only unfinished objects", async ({
+  page,
+}) => {
+  const calls: unknown[] = [];
+  await page.route("**/v1/admin/batches", (route) =>
+    route.fulfill({
+      json: {
+        batches: [
+          {
+            id: "partial-batch",
+            version: 8,
+            status: "completed",
+            provider_batch_id: "batch-partial",
+            lead_count: 3,
+            published: ["already-ready"],
+            retry_lead_ids: ["needs-one", "needs-two"],
+            can_reconcile: true,
+            reason: "",
+          },
+        ],
+        limited: false,
+      },
+    }),
+  );
+  await page.route("**/v1/research/batches", async (route) => {
+    calls.push(route.request().postDataJSON());
+    await route.fulfill({ json: { queued: 1 } });
+  });
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  const panel = page.getByRole("region", {
+    name: "Deferred script preparation",
+    exact: true,
+  });
+  const retry = panel.getByRole("button", {
+    name: "Prepare only unfinished leads",
+    exact: true,
+  });
+  await expect(retry).toBeDisabled();
+  await panel
+    .getByLabel("Authorize new budgeted preparation for these unfinished leads")
+    .check();
+  await retry.click();
+  await expect(panel).toContainText(
+    "Unfinished leads queued for new preparation",
+  );
+  expect(calls).toEqual([{ lead_ids: ["needs-one", "needs-two"] }]);
+});
