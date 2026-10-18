@@ -8,17 +8,17 @@ type Quote = {
   expires_at: string;
 };
 export function Procurement() {
-  const { api, run, refresh, notice, snapshot: w } = useWorkspace();
+  const { api, run } = useWorkspace();
   const [region, setRegion] = useState("");
   const [quotes, setQuotes] = useState<Quote[]>([]);
-  const [amount, setAmount] = useState("");
   return (
     <section className="card padded">
-      <span className="eyebrow">APPROVE ACTUAL PRICES</span>
-      <h2>Regional procurement</h2>
+      <span className="eyebrow">REFERENCE QUOTES ONLY</span>
+      <h2>Regional number costs</h2>
       <p className="muted small">
-        Search based on the capacity proposal. Quotes expire after five minutes.
-        Your monthly procurement ceiling must cover setup and the first month.
+        Reuse owned numbers first. New number rentals are recurring commitments
+        and cannot be purchased under your cost policy. Quotes expire after five
+        minutes.
       </p>
       <div className="button-row">
         <label>
@@ -35,12 +35,12 @@ export function Procurement() {
           disabled={!/^[2-9][0-9]{2}$/.test(region)}
           onClick={() =>
             void run(async () => {
-              const r = await api<{ numbers: Quote[] }>(
+              const result = await api<{ numbers: Quote[] }>(
                 "/v1/admin/numbers/search",
                 "POST",
                 { region },
               );
-              setQuotes(r.numbers);
+              setQuotes(result.numbers);
             })
           }
         >
@@ -49,23 +49,13 @@ export function Procurement() {
       </div>
       {quotes.length > 0 && (
         <>
-          <label>
-            Approved initial amount (USD)
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-            />
-          </label>
+          <p className="pill">New rentals blocked</p>
           <table>
             <thead>
               <tr>
                 <th>NUMBER</th>
                 <th>MONTHLY</th>
                 <th>First month + setup</th>
-                <th />
               </tr>
             </thead>
             <tbody>
@@ -74,34 +64,6 @@ export function Procurement() {
                   <td>{q.phone}</td>
                   <td>${q.monthly_cost_usd.toFixed(2)}</td>
                   <td>${q.initial_commitment_usd.toFixed(2)}</td>
-                  <td>
-                    <button
-                      className="secondary small"
-                      disabled={
-                        !amount || Number(amount) < q.initial_commitment_usd
-                      }
-                      onClick={() =>
-                        void run(async () => {
-                          await api("/v1/admin/numbers/purchase", "POST", {
-                            phone_numbers: [q.phone],
-                            approved_budget_usd: Number(amount),
-                            idempotency_key: `quote-${q.phone}-${q.expires_at}`,
-                          });
-                          setQuotes(quotes.filter((n) => n.phone !== q.phone));
-                          await refresh();
-                          notice(
-                            w.simulation
-                              ? "Simulated purchase recorded. No real number was purchased."
-                              : "Order recorded. Complete identity and callback onboarding.",
-                          );
-                        })
-                      }
-                    >
-                      {w.simulation
-                        ? "Simulate approved purchase"
-                        : "Purchase with approved budget"}
-                    </button>
-                  </td>
                 </tr>
               ))}
             </tbody>

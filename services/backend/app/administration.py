@@ -8,6 +8,7 @@ from sqlalchemy import delete, select
 
 from app.db import MODELS, ActiveClaim, Job, audit, doc, emit, get, put, rows, uid, update
 from app.intelligence import Application
+from app.number_operations import NumberOperations
 from app.optimization.learning import derive_labels
 from app.optimization.workflows import OptimizationWorkflows
 from app.service import dt, fail
@@ -16,7 +17,7 @@ from app.telephony.reducer import TERMINAL
 from app.telephony.workflows import TelephonyWorkflows
 
 
-class Dialer(WebhookIngress, OptimizationWorkflows, TelephonyWorkflows, Application):
+class Dialer(NumberOperations, WebhookIngress, OptimizationWorkflows, TelephonyWorkflows, Application):
     def metrics(self, p):
         with self.db.transaction(False) as s:
             leads = self.scoped(s, "leads", p)
@@ -251,6 +252,9 @@ class Dialer(WebhookIngress, OptimizationWorkflows, TelephonyWorkflows, Applicat
             return doc(number)
 
     def edit_number(self, p, number_id, body):
+        for key, ceiling in (("daily_limit", 10000), ("capacity", 20)):
+            if key in body and (type(body[key]) is not int or not 1 <= body[key] <= ceiling):
+                fail(422, "Positive integer workload limits are required")
         with self.db.transaction() as s:
             number = self.required(s, "number_inventory", number_id, p)
             next_state = body.get("lifecycle", number.data["lifecycle"])
@@ -260,6 +264,12 @@ class Dialer(WebhookIngress, OptimizationWorkflows, TelephonyWorkflows, Applicat
                 if old in order and order.index(next_state) > order.index(old) + 1:
                     fail(409, "Warmup stages require identity and real callback evidence")
                 merged = {**number.data, **body}
+                if (
+                    not self.settings.simulation
+                    and next_state in order[1:]
+                    and merged.get("configuration_status") != "confirmed"
+                ):
+                    fail(409, "Confirm the owned carrier connection before promoting number identity")
                 if next_state in {"callback_tested", "limited_real_use", "healthy"} and not merged.get(
                     "identity_configured"
                 ):
@@ -292,8 +302,8 @@ class Dialer(WebhookIngress, OptimizationWorkflows, TelephonyWorkflows, Applicat
             )
             return doc(number)
 
-    def proposal(self, p, campaign_id, capacity=40):
-        if capacity < 1:
+    def proposal(self, p, campaign_id, capacity=None):
+        if capacity is not None and (type(capacity) is not int or not 1 <= capacity <= 10000):
             fail(422, "Positive daily capacity required")
         with self.db.transaction(False) as s:
             return self.forecast(s, p, campaign_id=campaign_id, capacity=capacity)

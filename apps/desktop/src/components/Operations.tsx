@@ -298,6 +298,13 @@ interface Proposal {
     proposed_additional: number;
   }[];
   monthly_rental_estimate_usd: number;
+  existing_only_capacity: number;
+  staffing_shortfall: number;
+  number_shortfall: number;
+  minimum_additional_numbers: number;
+  proposed_additional_numbers: number;
+  forecast_attempts: number;
+  optimality_scope: string;
 }
 export function NumbersPage() {
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
@@ -320,7 +327,6 @@ export function NumbersPage() {
               setProposal(
                 await api("/v1/admin/numbers/proposal", "POST", {
                   campaign_id: w.campaign.id,
-                  daily_capacity_per_number: 40,
                 }),
               ),
             )
@@ -357,12 +363,15 @@ export function NumbersPage() {
             className="secondary small"
             onClick={() =>
               void run(async () => {
-                const r = await api<{ added: number }>(
-                  "/v1/admin/numbers/sync",
-                  "POST",
-                );
+                const r = await api<{
+                  added: number;
+                  updated: number;
+                  missing: number;
+                }>("/v1/admin/numbers/sync", "POST");
                 await refresh();
-                notice(`${r.added} existing Telnyx numbers added`);
+                notice(
+                  `${r.added} added, ${r.updated} updated, ${r.missing} missing at provider. Existing identities retained.`,
+                );
               })
             }
           >
@@ -441,9 +450,35 @@ export function NumbersPage() {
         </div>
       </section>
       {proposal && (
-        <section className="card proposal">
+        <section className="card proposal" data-testid="capacity-proposal">
           <span className="eyebrow">PLAN BEFORE PROCUREMENT</span>
           <h2>Regional capacity proposal</h2>
+          <dl className="capacity-summary">
+            <div>
+              <dt>Due attempt demand</dt>
+              <dd>{proposal.forecast_attempts}</dd>
+            </div>
+            <div>
+              <dt>Existing-only capacity</dt>
+              <dd>{proposal.existing_only_capacity}</dd>
+            </div>
+            <div>
+              <dt>Staffing shortfall</dt>
+              <dd>{proposal.staffing_shortfall}</dd>
+            </div>
+            <div>
+              <dt>Number shortfall</dt>
+              <dd>{proposal.number_shortfall}</dd>
+            </div>
+            <div>
+              <dt>Minimum additional numbers</dt>
+              <dd>{proposal.minimum_additional_numbers}</dd>
+            </div>
+          </dl>
+          <p className="fine">
+            {proposal.optimality_scope}. Pending inventory requires review
+            before any addition; no predicted conversion lift is assumed.
+          </p>
           <table>
             <thead>
               <tr>
@@ -466,8 +501,9 @@ export function NumbersPage() {
           </table>
           <p className="small muted">
             Indicative monthly rental: $
-            {proposal.monthly_rental_estimate_usd.toFixed(2)}. Actual provider
-            quote and a procurement budget are required. No numbers purchased.
+            {proposal.monthly_rental_estimate_usd.toFixed(2)}. New rentals are
+            blocked under the no-subscription policy. Additional shared numbers
+            are planning scenarios only. Existing rental obligations remain.
           </p>
         </section>
       )}
@@ -541,6 +577,31 @@ function NumberRow({ number }: { number: NumberRecord }) {
           </div>
         ) : (
           <div className="button-row">
+            {number.provider_id && (
+              <button
+                className="text-button small"
+                disabled={number.provider_present === false}
+                onClick={() =>
+                  void run(async () => {
+                    await api(
+                      `/v1/admin/numbers/${number.id}/configure`,
+                      "POST",
+                    );
+                    await refresh();
+                    notice(
+                      "Voice connection confirmed. A new callback test is still required.",
+                    );
+                  })
+                }
+              >
+                {number.configuration_status === "uncertain"
+                  ? "Reconcile routing"
+                  : "Configure voice route"}
+              </button>
+            )}
+            {number.configuration_status && (
+              <small>{label(number.configuration_status)}</small>
+            )}
             {next && (
               <button
                 className="text-button small"

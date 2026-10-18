@@ -15,6 +15,7 @@ class SimulatedCarrier:
         self.hangups = []
         self.purchases = []
         self.calls = {}
+        self.numbers = {}
         self.timeout_after_accept = False
 
     async def dial(self, payload):
@@ -49,7 +50,14 @@ class SimulatedCarrier:
         return "simulation-scoped-credential"
 
     async def list_numbers(self):
-        return []
+        return [dict(n) for n in self.numbers.values()]
+
+    async def configure_number(self, number_id, connection_id):
+        self.numbers[number_id] = {**self.numbers[number_id], "connection_id": connection_id}
+        return dict(self.numbers[number_id])
+
+    async def get_number(self, number_id):
+        return dict(self.numbers[number_id])
 
     async def search_numbers(self, region):
         return [

@@ -779,22 +779,15 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/admin/numbers/proposal")
     def number_proposal(data: dict, p=Depends(administrator)):
-        return service.proposal(p, data["campaign_id"], data.get("daily_capacity_per_number", 40))
+        return service.proposal(p, data["campaign_id"], data.get("daily_capacity_per_number"))
 
     @app.post("/v1/admin/numbers/sync")
     async def sync_numbers(p=Depends(administrator)):
-        inventory = await service.carrier(p["tenant_id"]).list_numbers()
-        added = 0
-        for n in inventory:
-            try:
-                number = service.add_number(p, {"phone": n["phone_number"], "region": n["phone_number"][2:5]})
-                with db.transaction() as s:
-                    update(service.required(s, "number_inventory", number["id"], p), provider_id=n["id"])
-                added += 1
-            except HTTPException as e:
-                if e.status_code != 409:
-                    raise
-        return {"added": added, "provider_count": len(inventory)}
+        return await service.sync_numbers(p)
+
+    @app.post("/v1/admin/numbers/{number_id}/configure")
+    async def configure_number(number_id: str, p=Depends(administrator)):
+        return await service.configure_owned_number(p, number_id)
 
     @app.post("/v1/admin/numbers/search")
     async def search_numbers(data: dict, p=Depends(administrator)):

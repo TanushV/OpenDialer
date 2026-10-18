@@ -93,11 +93,30 @@ class TelnyxCarrier:
         return response.get("data")
 
     async def list_numbers(self):
-        found, page = [], 1
+        found, page, expected_pages = [], 1, None
         while page <= 100:
             response = await self.request("GET", f"/phone_numbers?page[number]={page}&page[size]=100")
+            if (
+                not isinstance(response, dict)
+                or not isinstance(response.get("data"), list)
+                or response.get("errors")
+            ):
+                raise ValueError("Incomplete carrier inventory response")
+            meta = response.get("meta")
+            if not isinstance(meta, dict):
+                raise ValueError("Missing carrier inventory pagination")
+            pages = meta.get("total_pages")
+            if (
+                type(pages) is not int
+                or not 0 <= pages <= 100
+                or meta.get("page_number") != page
+                or (expected_pages is not None and expected_pages != pages)
+                or (pages == 0 and response["data"])
+            ):
+                raise ValueError("Incomplete or changing carrier inventory pagination")
+            expected_pages = pages
             found.extend(response.get("data", []))
-            if page >= response.get("meta", {}).get("total_pages", page):
+            if page >= pages:
                 break
             page += 1
         return found
@@ -130,7 +149,16 @@ class TelnyxCarrier:
         return await self.request("GET", f"/number_lookup/{quote(phone, safe='')}?type=carrier")
 
     async def configure_number(self, number_id, connection_id):
-        return await self.request("PATCH", f"/phone_numbers/{number_id}", {"connection_id": connection_id})
+        from urllib.parse import quote
+
+        return await self.request(
+            "PATCH", f"/phone_numbers/{quote(number_id, safe='')}", {"connection_id": connection_id}
+        )
+
+    async def get_number(self, number_id):
+        from urllib.parse import quote
+
+        return await self.request("GET", f"/phone_numbers/{quote(number_id, safe='')}")
 
     async def rnd(self, phone, reference_date):
         # RND requires an independently authorized account adapter; carrier lookup is not a substitute.

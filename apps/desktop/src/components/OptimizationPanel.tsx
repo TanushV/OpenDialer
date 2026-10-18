@@ -17,6 +17,8 @@ interface OptimizationReport {
   settings: OptimizationSettings;
   forecast: {
     capacity_shortfall: number;
+    staffing_shortfall: number;
+    number_shortfall: number;
     regions: {
       region: string;
       forecast_attempts: number;
@@ -332,8 +334,8 @@ export function OptimizationPanel({
         <h2>Capacity before procurement</h2>
         <p className="muted small">
           Forecast includes due attempts, usable inventory and available rep
-          time. Purchases still require a fresh carrier quote and budget
-          approval.
+          time. New rentals are blocked; proposed additions are shared-capacity
+          scenarios, not one number per area code.
         </p>
         <div className="optimization-table">
           <table>
@@ -365,8 +367,9 @@ export function OptimizationPanel({
         </div>
         {report.forecast.capacity_shortfall > 0 && (
           <p className="fine">
-            {report.forecast.capacity_shortfall} attempts exceed the available
-            rep time. More numbers alone cannot resolve that shortfall.
+            {report.forecast.staffing_shortfall} attempts exceed declared rep
+            time; {report.forecast.number_shortfall} staffed attempts lack
+            usable number capacity. These are separate constraints.
           </p>
         )}
         <h3>Number evidence and workload</h3>

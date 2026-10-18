@@ -36,6 +36,10 @@ export interface NumberRecord {
   capacity: number;
   identity_configured: boolean;
   callback_tested: boolean;
+  provider_id?: string;
+  provider_present?: boolean;
+  connection_id?: string;
+  configuration_status?: string;
 }
 export interface Segment {
   raw_remaining_ms?: number;
