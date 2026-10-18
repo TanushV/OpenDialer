@@ -38,6 +38,9 @@ export interface NumberRecord {
   callback_tested: boolean;
 }
 export interface Segment {
+  raw_remaining_ms?: number;
+  _expires?: number;
+  _monoExpires?: number;
   segment_id: string;
   revision: number;
   side: string;
@@ -47,6 +50,10 @@ export interface Segment {
   end_ms: number | null;
 }
 export interface Coach {
+  pinned?: boolean;
+  private?: boolean;
+  _expires?: number;
+  _monoExpires?: number;
   id: string;
   action: string;
   kind: string;
@@ -60,6 +67,8 @@ export interface Coach {
   evidence_segment_ids: string[];
 }
 export interface Call {
+  raw_evidence_status?: string;
+  coach_preferences?: { muted?: boolean; pinned?: boolean };
   detached?: boolean;
   id: string;
   rep_id: string;
@@ -228,6 +237,7 @@ export interface EvidenceItem {
   evidence: string[];
 }
 export interface Analysis {
+  raw_evidence_status?: string;
   call: Call;
   notes: {
     summary: string;

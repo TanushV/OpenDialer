@@ -11,7 +11,7 @@ async def test_coach_circuit_breaker_falls_back_without_backlog():
     class Failing:
         count = 0
 
-        async def suggest(self, request, deadline):
+        async def suggest(self, request, deadline_ms):
             self.count += 1
             raise TimeoutError()
 

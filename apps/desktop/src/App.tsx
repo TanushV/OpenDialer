@@ -1,3 +1,4 @@
+import { receiveSpeech } from "./state/privacy";
 import {
   Activity,
   ArrowRight,
@@ -126,6 +127,10 @@ export function App() {
         );
         if (cacheable && key)
           void writeCache(key, result, runtime.simulation).catch(() => {});
+        if (result && typeof result === "object" && "transcript" in result)
+          return receiveSpeech(
+            result as { transcript?: import("./types").Segment[] },
+          ) as T;
         return result;
       } catch (error) {
         if (cacheable && key && canUseOfflineCache(error)) {

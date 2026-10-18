@@ -1914,3 +1914,61 @@ tbody tr:hover {
   font-weight: 600;
   margin-bottom: 12px;
 }
+
+.live-coaching-strip {
+  position: sticky;
+  top: 12px;
+  z-index: 15;
+  background: #f7faf3;
+  border: 1px solid #b8cbb1;
+  border-radius: 12px;
+  box-shadow: 0 5px 20px #20382f14;
+  padding: 12px 16px;
+  margin-bottom: 18px;
+}
+.dialer-status {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.page-heading.calling-heading {
+  margin: 8px 0 14px;
+}
+.helper-topline,
+.helper-primary,
+.helper-actions,
+.helper-topline strong {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.helper-topline {
+  flex-wrap: wrap;
+}
+.helper-topline > .helper-actions {
+  margin-left: auto;
+}
+.helper-primary {
+  justify-content: space-between;
+}
+.helper-primary p {
+  margin: 10px 0 0;
+  line-height: 1.5;
+}
+.helper-actions {
+  flex-shrink: 0;
+}
+.helper-detail {
+  max-height: 200px;
+  overflow: auto;
+  border-top: 1px solid #dae3d3;
+  margin-top: 10px;
+  padding-top: 10px;
+}
+.script-card {
+  max-height: calc(100vh - 245px);
+  overflow: auto;
+}
+.live-grid {
+  grid-template-columns: 1fr;
+}

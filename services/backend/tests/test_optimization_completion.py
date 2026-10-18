@@ -221,7 +221,7 @@ async def test_semantic_card_selection_and_prior_state_survive_two_live_turns(
                     "stage": "discovery",
                     "needs": [
                         {
-                            "text": quote,
+                            "text": "Duplicate records create recurring manual work.",
                             "quote": quote,
                             "evidence_segment_ids": ["one"],
                             "status": "confirmed",
@@ -240,7 +240,7 @@ async def test_semantic_card_selection_and_prior_state_survive_two_live_turns(
             defer_coach=True,
         )
         await service.coach_turn(p, call["id"], urgent=True)
-    assert requests[1]["state"]["needs"][0]["text"] == quote
+    assert requests[1]["state"]["needs"][0]["text"] == "Duplicate records create recurring manual work."
     assert requests[0]["prior_call_context"] == []
     c, h = workspace["client"], workspace["headers"]
     # The older card is obsolete after a new state version.
@@ -396,7 +396,7 @@ def test_visible_card_ttl_is_reported_by_the_authority(workspace, clock):
     )
     clock.now += timedelta(seconds=3)
     card = c.get(f"/v1/calls/{call['id']}", headers=h).json()["coach"]
-    assert 0 < card["remaining_ms"] <= 4000
+    assert card["remaining_ms"] == card["expires_in_ms"] - 3000
     assert card["latency"]["stt_ms"] is None
 
 

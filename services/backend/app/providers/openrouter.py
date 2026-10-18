@@ -53,17 +53,70 @@ class OpenRouterCoach:
         self.last_usage, self.last_request_id, self.last_provider = {}, None, None
         self.last_model, self.last_latency_ms = model, 0.0
 
+    async def _send(self, http, url, **kwargs):
+        if not kwargs["json"]["stream"]:
+            response = await http.post(url, **kwargs)
+            response.raise_for_status()
+            try:
+                return response.json()
+            except ValueError as exc:
+                raise InferenceError("Invalid provider response") from exc
+        content, finished, done, received_bytes = [], None, False, 0
+        async with http.stream("POST", url, **kwargs) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                received_bytes += len(line.encode())
+                if received_bytes > 262144:
+                    raise InferenceError("Coach stream exceeds its response budget")
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    done = True
+                    break
+                try:
+                    frame = json.loads(data)
+                    if frame.get("usage"):
+                        self.last_usage = frame["usage"]
+                    self.last_request_id = frame.get("id") or self.last_request_id
+                    self.last_provider = frame.get("provider") or self.last_provider
+                    self.last_model = frame.get("model") or self.last_model
+                    if frame.get("error"):
+                        raise InferenceError("Coach stream failed")
+                    for choice in frame.get("choices", []):
+                        delta = choice.get("delta") or {}
+                        if delta.get("refusal"):
+                            raise InferenceError("Coach refused")
+                        if delta.get("content"):
+                            content.append(delta["content"])
+                        if choice.get("finish_reason"):
+                            finished = choice["finish_reason"]
+                except (ValueError, TypeError, KeyError) as exc:
+                    raise InferenceError("Invalid coach stream") from exc
+        if not done or finished != "stop":
+            raise InferenceError("Coach stream did not finish")
+        # Only a complete structured object can reach grounding/publication. Accounting includes
+        # the final usage frame; no half-price claim or raw JSON token is sent to the rep.
+        return {
+            "id": self.last_request_id,
+            "provider": self.last_provider,
+            "model": self.last_model,
+            "usage": self.last_usage,
+            "choices": [{"finish_reason": finished, "message": {"content": "".join(content)}}],
+        }
+
     async def suggest(self, request, deadline_ms=1200):
         self.last_usage, self.last_request_id, self.last_provider = {}, None, None
         started = time.perf_counter()
 
         async def send(http):
-            response = await http.post(
+            payload = await self._send(
+                http,
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers={"Authorization": "Bearer " + self.api_key, "X-OpenRouter-Title": "OpenDialer"},
                 json={
                     "model": self.model,
-                    "stream": False,
+                    "stream": bool(request.get("private_question")),
                     "max_tokens": 1000,
                     "reasoning": {"effort": "low", "exclude": True},
                     "provider": {
@@ -101,8 +154,6 @@ class OpenRouterCoach:
                 },
                 timeout=max(0.1, deadline_ms / 1000),
             )
-            response.raise_for_status()
-            payload = response.json()
             self.last_usage = payload.get("usage") or {}
             self.last_request_id = payload.get("id")
             self.last_provider, self.last_model = payload.get("provider"), payload.get("model", self.model)

@@ -85,3 +85,15 @@ def test_private_help_and_preferences_reject_another_reps_call(workspace, app):
         403,
         404,
     }
+
+
+def test_correction_unpins_advice_that_depended_on_revised_words(workspace, clock):
+    call = start(workspace)
+    post_turn(workspace, call, text="We have no budget for this.")
+    c, h = workspace["client"], workspace["headers"]
+    path = "/v1/calls/" + call["id"]
+    c.patch(path + "/coach", headers=h, json={"pinned": True, "muted": True})
+    post_turn(workspace, call, revision=2, text="Correction: the obstacle is timing.")
+    live = c.get(path, headers=h).json()
+    assert live["coach"] is None
+    assert not live.get("coach_preferences", {}).get("pinned_event_id")

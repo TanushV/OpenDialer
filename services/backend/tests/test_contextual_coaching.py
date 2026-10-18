@@ -1,5 +1,5 @@
 import pytest
-from app.coaching.context import build_context, ground_guidance, retrieve_cards
+from app.coaching.context import build_context, ground_guidance, merge_semantic_state, retrieve_cards
 from app.coaching.engine import CardRejected
 from conftest import start
 
@@ -30,10 +30,26 @@ def test_state_tracks_evidence_questions_negation_and_resolved_objections():
         segment("s2", "Actually the budget has been approved. Can we arrange a meeting?"),
     ]
     state = build_context(dialogue, version=3, facts=[], commitments=[])
-    assert state["version"] == 3 and state["stage"] == "next_step"
-    assert state["asked_questions"] and state["buying_signals"]
-    assert not any(o["kind"] == "budget" and o["status"] == "unresolved" for o in state["objections"])
-    assert all(x["evidence_segment_ids"] for x in state["buying_signals"])
+    assert state["version"] == 3 and state["trigger"] == "conversation"
+    assert state["asked_questions"] and not state["buying_signals"]
+    # Interpretation comes from the model, rather than preset local phrase rules.
+    interpreted = merge_semantic_state(
+        state,
+        {
+            "stage": "next_step",
+            "buying_signals": [
+                {
+                    "text": "A follow-up discussion is requested.",
+                    "quote": "Can we arrange a meeting?",
+                    "evidence_segment_ids": ["s2"],
+                    "status": "open",
+                }
+            ],
+        },
+        dialogue,
+    )
+    assert interpreted["stage"] == "next_step"
+    assert interpreted["buying_signals"][0]["evidence_segment_ids"] == ["s2"]
 
 
 def test_context_ignores_partials_system_audio_and_does_not_infer_emotion():
@@ -50,14 +66,13 @@ def test_context_ignores_partials_system_audio_and_does_not_infer_emotion():
     assert "emotion" not in state and "personality" not in state
 
 
-def test_quoted_semantic_state_survives_new_turns_but_not_a_revised_source():
+def test_paraphrased_state_survives_new_turns_but_not_a_revised_source():
     original = segment("s1", "Duplicated entries consume two hours every week.", revision=1)
     prior = {
         "version": 1,
         "needs": [
             {
-                "text": original["text"],
-                "quote": original["text"],
+                "text": "Duplicate data creates recurring manual work.",
                 "evidence_segment_ids": ["s1"],
                 "evidence_revisions": {"s1": 1},
                 "status": "confirmed",
@@ -66,16 +81,14 @@ def test_quoted_semantic_state_survives_new_turns_but_not_a_revised_source():
     }
     next_turn = segment("s2", "Can we arrange a meeting?", revision=1)
     state = build_context([original, next_turn], version=2, facts=[], commitments=[], prior=prior)
-    assert state["needs"] and state["needs"][0]["text"] == original["text"]
+    assert state["needs"] and state["needs"][0]["text"] == "Duplicate data creates recurring manual work."
     revised = {**original, "revision": 2, "text": "We do not have duplicated entries."}
     state = build_context([revised, next_turn], version=3, facts=[], commitments=[], prior=prior)
     assert not state["needs"]
 
 
-def test_card_retrieval_matches_semantic_budget_objection_instead_of_first_card():
-    state = build_context(
-        [segment("s", "We cannot afford another subscription.")], version=1, facts=[], commitments=[]
-    )
+def test_lexical_retrieval_matches_explicit_budget_words_instead_of_first_card():
+    state = build_context([segment("s", "We have no budget.")], version=1, facts=[], commitments=[])
     assert retrieve_cards(state, CARDS)[0]["id"] == "budget"
 
 
@@ -133,7 +146,7 @@ def test_call_state_and_quality_feedback_are_persisted_and_scoped(workspace):
     )
     assert response.status_code == 200
     live = c.get(f"/v1/calls/{call['id']}", headers=h).json()
-    assert live["conversation_state"]["trigger"] == "budget"
+    assert live["conversation_state"]["trigger"] == "conversation"
     assert live["conversation_state"]["version"] == 1
     assert live["coach"] is not None
     feedback = c.post(

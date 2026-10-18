@@ -154,6 +154,7 @@ def persistent_document(kind, data, *, legacy=False):
                 "playbook_card_ids",
                 "created_at",
                 "expires_at",
+                "raw_expires_at",
                 "expires_in_ms",
                 "provider",
                 "actual_provider",
@@ -231,7 +232,16 @@ class SpeechPrivacy:
         for row in metadata:
             item = self.raw.get(self.raw_key(p, call_id, row.data["segment_id"]))
             if item is not None:
-                result.append(item)
+                from app.service import dt
+
+                result.append(
+                    {
+                        **item,
+                        "raw_remaining_ms": max(
+                            0, int((dt(item["raw_expires_at"]) - self.clock()).total_seconds() * 1000)
+                        ),
+                    }
+                )
         return sorted(result, key=lambda item: (item.get("server_received_at", ""), item["segment_id"]))
 
     def raw_status(self, call, segments):
@@ -323,6 +333,12 @@ class SpeechPrivacy:
                 raw_expires_at=max(call.data.get("raw_expires_at", ""), expires.isoformat()),
             )
             version = call.data["transcript_version"]
+            preferences = call.data.get("coach_preferences", {})
+            pinned_id = preferences.get("pinned_event_id")
+            if row and pinned_id:
+                pinned = self.required(s, "coach_events", pinned_id, p)
+                if segment["segment_id"] in pinned.data.get("evidence_segment_ids", []):
+                    update(call, coach_preferences={**preferences, "pinned": False, "pinned_event_id": None})
             # Corrections invalidate machine interpretations; human edits remain authoritative.
             for kind in ("conversation_states", "notes", "scorecards"):
                 for record in self.scoped(s, kind, p):

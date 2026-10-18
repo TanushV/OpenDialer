@@ -171,7 +171,33 @@ class Service(ReservationPlanner):
                     "approved": True,
                     "version_label": "v1",
                     "claims": [],
-                    "cards": [
+                    "cards": [],
+                    "opener": f"Hi, this is {{rep}} from {data['seller_name']}. Is this a reasonable time for a brief introduction?",
+                    "screening_intro": f"{{rep}} from {data['seller_name']}, calling with a brief business introduction.",
+                },
+                key="approved",
+                now=now,
+            )
+            audit(s, tenant_id, seller_id, user.id, "workspace.created", tenant_id, now)
+            return {
+                **issue_session(s, self.settings, user, now),
+                "campaign_id": campaign_id,
+                "policy_id": policy_id,
+            }
+
+    def seed(self, p):
+        if not self.settings.simulation:
+            fail(403, "Simulation is disabled for this authority")
+        now = self.clock()
+        with self.db.transaction() as s:
+            seller = self.required(s, "sellers", p["seller_id"], p)
+            update(seller, approved=True, synthetic=True)
+            book = self.scoped(s, "playbooks", p)[0]
+            if not book.data.get("cards"):
+                update(
+                    book,
+                    synthetic=True,
+                    cards=[
                         {
                             "id": "existing-provider",
                             "tags": ["provider", "objection"],
@@ -198,26 +224,7 @@ class Service(ReservationPlanner):
                             "text": "What would make this conversation useful for you?",
                         },
                     ],
-                    "opener": f"Hi, this is {{rep}} from {data['seller_name']}. Is this a reasonable time for a brief introduction?",
-                    "screening_intro": f"{{rep}} from {data['seller_name']}, calling with a brief business introduction.",
-                },
-                key="approved",
-                now=now,
-            )
-            audit(s, tenant_id, seller_id, user.id, "workspace.created", tenant_id, now)
-            return {
-                **issue_session(s, self.settings, user, now),
-                "campaign_id": campaign_id,
-                "policy_id": policy_id,
-            }
-
-    def seed(self, p):
-        if not self.settings.simulation:
-            fail(403, "Simulation is disabled for this authority")
-        now = self.clock()
-        with self.db.transaction() as s:
-            seller = self.required(s, "sellers", p["seller_id"], p)
-            update(seller, approved=True, synthetic=True)
+                )
             campaign = self.scoped(s, "campaigns", p)[0]
             policy = self.required(s, "policy_versions", campaign.data["policy_id"], p)
             update(

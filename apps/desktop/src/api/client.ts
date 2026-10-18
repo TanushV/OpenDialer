@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Runtime, Session } from "../types";
+import { persistentCache } from "../state/privacy";
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -135,7 +136,12 @@ export async function readCache(
   simulation: boolean,
 ): Promise<string | null> {
   if (!native()) return null;
-  return await invoke("cache_read", { namespace, simulation });
+  return await invoke("cache_read", {
+    namespace: namespace.startsWith("optouts-")
+      ? namespace
+      : "safe-v1-" + namespace,
+    simulation,
+  });
 }
 export async function writeCache(
   namespace: string,
@@ -144,8 +150,10 @@ export async function writeCache(
 ): Promise<void> {
   if (native())
     await invoke("cache_write", {
-      namespace,
-      value: JSON.stringify(value),
+      namespace: namespace.startsWith("optouts-")
+        ? namespace
+        : "safe-v1-" + namespace,
+      value: JSON.stringify(persistentCache(value)),
       simulation,
     });
 }

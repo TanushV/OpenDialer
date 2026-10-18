@@ -820,7 +820,7 @@ Depends on M1/M2 event and concurrency foundations. Exit: A22–A28 pass, with s
 - [ ] M3.05 Add bounded cross-call concurrency, per-call ordering, latest-state replacement, cancellation, fairness and backpressure.
 - [ ] M3.06 Implement endpoint-capability-checked streaming/nonstreaming paths, meaningful deadlines and complete error handling.
 - [ ] M3.07 Verify actual Cerebras routing, context/request/usage receipts and budget settlement in contract tests.
-- [ ] M3.08 Add mute/pin/dismiss/help hotkey and feedback; manual help remains available when automatic tips are muted.
+- [x] M3.08 Add mute/pin/dismiss/help hotkey and feedback; manual help remains available when automatic tips are muted.
 - [ ] M3.09 Wire reviewed snippet retrieval, before/after-call tips and lightweight practice with clear simulation boundaries.
 - [ ] M3.10 Build semantic replay/contradiction/novel-objection examples and display timing instrumentation.
 

@@ -51,6 +51,10 @@ class CoachQuestion(Strict):
     urgent: bool = True
 
 
+class PracticeRequest(Strict):
+    scenario: str = Field(min_length=1, max_length=2000)
+
+
 class Login(Strict):
     email: str
     password: str
@@ -394,10 +398,18 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 service.coach_content(p, doc(r))
                 for r in service.scoped(s, "coach_events", p)
                 if r.data["call_id"] == call_id
-                and dt(r.data["expires_at"]) > clock()
-                and r.data["state_version"] == call.data["transcript_version"]
+                and (
+                    r.id == call.data.get("coach_preferences", {}).get("pinned_event_id")
+                    and dt(r.data.get("raw_expires_at", r.data["expires_at"])) > clock()
+                    or dt(r.data["expires_at"]) > clock()
+                    and r.data["state_version"] == call.data["transcript_version"]
+                )
             ]
             coach = [item for item in coach if item]
+            pinned_id = call.data.get("coach_preferences", {}).get("pinned_event_id")
+            pinned = next((item for item in coach if item["id"] == pinned_id), None)
+            if pinned:
+                coach = [{**pinned, "pinned": True, "expires_at": pinned["raw_expires_at"]}]
             segments = service.transcript_rows(s, p, call_id)
             state = next(
                 (r.data for r in service.scoped(s, "conversation_states", p) if r.external_key == call_id),
@@ -522,12 +534,25 @@ def create_app(settings=None, *, clock=None, carrier=None):
         with db.transaction() as s:
             call = service.required(s, "call_attempts", call_id, p)
             preferences = {**call.data.get("coach_preferences", {}), **data.model_dump(exclude_none=True)}
+            if data.pinned is not None:
+                visible = [
+                    r
+                    for r in service.scoped(s, "coach_events", p)
+                    if r.data["call_id"] == call_id
+                    and dt(r.data["expires_at"]) > clock()
+                    and service.coach_content(p, doc(r))
+                ]
+                preferences["pinned_event_id"] = visible[-1].id if data.pinned and visible else None
             update(call, coach_preferences=preferences)
             return preferences
 
     @app.post("/v1/calls/{call_id}/coach")
     async def coach(call_id: str, data: CoachQuestion | None = None, p=Depends(principal)):
         return await service.coach_turn(p, call_id, urgent=True, question=data.question if data else None)
+
+    @app.post("/v1/coaching/practice")
+    async def practice(data: PracticeRequest, p=Depends(principal)):
+        return await service.practice(p, data.scenario)
 
     @app.get("/v1/calls/{call_id}/analysis")
     def analysis(call_id: str, p=Depends(principal)):

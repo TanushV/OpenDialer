@@ -1,3 +1,5 @@
+import { useSpeechExpiry } from "../state/useSpeechExpiry";
+import { LiveCoach } from "./LiveCoach";
 import {
   ArrowRight,
   Check,
@@ -6,7 +8,6 @@ import {
   Globe2,
   Headphones,
   Layers3,
-  Lightbulb,
   LoaderCircle,
   Mic,
   MicOff,
@@ -15,7 +16,6 @@ import {
   PhoneOff,
   Plus,
   ShieldCheck,
-  Sparkles,
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -40,6 +40,7 @@ export function DialerPage() {
   const [reservation, setReservation] = useState<Reservation | null>(null);
   const [packet, setPacket] = useState<Packet | null>(null);
   const [call, setCall] = useState<Call | null>(null);
+  useSpeechExpiry(call, setCall);
   const [dialing, setDialing] = useState(false);
   const [mute, setMute] = useState(false);
   const [transcript, setTranscript] = useState("");
@@ -51,7 +52,6 @@ export function DialerPage() {
   const [audioStatus, setAudioStatus] = useState("");
   const [showDevices, setShowDevices] = useState(false);
   const [vmAsset, setVMAsset] = useState("");
-  const [feedbackId, setFeedbackId] = useState("");
   const eventReceived = useRef<number | null>(null);
   const responseReceived = useRef<number | null>(null);
   const audio = useRef<HTMLAudioElement>(null);
@@ -138,21 +138,6 @@ export function DialerPage() {
     });
     return () => cancelAnimationFrame(frame);
   }, [call?.coach?.id, api]);
-  useEffect(() => {
-    if (!call?.coach) return;
-    const remaining = call.coach.remaining_ms ?? 7000;
-    const version = call.coach.state_version;
-    const timeout = setTimeout(
-      () =>
-        setCall((current) =>
-          current?.coach?.state_version === version
-            ? { ...current, coach: null }
-            : current,
-        ),
-      Math.max(0, remaining),
-    );
-    return () => clearTimeout(timeout);
-  }, [call?.coach?.id]);
   useEffect(() => {
     telephony.current.onStatus = (status) => {
       setAudioStatus(status);
@@ -371,18 +356,24 @@ export function DialerPage() {
   return (
     <>
       <audio ref={audio} autoPlay />
-      <p className="fine">Conversation updates: {label(liveStatus)}</p>
-      <button
-        className="text-button"
-        onClick={() =>
-          void run(async () => {
-            setShowDevices(!showDevices);
-            if (!w.simulation) setDevices(await telephony.current.devices());
-          })
-        }
-      >
-        Audio devices
-      </button>
+      <LiveCoach
+        call={call}
+        onChange={() => (call ? reloadCall(call.id) : Promise.resolve())}
+      />
+      <div className="dialer-status">
+        <span className="fine">Conversation updates: {label(liveStatus)}</span>
+        <button
+          className="text-button"
+          onClick={() =>
+            void run(async () => {
+              setShowDevices(!showDevices);
+              if (!w.simulation) setDevices(await telephony.current.devices());
+            })
+          }
+        >
+          Audio devices
+        </button>
+      </div>
       {showDevices && (
         <section className="card padded">
           <div className="two-column">
@@ -428,13 +419,17 @@ export function DialerPage() {
           </p>
         </section>
       )}
-      <div className="page-heading">
+      <div className={`page-heading ${packet ? "calling-heading" : ""}`}>
         <div>
           <span className="eyebrow">{w.campaign.name}</span>
-          <h1>
-            Your next conversation<span className="soft-dot">.</span>
-          </h1>
-          <p>Arrive prepared. Listen closely. Leave a clear next step.</p>
+          {!packet && (
+            <>
+              <h1>
+                Your next conversation<span className="soft-dot">.</span>
+              </h1>
+              <p>Arrive prepared. Listen closely. Leave a clear next step.</p>
+            </>
+          )}
         </div>
         <button
           className={ready ? "secondary ready-button" : "primary"}
@@ -452,29 +447,31 @@ export function DialerPage() {
           <button onClick={() => void run(syncOptouts)}>Retry sync</button>
         </div>
       )}
-      <div className="metric-row">
-        <Metric
-          title="LEADS IN YOUR COHORT"
-          value={String(w.metrics.original_cohort)}
-          detail={`${w.metrics.eligible_now} currently eligible`}
-        />
-        <Metric
-          title="UNIQUE RIGHT-PARTY REACH"
-          value={String(w.metrics.right_party_unique)}
-          detail="Across the original cohort"
-        />
-        <Metric
-          title="HELD MEETINGS"
-          value={String(w.metrics.held_meetings)}
-          detail="Confirmed outcomes"
-        />
-        <Metric
-          title="COVERAGE OVERDUE"
-          value={String(w.metrics.coverage_overdue)}
-          detail="No lead left behind"
-          last
-        />
-      </div>
+      {!packet && (
+        <div className="metric-row">
+          <Metric
+            title="LEADS IN YOUR COHORT"
+            value={String(w.metrics.original_cohort)}
+            detail={`${w.metrics.eligible_now} currently eligible`}
+          />
+          <Metric
+            title="UNIQUE RIGHT-PARTY REACH"
+            value={String(w.metrics.right_party_unique)}
+            detail="Across the original cohort"
+          />
+          <Metric
+            title="HELD MEETINGS"
+            value={String(w.metrics.held_meetings)}
+            detail="Confirmed outcomes"
+          />
+          <Metric
+            title="COVERAGE OVERDUE"
+            value={String(w.metrics.coverage_overdue)}
+            detail="No lead left behind"
+            last
+          />
+        </div>
+      )}
       <div className="dialer-grid">
         <section className="card lead-card">
           <div className="card-eyebrow">
@@ -570,7 +567,7 @@ export function DialerPage() {
             </div>
           )}
         </section>
-        <section className="card script-card">
+        <section className="card script-card" data-testid="prepared-script">
           <div className="card-eyebrow">
             <span>
               <FileText size={15} /> YOUR TALK TRACK
@@ -741,87 +738,6 @@ export function DialerPage() {
               </div>
             </div>
           )}
-        </section>
-        <section className="card coach-card">
-          <div className="card-eyebrow">
-            <span>
-              <Sparkles size={15} /> A QUIET SECOND PAIR OF EARS
-            </span>
-            <span className="tiny-light" />
-          </div>
-          {call?.coach ? (
-            <div className="coach-guidance">
-              <span className="eyebrow">CONSIDER ASKING</span>
-              <h3>“{call.coach.say_or_ask}”</h3>
-              <p>{call.coach.reason}</p>
-              <small>
-                Grounded in the current turn ·{" "}
-                {w.simulation ? "Approved static card" : "Approved guidance"}
-              </small>
-              <div className="guidance-feedback" aria-label="Guidance feedback">
-                {[
-                  ["Guidance was useful", { useful: true }],
-                  ["Guidance was not useful", { useful: false }],
-                  ["Guidance was distracting", { distracting: true }],
-                  ["Guidance arrived too late", { timely: false }],
-                ].map(([title, fields]) => (
-                  <button
-                    className="text-button"
-                    key={String(title)}
-                    disabled={feedbackId === call.coach!.id}
-                    onClick={() =>
-                      void run(async () => {
-                        await api(
-                          "/v1/calls/" + call.id + "/coach/feedback",
-                          "POST",
-                          {
-                            coach_event_id: call.coach!.id,
-                            ...(fields as Record<string, boolean>),
-                          },
-                        );
-                        setFeedbackId(call.coach!.id);
-                        notice("Guidance feedback saved");
-                      })
-                    }
-                  >
-                    {String(title)}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="coach-placeholder">
-              <Lightbulb size={25} strokeWidth={1.3} />
-              <h3>
-                The right nudge.
-                <br />
-                At the right moment.
-              </h3>
-              <p>
-                One short, grounded suggestion.
-                <br />
-                Always your choice to use it.
-              </p>
-            </div>
-          )}
-          <div className="coach-footer">
-            <span>F1 for help</span>
-            <button
-              className="text-button"
-              disabled={!active}
-              onClick={() =>
-                void run(async () => {
-                  if (call) {
-                    await api(`/v1/calls/${call.id}/coach`, "POST");
-                    await reloadCall(call.id);
-                  }
-                })
-              }
-            >
-              Get a nudge
-              <ArrowRight size={13} />
-            </button>
-          </div>
         </section>
       </div>
       {call?.state === "VOICEMAIL_READY" && w.policy.voicemail_enabled && (

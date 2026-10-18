@@ -351,8 +351,20 @@ def test_negated_budget_approval_does_not_resolve_an_objection():
             "text": "The budget is not approved.",
         },
     ]
-    result = build_context(segments, version=2, facts=[], commitments=[])
-    assert any(o["kind"] == "budget" and o["status"] == "unresolved" for o in result["objections"]), result
+    prior = {
+        "objections": [
+            {
+                "text": "Spending remains unapproved.",
+                "status": "unresolved",
+                "evidence_segment_ids": ["s1"],
+                "evidence_revisions": {"s1": 1},
+            }
+        ]
+    }
+    result = build_context(segments, version=2, facts=[], commitments=[], prior=prior)
+    # Removing the regex classifier must not erase or resolve the earlier evidenced objection.
+    assert result["objections"] == prior["objections"]
+    assert result["trigger"] == "conversation"
 
 
 @pytest.mark.asyncio

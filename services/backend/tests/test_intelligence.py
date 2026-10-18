@@ -66,7 +66,7 @@ def test_coach_rejects_stale_ungrounded_and_long_cards(clock):
     for modified in [
         {"state_version": 2},
         {"evidence_segment_ids": ["missing"]},
-        {"say_or_ask": "word " * 26},
+        {"say_or_ask": "word " * 201},
         {"playbook_card_ids": ["unapproved"]},
         {"say_or_ask": "We guarantee to double your revenue"},
     ]:

@@ -109,3 +109,32 @@ fn updater_cleanup_releases_owned_runtime_without_a_run_event() {
         "Windows updater cleanup must stop owned runtimes before process::exit"
     );
 }
+
+#[test]
+fn raw_cache_cutover_only_removes_owned_legacy_snapshots() {
+    let root = std::env::temp_dir().join(format!("opendialer-cache-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    for name in [
+        "analysis-user-call.enc",
+        "packet-user-lead.enc",
+        "workspace-user.enc",
+        "optouts-tenant.enc",
+        "safe-v1-analysis-user-call.enc",
+        "other.enc",
+    ] {
+        std::fs::write(root.join(name), b"protected fixture").unwrap();
+    }
+    assert_eq!(opendialer_lib::purge_legacy_caches(&root).unwrap(), 3);
+    assert_eq!(opendialer_lib::purge_legacy_caches(&root).unwrap(), 0);
+    for name in [
+        "optouts-tenant.enc",
+        "safe-v1-analysis-user-call.enc",
+        "other.enc",
+    ] {
+        assert_eq!(
+            std::fs::read(root.join(name)).unwrap(),
+            b"protected fixture"
+        );
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}

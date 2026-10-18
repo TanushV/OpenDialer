@@ -368,6 +368,32 @@ async fn cache_write(
     .await
 }
 
+/// Legacy machine snapshots may contain call text. The authoritative records and opt-out
+/// journal are separate; never remove them during the short-retention cache cutover.
+pub fn purge_legacy_caches(directory: &std::path::Path) -> Result<usize, String> {
+    if !directory.exists() {
+        return Ok(0);
+    }
+    let mut removed = 0;
+    for entry in std::fs::read_dir(directory).map_err(|_| "Cannot inspect legacy caches")? {
+        let entry = entry.map_err(|_| "Cannot inspect legacy cache entry")?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if ["analysis-", "packet-", "workspace-"]
+            .iter()
+            .any(|prefix| name.starts_with(prefix))
+            && !entry
+                .file_type()
+                .map_err(|_| "Cannot inspect cache type")?
+                .is_dir()
+        {
+            std::fs::remove_file(entry.path()).map_err(|_| "Cannot remove legacy raw cache")?;
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -375,6 +401,11 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(LocalBackend::default())
         .setup(|app| {
+            let root = app.path().app_data_dir()?;
+            for mode in ["local", "simulation"] {
+                purge_legacy_caches(&root.join(mode).join("encrypted-cache"))
+                    .map_err(std::io::Error::other)?;
+            }
             let backend = app.state::<LocalBackend>().inner().clone();
             register_exit_cleanup(app.handle(), move || {
                 if let Ok(mut state) = backend.0.lock() {

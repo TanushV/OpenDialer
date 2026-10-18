@@ -1,3 +1,4 @@
+import { useSpeechExpiry } from "../state/useSpeechExpiry";
 import {
   ArrowLeft,
   Check,
@@ -15,6 +16,7 @@ import { Empty } from "./Operations";
 export function ReviewPage() {
   const { snapshot: w, api, run, notice } = useWorkspace();
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  useSpeechExpiry(analysis, setAnalysis);
   const [notes, setNotes] = useState("");
   const [filter, setFilter] = useState("all");
   const [appeal, setAppeal] = useState("");
@@ -174,24 +176,10 @@ export function ReviewPage() {
           ) : (
             <Empty text="No permitted final transcript is available for this call." />
           )}
-          {analysis.recording_available && (
-            <div>
-              <h3>Permitted recording</h3>
-              <button
-                className="secondary"
-                onClick={() =>
-                  void run(async () => {
-                    const result = await api<{ url: string }>(
-                      `/v1/calls/${analysis.call.id}/recording`,
-                    );
-                    window.open(result.url, "_blank", "noopener,noreferrer");
-                  })
-                }
-              >
-                Open secured recording
-              </button>
-            </div>
-          )}
+          <p className="fine">
+            Call recordings are disabled. Raw evidence expires within five
+            minutes; retained notes and outcomes remain.
+          </p>
           <div className="section-rule" />
           <h3>Observable conversation metrics</h3>
           <p className="muted small">

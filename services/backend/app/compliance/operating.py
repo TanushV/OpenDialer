@@ -3,11 +3,11 @@
 import asyncio
 import hashlib
 import hmac
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Literal
 
 from fastapi import Depends
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlalchemy import select
 
 from app.db import MODELS, audit, put, uid, update
@@ -21,7 +21,6 @@ class OperatingPolicy(BaseModel):
     subscriptions_allowed: Literal[False] = False
     recording_enabled: Literal[False] = False
     raw_retention_seconds: Literal[300] = 300
-    coach_provider: Literal["openrouter", "static"] = "openrouter"
     inference_data_collection: Literal["deny"] = "deny"
     inference_zdr: Literal[True] = True
     auto_coach_interval_seconds: int = Field(default=8, ge=3, le=60)
@@ -46,6 +45,30 @@ class DNCAuthorization(BaseModel):
     expires_at: str
     source_access_verified: bool
     source_refreshed_at: str | None = None
+
+    @field_validator("reference")
+    @classmethod
+    def reference_not_blank(cls, value):
+        if not value.strip():
+            raise ValueError("Seller access reference is required")
+        return value.strip()
+
+    @field_validator("npas")
+    @classmethod
+    def valid_area_codes(cls, values):
+        if any(len(v) != 3 or v[0] not in "23456789" or not v.isascii() or not v.isdigit() for v in values):
+            raise ValueError("Use three-digit North American area codes")
+        return sorted(set(values))
+
+    @field_validator("expires_at", "source_refreshed_at")
+    @classmethod
+    def zoned_timestamp(cls, value):
+        if value is None:
+            return None
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise ValueError("A timestamp with UTC offset is required")
+        return parsed.isoformat()
 
 
 COSTS = {
@@ -147,9 +170,16 @@ def bind_operating_api(app, service, administrator):
     def get_policy(p=Depends(administrator)):
         with service.db.transaction(False) as s:
             seller = service.required(s, "sellers", p["seller_id"], p)
-            policy = OperatingPolicy(**seller.data.get("operating_policy", {})).model_dump()
+            policy = OperatingPolicy(
+                **{
+                    k: v
+                    for k, v in seller.data.get("operating_policy", {}).items()
+                    if k in OperatingPolicy.model_fields
+                }
+            ).model_dump()
         return {
             **policy,
+            "coach_provider": service.vault.read(p["tenant_id"]).get("coach_provider", "openrouter"),
             "external_reputation": {
                 "available": False,
                 "status": "subscription_excluded",
@@ -170,15 +200,21 @@ def bind_operating_api(app, service, administrator):
     def put_policy(data: OperatingPolicy, p=Depends(administrator)):
         from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-        try:
-            ZoneInfo(data.preparation_timezone)
-        except ZoneInfoNotFoundError:
-            fail(422, "An IANA preparation timezone is required")
-        if data.transcription_privacy_verified and not data.transcription_privacy_reference:
-            fail(422, "Provider/account retention evidence is required")
         with service.db.transaction() as s:
             seller = service.required(s, "sellers", p["seller_id"], p)
-            values = {**seller.data.get("operating_policy", {}), **data.model_dump(exclude_unset=True)}
+            current = {
+                k: v
+                for k, v in seller.data.get("operating_policy", {}).items()
+                if k in OperatingPolicy.model_fields
+            }
+            try:
+                merged = OperatingPolicy(**{**current, **data.model_dump(exclude_unset=True)})
+                ZoneInfo(merged.preparation_timezone)
+            except (ZoneInfoNotFoundError, ValidationError):
+                fail(422, "Valid operating settings and an IANA preparation timezone are required")
+            if merged.transcription_privacy_verified and not merged.transcription_privacy_reference.strip():
+                fail(422, "Provider/account retention evidence is required")
+            values = merged.model_dump()
             update(seller, operating_policy=values)
             audit(
                 s,

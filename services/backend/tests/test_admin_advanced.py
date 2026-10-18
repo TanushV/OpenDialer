@@ -20,7 +20,7 @@ def test_only_reviewed_variants_can_enter_the_action_set(workspace):
     assert "May I share why I called?" in script["opener"]
 
 
-def test_number_procurement_requires_a_fresh_quote_and_approved_ceiling(workspace, carrier):
+def test_even_quoted_numbers_cannot_create_new_recurring_commitments(workspace, carrier):
     c, h = workspace["client"], workspace["headers"]
     c.put(
         "/v1/admin/budget",
@@ -39,8 +39,9 @@ def test_number_procurement_requires_a_fresh_quote_and_approved_ceiling(workspac
             "idempotency_key": "quoted-order",
         },
     )
-    assert result.status_code == 200, result.text
-    assert len(carrier.purchases) == 1
+    assert result.status_code == 403, result.text
+    assert "RECURRING" in result.text
+    assert not carrier.purchases
     repeated = c.post(
         "/v1/admin/numbers/purchase",
         headers=h,
@@ -50,8 +51,8 @@ def test_number_procurement_requires_a_fresh_quote_and_approved_ceiling(workspac
             "idempotency_key": "quoted-order",
         },
     )
-    assert repeated.status_code == 200
-    assert len(carrier.purchases) == 1
+    assert repeated.status_code == 403
+    assert not carrier.purchases
 
 
 def test_procurement_rejects_unquoted_and_underfunded_orders(workspace, clock):

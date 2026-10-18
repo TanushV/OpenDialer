@@ -1,3 +1,4 @@
+import { OperatingPolicySettings } from "./OperatingPolicySettings";
 import type { Update } from "@tauri-apps/plugin-updater";
 import {
   ArrowDownToLine,
@@ -107,6 +108,7 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
   );
   return (
     <>
+      <OperatingPolicySettings />
       <div className="page-heading">
         <div>
           <span className="eyebrow">A WORKSPACE YOU CAN TRUST</span>
@@ -302,7 +304,6 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
                   >
                     <option value="openrouter">OpenRouter · Cerebras</option>
                     <option value="static">Approved static guidance</option>
-                    <option value="groq">Legacy Groq configuration</option>
                   </select>
                 </label>
                 {(config.coach_provider || "openrouter") === "openrouter" && (
@@ -319,17 +320,6 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
                       structured responses. Endpoint support and live timing
                       must pass your account checks.
                     </p>
-                  </>
-                )}
-                {config.coach_provider === "groq" && (
-                  <>
-                    {field("groq_api_key", "Groq API key", true)}
-                    {field(
-                      "groq_model",
-                      "Evaluated coach model",
-                      false,
-                      "openai/gpt-oss-20b",
-                    )}
                   </>
                 )}
                 <p className="fine">

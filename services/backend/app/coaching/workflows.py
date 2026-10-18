@@ -20,6 +20,57 @@ from app.telephony.reducer import TERMINAL
 
 
 class LiveHelper:
+    async def practice(self, p, scenario):
+        def context():
+            with self.db.transaction(False) as s:
+                book = self.approved_playbook(s, p)
+                seller = self.required(s, "sellers", p["seller_id"], p)
+                return {
+                    "state_version": 0,
+                    "simulation": True,
+                    "private_question": scenario,
+                    "seller": {
+                        "name": seller.data["name"],
+                        "knowledge": book.data.get("product_description", "") if book else "",
+                    },
+                    "approved_cards": book.data.get("cards", []) if book else [],
+                    "approved_claims": book.data.get("claims", []) if book else [],
+                    "recent_dialogue": [],
+                    "facts": [],
+                }
+
+        request = await asyncio.to_thread(context)
+        provider, route = self.configured_coach(p)
+        if not provider or self.settings.simulation:
+            return {"simulation": True, "status": "unconfigured", "examples": request["approved_cards"]}
+        key = "practice:" + uid()
+        admitted = await asyncio.to_thread(
+            self.reserve_optional_budget, p, key, 0.01, object_id=key, work_kind="coaching_practice"
+        )
+        if not admitted:
+            return {"simulation": True, "status": "budget_exhausted"}
+        result = await self.coach.suggest(key, request, provider, {"action": "NO_ACTION"}, deadline_ms=8000)
+        await asyncio.to_thread(
+            self.usage,
+            p,
+            route,
+            "coaching_practice",
+            InferenceResult({}, provider.last_usage, provider.last_request_id),
+            object_id=key,
+            request_key=key,
+            reserved=0,
+        )
+        try:
+            ground_guidance(result, request)
+        except CardRejected:
+            return {"simulation": True, "status": "unavailable"}
+        return {
+            "simulation": True,
+            "status": "ready",
+            "guidance": result,
+            "raw_expires_at": (self.clock() + timedelta(seconds=300)).isoformat(),
+        }
+
     def coach_content(self, p, record):
         if record.get("private") and record.get("user_id") != p["user_id"]:
             return None
@@ -49,6 +100,8 @@ class LiveHelper:
                 (r for r in self.scoped(s, "conversation_states", p) if r.external_key == call_id), None
             )
             previous = state_record.data if state_record else {}
+            seller = self.required(s, "sellers", p["seller_id"], p)
+            interval = seller.data.get("operating_policy", {}).get("auto_coach_interval_seconds", 8)
             facts = [
                 doc(r)
                 for r in self.scoped(s, "research_facts", p)
@@ -88,12 +141,14 @@ class LiveHelper:
             if (
                 not urgent
                 and previous.get("last_request_at")
-                and (self.clock() - dt(previous["last_request_at"])).total_seconds() < 8
+                and (self.clock() - dt(previous["last_request_at"])).total_seconds() < interval
             ):
                 return None
             book = self.approved_playbook(s, p)
             all_cards = book.data.get("cards", []) if book else []
+            retrieval_started = time.perf_counter()
             cards = retrieve_cards(state, all_cards)
+            retrieval_ms = (time.perf_counter() - retrieval_started) * 1000
             fallback = {"action": "NO_ACTION", "state_version": version}
             if cards and state["last_remote"]:
                 fallback = {
@@ -106,7 +161,6 @@ class LiveHelper:
                     "state_version": version,
                     "expires_in_ms": 30000,
                 }
-            seller = self.required(s, "sellers", p["seller_id"], p)
             previous_calls = sorted(
                 [
                     c
@@ -160,6 +214,7 @@ class LiveHelper:
                 fallback,
                 deadline,
                 (time.perf_counter() - started) * 1000,
+                retrieval_ms,
                 call.data.get("coaching_comparison"),
             )
 
@@ -167,7 +222,7 @@ class LiveHelper:
         prepared = await asyncio.to_thread(self._help_context, p, call_id, urgent, question)
         if not prepared:
             return {"action": "NO_ACTION", "status": "no_action", "private": bool(question)}
-        request, fallback, expires, state_ms, comparison = prepared
+        request, fallback, expires, state_ms, retrieval_ms, comparison = prepared
         remaining = (expires - self.clock()).total_seconds()
         if remaining <= 0:
             return {"action": "NO_ACTION", "status": "expired", "private": bool(question)}
@@ -224,11 +279,23 @@ class LiveHelper:
             provider,
             expires,
             state_ms,
+            retrieval_ms,
             (time.perf_counter() - began) * 1000,
         )
 
     def _publish_help(
-        self, p, call_id, request, state, result, source, provider, expires, state_ms, inference_ms
+        self,
+        p,
+        call_id,
+        request,
+        state,
+        result,
+        source,
+        provider,
+        expires,
+        state_ms,
+        retrieval_ms,
+        inference_ms,
     ):
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
@@ -257,13 +324,14 @@ class LiveHelper:
                         "user_id": p["user_id"],
                         "created_at": self.clock().isoformat(),
                         "expires_at": deadline.isoformat(),
+                        "raw_expires_at": expires.isoformat(),
                         "provider": source,
                         "actual_provider": getattr(provider, "last_provider", None),
                         "model": getattr(provider, "last_model", None),
                         "provider_request_id": getattr(provider, "last_request_id", None),
                         "latency": {
-                            "state_ms": state_ms,
-                            "retrieval_ms": 0.0,
+                            "state_ms": max(0, state_ms - retrieval_ms),
+                            "retrieval_ms": retrieval_ms,
                             "state_retrieval_ms": state_ms,
                             "inference_ms": inference_ms,
                             "stt_ms": None,
@@ -272,7 +340,10 @@ class LiveHelper:
                 )
                 obj = put(s, "coach_events", p["tenant_id"], p["seller_id"], metadata, now=self.clock())
                 self.raw.put(
-                    "help:" + p["tenant_id"] + ":" + obj.id, {**doc(obj), **result}, expires_at=deadline
+                    "help:" + p["tenant_id"] + ":" + obj.id,
+                    {**doc(obj), **result},
+                    expires_at=expires,
+                    scope=p["tenant_id"] + ":" + call_id,
                 )
                 emit(s, p["tenant_id"], "coach.card_ready", call, self.clock(), {"coach_event_id": obj.id})
                 result = {**result, "id": obj.id}
