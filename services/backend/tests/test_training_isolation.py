@@ -2,10 +2,12 @@
 
 import asyncio
 import builtins
+import contextlib
 import hashlib
 import os
 import runpy
 import sys
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import ModuleType
@@ -245,6 +247,113 @@ async def test_cancellation_during_process_creation_still_reaps_owned_child(tmp_
         if children[0].returncode is None:
             children[0].kill()
             await children[0].wait()
+
+
+@pytest.mark.asyncio
+async def test_training_capacity_lock_is_shared_across_authority_processes(tmp_path):
+    from app.ml import worker
+
+    root = tmp_path / "models"
+    holder = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-c",
+        "import sys; from pathlib import Path; from app.ml.worker import training_slot; "
+        "slot=training_slot(Path(sys.argv[1])); print('locked', flush=True); sys.stdin.read()",
+        str(root),
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        env=worker.child_environment(),
+    )
+    try:
+        assert await asyncio.wait_for(holder.stdout.readline(), 3) == b"locked\n"
+        with pytest.raises(RuntimeError, match="already active"):
+            await worker.train_isolated(training_rows(), root / "second")
+        assert not (root / "second").exists()
+    finally:
+        holder.stdin.close()
+        await asyncio.wait_for(holder.wait(), 3)
+
+
+@pytest.mark.asyncio
+async def test_cancellation_during_cleanup_does_not_leak_training_capacity(tmp_path, monkeypatch):
+    from app.ml import worker
+
+    monkeypatch.setattr(
+        worker, "child_command", lambda: [sys.executable, "-c", "import time; time.sleep(30)"]
+    )
+    original, acquired, descriptors = worker.reap, worker.training_slot, []
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    def observed(root):
+        descriptor = acquired(root)
+        descriptors.append(descriptor)
+        return descriptor
+
+    async def delayed(child):
+        entered.set()
+        await release.wait()
+        await original(child)
+
+    monkeypatch.setattr(worker, "training_slot", observed)
+    monkeypatch.setattr(worker, "reap", delayed)
+    task = asyncio.create_task(
+        worker.train_isolated(training_rows(), tmp_path / "models" / "first", timeout_seconds=0.1)
+    )
+    try:
+        await asyncio.wait_for(entered.wait(), 3)
+        task.cancel()
+        await asyncio.sleep(0)
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        with pytest.raises(RuntimeError, match="timed out"):
+            await worker.train_isolated(training_rows(), tmp_path / "models" / "second", timeout_seconds=0.1)
+        assert not (tmp_path / "models" / "first").exists()
+    finally:
+        release.set()
+        for descriptor in descriptors:
+            with contextlib.suppress(OSError):
+                os.close(descriptor)
+
+
+@pytest.mark.asyncio
+async def test_cancelling_during_publication_does_not_delete_committed_artifact(workspace, app, monkeypatch):
+    from app.ml import worker
+
+    service, p = app.state.service, principal(workspace)
+    payload = source(service, p)
+
+    def fit_result(output):
+        output.mkdir(parents=True)
+        path = output / "challenger.joblib"
+        path.write_bytes(b"owned candidate")
+        return {"artifact": str(path), "checksum": hashlib.sha256(path.read_bytes()).hexdigest()}
+
+    async def fitted(rows, output_dir, **kwargs):
+        return fit_result(output_dir)
+
+    monkeypatch.setattr(worker, "train_isolated", fitted)
+    original, entered, release = service._training_publish, threading.Event(), threading.Event()
+
+    def delayed(*args):
+        entered.set()
+        assert release.wait(5)
+        return original(*args)
+
+    monkeypatch.setattr(service, "_training_publish", delayed)
+    task = asyncio.create_task(service.train_model_job(p, payload))
+    try:
+        assert await asyncio.to_thread(entered.wait, 3)
+        task.cancel()
+        await asyncio.sleep(0)
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        with service.db.transaction(False) as s:
+            models = service.scoped(s, "model_versions", p)
+            assert len(models) == 1 and Path(models[0].data["artifact"]).exists()
+    finally:
+        release.set()
 
 
 @pytest.mark.asyncio
