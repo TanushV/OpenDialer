@@ -234,3 +234,38 @@ async def test_private_help_does_not_mutate_the_call_control_or_wrapup_version(w
         assert get(s, "call_attempts", call["id"]).version == before, (
             "Helper metadata cannot invalidate a rep's call control or wrap-up edit"
         )
+
+
+@pytest.mark.asyncio
+async def test_finished_private_request_cannot_spend_again_after_raw_expiry(
+    workspace, app, clock, monkeypatch
+):
+    from datetime import timedelta
+
+    call, p, requests, _ = setup(workspace, app, monkeypatch)
+    service, identity = app.state.service, str(uuid4())
+    turn(service, p, call, "old-answer")
+    await service.coach_turn(p, call["id"], urgent=True, question="Help?", request_id=identity)
+    clock.now += timedelta(seconds=301)
+    turn(service, p, call, "fresh-evidence")
+    again = await service.coach_turn(p, call["id"], urgent=True, question="Help?", request_id=identity)
+    assert again["action"] == "NO_ACTION" and again["status"] == "expired"
+    assert len(requests) == len(holds(service, p)) == 1
+
+
+@pytest.mark.asyncio
+async def test_optout_received_during_inference_prevents_publication(workspace, app, monkeypatch):
+    call, p, _, changes = setup(workspace, app, monkeypatch)
+    service = app.state.service
+    turn(service, p, call, "optout-during")
+
+    def suppress():
+        with service.db.transaction(False) as s:
+            phone = get(s, "leads", call["lead_id"]).data["phone"]
+        service.suppress(p, phone, "manual opt-out")
+
+    changes["during"] = suppress
+    answer = await service.coach_turn(p, call["id"], urgent=True, question="Help?", request_id=str(uuid4()))
+    assert answer["action"] == "NO_ACTION"
+    with service.db.transaction(False) as s:
+        assert not service.scoped(s, "coach_events", p)
