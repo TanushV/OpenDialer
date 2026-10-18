@@ -337,6 +337,7 @@ def test_unmatched_client_state_is_not_a_processing_failure(workspace, context):
 
 def test_rep_can_end_the_current_inbound_call_and_both_known_legs(workspace, carrier):
     _, phone = previous_call(workspace)
+    carrier.hangups.clear()
     task = incoming(workspace, phone=phone)
     dispatch(workspace)
     webhook(workspace, "call.bridged", target_payload(carrier))
@@ -393,3 +394,57 @@ def test_ended_provider_callback_is_reconciled_after_restart_without_replaying_t
     asyncio.run(service.recover(principal(workspace)))
     assert saved(workspace, "followup_tasks", task["id"])["inbound_state"] == "ended"
     assert len([a for a in carrier.actions if a["action"] == "transfer"]) == 1
+
+
+def test_callback_budget_prevents_optional_transfer_and_speech_but_never_hangup(workspace, carrier):
+    configure(workspace, destination="sip:reception@example.test")
+    service = workspace["client"].app.state.service
+    with service.db.transaction() as s:
+        for budget in rows(s, "budgets"):
+            update(budget, daily_limit_usd=0, monthly_limit_usd=0)
+    task = incoming(workspace)
+    dispatch(workspace)
+    assert not any(a["action"] in {"speak", "transfer"} for a in carrier.actions)
+    assert any(h["provider_id"] == "inbound-1" for h in carrier.hangups)
+    assert saved(workspace, "followup_tasks", task["id"])["status"] == "open"
+
+
+def test_callback_charges_remain_uncertain_until_matching_imported_carrier_receipt(workspace, carrier):
+    configure(workspace, destination="sip:reception@example.test")
+    task = incoming(workspace)
+    dispatch(workspace)
+    service = workspace["client"].app.state.service
+    with service.db.transaction(False) as s:
+        entries = [doc(r) for r in rows(s, "usage_ledger") if r.data.get("object_id") == task["id"]]
+    assert len(entries) == 1
+    hold = entries[0]
+    assert hold["status"] == "uncertain" and hold["reserved_usd"] == 0.1
+    payload = {
+        "source_reference": "carrier-invoice-fixture",
+        "rows": [
+            {
+                "callback_id": task["id"],
+                "provider_record_id": "callback-transfer-charge",
+                "kind": "callback_transfer",
+                "request_key": hold["request_key"],
+                "duration_seconds": 0,
+                "cost_usd": 0.1,
+            }
+        ],
+    }
+    c, h = workspace["client"], workspace["headers"]
+    result = c.post("/v1/admin/billing/reconcile", headers=h, json=payload)
+    assert result.status_code == 200, result.text
+    again = c.post("/v1/admin/billing/reconcile", headers=h, json=payload)
+    assert again.json()["duplicates"] == 1
+    with service.db.transaction(False) as s:
+        entries = [doc(r) for r in rows(s, "usage_ledger") if r.data.get("object_id") == task["id"]]
+    assert len(entries) == 1 and entries[0]["reserved_usd"] == 0
+    assert entries[0]["cost_usd"] == 0.1 and entries[0]["billing_verified"]
+
+
+def test_callback_rates_are_visible_without_a_paid_request(workspace, carrier):
+    response = workspace["client"].get("/v1/admin/callback-routing", headers=workspace["headers"])
+    assert response.json()["costs"]["transfer_per_invocation_usd"] == 0.1
+    assert response.json()["costs"]["standard_tts_per_character_usd"] == 0.000009
+    assert not carrier.actions

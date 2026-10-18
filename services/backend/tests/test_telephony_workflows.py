@@ -127,7 +127,16 @@ def test_ready_responsible_rep_receives_inbound_transfer_through_durable_outbox(
     service = c.app.state.service
     with service.db.transaction() as s:
         user = get(s, "users", workspace["user_id"])
-        update(user, sip_username="scoped-rep", presence={"status": "ready"})
+        update(
+            user,
+            sip_username="scoped-rep",
+            presence={
+                "status": "ready",
+                "audio_ready": True,
+                "telephony_ready": True,
+                "at": service.clock().isoformat(),
+            },
+        )
     task = asyncio.run(
         service.inbound_callback(
             workspace["tenant_id"],
