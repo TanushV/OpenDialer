@@ -222,10 +222,10 @@ class InboundCallbacks:
     async def inbound_callback(self, tenant_id, payload, event_id):
         return await asyncio.to_thread(self._receive_inbound, tenant_id, payload, event_id)
 
-    def _receive_inbound(self, tenant_id, payload, event_id):
+    def _receive_inbound(self, tenant_id, payload, event_id, *, session=None):
         if not payload.get("call_control_id"):
             fail(422, "Inbound call identity is missing")
-        with self.db.transaction() as s:
+        with self.db.transaction(session=session) as s:
             owned = [
                 n for n in rows(s, "number_inventory", tenant_id) if n.data["phone"] == payload.get("to")
             ]
@@ -295,8 +295,8 @@ class InboundCallbacks:
             self._release_inbound_claim(s, task)
         emit(s, p["tenant_id"], "task.updated", task, self.clock())
 
-    def inbound_event(self, tenant_id, payload, event_type):
-        with self.db.transaction() as s:
+    def inbound_event(self, tenant_id, payload, event_type, *, session=None):
+        with self.db.transaction(session=session) as s:
             tasks = [t for t in rows(s, "followup_tasks", tenant_id) if t.data.get("inbound")]
             task = next(
                 (t for t in tasks if t.data.get("provider_id") == payload.get("call_control_id")), None

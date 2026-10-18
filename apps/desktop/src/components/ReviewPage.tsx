@@ -142,6 +142,18 @@ export function ReviewPage() {
             : "AI draft · review required"}
         </span>
       </div>
+      {analysis.call.analysis_incomplete && (
+        <p
+          className="notice"
+          role="status"
+          aria-label="Incomplete call analysis"
+        >
+          {analysis.call.unprocessed_speech_events ?? "Some"} speech events
+          could not be processed before their raw content expired or became
+          unavailable. The AI rundown may be incomplete. Review your notes and
+          follow-up.
+        </p>
+      )}
       {analysis.grounding_status === "review_required" && (
         <p className="notice" role="status" aria-label="Evidence review">
           AI interpretation needs review. Its evidence check was unavailable or

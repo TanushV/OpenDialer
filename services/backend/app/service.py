@@ -892,7 +892,7 @@ class Service(ReservationPlanner):
             )
         return result
 
-    def suppress(self, p, phone, reason, *, event_id=None):
+    def suppress(self, p, phone, reason, *, event_id=None, session=None):
         normalized = normalize_phone(phone)
         if not normalized.e164:
             fail(422, "Valid phone endpoint required")
@@ -912,7 +912,7 @@ class Service(ReservationPlanner):
             f.write(self.vault.cipher.encrypt(json.dumps(journal).encode()) + b"\n")
             f.flush()
             os.fsync(f.fileno())
-        with self.db.transaction() as s:
+        with self.db.transaction(session=session) as s:
             self.db.authorize_stream(s, p)
             existing = next((r for r in self.scoped(s, "suppressions", p) if r.data["phone"] == phone), None)
             if existing:
@@ -964,13 +964,13 @@ class Service(ReservationPlanner):
             emit(s, p["tenant_id"], "suppression.created", result, now)
             return doc(result)
 
-    def event(self, p, event_id, event_type, call_id, payload=None):
+    def event(self, p, event_id, event_type, call_id, payload=None, *, session=None):
         payload = payload or {}
         canonical = json.dumps(
             {"event_type": event_type, "call_id": call_id, "payload": payload}, sort_keys=True
         )
         hashed = hashlib.sha256(canonical.encode()).hexdigest()
-        with self.db.transaction() as s:
+        with self.db.transaction(session=session) as s:
             existing = next(
                 (r for r in self.scoped(s, "provider_events", p) if r.external_key == event_id), None
             )

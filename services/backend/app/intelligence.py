@@ -677,7 +677,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 if obsolete:
                     pass  # A later queued turn replaces this paid request; retain the job receipt.
                 elif lane == "webhook":
-                    await self.process_webhook(job["tenant_id"], job["payload"]["receipt_id"])
+                    receipt = await self.process_webhook(job["tenant_id"], job["payload"]["receipt_id"])
+                    if receipt["status"] in {"processing", "retry", "unmatched"}:
+                        raise RuntimeError("Webhook processing is incomplete")
                 elif lane in {"research", "scripts"}:
                     await self.prepare(p, job["payload"]["lead_ids"])
                 elif lane == "postcall":

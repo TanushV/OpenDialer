@@ -36,148 +36,157 @@ class TelephonyWorkflows:
             now=self.clock(),
         )
 
-    def event(self, p, event_id, event_type, call_id, payload=None):
-        result = super().event(p, event_id, event_type, call_id, payload)
-        if result["duplicate"]:
-            with self.db.transaction(False) as s:
-                prior = next(r for r in self.scoped(s, "provider_events", p) if r.external_key == event_id)
-                if prior.data.get("effects_complete", False):
-                    return result
-        payload = payload or {}
-        optout_phone = None
-        with self.db.transaction() as s:
-            call = self.required(s, "call_attempts", call_id, p)
-            lead = self.required(s, "leads", call.data["lead_id"], p)
-            campaign = self.required(s, "campaigns", lead.data["campaign_id"], p)
-            policy = self.required(s, "policy_versions", campaign.data["policy_id"], p).data
-            number = self.required(s, "number_inventory", call.data["number_id"], p)
-            if event_type == "call.answered" and call.data["state"] not in TERMINAL | {"ENDING"}:
-                for permission, action, command in [
-                    (
-                        "transcription",
-                        "transcription_start",
-                        {"transcription_engine": "Soniox", "transcription_tracks": "both"},
-                    ),
-                ]:
-                    decision = authorize(self.context(s, p, lead, number, permission=permission, active=True))
-                    if decision.allowed:
-                        self.control_intent(s, p, call_id, action, command)
-            if (
-                event_type == "call.playback.started"
-                and call.data.get("detach_requested")
-                and call.data["state"] == "VM_PLAYING"
-            ):
-                if not policy.get("detached_topology_verified") or not policy.get(
-                    "late_human_recovery_destination"
+    def event(self, p, event_id, event_type, call_id, payload=None, *, session=None):
+        with self.db.transaction(session=session) as session:
+            result = super().event(p, event_id, event_type, call_id, payload, session=session)
+            if result["duplicate"]:
+                with self.db.transaction(False, session=session) as s:
+                    prior = next(
+                        r for r in self.scoped(s, "provider_events", p) if r.external_key == event_id
+                    )
+                    if prior.data.get("effects_complete", False):
+                        return result
+            payload = payload or {}
+            optout_phone = None
+            with self.db.transaction(session=session) as s:
+                call = self.required(s, "call_attempts", call_id, p)
+                lead = self.required(s, "leads", call.data["lead_id"], p)
+                campaign = self.required(s, "campaigns", lead.data["campaign_id"], p)
+                policy = self.required(s, "policy_versions", campaign.data["policy_id"], p).data
+                number = self.required(s, "number_inventory", call.data["number_id"], p)
+                if event_type == "call.answered" and call.data["state"] not in TERMINAL | {"ENDING"}:
+                    for permission, action, command in [
+                        (
+                            "transcription",
+                            "transcription_start",
+                            {"transcription_engine": "Soniox", "transcription_tracks": "both"},
+                        ),
+                    ]:
+                        decision = authorize(
+                            self.context(s, p, lead, number, permission=permission, active=True)
+                        )
+                        if decision.allowed:
+                            self.control_intent(s, p, call_id, action, command)
+                if (
+                    event_type == "call.playback.started"
+                    and call.data.get("detach_requested")
+                    and call.data["state"] == "VM_PLAYING"
                 ):
-                    self.control_intent(s, p, call_id, "playback_stop", {})
-                else:
-                    update(call, detached=True, rep_released_at=self.clock().isoformat())
-                    s.execute(delete(ActiveClaim).where(ActiveClaim.call_id == call.id))
-                    if not any(r.external_key == call.id for r in self.scoped(s, "number_leases", p)):
-                        put(
+                    if not policy.get("detached_topology_verified") or not policy.get(
+                        "late_human_recovery_destination"
+                    ):
+                        self.control_intent(s, p, call_id, "playback_stop", {})
+                    else:
+                        update(call, detached=True, rep_released_at=self.clock().isoformat())
+                        s.execute(delete(ActiveClaim).where(ActiveClaim.call_id == call.id))
+                        if not any(r.external_key == call.id for r in self.scoped(s, "number_leases", p)):
+                            put(
+                                s,
+                                "number_leases",
+                                p["tenant_id"],
+                                p["seller_id"],
+                                {
+                                    "call_id": call.id,
+                                    "number_id": call.data["number_id"],
+                                    "active": True,
+                                    "expires_at": call.data["voicemail_deadline"],
+                                },
+                                key=call.id,
+                                now=self.clock(),
+                            )
+                        user = self.required(s, "users", call.data["rep_id"], p)
+                        presence = user.data.get("presence", {})
+                        agent = presence.get("agent_call_control_id")
+                        if agent:
+                            self.control_intent(
+                                s, p, call_id, "hangup", {}, target=agent, suffix="release-agent"
+                            )
+                        if not self.settings.simulation:
+                            update(
+                                user,
+                                presence={
+                                    **presence,
+                                    "status": "paused",
+                                    "audio_ready": False,
+                                    "telephony_ready": False,
+                                    "agent_call_control_id": None,
+                                },
+                            )
+                        audit(
                             s,
-                            "number_leases",
                             p["tenant_id"],
                             p["seller_id"],
+                            p["user_id"],
+                            "voicemail.detached",
+                            call.id,
+                            self.clock(),
+                        )
+                if event_type.endswith(":human") and call.data.get("detached"):
+                    self.control_intent(s, p, call_id, "playback_stop", {}, suffix="late-human-stop")
+                    recovery = policy.get("late_human_recovery_destination")
+                    if recovery:
+                        self.control_intent(
+                            s, p, call_id, "transfer", {"to": recovery}, suffix="late-human-recovery"
+                        )
+                    else:
+                        self.control_intent(s, p, call_id, "hangup", {}, suffix="late-human-no-destination")
+                    update(call, late_human=True, recovery_required=True)
+                if event_type == "call.gather.ended" and call.data.get("voicemail_asset"):
+                    if payload.get("digits") == "9":
+                        optout_phone = lead.data["phone"]
+                        self.control_intent(s, p, call_id, "playback_stop", {}, suffix="optout-stop")
+                        self.control_intent(s, p, call_id, "hangup", {}, suffix="optout-hangup")
+                        self.finish_call(s, p, call, "voicemail_optout")
+                    elif call.data["state"] not in TERMINAL:
+                        self.control_intent(
+                            s,
+                            p,
+                            call_id,
+                            "gather",
                             {
-                                "call_id": call.id,
-                                "number_id": call.data["number_id"],
-                                "active": True,
-                                "expires_at": call.data["voicemail_deadline"],
+                                "minimum_digits": 1,
+                                "maximum_digits": 1,
+                                "valid_digits": "9",
+                                "timeout_millis": 60000,
+                                "initial_timeout_millis": 60000,
+                                "gather_id": call_id,
                             },
-                            key=call.id,
-                            now=self.clock(),
+                            suffix="optout-rearm:" + event_id,
                         )
-                    user = self.required(s, "users", call.data["rep_id"], p)
-                    presence = user.data.get("presence", {})
-                    agent = presence.get("agent_call_control_id")
-                    if agent:
-                        self.control_intent(s, p, call_id, "hangup", {}, target=agent, suffix="release-agent")
-                    if not self.settings.simulation:
-                        update(
-                            user,
-                            presence={
-                                **presence,
-                                "status": "paused",
-                                "audio_ready": False,
-                                "telephony_ready": False,
-                                "agent_call_control_id": None,
-                            },
-                        )
-                    audit(
-                        s,
-                        p["tenant_id"],
-                        p["seller_id"],
-                        p["user_id"],
-                        "voicemail.detached",
-                        call.id,
-                        self.clock(),
+                if event_type in {"call.playback.ended", "call.playback.failed"}:
+                    self.control_intent(s, p, call_id, "hangup", {}, suffix="voicemail-completion")
+                    update(
+                        call,
+                        voicemail_result="playback_failed"
+                        if event_type.endswith("failed")
+                        else "playback_completed_not_mailbox_receipt",
                     )
-            if event_type.endswith(":human") and call.data.get("detached"):
-                self.control_intent(s, p, call_id, "playback_stop", {}, suffix="late-human-stop")
-                recovery = policy.get("late_human_recovery_destination")
-                if recovery:
-                    self.control_intent(
-                        s, p, call_id, "transfer", {"to": recovery}, suffix="late-human-recovery"
-                    )
-                else:
-                    self.control_intent(s, p, call_id, "hangup", {}, suffix="late-human-no-destination")
-                update(call, late_human=True, recovery_required=True)
-            if event_type == "call.gather.ended" and call.data.get("voicemail_asset"):
-                if payload.get("digits") == "9":
+                if (
+                    event_type == "call.dtmf.received"
+                    and payload.get("digit") == "9"
+                    and call.data.get("voicemail_asset")
+                ):
                     optout_phone = lead.data["phone"]
                     self.control_intent(s, p, call_id, "playback_stop", {}, suffix="optout-stop")
                     self.control_intent(s, p, call_id, "hangup", {}, suffix="optout-hangup")
                     self.finish_call(s, p, call, "voicemail_optout")
-                elif call.data["state"] not in TERMINAL:
-                    self.control_intent(
-                        s,
-                        p,
-                        call_id,
-                        "gather",
-                        {
-                            "minimum_digits": 1,
-                            "maximum_digits": 1,
-                            "valid_digits": "9",
-                            "timeout_millis": 60000,
-                            "initial_timeout_millis": 60000,
-                            "gather_id": call_id,
-                        },
-                        suffix="optout-rearm:" + event_id,
+                if event_type == "call.recording.saved":
+                    update(
+                        call,
+                        recording_id=payload.get("recording_id"),
+                        recording_url=None,
+                        recording_review_required=True,
                     )
-            if event_type in {"call.playback.ended", "call.playback.failed"}:
-                self.control_intent(s, p, call_id, "hangup", {}, suffix="voicemail-completion")
-                update(
-                    call,
-                    voicemail_result="playback_failed"
-                    if event_type.endswith("failed")
-                    else "playback_completed_not_mailbox_receipt",
-                )
-            if (
-                event_type == "call.dtmf.received"
-                and payload.get("digit") == "9"
-                and call.data.get("voicemail_asset")
-            ):
-                optout_phone = lead.data["phone"]
-                self.control_intent(s, p, call_id, "playback_stop", {}, suffix="optout-stop")
-                self.control_intent(s, p, call_id, "hangup", {}, suffix="optout-hangup")
-                self.finish_call(s, p, call, "voicemail_optout")
-            if event_type == "call.recording.saved":
-                update(
-                    call,
-                    recording_id=payload.get("recording_id"),
-                    recording_url=None,
-                    recording_review_required=True,
-                )
-            receipt = next(r for r in self.scoped(s, "provider_events", p) if r.external_key == event_id)
-            update(receipt, effects_complete=not bool(optout_phone))
-        if optout_phone:
-            self.suppress(p, optout_phone, "opt_out", event_id=event_id)
-            with self.db.transaction() as s:
                 receipt = next(r for r in self.scoped(s, "provider_events", p) if r.external_key == event_id)
-                update(receipt, effects_complete=True)
-        return result
+                update(receipt, effects_complete=not bool(optout_phone))
+            if optout_phone:
+                self.suppress(p, optout_phone, "opt_out", event_id=event_id, session=session)
+                with self.db.transaction(session=session) as s:
+                    receipt = next(
+                        r for r in self.scoped(s, "provider_events", p) if r.external_key == event_id
+                    )
+                    update(receipt, effects_complete=True)
+            return result
 
     def finish_call(self, s, p, call, reason=None):
         super().finish_call(s, p, call, reason)
@@ -415,8 +424,8 @@ class TelephonyWorkflows:
             )
         return {"agent_call_control_id": receipt["call_control_id"]}
 
-    def agent_event(self, tenant_id, payload, event_type):
-        with self.db.transaction() as s:
+    def agent_event(self, tenant_id, payload, event_type, *, session=None):
+        with self.db.transaction(session=session) as s:
             legs = rows(s, "call_legs", tenant_id)
             leg = next(
                 (

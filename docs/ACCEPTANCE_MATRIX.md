@@ -7,8 +7,8 @@ Authored before October 17 remediation production edits. This map indexes the ma
 | A01 | [test_migrations](../services/backend/tests/test_migrations.py), [test_encrypted_storage](../services/backend/tests/test_encrypted_storage.py), [test_remediation_privacy](../services/backend/tests/test_remediation_privacy.py) |
 | A02 | [test_operations](../services/backend/tests/test_operations.py), [test_remediation_boundaries](../services/backend/tests/test_remediation_boundaries.py) |
 | A03 | [test_connected_security](../services/backend/tests/test_connected_security.py) |
-| A04 | [test_remediation_audit](../services/backend/tests/test_remediation_audit.py), [test_remediation_privacy](../services/backend/tests/test_remediation_privacy.py) |
-| A05 | [test_carrier_and_recovery](../services/backend/tests/test_carrier_and_recovery.py), [test_remediation_audit](../services/backend/tests/test_remediation_audit.py) |
+| A04 | [test_remediation_audit](../services/backend/tests/test_remediation_audit.py), [test_remediation_privacy](../services/backend/tests/test_remediation_privacy.py), [test_webhook_completion](../services/backend/tests/test_webhook_completion.py), [review warning](../apps/desktop/tests/grounding.spec.ts) |
+| A05 | [test_carrier_and_recovery](../services/backend/tests/test_carrier_and_recovery.py), [test_remediation_audit](../services/backend/tests/test_remediation_audit.py), [test_webhook_completion](../services/backend/tests/test_webhook_completion.py) |
 | A06 | [test_remediation_boundaries](../services/backend/tests/test_remediation_boundaries.py), [test_carrier_and_recovery](../services/backend/tests/test_carrier_and_recovery.py) |
 | A07 | [test_remediation_audit](../services/backend/tests/test_remediation_audit.py), [test_remediation_privacy](../services/backend/tests/test_remediation_privacy.py) |
 | A08 | [test_operations](../services/backend/tests/test_operations.py), [test_carrier_and_recovery](../services/backend/tests/test_carrier_and_recovery.py) |

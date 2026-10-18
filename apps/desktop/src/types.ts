@@ -102,6 +102,8 @@ export interface Coach {
 export interface Call {
   version: number;
   raw_evidence_status?: string;
+  analysis_incomplete?: boolean;
+  unprocessed_speech_events?: number;
   coach_preferences?: { muted?: boolean; pinned?: boolean };
   detached?: boolean;
   id: string;

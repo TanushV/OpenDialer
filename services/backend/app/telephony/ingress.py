@@ -1,12 +1,14 @@
 """Provider receipt, retry and completion share one identity. Raw speech is ephemeral."""
 
+import asyncio
 import base64
 import json
 from datetime import timedelta
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
-from app.db import MODELS, doc, get, put, rows, uid, update
+from app.db import MODELS, Job, emit, get, put, uid, update
 from app.privacy import RAW_TTL_SECONDS, event_metadata
 from app.service import dt, fail
 from app.transcripts import normalize_transcription
@@ -14,7 +16,20 @@ from app.transcripts import normalize_transcription
 
 class WebhookIngress:
     async def accept_webhook(self, tenant_id, event, body_hash):
-        if not isinstance(event, dict) or not all(event.get(k) for k in ("id", "event_type", "payload")):
+        # Receipt I/O is synchronous; it must never occupy the control event-loop thread.
+        try:
+            return await asyncio.to_thread(self._receive_webhook, tenant_id, event, body_hash)
+        except IntegrityError:
+            # A concurrent identical receipt may win the unique insert. Reload and compare its hash.
+            return await asyncio.to_thread(self._receive_webhook, tenant_id, event, body_hash)
+
+    def _receive_webhook(self, tenant_id, event, body_hash):
+        if (
+            not isinstance(event, dict)
+            or not all(isinstance(event.get(k), str) and event[k] for k in ("id", "event_type"))
+            or not isinstance(event.get("payload"), dict)
+            or not event["payload"]
+        ):
             fail(422, "Invalid provider event")
         with self.db.transaction() as s:
             receipt = s.scalar(
@@ -47,14 +62,23 @@ class WebhookIngress:
                     now=self.clock(),
                 )
             receipt_id, expires = receipt.id, dt(receipt.data["raw_expires_at"])
-        if event["event_type"] == "call.transcription":
-            self.raw.put("webhook:" + receipt_id, event["payload"], expires_at=expires)
-        self.jobs.enqueue(
-            "webhook", {"receipt_id": receipt_id}, "webhook:" + receipt_id, tenant_id=tenant_id, priority=200
-        )
-        return await self.process_webhook(tenant_id, receipt_id)
+            self.jobs.enqueue_in(
+                s,
+                "webhook",
+                {"receipt_id": receipt_id},
+                "webhook:" + receipt_id,
+                tenant_id=tenant_id,
+                priority=200,
+            )
+            if event["event_type"] == "call.transcription":
+                # The worker must see the short-lived payload as soon as its job commits.
+                self.raw.put("webhook:" + receipt_id, event["payload"], expires_at=expires)
+        return {"received": True, "receipt_id": receipt_id, "status": receipt.data["status"]}
 
     async def process_webhook(self, tenant_id, receipt_id):
+        return await asyncio.to_thread(self._process_webhook, tenant_id, receipt_id)
+
+    def _process_webhook(self, tenant_id, receipt_id):
         owner = uid()
         with self.db.transaction() as s:
             query = select(MODELS["webhook_inbox"]).where(
@@ -77,26 +101,42 @@ class WebhookIngress:
             )
             data = dict(receipt.data)
         payload, status = data["payload"], "processed"
+        raw_writes = []
         try:
             if data["event_type"] == "call.transcription":
                 payload = self.raw.get("webhook:" + receipt_id)
                 if payload is None:
                     status = "expired_raw"
             result = {"received": True, "duplicate": False}
-            if status != "expired_raw":
-                result = await self._apply_webhook(tenant_id, data, payload)
-                if result.get("unmatched"):
-                    status = "unmatched"
+            with self.db.transaction() as s:
+                receipt = s.scalar(query.with_for_update() if not self.db.sqlite else query)
+                if receipt.data.get("lease_owner") != owner:
+                    return {"received": True, "status": "processing"}
+                if status != "expired_raw":
+                    result = self._apply_webhook_in(s, tenant_id, data, payload, raw_writes)
+                    if result.get("unmatched"):
+                        status = "unmatched"
+                else:
+                    call = self._webhook_call(s, tenant_id, data["payload"])
+                    if call:
+                        update(
+                            call,
+                            raw_expires_at=max(call.data.get("raw_expires_at", ""), data["raw_expires_at"]),
+                            unprocessed_speech_events=call.data.get("unprocessed_speech_events", 0) + 1,
+                            analysis_incomplete=True,
+                        )
+                        emit(s, tenant_id, "call.updated", call, self.clock())
+                self._finish_webhook(tenant_id, receipt_id, owner, status, session=s)
         except Exception as exc:
             self._finish_webhook(tenant_id, receipt_id, owner, "retry", type(exc).__name__)
             raise
-        self._finish_webhook(tenant_id, receipt_id, owner, status)
+        self._publish_transcripts(raw_writes)
         if status in {"processed", "expired_raw"}:
             self.raw.discard("webhook:" + receipt_id)
         return {**result, "received": True, "status": status}
 
-    def _finish_webhook(self, tenant_id, receipt_id, owner, status, error=None):
-        with self.db.transaction() as s:
+    def _finish_webhook(self, tenant_id, receipt_id, owner, status, error=None, *, session=None):
+        with self.db.transaction(session=session) as s:
             receipt = get(s, "webhook_inbox", receipt_id, tenant_id)
             if receipt and receipt.data.get("lease_owner") == owner:
                 update(
@@ -109,38 +149,57 @@ class WebhookIngress:
                 )
 
     async def _apply_webhook(self, tenant_id, receipt, payload):
+        # Also used by the isolated carrier-fixture driver; live processing owns the inbox transaction.
+        def apply():
+            raw_writes = []
+            with self.db.transaction() as s:
+                result = self._apply_webhook_in(s, tenant_id, receipt, payload, raw_writes)
+            self._publish_transcripts(raw_writes)
+            return result
+
+        return await asyncio.to_thread(apply)
+
+    def _webhook_call(self, s, tenant_id, payload):
+        provider_id = payload.get("call_control_id")
+        if not isinstance(provider_id, str) or not provider_id:
+            return None
+        model = MODELS["call_attempts"]
+        call = s.scalar(
+            select(model).where(model.tenant_id == tenant_id, model.op_provider_id == provider_id)
+        )
+        if not call and payload.get("client_state"):
+            try:
+                context = json.loads(base64.b64decode(payload["client_state"]))
+                if (
+                    isinstance(context, dict)
+                    and context.get("call_id")
+                    and context.get("tenant_id", tenant_id) == tenant_id
+                ):
+                    call = get(s, "call_attempts", context["call_id"], tenant_id)
+                    if call and call.data.get("provider_id") not in {None, provider_id}:
+                        return None
+            except (ValueError, TypeError):
+                pass
+        return call
+
+    def _apply_webhook_in(self, s, tenant_id, receipt, payload, raw_writes):
         event_type, event_id = receipt["event_type"], receipt["event_id"]
-        if self.agent_event(tenant_id, payload, event_type):
+        if self.agent_event(tenant_id, payload, event_type, session=s):
             return {"received": True, "agent_event": True}
-        if self.inbound_event(tenant_id, payload, event_type):
+        if self.inbound_event(tenant_id, payload, event_type, session=s):
             return {"received": True, "inbound_event": True}
         if event_type == "call.initiated" and payload.get("direction") == "incoming":
-            return await self.inbound_callback(tenant_id, payload, event_id)
-        with self.db.transaction(False) as s:
-            call = next(
-                (
-                    c
-                    for c in rows(s, "call_attempts", tenant_id)
-                    if c.data.get("provider_id") == payload.get("call_control_id")
-                ),
-                None,
-            )
-            if not call and payload.get("client_state"):
-                try:
-                    context = json.loads(base64.b64decode(payload["client_state"]))
-                    if isinstance(context, dict) and context.get("call_id"):
-                        call = get(s, "call_attempts", context["call_id"], tenant_id)
-                except (ValueError, TypeError):
-                    pass
-            if not call:
-                return {"received": True, "unmatched": True}
-            p = {
-                "tenant_id": call.tenant_id,
-                "seller_id": call.seller_id,
-                "user_id": call.data["rep_id"],
-                "role": "rep",
-            }
-            call_id = call.id
+            return self._receive_inbound(tenant_id, payload, event_id, session=s)
+        call = self._webhook_call(s, tenant_id, payload)
+        if not call:
+            return {"received": True, "unmatched": True}
+        p = {
+            "tenant_id": call.tenant_id,
+            "seller_id": call.seller_id,
+            "user_id": call.data["rep_id"],
+            "role": "rep",
+        }
+        call_id = call.id
         normalized_type = (
             event_type + ":" + payload["result"]
             if "machine" in event_type and payload.get("result")
@@ -151,17 +210,16 @@ class WebhookIngress:
             "occurred_at": receipt.get("occurred_at") or receipt["received_at"],
             "timing_source": "provider" if receipt.get("occurred_at") else "receipt",
         }
-        result = self.event(p, event_id, normalized_type, call_id, event_payload)
+        result = self.event(p, event_id, normalized_type, call_id, event_payload, session=s)
         # Reducer deduplication does not imply transcript processing completed.
         if event_type == "call.transcription":
             for segment in normalize_transcription(payload, call_id, event_id):
                 segment.pop("content_hash", None)
                 segment.pop("call_id", None)
-                await self.transcript(
-                    p, call_id, segment, defer_coach=True, received_at=dt(receipt["received_at"])
-                )
+                self._transcript_in(s, p, call_id, segment, dt(receipt["received_at"]), raw_writes)
         if event_type == "call.hangup":
-            self.jobs.enqueue(
+            self.jobs.enqueue_in(
+                s,
                 "postcall",
                 {"call_id": call_id, "seller_id": p["seller_id"], "user_id": p["user_id"]},
                 "postcall-webhook:" + event_id,
@@ -170,18 +228,35 @@ class WebhookIngress:
         return result
 
     def queue_unfinished_webhooks(self):
-        with self.db.transaction(False) as s:
-            unfinished = [
-                {**doc(r), "tenant_id": r.tenant_id}
-                for r in rows(s, "webhook_inbox")
-                if r.data.get("status") in {"received", "retry", "processing", "unmatched"}
-            ]
-        for receipt in unfinished:
-            self.jobs.enqueue(
-                "webhook",
-                {"receipt_id": receipt["id"]},
-                "webhook-recovery:" + receipt["id"] + ":" + str(int(self.clock().timestamp()) // 30),
-                tenant_id=receipt["tenant_id"],
-                priority=200,
-                max_attempts=3,
+        with self.db.transaction() as s:
+            unfinished = list(
+                s.scalars(
+                    select(MODELS["webhook_inbox"])
+                    .where(
+                        MODELS["webhook_inbox"].op_status.in_(
+                            ["received", "retry", "processing", "unmatched"]
+                        )
+                    )
+                    .order_by(MODELS["webhook_inbox"].created_at)
+                    .limit(200)
+                )
             )
+            for receipt in unfinished:
+                queued = self.jobs.enqueue_in(
+                    s,
+                    "webhook",
+                    {"receipt_id": receipt.id},
+                    "webhook:" + receipt.id,
+                    tenant_id=receipt.tenant_id,
+                    priority=200,
+                    max_attempts=3,
+                )
+                job = s.get(Job, queued["id"])
+                if job.status == "dead":
+                    update(
+                        receipt, status="review_required", error=job.error or "Processing attempts exhausted"
+                    )
+                elif job.status == "completed":
+                    # Older releases could finish a job before its event matched a call.
+                    job.status = "queued" if job.attempts < job.max_attempts else "dead"
+                    job.available_at = self.clock()

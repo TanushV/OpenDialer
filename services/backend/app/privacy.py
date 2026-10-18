@@ -37,7 +37,7 @@ class EphemeralBuffer:
                 del self._items[key]
                 self.bytes_used -= size
 
-    def put(self, key, value, *, expires_at=None, scope=None):
+    def put(self, key, value, *, expires_at=None, scope=None, revision=None):
         with self._lock:
             self._purge()
             deadline = min(
@@ -45,6 +45,8 @@ class EphemeralBuffer:
                 self.clock() + timedelta(seconds=self.ttl),
             )
             old = self._items.get(key)
+            if revision is not None and old and old[2] and old[2].get("revision", 0) > revision:
+                return
             mono = time.monotonic() + max(0, (deadline - self.clock()).total_seconds())
             if old:
                 deadline, mono = min(deadline, old[0]), min(mono, old[1])
@@ -258,7 +260,7 @@ class SpeechPrivacy:
             else "not_received"
         )
 
-    def _accept_transcript(self, p, call_id, segment, received_at):
+    def _accept_transcript(self, p, call_id, segment, received_at, *, session=None, raw_writes):
         import hashlib
 
         from sqlalchemy import select
@@ -266,7 +268,7 @@ class SpeechPrivacy:
         from app.db import MODELS, emit, put, update
         from app.service import dt, fail
 
-        with self.db.transaction() as s:
+        with self.db.transaction(session=session) as s:
             call = self.required(s, "call_attempts", call_id, p)
             model = MODELS["transcript_segments"]
             row = s.scalar(
@@ -321,11 +323,13 @@ class SpeechPrivacy:
                     key=call_id + ":" + segment["segment_id"],
                     now=self.clock(),
                 )
-            self.raw.put(
-                self.raw_key(p, call_id, segment["segment_id"]),
-                full,
-                expires_at=expires,
-                scope=p["tenant_id"] + ":" + call_id,
+            raw_writes.append(
+                (
+                    self.raw_key(p, call_id, segment["segment_id"]),
+                    full,
+                    expires,
+                    p["tenant_id"] + ":" + call_id,
+                )
             )
             update(
                 call,
@@ -393,61 +397,79 @@ class SpeechPrivacy:
                 "expired": expires <= self.clock(),
             }, phone
 
-    async def transcript(self, p, call_id, segment, *, defer_coach=False, received_at=None):
-        import asyncio
+    def _transcript_in(self, s, p, call_id, segment, received_at, raw_writes, *, queue_coach=True):
         import re
 
-        result, phone = await asyncio.to_thread(self._accept_transcript, p, call_id, segment, received_at)
+        from sqlalchemy import select
+
+        from app.db import MODELS, update
+
+        result, phone = self._accept_transcript(
+            p, call_id, segment, received_at, session=s, raw_writes=raw_writes
+        )
         if result.get("effects_complete"):
-            return result
+            return result, False
         if segment.get("side") == "remote" and re.search(
             r"\b(do not call|don't call|stop calling|remove (?:me|my number)|not call (?:me|again))\b",
             segment.get("text", ""),
             re.I,
         ):
-            await asyncio.to_thread(
-                self.suppress,
+            self.suppress(
                 p,
                 phone,
                 "opt_out" if segment["is_final"] else "temporary_hold",
                 event_id=f"transcript-optout:{call_id}:{segment['segment_id']}:{segment['revision']}",
+                session=s,
             )
-        if segment.get("is_final") and not result["expired"]:
-            if defer_coach:
-                await asyncio.to_thread(
-                    self.jobs.enqueue,
-                    "live_coach",
-                    {
-                        "call_id": call_id,
-                        "seller_id": p["seller_id"],
-                        "user_id": p["user_id"],
-                        "state_version": result["transcript_version"],
-                    },
-                    "coach:" + call_id + ":" + str(result["transcript_version"]),
-                    tenant_id=p["tenant_id"],
-                    priority=100,
-                )
-            else:
-                await self.coach_turn(p, call_id)
+        eligible = bool(segment.get("is_final") and not result["expired"])
+        if eligible and queue_coach:
+            self.jobs.enqueue_in(
+                s,
+                "live_coach",
+                {
+                    "call_id": call_id,
+                    "seller_id": p["seller_id"],
+                    "user_id": p["user_id"],
+                    "state_version": result["transcript_version"],
+                },
+                "coach:" + call_id + ":" + str(result["transcript_version"]),
+                tenant_id=p["tenant_id"],
+                priority=100,
+            )
+        model = MODELS["transcript_segments"]
+        row = s.scalar(
+            select(model).where(
+                model.tenant_id == p["tenant_id"],
+                model.seller_id == p["seller_id"],
+                model.external_key == call_id + ":" + segment["segment_id"],
+            )
+        )
+        if row and row.data["revision"] == segment["revision"]:
+            update(row, effects_complete=True)
+        return result, eligible
 
-        def completed():
-            from sqlalchemy import select
+    def _publish_transcripts(self, writes):
+        # Publish only committed revisions. A later committing worker may publish first.
+        for key, content, expires, scope in writes:
+            self.raw.put(key, content, expires_at=expires, scope=scope, revision=content["revision"])
 
-            from app.db import MODELS, update
+    def _receive_transcript(self, p, call_id, segment, received_at, defer_coach):
+        writes = []
+        with self.db.transaction() as s:
+            result, eligible = self._transcript_in(
+                s, p, call_id, segment, received_at, writes, queue_coach=defer_coach
+            )
+        self._publish_transcripts(writes)
+        return result, eligible
 
-            with self.db.transaction() as s:
-                model = MODELS["transcript_segments"]
-                row = s.scalar(
-                    select(model).where(
-                        model.tenant_id == p["tenant_id"],
-                        model.seller_id == p["seller_id"],
-                        model.external_key == call_id + ":" + segment["segment_id"],
-                    )
-                )
-                if row and row.data["revision"] == segment["revision"]:
-                    update(row, effects_complete=True)
+    async def transcript(self, p, call_id, segment, *, defer_coach=False, received_at=None):
+        import asyncio
 
-        await asyncio.to_thread(completed)
+        result, eligible = await asyncio.to_thread(
+            self._receive_transcript, p, call_id, segment, received_at, defer_coach
+        )
+        if eligible and not defer_coach:
+            await self.coach_turn(p, call_id)
         return result
 
     def purge_legacy_raw_content(self):

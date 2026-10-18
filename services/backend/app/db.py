@@ -311,7 +311,14 @@ class Database:
                         sync_columns(row)  # Does not alter the original content, ID or source version.
 
     @contextmanager
-    def transaction(self, write=True):
+    def transaction(self, write=True, *, session=None):
+        # An explicitly supplied session belongs to the caller's transaction and thread.
+        # Helpers may flush, but only that outer boundary commits or rolls back.
+        if session is not None:
+            if session.bind is not self.engine or (write and not session.info.get("write")):
+                raise ValueError("An owned writable transaction is required")
+            yield session
+            return
         # SQLite serializes writers, while WAL readers never wait on a Python mutex.
         # PostgreSQL row/unique constraints and explicit seller authorization fences protect conflicts.
         with self.sessions() as session:
