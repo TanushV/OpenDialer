@@ -102,12 +102,8 @@ def build_context(segments, *, version, facts, commitments, prior=None):
         elif segment.get("side") == "remote":
             state["last_remote"] = evidence(segment)
             state["trigger"] = "conversation"
-    # Only explicit refusal/opt-out is a local safety signal; no fixed objection taxonomy.
-    latest = (state["last_remote"] or {}).get("text", "")
-    if re.search(
-        r"\b(not interested|no thanks|goodbye|do not call|don't call|stop calling|remove me)\b", latest, re.I
-    ):
-        state.update(stage="declined", trigger="NO_ACTION")
+    # The model interprets refusal scope and changed interest. Explicit opt-outs
+    # are enforced independently by transcript admission and call authorization.
     state["asked_questions"] = state["asked_questions"][-12:]
     return state
 
@@ -147,8 +143,6 @@ def ground_guidance(card, request):
     )
     if card["action"] == "NO_ACTION":
         return True
-    if request.get("state", {}).get("stage") == "declined" and not request.get("private_question"):
-        raise CardRejected("Conversation has declined")
     knowledge = " ".join(str(f.get("statement", f.get("text", ""))) for f in request.get("facts", []))
     knowledge += " " + " ".join(str(c) for c in request.get("approved_claims", []))
     knowledge += " " + request.get("seller", {}).get("knowledge", "")
@@ -250,8 +244,7 @@ def merge_semantic_state(state, update, segments):
                 "evidence_revisions": revisions,
             }
         merged[key] = list(previous.values())
-    if state["stage"] != "declined":
-        merged["stage"] = update["stage"]
+    merged["stage"] = update["stage"]
     return merged
 
 

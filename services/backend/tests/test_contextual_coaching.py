@@ -92,11 +92,13 @@ def test_lexical_retrieval_matches_explicit_budget_words_instead_of_first_card()
     assert retrieve_cards(state, CARDS)[0]["id"] == "budget"
 
 
-def test_decline_and_already_answered_question_do_not_repeat_guidance():
-    state = build_context(
-        [segment("s", "No thanks, I am not interested. Goodbye.")], version=1, facts=[], commitments=[]
-    )
-    assert state["trigger"] == "NO_ACTION" and retrieve_cards(state, CARDS) == []
+def test_interpreted_decline_and_already_answered_question_do_not_repeat_cached_guidance():
+    # Stage is a contextual model interpretation, not an English phrase match.
+    # Authoritative opt-outs are tested independently of this optional helper.
+    speech = segment("s", "No thanks, I am not interested. Goodbye.")
+    state = build_context([speech], version=1, facts=[], commitments=[])
+    interpreted = merge_semantic_state(state, {"stage": "declined"}, [speech])
+    assert interpreted["stage"] == "declined" and retrieve_cards(interpreted, CARDS) == []
     state = build_context(
         [segment("r", CARDS[0]["text"], "rep"), segment("s", "Nothing, our provider works well.")],
         version=2,
