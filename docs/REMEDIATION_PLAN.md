@@ -859,6 +859,7 @@ Depends on M1/M3; can use M2 persistence contracts. Exit: A29–A30, A36–A39 a
 - [ ] M5.07 Add source-version invalidation, human-edit conflicts, complete rubrics, selective stronger review and appeals.
 - [ ] M5.08 Automatically refresh next-call context and display prior needs/promises/reasons beside the dialer.
 - [ ] M5.09 Finish actual inbound fallback and callback completion with ownership and local-offline behavior.
+- [ ] M5.09a Active: durable caller/transfer-leg lifecycle, fresh rep selection and exclusive claims, bounded transfer/message fallback, terminal cleanup and versioned routing settings. Initial tests-first run: 19 failures/one prior pass; carrier-side offline configuration and native callback controls remain explicit parts of M5.09.
 - [ ] M5.10 Verify one complete local journey through restart, correction and the next call with no lost follow-up.
 
 ### M6 — Short retention, DNC and no-subscription operations
