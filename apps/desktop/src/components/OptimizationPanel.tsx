@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { date, label, useWorkspace } from "../context";
 import { TrialControls, type ControlledComparison } from "./TrialControls";
+import { ConversationLearning } from "./ConversationLearning";
 
 interface OptimizationSettings {
   conversion_goal: string;
@@ -186,6 +187,7 @@ export function OptimizationPanel({
   const selected = report.numbers.find((n) => n.id === numberId);
   return (
     <>
+      {!numbersOnly && <ConversationLearning />}
       {!numbersOnly && (
         <section className="card padded optimization-panel">
           <span className="eyebrow">PICKUP AND CONVERSION</span>

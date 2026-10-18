@@ -151,6 +151,12 @@ export interface Packet {
     needs: EvidenceItem[];
     unresolved: EvidenceItem[];
     unknowns: string[];
+    observations?: {
+      id: string;
+      concept: string;
+      approach: string | null;
+      review_status: string;
+    }[];
     human_notes: { call_id: string; text: string }[];
     next_question: string;
     last_outcome: string | null;
@@ -325,6 +331,16 @@ export interface EvidenceItem {
   evidence: string[];
 }
 export interface Analysis {
+  observations?: {
+    id: string;
+    version: number;
+    concept: string;
+    approach: string | null;
+    status: string;
+    review_status: string;
+    observed_at: string;
+    evidence: string[];
+  }[];
   raw_evidence_status?: string;
   grounding_status?: "unreviewed" | "model_reviewed" | "review_required";
   call: Call;

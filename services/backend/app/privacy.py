@@ -365,6 +365,19 @@ class SpeechPrivacy:
                             )
                         else:
                             update(record, stale=True, source_version=version)
+                            if kind == "notes" and row:
+                                observations = [dict(i) for i in record.data.get("observations", [])]
+                                for observation in observations:
+                                    if segment["segment_id"] in observation.get("evidence", []):
+                                        observation.update(
+                                            status="invalidated", version=observation["version"] + 1
+                                        )
+                                update(record, observations=observations)
+            if row:
+                from app.optimization.conversations import invalidate_report
+
+                lead = self.required(s, "leads", call.data["lead_id"], p)
+                invalidate_report(self, s, p, lead.data["campaign_id"])
             emit(
                 s,
                 p["tenant_id"],

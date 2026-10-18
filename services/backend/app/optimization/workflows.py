@@ -299,6 +299,16 @@ class OptimizationWorkflows(ComparisonWorkflows):
         calls = [doc(c) for c in self.scoped(s, "call_attempts", p)]
         snapshots = [doc(r) for r in self.scoped(s, "feature_snapshots", p)]
         events = [doc(r) for r in self.scoped(s, "conversion_events", p)]
+        from app.optimization.conversations import active_observations
+
+        notes = {r.data["call_id"]: r for r in self.scoped(s, "notes", p)}
+        lead_campaigns = {r.id: r.data["campaign_id"] for r in self.scoped(s, "leads", p)}
+        for call in calls:
+            call["campaign_id"] = lead_campaigns.get(call["lead_id"])
+            note = notes.get(call["id"])
+            call["observations"] = (
+                active_observations(note.data.get("observations", []), self.clock()) if note else []
+            )
         costs = {}
         for record in self.scoped(s, "usage_ledger", p):
             if (
@@ -656,10 +666,14 @@ class OptimizationWorkflows(ComparisonWorkflows):
         with self.db.transaction() as s:
             config = self.optimization_config(s, p)
             data = self.operational_dataset(s, p, config)
+            campaign = self.scoped(s, "campaigns", p)[0]
+            revision = campaign.data.get("conversation_revision", 0)
             # Bound training memory, retain the complete operational ledger as source of truth.
             data = data[-20000:]
             key = hashlib.sha256(
-                json.dumps([config["conversion_goal"], config["window_days"], data], sort_keys=True).encode()
+                json.dumps(
+                    [config["conversion_goal"], config["window_days"], data, revision], sort_keys=True
+                ).encode()
             ).hexdigest()
             previous = next(
                 (r for r in self.scoped(s, "learning_datasets", p) if r.external_key == key), None
@@ -673,6 +687,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 p["seller_id"],
                 {
                     "goal": config["conversion_goal"],
+                    "conversation_revision": revision,
                     "window_days": config["window_days"],
                     "as_of": self.clock().isoformat(),
                     "rows": data,
@@ -714,10 +729,25 @@ class OptimizationWorkflows(ComparisonWorkflows):
         return {"status": job["status"], "rows": len(data), "job_id": job["id"], "dataset_id": dataset["id"]}
 
     def refresh_optimization(self, p):
+        from app.optimization.conversations import conversation_associations
+
         with self.db.transaction() as s:
             s.info["row_cache"] = {}
             self.ensure_experiment_cohort(s, p)
         dataset = self.save_operational_dataset(p)
+        with self.db.transaction(False) as s:
+            campaign = self.scoped(s, "campaigns", p)[0]
+            campaign_id = campaign.id
+            vocabulary = dict(campaign.data.get("conversation_vocabulary", {"version": 1, "aliases": []}))
+        conversation_report = {
+            **conversation_associations(
+                [r for r in dataset["rows"] if r.get("campaign_id") == campaign_id],
+                as_of=self.clock(),
+                vocabulary=vocabulary,
+            ),
+            "goal": dataset["goal"],
+            "window_days": dataset["window_days"],
+        }
         with self.db.transaction() as s:
             s.info["row_cache"] = {}
             config = self.optimization_config(s, p)
@@ -805,6 +835,14 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 if lead.data.get("attempt_count") and not lead.data.get("callback_due_at"):
                     update(lead, next_attempt_at=selected["at"])
             update(campaign, selection_profile=self.selection_profile(s, p, dataset["rows"], config))
+            if (
+                dataset.get("conversation_revision") == campaign.data.get("conversation_revision", 0)
+                and dataset["goal"] == config["conversion_goal"]
+                and dataset["window_days"] == config["window_days"]
+                and vocabulary["version"]
+                == campaign.data.get("conversation_vocabulary", {"version": 1})["version"]
+            ):
+                update(campaign, conversation_report=conversation_report)
             emit(s, p["tenant_id"], "optimization.updated", campaign, self.clock())
         training = self.train_operational(p) if config["auto_train"] else {"status": "disabled"}
         return {"dataset_id": dataset["id"], "rows": len(dataset["rows"]), "training": training}

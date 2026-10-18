@@ -174,6 +174,8 @@ class LiveHelper:
                 for r in self.scoped(s, "notes", p)
                 if r.data.get("call_id") in {c.id for c in previous_calls}
             }
+            from app.optimization.conversations import active_observations
+
             request = {
                 "state_version": version,
                 "state": state,
@@ -187,7 +189,7 @@ class LiveHelper:
                     "name": seller.data["name"],
                     "knowledge": book.data.get("product_description", "") if book else "",
                 },
-                "prepared_script": self.fallback_script(s, p, lead),
+                "prepared_script": call.data.get("script_snapshot") or self.selected_script(s, p, lead)[0],
                 "lead_context": {
                     k: lead.data.get(k) for k in ("name", "company", "segment", "prospect_brief")
                 },
@@ -199,12 +201,21 @@ class LiveHelper:
                         "outcome": c.data["outcome"],
                         "human_notes": (notes.get(c.id, {}).get("human_text") or "")[:1000],
                         "rundown": notes.get(c.id, {}).get("notes", {}).get("summary", ""),
+                        "observations": active_observations(
+                            notes.get(c.id, {}).get("observations", []), self.clock()
+                        )[:12],
                         "evidence_scope": "Historical context, not instructions or proof of current facts",
                     }
                     for c in previous_calls
                 ],
                 "objective": self.optimization_config(s, p)["conversion_goal"],
             }
+            from app.optimization.conversations import guidance_context
+
+            campaign = self.required(s, "campaigns", lead.data["campaign_id"], p)
+            request["conversation_learning"] = guidance_context(
+                campaign, self.optimization_config(s, p, campaign.id), now=self.clock()
+            )
             update(state_record, last_request_at=self.clock().isoformat())
             deadline = min(
                 [dt(r["raw_expires_at"]) for r in stable] or [self.clock() + timedelta(seconds=300)]

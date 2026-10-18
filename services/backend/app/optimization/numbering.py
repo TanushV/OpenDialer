@@ -5,10 +5,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from app.scheduling.models import HUMAN
 
 
-def wilson(successes, total):
+def wilson(successes, total, *, z=1.96):
     if not total:
         return (0.0, 1.0)
-    p, z = successes / total, 1.96
+    p = successes / total
     denominator = 1 + z * z / total
     center = (p + z * z / (2 * total)) / denominator
     margin = z * math.sqrt(p * (1 - p) / total + z * z / (4 * total * total)) / denominator

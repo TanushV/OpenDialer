@@ -65,6 +65,15 @@ export function ProspectBrief({
         {brief?.unresolved.map((n, i) => (
           <p key={`issue-${i}`}>Unresolved: {n.text}</p>
         ))}
+        {brief?.observations?.map((item) => (
+          <p key={item.id}>
+            Observed topic: {item.concept}
+            {item.approach
+              ? ` · Prior response approach: ${item.approach}`
+              : ""}{" "}
+            ({label(item.review_status)})
+          </p>
+        ))}
         {packet.commitments.map((c, i) => (
           <p key={i}>
             {c.action} · {date(c.due_at)}

@@ -12,6 +12,7 @@ import { useState } from "react";
 import { date, label, useWorkspace } from "../context";
 import type { Analysis } from "../types";
 import { Empty } from "./Operations";
+import { ConversationObservations } from "./ConversationObservations";
 
 export function ReviewPage() {
   const { snapshot: w, api, run, notice } = useWorkspace();
@@ -275,6 +276,10 @@ export function ReviewPage() {
               <p className="muted small">No confirmed commitment extracted.</p>
             )}
           </section>
+          <ConversationObservations
+            analysis={analysis}
+            reload={() => open(analysis.call.id)}
+          />
           <section className="card padded">
             <div className="card-eyebrow">
               <span>

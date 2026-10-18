@@ -4,6 +4,7 @@ from datetime import timedelta
 from statistics import NormalDist
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from app.optimization.conversations import conversation_associations as conversation_associations
 from app.optimization.numbering import timestamp, wilson
 from app.scheduling.models import pooled_predictions
 
@@ -160,6 +161,8 @@ def training_rows(calls, snapshots, events, *, now, goal, window_days):
                 "endpoint_id": call.get("endpoint_id", call["lead_id"]),
                 "rep_id": call.get("rep_id", "unknown"),
                 "number_id": call.get("number_id", "unknown"),
+                "campaign_id": call.get("campaign_id"),
+                "observations": call.get("observations", []),
                 "at": at.isoformat(),
                 "features": dict(snapshot["features"]),
                 **labels,

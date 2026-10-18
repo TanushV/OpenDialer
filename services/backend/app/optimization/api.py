@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 
 from fastapi import Depends
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.db import audit, doc, emit, put, uid, update
 from app.optimization.goals import goal_plan
@@ -79,7 +79,131 @@ class Comparison(Strict):
     duration_days: int = Field(default=14, ge=1, le=90)
 
 
+class ConversationAlias(Strict):
+    field: Literal["concept", "approach"]
+    source: str = Field(min_length=1, max_length=160)
+    target: str = Field(min_length=1, max_length=160)
+
+
+class VocabularyEdit(Strict):
+    expected_version: int = Field(ge=1)
+    aliases: list[ConversationAlias] = Field(max_length=100)
+    reason: str = Field(min_length=3, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_aliases(self):
+        from app.optimization.conversations import aliases_for
+
+        aliases_for(self.model_dump())
+        return self
+
+
+class ObservationReview(Strict):
+    expected_version: int = Field(ge=1)
+    decision: Literal["confirm", "retract"]
+    reason: str = Field(min_length=3, max_length=500)
+
+
 def register_optimization(app, service, principal, administrator):
+    @app.get("/v1/optimization/conversations")
+    def conversation_report(p=Depends(principal)):
+        with service.db.transaction(False) as s:
+            campaign = service.scoped(s, "campaigns", p)[0]
+            vocabulary = campaign.data.get("conversation_vocabulary", {"version": 1, "aliases": []})
+            cached = campaign.data.get("conversation_report", {})
+            config = service.optimization_config(s, p, campaign.id)
+            stale = (
+                cached.get("stale")
+                or cached.get("goal") != config["conversion_goal"]
+                or cached.get("window_days") != config["window_days"]
+                or cached.get("vocabulary_version") != vocabulary["version"]
+            )
+            return {
+                "vocabulary": vocabulary,
+                "report": {
+                    **cached,
+                    "status": "stale" if cached and stale else "ready" if cached else "awaiting_refresh",
+                    "patterns": [] if stale else cached.get("patterns", []),
+                    "stale": bool(stale),
+                },
+                "campaign_id": campaign.id,
+            }
+
+    @app.put("/v1/admin/optimization/conversation-vocabulary")
+    def edit_conversation_vocabulary(body: VocabularyEdit, p=Depends(administrator)):
+        from app.optimization.conversations import invalidate_report
+
+        with service.db.transaction() as s:
+            campaign = service.scoped(s, "campaigns", p)[0]
+            existing = campaign.data.get("conversation_vocabulary", {"version": 1})
+            if existing["version"] != body.expected_version:
+                fail(409, "Concept names changed; refresh before reviewing")
+            vocabulary = {
+                "version": existing["version"] + 1,
+                "aliases": [a.model_dump() for a in body.aliases],
+                "reviewed_by": p["user_id"],
+                "reviewed_at": service.clock().isoformat(),
+            }
+            update(campaign, conversation_vocabulary=vocabulary)
+            invalidate_report(service, s, p, campaign.id)
+            audit(
+                s,
+                p["tenant_id"],
+                p["seller_id"],
+                p["user_id"],
+                "conversation.vocabulary_reviewed",
+                campaign.id,
+                service.clock(),
+                {"reason": body.reason, "previous": existing, "new": vocabulary},
+            )
+            service.jobs.enqueue_in(
+                s,
+                "ml",
+                {"kind": "optimization_refresh", "seller_id": p["seller_id"], "user_id": p["user_id"]},
+                f"conversation-vocabulary:{campaign.id}:{vocabulary['version']}",
+                tenant_id=p["tenant_id"],
+            )
+            emit(s, p["tenant_id"], "optimization.updated", campaign, service.clock())
+            return vocabulary
+
+    @app.post("/v1/calls/{call_id}/observations/{observation_id}/review")
+    def review_observation(call_id: str, observation_id: str, body: ObservationReview, p=Depends(principal)):
+        from app.optimization.conversations import invalidate_report
+
+        with service.db.transaction() as s:
+            call = service.required(s, "call_attempts", call_id, p)
+            note = service._by_key(s, p, "notes", call_id)
+            values = [dict(v) for v in note.data.get("observations", [])] if note else []
+            observation = next((v for v in values if v["id"] == observation_id), None)
+            if not observation:
+                fail(404, "Observation not found")
+            if observation["version"] != body.expected_version:
+                fail(409, "Observation changed; refresh before reviewing")
+            observation.update(
+                status="active" if body.decision == "confirm" else "retracted",
+                review_status="human_confirmed",
+                reviewer_id=p["user_id"],
+                reviewed_at=service.clock().isoformat(),
+                observed_at=service.clock().isoformat(),
+                version=observation["version"] + 1,
+            )
+            update(note, observations=values)
+            lead = service.required(s, "leads", call.data["lead_id"], p)
+            invalidate_report(service, s, p, lead.data["campaign_id"])
+            service.refresh_packet_in(s, p, lead)
+            audit(
+                s,
+                p["tenant_id"],
+                p["seller_id"],
+                p["user_id"],
+                "conversation.observation_reviewed",
+                observation_id,
+                service.clock(),
+                {"reason": body.reason, "decision": body.decision, "call_id": call_id},
+            )
+            emit(s, p["tenant_id"], "analysis.ready", note, service.clock())
+            return observation
+
     @app.get("/v1/optimization")
     def report(epoch: str | None = None, p=Depends(principal)):
         return service.optimization_report(p, epoch=epoch)
@@ -385,6 +509,9 @@ def register_optimization(app, service, principal, administrator):
                 now=now,
             )
             service.reconcile_goal_status(s, p, lead)
+            from app.optimization.conversations import invalidate_report
+
+            invalidate_report(service, s, p, lead.data["campaign_id"])
             audit(s, p["tenant_id"], p["seller_id"], p["user_id"], "conversion.recorded", result.id, now)
             emit(s, p["tenant_id"], "conversion.recorded", lead, now, {"kind": body.kind})
             return doc(result)
@@ -408,6 +535,9 @@ def register_optimization(app, service, principal, administrator):
                 retracted_at=service.clock().isoformat(),
             )
             service.reconcile_goal_status(s, p, lead)
+            from app.optimization.conversations import invalidate_report
+
+            invalidate_report(service, s, p, lead.data["campaign_id"])
             audit(
                 s,
                 p["tenant_id"],

@@ -132,6 +132,7 @@ class RepWorkflows:
             return doc(lead)
 
     def prospect_context_in(self, s, p, lead, calls, commitments):
+        from app.optimization.conversations import active_observations
         from app.optimization.learning import freeze_features, funnel_predictions
 
         campaign = self.required(s, "campaigns", lead.data["campaign_id"], p)
@@ -185,6 +186,9 @@ class RepWorkflows:
                 "needs": current.get("problems", []),
                 "unresolved": current.get("objections", []),
                 "unknowns": current.get("unknowns", []),
+                "observations": active_observations(
+                    [item for note in notes for item in note.data.get("observations", [])], self.clock()
+                )[:12],
                 "commitments": commitments,
                 "human_notes": [
                     {"call_id": n.data["call_id"], "text": n.data["human_text"]}
@@ -467,6 +471,9 @@ class RepWorkflows:
         elif event and not event.data.get("retracted"):
             update(event, retracted=True, retracted_at=self.clock().isoformat())
         self.reconcile_goal_status(s, p, lead)
+        from app.optimization.conversations import invalidate_report
+
+        invalidate_report(self, s, p, lead.data["campaign_id"])
         emit(s, p["tenant_id"], "lead.meeting_updated", lead, self.clock())
 
     def report_meeting(self, p, lead_id, data):
@@ -610,6 +617,9 @@ class RepWorkflows:
                         now=self.clock(),
                     )
                 self.reconcile_goal_status(s, p, lead)
+                from app.optimization.conversations import invalidate_report
+
+                invalidate_report(self, s, p, lead.data["campaign_id"])
                 self.refresh_packet_in(s, p, lead)
                 self.jobs.enqueue_in(
                     s,

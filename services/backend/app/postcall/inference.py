@@ -36,6 +36,13 @@ class ScoreItem(StrictModel):
     explanation: str
 
 
+class Observation(StrictModel):
+    concept: str = Field(min_length=3, max_length=120)
+    approach: str | None = Field(default=None, min_length=3, max_length=160)
+    evidence: list[str] = Field(min_length=1, max_length=8)
+    quote: str = Field(min_length=1, max_length=600)
+
+
 class AnalysisOutput(StrictModel):
     summary: str = Field(max_length=1200)
     summary_evidence: list[str]
@@ -44,6 +51,7 @@ class AnalysisOutput(StrictModel):
     commitments: list[Commitment]
     unknowns: list[str]
     score_items: list[ScoreItem]
+    observations: list[Observation] = Field(default_factory=list, max_length=12)
 
 
 def parse_analysis(data, segments, *, call_at=None, timezone=None, dimensions=None):
@@ -64,6 +72,21 @@ def parse_analysis(data, segments, *, call_at=None, timezone=None, dimensions=No
     verify(result["summary_evidence"], result["summary"])
     for item in [*result["problems"], *result["objections"]]:
         verify(item["evidence"], item["text"], item["quote"])
+    from app.privacy import paraphrased
+
+    segment_map = {s["segment_id"]: s for s in segments}
+    seen = set()
+    for item in result["observations"]:
+        verify(item["evidence"], item["concept"] + " " + (item["approach"] or ""), item["quote"])
+        key = tuple(sorted(set(item["evidence"])))
+        if key in seen:
+            raise ValueError("Combine observations sharing the same evidence into one bounded item")
+        seen.add(key)
+        sides = {segment_map[i].get("side") for i in item["evidence"]}
+        if "remote" not in sides or (item["approach"] and "rep" not in sides):
+            raise ValueError("Observed concepts need prospect evidence; approaches need actual rep speech")
+        if not all(paraphrased(text, segments) for text in (item["concept"], item["approach"] or "")):
+            raise ValueError("Retained observations must paraphrase, not copy raw dialogue")
     for index, item in enumerate(result["commitments"]):
         verify(item["evidence"], item["action"], item["verbatim_time_expression"])
         result["commitments"][index] = resolve_time(item, call_at=call_at, timezone=timezone)
@@ -84,7 +107,7 @@ def parse_analysis(data, segments, *, call_at=None, timezone=None, dimensions=No
 def analysis_review_request(data, segments, *, call_at=None, timezone=None, dimensions=None):
     data = AnalysisOutput.model_validate(data).model_dump()
     fields = [{"field": "summary", "value": data["summary"], "evidence": data["summary_evidence"]}]
-    for name in ("problems", "objections", "commitments", "unknowns", "score_items"):
+    for name in ("problems", "objections", "commitments", "unknowns", "score_items", "observations"):
         for index, item in enumerate(data[name]):
             fields.append(
                 {
