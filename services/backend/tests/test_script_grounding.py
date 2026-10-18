@@ -142,3 +142,33 @@ async def test_legacy_script_generation_reviews_novel_fields_before_publish(
             if r.data.get("work_kind") == "grounding_review"
         ]
     assert len(costs) == 1 and costs[0]["cost_usd"] == pytest.approx(0.002)
+
+
+def test_legacy_unreviewed_personalization_is_not_republished(workspace, app):
+    from app.db import put, update
+
+    service = app.state.service
+    lead_id = workspace["client"].get("/v1/workspace", headers=workspace["headers"]).json()["leads"][0]["id"]
+    with service.db.transaction() as s:
+        lead = service.required(s, "leads", lead_id, p(workspace))
+        old = service.fallback_script(s, p(workspace), lead)
+        old.update(fallback=False, opener="Your new Seattle office is expanding rapidly.")
+        row = put(
+            s,
+            "script_versions",
+            p(workspace)["tenant_id"],
+            p(workspace)["seller_id"],
+            old,
+            now=service.clock(),
+        )
+        update(
+            lead,
+            preparation={
+                "script_id": row.id,
+                "status": "ready",
+                "key": service.preparation_key(s, p(workspace), lead),
+            },
+        )
+    packet = service.packet(p(workspace), lead_id)
+    assert packet["script"]["fallback"] is True
+    assert packet["preparation"]["status"] == "stale"
