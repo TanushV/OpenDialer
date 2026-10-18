@@ -665,3 +665,28 @@ def test_background_association_calculation_does_not_hold_a_write_transaction(wo
     monkeypatch.setattr(conversations, "conversation_associations", calculate)
     service.refresh_optimization(p(workspace))
     assert calls
+
+
+def test_unanswered_prior_call_does_not_hide_the_first_reviewed_conversation(clock):
+    rows = cohort(clock) + cohort(clock, later=True)
+    earlier = [
+        {
+            **row,
+            "call_id": "unanswered-" + row["call_id"],
+            "at": (clock.now - timedelta(days=80)).isoformat(),
+            "observations": [],
+        }
+        for row in rows
+    ]
+    assert pattern(report(earlier + rows, clock))["status"] == "supported_correlation"
+
+
+def test_new_synonym_vocabulary_needs_a_later_validation_period(clock):
+    vocabulary = {
+        "version": 2,
+        "reviewed_at": clock.now.isoformat(),
+        "aliases": [{"field": "concept", "source": "Purchasing signoff", "target": "Procurement review"}],
+    }
+    result = report(cohort(clock) + cohort(clock, later=True), clock, vocabulary=vocabulary)
+    assert pattern(result)["status"] == "descriptive_only"
+    assert result["validation_samples"] == 0
