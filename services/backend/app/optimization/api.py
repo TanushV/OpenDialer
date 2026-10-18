@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime
 from typing import Literal
 
@@ -92,6 +93,13 @@ class ModelTrial(Strict):
 class Replay(Strict):
     cases: list[dict] = Field(min_length=1, max_length=200)
     review_reference: str = Field(min_length=3, max_length=1000)
+
+    @model_validator(mode="after")
+    def bounded(self):
+        from app.coaching.replay import validate_cases
+
+        validate_cases(self.cases)
+        return self
 
 
 class Comparison(Strict):
@@ -679,7 +687,17 @@ def register_optimization(app, service, principal, administrator):
     @app.post("/v1/admin/coaching/replay")
     async def replay(body: Replay, p=Depends(administrator)):
         from app.coaching.context import build_context, ground_guidance, retrieve_cards
+        from app.coaching.engine import finish_shielded
         from app.coaching.replay import evaluate
+
+        def authorized(s):
+            user = service.required(s, "users", p["user_id"], p)
+            if not service._coach_authority(s, p) or user.data.get("role") not in {"owner", "admin"}:
+                fail(403, "Replay requires current administrator access")
+
+        def still_authorized():
+            with service.db.transaction(False) as s:
+                authorized(s)
 
         class ReplayProvider:
             async def suggest(self, request, deadline_ms=1200):
@@ -706,58 +724,74 @@ def register_optimization(app, service, principal, administrator):
                 return result
 
         # A replay never auto-selects a paid route: simulation/static evaluation is explicit.
-        provider = ReplayProvider() if service.settings.simulation else service.configured_coach(p)[0]
+        provider = (
+            ReplayProvider()
+            if service.settings.simulation
+            else await asyncio.to_thread(service.configured_coach, p)
+        )
+        if not service.settings.simulation:
+            provider = provider[0]
         if provider is None:
             fail(409, "Configure the live coach before running a provider replay")
         usage_object_id = "coach-replay:" + uid()
 
         class MeteredReplay:
-            def __getattr__(self, name):
-                return getattr(provider, name)
+            last_usage, last_request_id, last_provider, last_model = {}, None, None, None
 
             async def suggest(self, request, deadline_ms=1200):
-                from app.providers.inference import InferenceError, InferenceResult
+                from app.providers.inference import InferenceError
 
                 request_key = "replay:" + uid()
-                if not service.reserve_optional_budget(
-                    p, request_key, 0.01, object_id=usage_object_id, work_kind="coach_replay"
-                ):
-                    raise InferenceError("Replay exceeds the optional inference budget")
-                result = None
+                self.last_usage, self.last_request_id, self.last_provider, self.last_model = (
+                    {},
+                    None,
+                    None,
+                    None,
+                )
+                submitted = False
                 try:
-                    result = await provider.suggest(request, deadline_ms)
-                    return result
+                    await asyncio.to_thread(still_authorized)
+                    if not await service._reserve_coach(p, request_key, usage_object_id, "coach_replay"):
+                        raise InferenceError("Replay exceeds the optional inference budget")
+                    await asyncio.to_thread(still_authorized)
+                    submitted = True
+                    return await provider.suggest(request, deadline_ms)
                 finally:
-                    if provider.last_usage or provider.last_request_id:
-                        service.usage(
-                            p,
-                            "openrouter" if getattr(provider, "last_provider", None) else "groq",
-                            "coach_replay",
-                            InferenceResult(result or {}, provider.last_usage, provider.last_request_id),
-                            object_id=usage_object_id,
-                            reserved=0,
-                            request_key=request_key,
+                    if submitted:
+                        self.last_usage = getattr(provider, "last_usage", {})
+                        self.last_request_id = getattr(provider, "last_request_id", None)
+                        self.last_provider = getattr(provider, "last_provider", None)
+                        self.last_model = getattr(provider, "last_model", provider.model)
+                    await finish_shielded(
+                        service._settle_coach(
+                            p, request_key, usage_object_id, "coach_replay", "openrouter", self, submitted
                         )
+                    )
 
         report = await evaluate(
             body.cases,
             provider if service.settings.simulation else MeteredReplay(),
             model="approved_static" if service.settings.simulation else provider.model,
         )
-        with service.db.transaction() as s:
-            result = put(
-                s,
-                "evaluation_reports",
-                p["tenant_id"],
-                p["seller_id"],
-                {
-                    **report,
-                    "kind": "coaching_replay",
-                    "usage_object_id": usage_object_id,
-                    "review_reference": body.review_reference,
-                    "created_at": service.clock().isoformat(),
-                    "simulation": service.settings.simulation,
-                },
-                now=service.clock(),
-            )
-            return doc(result)
+
+        def publish():
+            with service.db.transaction() as s:
+                authorized(s)
+                result = put(
+                    s,
+                    "evaluation_reports",
+                    p["tenant_id"],
+                    p["seller_id"],
+                    {
+                        **report,
+                        "kind": "coaching_replay",
+                        "usage_object_id": usage_object_id,
+                        "review_reference": body.review_reference,
+                        "created_at": service.clock().isoformat(),
+                        "simulation": service.settings.simulation,
+                    },
+                    now=service.clock(),
+                )
+                return doc(result)
+
+        return await asyncio.to_thread(publish)

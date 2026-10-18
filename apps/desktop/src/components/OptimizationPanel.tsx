@@ -887,19 +887,23 @@ export function OptimizationPanel({
                   onClick={() =>
                     void run(async () => {
                       const result = await api<{
+                        samples: number;
+                        attempted_samples: number;
+                        unattempted_samples: number;
                         valid_fraction: number;
                         expected_action_fraction: number;
+                        p95_inference_ms: number | null;
                         evidence_scope: string;
                       }>("/v1/admin/coaching/replay", "POST", {
                         cases: JSON.parse(replay),
                         review_reference: replayReference,
                       });
                       setReplayResult(
-                        "Valid " +
+                        `${result.attempted_samples} of ${result.samples} cases attempted; ${result.unattempted_samples} not attempted. Schema and evidence checks: ` +
                           percent(result.valid_fraction) +
                           "; expected action " +
                           percent(result.expected_action_fraction) +
-                          ". " +
+                          `. Attempt duration p95: ${result.p95_inference_ms?.toFixed(0) ?? "Unknown"} ms (includes failed attempts). Semantic usefulness has not been reviewed. ` +
                           result.evidence_scope,
                       );
                     })
