@@ -113,3 +113,31 @@ def test_restore_keeps_newer_revocation_even_when_consent_marked_inactive(worksp
     with service.db.transaction(False) as s:
         row = get(s, "consent_evidence", identity)
         assert row is not None and row.data["revoked"] is True
+
+
+def test_restore_does_not_resurrect_removed_access(workspace, app):
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        user = put(s, "users", p["tenant_id"], p["seller_id"], {"role": "admin"})
+        user_id = user.id
+        session = put(s, "sessions", p["tenant_id"], p["seller_id"], {"user_id": user_id})
+        session_id = session.id
+    receipt = service.backup(p)
+    with service.db.transaction() as s:
+        s.delete(get(s, "sessions", session_id))
+        s.delete(get(s, "users", user_id))
+    service.restore(p, receipt["backup_id"])
+    with service.db.transaction(False) as s:
+        assert get(s, "users", user_id) is None
+        assert get(s, "sessions", session_id) is None
+
+
+def test_backup_restore_preserves_business_creation_times(workspace, app, clock):
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction(False) as s:
+        lead = service.scoped(s, "leads", p)[0]
+        identity, created_at = lead.id, lead.created_at.isoformat()
+    receipt = service.backup(p)
+    service.restore(p, receipt["backup_id"])
+    with service.db.transaction(False) as s:
+        assert get(s, "leads", identity).created_at.isoformat() == created_at
