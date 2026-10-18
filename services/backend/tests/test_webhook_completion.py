@@ -287,3 +287,10 @@ def test_signed_ingress_stays_successful_when_processing_is_temporarily_unavaila
     assert response.status_code == 200
     with service.db.transaction(False) as s:
         assert rows(s, "webhook_inbox", workspace["tenant_id"])[0].data["status"] == "received"
+
+
+def test_late_raw_publication_cannot_replace_a_newer_committed_revision(app):
+    raw = app.state.service.raw
+    raw.put("speech:test", {"revision": 2, "text": "newer"}, scope="call", revision=2)
+    raw.put("speech:test", {"revision": 1, "text": "older"}, scope="call", revision=1)
+    assert raw.get("speech:test")["text"] == "newer"
