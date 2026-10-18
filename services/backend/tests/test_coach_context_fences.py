@@ -117,7 +117,8 @@ async def test_live_advice_rechecks_all_used_knowledge_before_publication(
     assert result["action"] == "NO_ACTION", boundary
     with service.db.transaction(False) as s:
         assert not service.scoped(s, "coach_events", p)
-        assert service.scoped(s, "usage_ledger", p)[0].data["cost_usd"] == 0.001
+        charges = [r for r in service.scoped(s, "usage_ledger", p) if r.data.get("work_kind") == "live_coach"]
+        assert len(charges) == 1 and charges[0].data["cost_usd"] == 0.001
 
 
 @pytest.mark.asyncio
