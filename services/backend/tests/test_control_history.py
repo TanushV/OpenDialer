@@ -4,6 +4,7 @@ from datetime import timedelta
 
 import pytest
 from app.db import get, put, update
+from conftest import reserve, start
 from test_context_reads import count_decrypted
 from test_control_completion import principal
 
@@ -243,3 +244,57 @@ def test_control_deadline_migration_preserves_payloads(tmp_path):
     }
     migrate_database(url)
     engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["start", "dial", "hangup", "answer"])
+async def test_one_current_call_does_not_decrypt_all_prior_calls_or_events(
+    workspace, app, clock, monkeypatch, operation
+):
+    service, p = app.state.service, principal(workspace)
+    if operation == "start":
+        reservation = reserve(workspace).json()
+    else:
+        call = start(workspace)
+        if operation == "dial":
+            with service.db.transaction() as s:
+                command = next(
+                    r for r in service.scoped(s, "command_outbox", p) if r.data.get("call_id") == call["id"]
+                )
+                update(command, status="pending")
+                update(get(s, "leads", call["lead_id"]), next_attempt_at=None, last_attempt_at=None)
+    history(service, p, clock)
+    with service.db.transaction() as s:
+        for i in range(400):
+            put(
+                s,
+                "call_legs",
+                p["tenant_id"],
+                p["seller_id"],
+                {"state": "ENDED", "kind": "prospect", "call_id": f"old-{i}"},
+                key=f"old-leg-{i}",
+            )
+            put(
+                s,
+                "provider_events",
+                p["tenant_id"],
+                p["seller_id"],
+                {"call_id": f"old-{i}", "hash": f"old-hash-{i}", "effects_complete": True},
+                key=f"old-event-{i}",
+            )
+    decoded = count_decrypted(app, monkeypatch)
+    if operation == "start":
+        result = await service.start_call(
+            p, {"reservation_id": reservation["reservation_id"], "idempotency_key": "bounded-start"}
+        )
+        assert result["provider_id"]
+    elif operation == "dial":
+        await service.dispatch_call(p, call["id"])
+        assert service._call_snapshot(p, call["id"])["provider_id"]
+    elif operation == "hangup":
+        result = await service.hangup(p, call["id"])
+        assert result["state"] == "ENDED"
+    else:
+        service.event(p, "new-answer", "call.answered", call["id"])
+        assert service._call_snapshot(p, call["id"])["state"] == "ANSWERED_UNCLASSIFIED"
+    assert len(decoded) <= 160, f"{operation}: {len(decoded)} decrypted records"
