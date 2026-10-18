@@ -53,6 +53,61 @@ def test_product_knowledge_cannot_overwrite_a_newer_review_with_a_stale_form(wor
     assert second.status_code == 409
 
 
+def test_published_knowledge_emits_one_content_free_invalidation_event(workspace, app):
+    data = body(workspace, app)
+    assert publish(workspace, {**data, "approved": False}).status_code == 200
+    saved = publish(workspace, data).json()
+    events = workspace["client"].get("/v1/events", headers=workspace["headers"]).json()["events"]
+    changed = [event for event in events if event["type"] == "knowledge.updated"]
+    assert len(changed) == 1
+    assert changed[0]["entity_id"] == saved["id"]
+    assert data["product_description"] not in str(changed)
+
+
+def test_unapproved_knowledge_never_replaces_current_and_parallel_publication_has_one_winner(workspace, app):
+    from concurrent.futures import ThreadPoolExecutor
+
+    data = body(workspace, app)
+    assert publish(workspace, {**data, "approved": False}).status_code == 200
+    assert body(workspace, app)["expected_previous_id"] == data["expected_previous_id"]
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: publish(workspace, data).status_code, range(2)))
+    assert sorted(results) == [200, 409]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["live", "practice"])
+async def test_published_context_reaches_helper_without_restricting_its_wording(
+    workspace, app, monkeypatch, mode
+):
+    from test_coaching_library import source
+
+    data = body(workspace, app)
+    assert publish(workspace, data).status_code == 200
+    call, p = source(workspace, app)
+    service, seen = app.state.service, []
+
+    class Provider:
+        last_usage, last_request_id = {"cost": 0.001}, "current-approved-knowledge"
+
+        async def suggest(self, request, **kwargs):
+            seen.append(request)
+            result = advice(request["state_version"], text="Which part of onboarding would be most useful?")
+            result["evidence_segment_ids"] = []
+            return result
+
+    monkeypatch.setattr(service.settings, "simulation", False)
+    monkeypatch.setattr(service, "configured_coach", lambda _: (Provider(), "openrouter"))
+    if mode == "practice":
+        result = (await service.practice(p, "What should I ask next?"))["guidance"]
+    else:
+        result = await service.coach_turn(p, call["id"], urgent=True, question="What should I ask next?")
+    assert seen[0]["seller"]["knowledge"] == data["product_description"]
+    assert seen[0]["approved_claims"] == data["claims"]
+    assert seen[0]["prohibited_claims"] == data["prohibited_claims"]
+    assert result["action"] == "SHOW_CARD"
+
+
 @pytest.mark.parametrize(
     "changes",
     [
@@ -124,6 +179,7 @@ def test_knowledge_index_backfill_preserves_source_data_and_revision(workspace, 
 def test_knowledge_migration_is_additive_and_repeatable(tmp_path):
     from datetime import UTC, datetime
     from pathlib import Path
+
     from alembic import command
     from alembic.config import Config
     from app.migrate import migrate_database
