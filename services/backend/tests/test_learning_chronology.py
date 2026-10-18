@@ -157,6 +157,37 @@ def test_future_callback_does_not_change_frozen_pre_call_features(clock):
     assert features["callback_history"] == 0
 
 
+def test_same_timestamp_correction_uses_the_latest_recorded_revision(clock):
+    call, snapshot, _ = outcome_fixture(clock)
+    call["outcome_history"] = [
+        {
+            "outcome": "no_answer",
+            "outcome_available_at": call["outcome_available_at"],
+            "outcome_source": "rep_reported",
+        }
+    ]
+    assert dataset(call, snapshot, [], clock.now)[0]["human"] is True
+
+
+def test_repeated_retraction_does_not_move_the_original_availability(workspace, clock):
+    call = start(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    body = {
+        "event_id": "late-meeting",
+        "kind": "meeting_held",
+        "call_id": call["id"],
+        "occurred_at": clock.now.isoformat(),
+        "source_reference": "Rep verified attendance",
+    }
+    event = c.post(f"/v1/leads/{call['lead_id']}/conversions", headers=h, json=body).json()
+    path = f"/v1/leads/{call['lead_id']}/conversions/{event['id']}/retract"
+    first = c.post(path, headers=h, json={"reason": "Correction"}).json()
+    clock.now += timedelta(minutes=5)
+    repeated = c.post(path, headers=h, json={"reason": "Correction"}).json()
+    assert repeated["retracted_at"] == first["retracted_at"]
+    assert repeated["version"] == first["version"]
+
+
 def test_disposition_corrections_retain_as_of_history_without_transcripts(workspace, app, clock):
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
