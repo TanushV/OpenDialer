@@ -236,3 +236,51 @@ def test_failure_after_nested_optout_returns_still_preserves_the_denial_hold(wor
     with service.db.transaction(False) as s:
         assert get(s, "sellers", p["seller_id"]).data.get("journal_recovery_required") is True
     assert (p["tenant_id"], p["seller_id"]) in service.__dict__.get("_journal_faults", set())
+
+
+def test_repaired_missing_suppression_is_held_if_the_enclosing_transaction_fails(workspace, app):
+    service, p = app.state.service, principal(workspace)
+    phone = "+14155550783"
+    service.suppress(p, phone, "opt_out", event_id="replayed-rollback")
+    with service.db.transaction() as s:
+        s.execute(delete(MODELS["suppressions"]))
+    with pytest.raises(RuntimeError, match="Later event processing failed"):
+        with service.db.transaction() as s:
+            service.suppress(p, phone, "opt_out", event_id="replayed-rollback", session=s)
+            raise RuntimeError("Later event processing failed")
+    with service.db.transaction(False) as s:
+        assert get(s, "sellers", p["seller_id"]).data.get("journal_recovery_required") is True
+
+
+def test_temporary_hold_does_not_downgrade_a_retained_permanent_optout(workspace, app):
+    service, p = app.state.service, principal(workspace)
+    phone = "+14155550784"
+    original = service.suppress(p, phone, "opt_out", event_id="permanent-denial")
+    with service.db.transaction() as s:
+        update(get(s, "suppressions", original["id"]), active=False)
+    service.suppress(p, phone, "temporary_hold", event_id="later-temporary-hold")
+    with service.db.transaction(False) as s:
+        row = get(s, "suppressions", original["id"])
+        assert row.data["active"] is True
+        assert row.data["permanent"] is True
+        assert row.data["reason"] == "opt_out"
+
+
+def test_partial_journal_cannot_be_extended_by_an_optout_retry(workspace, app, monkeypatch):
+    service, p = app.state.service, principal(workspace)
+    path = service.settings.data_dir / "suppression-journal.enc"
+    original = service.vault.append_journal
+
+    def partial(*args):
+        path.write_bytes(b"synthetic-partial-receipt")
+        raise OSError("Synthetic partial append")
+
+    monkeypatch.setattr(service.vault, "append_journal", partial)
+    with pytest.raises(HTTPException):
+        service.suppress(p, "+14155550785", "opt_out", event_id="partial-retry")
+    before = path.read_bytes()
+    monkeypatch.setattr(service.vault, "append_journal", original)
+    with pytest.raises(HTTPException) as error:
+        service.suppress(p, "+14155550785", "opt_out", event_id="partial-retry")
+    assert error.value.status_code in {409, 503}
+    assert path.read_bytes() == before, "Recover the damaged receipt before appending new bytes"

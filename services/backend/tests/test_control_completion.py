@@ -347,8 +347,12 @@ def test_suppression_during_dial_keeps_durable_hangup_until_terminal_receipt(
     monkeypatch.setattr(carrier, "hangup", unavailable)
     call = start(workspace)
     assert call["state"] == "ENDING"
-    assert command_for(service, p, call["id"], "hangup")["status"] == "uncertain"
     with service.db.transaction(False) as s:
+        # Suppression and the client share the original stop intent; its kind may
+        # be a queued control action rather than a second standalone hangup.
+        command = service._by_key(s, p, "command_outbox", call["id"] + ":hangup")
+        assert command.data["status"] == "uncertain"
+        assert command.data["provider_id"] == call["provider_id"]
         assert s.scalar(select(ActiveClaim).where(ActiveClaim.call_id == call["id"])) is not None
 
 
