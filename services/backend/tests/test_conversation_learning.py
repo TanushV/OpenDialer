@@ -522,3 +522,115 @@ async def test_retracted_conversion_marks_old_guidance_stale(workspace, app, mon
     with app.state.service.db.transaction(False) as s:
         campaign = app.state.service.required(s, "campaigns", workspace["campaign_id"], p(workspace))
         assert campaign.data["conversation_report"]["stale"]
+
+
+@pytest.mark.asyncio
+async def test_interpretation_does_not_receive_outcomes_as_evidence_of_the_response(
+    workspace, app, monkeypatch
+):
+    call, _ = observed_call(workspace, app, monkeypatch)
+    contexts = []
+
+    class Provider:
+        async def complete(self, prompt, context, schema):
+            if "fingerprint" in context:
+                return InferenceResult(review_response(context), {}, "independent-context-review")
+            contexts.append(context)
+            return InferenceResult(observed_body(), {}, "unprimed-extraction")
+
+    monkeypatch.setattr(app.state.service, "inference", lambda *args: Provider())
+    await app.state.service.analyze_postcall(p(workspace), call["id"])
+    assert contexts
+    assert "outcome" not in contexts[0]
+
+
+@pytest.mark.asyncio
+async def test_legacy_unreviewed_observations_are_not_operational_training_inputs(
+    workspace, app, monkeypatch, clock
+):
+    call, _ = observed_call(workspace, app, monkeypatch)
+    service = app.state.service
+    service.analysis(p(workspace), call["id"])
+    with service.db.transaction() as s:
+        call_row = service.required(s, "call_attempts", call["id"], p(workspace))
+        update(
+            call_row,
+            outcome="right_party",
+            outcome_available_at=clock.now.isoformat(),
+            outcome_source="rep_reported",
+        )
+        note = service._by_key(s, p(workspace), "notes", call["id"])
+        update(note, observations=[{"concept": "An unchecked legacy guess", "approach": "Invented success"}])
+    with service.db.transaction(False) as s:
+        row = next(r for r in service.operational_dataset(s, p(workspace)) if r["call_id"] == call["id"])
+    assert row["observations"] == []
+
+
+@pytest.mark.asyncio
+async def test_prospect_brief_retains_reviewed_concepts_without_showing_retracted_ones(
+    workspace, app, monkeypatch
+):
+    call, _ = observed_call(workspace, app, monkeypatch)
+    service = app.state.service
+    await service.analyze_postcall(p(workspace), call["id"])
+    packet = service.packet(p(workspace), call["lead_id"])
+    assert packet["prospect_brief"]["observations"][0]["concept"] == "Procurement approval"
+    observation = service.analysis(p(workspace), call["id"])["observations"][0]
+    response = workspace["client"].post(
+        f"/v1/calls/{call['id']}/observations/{observation['id']}/review",
+        headers=workspace["headers"],
+        json={
+            "expected_version": observation["version"],
+            "decision": "retract",
+            "reason": "Incorrect interpretation",
+        },
+    )
+    assert response.status_code == 200
+    assert service.packet(p(workspace), call["lead_id"])["prospect_brief"]["observations"] == []
+
+
+def test_future_outcome_is_required_before_any_guidance_association(clock):
+    rows = cohort(clock) + cohort(clock, later=True)
+    for row in rows:
+        row["observations"][0]["observed_at"] = row["label_available_at"]
+    assert report(rows, clock)["patterns"] == []
+
+
+@pytest.mark.asyncio
+async def test_rep_cannot_review_another_reps_observation_or_change_shared_names(workspace, app, monkeypatch):
+    from app.db import put
+
+    call, _ = observed_call(workspace, app, monkeypatch)
+    service = app.state.service
+    await service.analyze_postcall(p(workspace), call["id"])
+    observation = service.analysis(p(workspace), call["id"])["observations"][0]
+    with service.db.transaction() as s:
+        user = service.required(s, "users", workspace["user_id"], p(workspace))
+        update(user, role="rep")
+        other = put(
+            s,
+            "users",
+            p(workspace)["tenant_id"],
+            p(workspace)["seller_id"],
+            {"name": "Different rep", "role": "rep"},
+            now=service.clock(),
+        )
+        row = service.required(s, "call_attempts", call["id"], p(workspace))
+        update(row, rep_id=other.id)
+    c, h = workspace["client"], workspace["headers"]
+    assert (
+        c.post(
+            f"/v1/calls/{call['id']}/observations/{observation['id']}/review",
+            headers=h,
+            json={"expected_version": observation["version"], "decision": "retract", "reason": "Not my call"},
+        ).status_code
+        == 404
+    )
+    assert (
+        c.put(
+            "/v1/admin/optimization/conversation-vocabulary",
+            headers=h,
+            json={"expected_version": 1, "aliases": [], "reason": "Rep cannot publish team names"},
+        ).status_code
+        == 403
+    )
