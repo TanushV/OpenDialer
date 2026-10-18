@@ -64,7 +64,7 @@ async def test_optout_stops_the_live_call_without_a_second_client_hangup(workspa
         assert get(s, "call_attempts", call["id"]).data["state"] == "ENDING"
         assert s.scalar(select(ActiveClaim).where(ActiveClaim.call_id == call["id"])) is not None
     await service.dispatch_controls(p)
-    assert call["provider_id"] in carrier.hangups
+    assert call["provider_id"] in [r["provider_id"] for r in carrier.hangups]
 
 
 def test_optout_update_does_not_decrypt_unrelated_history(workspace, app, monkeypatch):
