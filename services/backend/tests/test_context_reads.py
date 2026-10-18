@@ -134,7 +134,7 @@ def count_decrypted(app, monkeypatch):
         counts.append(1)
         return original(*args, **kwargs)
 
-    monkeypatch.setattr("process_result_value", counted)
+    monkeypatch.setattr(app.state.db.cipher, "decrypt", counted)
     return counts
 
 
