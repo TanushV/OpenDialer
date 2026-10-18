@@ -160,6 +160,11 @@ class TelnyxCarrier:
 
         return await self.request("GET", f"/phone_numbers/{quote(number_id, safe='')}")
 
+    async def get_number_order(self, order_id):
+        from urllib.parse import quote
+
+        return await self.request("GET", f"/number_orders/{quote(order_id, safe='')}")
+
     async def rnd(self, phone, reference_date):
         # RND requires an independently authorized account adapter; carrier lookup is not a substitute.
         raise ValueError("Configure an authorized Reassigned Numbers Database subscription adapter")

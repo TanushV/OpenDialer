@@ -789,7 +789,7 @@ Depends on M0. Exit: P1 defects and event/control recovery pass A04–A10, A13 a
 - [x] M1.02 Normalize documented transcript-track variants and keep unknown side/finality honest.
 - [x] M1.03 Enforce terminal-state monotonicity and late-event handling for every call leg.
 - [ ] M1.04 Complete leased/fenced recovery for every control command, not only dial/hangup; wire heartbeats where needed.
-- [ ] M1.05 Persist purchase intent identity across UI retry/reload; reconcile uncertainty before any new order.
+- [x] M1.05 Persist purchase intent identity across UI retry/reload; reconcile uncertainty before any new order. New purchases are disabled; existing intents reconcile by verified carrier order ID (STATUS.md, October 18 order-recovery receipts).
 - [ ] M1.06 Repair usage-hold settlement and uncertain liability; deduplicate provider receipts.
 - [ ] M1.07 Verify opt-out/start ordering, active claims, detached obligations and orphan-call safeguards.
 - [ ] M1.08 Add actionable recovery/dead-letter status; no ordinary recovery requires editing database rows manually.

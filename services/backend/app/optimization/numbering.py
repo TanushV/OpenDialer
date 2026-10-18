@@ -78,24 +78,37 @@ def number_health(attempts, *, pooled_attempts, now):
     }
 
 
+def number_ready(number):
+    return (
+        number.get("lifecycle") in {"healthy", "limited_real_use"}
+        and number.get("provider_present") is not False
+        and number.get("identity_configured") is not False
+        and number.get("callback_tested") is not False
+        and not number.get("provider_recording_enabled")
+    )
+
+
 def select_number(lead, inventory, *, bound_id=None, strategy="regional_first"):
     usable = [
         n
         for n in inventory
-        if n.get("lifecycle") in {"healthy", "limited_real_use"}
+        if number_ready(n)
         and int(n.get("active_obligations", 0)) < int(n.get("capacity", 1))
         and int(n.get("used_today", 0)) + int(n.get("reserved_attempts", 0)) < int(n.get("daily_limit", 0))
     ]
     bound = next((n for n in usable if n["id"] == bound_id), None)
+    waiting_for_bound = not bound and any(n["id"] == bound_id and number_ready(n) for n in inventory)
     regional = [n for n in usable if n.get("region") == lead.get("region")]
     general = [n for n in usable if n.get("region") == "general"]
     candidates = (
         [bound] if bound else (general or regional) if strategy == "general_first" else regional or general
     )
-    if not candidates:
+    if not candidates or waiting_for_bound:
         return {
             "number_id": None,
-            "reason": "No usable bound, regional or general capacity",
+            "reason": "Wait for capacity on the bound identity"
+            if waiting_for_bound
+            else "No usable bound, regional or general capacity",
             "previous_number_id": bound_id,
             "reassignment_reason": None,
         }
@@ -182,7 +195,6 @@ def capacity_forecast(
     available_attempts = int(rep_minutes * 60 / handling_seconds)
     days = max(1, math.ceil(horizon_hours / 24))
     added_capacity = daily_capacity_per_number * days
-    usable_states = {"healthy", "limited_real_use"}
     waiting_states = {
         "purchased",
         "identity_configured",
@@ -195,7 +207,7 @@ def capacity_forecast(
     for number in inventory:
         region = number.get("region", "general")
         state = number.get("lifecycle")
-        if state in usable_states and number.get("provider_present") is not False:
+        if number_ready(number):
             capacity = max(
                 0,
                 number.get("daily_limit", 0) * days
@@ -207,7 +219,7 @@ def capacity_forecast(
             else:
                 regional[region] = regional.get(region, 0) + capacity
             owned_counts[region] = owned_counts.get(region, 0) + 1
-        elif state in waiting_states:
+        elif state in waiting_states or state in {"healthy", "limited_real_use"}:
             capacity = max(daily_capacity_per_number, number.get("daily_limit", 0)) * days
             if region == "general":
                 general_waiting += capacity

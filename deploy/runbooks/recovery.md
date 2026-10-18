@@ -11,3 +11,11 @@ If a carrier response is lost, preserve the original deterministic intent. Wait 
 For desktop or VM failure, preserve app data and restart the same installed identity. Carrier time limits bound abandoned legs while the authority is down. The recovery sweep reconciles commands/active calls; voicemail watchdogs keep detached obligations independent of the rep. New calls pause during authority loss; cached scripts/notes remain viewable and pending local opt-outs block further outbound work until acknowledged.
 
 Test restoring a dedicated synthetic workspace before production and record checksum, recovery point, reconciled calls/opt-outs and elapsed recovery time. Do not test against live data or remove user application stores as cleanup.
+
+## Previously submitted number orders
+
+The no-subscription policy blocks every new number purchase, including retries with a different key. In Numbers → Previously submitted orders, reopen the original intent. If its response was lost before an order ID was saved, find that ID in the carrier account and enter it on the same row. Reconciliation only retrieves `/v2/number_orders/{id}`; it checks the ID and complete requested number set before recording fulfillment. A missing or mismatched receipt remains unresolved. Do not create another order to clear it.
+
+Partial fulfillment lists waiting and failed numbers separately. Confirmed numbers enter unconfigured inventory once; use Sync existing Telnyx numbers to obtain their actual inventory IDs, then Configure voice route. An order-item ID is not a callable inventory ID. A timed-out configuration is reconciled by reading the existing number before another write. Changed inventory invalidates stale completion and callback evidence. Complete registration and a real authorized callback check before promotion to limited use; a successful configuration response does not prove callbacks work.
+
+Order failure is not a billing credit. The original estimated commitment stays visible as unreconciled until account billing evidence settles it. Outbound pauses and missing inventory never automatically release phone numbers or existing callback identities. No subscription, paid reputation enrollment or new rental is activated by these recovery controls.

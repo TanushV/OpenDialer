@@ -836,6 +836,14 @@ def create_app(settings=None, *, clock=None, carrier=None):
             "RECURRING_COMMITMENT_DISABLED: new numbers incur rental fees; reuse existing authorized inventory",
         )
 
+    @app.get("/v1/admin/numbers/orders")
+    def number_orders(p=Depends(administrator)):
+        return service.number_orders(p)
+
+    @app.post("/v1/admin/numbers/orders/{intent_id}/reconcile")
+    async def reconcile_number_order(intent_id: str, data: dict, p=Depends(administrator)):
+        return await service.reconcile_number_order(p, intent_id, data)
+
     @app.post("/v1/admin/variants")
     def create_variant(data: dict, p=Depends(administrator)):
         opener = data.get("opener", "")

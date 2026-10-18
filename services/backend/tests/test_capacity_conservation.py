@@ -3,7 +3,8 @@
 import itertools
 import math
 
-from app.optimization.numbering import capacity_forecast
+import pytest
+from app.optimization.numbering import capacity_forecast, select_number
 
 
 def report(clock, demand, inventory, rep=100):
@@ -64,3 +65,28 @@ def test_booked_hold_and_unknown_timezone_do_not_create_number_demand(clock):
     assert result["forecast_attempts"] == 0
     assert result["minimum_additional_numbers"] == 0
     assert result["window_unknown_leads"] == 1
+
+
+@pytest.mark.parametrize(
+    "unavailable",
+    [
+        {"provider_present": False},
+        {"identity_configured": False},
+        {"callback_tested": False},
+        {"provider_recording_enabled": True},
+    ],
+)
+def test_unverified_inventory_never_counts_as_callable_capacity(clock, unavailable):
+    number = {"id": "n", "region": "415", "daily_limit": 50, "lifecycle": "healthy", **unavailable}
+    assert select_number({"region": "415"}, [number])["number_id"] is None
+    result = report(clock, {"415": 10}, [number])
+    assert result["existing_only_capacity"] == 0
+
+
+def test_binding_waits_for_its_daily_capacity_instead_of_rotating_on_each_retry():
+    bound = {"id": "bound", "region": "415", "daily_limit": 5, "used_today": 5, "lifecycle": "healthy"}
+    other = {**bound, "id": "spare", "used_today": 0}
+    selection = select_number({"region": "415"}, [bound, other], bound_id="bound")
+    assert selection["number_id"] is None
+    assert "bound" in selection["reason"].lower()
+    assert selection["reassignment_reason"] is None

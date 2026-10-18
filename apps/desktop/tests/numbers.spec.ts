@@ -38,3 +38,102 @@ test("number capacity distinguishes bottlenecks and quotes cannot start rentals"
     page.getByText("New rentals blocked", { exact: true }),
   ).toBeVisible();
 });
+
+test("old number order recovery survives reload without another purchase", async ({
+  page,
+}) => {
+  let order = {
+    id: "legacy-order",
+    version: 1,
+    status: "uncertain",
+    numbers: ["+14155550198"],
+    committed_usd: 1,
+    next_action: "Find the provider order ID in your carrier account.",
+  };
+  const requests: string[] = [];
+  await page.route("**/v1/admin/numbers/orders**", async (route) => {
+    const request = route.request();
+    if (request.method() === "POST") {
+      expect(request.url()).toContain("/legacy-order/reconcile");
+      expect(request.postDataJSON()).toEqual({
+        expected_version: 1,
+        provider_order_id: "carrier-order",
+      });
+      requests.push(request.url());
+      order = {
+        ...order,
+        version: 3,
+        status: "completed",
+        next_action: "Sync owned inventory and test callbacks.",
+      };
+      await route.fulfill({ json: order });
+    } else await route.fulfill({ json: { orders: [order] } });
+  });
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await page.getByRole("button", { name: "Numbers", exact: true }).click();
+  const history = page.getByTestId("number-order-history");
+  await expect(
+    history.getByText("+14155550198", { exact: true }),
+  ).toBeVisible();
+  await history.getByLabel("Provider order ID").fill("carrier-order");
+  await history
+    .getByRole("button", { name: "Reconcile existing order" })
+    .click();
+  await expect(history.getByText("Completed", { exact: true })).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: "Numbers", exact: true }).click();
+  await expect(history.getByText("Completed", { exact: true })).toBeVisible();
+  expect(requests).toHaveLength(1);
+  await expect(history.getByText(/unreconciled/i)).toBeVisible();
+});
+
+test("order recovery remains retryable after receipt and refresh failures", async ({
+  page,
+}) => {
+  let failed = false;
+  await page.route("**/v1/admin/numbers/orders**", async (route) => {
+    if (route.request().method() === "POST") failed = true;
+    await route.fulfill(
+      failed
+        ? { status: 503, json: { detail: "Carrier unavailable" } }
+        : {
+            json: {
+              orders: [
+                {
+                  id: "legacy",
+                  version: 1,
+                  status: "uncertain",
+                  numbers: ["+14155550198"],
+                  committed_usd: 1,
+                },
+              ],
+            },
+          },
+    );
+  });
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await page.getByRole("button", { name: "Numbers", exact: true }).click();
+  await page.getByRole("button", { name: "Reconcile existing order" }).click();
+  await expect(page.getByRole("alert")).toContainText("Carrier unavailable");
+  await expect(
+    page.getByRole("button", { name: "Reconcile existing order" }),
+  ).toBeEnabled();
+});

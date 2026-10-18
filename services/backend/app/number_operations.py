@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import re
 from datetime import timedelta
 
 from sqlalchemy import select
@@ -12,6 +13,173 @@ from app.service import dt, fail
 
 
 class NumberOperations:
+    def number_orders(self, p, intent_id=None):
+        with self.db.transaction(False) as s:
+            if intent_id:
+                row = self.required(s, "command_outbox", intent_id, p)
+                if row.data.get("kind") != "purchase":
+                    fail(404, "Number order intent not found")
+                return doc(row)
+            model = MODELS["command_outbox"]
+            result = s.scalars(
+                select(model)
+                .where(
+                    model.tenant_id == p["tenant_id"],
+                    model.seller_id == p["seller_id"],
+                    model.external_key.like("purchase:%"),
+                )
+                .order_by(model.created_at.desc())
+            ).all()
+            return {"orders": [doc(row) for row in result if row.data.get("kind") == "purchase"]}
+
+    def _claim_order_check(self, p, intent_id, body):
+        with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
+            row = self.required(s, "command_outbox", intent_id, p)
+            if row.data.get("kind") != "purchase":
+                fail(404, "Number order intent not found")
+            if type(body.get("expected_version")) is not int:
+                fail(422, "The current order version is required")
+            if row.version != body["expected_version"]:
+                fail(409, "Order changed; reload its current state")
+            if row.data.get("lease_until") and dt(row.data["lease_until"]) > self.clock():
+                fail(409, "Order reconciliation is in progress")
+            receipt = row.data.get("receipt") or {}
+            known = row.data.get("provider_order_id") or receipt.get("data", receipt).get("id")
+            requested = body.get("provider_order_id") or known
+            if known and requested != known:
+                fail(409, "Reconcile the existing provider order reference")
+            if not requested:
+                update(
+                    row,
+                    status="review_required",
+                    billing_status="unreconciled",
+                    next_action="Find the provider order ID in your carrier account, then reconcile this same intent. Do not submit another purchase.",
+                )
+                return doc(row), None
+            if not isinstance(requested, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", requested):
+                fail(422, "A valid carrier order ID is required")
+            update(
+                row,
+                status="reconciling",
+                lease_owner=uid(),
+                lease_until=(self.clock() + timedelta(seconds=60)).isoformat(),
+            )
+            return doc(row), requested
+
+    async def reconcile_number_order(self, p, intent_id, body):
+        intent, reference = await asyncio.to_thread(self._claim_order_check, p, intent_id, body)
+        if not reference:
+            return intent
+        try:
+            response = await self.carrier(p["tenant_id"]).get_number_order(reference)
+            receipt = response.get("data", response)
+            items = receipt.get("phone_numbers")
+            if (
+                receipt.get("id") != reference
+                or not isinstance(items, list)
+                or any(not isinstance(item, dict) for item in items)
+                or len(items) != len(intent["numbers"])
+                or {item.get("phone_number") for item in items} != set(intent["numbers"])
+            ):
+                raise ValueError("Carrier order does not match this intent")
+        except Exception:
+            await asyncio.to_thread(self._finish_order_check, p, intent, None)
+            fail(502, "Order not confirmed; reload and reconcile the same intent using the carrier receipt")
+        return await asyncio.to_thread(self._finish_order_check, p, intent, receipt)
+
+    def _finish_order_check(self, p, intent, receipt):
+        with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
+            row = self.required(s, "command_outbox", intent["id"], p)
+            if row.version != intent["version"] or row.data.get("lease_owner") != intent["lease_owner"]:
+                fail(409, "Order reconciliation was superseded; reload")
+            values = {
+                "lease_owner": None,
+                "lease_until": None,
+                "checked_at": self.clock().isoformat(),
+                "billing_status": row.data.get("billing_status", "unreconciled"),
+            }
+            if receipt is None:
+                values.update(
+                    status="uncertain",
+                    next_action="Check the provider order ID and retry this read-only reconciliation; purchase is disabled.",
+                )
+            else:
+                items = receipt["phone_numbers"]
+                fulfilled = [
+                    i["phone_number"]
+                    for i in items
+                    if i.get("status") == "success" and i.get("requirements_met") is True
+                ]
+                failed = [
+                    i["phone_number"]
+                    for i in items
+                    if i.get("status") in {"failure", "failed", "cancelled", "canceled"}
+                ]
+                waiting = [i["phone_number"] for i in items if i["phone_number"] not in fulfilled + failed]
+                status = (
+                    "awaiting_fulfillment"
+                    if waiting
+                    else "completed"
+                    if not failed
+                    else "partially_failed"
+                    if fulfilled
+                    else "failed"
+                )
+                values.update(
+                    provider_order_id=receipt["id"],
+                    provider_status=receipt.get("status"),
+                    status=status,
+                    fulfilled_numbers=fulfilled,
+                    failed_numbers=failed,
+                    waiting_numbers=waiting,
+                    next_action="Sync owned inventory, configure routing and verify callbacks before outbound use."
+                    if fulfilled
+                    else "Review pending requirements or failures in the carrier account. No new order will be submitted.",
+                )
+                inventory = {n.data["phone"]: n for n in rows(s, "number_inventory")}
+                for phone in fulfilled:
+                    current = inventory.get(phone)
+                    if current:
+                        if current.tenant_id != p["tenant_id"] or current.seller_id != p["seller_id"]:
+                            fail(409, "Ordered inventory has conflicting ownership; review the assignment")
+                        continue
+                    number = put(
+                        s,
+                        "number_inventory",
+                        p["tenant_id"],
+                        p["seller_id"],
+                        {
+                            "phone": phone,
+                            "region": phone[2:5],
+                            "lifecycle": "purchased",
+                            "daily_limit": 5,
+                            "capacity": 1,
+                            "identity_configured": False,
+                            "callback_tested": False,
+                            "order_intent_id": intent["id"],
+                            "provider_order_id": receipt["id"],
+                            "synthetic": self.settings.simulation,
+                        },
+                        key=phone,
+                        now=self.clock(),
+                    )
+                    emit(s, p["tenant_id"], "number.updated", number, self.clock())
+            update(row, **values)
+            audit(
+                s,
+                p["tenant_id"],
+                p["seller_id"],
+                p["user_id"],
+                "number.order_reconciled",
+                row.id,
+                self.clock(),
+                {"status": row.data["status"]},
+            )
+            emit(s, p["tenant_id"], "number.order_updated", row, self.clock())
+            return doc(row)
+
     async def sync_numbers(self, p):
         # Provider pagination must complete before any missing-inventory decisions.
         inventory = await self.carrier(p["tenant_id"]).list_numbers()

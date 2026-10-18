@@ -19,6 +19,7 @@ import { parseCSV } from "../state/csv";
 import type { Lead, NumberRecord, Packet } from "../types";
 import { Procurement, Variants, DeferredScripts } from "./AdminWorkflows";
 import { AdvancedIntelligence } from "./AdvancedIntelligence";
+import { NumberOrders } from "./NumberOrders";
 
 export function LeadsPage() {
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
@@ -508,6 +509,7 @@ export function NumbersPage() {
         </section>
       )}
       <Procurement />
+      <NumberOrders />
     </>
   );
 }

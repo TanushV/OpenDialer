@@ -362,9 +362,37 @@ class OptimizationWorkflows(ComparisonWorkflows):
             for lead in self.scoped(s, "leads", p)
             if lead.data["campaign_id"] == campaign.id
         ]
+        inventory = self.inventory_evidence(s, p)
+        present = {n["phone"] for n in inventory}
+        order_model = MODELS["command_outbox"]
+        orders = s.scalars(
+            select(order_model).where(
+                order_model.tenant_id == p["tenant_id"],
+                order_model.seller_id == p["seller_id"],
+                order_model.external_key.like("purchase:%"),
+            )
+        )
+        for order in orders:
+            if order.data.get("kind") != "purchase" or order.data.get("status") in {"failed", "cancelled"}:
+                continue
+            failed = set(order.data.get("failed_numbers", []))
+            for phone in order.data.get("numbers", []):
+                if phone in present or phone in failed:
+                    continue
+                inventory.append(
+                    {
+                        "id": order.id + ":" + phone,
+                        "phone": phone,
+                        "region": phone[2:5],
+                        "lifecycle": "purchased",
+                        "daily_limit": 0,
+                        "order_status": order.data.get("status"),
+                    }
+                )
+                present.add(phone)
         return capacity_forecast(
             leads,
-            self.inventory_evidence(s, p),
+            inventory,
             now=self.clock(),
             horizon_hours=config["horizon_hours"],
             rep_minutes=config["rep_minutes"],
