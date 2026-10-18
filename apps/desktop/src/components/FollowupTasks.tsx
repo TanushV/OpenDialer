@@ -14,7 +14,8 @@ function Task({ task }: { task: FollowupTask }) {
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
   const [when, setWhen] = useState(localDateInput(task.due_at));
   const [owner, setOwner] = useState(task.owner_id || "");
-  const closed = ["completed", "cancelled"].includes(task.status);
+  const routing = task.inbound && task.inbound_state !== "ended";
+  const closed = ["completed", "cancelled"].includes(task.status) || routing;
   const name =
     w.leads.find((l) => l.id === task.lead_id)?.name || "Incoming callback";
   function change(edits: Record<string, unknown>) {
@@ -39,6 +40,19 @@ function Task({ task }: { task: FollowupTask }) {
         <span>{label(task.status)}</span> · {date(task.due_at)}{" "}
         {task.timezone ? `(${task.timezone})` : ""}
       </p>
+      {task.inbound && (
+        <p>
+          Return call: {label(task.inbound_state || "unknown")} ·{" "}
+          {label(task.route || "unrouted")}.{" "}
+          {task.callback_phone || "Caller identity unavailable"}
+        </p>
+      )}
+      {routing && (
+        <p>
+          Routing is still active. Call controls are in the calling workspace.
+        </p>
+      )}
+      {task.recovery_reason && <p role="status">{task.recovery_reason}</p>}
       {task.time_window && !task.due_at && (
         <p>
           Requested window:{" "}

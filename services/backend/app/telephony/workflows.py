@@ -211,6 +211,7 @@ class TelephonyWorkflows:
         return reasons
 
     async def dispatch_controls(self, p):
+        self.inbound_watchdog(p)
         with self.db.transaction(False) as s:
             commands = [
                 doc(r)
@@ -236,6 +237,8 @@ class TelephonyWorkflows:
                 call = self.required(
                     s, "followup_tasks" if inbound else "call_attempts", command["call_id"], p
                 )
+                if inbound and not self.inbound_admit_command(s, p, call, current):
+                    continue
                 if not inbound and command["action"] == "playback_start":
                     reasons = self.voicemail_reasons(
                         s,
@@ -427,6 +430,8 @@ class TelephonyWorkflows:
             if not leg:
                 try:
                     context = json.loads(base64.b64decode(payload.get("client_state", "")))
+                    if not isinstance(context, dict):
+                        return False
                     leg = next((r for r in legs if r.id == context.get("agent_leg_id")), None)
                 except (ValueError, TypeError):
                     return False
@@ -450,85 +455,3 @@ class TelephonyWorkflows:
                         user, presence={"status": "paused", "audio_ready": False, "telephony_ready": False}
                     )
             return True
-
-    async def inbound_callback(self, tenant_id, payload, event_id):
-        with self.db.transaction() as s:
-            number = next(
-                (n for n in rows(s, "number_inventory", tenant_id) if n.data["phone"] == payload.get("to")),
-                None,
-            )
-            if not number:
-                return {"received": True, "route": "unrecognized_owned_did"}
-            seller_id = number.seller_id
-            leads = [
-                lead_row
-                for lead_row in rows(s, "leads", tenant_id, seller_id)
-                if lead_row.data["phone"] == payload.get("from")
-            ]
-            lead = leads[0] if len(leads) == 1 else None
-            calls = [
-                c
-                for c in rows(s, "call_attempts", tenant_id, seller_id)
-                if lead and c.data["lead_id"] == lead.id
-            ]
-            previous = max(calls, key=lambda c: c.data["started_at"], default=None)
-            users = rows(s, "users", tenant_id, seller_id)
-            responsible = next((u for u in users if previous and u.id == previous.data["rep_id"]), None)
-            route = "callback_queue"
-            if (
-                responsible
-                and responsible.data.get("presence", {}).get("status") == "ready"
-                and responsible.data.get("sip_username")
-            ):
-                route = "responsible_rep"
-            data = {
-                "provider_id": payload.get("call_control_id"),
-                "number_id": number.id,
-                "inbound": True,
-                "seller_id": seller_id,
-                "lead_id": lead.id if lead else None,
-                "route": route,
-                "ambiguous": len(leads) > 1,
-                "status": "open",
-                "action": "Return inbound callback",
-                "owner_id": responsible.id if responsible else None,
-                "due_at": self.clock().isoformat(),
-                "event_id": event_id,
-            }
-            existing = next(
-                (
-                    t
-                    for t in rows(s, "followup_tasks", tenant_id, seller_id)
-                    if t.external_key == "callback:" + event_id
-                ),
-                None,
-            )
-            if existing:
-                return doc(existing)
-            task = put(
-                s, "followup_tasks", tenant_id, seller_id, data, key="callback:" + event_id, now=self.clock()
-            )
-            if route == "responsible_rep":
-                p = {"tenant_id": tenant_id, "seller_id": seller_id}
-                answer = self.control_intent(
-                    s,
-                    p,
-                    task.id,
-                    "answer",
-                    {},
-                    target=payload.get("call_control_id"),
-                    suffix="inbound-answer",
-                )
-                update(answer, inbound=True)
-                # A callback is scoped to the called seller before matching the caller.
-                transfer = self.control_intent(
-                    s,
-                    p,
-                    task.id,
-                    "transfer",
-                    {"to": f"sip:{responsible.data['sip_username']}@sip.telnyx.com"},
-                    target=payload.get("call_control_id"),
-                    suffix="inbound-transfer",
-                )
-                update(transfer, inbound=True)
-            return doc(task)

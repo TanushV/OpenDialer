@@ -112,6 +112,8 @@ class WebhookIngress:
         event_type, event_id = receipt["event_type"], receipt["event_id"]
         if self.agent_event(tenant_id, payload, event_type):
             return {"received": True, "agent_event": True}
+        if self.inbound_event(tenant_id, payload, event_type):
+            return {"received": True, "inbound_event": True}
         if event_type == "call.initiated" and payload.get("direction") == "incoming":
             return await self.inbound_callback(tenant_id, payload, event_id)
         with self.db.transaction(False) as s:
@@ -126,7 +128,8 @@ class WebhookIngress:
             if not call and payload.get("client_state"):
                 try:
                     context = json.loads(base64.b64decode(payload["client_state"]))
-                    call = get(s, "call_attempts", context.get("call_id"), tenant_id)
+                    if isinstance(context, dict) and context.get("call_id"):
+                        call = get(s, "call_attempts", context["call_id"], tenant_id)
                 except (ValueError, TypeError):
                     pass
             if not call:

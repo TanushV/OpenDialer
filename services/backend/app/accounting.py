@@ -10,35 +10,40 @@ class RequestAccounting:
         if not math.isfinite(estimate_usd) or estimate_usd <= 0:
             raise ValueError("Optional work requires a positive reserved estimate")
         with self.db.transaction() as s:
-            prior = next(
-                (r for r in self.scoped(s, "usage_ledger", p) if r.external_key == "optional:" + request_key),
-                None,
+            return self.reserve_budget_in(
+                s, p, request_key, estimate_usd, object_id=object_id, work_kind=work_kind
             )
-            if prior:
-                return True
-            if not self.budget_ok(s, p, estimate_usd):
-                return False
-            put(
-                s,
-                "usage_ledger",
-                p["tenant_id"],
-                p["seller_id"],
-                {
-                    "kind": "optional_work_reservation",
-                    "object_id": object_id,
-                    "work_kind": work_kind,
-                    "user_id": p.get("user_id"),
-                    "request_key": request_key,
-                    "reserved_usd": estimate_usd,
-                    "at": self.clock().isoformat(),
-                    "cost_usd": None,
-                    "billing_verified": False,
-                    "status": "reserved",
-                },
-                key="optional:" + request_key,
-                now=self.clock(),
-            )
+
+    def reserve_budget_in(self, s, p, request_key, estimate_usd, *, object_id=None, work_kind=None):
+        prior = next(
+            (r for r in self.scoped(s, "usage_ledger", p) if r.external_key == "optional:" + request_key),
+            None,
+        )
+        if prior:
             return True
+        if not self.budget_ok(s, p, estimate_usd):
+            return False
+        put(
+            s,
+            "usage_ledger",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "kind": "optional_work_reservation",
+                "object_id": object_id,
+                "work_kind": work_kind,
+                "user_id": p.get("user_id"),
+                "request_key": request_key,
+                "reserved_usd": estimate_usd,
+                "at": self.clock().isoformat(),
+                "cost_usd": None,
+                "billing_verified": False,
+                "status": "reserved",
+            },
+            key="optional:" + request_key,
+            now=self.clock(),
+        )
+        return True
 
     def usage(self, p, provider, kind, result, *, object_id, reserved=0.01, request_key=None):
         usage = result.usage or {}

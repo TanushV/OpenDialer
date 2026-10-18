@@ -76,6 +76,13 @@ COSTS = {
         "basis": "PAYG, all actual legs plus termination and carrier fees",
         "api_per_minute_usd": 0.002,
     },
+    "callbacks": {
+        "transfer_per_invocation_usd": 0.1,
+        "standard_tts_per_character_usd": 0.000009,
+        "basis": "PAYG transfer invocation and basic speech, plus all actual inbound/destination leg minutes; account taxes/rounding may differ",
+        "source": "https://telnyx.com/pricing/voice-api",
+        "checked_at": "2026-10-18",
+    },
     "number_rental": {
         "recurring": True,
         "new_commitments_allowed": False,

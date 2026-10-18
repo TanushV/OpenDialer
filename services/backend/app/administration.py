@@ -13,12 +13,14 @@ from app.number_operations import NumberOperations
 from app.optimization.workflows import OptimizationWorkflows
 from app.rep_workflows import RepWorkflows
 from app.service import dt, fail
+from app.telephony.callbacks import InboundCallbacks
 from app.telephony.ingress import WebhookIngress
 from app.telephony.reducer import TERMINAL
 from app.telephony.workflows import TelephonyWorkflows
 
 
 class Dialer(
+    InboundCallbacks,
     Measurement,
     RepWorkflows,
     NumberOperations,
@@ -305,6 +307,7 @@ class Dialer(
 
     async def recover(self, p):
         self.jobs.recover_expired()
+        await self.reconcile_inbound(p)
         with self.db.transaction() as s:
             self._expire_claims(s)
             calls = [doc(c) for c in self.scoped(s, "call_attempts", p) if c.data["state"] not in TERMINAL]

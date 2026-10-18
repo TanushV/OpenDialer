@@ -342,6 +342,8 @@ class RepWorkflows:
                 fail(403, "Task belongs to another rep")
             if task.version != data["expected_version"]:
                 fail(409, "Task changed; refresh before editing")
+            if task.data.get("inbound") and task.data.get("inbound_state") not in {None, "ended"}:
+                fail(409, "This return call is still active; finish call routing before editing the task")
             edits = {k: v for k, v in data.items() if k != "expected_version"}
             if "owner_id" in edits:
                 owner = self.required(s, "users", edits["owner_id"] or "", p)

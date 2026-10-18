@@ -25,6 +25,7 @@ import { native, openSource, readCache, writeCache } from "../api/client";
 import { label, useWorkspace } from "../context";
 import { MemoryStorage, OptOutJournal, type OptOut } from "../state/optouts";
 import { Telephony } from "../telephony/client";
+import { InboundCall } from "./InboundCall";
 import type { Call, Packet, Reservation } from "../types";
 import { terminal } from "../types";
 
@@ -68,6 +69,10 @@ export function DialerPage() {
   );
   const ready = w.user.presence.status === "ready";
   const active = !call?.detached && !terminal(call);
+  const inbound = w.tasks.find(
+    (t) =>
+      t.inbound && t.routed_rep_id === w.user.id && t.inbound_state !== "ended",
+  );
   const selectedLead = packet?.lead;
 
   async function reloadCall(id: string) {
@@ -363,6 +368,13 @@ export function DialerPage() {
   return (
     <>
       <audio ref={audio} autoPlay />
+      {inbound && (
+        <InboundCall
+          task={inbound}
+          mute={() => telephony.current.mute()}
+          localHangup={() => telephony.current.emergencyHangup()}
+        />
+      )}
       <LiveCoach
         call={call}
         onChange={() => (call ? reloadCall(call.id) : Promise.resolve())}
@@ -976,7 +988,9 @@ export function DialerPage() {
           ) : (
             <button
               className="primary dial-button"
-              disabled={!ready || pendingOptouts || !journalReady}
+              disabled={
+                !ready || pendingOptouts || !journalReady || Boolean(inbound)
+              }
               onClick={() => void run(getNext)}
             >
               <Phone size={17} />

@@ -32,6 +32,12 @@ export interface Lead {
 export interface FollowupTask {
   id: string;
   version: number;
+  inbound?: boolean;
+  inbound_state?: string;
+  routed_rep_id?: string | null;
+  callback_phone?: string | null;
+  route?: string;
+  recovery_reason?: string;
   call_id?: string | null;
   lead_id: string;
   owner_id?: string | null;

@@ -1,5 +1,6 @@
 import { OperatingPolicySettings } from "./OperatingPolicySettings";
 import { WorkTime } from "./WorkTime";
+import { CallbackRouting } from "./CallbackRouting";
 import { PreparationSettings } from "./Preparation";
 import type { Update } from "@tauri-apps/plugin-updater";
 import {
@@ -113,6 +114,7 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
       <WorkTime />
       <OperatingPolicySettings />
       <PreparationSettings />
+      <CallbackRouting />
       <div className="page-heading">
         <div>
           <span className="eyebrow">A WORKSPACE YOU CAN TRUST</span>
