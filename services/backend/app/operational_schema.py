@@ -57,6 +57,8 @@ HOT_TABLES = {
 
 # Only the relationship/expiry fields used to assemble a single call's context.
 CONTEXT_FIELDS = {
+    "reviews": ("scorecard_id", None, None),
+    "comments": ("call_id", None, None),
     "playbooks": ("approval_state", None, None),
     "model_versions": ("serving_state", "goal", "trial_ends_at"),
     "registry_snapshots": ("kind", "status", None),

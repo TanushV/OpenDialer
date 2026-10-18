@@ -712,8 +712,8 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 transcript_version=call.data["transcript_version"],
                 rubric=effective(call.data),
             )
-            note = next((r for r in self.scoped(s, "notes", p) if r.external_key == call_id), None)
-            card = next((r for r in self.scoped(s, "scorecards", p) if r.external_key == call_id), None)
+            note = self._by_key(s, p, "notes", call_id)
+            card = self._by_key(s, p, "scorecards", call_id)
             if not note:
                 note = put(
                     s,
@@ -768,8 +768,8 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 or card.data.get("rubric_version") != generated["scorecard"]["rubric_version"]
             ):
                 update(card, **generated["scorecard"], stale=False, privacy_contract=1)
-            reviews = [doc(r) for r in self.scoped(s, "reviews", p) if r.data["scorecard_id"] == card.id]
-            comments = [doc(r) for r in self.scoped(s, "comments", p) if r.data["call_id"] == call_id]
+            reviews = [doc(r) for r in self.context_rows(s, p, "reviews", card.id, limit=None)]
+            comments = [doc(r) for r in self.context_rows(s, p, "comments", call_id, limit=None)]
             trackers = [doc(r) for r in self.scoped(s, "trackers", p) if r.data["kind"] == "semantic"]
             revisions = {r.data["segment_id"]: r.data.get("revision", 1) for r in metadata}
             stable_metadata = [
@@ -826,7 +826,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
     def edit_notes(self, p, call_id, expected_version, text):
         self.analysis(p, call_id)
         with self.db.transaction() as s:
-            note = next(r for r in self.scoped(s, "notes", p) if r.external_key == call_id)
+            note = self._by_key(s, p, "notes", call_id)
             if note.version != expected_version:
                 fail(409, {"code": "NOTES_VERSION_CONFLICT", "current_version": note.version})
             update(note, human_text=text, status="human_confirmed", editor_id=p["user_id"])

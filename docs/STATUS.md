@@ -370,6 +370,10 @@ RED: conversation-timing-defined-red.txt has 14 failures/two prior passes, inclu
 
 Next tests-first 2645983 reproduces five review-read failures: one selected review decrypts 1,605 records, editing notes 2,006, and comment/rating relationships lack indexes/backfill. Corrected the test's dynamic SQL to reflected SQLAlchemy statements before the meaningful red run (review-reads-red.txt). Preserve all selected-call human comments/ratings while excluding unrelated history. Installed Mac remains unchanged 0.2.1; no native update, real call, paid request or new computer-use acceptance.
 
+2026-10-18 SCOPED CALL REVIEW READS. Tests-first 2645983/ef04ed2 precede the fixes. Notes and scorecards use the existing exact identity reader; reviews/comments use existing scoped relationship reads with additive 0015 and authenticated backfill. All selected-call human history remains available, including more than 100 comments/appeals; other sellers and unrelated calls are excluded. No new table, service or dependency. SQLAlchemy documentation confirms filtering and the explicit no-limit form used to preserve human review history.
+
+RED: review-reads-expanded-red.txt has six failures/two passes, including 1,605/2,006 decryptions for one view/note edit. GREEN: **82 SQLite / 82 PostgreSQL**, two browser workflows, Ruff/format/diff checks (review-reads-green-{sqlite,postgres}.txt / review-reads-ui-accepted.txt). Instrumented view/edit bounds are at most 40 decrypted records with 400 unrelated rows in each of four history tables. The first browser run had one pass/one fixture failure: identical simulated timestamps made the rubric test open a different no-answer call. f1a2e53 selects the actual reserved lead and retains all purpose/rating/lost-response assertions. Scoped M2.02e only is checked. Full growing-history/long-call scoring gates remain open; installed Mac 0.2.1 is unchanged.
+
 ## Historical record (superseded where the current contract differs)
 
 
