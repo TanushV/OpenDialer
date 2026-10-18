@@ -440,3 +440,35 @@ def test_reimporting_legacy_cdr_repairs_its_original_call_receipt_set(workspace,
     assert result.status_code == 200 and result.json()["duplicates"] == 1
     assert saved(app, hold)["provider_record_ids"] == ["cdr-original"]
     assert saved(app, hold)["reserved_usd"] == 0.05
+
+
+def test_surrounding_whitespace_cannot_create_a_second_credit_identity(workspace, app):
+    row = uncertain(workspace, app)
+    assert resolve(workspace, row).status_code == 200
+    row = saved(app, row)
+    result = resolve(workspace, row, action="credit", receipt_id="credit-exact", cost_usd=0.001)
+    assert result.status_code == 200
+    retry = resolve(workspace, row, action="credit", receipt_id=" credit-exact ", cost_usd=0.001)
+    assert retry.status_code == 200 and retry.json() == result.json()
+    assert saved(app, row)["credited_usd"] == 0.001
+
+
+def test_carrier_statement_conflict_rolls_back_the_whole_import(workspace, app):
+    call, hold = call_hold(workspace, app)
+    c, h = workspace["client"], workspace["headers"]
+    row = {
+        "call_id": call["id"],
+        "provider_record_id": "conflicting",
+        "cost_usd": 0.01,
+        "duration_seconds": 1,
+    }
+    response = c.post(
+        "/v1/admin/billing/reconcile",
+        headers=h,
+        json={
+            "source_reference": "Conflicting synthetic export",
+            "rows": [row, {**row, "cost_usd": 0.02}],
+        },
+    )
+    assert response.status_code == 409
+    assert entries(app.state.service, principal(workspace)) == [hold]
