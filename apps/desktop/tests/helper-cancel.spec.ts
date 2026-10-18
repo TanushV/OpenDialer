@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-async function activeHelper(page: Page) {
+async function activeHelper(page: Page, coach?: Record<string, unknown>) {
   let call: Record<string, unknown> = {};
   await page.route("**/v1/workspace", async (route) => {
     const response = await route.fetch();
@@ -11,7 +11,9 @@ async function activeHelper(page: Page) {
       lead_id: data.leads[0].id,
       rep_id: data.user.id,
       state: "HUMAN",
+      transcript: [],
       created_at: new Date().toISOString(),
+      coach,
     };
     data.calls = [call];
     await route.fulfill({ response, json: data });
@@ -24,7 +26,53 @@ async function activeHelper(page: Page) {
   const enter = page.getByRole("button", { name: "Try a simulated workspace" });
   if (await enter.isVisible()) await enter.click();
   await page.getByRole("button", { name: "Private help", exact: true }).click();
+  return () => {
+    coach = undefined;
+    delete call.coach;
+  };
 }
+
+test("cancelling refreshes an answer delivered before its HTTP response finishes", async ({
+  page,
+}) => {
+  const remove = await activeHelper(page, {
+    id: "published-private",
+    say_or_ask: "This private answer is now cancelled.",
+    private: true,
+    remaining_ms: 300000,
+    raw_expires_at: new Date(Date.now() + 300000).toISOString(),
+    expires_at: new Date(Date.now() + 300000).toISOString(),
+  });
+  let release!: () => void;
+  const delayed = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/v1/calls/*/coach", async (route) => {
+    await delayed;
+    await route.fulfill({ json: { action: "NO_ACTION" } });
+  });
+  await page.route("**/v1/calls/*/coach/cancel", (route) => {
+    remove();
+    return route.fulfill({ json: { status: "cancelled" } });
+  });
+  try {
+    await expect(
+      page.getByText("This private answer is now cancelled.", { exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Ask privately", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Cancel help", exact: true })
+      .click();
+    await expect(
+      page.getByText("This private answer is now cancelled.", { exact: true }),
+    ).toBeHidden();
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: "wait" });
+  }
+});
 
 test("private help can be cancelled without a late response clearing a newer request", async ({
   page,
