@@ -351,6 +351,8 @@ def test_planning_budget_stops_search_without_claiming_a_minimum(monkeypatch):
     assert result["planning_limited"]
     assert result["minimum_additional_numbers"] is None
     assert result["staffing_shortfall"] is None and result["number_shortfall"] is None
+    assert result["monthly_rental_estimate_usd"] is None
+    assert all(region["proposed_additional"] is None for region in result["regions"])
     assert result["planning_steps"] <= 6
 
 
@@ -365,6 +367,8 @@ def test_pending_capacity_is_shared_once_and_cannot_become_ready_capacity():
 
 
 def test_pending_low_workload_cannot_displace_a_whole_high_capacity_addition():
-    result = forecast([lead(str(i)) for i in range(30)], [number("waiting", lifecycle="purchased", daily_limit=1)])
+    result = forecast(
+        [lead(str(i)) for i in range(30)], [number("waiting", lifecycle="purchased", daily_limit=1)]
+    )
     assert result["minimum_additional_numbers"] == 3
     assert result["proposed_additional_numbers"] == 3

@@ -1,5 +1,80 @@
 import { expect, test } from "@playwright/test";
 
+test("incomplete allocation remains readable with unknown costs and bottlenecks", async ({
+  page,
+}) => {
+  const incomplete = {
+    forecast_attempts: 100,
+    capacity_shortfall: 80,
+    existing_only_capacity: 20,
+    staffing_shortfall: null,
+    number_shortfall: null,
+    binding_shortfall: null,
+    setup_shortfall: null,
+    minimum_additional_numbers: null,
+    proposed_additional_numbers: null,
+    monthly_rental_estimate_usd: null,
+    planning_limited: true,
+    optimality: "best_feasible_found",
+    optimality_scope: "A bounded incomplete forecast",
+    schedule_scope: "declared_staffed_windows",
+    regions: [
+      {
+        region: "general",
+        eligible_leads: 100,
+        forecast_attempts: 100,
+        planned_attempts: 20,
+        healthy_existing: 1,
+        usable_existing_capacity: 20,
+        general_fallback_capacity: 0,
+        capacity_waiting_for_review: 0,
+        proposed_additional: null,
+      },
+    ],
+  };
+  await page.route("**/v1/optimization", async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({
+      json: { ...(await response.json()), forecast: incomplete },
+    });
+  });
+  await page.route("**/v1/admin/numbers/proposal", (route) =>
+    route.fulfill({ json: incomplete }),
+  );
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await page.getByRole("button", { name: "Numbers", exact: true }).click();
+  await expect(
+    page.getByText(
+      "Allocation is incomplete; remaining bottlenecks are not established.",
+    ),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Plan regional capacity", exact: true })
+    .click();
+  const proposal = page.getByTestId("capacity-proposal");
+  await expect(proposal).toBeVisible();
+  await expect(
+    proposal.getByText("Indicative monthly rental: Not established.", {
+      exact: false,
+    }),
+  ).toBeVisible();
+  await expect(
+    proposal.getByRole("cell", { name: "Not established", exact: true }),
+  ).toHaveCount(1);
+  await expect(
+    page.getByRole("button", { name: "Plan regional capacity", exact: true }),
+  ).toBeEnabled();
+});
+
 test("number capacity distinguishes bottlenecks and quotes cannot start rentals", async ({
   page,
 }) => {
@@ -138,31 +213,55 @@ test("order recovery remains retryable after receipt and refresh failures", asyn
   ).toBeEnabled();
 });
 
-test("declared staffing and setup time survive reload and explain the capacity plan", async ({ page }) => {
+test("declared staffing and setup time survive reload and explain the capacity plan", async ({
+  page,
+}) => {
   await page.goto("/");
   await expect(page.getByText("Opening your workspace…")).toBeHidden();
-  if (await page.getByRole("button", { name: "Try a simulated workspace" }).isVisible())
-    await page.getByRole("button", { name: "Try a simulated workspace" }).click();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
   await page.getByRole("button", { name: "Intelligence", exact: true }).click();
   await page.getByRole("button", { name: "Add staffed period" }).click();
   await page.getByLabel("Staffed start 1").fill("2026-10-19T09:00");
   await page.getByLabel("Staffed end 1").fill("2026-10-19T12:00");
   await page.getByLabel("Available reps 1").fill("2");
   await page.getByLabel("New number setup delay (hours)").fill("24");
-  await page.getByRole("button", { name: "Save optimization settings" }).click();
+  await page
+    .getByRole("button", { name: "Save optimization settings" })
+    .click();
   await page.reload();
   await page.getByRole("button", { name: "Intelligence", exact: true }).click();
-  await expect(page.getByLabel("Staffed start 1")).toHaveValue("2026-10-19T09:00");
+  await expect(page.getByLabel("Staffed start 1")).toHaveValue(
+    "2026-10-19T09:00",
+  );
   await expect(page.getByLabel("Available reps 1")).toHaveValue("2");
-  await expect(page.getByLabel("New number setup delay (hours)")).toHaveValue("24");
+  await expect(page.getByLabel("New number setup delay (hours)")).toHaveValue(
+    "24",
+  );
   await page.getByRole("button", { name: "Numbers", exact: true }).click();
-  await page.getByRole("button", { name: "Plan regional capacity", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Plan regional capacity", exact: true })
+    .click();
   const proposal = page.getByTestId("capacity-proposal");
-  await expect(proposal.getByText("Declared staffed periods", { exact: true })).toBeVisible();
-  await expect(proposal.getByText("Stable-identity shortfall", { exact: true })).toBeVisible();
-  await expect(proposal.getByText("Setup-delay shortfall", { exact: true })).toBeVisible();
+  await expect(
+    proposal.getByText("Declared staffed periods", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    proposal.getByText("Stable-identity shortfall", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    proposal.getByText("Setup-delay shortfall", { exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Intelligence", exact: true }).click();
   await page.getByRole("button", { name: "Remove staffed period 1" }).click();
   await page.getByLabel("New number setup delay (hours)").fill("0");
-  await page.getByRole("button", { name: "Save optimization settings" }).click();
+  await page
+    .getByRole("button", { name: "Save optimization settings" })
+    .click();
 });
