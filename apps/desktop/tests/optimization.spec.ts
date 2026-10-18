@@ -66,7 +66,7 @@ test("optimization goals, forecast, learning state and provider settings persist
   await expect(page.getByText(/Cerebras only/)).toBeVisible();
 });
 
-test("live events deliver contextual guidance and conversion recording without call polling", async ({
+test("live events deliver cached guidance and conversion recording without call polling", async ({
   page,
 }) => {
   await simulation(page);
@@ -80,13 +80,15 @@ test("live events deliver contextual guidance and conversion recording without c
   await page.getByRole("button", { name: "Simulate human answer" }).click();
   await page
     .getByLabel("Simulation transcript")
-    .fill("We cannot afford another subscription.");
+    .fill("The budget is not approved.");
   await page.getByRole("button", { name: "Add prospect turn" }).click();
   await expect(
     page.getByText("What outcome would make the investment worthwhile?", {
       exact: false,
     }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Private help", exact: true }).click();
+  await expect(page.getByText("Cached knowledge example · AI unavailable")).toBeVisible();
   await page
     .getByRole("button", { name: "Guidance was useful", exact: true })
     .click();
