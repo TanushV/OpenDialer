@@ -1,6 +1,9 @@
 """Bounded CPU funnel challengers with independent chronological calibration."""
 
 import hashlib
+import io
+import pickle
+import threading
 from pathlib import Path
 
 import joblib
@@ -247,31 +250,65 @@ def promotion_allowed(model):
 
 
 def predict_funnel_batch(model, features, artifact_root):
+    if not features:
+        return []
     try:
         path = Path(model["artifact"]).resolve()
         if not path.is_relative_to(Path(artifact_root).resolve()) or not path.is_file():
             return [{} for _ in features]
-        stat = path.stat()
-        key = (str(path), model["checksum"], stat.st_mtime_ns, stat.st_size, stat.st_ino)
-        if key not in _MODELS:
-            if hashlib.sha256(path.read_bytes()).hexdigest() != model["checksum"]:
+        # Only load owned artifacts produced by this authority. Verify and deserialize
+        # the same bounded bytes; a second path open could observe a replacement.
+        with _MODEL_LOCK:
+            stat = path.stat()
+            if stat.st_size > MAX_MODEL_BYTES:
                 return [{} for _ in features]
-            if len(_MODELS) >= 4:
-                _MODELS.clear()
-            _MODELS[key] = joblib.load(path)
-        models = _MODELS[key]
+            key = (
+                str(path),
+                model["checksum"],
+                stat.st_mtime_ns,
+                stat.st_ctime_ns,
+                stat.st_size,
+                stat.st_ino,
+            )
+            if key not in _MODELS:
+                with path.open("rb") as handle:
+                    contents = handle.read(MAX_MODEL_BYTES + 1)
+                if (
+                    len(contents) > MAX_MODEL_BYTES
+                    or hashlib.sha256(contents).hexdigest() != model["checksum"]
+                ):
+                    return [{} for _ in features]
+                loaded = joblib.load(io.BytesIO(contents))
+                if len(_MODELS) >= 4:
+                    _MODELS.pop(next(iter(_MODELS)))
+                _MODELS[key] = loaded
+            models = _MODELS[key]
         if not isinstance(models, dict):
             models = {"human": models}
-        if not features:
-            return []
         values = [vector(row, model["feature_order"]) for row in features]
         output = [{} for _ in features]
         for name, estimator in models.items():
-            probabilities = estimator.predict_proba(values)[:, 1]
+            if name not in {"human", "right_party", "conversion"}:
+                return [{} for _ in features]
+            matrix = np.asarray(estimator.predict_proba(values))
+            if matrix.shape != (len(features), 2):
+                return [{} for _ in features]
+            probabilities = matrix[:, 1]
+            if not np.all(np.isfinite(probabilities) & (probabilities >= 0) & (probabilities <= 1)):
+                return [{} for _ in features]
             for row, probability in zip(output, probabilities, strict=True):
                 row["p_" + name] = float(probability)
         return output
-    except (OSError, ValueError, KeyError, TypeError):
+    except (
+        OSError,
+        ValueError,
+        KeyError,
+        TypeError,
+        EOFError,
+        pickle.UnpicklingError,
+        ImportError,
+        AttributeError,
+    ):
         return [{} for _ in features]
 
 
@@ -284,3 +321,5 @@ def predict_challenger(model, features, artifact_root):
 
 
 _MODELS = {}
+_MODEL_LOCK = threading.Lock()
+MAX_MODEL_BYTES = 64 * 1024 * 1024

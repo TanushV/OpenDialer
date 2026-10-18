@@ -88,27 +88,73 @@ class OptimizationWorkflows(ComparisonWorkflows):
 
         if lead_id and stable_control(lead_id):
             return None
-        models = self.scoped(s, "model_versions", p)
-        campaign = self.scoped(s, "campaigns", p)[0]
-        epoch = campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
-        enrolled = {
-            r.data["lead_id"]
-            for r in self.scoped(s, "experiment_assignments", p)
-            if r.data.get("epoch") == epoch and r.data.get("family", "optimization") == "optimization"
-        }
-        eligible = [
-            model
-            for model in models
-            if model.data.get("goal", config["conversion_goal"]) == config["conversion_goal"]
-            and (
-                model.data.get("active")
-                or model.data.get("trial_active")
-                and timestamp(model.data.get("trial_ends_at"))
-                and timestamp(model.data["trial_ends_at"]) > self.clock()
-                and (lead_id is None or lead_id in enrolled)
+        # This pointer cache lives only for this read transaction. A rollback,
+        # promotion or goal edit is visible to the next decision immediately.
+        cache = s.info.setdefault("serving_context", {})
+        scope = (p["tenant_id"], p["seller_id"], config["conversion_goal"])
+        if scope not in cache:
+            model = MODELS["model_versions"]
+            prefetched = s.info.get("row_cache", {}).get(("model_versions", p["tenant_id"], p["seller_id"]))
+            models = (
+                prefetched
+                if prefetched is not None
+                else list(
+                    s.scalars(
+                        select(model).where(
+                            model.tenant_id == p["tenant_id"],
+                            model.seller_id == p["seller_id"],
+                            (model.ctx_key == "active")
+                            | ((model.ctx_key == "trial") & (model.ctx_expires_at > self.clock())),
+                            or_(model.ctx_status == config["conversion_goal"], model.ctx_status.is_(None)),
+                        )
+                    )
+                )
             )
+            cache[scope] = {"models": models}
+            if any(m.data.get("trial_active") for m in models):
+                campaign = self.scoped(s, "campaigns", p)[0]
+                cache[scope]["epoch"] = (
+                    campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
+                )
+        context = cache[scope]
+        models = [
+            m
+            for m in context["models"]
+            if m.data.get("goal", config["conversion_goal"]) == config["conversion_goal"]
         ]
-        return next((m for m in eligible if m.data.get("trial_active")), eligible[0] if eligible else None)
+        trials = [
+            m
+            for m in models
+            if m.data.get("trial_active")
+            and m.data.get("trial_epoch") == context.get("epoch")
+            and timestamp(m.data.get("trial_ends_at"))
+            and timestamp(m.data["trial_ends_at"]) > self.clock()
+        ]
+        if trials and lead_id is None:
+            return trials[0]
+        if trials:
+            if "assignments" not in context:
+                prefetched = s.info.get("row_cache", {}).get(
+                    ("experiment_assignments", p["tenant_id"], p["seller_id"])
+                )
+                context["assignments"] = {r.external_key: r for r in prefetched or []}
+                context["assignments_prefetched"] = prefetched is not None
+            key = context["epoch"] + ":" + lead_id
+            assignments = context["assignments"]
+            if key not in assignments and not context["assignments_prefetched"]:
+                assignments[key] = self._by_key(s, p, "experiment_assignments", key)
+            enrollment = assignments.get(key)
+            if (
+                enrollment
+                and enrollment.data.get("lead_id") == lead_id
+                and enrollment.data.get("epoch") == context["epoch"]
+                and enrollment.data.get("family", "optimization") == "optimization"
+                and enrollment.data.get("arm") == "candidate"
+            ):
+                trial = next((m for m in trials if m.id == enrollment.data.get("trial_model_id")), None)
+                if trial:
+                    return trial
+        return next((m for m in models if m.data.get("active")), None)
 
     def slot_predictor(self, s, p, lead, config):
         model = self.serving_model(s, p, config, lead.id)

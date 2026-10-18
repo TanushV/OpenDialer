@@ -4,7 +4,7 @@ Authored before October 17 remediation production edits. This map indexes the ma
 
 | Family | Maintained software contracts |
 | --- | --- |
-| A01 | [test_migrations](../services/backend/tests/test_migrations.py), [test_encrypted_storage](../services/backend/tests/test_encrypted_storage.py), [test_remediation_privacy](../services/backend/tests/test_remediation_privacy.py) |
+| A01 | [legacy bootstrap jobs](../services/backend/tests/test_bootstrap_migration.py), [test_migrations](../services/backend/tests/test_migrations.py), [test_encrypted_storage](../services/backend/tests/test_encrypted_storage.py), [test_remediation_privacy](../services/backend/tests/test_remediation_privacy.py) |
 | A02 | [test_operations](../services/backend/tests/test_operations.py), [test_remediation_boundaries](../services/backend/tests/test_remediation_boundaries.py) |
 | A03 | [test_connected_security](../services/backend/tests/test_connected_security.py) |
 | A04 | [test_remediation_audit](../services/backend/tests/test_remediation_audit.py), [test_remediation_privacy](../services/backend/tests/test_remediation_privacy.py), [test_webhook_completion](../services/backend/tests/test_webhook_completion.py), [review warning](../apps/desktop/tests/grounding.spec.ts) |
@@ -36,7 +36,7 @@ Authored before October 17 remediation production edits. This map indexes the ma
 | A30 | [test_batch_workflow](../services/backend/tests/test_batch_workflow.py), [test_remediation_rep_workflow](../services/backend/tests/test_remediation_rep_workflow.py) |
 | A31 | [test_optimization_learning](../services/backend/tests/test_optimization_learning.py), [test_remediation_rep_workflow](../services/backend/tests/test_remediation_rep_workflow.py) |
 | A32 | [test_remediation_audit](../services/backend/tests/test_remediation_audit.py), [test_optimization_learning](../services/backend/tests/test_optimization_learning.py) |
-| A33 | [test_adaptive_model](../services/backend/tests/test_adaptive_model.py), [test_remediation_learning](../services/backend/tests/test_remediation_learning.py) |
+| A33 | [bounded model serving](../services/backend/tests/test_model_serving_bounds.py), [test_adaptive_model](../services/backend/tests/test_adaptive_model.py), [test_remediation_learning](../services/backend/tests/test_remediation_learning.py) |
 | A34 | [test_remediation_learning](../services/backend/tests/test_remediation_learning.py), [test_optimization_learning](../services/backend/tests/test_optimization_learning.py) |
 | A35 | [test_policy](../services/backend/tests/test_policy.py), [test_remediation_learning](../services/backend/tests/test_remediation_learning.py), [test_remediation_audit](../services/backend/tests/test_remediation_audit.py) |
 | A36 | [test_remediation_audit](../services/backend/tests/test_remediation_audit.py), [test_remediation_privacy](../services/backend/tests/test_remediation_privacy.py) |
@@ -53,7 +53,7 @@ Authored before October 17 remediation production edits. This map indexes the ma
 | A47 | [test_remediation_learning](../services/backend/tests/test_remediation_learning.py), [test_remediation_rep_workflow](../services/backend/tests/test_remediation_rep_workflow.py), [test_optimization_completion](../services/backend/tests/test_optimization_completion.py) |
 | A48 | [test_remediation_learning](../services/backend/tests/test_remediation_learning.py), [test_remediation_rep_workflow](../services/backend/tests/test_remediation_rep_workflow.py) |
 | A49 | [test_remediation_learning](../services/backend/tests/test_remediation_learning.py), [test_remediation_audit](../services/backend/tests/test_remediation_audit.py), [request accounting](../services/backend/tests/test_request_accounting.py), [billing resolution](../services/backend/tests/test_billing_resolution.py), [billing UI](../apps/desktop/tests/billing-resolution.spec.ts) |
-| A50 | [test_remediation_performance](../services/backend/tests/test_remediation_performance.py), [test_remediation_boundaries](../services/backend/tests/test_remediation_boundaries.py), [workspace history](../services/backend/tests/test_workspace_pages.py), [workspace UI](../apps/desktop/tests/workspace-pages.spec.ts) |
+| A50 | [bounded model serving](../services/backend/tests/test_model_serving_bounds.py), [test_remediation_performance](../services/backend/tests/test_remediation_performance.py), [test_remediation_boundaries](../services/backend/tests/test_remediation_boundaries.py), [workspace history](../services/backend/tests/test_workspace_pages.py), [workspace UI](../apps/desktop/tests/workspace-pages.spec.ts) |
 | A51 | [test_remediation_performance](../services/backend/tests/test_remediation_performance.py), [test_remediation_boundaries](../services/backend/tests/test_remediation_boundaries.py), [workspace history](../services/backend/tests/test_workspace_pages.py), [workspace UI](../apps/desktop/tests/workspace-pages.spec.ts) |
 | A52 | [test_operations](../services/backend/tests/test_operations.py) |
 | A53 | [test_migrations](../services/backend/tests/test_migrations.py) |

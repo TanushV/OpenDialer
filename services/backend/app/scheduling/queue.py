@@ -46,12 +46,18 @@ class ReservationPlanner:
                 "number_health",
                 "registry_snapshots",
                 "budgets",
-                "model_versions",
             )
         }
         specifications.update(
             {
                 "campaigns": [MODELS["campaigns"].id == campaign_id],
+                "model_versions": [
+                    (MODELS["model_versions"].ctx_key == "active")
+                    | (
+                        (MODELS["model_versions"].ctx_key == "trial")
+                        & (MODELS["model_versions"].ctx_expires_at > self.clock())
+                    )
+                ],
                 "phone_endpoints": [MODELS["phone_endpoints"].id.in_(endpoints)],
                 "suppressions": [MODELS["suppressions"].external_key.in_(keys)],
                 "lead_number_bindings": [MODELS["lead_number_bindings"].external_key.in_(ids)],

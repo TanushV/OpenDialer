@@ -57,6 +57,7 @@ HOT_TABLES = {
 
 # Only the relationship/expiry fields used to assemble a single call's context.
 CONTEXT_FIELDS = {
+    "model_versions": ("serving_state", "goal", "trial_ends_at"),
     "registry_snapshots": ("kind", "status", None),
     "research_facts": ("domain", "status", "expires_at"),
     "research_sources": ("domain", None, None),
@@ -162,6 +163,14 @@ def sync_columns(row, lookup_key=None):
     if row.__tablename__ in CONTEXT_FIELDS:
         key, status, expiry = CONTEXT_FIELDS[row.__tablename__]
         row.ctx_key = context_key(row.__tablename__, row.data.get(key), lookup_key)
+        if row.__tablename__ == "model_versions":
+            row.ctx_key = (
+                "active"
+                if row.data.get("active")
+                else "trial"
+                if row.data.get("trial_active")
+                else "inactive"
+            )
         if status:
             row.ctx_status = row.data.get(status)
         if expiry:

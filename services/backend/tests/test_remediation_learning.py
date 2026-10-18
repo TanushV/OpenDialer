@@ -126,15 +126,15 @@ def test_batch_prediction_verifies_artifact_only_on_load_and_preserves_rows(tmp_
         "checksum": hashlib.sha256(path.read_bytes()).hexdigest(),
         "feature_order": ["local_hour"],
     }
-    original = Path.read_bytes
+    original = Path.open
     reads = []
 
-    def read(p):
+    def read(p, *args, **kwargs):
         if p == path:
             reads.append(str(p))
-        return original(p)
+        return original(p, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "read_bytes", read)
+    monkeypatch.setattr(Path, "open", read)
     batch = [{"local_hour": i} for i in range(10)]
     training._MODELS.clear()
     for _ in range(2):
