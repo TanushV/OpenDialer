@@ -3,7 +3,16 @@ import { expect, test } from "@playwright/test";
 test("campaign scoring anchors persist and a rep can correct the call purpose", async ({
   page,
 }) => {
+  let failRefresh = false;
   await page.route("**/v1/calls/*/analysis", async (route) => {
+    if (failRefresh) {
+      failRefresh = false;
+      await route.fulfill({
+        status: 503,
+        json: { detail: "Review refresh unavailable" },
+      });
+      return;
+    }
     const response = await route.fetch();
     const body = await response.json();
     body.trackers = [
@@ -84,6 +93,23 @@ test("campaign scoring anchors persist and a rep can correct the call purpose", 
   await page
     .getByLabel("Reason for purpose correction", { exact: true })
     .fill("This conversation continued an earlier evaluation.");
+  let failSave = true;
+  await page.route("**/v1/calls/*/rubric", async (route) => {
+    if (failSave) {
+      failSave = false;
+      failRefresh = true;
+      await route.fulfill({
+        status: 503,
+        json: { detail: "Purpose save unavailable" },
+      });
+    } else await route.continue();
+  });
+  await page
+    .getByRole("button", { name: "Update call purpose", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Update call purpose", exact: true }),
+  ).toBeEnabled();
   await page
     .getByRole("button", { name: "Update call purpose", exact: true })
     .click();
