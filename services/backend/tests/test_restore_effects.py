@@ -193,3 +193,44 @@ def test_restore_preserves_durable_inbox_completion_instead_of_replaying_old_eve
     service.restore(p, backup["backup_id"])
     with service.db.transaction(False) as s:
         assert get(s, "webhook_inbox", identity).data["status"] == "processed"
+
+
+def test_restore_recovers_missing_records_and_retains_current_business_corrections(workspace, app):
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction(False) as s:
+        first, second, *_ = service.scoped(s, "leads", p)
+        missing, current = doc(first), doc(second)
+    backup = service.backup(p)
+    with service.db.transaction() as s:
+        s.delete(get(s, "leads", missing["id"]))
+        update(get(s, "leads", current["id"]), name="Newer rep correction")
+    receipt = service.restore(p, backup["backup_id"])
+    assert receipt["mode"] == "recover_missing_keep_current"
+    with service.db.transaction(False) as s:
+        assert doc(get(s, "leads", missing["id"])) == missing
+        assert get(s, "leads", current["id"]).data["name"] == "Newer rep correction"
+    service.restore(p, backup["backup_id"])
+    with service.db.transaction(False) as s:
+        assert doc(get(s, "leads", missing["id"])) == missing
+        assert get(s, "leads", current["id"]).data["name"] == "Newer rep correction"
+
+
+def test_restore_rejects_a_missing_identity_now_owned_by_another_seller_atomically(workspace, app):
+    import pytest
+    from fastapi import HTTPException
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction(False) as s:
+        first, second, *_ = service.scoped(s, "leads", p)
+        missing, conflict = first.id, second.id
+    backup = service.backup(p)
+    with service.db.transaction() as s:
+        s.delete(get(s, "leads", missing))
+        row = get(s, "leads", conflict)
+        row.seller_id = "separate-business"
+    with pytest.raises(HTTPException) as error:
+        service.restore(p, backup["backup_id"])
+    assert error.value.status_code == 409
+    with service.db.transaction(False) as s:
+        assert get(s, "leads", missing) is None
+        assert get(s, "leads", conflict).seller_id == "separate-business"
