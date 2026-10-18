@@ -410,3 +410,33 @@ def test_concurrent_credits_cannot_over_refund_one_charge(workspace, app):
         statuses = list(pool.map(attempt, ["credit-one", "credit-two"]))
     assert sorted(statuses) == [200, 409]
     assert saved(app, row)["credited_usd"] == 0.002
+
+
+def test_reimporting_legacy_cdr_repairs_its_original_call_receipt_set(workspace, app, clock):
+    call, hold = call_hold(workspace, app)
+    p = principal(workspace)
+    with app.state.db.transaction() as s:
+        put(
+            s,
+            "usage_ledger",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "provider": "telnyx",
+                "provider_record_id": "cdr-original",
+                "call_id": call["id"],
+                "kind": "voice",
+                "leg_id": "prospect-leg",
+                "duration_seconds": 61,
+                "cost_usd": 0.02,
+                "billing_verified": True,
+                "status": "settled",
+                "at": clock.now.isoformat(),
+            },
+            key="cdr:cdr-original",
+            now=clock.now,
+        )
+    result = cdr(workspace, call)
+    assert result.status_code == 200 and result.json()["duplicates"] == 1
+    assert saved(app, hold)["provider_record_ids"] == ["cdr-original"]
+    assert saved(app, hold)["reserved_usd"] == 0.05
