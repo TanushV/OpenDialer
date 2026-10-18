@@ -96,9 +96,10 @@ def test_orphan_due_index_backfills_without_changing_saved_call_content(workspac
     service.db.backfill_operational_columns()
     with service.db.transaction(False) as s:
         saved = get(s, "call_attempts", identity)
-        from app.service import dt
+        from app.jobs.queue import aware
 
-        assert dt(saved.op_due_at) == clock() + timedelta(seconds=300)
+        assert saved.op_due_at is not None
+        assert aware(saved.op_due_at) == clock() + timedelta(seconds=300)
         assert (saved.id, saved.version, saved.data) == (identity, version, content)
     assert "ix_call_attempts_recovery_due" in {
         i["name"] for i in inspect(service.db.engine).get_indexes("call_attempts")
@@ -137,3 +138,55 @@ async def test_a_failed_orphan_check_does_not_block_the_remaining_due_calls(
     assert service._recovery_snapshot(p)[1] == []
     clock.now += timedelta(seconds=31)
     assert len(service._recovery_snapshot(p)[1]) == 2
+
+
+@pytest.mark.asyncio
+async def test_changed_deadline_before_watchdog_dispatch_prevents_obsolete_hangup(
+    workspace, app, clock, monkeypatch
+):
+    call, service, p = start(workspace), app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        update(
+            get(s, "call_attempts", call["id"]),
+            state="HUMAN",
+            started_at=(clock() - timedelta(minutes=2)).isoformat(),
+            max_call_seconds=60,
+        )
+    snapshot = service._recovery_snapshot
+
+    def changed(*args):
+        result = snapshot(*args)
+        with service.db.transaction() as s:
+            update(get(s, "call_attempts", call["id"]), max_call_seconds=600)
+        return result
+
+    monkeypatch.setattr(service, "_recovery_snapshot", changed)
+    await service.recover(p)
+    with service.db.transaction(False) as s:
+        assert get(s, "call_attempts", call["id"]).data["state"] == "HUMAN"
+
+
+@pytest.mark.asyncio
+async def test_failed_status_read_cannot_disable_the_expired_call_watchdog(
+    workspace, app, clock, carrier, monkeypatch
+):
+    call, service, p = start(workspace), app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        update(
+            get(s, "call_attempts", call["id"]),
+            state="ENDING",
+            started_at=(clock() - timedelta(minutes=2)).isoformat(),
+            max_call_seconds=60,
+        )
+    ended = []
+
+    async def reconcile(*args):
+        raise TimeoutError()
+
+    async def hangup(provider_id, command_id):
+        ended.append(provider_id)
+
+    monkeypatch.setattr(carrier, "reconcile", reconcile)
+    monkeypatch.setattr(carrier, "hangup", hangup)
+    await service.recover(p)
+    assert ended == [call["provider_id"]]

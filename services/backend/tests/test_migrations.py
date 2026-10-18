@@ -51,7 +51,7 @@ def test_additive_optimization_upgrade_preserves_existing_encrypted_records(tmp_
             )
         assert (
             connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
-            == "0012_control_deadlines"
+            == "0013_call_recovery_due"
         )
     migrate_database(url)
     engine.dispose()
