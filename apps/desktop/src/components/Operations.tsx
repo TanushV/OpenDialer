@@ -329,6 +329,9 @@ interface Proposal {
   monthly_rental_estimate_usd: number | null;
   existing_only_capacity: number;
   staffing_shortfall: number | null;
+  owner_unavailable_attempts?: number | null;
+  unavailable_staff_count?: number;
+  occupied_rep_count?: number;
   number_shortfall: number | null;
   minimum_additional_numbers: number | null;
   proposed_additional_numbers: number | null;
@@ -535,6 +538,12 @@ export function NumbersPage() {
             {proposal.schedule_scope && (
               <>
                 <div>
+                  <dt>Callbacks without owner availability</dt>
+                  <dd>
+                    {proposal.owner_unavailable_attempts ?? "Not established"}
+                  </dd>
+                </div>
+                <div>
                   <dt>Stable-identity shortfall</dt>
                   <dd>{proposal.binding_shortfall ?? "Not established"}</dd>
                 </div>
@@ -545,6 +554,20 @@ export function NumbersPage() {
               </>
             )}
           </dl>
+          {!!proposal.unavailable_staff_count && (
+            <p className="notice">
+              {proposal.unavailable_staff_count} configured{" "}
+              {proposal.unavailable_staff_count === 1 ? "rep is" : "reps are"}{" "}
+              unavailable; their time is excluded.
+            </p>
+          )}
+          {!!proposal.occupied_rep_count && (
+            <p className="notice">
+              {proposal.occupied_rep_count}{" "}
+              {proposal.occupied_rep_count === 1 ? "rep has" : "reps have"} an
+              existing call or reservation; occupied time is excluded.
+            </p>
+          )}
           <p className="fine">
             {proposal.optimality_scope}. Pending inventory requires review
             before any addition; no predicted conversion lift is assumed.

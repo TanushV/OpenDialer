@@ -3,7 +3,7 @@
 import hashlib
 from datetime import timedelta
 
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 from sqlalchemy.exc import IntegrityError
 
 from app.db import MODELS, Job, ReportRevision, emit, put, update
@@ -50,6 +50,17 @@ def invalidate_reports(session):
         and row.tenant_id
         and row.seller_id
     }
+    for row in session.new | session.dirty | session.deleted:
+        if getattr(row, "__tablename__", None) != "users":
+            continue
+        history = inspect(row).attrs.data.history
+        previous = history.deleted[0] if history.deleted else row.data
+        if (
+            row in session.new
+            or row in session.deleted
+            or any(previous.get(field) != row.data.get(field) for field in ("disabled", "role"))
+        ):
+            scopes.add((row.tenant_id, row.seller_id))
     if not scopes:
         return
     transaction = session.get_nested_transaction() or session.get_transaction()

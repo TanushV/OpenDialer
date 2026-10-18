@@ -1,6 +1,6 @@
 import asyncio
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import Depends
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
@@ -19,11 +19,18 @@ class StaffedWindow(Strict):
     start_at: AwareDatetime
     end_at: AwareDatetime
     reps: int = Field(ge=1, le=100, strict=True)
+    rep_ids: list[Annotated[str, Field(min_length=1, max_length=36)]] | None = Field(
+        default=None, min_length=1, max_length=100
+    )
 
     @model_validator(mode="after")
     def ordered(self):
         if self.end_at <= self.start_at or (self.end_at - self.start_at).total_seconds() > 7 * 86400:
             raise ValueError("A staffed window must be positive and at most seven days")
+        if self.rep_ids is not None and (
+            len(set(self.rep_ids)) != self.reps or len(self.rep_ids) != self.reps
+        ):
+            raise ValueError("Named staffing must list each available rep once and match the headcount")
         return self
 
 
@@ -44,8 +51,16 @@ class OptimizationSettings(Strict):
     @model_validator(mode="after")
     def distinct_windows(self):
         windows = sorted(self.staffed_windows or [], key=lambda w: w.start_at)
-        if any(a.end_at > b.start_at for a, b in zip(windows, windows[1:], strict=False)):
-            raise ValueError("Staffed windows cannot overlap; specify the concurrent rep count once")
+        if len({rep for w in windows for rep in (w.rep_ids or [])}) > 100:
+            raise ValueError("A staffing plan supports at most 100 named reps")
+        for i, a in enumerate(windows):
+            for b in windows[i + 1 :]:
+                if b.start_at >= a.end_at:
+                    break
+                if a.rep_ids is None or b.rep_ids is None:
+                    raise ValueError(
+                        "Overlapping periods must name every rep; anonymous headcount cannot overlap"
+                    )
         return self
 
 
@@ -332,7 +347,12 @@ def register_optimization(app, service, principal, administrator):
         values = body.model_dump(exclude_none=True, exclude={"expected_campaign_version"})
         if body.staffed_windows is not None:
             values["staffed_windows"] = [
-                {"start_at": w.start_at.isoformat(), "end_at": w.end_at.isoformat(), "reps": w.reps}
+                {
+                    "start_at": w.start_at.isoformat(),
+                    "end_at": w.end_at.isoformat(),
+                    "reps": w.reps,
+                    **({"rep_ids": w.rep_ids} if w.rep_ids is not None else {}),
+                }
                 for w in sorted(body.staffed_windows, key=lambda w: w.start_at)
             ]
         with service.db.transaction() as s:
@@ -343,6 +363,26 @@ def register_optimization(app, service, principal, administrator):
                 and campaign.version != body.expected_campaign_version
             ):
                 fail(409, "Campaign changed; preview the current definition before saving")
+            if body.staffed_windows is not None:
+                from sqlalchemy import select
+
+                from app.db import MODELS
+
+                roster = {rep for w in body.staffed_windows for rep in (w.rep_ids or [])}
+                users = MODELS["users"]
+                available = {
+                    u.id
+                    for u in s.scalars(
+                        select(users).where(
+                            users.tenant_id == p["tenant_id"],
+                            users.seller_id == p["seller_id"],
+                            users.id.in_(roster),
+                        )
+                    )
+                    if not u.data.get("disabled") and u.data.get("role") in {"owner", "admin", "rep"}
+                }
+                if available != roster:
+                    fail(422, "Named staffing requires current active reps in this workspace")
             previous = service.optimization_config(s, p)
             definition_changed = any(
                 key in values and values[key] != previous[key] for key in ("conversion_goal", "window_days")

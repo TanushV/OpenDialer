@@ -245,7 +245,9 @@ class OptimizationWorkflows(ComparisonWorkflows):
         claims = list(
             s.scalars(
                 select(ActiveClaim).where(
-                    ActiveClaim.tenant_id == p["tenant_id"], ActiveClaim.seller_id == p["seller_id"]
+                    ActiveClaim.tenant_id == p["tenant_id"],
+                    ActiveClaim.seller_id == p["seller_id"],
+                    or_(ActiveClaim.call_id.is_not(None), ActiveClaim.expires_at > self.clock()),
                 )
             )
         )
@@ -405,6 +407,40 @@ class OptimizationWorkflows(ComparisonWorkflows):
             else self.scoped(s, "campaigns", p)[0]
         )
         policy = self.required(s, "policy_versions", campaign.data["policy_id"], p).data
+        claims = list(
+            s.scalars(
+                select(ActiveClaim).where(
+                    ActiveClaim.tenant_id == p["tenant_id"],
+                    ActiveClaim.seller_id == p["seller_id"],
+                    or_(ActiveClaim.call_id.is_not(None), ActiveClaim.expires_at > self.clock()),
+                )
+            )
+        )
+        claimed_leads = {claim.lead_id for claim in claims}
+        # An uncertain live leg cannot be declared free just because its lease expired.
+        end = self.clock() + timedelta(hours=config["horizon_hours"])
+        busy = {
+            claim.rep_id: (end if claim.call_id else timestamp(claim.expires_at)).isoformat()
+            for claim in claims
+        }
+        windows = config["staffed_windows"]
+        roster = {rep for window in windows for rep in window.get("rep_ids", [])}
+        users = MODELS["users"]
+        available = {
+            u.id
+            for u in s.scalars(
+                select(users).where(
+                    users.tenant_id == p["tenant_id"],
+                    users.seller_id == p["seller_id"],
+                    users.id.in_(roster),
+                )
+            )
+            if not u.data.get("disabled") and u.data.get("role") in {"owner", "admin", "rep"}
+        }
+        windows = [
+            {**w, "rep_ids": [rep for rep in w["rep_ids"] if rep in available]} if "rep_ids" in w else w
+            for w in windows
+        ]
         bindings = {r.data["lead_id"]: r.data["number_id"] for r in self.scoped(s, "lead_number_bindings", p)}
         leads = [
             {
@@ -413,7 +449,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 "bound_number_id": bindings.get(lead.id),
             }
             for lead in self.scoped(s, "leads", p)
-            if lead.data["campaign_id"] == campaign.id
+            if lead.data["campaign_id"] == campaign.id and lead.id not in claimed_leads
         ]
         inventory = self.inventory_evidence(s, p)
         present = {n["phone"] for n in inventory}
@@ -443,7 +479,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                     }
                 )
                 present.add(phone)
-        return capacity_forecast(
+        result = capacity_forecast(
             leads,
             inventory,
             now=self.clock(),
@@ -452,9 +488,11 @@ class OptimizationWorkflows(ComparisonWorkflows):
             handling_seconds=config["handling_seconds"],
             daily_capacity_per_number=capacity or config["daily_capacity_per_number"],
             policy=policy,
-            staffed_windows=config["staffed_windows"],
+            staffed_windows=windows,
             additional_ready_after_hours=config["additional_ready_after_hours"],
+            rep_busy_until=busy,
         )
+        return {**result, "unavailable_staff_count": len(roster - available), "occupied_rep_count": len(busy)}
 
     def optimization_report(self, p, epoch=None):
         with self.db.transaction(False) as s:

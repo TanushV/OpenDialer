@@ -6,7 +6,7 @@ identity, reviewed daily workload and pooled staffed time; no external solver.
 
 import math
 from bisect import bisect_left, bisect_right
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import UTC, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -64,35 +64,75 @@ def work_items(leads, now, end, policy):
     ), unknown
 
 
-def staffed_slots(windows, now, end, seconds):
-    slots = []
-    duration = timedelta(seconds=seconds)
+def staffed_slots(windows, now, end, seconds, rep_busy_until=None):
+    """Union named availability on one conservative whole-attempt grid.
+
+    A common anchor prevents overlapping DID use at offset window starts. Merge
+    adjacent periods before rounding; partial edge slots are intentionally omitted.
+    """
+    periods, events = defaultdict(list), defaultdict(list)
+    busy = {rep: timestamp(at) for rep, at in (rep_busy_until or {}).items()}
     for window in windows:
-        start = max(now, timestamp(window["start_at"]))
-        finish = min(end, timestamp(window["end_at"]))
-        while start + duration <= finish:
+        start, finish = max(now, timestamp(window["start_at"])), min(end, timestamp(window["end_at"]))
+        if "rep_ids" in window:
+            for rep in window["rep_ids"]:
+                periods[rep].append((max(start, busy.get(rep) or start), finish))
+        else:
+            periods[None].append((start, finish, int(window["reps"])))
+    for rep, ranges in periods.items():
+        if rep is not None:
+            merged = []
+            for start, finish in sorted(ranges):
+                if merged and start <= merged[-1][1]:
+                    merged[-1] = (merged[-1][0], max(finish, merged[-1][1]))
+                else:
+                    merged.append((start, finish))
+            ranges = [(a, b, 1) for a, b in merged]
+        for start, finish, count in ranges:
+            first = math.ceil((start - now).total_seconds() / seconds)
+            stop = math.floor((finish - now).total_seconds() / seconds)
+            if stop > first:
+                events[first].append((rep, count))
+                events[stop].append((rep, -count))
+    slots, owners, current = [], [], Counter()
+    boundaries = sorted(events)
+    for first, stop in zip(boundaries, boundaries[1:], strict=False):
+        for rep, change in events[first]:
+            current[rep] += change
+        named = frozenset(rep for rep, count in current.items() if rep is not None and count > 0)
+        if not named and current[None] <= 0:
+            continue
+        for index in range(first, stop):
+            at = now + timedelta(seconds=index * seconds)
+            pooled = max(0, current[None] - sum(at < until for until in busy.values()))
+            count = len(named) + pooled
+            if not count:
+                continue
             if len(slots) >= MAX_SLOTS:
-                return slots, True
-            slots.append((start, int(window["reps"])))
-            start += duration
-    return sorted(slots), False
+                return slots, owners, True
+            slots.append((at, count))
+            owners.append(named)
+    return slots, owners, False
 
 
 class Assignment:
-    def __init__(self, work, slots, now, policy, seconds, rep_limit):
+    def __init__(self, work, slots, now, policy, seconds, rep_limit, owners=None):
         self.work, self.slots, self.now = work, slots, now
         self.seconds, self.rep_limit = seconds, rep_limit
+        self.owners = owners or [frozenset()] * len(slots)
         self.steps, self.exhausted = 0, False
         duration = timedelta(seconds=seconds)
-        self.allowed, by_zone = [], {}
+        self.allowed, by_window = [], {}
         starts = [at for at, _ in slots]
         for item in work:
-            key = item["zone"].key
-            if key not in by_zone:
-                by_zone[key] = tuple(
+            owner = item.get("callback_owner_id") if item.get("callback_due_at") else None
+            key = (item["zone"].key, owner)
+            if key not in by_window:
+                by_window[key] = tuple(
                     i
                     for i, (at, _) in enumerate(slots)
-                    if policy.get("local_start_hour", 9)
+                    if (not owner or owner in self.owners[i])
+                    and policy.get("local_start_hour", 9)
                     <= at.astimezone(item["zone"]).hour
                     < policy.get("local_end_hour", 20)
                     and policy.get("local_start_hour", 9)
@@ -103,7 +143,7 @@ class Assignment:
                     and at.astimezone(item["zone"]).weekday() in policy.get("calling_weekdays", range(7))
                     and at.astimezone(item["zone"]).date().isoformat() not in policy.get("closed_dates", [])
                 )
-            allowed = by_zone[key]
+            allowed = by_window[key]
             first = bisect_left(allowed, bisect_left(starts, item["due"]))
             last = bisect_left(allowed, bisect_right(starts, item["deadline"] - duration))
             self.allowed.append((allowed, first, last))
@@ -130,7 +170,7 @@ class Assignment:
                     ),
                 )
             )
-        slot_use, number_use, daily_use = Counter(), Counter(), Counter()
+        slot_use, number_use, daily_use, rep_use = Counter(), Counter(), Counter(), Counter()
         assigned = []
 
         def choices(index):
@@ -145,6 +185,21 @@ class Assignment:
                 slot = allowed[offset]
                 at, reps = self.slots[slot]
                 if slot_use[slot] >= reps:
+                    continue
+                owner = (
+                    self.work[index].get("callback_owner_id")
+                    if self.work[index].get("callback_due_at")
+                    else None
+                )
+                available = self.owners[slot]
+                if owner and owner not in available:
+                    continue
+                reps_free = [
+                    rep for rep in ([owner] if owner else sorted(available)) if not rep_use[(rep, slot)]
+                ]
+                if not owner and not available:
+                    reps_free = [None]
+                if not reps_free:
                     continue
                 day = at.astimezone(UTC).date().isoformat()
                 for number in compatible[index]:
@@ -168,15 +223,17 @@ class Assignment:
                     )
                     if daily_use[(identity, day)] + debit >= limit:
                         continue
-                    yield slot, identity, day
+                    for rep in reps_free:
+                        yield slot, identity, day, rep
 
         def change(index, option, delta):
-            slot, identity, day = option
+            slot, identity, day, rep = option
             slot_use[slot] += delta
             number_use[(identity, slot)] += delta
             daily_use[(identity, day)] += delta
+            rep_use[(rep, slot)] += delta
             if delta > 0:
-                assigned.append((index, slot, identity))
+                assigned.append((index, slot, identity, rep))
             else:
                 assigned.pop()
 
@@ -188,7 +245,7 @@ class Assignment:
                 change(index, option, 1)
 
         def value(items):
-            return sum(bool(self.work[i].get("callback_due_at")) for i, _, _ in items), len(items)
+            return sum(bool(self.work[i].get("callback_due_at")) for i, _, _, _ in items), len(items)
 
         best = list(assigned)
         ceiling = min(len(self.work), self.rep_limit, sum(reps for _, reps in self.slots))
@@ -205,6 +262,7 @@ class Assignment:
             slot_use.clear()
             number_use.clear()
             daily_use.clear()
+            rep_use.clear()
             assigned.clear()
             nodes, stopped = 0, False
 
@@ -244,10 +302,11 @@ class Assignment:
                     "region": self.work[index].get("region") or "general",
                     "at": self.slots[slot][0].isoformat(),
                     "number_id": identity,
+                    "rep_id": rep,
                     "proposed": bool(numbers[identity].get("proposed")),
                     "callback": bool(self.work[index].get("callback_due_at")),
                 }
-                for index, slot, identity in best
+                for index, slot, identity, rep in best
             ],
             key=lambda item: (item["at"], not item["callback"], item["lead_id"]),
         ), exact
@@ -265,12 +324,17 @@ def time_forecast(
     policy,
     staffed_windows,
     additional_ready_after_hours,
+    rep_busy_until=None,
 ):
     end = now + timedelta(hours=horizon_hours)
     work, unknown = work_items(leads, now, end, policy)
-    slots, limited = staffed_slots(staffed_windows, now, end, handling_seconds)
+    slots, owners, limited = staffed_slots(staffed_windows, now, end, handling_seconds, rep_busy_until)
     assignment = Assignment(
-        work, slots, now, policy, handling_seconds, int(rep_minutes * 60 / handling_seconds)
+        work, slots, now, policy, handling_seconds, int(rep_minutes * 60 / handling_seconds), owners
+    )
+    owner_unavailable = sum(
+        bool(item.get("callback_due_at") and item.get("callback_owner_id")) and first == last
+        for item, (_, first, last) in zip(work, assignment.allowed, strict=True)
     )
     existing, existing_exact = assignment.solve(inventory)
     relaxed = {
@@ -385,13 +449,14 @@ def time_forecast(
         "number_shortfall": None if limited else max(0, target_count - len(existing)),
         "capacity_shortfall": len(work) - len(existing) + unknown,
         "window_unknown_leads": unknown,
+        "owner_unavailable_attempts": None if limited else owner_unavailable,
         "minimum_additional_numbers": None if limited else added,
         "proposed_additional_numbers": None if limited else proposed,
         "lower_bound": added if proven and not limited else lower_bound,
         "optimality": "proven_small_case" if proven and not limited else "best_feasible_found",
         "planning_limited": limited,
         "planning_steps": assignment.steps,
-        "optimality_scope": "Next due attempts on the declared staffing grid; pooled rep availability, reviewed DID workload and setup assumptions. Future retries require observed outcomes and a new forecast.",
+        "optimality_scope": "Next due attempts on the declared staffing grid; named or anonymous declared availability, reviewed DID workload and setup assumptions. Future retries require observed outcomes and a new forecast.",
         "schedule_scope": "declared_staffed_windows",
         "existing_schedule": existing[:1000],
         "expanded_schedule": best[:1000],
@@ -412,7 +477,9 @@ def time_forecast(
             "additional_ready_after_hours": additional_ready_after_hours,
             "retry_demand": "One next due attempt per eligible lead; later retries depend on its observed outcome",
             "future_readiness": "Proposed numbers require completed setup; waiting inventory is not usable",
-            "rep_ownership": "Pooled declared staffing; callback owner availability is rechecked before calling",
+            "rep_ownership": "Callbacks require their named owner; anonymous headcount supports unowned work only. Current live obligations are excluded until confirmed free.",
+            "staffing_grid_seconds": handling_seconds,
+            "staffing_grid": "Whole attempts aligned to forecast time; partial period edges omitted",
         },
         "as_of": now.isoformat(),
     }

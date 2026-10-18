@@ -155,6 +155,7 @@ def capacity_forecast(
     policy=None,
     staffed_windows=None,
     additional_ready_after_hours=0,
+    rep_busy_until=None,
 ):
     if (
         daily_capacity_per_number < 1
@@ -178,6 +179,7 @@ def capacity_forecast(
             policy=policy,
             staffed_windows=staffed_windows,
             additional_ready_after_hours=additional_ready_after_hours,
+            rep_busy_until=rep_busy_until,
         )
     end, demand = now + timedelta(hours=horizon_hours), {}
     callback_demand, eligible_counts = {}, {}
