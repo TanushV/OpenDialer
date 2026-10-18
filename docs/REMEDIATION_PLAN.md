@@ -1,12 +1,12 @@
 # OpenDialer completion and simplification plan
 
-Date: October 17, 2026. Status: **planned; application changes have not begun**. Baseline: `2bad067c20d23bce84b78538ab00ef009b4c7e9f`, released desktop 0.2.1.
+Date: October 17, 2026. Status: **implementation authorized; tests-first contract phase in progress**. Baseline: `2bad067c20d23bce84b78538ab00ef009b4c7e9f`, released desktop 0.2.1.
 
 OpenDialer should help a rep reach the right people, have better conversations, and reliably complete the agreed next steps. It should do this with a small local application, fast statistical models, Telnyx telephony and number intelligence, and a live Cerebras assistant that can reason and write freely using the actual conversation and business context.
 
-This is the implementation contract for correcting the audits and completing that product. It specifies mechanisms, migration, tests, operating limits, and release gates. All implementation checkboxes in section 21 begin open. Writing this plan does not implement its features or certify a provider integration.
+This is the implementation contract for correcting the audits and completing that product. It specifies mechanisms, migration, tests, operating limits, and release gates. Implementation checkboxes in section 21 remain open until verified; withdrawn scope is recorded explicitly, never marked as implemented. Writing this plan does not implement its features or certify a provider integration.
 
-Navigation: [simplest architecture](#3-simplest-architecture-that-preserves-the-requirements) · [performance repair](#4-data-model-and-performance-repair) · [freeform live helper](#6-live-cerebras-helper-and-coaching) · [coaching and tips](#7-coaching-tips-practice-and-improvement) · [statistical learning](#9-statistical-ml-and-learning-from-outcomes) · [number allocation](#10-minimum-viable-number-allocation-and-intelligent-use) · [Telnyx health](#11-telnyx-number-health-procurement-and-onboarding) · [post-call work](#12-post-call-completion-tasks-and-bookings) · [CRM/calendar](#13-crm-and-calendar-integration-without-an-oversized-platform) · [performance gates](#18-performance-and-simplicity-acceptance-gates) · [tests](#20-test-first-acceptance-design) · [execution todos](#21-ordered-execution-checklist) · [all 17 repairs](#22-every-audit-defect-mapped-to-a-concrete-repair) · [original requirement coverage](#23-requirement-coverage-source-map-and-simplification-boundaries).
+Navigation: [simplest architecture](#3-simplest-architecture-that-preserves-the-requirements) · [performance repair](#4-data-model-and-performance-repair) · [freeform live helper](#6-live-cerebras-helper-and-coaching) · [coaching and tips](#7-coaching-tips-practice-and-improvement) · [statistical learning](#9-statistical-ml-and-learning-from-outcomes) · [number allocation](#10-minimum-viable-number-allocation-and-intelligent-use) · [Telnyx health](#11-telnyx-number-health-procurement-and-onboarding) · [post-call work](#12-post-call-rundown-local-tasks-and-prospect-continuity) · [short retention](#13-five-minute-raw-retention-and-no-synchronization) · [performance gates](#18-performance-and-simplicity-acceptance-gates) · [tests](#20-test-first-acceptance-design) · [execution todos](#21-ordered-execution-checklist) · [all 17 repairs](#22-every-audit-defect-mapped-to-a-concrete-repair) · [original requirement coverage](#23-requirement-coverage-source-map-and-simplification-boundaries).
 
 ## 1. Scope, precedence and product decisions
 
@@ -23,7 +23,7 @@ This plan incorporates the original [implementation specification](spec/IMPLEMEN
 | Post-call completion | One structured analysis followed by a small authorized action executor | A transcript dump that leaves the rep to remember everything |
 | Rep coaching | Contextual live tips, specific post-call feedback, reviewed examples and outcome-informed improvement | A universal talk ratio or unsupported personality score |
 
-The aim is feature strength against **Gong's calling workflow**, not recreation of the entire Gong platform. Feature completeness and comparative outcome lift are separate questions. Local-number matching alone is not a differentiator: Gong documents matching, provisioning, callbacks, notes, outcomes and CRM export. OpenDialer's intended strengths are explicit capacity planning, adaptive timing and numbers, contextual live help, and complete local control. Its missing CRM/task continuity is in scope here. [Gong dialer documentation](https://help.gong.io/docs/make-calls-with-gong)
+The aim is feature strength against **Gong's calling workflow**, not recreation of the entire Gong platform. Feature completeness and comparative outcome lift are separate questions. Local-number matching alone is not a differentiator: Gong documents matching, provisioning, callbacks, notes, outcomes and CRM export. OpenDialer's intended strengths are explicit capacity planning, adaptive timing and numbers, contextual live help, and complete local control. Local task and prospect continuity are in scope; CRM/calendar synchronization was withdrawn by the latest instruction. [Gong dialer documentation](https://help.gong.io/docs/make-calls-with-gong)
 
 ### 1.2 Nonnegotiable scope
 
@@ -37,9 +37,24 @@ The aim is feature strength against **Gong's calling workflow**, not recreation 
 
 ### 1.3 A minimal configuration surface
 
-Rep setup should ask for the workspace, identity, campaign and audio device. Admin setup should ask for business identity, authorized providers, list/CRM source, campaign goal and time horizon, permitted calling policy, rep availability, and budgets. Advanced model/concurrency/debug settings live behind an advanced view. Use one configuration definition and one source of defaults; eliminate inconsistent constants hidden in dashboards and workers.
+Rep setup should ask for the workspace, identity, campaign and audio device. Admin setup should ask for business identity, authorized providers, list source, campaign goal and time horizon, permitted calling policy, rep availability, and budgets. Advanced model/concurrency/debug settings live behind an advanced view. Use one configuration definition and one source of defaults; eliminate inconsistent constants hidden in dashboards and workers.
 
 The user need not invent an objection taxonomy or label a large corpus before starting. They do need to describe what they sell, what claims/prices are valid, and what counts as success. Engineering starting values are configurable and labeled as assumptions. Provider restrictions and approved calling policy are constraints, not parameters to learn away.
+
+### 1.4 Latest accepted scope and cost decision (October 17)
+
+The latest user instructions override older integration, retention and spending assumptions throughout this repository:
+
+- A proactive Cerebras helper follows stable transcript chunks continuously in the background. It is quiet when no useful intervention exists. Its primary surface is a fixed top coaching strip beside/above the set script, always visible without scrolling; typing is optional and secondary.
+- During the call, show compact uncertainty-aware statistical guidance and the current prospect brief. Afterward show the rundown, local follow-up and updated cross-call numeric/natural-language scorecard.
+- Research and script filling run before calls in bounded batches and off-hours when the authority is awake. Fill the seller's versioned script template, including gatekeeper and iPhone name-and-purpose screening lines. Keep a prepared queue; no live web research.
+- Raw call audio and transcripts have a hard **five-minute rolling lifetime**, not five minutes after an arbitrarily long call ends. Persist only minimal derived notes, observations, outcomes and statistics. Recording is disabled. See section 13 for every storage boundary and provider limitation.
+- No CRM/calendar synchronization, calendar creation, invitations or autonomous scheduling agent. The rep books meetings in their own workflow; OpenDialer records a manually confirmed outcome and appropriate outreach hold. Local callback tasks remain.
+- All US outbound attempts require national screening plus the local DNC registry. Cache valid screening, but recheck internal opt-outs and coverage/freshness before every submission. No missing-data clearance or automatic exemption inference.
+- **No subscriptions or recurring commitments may be activated by OpenDialer.** Use existing authorized inventory and first-party health. Add a prepaid DNC option, with seller-access requirements made explicit. New DID rentals, Telnyx reputation subscriptions and paid registry access remain blocked under this policy; proposals can disclose them without purchasing. Existing numbers may already cost their owner money: do not represent reuse as zero total carrier cost.
+- Voicemail is eligible only on the final permitted attempt, with all existing separate permission/mailbox/topology gates. A list change or model score must not silently shorten the attempt allowance to enable an earlier voicemail.
+
+This removes the former M6 connector implementation and replaces it with short retention, DNC and no-subscription acceptance. Historical source/receipts remain in Git. External accounts/hardware and legally adequate source authorization cannot be manufactured by tests or checkboxes.
 
 ## 2. Baseline and what is actually wrong
 
@@ -88,24 +103,24 @@ Maintenance is always scheduled by the normal runtime: job recovery, retries, ca
 flowchart LR
   UI[Tauri rep workspace] --> A[One selected authority]
   A --> DB[SQLite locally or PostgreSQL shared]
-  A --> T[Telnyx control and reputation]
+  A --> T[Telnyx call control and observed health]
   T --> I[Signed durable event inbox]
   I --> A
   A --> C[Cerebras live helper through OpenRouter]
   C --> UI
   A --> J[Bounded preparation and post-call jobs]
-  J --> X[Authorized CRM and calendar adapters]
+  J --> X[Local prospect brief, tasks and outcomes]
   UI <-->|Conversation media| M[Telnyx media]
   M <--> P[Prospect]
 ```
 
 ### 3.3 Local is independent, not disconnected from providers
 
-Local lead management, learning, tasks, allocation proposals and cached review work without an OpenDialer server. Number inventory, purchases and reputation queries can use outbound Telnyx HTTPS requests from the local authority. Live telephony/transcription still require the provider and a reachable signed-event ingress.
+Local lead management, learning, tasks, allocation proposals and cached review work without an OpenDialer server. Inventory synchronization and call-event health use outbound Telnyx HTTPS requests from the local authority; cost policy blocks new recurring commitments. Live telephony/transcription still require the provider and a reachable signed-event ingress. No hosting subscription is mandatory; a user-owned host or eligible free ingress can be configured without exposing administration.
 
 A loopback-only URL cannot receive Telnyx callbacks. Finish a guided **webhook-only HTTPS ingress** setup using a documented tunnel or user-owned forwarding host. Expose only the ingress routes, not administration or the database; verify signatures at the authority. Display reachability, last verified event and failure reason. Do not silently install a tunnel, create an account, or publish the full API. Include a tested setup recipe and diagnostics so this is not a hidden engineering prerequisite.
 
-If the local machine sleeps or closes, it cannot perform background CRM work or receive local callbacks. Persist pending work, resume on wake, and configure a carrier-side business fallback for inbound calls. Keep the local-only identity clear rather than quietly introducing an OpenDialer cloud dependency. A shared server provides continuous availability, not different business rules.
+If the local machine sleeps or closes, it cannot perform background preparation work or receive local callbacks. Persist pending work, resume on wake, and configure a carrier-side business fallback for inbound calls. Keep the local-only identity clear rather than quietly introducing an OpenDialer cloud dependency. A shared server provides continuous availability, not different business rules.
 
 Connected mode may add a control-plane round trip. Media should remain directly between desktop, Telnyx and prospect. Never require the shared server to relay voice merely to provide coaching. Measure network delay separately from database and model delay.
 
@@ -113,13 +128,13 @@ Connected mode may add a control-plane round trip. Media should remain directly 
 
 Exactly one workspace authority owns each active call, lead reservation, external action and model decision. Switching modes never creates simultaneous live authority for the same pending work. Migration between authorities is an explicit export/import cutover with identity mapping, quiesced calls and duplicate prevention, not automatic multi-master synchronization.
 
-In local mode, store master provider credentials in the operating-system protected store or the protected backend configuration, accessible to the local authority rather than the webview. Connected reps receive scoped application sessions and short-lived telephony credentials; master credentials stay on the server. OAuth/CRM credentials follow the selected authority. Do not embed a confidential OAuth client secret in a distributable desktop binary.
+In local mode, store master provider credentials in the operating-system protected store or the protected backend configuration, accessible to the local authority rather than the webview. Connected reps receive scoped application sessions and short-lived telephony credentials; master credentials stay on the server. Optional provider credentials follow the selected authority. Do not embed a confidential OAuth client secret in a distributable desktop binary.
 
 ## 4. Data model and performance repair
 
 ### 4.1 Change the hot storage shape, not every historical table
 
-The current generic document approach stores operational values inside encrypted JSON and filters them in Python. Preserve encrypted content, but add indexed typed columns for fields needed to find work: tenant/seller, lead/endpoint references, call status, due time, owner, active flag, expiry, provider object ID, source version, action identity and lease state. Keep transcripts, private notes, research content and credentials protected.
+The current generic document approach stores operational values inside encrypted JSON and filters them in Python. Preserve encrypted content, but add indexed typed columns for fields needed to find work: tenant/seller, lead/endpoint references, call status, due time, owner, active flag, expiry, provider object ID, source version, action identity and lease state. Keep private notes, research content and credentials protected; raw transcripts use only the ephemeral buffer described in section 13.
 
 Start with leads/endpoints, attempts/legs, inventory/capacity, inbox/outbox/jobs, tasks/commitments, conversion events and serving-model pointers. Add only indexes exercised by actual queries. Use seller-scoped indexes such as `(tenant_id, seller_id, status, next_attempt_at)` and uniqueness for active claims and durable external identities. Store phone lookup keys as keyed hashes where equality lookup suffices. Explicitly review which operational metadata becomes visible in database files; do not move raw PII into unencrypted indexes for convenience.
 
@@ -153,7 +168,7 @@ One usage record progresses through reserved, submitted, reconciled or uncertain
 
 ### 4.5 Safe migration
 
-Make an encrypted backup and record counts, IDs, human-note hashes, suppressions, active obligations and schema versions before migration. Add columns/tables and backfill in bounded resumable batches. Compare old and new read results on a copied workspace before switching. Run a single authoritative writer after cutover; avoid indefinite dual-write machinery.
+Make a raw-content-free encrypted backup and record counts, IDs, human-note hashes, suppressions, active obligations and schema versions before migration. Add columns/tables and backfill in bounded resumable batches. Compare old and new read results on a copied workspace before switching. Run a single authoritative writer after cutover; avoid indefinite dual-write machinery.
 
 Do not automatically roll an app binary back across a non-reversible schema change. Keep the supported rollback path explicit. Preserve audit/event history and idempotency identities; remove obsolete fields or readers only after compatibility and restore tests. Test upgrades from the actual installed 0.2.1 data as well as a fresh workspace.
 
@@ -169,7 +184,7 @@ Keep source timestamp, receive timestamp, processing sequence and source revisio
 
 Use a durable action identity and state progression: `prepared → sending → acknowledged/succeeded`, or `uncertain → reconciling → succeeded/failed/review_required`. Claim with owner, lease expiry and fencing version; heartbeat genuinely long jobs. Expired `sending` is not a permanent state and is not automatically equivalent to permission to send again.
 
-Define recovery separately for dial, bridge, answer, transfer, hangup, transcription start/stop, recording start/stop, playback, gather, number orders, configuration changes, CRM writes and calendar writes. Reuse the provider's documented idempotency mechanism where supported. Otherwise reconcile by persisted request/object references before retry. If an operation cannot safely be reconciled, surface an actionable uncertain state instead of issuing another potentially paid or customer-visible effect.
+Define recovery separately for dial, bridge, answer, transfer, hangup, transcription start/stop, legacy recording stop/reconciliation (new recording start is disabled), playback, gather, number orders, configuration changes, local task and outcome transitions. Reuse the provider's documented idempotency mechanism where supported. Otherwise reconcile by persisted request/object references before retry. If an operation cannot safely be reconciled, surface an actionable uncertain state instead of issuing another potentially paid or customer-visible effect.
 
 External HTTP happens outside database transactions. Persist and audit the policy snapshot immediately before send. An opt-out cancels unsent intents and blocks future work; an already transmitted request needs explicit cancellation/recovery rather than pretending it never happened. Leases reserve only live obligations and are released on authoritative completion.
 
@@ -183,7 +198,7 @@ Keep one live prospect per rep. An optional ready-and-continue mode may advance 
 
 ### 5.4 Voicemail and callback obligations
 
-Retain the original permission-separated monitored drop and tested detached-playback workflow. Do not release the rep until the exact topology and playback-start receipt prove the old prospect leg is independently owned. Track that leg's lifetime, costs, capacity and completion even after the rep starts another call. Handle no beep, full mailbox, false machine classification, playback failure, backend restart and late human recovery. Carrier playback success is not proof that a mailbox saved the message.
+Enforce final-permitted-attempt-only voicemail on the server immediately before submission. Snapshot the attempt allowance and count actual attempted contacts, not expired reservations; reject early monitored and detached drops, and recheck cadence/opt-outs on final attempts. Retain the original permission-separated monitored drop and tested detached-playback workflow. Do not release the rep until the exact topology and playback-start receipt prove the old prospect leg is independently owned. Track that leg's lifetime, costs, capacity and completion even after the rep starts another call. Handle no beep, full mailbox, false machine classification, playback failure, backend restart and late human recovery. Carrier playback success is not proof that a mailbox saved the message.
 
 Each unfinished control action and each expired job must have an owner, next attempt or explicit review reason. Dead-letter/recovery views must offer scoped retry/reconciliation rather than requiring database edits.
 
@@ -202,7 +217,7 @@ The helper stays active throughout an authorized, transcribed call. It follows m
 | Prospect asks for a fact absent from the knowledge base | State the missing fact and offer a truthful way to respond or follow up; do not invent pricing, integrations, guarantees or prior relationships |
 | Next step is emerging | Suggest how to clarify owner, action and time; draft the commitment without claiming a booking already exists |
 | Rep wants depth | Expand the explanation, alternatives and cited product/context evidence without replacing the main call controls |
-| Rep disagrees | Dismiss, edit or flag the suggestion; preserve this feedback and the exact context for evaluation |
+| Rep disagrees | Dismiss, edit or flag the suggestion; preserve this feedback and the nonverbatim derived context for evaluation; raw context expires on schedule |
 | Model/provider is unavailable | Keep calling functional, show a clear helper status and useful cached knowledge; manual search remains usable |
 
 The aim is to prevent the seller from being left without useful support. No system can promise a correct answer to every unknown; a clear admission of missing information plus a sensible next move is useful assistance.
@@ -218,7 +233,7 @@ Build a versioned context packet once before dialing and update it incrementally
 - Current stable transcript, a compact summary of older turns, recent utterances and uncertain speaker attribution.
 - Questions already answered, facts already stated, current unresolved questions, offered next steps and last advice shown.
 - Current authoritative permissions and call state as read-only context.
-- Relevant examples/tips from the approved knowledge library and successful reviewed snippets, when available.
+- Relevant examples/tips from the approved knowledge library and successful reviewed paraphrased examples, when available.
 
 Pin the newest utterance, unresolved commitments, fact provenance and material corrections when trimming context. Older dialogue can be summarized, but the summary must retain source pointers and uncertainties. A summary is not a new fact. If a correction contradicts the summary, rebuild the affected state before new guidance.
 
@@ -238,7 +253,7 @@ Update lightweight state whenever a meaningful stable turn arrives. Do not run p
 
 Allow one current request per call and a bounded concurrent set across calls. Start with a configurable eight live network requests in the shared runtime, then measure memory, rate limits and tail latency. The local single-rep case normally uses one. Replace obsolete queued work with the latest relevant turn; cancel an in-flight obsolete request when supported and discard late output regardless of provider cancellation support. A global concurrency limit needs fair per-rep scheduling and admission control so one rep cannot monopolize it.
 
-Show one primary suggestion at a time, with persistent access to the helper conversation and expandable explanation. Concision is the default, not a 25-word semantic straitjacket. A first useful answer may be roughly one or two sentences; longer explanations belong in the expansion or manual-help response. Use relevance and turn changes to retire advice; urgent help bypasses the nonurgent pacing limit. Do not discard a useful pinned answer merely because a fixed seven-second timer elapsed.
+Show one primary suggestion in a fixed top strip that remains visible while the main prepared script is read or scrolled. Keep call controls accessible. The helper conversation is a secondary expansion; the rep need not type to receive guidance. Concision is the default, not a 25-word semantic straitjacket. A first useful answer may be roughly one or two sentences; longer explanations belong in the expansion or manual-help response. Use relevance and turn changes to retire advice; urgent help bypasses the nonurgent pacing limit. Do not discard a useful pinned answer merely because a fixed seven-second timer elapsed.
 
 Prefer streaming for manual answers and fuller explanations. Stream a small structured envelope only on an endpoint that supports it; render validated complete fields or sentences, not broken JSON or half a pricing claim. Measure **first useful validated suggestion**, not merely first token. If the selected endpoint's reliable tiny nonstreaming response is faster, use it for automatic tips while keeping full manual help streaming. This is a transport choice, not a restriction on freeform wording. [OpenRouter structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs)
 
@@ -246,7 +261,7 @@ Separate timeouts for connection, first useful response and full manual answer. 
 
 ### 6.5 Provider configuration and receipts
 
-Keep Cerebras pinned through OpenRouter, with provider fallbacks disabled, required parameter support and the configured data policy. The current candidate remains `openai/gpt-oss-120b`; public endpoint metadata checked on October 17 lists a Cerebras endpoint with structured-output support. This is catalog evidence, not account access or funded latency verification. Pin the evaluated model/endpoint configuration and detect changed capability rather than silently routing elsewhere. [Provider routing](https://openrouter.ai/docs/guides/routing/provider-selection), [endpoint metadata](https://openrouter.ai/api/v1/models/openai/gpt-oss-120b/endpoints)
+Keep Cerebras pinned through OpenRouter, with provider fallbacks disabled, required parameter support, `zdr: true` and `data_collection: "deny"`. Disable provider prompt/output logging and do not retry through a non-ZDR route. The current candidate remains `openai/gpt-oss-120b`; public endpoint metadata checked on October 17 lists a Cerebras endpoint with structured-output support. This is catalog evidence, not account access or funded latency verification. Pin the evaluated model/endpoint configuration and detect changed capability rather than silently routing elsewhere. [Provider routing](https://openrouter.ai/docs/guides/routing/provider-selection), [endpoint metadata](https://openrouter.ai/api/v1/models/openai/gpt-oss-120b/endpoints)
 
 Record model, actual provider, request ID, prompt/context versions, supported mode, token/cost receipt, queue time, first useful output time, final time, cancellation and display result. Missing provider confirmation is unknown, not proof of a Cerebras route. Handle refusals, truncation, malformed output, rate limits, disconnects and endpoint changes without interrupting telephony. Budget settlement includes requests discarded locally but potentially billed upstream.
 
@@ -277,15 +292,21 @@ Practice and coaching use real approved knowledge and permitted examples; sample
 
 ## 8. Preparation, knowledge and personalization
 
-Complete the bounded research pipeline promised in the original specification: use authorized CRM context first, relevant official company pages and a configured permitted search provider when needed. A single homepage is not enough for every company, but research should stop once enough useful context exists. Use per-company caching, single-flight work, a rolling preparation horizon and explicit search/page/token budgets.
+Complete the bounded research pipeline promised in the original specification: use authorized imported lead context first, relevant official company pages and a configured permitted search provider when needed. A single homepage is not enough for every company, but research should stop once enough useful context exists. Use per-company caching, single-flight work, a rolling preparation horizon and explicit search/page/token budgets.
 
 Each fact has source, entity match, retrieval time, freshness, status and conflicts. A source containing an instruction cannot direct the application. Keep DNS/redirect/private-network/size/content restrictions and do not use unrestricted browser automation in the live call process.
 
 Generate a short call plan, useful questions, screening introduction and optional objection examples from those facts and approved product knowledge. Maintain script versions and diffs; do not rewrite the active script mid-sentence. Every personalized factual assertion in every visible field must have support, not merely assertions the generating model elects to list. Inspect omissions and negation as well as IDs. Unsupported facts yield a truthful generic fallback or question.
 
-Prepare new leads and refresh packets when relevant knowledge, CRM facts or prior-call commitments change. Do not require an admin to manually queue preparation after each call. Reuse unchanged results; retry only failed objects in a partial batch. Heartbeat work leases and isolate per-lead failures. Use provider Batch only for tasks with enough lead time and a route that actually supports it; an urgent script fix cannot wait for a delayed batch window.
+Prepare new leads and refresh packets when relevant knowledge, imported facts or prior-call commitments change. Do not require an admin to manually queue preparation after each call. Reuse unchanged results; retry only failed objects in a partial batch. Heartbeat work leases and isolate per-lead failures. Use provider Batch only for tasks with enough lead time and a route that actually supports it; an urgent script fix cannot wait for a delayed batch window.
 
 Keep configurable roles for research, script writing, post-call extraction and selective review, with a shared capability/budget layer. Existing LiteLLM or official eligible plan-based access is an optional adapter, not a prerequisite or a promise that any ChatGPT endpoint supports every operation. Verify its actual Responses/tool/schema/usage behavior before enabling an agent role.
+
+### 8.1 Prepared queue and set-script contract
+
+Store a seller-authored template with ordered sections and placeholders: identity/purpose, contextual opener, gatekeeper, iPhone screening, discovery, approved proof, closing question and final-attempt voicemail reference. Generated text fills permitted slots; it cannot replace identity, prices, claims or the template wholesale. Every inserted factual claim has source IDs. Generic fallback fills only known facts and explicit questions. Freeze the visible version through an active call.
+
+Prepare in work units of up to 20 leads grouped by company, with bounded concurrent network work and per-object identities. Maintain a configurable prepared-ahead target and priority for tomorrow's due work; run off-hours only within the configured timezone schedule and remaining PAYG budget. On startup/wake catch up once, not by replaying every missed timer. Local mode cannot work while its machine is off. Publish ready/stale/fallback/failed counts and estimated runway. A stale or missing packet must not falsely appear researched; use a safe cached script without blocking otherwise permitted calling. Automatically refresh affected slots after a prior-call brief or knowledge change. No provider delayed Batch for live transcript processing: it exceeds the retention window.
 
 ## 9. Statistical ML and learning from outcomes
 
@@ -293,7 +314,7 @@ Keep configurable roles for research, script writing, post-call extraction and s
 
 Business outcomes need a small explicit definition: live human, right party, qualified conversation, requested callback, booked meeting, held meeting and won sale. These are operational targets, not a handcrafted catalogue of how customers talk. The model must learn which allowed choices correlate with these outcomes using actual observations.
 
-Collect immediate outcomes from carrier/media events, supported transcript interpretation and rep correction. Collect delayed outcomes from confirmed CRM/calendar events or explicit authorized human confirmation. Preserve source, confidence/status, occurrence time, observation time, label-available time and any correction/retraction. LLM-inferred labels are provisional until the evidence standard for that label is met. A booked meeting is not proof of attendance, and a sale is not proof that a meeting happened.
+Collect immediate outcomes from carrier/media events, supported transcript interpretation and rep correction. Collect delayed outcomes from explicit rep-confirmed outcomes or authorized outcome-file import. Preserve source, confidence/status, occurrence time, observation time, label-available time and any correction/retraction. LLM-inferred labels are provisional until the evidence standard for that label is met. A booked meeting is not proof of attendance, and a sale is not proof that a meeting happened.
 
 Start without fabricated history. Use pooled priors and obvious scheduling constraints while data is sparse. Show sample counts and uncertainty. Unknown number health is unknown, not a perfect score or an automatic ban. The prior should permit legitimate limited use so evidence can accumulate.
 
@@ -316,11 +337,11 @@ Capture call/lead/account and number/rep groups for evaluation, even where the s
 
 ### 9.4 Discovering conversational patterns without a fixed taxonomy
 
-Have the post-call LLM extract open-ended, quoted observations such as an expressed constraint, timing event, buying process, question, objection, response approach or agreed next step. Preserve the text and provenance; do not force each into five preset categories. Normalize synonymous observations in a bounded offline job with a versioned vocabulary, examples and human correction. Start with simple text features/regularization; introduce local embeddings/clustering only if measured need warrants it.
+Have the post-call LLM extract open-ended, paraphrased observations such as an expressed constraint, timing event, buying process, question, objection, response approach or agreed next step. Preserve the text and provenance; do not force each into five preset categories. Normalize synonymous observations in a bounded offline job with a versioned vocabulary, examples and human correction. Start with simple text features/regularization; introduce local embeddings/clustering only if measured need warrants it.
 
 Investigate which observations and **response approaches** correlate with qualified conversations, held meetings or wins. Require minimum support, uncertainty, time separation, lead-mix adjustment and multiple-comparison controls before surfacing a discovered relationship. Rare phrases must not become confident rules. Distinguish descriptive correlations from treatment effects.
 
-Keep coaching exposure, actual displayed advice, optional rep-use feedback and response strategy separate from exact wording. A generative assistant has an effectively unlimited sentence space; do not invent an exact action probability for a generated sentence. For causal experiments randomize finite strategies, helper availability, timing policies or approved treatment families, and log the true randomization probability. Log generated wording and context as observations, not a fictitious finite bandit arm.
+Keep coaching exposure, actual displayed advice, optional rep-use feedback and response strategy separate from exact wording. A generative assistant has an effectively unlimited sentence space; do not invent an exact action probability for a generated sentence. For causal experiments randomize finite strategies, helper availability, timing policies or approved treatment families, and log the true randomization probability. Log strategy, context versions and derived observations; raw wording expires within the retention window, not a fictitious finite bandit arm.
 
 Validated associations can inform future context and suggest experiments; only tested policies affect automatic scheduling materially. Changes must preserve coverage, reputation, cost and customer experience. This completes the currently missing observation → outcome → learning → future guidance loop.
 
@@ -411,121 +432,73 @@ Keep **external reputation** and **observed operational performance** side by si
 
 The current public reputation documentation supports US numbers in Telnyx inventory and authorized external numbers after ownership verification. Registration and LOA approvals are separate prerequisites. Keep unsupported country/account status visible. This capability is planned integration work, not present live proof. [Reputation phone-number guide](https://developers.telnyx.com/docs/number-reputation/phone-numbers)
 
-### 11.2 Adapter and setup flow
+### 11.2 No-subscription health path
 
-Implement a focused Telnyx reputation adapter with capability/status discovery, monitored-number listing, registration, cached read, fresh refresh and remediation submission/status. Reuse protected Telnyx credentials and the existing inbox/outbox, HTTP client and usage ledger; do not build a second provider framework.
+Default to Telnyx call-event/CDR observations: delivery failures, human/right-party pickup, connected duration, callbacks, opt-outs and route/configuration evidence. Pool sparse numbers toward campaign baselines and show counts, confidence and freshness. Free Caller Registry registration is optional manual setup, not a clean-label guarantee. Telnyx Number Lookup is an optional PAYG endpoint/carrier check; it is not spam reputation.
 
-Setup guides the admin through enterprise selection, the provider's terms, signed LOA/document submission and both approval statuses. Record the actual human authorization and provider references. Do not claim to sign an LOA or accept legal terms for the user. Select manual-only refresh initially unless a recurring monitoring budget is expressly enabled. Telnyx's documented default is business-daily, so specify the selected frequency rather than accidentally inheriting recurring checks. [Reputation settings](https://developers.telnyx.com/docs/number-reputation/settings)
+Do not enroll an enterprise, sign an LOA, register paid monitored numbers, start scheduled checks or submit paid remediation. Telnyx's current reputation service has a $100/month base plus usage and therefore conflicts with the accepted cost policy. Remove active subscription setup buttons; expose an honest unavailable external-reputation state. An already-authorized observation file can be imported with source/time/ownership and nullable fields. Do not equate a third-party inbound fraud score with how AT&T/Verizon/T-Mobile label an outbound DID.
 
-Store the raw provider schema version and a normalized observation: number, source, spam risk/category, nullable maturity/connection/engagement/sentiment scores, provider refresh time, receipt time, ownership status and charge attribution. The provider's sentiment field describes complaint/blocking signals; do not reinterpret it as a person's emotional state. Unknown values remain null. Preserve observations over time and expose stale/error states separately from adverse reputation. [Data fields and freshness](https://developers.telnyx.com/docs/number-reputation/phone-numbers)
+### 11.3 Explicit prices and alternatives
 
-Handle pagination, batch limits, partial refresh failures, account denial, rejected LOA, removed ownership, rate limits and unavailable data. Refresh jobs are deduplicated by number and freshness window. Number ownership changes immediately remove outbound eligibility while retaining an investigation record. Do not assume every reputation change has a webhook: use the documented events where available and bounded polling elsewhere.
-
-### 11.3 Costs are explicit
-
-Public prices checked October 17, 2026: **$100 per enterprise/month**, **$0.10 per fresh check**, and **$1 per number submitted for remediation**. Existing cached results can be read free; initial registration/uncached first lookup and provider-scheduled refreshes can incur checks. Revalidate prices/account terms before activation. A nominally cached request is not guaranteed free when no cached data exists. [Telnyx pricing](https://developers.telnyx.com/docs/number-reputation/pricing), [query behavior](https://developers.telnyx.com/docs/number-reputation/phone-numbers)
-
-Our design: prefer recent stored observations; refresh on an authorized schedule or a material anomaly; display estimated recurring spend before enabling monitoring. Track provider-managed schedules because a local app budget cannot stop charges Telnyx independently schedules. To halt such spend, change/disable the provider schedule through an authorized action and confirm its receipt. A local circuit breaker alone is insufficient. If monitoring is not enabled, use first-party telemetry with an explicit external-reputation-unavailable state, not a fake green badge.
+Use the pricing register in section 16.3. Telnyx reputation's $100/month base, $0.10 fresh check and $1 remediation are excluded, not hidden behind a PAYG label. Cached results are not necessarily free when an uncached lookup triggers a charge. No paid lookup runs merely to open a dashboard. There is currently no verified all-carrier PAYG spam-label feed in this acceptance baseline; local operational health remains fully useful and external labels remain unknown.
 
 ### 11.4 Reacting to health changes
 
-Use a small policy combining provider risk, recent change, sample support, route failures and adjusted pickup evidence. Confirm ownership/configuration failures immediately; handle uncertain statistical dips with investigation or reduced workload. Explain each recommendation and keep inbound service operational. Avoid an arbitrary opaque 0–100 composite as the sole authority.
-
-For an eligible flagged number, submit an authorized remediation request with stable action identity, actual business purpose and provider receipt. Track asynchronous per-number outcomes, deduplicate in-flight requests, and retain unsuccessful/review-required results. Remediation is a re-evaluation, not a guarantee of removal from every carrier's spam filters. [Telnyx remediation](https://developers.telnyx.com/docs/number-reputation/remediation)
-
-After a completed remediation, obtain an allowed fresh observation and evaluate controlled legitimate use. Do not instantly erase historical incidents or automatically restore unrestricted capacity. Learn from operational outcomes while retaining provenance of the external feed.
+Ownership/configuration failure blocks outbound use immediately. Statistical deterioration requires comparable call mix, sufficient evidence and uncertainty; reduce workload or investigate when supported, not after two unanswered calls. Explain the measure and the intervention. Inbound callbacks remain enabled. Manual evidence can confirm an external incident, but an observation cannot prove universal remediation. Do not rotate identities to evade blocking. Refresh health from actual Telnyx events and display health recommendations automatically, within approved workload limits.
 
 ### 11.5 Finish purchasing and number activation
 
-Persist one purchase intent before the UI submits it; return that intent on reload/retry. It contains proposal version, approval, requested numbers/count/regions, quote expiry, maximum liability and provider order references. A timeout changes the intent to uncertain. Reconcile the existing order before another submission; do not generate a new UUID to make the warning disappear.
+Under the no-subscription policy, number-purchase submission is blocked because new DIDs incur rental obligations; display the quote and constraint without creating an order. Preserve/test purchase recovery for previously submitted intents and any future explicit policy change. Persist one purchase intent before an authorized UI submission; return that intent on reload/retry. It contains proposal version, approval, requested numbers/count/regions, quote expiry, maximum liability and provider order references. A timeout changes the intent to uncertain. Reconcile the existing order before another submission; do not generate a new UUID to make the warning disappear.
 
 Make number activation a small resumable sequence: reconcile order → sync owned number → configure the correct voice connection and inbound route → verify configured identity/capabilities → obtain required registration evidence → perform an authorized callback test → enter limited real use. Use `configure_number` in this path; inventory sync must reconcile existing configuration changes rather than skipping every known number.
 
 Track pending orders and partial fulfillment. Retry idempotent configuration steps individually. An unknown order, pending registration or failed callback test does not create ready outbound capacity. Do not delete/rebuy as a generic repair strategy. Support existing owned numbers without forcing a purchase. Monitoring an external number does not by itself authorize originating it through Telnyx; confirm the actual authorized calling path separately.
 
-## 12. Post-call completion, tasks and bookings
+## 12. Post-call rundown, local tasks and prospect continuity
 
-### 12.1 One interpretation pass, then deterministic execution
+### 12.1 Incremental interpretation and immediate rundown
 
-Use the finalized/versioned transcript, prior account context, rep disposition/notes and approved product knowledge to produce an evidence-linked summary, suggested outcome, commitments, next-call brief and proposed field/task changes. Start with one structured LLM pass. Run a stronger review only for disputed, conflicting or material uncertain outputs. Do not require a multi-agent conversation for routine wrap-up.
+One bounded Cerebras interpretation pass can update live advice and a compact call-state summary together. Fold each stable chunk into paraphrased needs, unresolved questions, commitments, strategy observations, rubric accumulators and counts before raw data expires. Never reconstruct a permanent transcript by concatenating summaries. On hangup finalize a brief rundown from this derived state plus still-live chunks; do not wait for a transcript archive or provider Batch. Calling controls and wrap-up remain independent of analysis.
 
-On hangup, commit the call outcome and enqueue analysis immediately. Wrap-up and the next permitted call do not wait for final analysis. A late final transcript, changed disposition or human correction invalidates the dependent draft and queues a version-aware repair. Coalesce superseded jobs. Preserve human notes and completed external receipts; never rerun effects simply because the prose changes.
+Output includes source version/IDs/times, summary, suggested disposition, unresolved questions, next action, one or two coaching improvements, what went well, known/unknown prospect state, and structured outcome evidence. Source IDs may outlive raw content but UI must say when original evidence expired. Model output is provisional; rep confirmation outranks it. Conflicting evidence is qualified or placed in review. A late correction invalidates dependent AI scores, observations and suggestions while preserving human edits. Expiry is intentional unavailability, not a silently completed analysis.
 
-The simplest default is **structured interpretation plus a small action executor**. If a post-call agent needs to read CRM state or available meeting slots, expose a short list of typed functions and a bounded turn/time/cost budget. GPT-6.1 Sol tool calling must use the Responses API; an arbitrary Chat Completions endpoint is insufficient. Route availability, authentication and quotas must be checked independently. [Official function-calling documentation](https://developers.openai.com/api/docs/guides/function-calling)
+### 12.2 Local commitment and task transitions
 
-### 12.2 Proposed result and action contracts
+Resolve unambiguous dates against call time and explicit prospect timezone. Retain the normalized time/window and confidence, not the raw utterance after its TTL. Exact Tuesday 2 PM Pacific can yield an exact callback; Tuesday afternoon remains a window; maybe next month remains tentative. Ambiguous dates/timezones/DST gaps require focused confirmation. Never unconditionally discard a model-provided date.
 
-The analysis envelope includes `call_id`, `transcript_version`, `analysis_version`, `source_ids`, summary, asserted facts, unresolved questions, suggested disposition, commitments, coaching feedback and proposed actions. Every material claim must be covered by evidence; an empty self-declared claims list cannot bypass validation.
+Local tasks support confirm, assign, reschedule, snooze, cancel and complete, with expected-version conflict checks, owner, zone, source and one stable commitment/task identity. Re-extraction updates the same task; canceled promises cannot keep an active reminder. Clear confirmed callbacks can be created automatically within policy; ambiguous requests become suggestions. Queue priority honors agreed callbacks over model ranking. No messaging, calendar call or external API write occurs.
 
-Each proposed action includes a stable logical action ID, exact target/owner, evidence, expected current version, fields to change, authorization scope, dependencies and ambiguity status. Types initially cover append call activity, attach transcript/summary, update permitted lead fields, create/reschedule/complete task, create/update/cancel booking, record/retract a supported conversion, and refresh the next-call packet. These are application commands, not model-generated raw SQL or arbitrary vendor requests.
+### 12.3 Rep-booked meetings and goal state
 
-The executor loads the current authority state and checks identity, capability, policy, evidence and conflicts. Approved routine actions execute automatically. Ambiguous commitments or changed external state go into a focused exception queue; do not ask the rep to approve every harmless note. Persist effects before submitting them and retain external IDs, resulting versions and receipts afterward. Reconciliation precedes replay after a timeout. “The model requested the update” is not completion evidence.
+The rep books meetings themselves. Provide manual booked/held/no-show/canceled/rescheduled outcomes and optional time/reference, clearly labeled rep-reported. Marking booked establishes an outreach hold even if the final campaign goal is held. Do not create a calendar event, invitation, ICS file, integration connection or background sync. Passing the reported time is not attendance proof. Resuming outreach after cancel/no-show requires the appropriate rep-selected next action and all normal policy checks.
 
-### 12.3 Dates and commitment resolution
+Keep permission, engagement, goal completion, outreach hold and next action separate. A changed goal versions future policy and previews/reconciles prior converted states while retaining suppressions, booked holds and callbacks. Preserve historical trial definitions. No silent mass redial.
 
-Preserve the verbatim phrase, call timestamp, speaker/role, explicit or inferred IANA zone, precision, resolved range and evidence. Interpret relative dates against the call's local date, not the worker's clock or the rep computer's current zone. Preserve an explicit unambiguous date instead of forcibly replacing it with null.
+### 12.4 Prospect scorecard and cross-call brief
 
-Examples: an explicit Tuesday at 2 PM Pacific resolves to an exact future instant with the stated zone; “Tuesday afternoon” remains a window; “maybe next month” remains tentative. If Tuesday could mean two dates, a zone is missing, a daylight-saving local time is repeated/nonexistent, or the caller changes the commitment, request the smallest necessary clarification. A window may drive a configured callback window but must not be labeled an exact appointment.
+One prospect view combines transparent numeric estimates (pickup, right party, selected conversion, timing, support and uncertainty) with a short natural-language brief (needs, previous answers, unresolved issues, commitments and recommended next question). This is a state summary, not a fabricated overall 0–100 buyer-quality score. Separate rep coaching/rubric scores from prospect opportunity status. Cold start displays pooled estimates and sparse-evidence labels; new evidence updates the view cheaply between calls. Actual outcomes remain separate from LLM interpretations.
 
-Provide confirm, correct, assign, reschedule, snooze, cancel and complete controls with due-time/zone display. Confirmation turns a commitment into a real local task and, if configured, an external task. Repeated extraction updates the same commitment/task. A cancelled promise does not leave an active reminder.
+Refresh the prepared packet automatically after meaningful changes. Do not repeatedly ask resolved questions or overwrite rep corrections. Support brief corrections with provenance and versioned learning features. Normalization discovers open-ended conversation concepts without requiring a preset objection taxonomy. Observation usefulness is validated on later outcomes with temporal separation and support, not model self-confidence.
 
-### 12.4 Lead lifecycle and scheduling holds
+## 13. Five-minute raw retention and no synchronization
 
-Keep independent dimensions instead of one overloaded status: contactability/permission; engagement stage; goal achieved/retracted; next action/due window; ownership; and booked-event state. “Meeting booked” should pause inappropriate cold outreach immediately, even when the campaign's final goal is held meeting. It is not itself a held meeting.
+### 13.1 Storage contract
 
-An explicit agreement may create `booking_pending` and an outreach hold; a calendar receipt establishes externally booked status. In a local workspace without a calendar, an authorized rep can confirm a local scheduled meeting, marked **local confirmation; no invitation sent**. An exported ICS file is not proof of delivery or acceptance. Cancel/no-show/reschedule events update the hold and propose the next permitted action. A calendar event passing its end time does not prove attendance.
+Raw audio is never recorded or downloaded by OpenDialer. Disable recording-start commands and playback/archive UI for prospect recordings. Human-authored reusable voicemail assets are separate product assets, not recordings of calls. Raw transcript segments, interim text, revision text, raw STT webhook payloads, helper questions/answers containing quotes and model prompt/response bodies expire within **300 seconds of original receipt**. A revision, retry, backup or restart cannot extend that deadline.
 
-Changing a campaign's conversion goal creates a policy version and previews affected leads. Preserve historical reports under their old goal; recompute future eligibility under the new goal while retaining suppressions, booked-event holds and promised callbacks. Reopening a previously converted lead is a reviewed migration of operating state, not silent mass redial.
+Prefer an in-memory bounded per-authority buffer with monotonic expiry and startup-empty behavior; never write raw content to the permanent encrypted document/event/job tables. Durable inbox keeps event IDs, hashes, timing, side and processing state, with raw content only in the TTL buffer. Retry within TTL processes once. If the buffer is lost on restart or expires before interpretation, mark the specific analysis unavailable/expired and retain telephony/outcome metadata. Do not sacrifice the retention contract to pretend every raw utterance is durable forever.
 
-### 12.5 Corrections and factual consistency
+Cap bytes/segments per call and globally. Purge on timers and reads, hangup plus TTL, logout/authority switch, wake and process shutdown. Frontend live state and encrypted desktop caches must obey the same boundary; no raw transcript in persisted event cursor snapshots. Backups, support bundles, prompts logs, errors, job payloads, model datasets, comments, snippets, export and telemetry must contain no raw chunks. Use IDs and derived state only. Do not store verbatim transcript quotations inside long-lived summaries as a workaround.
 
-Validate semantic consistency with cited text, not only quote existence. Contradictory evidence must produce a conflict or qualified statement, not an unsupported positive summary. Check every displayed personalized assertion and all applicable scorecard dimensions. Source changes mark derived summaries, trackers, scores, semantic features and pending actions stale and recompute affected projections.
+### 13.2 Migration and retained information
 
-If a correction arrives after a CRM task or event was created, compare the intended state with the actual receipt. Apply an authorized corrective update or surface a conflict; never pretend the external side effect disappeared. Keep original and corrected versions, human edits, appeals and outcome retractions. Do not train on superseded unsupported claims.
+Before migration retain a protected backup of **allowed persistent data only**: IDs, human notes, suppressions, consent/policy evidence, settings, tasks, derived outcomes and event/action metadata. Remove legacy raw transcript/revision text, recording URLs/data, raw webhook/event payloads and quote-bearing machine notes from copied/active stores before enabling the new runtime. Preserve human-authored notes and relationship context; sanitize machine quotes, do not reset the workspace. SQLite secure-delete/checkpoint can reduce residual pages but is not an SSD forensic-erasure guarantee. Existing external backups require an explicit inventory/removal report; never claim provider or unrelated backup deletion without receipts.
 
-## 13. CRM and calendar integration without an oversized platform
+After TTL, review shows the retained rundown, score coverage, changes and source timestamps with “raw evidence expired”; no replay/export transcript button. Training uses as-of numeric features and bounded paraphrased observations, never an accumulating transcript corpus. Synthetic QA fixtures remain clearly separate from production data. Real-call quality review must occur within authorized retention or use separately permissioned evaluation material.
 
-### 13.1 Deliver one complete connector path first
+### 13.3 Provider privacy
 
-A complete local lead/task/call timeline is required whether or not a CRM is connected. A real production CRM and calendar path is also required; CSV export alone does not satisfy it. **Planning default: HubSpot plus Google Calendar.** This is an implementation choice, not a claim that the user currently uses them. If the actual deployment uses Salesforce or Microsoft 365, substitute that pair before connector coding. Build only the selected adapters first; retain a narrow interface so another provider can be added when required. Do not ship a dozen empty connector buttons.
-
-CRM API access, object permissions and account tier must be checked during setup. Implement provider-supported local credentials or public-client authorization where available. For a provider requiring a confidential OAuth client, use the user's own integration/authority or connected-server flow; never ship a secret in the binary or make an undisclosed OpenDialer cloud broker mandatory. Local Telnyx-only operation stays independent when no CRM is configured.
-
-### 13.2 Synchronization contract
-
-| Object | Direction and behavior |
-| --- | --- |
-| Lead/contact/company | Initial selected list import, incremental field updates, durable external IDs and owner mapping; explicit conflict rules |
-| Phone endpoints | Normalize, retain source and correction history; deduplicate without merging unrelated people sharing a switchboard |
-| Call activity | Append once with time, direction, rep, normalized disposition and durations; associate to the correct contact/company/opportunity |
-| Summary/transcript | Attach an allowed summary plus transcript/link with version and permissions; keep human CRM edits |
-| Follow-up task | Create with owner and due zone/time, then synchronize completion, reschedule and cancellation |
-| Lead/opportunity fields | Apply only configured mappings; no universal assumption that booked meeting equals won deal |
-| Meeting | Map local booking to actual calendar event/organizer, attendees, changes and cancellation |
-| Delayed outcome | Ingest observed qualification/held/won evidence with external event ID and correction/retraction support |
-| Suppression | Import do-not-contact changes; maintain the stronger local calling restriction even if a CRM field is cleared |
-
-Use a small `external_links` mapping and persisted per-connection sync cursors. Initial import is bounded/paginated. Later reads use provider change events or incremental queries with overlap/deduplication. Fetch current records to resolve incomplete notifications. Handle merges/deletions, owner changes and field type changes without losing the call history or undoing an opt-out.
-
-### 13.3 Write reliability and conflicts
-
-Use the same durable action outbox as post-call work, not a second automation engine. Model provider-specific idempotency accurately: retain object IDs and correlation keys; reconcile uncertain creates where supported. If a provider cannot reliably search or deduplicate an uncertain operation, pause that action for review rather than risk duplicate tasks/invitations.
-
-Maintain field-level authority and last-synced versions. External owner/stage changes normally remain authoritative; OpenDialer owns its activity IDs and computation metadata. Human edits outrank AI drafts. Concurrent incompatible changes produce a visible diff. Mark locally queued changes pending until the provider accepts them; expose failed/uncertain actions with a useful retry/reconcile control. Rate-limit backoff respects provider guidance; one failed account must not block calls for every seller.
-
-On revoked credentials, pause affected synchronization, preserve work and show reconnection instructions. A disconnect does not delete existing CRM activities or enable a new account to access old seller data. Backfill from a chosen date once access returns; no blanket replay of customer-facing effects.
-
-### 13.4 Transcript access in local and shared mode
-
-A `localhost` transcript URL is not usable by a CRM viewer on another computer. Local-only mode must explicitly upload a permitted attachment/summary to the selected CRM or export a file; it cannot claim a local link is shared. Connected mode may use an authenticated, revocable call page or an approved attachment. Do not publish raw recordings through permanent public URLs. Enforce retention/deletion and permission checks on every read.
-
-### 13.5 Calendar details
-
-Before creating an agreed meeting, confirm owner, participants, exact time/zone, duration and title, and check the selected calendar's availability. Recheck when executing a delayed intent. Use stable provider-supported event identity, retain organizer/event IDs and versions, and distinguish event creation from attendee acceptance. Sending invitations is an explicit configured action; drafting an event alone does not authorize messaging arbitrary people.
-
-For Google Calendar, client-specified event IDs support duplicate prevention; incremental sync uses stored tokens and can require a new full sync. Recover by rebuilding only the external calendar cache, not deleting OpenDialer's tasks, history or suppressions. [Event creation](https://developers.google.com/workspace/calendar/api/guides/create-events), [incremental synchronization](https://developers.google.com/workspace/calendar/api/guides/sync)
-
-Handle concurrent booking, cancellations, changed start times, attendee declines, time zones, recurrence exceptions where encountered, expired sync cursors and lost notifications. Receipt-backed creation updates booking status; held/no-show still needs actual attendance or authorized human/CRM evidence. Local reminders must work with no external calendar; cloud reminders can continue while the desktop sleeps if that provider is configured.
+OpenRouter calls require Cerebras-only routing, no fallback, ZDR and denied data collection; prompt/output logging disabled. Verify endpoint/account support and include request metadata receipts without content. Telnyx/STT processing retention must be verified through current account/provider terms; do not certify end-to-end five-minute deletion from local TTL tests alone. Fail capability preflight or leave transcription disabled when required retention cannot be established. A generic API `store:false` flag is not proof of full upstream zero retention. No calendar/CRM credentials, connectors, transcript uploads, invitations or synchronization are part of this release.
 
 ## 14. Callback routing and continuity across calls
 
@@ -539,7 +512,7 @@ Local mode routes to the online local rep when available and has a carrier-side 
 
 ### 14.2 The next call should start with a useful brief
 
-After post-call analysis or a relevant CRM/knowledge update, rebuild only the affected lead packet. Include: last conversation and outcome; what the person actually cares about; unresolved questions/objections; explicit promises and due dates; what was already answered; relevant new facts; and the recommended next question or explanation. Label uncertainty and human overrides.
+After post-call analysis or a relevant imported-data/knowledge update, rebuild only the affected lead packet. Include: last conversation and outcome; what the person actually cares about; unresolved questions/objections; explicit promises and due dates; what was already answered; relevant new facts; and the recommended next question or explanation. Label uncertainty and human overrides.
 
 Display this beside the current lead before dialing, not only in a separate history page. “Why this lead now?” should explain a requested callback, coverage need or statistical preference in plain language. Keep evidence drill-down available without making the rep read a report during a call. A handoff to another rep carries ownership and the same context.
 
@@ -554,18 +527,18 @@ Do not regenerate unchanged packets on every view. Cache by transcript/commitmen
 | First run | Choose local or connected; clearly separate sample workspace; restore saved workspace/session; explain which provider capability is missing |
 | Ready state | Device/microphone check, campaign, available/pause state, next due work; do not imply ready when telephony is disconnected |
 | Before dialing | Identity, local time, contactability, prior-call brief, purpose, chosen number/reason and next useful question |
-| Active call | Unobstructed call controls, private helper input/hotkey, transcript and one useful primary suggestion; expandable context/tips |
-| Wrap-up | Suggested disposition and editable note, confirmed/suggested follow-up, visible queued/synced state; no long blocking analysis step |
+| Active call | Unobstructed call controls, fixed top coach strip, prepared script, compact stat-ML context and optional ephemeral transcript/help expansion; expandable context/tips |
+| Wrap-up | Suggested disposition and editable note, confirmed/suggested follow-up, visible analysis/task state; no long blocking analysis step |
 | Tasks | Due/overdue/upcoming, owner, exact time/window and zone, evidence, confirm/reschedule/snooze/complete/cancel; clear distinction between task and booking |
-| Lead/account timeline | Calls, human notes, commitments, tasks, meetings, CRM sync and outcome corrections in chronological context |
-| Review/coaching | Grounded notes, permitted playback, evidence-aligned scores, concrete tips, corrections, disputes and practice goals |
-| Problems | A concise exception list for ambiguous dates, conflicting CRM edits, missing facts and failed external actions; one actionable resolution per item |
+| Lead/account timeline | Calls, human notes, commitments, tasks, rep-reported meetings and outcome corrections in chronological context |
+| Review/coaching | Grounded notes, retained rundown, evidence-expiry status, calibrated scores, concrete tips, corrections, disputes and practice goals |
+| Problems | A concise exception list for ambiguous dates, conflicting notes, missing facts and failed external actions; one actionable resolution per item |
 
 Private rep questions and helper answers must not accidentally enter the prospect transcript, call recording or CRM activity unless deliberately included. Automatic tips can be muted without disabling manual help. Support keyboard operation, readable contrast, focus management, screen-reader names and ordinary small-window sizes; do not hide hangup/opt-out behind scrolling or an AI panel.
 
 ### 15.2 Admin workflow
 
-Provide a usable setup/check sequence for seller identity, campaigns/goal, calling and data policies, inventory, list/CRM, knowledge, Telnyx connectivity, reputation, inference and calendar. Each step shows its actual state and remedy. A green local health check cannot stand in for every optional provider's readiness.
+Provide a usable setup/check sequence for seller identity, campaigns/goal, calling and data policies, inventory, list, knowledge, Telnyx connectivity, observed health, PAYG inference, DNC and retention. Each step shows its actual state and remedy. A green local health check cannot stand in for every optional provider's readiness.
 
 The number view shows owned/ready/pending/limited/paused inventory, external reputation with freshness, observed health with support, callback status and capacity versus the list. The purchase proposal shows minimum additions and real bottlenecks. Configuration is editable with validation, versioning and scope; defaults come from one definition. Model/experiment detail and raw diagnostics stay in advanced views.
 
@@ -603,7 +576,26 @@ Document the distinction among predictor accuracy, observational associations, a
 
 ### 16.3 Costs and limits
 
-Keep unified accounting for telephony legs, STT tracks, recordings/storage, AMD/playback, number rentals/orders, reputation subscription/checks/remediation, research/search, live inference, post-call inference and hosting. Use account/provider receipts where possible and explicit estimates otherwise. Reconcile canceled/failed/late inference attempts, duplicate usage events and provider credits without silently releasing unknown liability.
+Published reference prices checked October 17, 2026; actual rates/rounding/taxes depend on account, route and provider receipts:
+
+| Component | Cost policy and estimate |
+| --- | --- |
+| Local application, SQLite, observed health | No service fee; own hardware/network |
+| Telnyx voice | PAYG Voice API $0.002/min plus termination (US example from $0.005/min); separately bill actual browser/agent leg, not just prospect talk time |
+| STT | PAYG selected engine, published examples Soniox $0.002/min / Parakeet $0.0015/min; verify track and rounding charges |
+| Cerebras via OpenRouter | Candidate GPT-OSS-120B endpoint $0.35/M input, $0.75/M output; platform/credit fees additional (standard pricing currently 5.5%); fetch account rates before spending |
+| DNC prepaid API candidate | DoNotCallDNC: $100/60,000 queries (~$0.001667 each), no recurring charge or credit expiry; source/account authorization still required |
+| DNC one-off file scrub | Same vendor publishes $0.00070/number first tier, $15 minimum; manual import requires provenance, freshness and seller authorization |
+| Official national registry | First five prospect area codes free with seller registration; broader non-exempt access has annual fees. Prepaid service does not waive this requirement |
+| Number rental | Existing commitments disclosed; new Telnyx DIDs from $1/month are blocked under no-recurring policy; no silent release of existing callback identities |
+| External reputation | Telnyx $100/month service excluded; first-party observed health default, external label unknown unless authorized evidence imported |
+| Recording / calendar / CRM sync | Disabled; no corresponding usage should be generated |
+| Optional lookup, AMD, search | PAYG only when useful and budgeted; list exact configured rate, units and receipt, no automatic paid health probes |
+
+Every monetary estimate separates prepaid balance/minimum top-up, usage, recurring commitments already owned, uncertain liabilities and taxes. No provider account is created or funded automatically. Do not silently enable a subscription under a feature switch. Cached screening may reduce queries but cannot exceed source freshness or remove seller-access requirements.
+
+
+Keep unified accounting for telephony legs, STT tracks, AMD/playback, existing number rentals, prepaid DNC queries, research/search, live inference and post-call inference. Subscription enrollment, new rental commitments, paid hosting and recurring monitoring are blocked by the accepted policy. Local software has no subscription. Use account/provider receipts where possible and explicit estimates otherwise. Reconcile canceled/failed/late inference attempts, duplicate usage events and provider credits without silently releasing unknown liability.
 
 Separate required calling controls from optional AI budgets. Stop scheduling new optional work when its authorized budget is exhausted, while allowing hangup, opt-out, recovery and previously owed bookkeeping. A caller-ID rental or provider schedule is an ongoing obligation, not a one-time API-request estimate. Show meaningful limits to admins without exposing cost/debug internals on the rep's active call surface.
 
@@ -643,7 +635,7 @@ These are **proposed engineering release targets**, not measured achievements or
 | Event acceptance | Durable receipt/ack p95 under 100 ms excluding internet transit; no provider call inside the receipt transaction |
 | Event-to-operational-state | p95 under 250 ms for already received events under accepted load; external reconciliation reported separately |
 | Cached report response | p95 under 250 ms with freshness displayed; expensive refresh is an asynchronous job |
-| Wrap-up save | Local/server persistence p95 under 250 ms; external sync visibly pending and separately timed |
+| Wrap-up save | Local/server persistence p95 under 250 ms; analysis visibly pending and separately timed |
 | Controlled six-call coach fixture | Six 700 ms jobs with capacity at least six complete in roughly one provider interval plus measured orchestration, initial bound 1.5 seconds; per-call order remains correct |
 | Local startup/idle | Ready UI/authority target under 5 seconds; idle CPU under 2% of one core averaged over 5 minutes; baseline authority RSS target under 200 MiB with no training model loaded |
 | Normal desktop memory | Initial total steady-state target under 500 MiB for one rep, measured per OS; exclude separately reported transient training child and long-call cache peaks |
@@ -680,13 +672,13 @@ For Mac, use the existing app's signed updater, verify its exact executable/back
 
 ### 19.3 Native and live acceptance
 
-Use computer control on the installed Mac app through local and connected journeys: setup/reconnect, readiness, calling, live helper/manual question, wrap-up, dated task, review/correction, allocation/reputation screen, CRM sync status and restart. Use the Windows native harness or a real supported Windows environment for the equivalent journeys, fresh machine and in-place upgrade. Browser automation alone does not certify system webviews, microphone or native lifecycle.
+Use computer control on the installed Mac app through local and connected journeys: setup/reconnect, readiness, calling, live helper/manual question, wrap-up, dated task, review/correction, allocation/reputation screen, DNC/cost/retention status and restart. Use the Windows native harness or a real supported Windows environment for the equivalent journeys, fresh machine and in-place upgrade. Browser automation alone does not certify system webviews, microphone or native lifecycle.
 
-When credentials and owned endpoints become available, verify actual outbound/inbound calls, observed caller ID, bridge/audio timing, STT side/finality, call-control recovery, permitted voicemail, account billing, Cerebras route/quality/latency, reputation charges/results and CRM/calendar effects. Test headset changes, NAT, Bluetooth, microphone permission, sleep/wake, long calls and provider outages. Retain sanitized receipts with exact versions and destinations redacted.
+When credentials and owned endpoints become available, verify actual outbound/inbound calls, observed caller ID, bridge/audio timing, STT side/finality, call-control recovery, permitted voicemail, account billing, Cerebras route/quality/latency, observed number-health events and any authorized prepaid screening receipts. Test headset changes, NAT, Bluetooth, microphone permission, sleep/wake, long calls and provider outages. Retain sanitized receipts with exact versions and destinations redacted.
 
 ### 19.4 Complete handoff and cleanup
 
-Provide a rep quickstart and an admin setup/diagnostic runbook: local vs shared, keys vs telephony tokens, ingress, inventory/setup, external reputation costs, CRM/calendar auth, knowledge, tasks, backups/restore, updates, expected degraded states and support export. Show how to recover uncertain orders/actions and how to pause optional charges. A new installer should boot without Python/Node/Docker on the rep machine.
+Provide a rep quickstart and an admin setup/diagnostic runbook: local vs shared, keys vs telephony tokens, ingress, inventory/setup, external reputation costs, DNC authorization and prepaid screening, knowledge, tasks, backups/restore, updates, expected degraded states and support export. Show how to recover uncertain orders/actions and how to pause optional charges. A new installer should boot without Python/Node/Docker on the rep machine.
 
 Final preflight checks scope-appropriate tests/types/lint/build, dependency/secret/license checks, database integrity, migration/backup restore, no abandoned task-owned test processes, no unintended active claims/calls and clean committed/pushed Git. Remove only this task's disposable resources; preserve user data, signing keys, historical evidence and unrelated services. Publish accurate release notes and a remaining-gates table. Do not call missing software an external credential gate.
 
@@ -705,15 +697,15 @@ Each ID is a test family with explicit cases, not permission to collapse the who
 | ID | Required cases and pass condition |
 | --- | --- |
 | A01 | Existing local workspace migrates without losing IDs, human notes, suppressions, keys or pending obligations; interrupted backfill resumes |
-| A02 | Local setup with no OpenDialer account works; sample data isolated; missing Telnyx/LLM/CRM does not produce fake readiness |
+| A02 | Local setup with no OpenDialer account works; sample data isolated; missing Telnyx/LLM/DNC does not produce fake readiness |
 | A03 | Shared login, role changes, session expiry and seller isolation; no direct endpoint/caller-ID override from renderer |
-| A04 | Webhook accepted then processing crashes; retry/restart processes the event once with no transcript loss |
+| A04 | Webhook accepted then processing crashes; retry within TTL processes once; restart/expiry explicitly reports unavailable raw content rather than claiming successful analysis |
 | A05 | Duplicate/out-of-order events, event-ID payload conflict, late answer after end and missing terminal webhook reconcile correctly |
 | A06 | Every external command state is crashed before send, after send, before receipt persistence and during recovery; no permanent sending state or blind duplicate |
 | A07 | Actual documented transcript-track shapes, unknown side, interim/final revision and engine-specific timestamps; corrected derived state invalidates |
 | A08 | Two reps/same endpoint, multiple campaigns, expired claims, opt-out racing a start and active detached obligations preserve all invariants |
 | A09 | Control/AI/DB outage, disconnect, desktop/authority restart and wake; audio controls remain responsive and orphan legs reconcile |
-| A10 | Monitored/detached voicemail: greeting/no beep/full mailbox/false machine/late human/failure/restart, exact leg survival and playback-start gate |
+| A10 | Final permitted attempt only, no early drop despite model/UI suggestion; monitored/detached mailbox, opt-out, late-human and restart gates remain. |
 | A11 | Callback owner unavailable, teammate available, everyone busy, offline local machine and ambiguous caller; actual fallback plus durable task |
 | A12 | Inventory pagination/existing configuration changes, pending/partial orders, stale quote and denied budget; correct usable vs waiting capacity |
 | A13 | Purchase timeout, UI reload/retry and crash reconcile one logical intent; no new order key for uncertain work |
@@ -722,18 +714,18 @@ Each ID is a test family with explicit cases, not permission to collapse the who
 | A16 | Rep-limited vs DID-limited vs window-limited list; worked 240/180/140 example; ramp delay and future capacity correct |
 | A17 | Small exhaustive allocation cases match the optimum; large heuristic reports bound/gap; stable IDs and incremental demand changes preserved |
 | A18 | Location-aware initial binding, retries, unhealthy reassignment, old-number inbound retention, wrong seller and unknown geography |
-| A19 | Reputation approvals, no-data/null/stale results, pagination, refresh batches, account/country denial and ownership loss |
-| A20 | Cached vs uncached/fresh billing, schedule default, duplicate refresh, cap exhaustion and confirmed provider-schedule change |
-| A21 | Remediation accepted/pending/refused/partial/review/duplicate/restart; receipts and no false universal-clean assertion |
+| A19 | Observed health has support/uncertainty; optional imported external labels retain source/time/null; account/country/ownership denial never produces green health. |
+| A20 | No subscription/rental activation; prepaid per-request budget, no charged dashboard GET, duplicate/cache/uncertain accounting and existing recurring disclosure. |
+| A21 | PAYG DNC adapter exact response/phone/time validation, denied/empty credits/timeouts/malformed response all fail closed; no billing retry loop. |
 | A22 | Unknown objection, paraphrase, negation, sarcasm, previous answer and changed facts produce contextual freeform help without card match |
-| A23 | Manual help during cooldown/muted tips, private typed questions, long explanation, no product fact and no irrelevant suggestion |
+| A23 | Proactive help without typing; fixed top strip and main script visible at small sizes; manual help secondary and available with muted tips. |
 | A24 | Valid novel wording passes; unsupported claim, invented price/relationship, contradiction and omitted assertion coverage fail or qualify appropriately |
 | A25 | Concurrent six-call latency case, per-call ordering, latest-turn coalescing, fairness, overload and no post-hangup/stale output |
 | A26 | Cerebras pin, wrong provider, unsupported schema, SSE error, truncation, refusal, timeout/rate limit/cancellation and billed discarded response |
-| A27 | Context compaction retains latest question, material correction, committed dates and evidence; no cross-lead/seller context leakage |
+| A27 | Five-minute context buffer expiry retains derived needs/commitments/latest brief; corrections invalidate, no cross-seller leakage or persisted raw cache. |
 | A28 | Tips mute/pin/dismiss/usefulness, before/during/after-call advice, practice isolation and replay usefulness/distraction review |
 | A29 | Research wrong company/stale source/SSRF/prompt injection, supported claims, all-field personalization and truthful fallback |
-| A30 | Research partial batches, cache/single-flight, per-lead failure, lease heartbeat and automatic post-call packet refresh |
+| A30 | Advance/batched/off-hours template filling, gatekeeper/iPhone sections, readiness runway, wake catch-up, partial retry/cache/single-flight and post-call refresh. |
 | A31 | No fabricated training history; cold priors with unknown health; provisional vs confirmed outcomes; wrong-party/screening/voicemail distinct |
 | A32 | Delayed label availability, censored windows, grouped chronological splits, fitted preprocessing and correction/retraction prevent leakage |
 | A33 | Sparse conditional classes, model rollback, corrupted/unowned artifacts, batched prediction and artifact hashing only on load |
@@ -741,16 +733,16 @@ Each ID is a test family with explicit cases, not permission to collapse the who
 | A35 | Coverage and promised callbacks win over ranking; hard leads retained; time zones/DST and goal-change migration preserve holds |
 | A36 | Post-call finality/disposition races, quick vs final analysis, contradictory quotes and source-version invalidation |
 | A37 | Exact date retained, vague window preserved, missing zone/DST ambiguity asks clarification; confirm/reschedule/snooze/cancel one task |
-| A38 | Booked vs pending vs held/no-show/cancelled, local-only confirmation and no-invite status; avoid continued inappropriate cold calling |
+| A38 | Rep-reported booked/held/no-show/canceled/rescheduled with holds; no calendar API or invitations, no inferred attendance. |
 | A39 | AI revision preserves human edits; all rubric dimensions validated; N/A/missing/duplicate dimensions and short irrelevant calls handled |
-| A40 | CRM import mapping/pagination/duplicates/shared endpoints/merges/deletions; no clearing suppressions from external updates |
-| A41 | CRM append/update task or activity, receipt persistence, human conflict, rate limit, token revocation and uncertain create recovery |
-| A42 | Local transcript attachment/export works for external viewer; no unreachable localhost link or accidental public recording |
-| A43 | Calendar exact identity/availability/conflict, duplicate retry, event update/cancel/decline, incremental cursor loss and no fake attendance |
-| A44 | Post-call tool scope, unauthorized target, changed state, bounded turns and prompt injection; actual executor receipts required |
+| A40 | Every US outbound attempt: internal DNC first, authoritative national snapshot or fresh authorized provider result, seller coverage/freshness; no unverified exemption or missing-data clearance. |
+| A41 | Raw transcript/revision/webhook/model content expires within 300 seconds, including DB/events/jobs/logs/frontend/caches/backup/export; restart cannot extend TTL. |
+| A42 | Legacy update removes raw machine content/recording URLs while preserving IDs, human notes, suppressions and allowed derived state; backup contains no raw content. |
+| A43 | No recording-start command, no CRM/calendar write/sync/invitation, no raw transcript export/archive; local rep-confirmed meeting/follow-up works. |
+| A44 | Provider ZDR/Cerebras-only/data-collection-deny contract; unavailable privacy capability prevents raw inference; diagnostics preserve metadata only. |
 | A45 | Complete local journey: import → prepare → call/help → commitment → dated task → restart → next-call context → corrected outcome |
-| A46 | Complete connected CRM/calendar journey with two reps, handoff, offline client, late event and external action reconciliation |
-| A47 | Same dataset/definitions across home/report/export; all cohort denominators and delayed goal versions reconcile |
+| A46 | Connected two-rep journey with local tasks/handoff/corrections/ephemeral speech and provider failures; no external CRM/calendar dependency. |
+| A47 | Dashboard/report/export definitions agree; support-aware connect-rate/health warnings and numeric/natural-language prospect brief update without invented score. |
 | A48 | Rep working interval union, breaks/idle/two devices, corrected intervals and missing data; connected duration excludes ringing |
 | A49 | Inference reservations/settlement/unknown charges/duplicates and multi-leg billing; optional budgets cannot block hangup/recovery |
 | A50 | 503-lead repeat plus scaling/load profiles; constant bounded query counts, no global fences, no full-history decryption on hot paths |
@@ -773,7 +765,7 @@ Freeze the candidate source before complete SQLite/PostgreSQL, UI/native and rel
 
 ## 21. Ordered execution checklist
 
-**Current authorization is to write this plan. Application implementation has not started.** All unchecked items below are outstanding. A later implementation request starts M0; do not reinterpret the older all-checked release plans as completion of these requirements.
+**Current authorization is to implement the entire revised plan, tests first, with frequent commits/pushes and native Mac/Windows updates. No reinstall or database reset.** All unchecked items below are outstanding. M0 is active; do not reinterpret the older all-checked release plans as completion of these requirements.
 
 Each milestone ends with its focused red/green evidence, a reviewed documentation/status update and a coherent Git commit. Push accepted milestones to `TanushV/OpenDialer`. Mark an item complete only when its stated behavior and tests pass; attach the test/evidence IDs, exact source and remaining external gate in `STATUS.md`. Read this plan, the original specification, earlier plans and current status after every compaction. Keep one current execution cursor so a continuation resumes rather than restarts.
 
@@ -786,7 +778,7 @@ Depends on this written plan. Exit: maintained acceptance suite, reproducible fa
 - [ ] M0.03 Write the complete A01–A56 acceptance suite and test data contracts before production changes; identify tests needing actual accounts/devices.
 - [ ] M0.04 Run and record meaningful initial red results in both database modes without touching user databases.
 - [ ] M0.05 Freeze source/fixture versions and acceptance latency/load definitions; inventory current coverage exclusions and critical invariants.
-- [ ] M0.06 Confirm selected CRM/calendar implementation targets from actual deployment needs before connector work; retain HubSpot/Google as the documented planning default.
+- [ ] M0.06 Record latest scope, no-subscription policy and DNC authority limitations; replace withdrawn connector tests with A40–A44 privacy/DNC contracts.
 - [ ] M0.07 Commit the tests and baseline receipts before implementation; reopen contradictory completion claims as specified here.
 
 ### M1 — Repair durable events and external effects
@@ -842,9 +834,9 @@ Depends on M1 durable orders and M2 projections. Exit: A12–A21 and proposal UI
 - [ ] M4.04 Support no-history cold start, sparse geography, changing lists, progressive ramp and persistent-shortfall expansion.
 - [ ] M4.05 Implement location-aware initial assignment, load distribution, stable retries and explicit health reassignment.
 - [ ] M4.06 Finish approved purchase → configuration → callback verification → limited-use onboarding/recovery.
-- [ ] M4.07 Add Telnyx reputation capability/enterprise/LOA/status and owned-number registration flow.
-- [ ] M4.08 Add cached/fresh/batch observations, provenance/null/freshness handling and budget-aware scheduling.
-- [ ] M4.09 Add authorized remediation submission, polling/events, per-number results and restart reconciliation.
+- [ ] M4.07 Disable subscription activation and expose observed-health / external-label capability states honestly.
+- [ ] M4.08 Add observed and imported PAYG health evidence with provenance/null/freshness and budget-aware refresh.
+- [ ] M4.09 Present investigation/remediation guidance with evidence and no paid enrollment; preserve any prior uncertain effects for reconciliation.
 - [ ] M4.10 Combine external and first-party evidence into explainable workload/hold recommendations; no automatic enforcement evasion.
 - [ ] M4.11 Build capacity-versus-list, incremental benefit/cost and ready/pending/health UI; retain callbacks on paused/retiring numbers.
 
@@ -857,26 +849,26 @@ Depends on M1/M3; can use M2 persistence contracts. Exit: A29–A30, A36–A39 a
 - [ ] M5.03 Resolve precise dates and windows using call date/zone; keep uncertain dates for focused confirmation.
 - [ ] M5.04 Build commitment-to-task identity and confirm/assign/reschedule/snooze/complete/cancel transitions.
 - [ ] M5.05 Separate contactability, engagement, goal state, booking and next action; enforce appropriate outreach holds.
-- [ ] M5.06 Implement local booked/pending/held/no-show/cancelled workflow and truthful invitation/attendance status.
+- [ ] M5.06 Implement rep-reported booked/held/no-show/canceled/rescheduled outcomes and outreach holds, without invitations/calendar work.
 - [ ] M5.07 Add source-version invalidation, human-edit conflicts, complete rubrics, selective stronger review and appeals.
 - [ ] M5.08 Automatically refresh next-call context and display prior needs/promises/reasons beside the dialer.
 - [ ] M5.09 Finish actual inbound fallback and callback completion with ownership and local-offline behavior.
 - [ ] M5.10 Verify one complete local journey through restart, correction and the next call with no lost follow-up.
 
-### M6 — Connect CRM/calendar and optional post-call tools
+### M6 — Short retention, DNC and no-subscription operations
 
-Depends on M1/M5. Exit: A40–A44 and A46 pass against contract providers; actual sandbox/live receipts remain a separate gate.
+Replaces the withdrawn CRM/calendar milestone. Depends on M1/M5; acceptance A40–A44 and A46. No new integration platform.
 
-- [ ] M6.01 Implement the selected CRM/calendar authentication and capability setup in both authorities without embedded client secrets.
-- [ ] M6.02 Add external entity mappings, owners/field definitions and initial/incremental selected-list synchronization.
-- [ ] M6.03 Append real call activities, summaries and appropriately accessible transcript references/attachments exactly once.
-- [ ] M6.04 Synchronize tasks, permitted fields, conflicts, completion/cancellation and suppression changes.
-- [ ] M6.05 Implement actual calendar creation/availability, stable identities, rescheduling/cancellation and event synchronization.
-- [ ] M6.06 Capture confirmed delayed outcomes and corrections without equating calendar creation with attendance.
-- [ ] M6.07 Add a small authorized executor and, if needed, a bounded Responses-based post-call tool loop; reject arbitrary tools/targets.
-- [ ] M6.08 Handle token revocation, provider rate limits, cursor expiry, uncertain creates and crash recovery with visible receipts.
-- [ ] M6.09 Verify local-only exports and shared authenticated links from the intended viewer's access boundary.
-- [ ] M6.10 Document exact supported connector operations and account requirements; no placeholder capability claims.
+- [ ] M6.01 Implement bounded five-minute rolling in-memory transcript/model-content buffer with original receipt deadlines.
+- [ ] M6.02 Remove raw content from permanent inbox/events/jobs/logs/notes/snippets/model datasets and browser caches.
+- [ ] M6.03 Fold chunks into compact nonverbatim state before expiry; persist prospect briefs, counters and derived scorecards only.
+- [ ] M6.04 Disable call recording/archive/export paths; expose expiry honestly and preserve human-authored notes.
+- [ ] M6.05 Migrate legacy raw content and verify sanitized backup/restore; no app reinstall/reset.
+- [ ] M6.06 Enforce Cerebras ZDR/data-collection-deny and verified STT retention capability; no silent incompatible provider fallback.
+- [ ] M6.07 Implement documented prepaid DNC adapter plus authorized snapshot import, freshness/coverage and seller authorization.
+- [ ] M6.08 Recheck national and local DNC for every US submission; queue background refresh and fail closed on unavailable data.
+- [ ] M6.09 Enforce no subscription/new rental commitments, disclose existing obligations, and document PAYG prices/minimums/limits.
+- [ ] M6.10 Verify both modes without CRM/calendar credentials; no integration buttons, writes, invitations or synchronization.
 
 ### M7 — Complete learning and measurement
 
@@ -925,8 +917,8 @@ These are evidence dependencies, not substitutes for the software milestones. Im
 - [ ] X01 Telnyx approved traffic, real authorized caller ID, bridge/bypass prevention, inbound callback and billing receipts.
 - [ ] X02 Actual selected STT engine attribution/revisions and complete utterance-to-help timing on permitted calls.
 - [ ] X03 Funded Cerebras/OpenRouter route, streaming/quality/latency and settled usage under the advertised concurrency.
-- [ ] X04 Telnyx reputation enterprise/LOA approval, real query/remediation observations and account charge reconciliation.
-- [ ] X05 Selected CRM/calendar sandbox and authorized real account synchronization, receipts, conflicts and recovery.
+- [ ] X04 Actual prepaid DNC source access/freshness/authority and lookup charge reconciliation; no subscription activation.
+- [ ] X05 Selected STT and inference account retention terms/controls independently verified; no claim of provider deletion from local tests.
 - [ ] X06 Mac/Windows headset/microphone/NAT/Bluetooth/sleep/long-call hardware acceptance.
 - [ ] X07 Current seller data/policy approval and production host/DNS/TLS/backup operational acceptance where applicable.
 - [ ] X08 Representative real conversation review and adequately supported controlled pickup/conversion comparison if superiority is claimed.
@@ -971,7 +963,7 @@ The baseline produced 15 failing regression cases for the 17 findings; there is 
 | 6 — Schema/invariants | IDs/time zones, durable events, claims, human corrections and encrypted/indexed data in §§4–5, 12–13 |
 | 7 — Endpoint/permission controls | Normalization, evidence states, registry freshness, suppressions, RND capability, separate permissions in §17 |
 | 8 — Research/scripts | Bounded discovery, safe fetch, caching, provenance, complete claims validation, role adapters/Batch limitations in §§8, 12, 17 |
-| 9 — Numbers/reputation/callbacks | Existing inventory, minimum viable procurement, legitimate ramp, real Telnyx reputation and actual callback fallback in §§10–11, 14 |
+| 9 — Numbers/reputation/callbacks | Existing inventory, minimum viable procurement, legitimate ramp, Telnyx observed health and honest external-label availability and actual callback fallback in §§10–11, 14 |
 | 10 — Scheduling/ML | As-of features, pooled baseline, challenger, exploration, censored labels, coverage and trials in §§9–10, 16 |
 | 11 — Call control | Linked legs, ready rep, explicit identity, state ordering, policy rechecks, cost/traffic validation in §§5, 17, 19 |
 | 12 — Voicemail | Permission, exact topology, mailbox readiness, independently tracked leg, recovery and valid outcome measurement in §5.4 |
@@ -981,14 +973,14 @@ The baseline produced 15 failing regression cases for the 17 findings; there is 
 | 16 — APIs/jobs/providers | Small typed contracts, leases, idempotency, scoped live events and capability-specific adapters in §§4–6, 12–13 and §23.3 |
 | 17 — Build/deploy | Existing stack, tested dependency pins, one local process, compact connected composition and simple onboarding in §§3, 18–19 |
 | 18 — Security/privacy | Secrets/scopes, minimization, prompt injection, retention, audited overrides and signed updates in §§17, 19 |
-| 19 — Costs | Unified actual/estimated/uncertain accounting including reputation schedules and two-leg billing in §§4.4, 11.3, 16.3 |
+| 19 — Costs | Unified actual/estimated/uncertain accounting including excluded recurring costs and two-leg billing in §§4.4, 11.3, 16.3 |
 | 20 — Implementation gates | Test-first ordered milestones M0–M9 with separate provider/hardware gates in §§20–21 |
 | 21 — Test matrix | All original cases retained and expanded to the A01–A56 catalogue, crash/property/native/load/semantic checks in §20 |
 | 22 — Metrics/success | Unique whole-cohort reach, actual rep time, conversions, cost and customer experience in §16 |
-| 23 — Account validation | Real Telnyx/STT/LLM/CRM/calendar/hosting/policy/device receipts in X01–X08; no simulated substitution |
+| 23 — Account validation | Real Telnyx/STT/LLM/DNC/hosting/policy/device receipts in X01–X08; no simulated substitution |
 | 24 — Sources | Preserve historical source register; fresh relevant documentation and implementation evidence in §24 |
 
-The October 16 extension's allocation, operational learning, future slots, Cerebras routing, live delivery, UI, dual modes, migration and release requirements are covered by M2–M9. Reopened implementation gaps include all 17 defects plus generative semantics, meaningful tips/practice, automatic local follow-up, CRM/calendar execution, callback fallback, number setup/reputation, post-call packet refresh, always-on maintenance, source-aware metrics and learning from corrected conversational observations.
+The October 16 extension's allocation, operational learning, future slots, Cerebras routing, live delivery, UI, dual modes, migration and release requirements are covered by M2–M9. Reopened implementation gaps include all 17 defects plus generative semantics, meaningful tips/practice, automatic local follow-up, DNC and five-minute retention, callback fallback, number setup/reputation, post-call packet refresh, always-on maintenance, source-aware metrics and learning from corrected conversational observations.
 
 ### 23.2 Explicit supersessions and scope limits
 
@@ -999,8 +991,8 @@ The October 16 extension's allocation, operational learning, future slots, Cereb
 - Preserve SQLite local and PostgreSQL connected modes; SQLite is not on a shared network drive. Do not add multi-master/offline outbound sync.
 - Preserve one live prospect per rep. A simple opt-in sequential continuation can be implemented without predictive overdial or unsolicited parallel-call features.
 - Local-only without third-party AI remains usable for calling/admin/tasks if Telnyx is configured; Cerebras assistance requires network/credentials. “Purely local” means no OpenDialer shared authority, not locally hosted Cerebras or zero outbound data.
-- No general CRM suite, email/SMS sequencer, full Gong forecasting platform, native mobile app, browser farm, self-hosted LLM, neural audio/emotion service or dozens of integrations is required by this plan. Follow-up communication drafts and calendar invitations remain within explicit configured actions.
-- A narrow selected CRM/calendar adapter is required; additional vendors are separate adapter work, never implied by a generic button. Existing optional model adapters must be truthful about account eligibility and supported capabilities.
+- No general CRM suite, email/SMS sequencer, full Gong forecasting platform, native mobile app, browser farm, self-hosted LLM, neural audio/emotion service or dozens of integrations is required by this plan. Follow-up guidance is local; reps book meetings themselves.
+- CRM/calendar adapters, invitations and sync are explicitly withdrawn. No placeholder connector buttons. Existing optional model adapters must be truthful about account eligibility and supported capabilities.
 
 ### 23.3 File/responsibility changes
 
@@ -1017,18 +1009,21 @@ The October 16 extension's allocation, operational learning, future slots, Cereb
 | [Learning](../services/backend/app/optimization/learning.py) and [training](../services/backend/app/ml/training.py) | Label availability, honest partitions, bounded learned features, batch serving and controlled promotion |
 | [Post-call inference](../services/backend/app/postcall/inference.py) and [analysis](../services/backend/app/postcall/analysis.py) | Complete evidence/date/rubric contracts; version invalidation and action proposals |
 | [Administration](../services/backend/app/administration.py) | Shared metric definitions and capability diagnostics; remove fixed dashboard 40/14 assumptions |
-| New focused integration modules | One selected CRM adapter, one calendar adapter, external ID/cursor mapping and small action executor using existing durable infrastructure |
+| Focused privacy/compliance modules | Bounded TTL buffer, sanitized derived-state publication, prepaid DNC adapter and strict cost admission; reuse existing policy/jobs |
 | [Dialer](../apps/desktop/src/components/DialerPage.tsx), [Settings](../apps/desktop/src/components/SettingsPage.tsx), [Optimization](../apps/desktop/src/components/OptimizationPanel.tsx) | Split by visible workflow/state ownership; prior-call brief, helper, tasks and capacity; keep controls responsive |
 | [Live transport](../apps/desktop/src/api/live.ts) | Scoped cursor replay/deduplication/version handling, reconnect snapshot and no obsolete advice |
 | [Deployment](../deploy/compose.yml), launcher/native/update code | Smaller default runtime, maintenance always enabled and retained platform-specific update cleanup |
 
-API work extends existing routes where sensible: helper question/cancel/feedback; task confirm/reschedule/assign; commitment resolution; proposal/purchase-intent status; reputation capability/refresh/remediation; connection setup/sync status; booking and action receipts. Specify request IDs, expected versions, permissions, error states and idempotency for each before coding. Keep application commands separate from provider API parameters. Avoid parallel old/new public APIs with subtly different semantics.
+API work extends existing routes where sensible: helper question/cancel/feedback; task confirm/reschedule/assign; commitment resolution; proposal/purchase-intent status; DNC screening/status; retention/cost capability; local meeting outcome and action receipts. Specify request IDs, expected versions, permissions, error states and idempotency for each before coding. Keep application commands separate from provider API parameters. Avoid parallel old/new public APIs with subtly different semantics.
 
-Events retain scoped sequence/cursor/entity version and carry updates such as helper response, analysis stale/ready, task changed, booking changed, external action status, number observation and proposal invalidation. On replay retention overflow, use an authorized snapshot plus a new cursor. Keep event payloads minimal; no raw secrets or unrelated transcript bundles. This is the existing live channel, not a new message bus.
+Events retain scoped sequence/cursor/entity version and carry updates such as helper response, analysis stale/ready, task changed, meeting outcome changed, control action status, number observation and proposal invalidation. On replay retention overflow, use an authorized snapshot without raw text plus a new cursor. Keep event payloads minimal; no raw secrets or unrelated transcript bundles. This is the existing live channel, not a new message bus.
 
 ## 24. Sources, evidence boundaries and continuation handoff
 
 ### 24.1 Fresh documentation for this plan
+
+Latest scope references: [FTC seller/SAN requirements and five free area codes](https://www.ftc.gov/business-guidance/resources/qa-telemarketers-sellers-about-dnc-provisions-tsr-0), [prepaid DNC pricing](https://www.donotcalldnc.com/api/prepaid-pricing/), [DNC API contract](https://www.donotcalldnc.com/api/prepaid/developers/), [vendor terms and no accuracy warranty](https://www.donotcalldnc.com/terms-and-conditions/), [OpenRouter ZDR](https://openrouter.ai/blog/insights/zero-data-retention/), [OpenRouter fees](https://openrouter.ai/pricing), [Telnyx pricing](https://telnyx.com/pricing), [Balto live prompting](https://www.balto.ai/sales/), [Cresta Agent Assist](https://www.cresta.com/products/agent-assist). Vendor examples support the fixed-script/contextual-prompt design; they do not establish independent superiority. Prepaid scrubbing is a candidate integration, not proof of seller authorization or source accuracy. Former CRM/calendar sources below remain historical references only; those integrations are withdrawn.
+
 
 Documentation describes published capabilities, not account certification. Checked October 17, 2026; implementation must recheck versioned endpoint/schema details before coding the adapter.
 
@@ -1053,7 +1048,7 @@ Baseline source: `2bad067c20d23bce84b78538ab00ef009b4c7e9f`; released app 0.2.1.
 
 The prior audit report is `opendialer-audit-2026-10-16.html`, with finding register `opendialer-audit-findings-2026-10-16.json` and evidence archive `opendialer-audit-evidence-2026-10-16.zip` in the task's outputs directory. Reproductions and the load repeat receipt are in the task's `work/audit-2026-10-16` directory outside the repository. Preserve them; move only sanitized necessary fixtures/receipts into maintained test/evidence locations during M0. Never run their resetting fixture against user data.
 
-The original specification is preserved verbatim. Earlier checked boxes and “all complete” paragraphs remain historical records of narrower tests, and are superseded by the open checklist here. New performance numbers in §18 are targets; old numbers in §2 are prior measurements. No app/provider/model/CRM operation was performed by writing this document.
+The original specification is preserved verbatim. Earlier checked boxes and “all complete” paragraphs remain historical records of narrower tests, and are superseded by the open checklist here. New performance numbers in §18 are targets; old numbers in §2 are prior measurements. The original planning commit performed no app/provider/model operation. Subsequent implementation evidence is recorded separately in STATUS.md.
 
 ### 24.3 Handoff record
 
@@ -1062,8 +1057,8 @@ Planning is complete when this document has been checked against every original 
 Planning verification, October 17:
 
 - [x] Re-ingested original specification, plans and status; preserved the existing unfinished planning draft.
-- [x] Wrote 24 sections with the fix mechanisms, 56 acceptance families and 99 open execution/external-acceptance items.
+- [x] Wrote the original 24-section contract, later revised in this file for the accepted October 17 scope; retained stable acceptance and milestone IDs.
 - [x] Mapped every OD-01–OD-17 finding and original specification section; checked 66 internal/file/source links syntactically and verified all local/anchor targets.
 - [x] Verified that application/deployment/test code and the original specification are unchanged; documentation whitespace/diff checks pass.
 
-Next implementation action after authorization: establish M0's data-preservation baseline and tests-first red receipts, then M1. Do not start by reinstalling, changing language, purchasing inventory, broadening the framework stack or putting more canned labels around the existing coach. The simplest correct next step is to make the actual required behavior testable, fix its ownership/recovery, and remove measured redundant work.
+Current implementation cursor: establish M0's data-preservation baseline and tests-first red receipts, then M1. Do not start by reinstalling, changing language, purchasing inventory, broadening the framework stack or putting more canned labels around the existing coach. The simplest correct next step is to make the actual required behavior testable, fix its ownership/recovery, and remove measured redundant work.
