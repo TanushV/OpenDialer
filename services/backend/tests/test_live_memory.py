@@ -261,7 +261,7 @@ def test_observable_timing_survives_raw_expiry_without_conversation_text(workspa
     clock.now += timedelta(seconds=301)
     after = service.analysis(p, call["id"])["metrics"]
     assert after["talk_ms"] == before["talk_ms"] == {"rep": 5000, "remote": 15000}
-    assert after["questions"] == before["questions"]
+    assert after["question_count"] == before["question_count"] == 1
     assert after["timed_segments"] == 2
 
 
