@@ -109,7 +109,8 @@ async def test_replay_total_deadline_stops_new_work_and_counts_timeouts_in_laten
         [case("one"), case("two")], Slow(), model="fixture", deadline_ms=100, max_duration_ms=20
     )
     assert len(called) == 1
-    assert report["completed_samples"] == 1 and report["unattempted_samples"] == 1
+    assert report["attempted_samples"] == 1 and report["unattempted_samples"] == 1
+    assert report["valid_samples"] == 0
     assert report["p95_inference_ms"] >= 15
     assert report["expected_action_fraction"] == 0
 
@@ -251,3 +252,28 @@ def test_cli_does_not_offer_a_route_that_bypasses_required_privacy():
     )
     assert result.returncode == 0, result.stderr
     assert "groq" not in result.stdout.lower()
+
+
+def test_synthetic_replay_includes_novel_context_and_withheld_review_criteria():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    cases = [
+        json.loads(line)
+        for line in (root / "packages/evaluation-fixtures/coach.jsonl").read_text().splitlines()
+    ]
+    indexed = {value["id"]: value for value in cases}
+    for identity in (
+        "novel-committee",
+        "qualified-refusal",
+        "budget-negation",
+        "changed-interest",
+        "sarcasm",
+        "unknown-pricing",
+        "already-answered",
+        "uncertain-speaker",
+        "knowledge-contradiction",
+    ):
+        item = indexed[identity]
+        assert item["review_criteria"] and item["recent_dialogue"]
+        assert item["approved_cards"] == []
