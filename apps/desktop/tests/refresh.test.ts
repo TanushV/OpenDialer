@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { coalesceRefresh } from './refresh';
+import { coalesceRefresh } from '../src/state/refresh';
 
 function pending<T>() {
   let resolve!: (value: T) => void;
