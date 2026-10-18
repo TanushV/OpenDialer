@@ -395,3 +395,36 @@ def test_readiness_query_count_does_not_grow_per_candidate(workspace, app):
         event.remove(service.db.engine, "before_cursor_execute", count)
     assert status["inspected_leads"] == 103
     assert len(statements) <= 20, len(statements)
+
+
+@pytest.mark.asyncio
+async def test_published_script_reverts_when_supported_fact_content_changes(workspace, app, monkeypatch):
+    configure(workspace)
+    service = app.state.service
+    lead_id = workspace["lead_ids"][0]
+
+    class Provider:
+        async def complete(self, instructions, context, schema):
+            fact = context["facts"][0]
+            return InferenceResult(
+                {
+                    "lead_id": lead_id,
+                    "slots": {
+                        "relevance": {"text": fact["statement"], "fact_ids": [fact["fact_id"]]},
+                        "proof": {"text": "", "fact_ids": []},
+                    },
+                },
+                {},
+                "published-source",
+            )
+
+    monkeypatch.setattr(service, "inference", lambda *args: Provider())
+    await service.prepare(p(workspace), [lead_id])
+    packet = service.packet(p(workspace), lead_id)
+    assert packet["script"]["fallback"] is False
+    with service.db.transaction() as s:
+        fact = service.required(s, "research_facts", packet["script"]["fact_ids_used"][0], p(workspace))
+        update(fact, statement="The source was corrected.")
+    packet = service.packet(p(workspace), lead_id)
+    assert packet["script"]["fallback"] is True
+    assert packet["preparation"]["status"] == "stale"
