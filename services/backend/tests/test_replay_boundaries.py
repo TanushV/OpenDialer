@@ -181,3 +181,73 @@ def test_replay_stops_before_next_charge_after_admin_revocation(workspace, app, 
     result = post(workspace, [case("first"), case("second")])
     assert called == ["first"]
     assert result.status_code == 403
+
+
+async def test_provider_mutation_cannot_change_evidence_or_expected_answer():
+    source = {**case(), "facts": [{"statement": "Only documented capabilities are supported."}]}
+    original = json.dumps(source, sort_keys=True)
+
+    class Mutating(Quiet):
+        async def suggest(self, request, deadline_ms):
+            request["facts"][0]["statement"] = "Changed source"
+            return {"action": "NO_ACTION"}
+
+    await evaluate([source], Mutating(), model="fixture")
+    assert json.dumps(source, sort_keys=True) == original
+
+
+async def test_response_returned_after_cancelled_deadline_cannot_be_counted_valid():
+    class Late(Quiet):
+        async def suggest(self, request, deadline_ms):
+            try:
+                await asyncio.sleep(0.1)
+            except asyncio.CancelledError:
+                return {"action": "NO_ACTION"}
+
+    result = await evaluate([case()], Late(), model="fixture", deadline_ms=10)
+    assert result["valid_fraction"] == 0
+    assert result["results"][0]["failure"] == "TimeoutError"
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("expected_action", []),
+        ("expected_card_ids", 1),
+        ("recent_dialogue", "not a dialogue"),
+    ],
+)
+def test_malformed_replay_returns_a_validation_error_without_spending(
+    workspace, app, monkeypatch, field, value
+):
+    called = []
+
+    class Observer(Quiet):
+        async def suggest(self, request, deadline_ms):
+            called.append(request)
+            return {"action": "NO_ACTION"}
+
+    monkeypatch.setattr(app.state.service, "configured_coach", lambda p: (Observer(), "openrouter"))
+    monkeypatch.setattr(app.state.service.settings, "simulation", False)
+    result = post(workspace, [{**case(), field: value}])
+    assert result.status_code == 422, result.text
+    assert not called
+
+
+def test_cli_does_not_offer_a_route_that_bypasses_required_privacy():
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    result = subprocess.run(  # noqa: S603 - fixed owned CLI and help-only argument
+        [sys.executable, str(root / "scripts/evaluate_coach.py"), "--help"],
+        env={**os.environ, "PYTHONPATH": str(root / "services/backend")},
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "groq" not in result.stdout.lower()
