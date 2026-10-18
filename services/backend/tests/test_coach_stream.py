@@ -1,5 +1,6 @@
 """Documented OpenRouter SSE transport: no incomplete or unverified advice is published."""
 
+import asyncio
 import json
 
 import httpx
@@ -128,3 +129,62 @@ async def test_terminal_accounting_frame_does_not_reopen_content_or_overwrite_an
     ) as http:
         with pytest.raises(InferenceError):
             await OpenRouterCoach("fixture", http=http).suggest({"private_question": "Explain"})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("accepted", [True, False])
+async def test_only_accepted_primary_help_unlocks_the_longer_explanation_deadline(accepted):
+    from test_helper_progress import frame
+
+    primary = {k: v for k, v in advice().items() if k not in {"reason", "state_update"}}
+    shown = []
+
+    class Stream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield frame(json.dumps(primary)[:-1] + ', "reason": "')
+            await asyncio.sleep(0.08)
+            yield frame('Explanation", "state_update": null}')
+            yield frame(choices=[{"delta": {}, "finish_reason": "stop"}])
+            yield b"data: [DONE]\n\n"
+
+    async def progress(result):
+        shown.append(result)
+        return accepted
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, stream=Stream()))
+    ) as http:
+        provider = OpenRouterCoach("fixture", http=http)
+        provider.first_useful_ms = 30
+        provider.on_progress = progress
+        if accepted:
+            result = await provider.suggest({"private_question": "Explain"}, deadline_ms=400)
+            assert result["reason"] == "Explanation"
+        else:
+            with pytest.raises(TimeoutError):
+                await provider.suggest({"private_question": "Explain"}, deadline_ms=400)
+        assert len(shown) == 1
+
+
+@pytest.mark.asyncio
+async def test_stream_comments_cannot_extend_the_full_response_deadline():
+    from test_helper_progress import frame
+
+    class Stream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield frame(json.dumps(advice()))
+            for _ in range(20):
+                await asyncio.sleep(0.01)
+                yield b": keepalive\n\n"
+
+    async def progress(_):
+        return True
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, stream=Stream()))
+    ) as http:
+        provider = OpenRouterCoach("fixture", http=http)
+        provider.first_useful_ms = 30
+        provider.on_progress = progress
+        with pytest.raises(TimeoutError):
+            await provider.suggest({"private_question": "Explain"}, deadline_ms=60)
