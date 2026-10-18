@@ -349,3 +349,86 @@ def test_suppression_during_dial_keeps_durable_hangup_until_terminal_receipt(
     assert command_for(service, p, call["id"], "hangup")["status"] == "uncertain"
     with service.db.transaction(False) as s:
         assert s.scalar(select(ActiveClaim).where(ActiveClaim.call_id == call["id"])) is not None
+
+
+@pytest.mark.asyncio
+async def test_control_retry_rechecks_dedupe_window_at_send(workspace, app, carrier, clock):
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    with service.db.transaction() as s:
+        command = service.control_intent(s, p, call["id"], "transfer", {"to": "sip:rep@example.test"})
+        update(
+            command,
+            status="pending",
+            sent_at=clock.now.isoformat(),
+            recovery_reason="same_command_within_dedupe_window",
+        )
+        identity = command.id
+    clock.now += timedelta(seconds=46)
+    await service.dispatch_controls(p)
+    assert not carrier.actions
+    with service.db.transaction(False) as s:
+        assert get(s, "command_outbox", identity).data["status"] == "review_required"
+
+
+@pytest.mark.parametrize(
+    "event,payload", [("call.dtmf.received", {"digit": "9"}), ("call.gather.ended", {"digits": "9"})]
+)
+def test_voicemail_optout_does_not_release_call_before_hangup(workspace, app, event, payload):
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    with service.db.transaction() as s:
+        update(get(s, "call_attempts", call["id"]), state="VM_PLAYING", voicemail_asset="fixture")
+    service.event(p, "optout-before-hangup", event, call["id"], payload)
+    with service.db.transaction(False) as s:
+        assert get(s, "call_attempts", call["id"]).data["state"] == "ENDING"
+        assert s.scalar(select(ActiveClaim).where(ActiveClaim.call_id == call["id"])) is not None
+
+
+def test_unexpected_dial_failure_keeps_possible_carrier_obligation(workspace, app, carrier, monkeypatch):
+    service, p = app.state.service, principal(workspace)
+
+    async def unexpected(_):
+        raise ValueError("transport decoded an invalid successful body")
+
+    monkeypatch.setattr(carrier, "dial", unexpected)
+    call = start(workspace)
+    assert call["state"] == "RECONCILING"
+    assert command_for(service, p, call["id"])["status"] == "uncertain"
+
+
+def test_ended_old_agent_does_not_pause_current_agent(workspace, app):
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        put(
+            s,
+            "call_legs",
+            p["tenant_id"],
+            p["seller_id"],
+            {"kind": "agent", "rep_id": p["user_id"], "provider_id": "old-agent", "state": "ended"},
+        )
+        update(
+            get(s, "users", p["user_id"]),
+            presence={
+                "status": "ready",
+                "audio_ready": True,
+                "telephony_ready": True,
+                "agent_call_control_id": "new-agent",
+            },
+        )
+    service.agent_event(p["tenant_id"], {"call_control_id": "old-agent"}, "call.hangup")
+    with service.db.transaction(False) as s:
+        assert get(s, "users", p["user_id"]).data["presence"]["status"] == "ready"
+
+
+@pytest.mark.asyncio
+async def test_recovered_suppressed_dial_is_stopped_not_left_ringing(workspace, app, carrier):
+    service, p = app.state.service, principal(workspace)
+    carrier.timeout_after_accept = True
+    call = start(workspace)
+    with service.db.transaction(False) as s:
+        phone = get(s, "leads", call["lead_id"]).data["phone"]
+    service.suppress(p, phone, "opt_out")
+    await service.recover(p)
+    assert carrier.hangups
+    assert len(carrier.dials) == 1
