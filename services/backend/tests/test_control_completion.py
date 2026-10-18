@@ -64,6 +64,7 @@ async def test_agent_submission_cannot_regress_newer_event(
 ):
     service, p = app.state.service, principal(workspace)
     service.settings.simulation = False
+    monkeypatch.setattr(service, "carrier", lambda _: carrier)
     service.vault.write(p["tenant_id"], {"sip_username": "test-rep", "telephony_credential_id": "test-cred"})
 
     async def verified(_):
@@ -239,4 +240,112 @@ async def test_old_uncertain_dial_without_receipt_requires_review_not_permanent_
     assert len(carrier.dials) == 1
     with service.db.transaction(False) as s:
         assert get(s, "command_outbox", identity).data["status"] == "review_required"
+        assert s.scalar(select(ActiveClaim).where(ActiveClaim.call_id == call["id"])) is not None
+
+
+@pytest.mark.asyncio
+async def test_recovery_does_not_steal_unexpired_dial_lease(workspace, app, carrier, clock, monkeypatch):
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    identity = command_for(service, p, call["id"])["id"]
+    with service.db.transaction() as s:
+        update(
+            get(s, "command_outbox", identity),
+            status="sending",
+            lease_owner="active-owner",
+            lease_until=(clock.now + timedelta(seconds=20)).isoformat(),
+        )
+    attempts = []
+
+    async def observed(*args):
+        attempts.append(args)
+        return None
+
+    monkeypatch.setattr(carrier, "reconcile", observed)
+    await service.recover(p)
+    assert not attempts
+    with service.db.transaction(False) as s:
+        assert get(s, "command_outbox", identity).data["lease_owner"] == "active-owner"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("receipt_kind", ["terminal", "wrong_id", "bad_liveness"])
+async def test_dial_reconciliation_requires_matching_typed_provider_receipt(
+    workspace, app, carrier, monkeypatch, receipt_kind
+):
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    identity = command_for(service, p, call["id"])["id"]
+    with service.db.transaction() as s:
+        update(get(s, "command_outbox", identity), status="uncertain")
+    receipt = {"call_control_id": call["provider_id"], "is_alive": False}
+    if receipt_kind == "wrong_id":
+        receipt["call_control_id"] = "unrelated"
+    elif receipt_kind == "bad_liveness":
+        receipt["is_alive"] = "false"
+
+    async def received(*_):
+        return receipt
+
+    monkeypatch.setattr(carrier, "reconcile", received)
+    await service.recover(p)
+    with service.db.transaction(False) as s:
+        current = get(s, "call_attempts", call["id"])
+        assert current.data["provider_id"] == call["provider_id"]
+        if receipt_kind == "terminal":
+            assert current.data["state"] == "ENDED"
+            assert s.scalar(select(ActiveClaim).where(ActiveClaim.call_id == call["id"])) is None
+        else:
+            assert current.data["state"] == call["state"]
+            assert get(s, "command_outbox", identity).data["status"] == "review_required"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("alive", [True, False])
+async def test_old_control_is_reconciled_without_claiming_alive_means_executed(
+    workspace, app, carrier, clock, monkeypatch, alive
+):
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    with service.db.transaction() as s:
+        command = service.control_intent(s, p, call["id"], "transcription_start", {})
+        update(command, status="sending", sent_at=(clock.now - timedelta(minutes=2)).isoformat())
+        identity = command.id
+    lookups = []
+
+    async def received(*args):
+        lookups.append(args)
+        return {"call_control_id": call["provider_id"], "is_alive": alive}
+
+    monkeypatch.setattr(carrier, "reconcile", received)
+    await service.recover(p)
+    assert lookups and not carrier.actions
+    with service.db.transaction(False) as s:
+        current = get(s, "command_outbox", identity)
+        assert current.data["status"] == ("review_required" if alive else "cancelled")
+        if not alive:
+            assert get(s, "call_attempts", call["id"]).data["state"] == "ENDED"
+
+
+def test_suppression_during_dial_keeps_durable_hangup_until_terminal_receipt(
+    workspace, app, carrier, monkeypatch
+):
+    service, p = app.state.service, principal(workspace)
+    service.settings.simulation = True
+    original = carrier.dial
+
+    async def accepted(payload):
+        result = await original(payload)
+        service.suppress(p, payload["to"], "opt_out")
+        return result
+
+    async def unavailable(*_):
+        raise TimeoutError()
+
+    monkeypatch.setattr(carrier, "dial", accepted)
+    monkeypatch.setattr(carrier, "hangup", unavailable)
+    call = start(workspace)
+    assert call["state"] == "ENDING"
+    assert command_for(service, p, call["id"], "hangup")["status"] == "uncertain"
+    with service.db.transaction(False) as s:
         assert s.scalar(select(ActiveClaim).where(ActiveClaim.call_id == call["id"])) is not None
