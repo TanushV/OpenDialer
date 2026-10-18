@@ -952,13 +952,23 @@ class Service(ReservationPlanner):
             s.delete(claim)
         emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": call.data["state"]})
 
-    def _claim_hangup(self, p, call_id, owner):
+    def _claim_hangup(self, p, call_id, owner, recovery_expected=None):
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             call = self.required(s, "call_attempts", call_id, p)
             if p["role"] == "rep" and call.data["rep_id"] != p["user_id"]:
                 fail(403, "Call belongs to another rep")
             if call.data["state"] in TERMINAL:
+                return doc(call), None
+            if recovery_expected is not None and (
+                any(
+                    call.data.get(key) != recovery_expected.get(key)
+                    for key in ("provider_id", "started_at", "max_call_seconds")
+                )
+                or not call.data.get("started_at")
+                or (self.clock() - dt(call.data["started_at"])).total_seconds()
+                < call.data.get("max_call_seconds", self.settings.max_call_seconds)
+            ):
                 return doc(call), None
             provider_id = call.data.get("provider_id")
             command_id = call.id + ":hangup"
@@ -1020,9 +1030,9 @@ class Service(ReservationPlanner):
                 )
             return doc(call)
 
-    async def hangup(self, p, call_id):
+    async def hangup(self, p, call_id, *, recovery_expected=None):
         owner = uid()
-        call, command = await asyncio.to_thread(self._claim_hangup, p, call_id, owner)
+        call, command = await asyncio.to_thread(self._claim_hangup, p, call_id, owner, recovery_expected)
         if not command:
             return call
         if command["provider_id"]:

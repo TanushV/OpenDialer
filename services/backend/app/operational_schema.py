@@ -147,6 +147,11 @@ def indexes(name):
         Index(f"ix_{name}_lead", "tenant_id", "seller_id", "op_lead_id", "op_at"),
         Index(f"ix_{name}_time", "tenant_id", "seller_id", "op_at"),
         *(
+            (Index("ix_call_attempts_recovery_due", "tenant_id", "seller_id", "op_due_at"),)
+            if name == "call_attempts"
+            else ()
+        ),
+        *(
             (Index(f"ix_{name}_control_due", "tenant_id", "seller_id", "op_control_due_at"),)
             if name in {"call_attempts", "followup_tasks"}
             else ()
@@ -228,10 +233,27 @@ def sync_columns(row, lookup_key=None):
     if row.__tablename__ == "call_attempts":
         from app.telephony.reducer import TERMINAL
 
+        started, lifetime = as_time(data.get("started_at")), data.get("max_call_seconds")
+        last_check = as_time(data.get("orphan_checked_at"))
+        epoch = datetime(1970, 1, 1, tzinfo=UTC)
+        deadline = epoch
+        if started and type(lifetime) is int and lifetime > 0:
+            try:
+                deadline = started + timedelta(seconds=lifetime)
+            except OverflowError:
+                pass  # Corrupt legacy deadlines must remain visible for recovery.
+        row.op_due_at = (
+            max(
+                epoch if row.op_status == "ENDING" else deadline,
+                last_check + timedelta(seconds=30) if last_check else epoch,
+            )
+            if row.op_status not in TERMINAL
+            else None
+        )
         row.op_control_due_at = (
             as_time(data.get("voicemail_deadline")) if row.op_status not in TERMINAL | {"ENDING"} else None
         )
-        row.op_index_version = 2
+        row.op_index_version = 3
     if row.__tablename__ == "followup_tasks":
         # Human task completion does not terminate a carrier leg.
         row.op_active = bool(data.get("inbound") and data.get("inbound_state") != "ended")

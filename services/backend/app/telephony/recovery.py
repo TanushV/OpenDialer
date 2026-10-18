@@ -203,11 +203,15 @@ class CommandRecovery:
                         calls.tenant_id == p["tenant_id"],
                         calls.seller_id == p["seller_id"],
                         calls.op_status.not_in(TERMINAL),
+                        calls.op_due_at <= self.clock(),
                     )
-                    .order_by(calls.created_at)
+                    .order_by(calls.op_due_at, calls.id)
                     .limit(100)
+                    .with_for_update(skip_locked=True)
                 )
             )
+            for call in active:
+                update(call, orphan_checked_at=self.clock().isoformat())
             configurations = list(
                 s.scalars(
                     select(commands)
@@ -223,6 +227,18 @@ class CommandRecovery:
                 )
             )
             return [doc(c) for c in pending], [doc(c) for c in active], [doc(c) for c in configurations]
+
+    def _finish_orphan(self, p, snapshot):
+        with self.db.transaction() as s:
+            call = self.required(s, "call_attempts", snapshot["id"], p)
+            s.refresh(call, with_for_update=True)
+            if (
+                call.version != snapshot["version"]
+                or call.data["state"] != "ENDING"
+                or call.data.get("provider_id") != snapshot.get("provider_id")
+            ):
+                return
+            self.finish_call(s, p, call, "provider_terminal_reconciliation")
 
     async def recover(self, p):
         await asyncio.to_thread(self.jobs.recover_expired)
@@ -259,27 +275,17 @@ class CommandRecovery:
         await asyncio.gather(*(check_configuration(command) for command in configurations))
         for call in calls:
             if call["state"] == "ENDING" and call.get("provider_id"):
+                receipt = None
                 try:
                     receipt = await self.carrier(p["tenant_id"]).reconcile(call["id"], call["provider_id"])
                 except Exception as exc:
                     logging.getLogger(__name__).warning("Call status unavailable: %s", type(exc).__name__)
-                    continue
                 verified = call_receipt(receipt, call["provider_id"], simulation=self.settings.simulation)
                 if verified and not verified[1]:
-
-                    def finish(identity=call["id"]):
-                        with self.db.transaction() as s:
-                            self.finish_call(
-                                s,
-                                p,
-                                self.required(s, "call_attempts", identity, p),
-                                "provider_terminal_reconciliation",
-                            )
-
-                    await asyncio.to_thread(finish)
+                    await asyncio.to_thread(self._finish_orphan, p, call)
                     continue
-            if (self.clock() - dt(call["started_at"])).total_seconds() > call.get(
+            if call.get("started_at") and (self.clock() - dt(call["started_at"])).total_seconds() >= call.get(
                 "max_call_seconds", self.settings.max_call_seconds
             ):
-                await self.hangup(p, call["id"])
+                await self.hangup(p, call["id"], recovery_expected=call)
         return {"reconciled": len(commands), "examined_calls": len(calls)}
