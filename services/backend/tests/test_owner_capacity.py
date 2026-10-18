@@ -277,7 +277,23 @@ def test_expired_reservation_does_not_erase_declared_owner_capacity(workspace, a
                 "staffed_windows": [staffed(p["user_id"], start=clock.now, minutes=2)],
             },
         )
-        target = service.scoped(s, "leads", p)[0]
+        targets = service.scoped(s, "leads", p)
+        target = targets[0]
+        for row in targets:
+            update(
+                row,
+                status="suppressed" if row.id != target.id else "eligible",
+                timezone="UTC",
+                region="general",
+            )
+        inventory = service.scoped(s, "number_inventory", p)
+        for item in inventory:
+            update(
+                item,
+                region="general",
+                lifecycle="healthy" if item.id == inventory[0].id else "retired",
+                capacity=1,
+            )
         s.add(
             ActiveClaim(
                 tenant_id=p["tenant_id"],
@@ -294,3 +310,5 @@ def test_expired_reservation_does_not_erase_declared_owner_capacity(workspace, a
         result = service.forecast(s, p)
     assert result["rep_capacity_attempts"] == 1
     assert result["occupied_rep_count"] == 0
+    assert result["existing_only_capacity"] == 1
+    assert result["minimum_additional_numbers"] == 0
