@@ -319,3 +319,56 @@ async def test_practice_does_not_return_help_from_a_changed_knowledge_source(
     monkeypatch.setattr(service, "configured_coach", lambda _: (Provider(), "openrouter"))
     result = await service.practice(p, "How should I clarify procurement ownership?")
     assert result["status"] != "ready" and "guidance" not in result
+
+
+@pytest.mark.asyncio
+async def test_practice_replay_rechecks_current_knowledge_without_another_charge(workspace, app, monkeypatch):
+    service, p = app.state.service, principal(workspace)
+    requests = []
+
+    class Provider:
+        last_usage, last_request_id = {"cost": 0.001}, "practice-replay-source"
+
+        async def suggest(self, request, **kwargs):
+            requests.append(request)
+            result = advice(0)
+            result["evidence_segment_ids"] = []
+            return result
+
+    monkeypatch.setattr(service.settings, "simulation", False)
+    monkeypatch.setattr(service, "configured_coach", lambda _: (Provider(), "openrouter"))
+    identity = str(uuid4())
+    assert (await service.practice(p, "A practice scenario", identity))["status"] == "ready"
+    with service.db.transaction() as s:
+        update(service.approved_playbook(s, p), approved=False)
+    replay = await service.practice(p, "A practice scenario", identity)
+    assert replay["status"] != "ready" and "guidance" not in replay
+    assert len(requests) == 1
+
+
+def test_invalidated_examples_do_not_exhaust_the_active_library(workspace, app):
+    call, p = source(workspace, app)
+    service = app.state.service
+    with service.db.transaction() as s:
+        identities = []
+        for i in range(24):
+            example = put(
+                s,
+                "snippets",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    "call_id": call["id"],
+                    "text": "An older reviewed tip",
+                    "approved": True,
+                    "privacy_contract": 1,
+                    "evidence_revisions": {"missing-source": i},
+                },
+            )
+            identities.append(example.id)
+        update(get(s, "sellers", p["seller_id"]), coaching_library_ids=identities)
+    result = publish(workspace, call)
+    assert result.status_code == 200, result.text
+    with service.db.transaction(False) as s:
+        assert len(service.scoped(s, "snippets", p)) == 25, "Retain obsolete review history"
+        assert get(s, "sellers", p["seller_id"]).data["coaching_library_ids"] == [result.json()["id"]]
