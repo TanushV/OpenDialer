@@ -410,3 +410,42 @@ async def test_prepared_script_keeps_its_older_support_when_new_facts_fill_the_c
     with service.db.transaction() as s:
         update(get(s, "research_facts", fact["id"]), status="withdrawn")
     assert service.packet(p, lead_id)["script"]["fallback"] is True
+
+
+def test_helper_keeps_current_support_for_the_frozen_script(workspace, app, clock):
+    service, p, call, fact_id, _ = history(workspace, app, clock, count=0)
+    with service.db.transaction() as s:
+        fact = get(s, "research_facts", fact_id)
+        update(fact, fact_id=fact_id)
+        row = get(s, "call_attempts", call["id"])
+        update(row, script_snapshot={**row.data["script_snapshot"], "fact_ids_used": [fact_id]})
+        for i in range(12):
+            put(
+                s,
+                "research_facts",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    **fact.data,
+                    "fact_id": f"new-{i}",
+                    "statement": f"A newer company fact {i}",
+                },
+                now=clock.now + timedelta(seconds=1),
+            )
+    context = service._help_context(p, call["id"], True, "Clarify this script")[0]
+    assert fact_id in {fact["fact_id"] for fact in context["facts"]}
+    with service.db.transaction() as s:
+        update(get(s, "research_facts", fact_id), status="withdrawn")
+    context = service._help_context(p, call["id"], True, "Clarify this script")[0]
+    assert fact_id not in {fact["fact_id"] for fact in context["facts"]}
+
+
+def test_helper_preserves_human_notes_but_does_not_reuse_invalidated_ai_summary(workspace, app, clock):
+    service, p, call, _, _ = history(workspace, app, clock, count=1)
+    with service.db.transaction() as s:
+        note = service.scoped(s, "notes", p)[0]
+        update(note, stale=True)
+    prior = service._help_context(p, call["id"], True, "Context please")[0]["prior_call_context"][0]
+    assert prior["human_notes"] == "Prior human note 0"
+    assert not prior["rundown"]
+    assert prior["analysis_stale"] is True
