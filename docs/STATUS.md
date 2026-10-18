@@ -390,6 +390,8 @@ RED: replay-boundaries-red.txt (ten failures), replay-final-boundaries-red.txt (
 
 GREEN: **102 SQLite / 102 PostgreSQL** learning, chronology, report, remediation and optimization cases (learning-history-accepted-{sqlite,postgres}.txt), plus Ruff/format/diff checks. Isolated synthetic calculation on macOS ARM64/Python 3.12.13, 20 samples/profile with identical before/after outputs: at 4,000 records per input, training p95 **555.257 → 55.066 ms**; cohort p95 **1,352.739 → 10.006 ms**. Receipt learning-join-benchmark.json records baseline 056a676 and revised file SHA-256 d20771cf33ab4050a4d2a2deed4f9e9969149108a4321363cc3b47e2e45e3c4d. These are pure-function timings, not database/UI/full-load acceptance. Scoped M2.06b only is checked. Incremental aggregates, semantic quality and remaining software/native gates stay open; installed 0.2.1 remains untouched.
 
+2026-10-18 OWNER-SPECIFIC CAPACITY TESTS FIRST. Eleven new cases fail against unchanged source (owner-capacity-corrected-red.txt), including borrowing another rep for a promised callback, duplicate overlapping headcount, offset-period DID overlap, missing named identities and active obligations counted as future demand. Seven invalid-input cases already fail closed. The first run had a wrong fixture inventory key; the corrected run reaches the live-claim assertion. The named-staff editor browser contract is also red before implementation. No product/native/provider change occurs in this tests commit. Reuse the existing planner, scoped roster pages and capacity display; do not add a solver/service.
+
 ## Historical record (superseded where the current contract differs)
 
 

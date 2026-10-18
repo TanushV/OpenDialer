@@ -265,3 +265,99 @@ test("declared staffing and setup time survive reload and explain the capacity p
     .getByRole("button", { name: "Save optimization settings" })
     .click();
 });
+
+test("named staffing survives reload and explains callbacks without an available owner", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page.getByRole("button", { name: "Add staffed period" }).click();
+  await page.getByLabel("Use named reps 1").check();
+  const select = page.getByLabel("Named reps 1", { exact: true });
+  const owner = await select.locator("option").first().getAttribute("value");
+  expect(owner).toBeTruthy();
+  await select.selectOption(owner!);
+  await page.getByLabel("Staffed start 1").fill("2026-10-19T09:00");
+  await page.getByLabel("Staffed end 1").fill("2026-10-19T12:00");
+  const saved = page.waitForRequest(
+    (request) =>
+      request.method() === "PUT" &&
+      request.url().endsWith("/v1/admin/optimization"),
+  );
+  await page
+    .getByRole("button", { name: "Save optimization settings" })
+    .click();
+  const body = (await saved).postDataJSON();
+  expect(body.staffed_windows[0].rep_ids).toEqual([owner]);
+  expect(body.staffed_windows[0].reps).toBe(1);
+  await expect(
+    page.getByRole("button", { name: "Save optimization settings" }),
+  ).toBeEnabled();
+  await page.reload();
+  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await expect(page.getByLabel("Use named reps 1")).toBeChecked();
+  await expect(page.getByLabel("Named reps 1", { exact: true })).toHaveValues([
+    owner!,
+  ]);
+  await expect(
+    page.getByText("Overlapping named periods count each rep once.", {
+      exact: false,
+    }),
+  ).toBeVisible();
+  await page.route("**/v1/admin/numbers/proposal", (route) =>
+    route.fulfill({
+      json: {
+        forecast_attempts: 1,
+        existing_only_capacity: 0,
+        staffing_shortfall: 1,
+        number_shortfall: 0,
+        binding_shortfall: 0,
+        setup_shortfall: 0,
+        minimum_additional_numbers: 0,
+        proposed_additional_numbers: 0,
+        monthly_rental_estimate_usd: 0,
+        schedule_scope: "declared_staffed_windows",
+        owner_unavailable_attempts: 1,
+        unavailable_staff_count: 1,
+        occupied_rep_count: 1,
+        regions: [],
+        optimality_scope:
+          "One next attempt per lead on the declared staffing grid",
+      },
+    }),
+  );
+  await page.getByRole("button", { name: "Numbers", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Plan regional capacity", exact: true })
+    .click();
+  const proposal = page.getByTestId("capacity-proposal");
+  await expect(
+    proposal.getByText("Callbacks without owner availability", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    proposal.getByText(
+      "1 configured rep is unavailable; their time is excluded.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(
+    proposal.getByText(
+      "1 rep has an existing call or reservation; occupied time is excluded.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page.getByRole("button", { name: "Remove staffed period 1" }).click();
+  await page
+    .getByRole("button", { name: "Save optimization settings" })
+    .click();
+});
