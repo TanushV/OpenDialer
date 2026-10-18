@@ -173,3 +173,66 @@ async def test_restore_release_requires_original_missing_suppression_receipt(wor
     with pytest.raises(HTTPException) as error:
         await service.reconcile_restore(p, "Synthetic review cannot replace missing denial bytes")
     assert error.value.status_code == 409
+
+
+def test_concurrent_repeated_optout_writes_one_receipt(workspace, app):
+    from concurrent.futures import ThreadPoolExecutor
+
+    service, p = app.state.service, principal(workspace)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        values = list(
+            pool.map(
+                lambda _: service.suppress(p, "+14155550779", "opt_out", event_id="concurrent-optout"),
+                range(2),
+            )
+        )
+    assert values[0]["id"] == values[1]["id"]
+    assert len((service.settings.data_dir / "suppression-journal.enc").read_bytes().splitlines()) == 1
+
+
+@pytest.mark.asyncio
+async def test_failed_suppression_receipt_can_be_repaired_and_reviewed(workspace, app, monkeypatch):
+    service, p = app.state.service, principal(workspace)
+    original = service.vault.append_journal
+
+    def unavailable(*args):
+        raise OSError("Synthetic unavailable journal")
+
+    monkeypatch.setattr(service.vault, "append_journal", unavailable)
+    with pytest.raises(HTTPException) as error:
+        service.suppress(p, "+14155550780", "opt_out", event_id="repair-optout")
+    assert error.value.status_code == 503
+    monkeypatch.setattr(service.vault, "append_journal", original)
+    with pytest.raises(HTTPException):
+        service.suppress(p, "+14155550781", "opt_out", event_id="repair-optout")
+    service.suppress(p, "+14155550780", "opt_out", event_id="repair-optout")
+    await service.reconcile_restore(p, "Original opt-out retried after repairing journal storage")
+    with service.db.transaction(False) as s:
+        assert service.suppressed(s, p, "+14155550780")
+        assert not get(s, "sellers", p["seller_id"]).data["journal_recovery_required"]
+
+
+def test_replaying_a_detached_optout_cannot_stop_or_release_the_reps_new_call(workspace, app):
+    service, p, old = app.state.service, principal(workspace), start(workspace)
+    with service.db.transaction() as s:
+        phone = get(s, "leads", old["lead_id"]).data["phone"]
+        update(get(s, "call_attempts", old["id"]), state="VM_PLAYING", detached=True)
+        s.execute(delete(ActiveClaim).where(ActiveClaim.call_id == old["id"]))
+    new = start(workspace, key="new-prospect-after-detach")
+    service.suppress(p, phone, "opt_out", event_id="detached-optout")
+    service.suppress(p, phone, "opt_out", event_id="detached-optout")
+    with service.db.transaction(False) as s:
+        assert get(s, "call_attempts", old["id"]).data["state"] == "ENDING"
+        assert get(s, "call_attempts", new["id"]).data["state"] == new["state"]
+        assert s.scalar(select(ActiveClaim).where(ActiveClaim.call_id == new["id"])) is not None
+
+
+def test_failure_after_nested_optout_returns_still_preserves_the_denial_hold(workspace, app):
+    service, p = app.state.service, principal(workspace)
+    with pytest.raises(RuntimeError, match="Later event processing failed"):
+        with service.db.transaction() as s:
+            service.suppress(p, "+14155550782", "opt_out", event_id="outer-rollback", session=s)
+            raise RuntimeError("Later event processing failed")
+    with service.db.transaction(False) as s:
+        assert get(s, "sellers", p["seller_id"]).data.get("journal_recovery_required") is True
+    assert (p["tenant_id"], p["seller_id"]) in service.__dict__.get("_journal_faults", set())
