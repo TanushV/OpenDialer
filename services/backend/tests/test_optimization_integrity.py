@@ -5,12 +5,11 @@ import pytest
 from app.coaching.context import merge_semantic_state
 from app.coaching.engine import CardRejected
 from app.coaching.replay import evaluate
-from conftest import start
+from conftest import completed_report, start
 
 
 def test_trial_denominator_includes_original_eligible_leads_before_any_are_called(workspace):
-    c, h = workspace["client"], workspace["headers"]
-    report = c.get("/v1/optimization", headers=h).json()
+    report = completed_report(workspace).json()
     assert (
         sum(arm["leads"] for arm in report["trial"]["arms"].values())
         == report["metrics"]["original_eligible_leads"]
@@ -72,7 +71,7 @@ def test_conversion_correction_is_audited_and_never_removes_an_optout(workspace,
         json={"reason": "Meeting was cancelled before it occurred"},
     )
     assert correction.status_code == 200, correction.text
-    report = c.get("/v1/optimization", headers=h).json()
+    report = completed_report(workspace, headers=h).json()
     assert report["metrics"]["unique_conversions"] == 0
     lead = next(
         lead_item
@@ -276,7 +275,7 @@ def test_partial_coach_feedback_does_not_manufacture_unreviewed_quality_dimensio
         json={"coach_event_id": card["id"], "useful": True},
     )
     assert result.status_code == 200
-    quality = c.get("/v1/optimization", headers=h).json()["coaching"]
+    quality = completed_report(workspace, headers=h).json()["coaching"]
     assert quality["useful_fraction"] == 1 and quality["grounded_fraction"] is None
 
 
@@ -371,7 +370,7 @@ def test_reviewed_owned_candidate_can_run_a_bounded_pilot_and_expire_without_ful
     )
     assert response.status_code == 200, response.text
     assert response.json()["trial_active"] and response.json()["active"] is False
-    report = c.get("/v1/optimization", headers=h).json()
+    report = completed_report(workspace, headers=h).json()
     assert report["trial"]["trial_model_id"] == model_id and not report["trial"]["sufficient_evidence"]
     p = {k: workspace[k] for k in ("tenant_id", "seller_id", "user_id")} | {"role": "owner"}
     with app.state.db.transaction(False) as s:

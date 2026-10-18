@@ -106,3 +106,17 @@ def start(workspace, key="call-key-001"):
     )
     assert r.status_code == 200, r.text
     return r.json()
+
+
+def completed_report(workspace, *, headers=None, params=None):
+    """Explicitly run the report worker for assertions about its computed evidence."""
+    from functools import partial
+
+    client = workspace["client"]
+    for _ in range(4):
+        response = client.get("/v1/optimization", headers=headers or workspace["headers"], params=params)
+        assert response.status_code == 200, response.text
+        if response.json()["projection"]["status"] == "ready":
+            return response
+        client.portal.call(partial(client.app.state.service.run_jobs, queues=["ml"]))
+    pytest.fail(f"Background report did not finish: {response.json().get('projection')}")

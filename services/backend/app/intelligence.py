@@ -795,8 +795,16 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 elif lane == "live_coach":
                     await self.coach_turn(p, job["payload"]["call_id"])
                 elif lane == "ml":
-                    if job["payload"].get("kind") == "optimization_refresh":
-                        await asyncio.to_thread(self.refresh_optimization, p)
+                    if job["payload"].get("kind") == "report_refresh":
+                        receipt = await asyncio.to_thread(
+                            self.rebuild_optimization_report,
+                            {**p, "role": job["payload"].get("role", "rep")},
+                            job["payload"].get("epoch"),
+                        )
+                        if receipt["status"] == "superseded":
+                            raise RuntimeError("Report source changed during calculation")
+                    elif job["payload"].get("kind") == "optimization_refresh":
+                        await asyncio.to_thread(self.refresh_optimization_job, p)
                     else:
                         await self.train_model_job(p, job["payload"])
                 else:

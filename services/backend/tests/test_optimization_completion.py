@@ -3,7 +3,7 @@
 from datetime import timedelta
 
 from app.db import put, update
-from conftest import start
+from conftest import completed_report, start
 
 
 def principal(workspace):
@@ -41,7 +41,7 @@ def test_experiment_assignments_balance_within_reps_and_cluster_regions():
 
 def test_controlled_comparisons_are_reviewed_off_by_default_and_report_all_population(workspace):
     c, h = workspace["client"], workspace["headers"]
-    report = c.get("/v1/optimization", headers=h).json()
+    report = completed_report(workspace, headers=h).json()
     assert report["comparisons"] == []
     for family in ("number_allocation", "coaching"):
         response = c.post(
@@ -54,7 +54,7 @@ def test_controlled_comparisons_are_reviewed_off_by_default_and_report_all_popul
             },
         )
         assert response.status_code == 200, response.text
-    result = c.get("/v1/optimization", headers=h).json()
+    result = completed_report(workspace, headers=h).json()
     assert {r["family"] for r in result["comparisons"]} == {"number_allocation", "coaching"}
     assert all(
         r["original_eligible_leads"] == result["metrics"]["original_eligible_leads"]
@@ -62,7 +62,7 @@ def test_controlled_comparisons_are_reviewed_off_by_default_and_report_all_popul
     )
     assert all(not r["sufficient_evidence"] for r in result["comparisons"])
     call = start(workspace)
-    result = c.get("/v1/optimization", headers=h).json()
+    result = completed_report(workspace, headers=h).json()
     coach = next(r for r in result["comparisons"] if r["family"] == "coaching")
     assert coach["assigned_leads"] == 1 and coach["rep_strata"]
     number = next(r for r in result["comparisons"] if r["family"] == "number_allocation")
@@ -80,9 +80,9 @@ def test_controlled_comparisons_are_reviewed_off_by_default_and_report_all_popul
 
 def test_cohort_history_is_available_after_goal_changes(workspace):
     c, h = workspace["client"], workspace["headers"]
-    original = c.get("/v1/optimization", headers=h).json()["trial"]
+    original = completed_report(workspace, headers=h).json()["trial"]
     c.put("/v1/admin/optimization", headers=h, json={"conversion_goal": "sale_won"})
-    history = c.get("/v1/optimization", headers=h, params={"epoch": original["epoch"]})
+    history = completed_report(workspace, headers=h, params={"epoch": original["epoch"]})
     assert history.status_code == 200, history.text
     assert history.json()["trial"]["epoch"] == original["epoch"]
     assert history.json()["trial"]["goal"] == "meeting_held"
@@ -420,7 +420,7 @@ def test_render_measurements_do_not_count_as_human_quality_reviews(workspace):
         headers=h,
         json={"coach_event_id": card["id"], "render_ms": 12, "event_to_render_ms": 80},
     )
-    report = c.get("/v1/optimization", headers=h).json()["coaching"]
+    report = completed_report(workspace, headers=h).json()["coaching"]
     assert report["reviewed_cards"] == 0 and report["useful_fraction"] is None
     assert report["p95_render_ms"] == 12
     assert report["p95_event_to_render_ms"] == 80

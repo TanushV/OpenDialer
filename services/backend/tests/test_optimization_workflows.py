@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from app.db import put, rows, update
-from conftest import start
+from conftest import completed_report, start
 
 
 def auth(workspace):
@@ -30,7 +30,7 @@ def test_optimization_goal_settings_are_validated_and_reported(workspace):
         },
     )
     assert result.status_code == 200, result.text
-    report = c.get("/v1/optimization", headers=h)
+    report = completed_report(workspace, headers=h)
     assert report.status_code == 200
     assert report.json()["settings"]["conversion_goal"] == "sale_won"
     assert c.put("/v1/admin/optimization", headers=h, json={"exploration": 1.5}).status_code == 422
@@ -49,7 +49,7 @@ def test_call_decision_freezes_features_explains_allocation_and_keeps_immutable_
     c, h = workspace["client"], workspace["headers"]
     result = c.post("/v1/admin/optimization/refresh", headers=h)
     assert result.status_code == 200, result.text
-    report = c.get("/v1/optimization", headers=h).json()
+    report = completed_report(workspace, headers=h).json()
     assert report["decisions"] and report["decisions"][-1]["allocation"]["reason"]
     with app.state.db.transaction(False) as session:
         snapshot = next(r for r in rows(session, "feature_snapshots") if r.id == call["feature_snapshot_id"])
@@ -75,7 +75,7 @@ def test_later_conversion_is_idempotent_attributed_and_not_counted_twice(workspa
     bad = c.post(f"/v1/leads/{call['lead_id']}/conversions", headers=h, json={**body, "kind": "sale_won"})
     assert bad.status_code == 409
     c.post("/v1/admin/optimization/refresh", headers=h)
-    report = c.get("/v1/optimization", headers=h).json()
+    report = completed_report(workspace, headers=h).json()
     assert report["metrics"]["unique_conversions"] == 1
     assert report["dataset"]["positive_conversions"] == 1
     assert report["dataset"]["pending_rows"] == 0
@@ -83,10 +83,10 @@ def test_later_conversion_is_idempotent_attributed_and_not_counted_twice(workspa
 
 def test_original_eligible_denominator_does_not_change_after_optout(workspace):
     c, h = workspace["client"], workspace["headers"]
-    before = c.get("/v1/optimization", headers=h).json()["metrics"]
+    before = completed_report(workspace, headers=h).json()["metrics"]
     lead = c.get("/v1/workspace", headers=h).json()["leads"][0]
     c.post("/v1/suppressions", headers=h, json={"phone": lead["phone"], "reason": "opt_out"})
-    after = c.get("/v1/optimization", headers=h).json()["metrics"]
+    after = completed_report(workspace, headers=h).json()["metrics"]
     assert after["original_eligible_leads"] == before["original_eligible_leads"]
     assert after["suppressed_now"] > before["suppressed_now"]
 
@@ -96,7 +96,7 @@ def test_refresh_reconciles_delayed_windows_without_rewriting_features(workspace
     finish(workspace, call)
     c, h = workspace["client"], workspace["headers"]
     c.post("/v1/admin/optimization/refresh", headers=h)
-    first = c.get("/v1/optimization", headers=h).json()["dataset"]
+    first = completed_report(workspace, headers=h).json()["dataset"]
     assert first["pending_rows"] == 1
     clock.now += timedelta(days=20)
     # Advancing beyond the outcome window also expires the original protected session.
@@ -105,7 +105,7 @@ def test_refresh_reconciles_delayed_windows_without_rewriting_features(workspace
     )
     h = {"Authorization": "Bearer " + login.json()["access_token"]}
     c.post("/v1/admin/optimization/refresh", headers=h)
-    later = c.get("/v1/optimization", headers=h).json()["dataset"]
+    later = completed_report(workspace, headers=h).json()["dataset"]
     assert later["pending_rows"] == 0 and later["matured_rows"] == 1
 
 
@@ -142,7 +142,7 @@ def test_number_health_review_requires_observed_evidence_and_retains_callbacks(w
 def test_optimization_endpoints_require_auth_and_seller_scoping(workspace, app):
     c, h = workspace["client"], workspace["headers"]
     assert c.get("/v1/optimization").status_code == 401
-    report = c.get("/v1/optimization", headers=h)
+    report = completed_report(workspace, headers=h)
     assert report.status_code == 200
     assert "registry" not in report.text.lower() and "password_hash" not in report.text
     other = app.state.service.setup(
@@ -172,7 +172,7 @@ def test_future_plan_explains_callback_and_does_not_reserve_or_call(workspace):
     c, h = workspace["client"], workspace["headers"]
     response = c.post("/v1/admin/optimization/refresh", headers=h)
     assert response.status_code == 200
-    plan = c.get("/v1/optimization", headers=h).json()
+    plan = completed_report(workspace, headers=h).json()
     assert plan["future_slots"] and all(s["reason"] for s in plan["future_slots"])
     assert not c.get("/v1/workspace", headers=h).json()["calls"]
 
@@ -183,7 +183,7 @@ def test_learning_state_survives_authority_restart_and_backup(workspace, app):
     assert c.post("/v1/admin/optimization/refresh", headers=h).status_code == 200
     backup = c.post("/v1/admin/backup", headers=h)
     assert backup.status_code == 200
-    assert c.get("/v1/optimization", headers=h).json()["settings"]["conversion_goal"] == "sale_won"
+    assert completed_report(workspace, headers=h).json()["settings"]["conversion_goal"] == "sale_won"
 
 
 def test_training_is_queued_once_from_real_stored_snapshots_and_produces_a_candidate(workspace, app, clock):
@@ -325,6 +325,7 @@ def test_observed_delivery_failures_pause_outbound_but_keep_incoming_identity(wo
             )
     result = c.post("/v1/admin/optimization/refresh", headers=h)
     assert result.status_code == 200, result.text
+    completed_report(workspace, headers=h)
     after = next(n for n in c.get("/v1/workspace", headers=h).json()["numbers"] if n["id"] == number["id"])
     assert after["lifecycle"] == "investigating" and after["inbound_retained"]
 
@@ -333,7 +334,7 @@ async def test_enabled_worker_schedules_bounded_automatic_learning_without_opera
     app.state.settings.worker_enabled = True
     await app.state.service.run_jobs(tenant_id=workspace["tenant_id"], queues=["ml"])
     c, h = workspace["client"], workspace["headers"]
-    report = c.get("/v1/optimization", headers=h).json()
+    report = completed_report(workspace, headers=h).json()
     assert report["dataset"]["snapshots"]
     before = len(c.get("/v1/workspace", headers=h).json()["jobs"])
     await app.state.service.run_jobs(tenant_id=workspace["tenant_id"], queues=["ml"])

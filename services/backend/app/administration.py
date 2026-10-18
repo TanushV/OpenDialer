@@ -11,6 +11,7 @@ from app.measurement import Measurement, cohort_metrics
 from app.number_operations import NumberOperations
 from app.optimization.workflows import OptimizationWorkflows
 from app.rep_workflows import RepWorkflows
+from app.reporting import ReportProjections
 from app.service import dt, fail
 from app.telephony.callbacks import InboundCallbacks
 from app.telephony.ingress import WebhookIngress
@@ -21,6 +22,7 @@ from app.telephony.workflows import TelephonyWorkflows
 
 
 class Dialer(
+    ReportProjections,
     RecoveryActions,
     CommandRecovery,
     InboundCallbacks,
@@ -332,6 +334,7 @@ class Dialer(
                         for r in rows(s, kind, p["tenant_id"])
                     ]
                     for kind in MODELS
+                    if kind != "report_projections"
                 },
             }
         backup_id = uid()
@@ -355,6 +358,10 @@ class Dialer(
         payload = json.loads(self.vault.cipher.decrypt(path.read_bytes()))
         if payload["tenant_id"] != p["tenant_id"] or payload.get("schema") != 1:
             fail(403, "Backup identity or schema mismatch")
+        # The installed schema predates observed work intervals; report caches are disposable.
+        optional = {"work_intervals", "report_projections"}
+        if set(MODELS) - optional - payload.get("tables", {}).keys():
+            fail(422, "Backup is missing required source tables")
         journal = self.settings.data_dir / "suppression-journal.enc"
         events = (
             [json.loads(self.vault.cipher.decrypt(line)) for line in journal.read_bytes().splitlines()]
@@ -376,7 +383,7 @@ class Dialer(
             ]
             for kind, model in MODELS.items():
                 s.execute(delete(model).where(model.tenant_id == p["tenant_id"]))
-                values = payload["tables"][kind]
+                values = [] if kind == "report_projections" else payload["tables"].get(kind, [])
                 if kind == "audit_events":
                     values = list({r["id"]: r for r in [*values, *current_audit]}.values())
                 for raw in values:

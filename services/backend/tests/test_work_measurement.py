@@ -4,7 +4,7 @@ from datetime import timedelta
 
 import pytest
 from app.db import doc, put
-from conftest import ready, start
+from conftest import completed_report, ready, start
 from test_remediation_rep_workflow import p
 
 
@@ -148,7 +148,7 @@ def test_dashboard_and_optimization_share_goal_and_work_denominators(workspace, 
         json={"conversion_goal": "sale_won", "window_days": 30},
     )
     dashboard = metrics(workspace)
-    report = workspace["client"].get("/v1/optimization", headers=workspace["headers"]).json()["metrics"]
+    report = completed_report(workspace).json()["metrics"]
     assert dashboard["unique_conversions"] == report["unique_conversions"] == 1
     assert dashboard["rep_work_seconds"] == report["rep_work_seconds"] == 60
     assert dashboard["conversions_per_rep_hour"] == report["conversions_per_rep_hour"] == 60

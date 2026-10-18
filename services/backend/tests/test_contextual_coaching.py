@@ -1,7 +1,7 @@
 import pytest
 from app.coaching.context import build_context, ground_guidance, merge_semantic_state, retrieve_cards
 from app.coaching.engine import CardRejected
-from conftest import start
+from conftest import completed_report, start
 
 CARDS = [
     {
@@ -162,7 +162,7 @@ def test_call_state_and_quality_feedback_are_persisted_and_scoped(workspace):
         },
     )
     assert feedback.status_code == 200, feedback.text
-    report = c.get("/v1/optimization", headers=h).json()["coaching"]
+    report = completed_report(workspace, headers=h).json()["coaching"]
     assert report["reviewed_cards"] == 1 and report["useful_fraction"] == 1
 
 

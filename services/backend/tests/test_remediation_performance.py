@@ -5,7 +5,7 @@ import time
 
 import pytest
 from app.optimization.numbering import capacity_forecast
-from conftest import ready
+from conftest import completed_report, ready
 from sqlalchemy import event
 
 
@@ -82,6 +82,7 @@ def test_next_lead_query_count_does_not_grow_per_candidate(workspace, app):
 def test_cached_report_does_not_run_future_scheduling_on_view(workspace, app, monkeypatch):
     c, h = workspace["client"], workspace["headers"]
     c.post("/v1/admin/optimization/refresh", headers=h)
+    completed_report(workspace)
 
     def forbidden(*args, **kwargs):
         raise AssertionError("Report GET recomputed an operational plan")

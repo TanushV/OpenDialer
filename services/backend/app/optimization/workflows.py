@@ -417,6 +417,10 @@ class OptimizationWorkflows(ComparisonWorkflows):
             data = self.operational_dataset(s, p, config)
             leads = self.scoped(s, "leads", p)
             calls = self.scoped(s, "call_attempts", p)
+            submitted_by_lead = {}
+            for call in calls:
+                if call.data.get("provider_id") or call.data.get("submitted_at"):
+                    submitted_by_lead.setdefault(call.data["lead_id"], []).append(call)
             known_calls = {c.id for c in calls if p["role"] != "rep" or c.data["rep_id"] == p["user_id"]}
             events = [doc(r) for r in self.scoped(s, "conversion_events", p)]
             feedback = [
@@ -458,10 +462,8 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 assigned = timestamp(record.data["assigned_at"])
                 attempts = [
                     c
-                    for c in calls
-                    if c.data["lead_id"] == record.data["lead_id"]
-                    and timestamp(c.data["started_at"]) >= assigned
-                    and (c.data.get("provider_id") or c.data.get("submitted_at"))
+                    for c in submitted_by_lead.get(record.data["lead_id"], [])
+                    if timestamp(c.data["started_at"]) >= assigned
                 ]
                 due = timestamp(record.data.get("coverage_due_at"))
                 evidence = [decisions_by_id.get(c.data.get("submission_decision_id")) for c in attempts]
@@ -854,4 +856,5 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 update(campaign, conversation_report=conversation_report)
             emit(s, p["tenant_id"], "optimization.updated", campaign, self.clock())
         training = self.train_operational(p) if config["auto_train"] else {"status": "disabled"}
+        self.rebuild_optimization_report(p)
         return {"dataset_id": dataset["id"], "rows": len(dataset["rows"]), "training": training}

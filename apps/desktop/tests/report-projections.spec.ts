@@ -132,7 +132,7 @@ test("stale totals disclose their definition and failed refresh without losing s
     ),
   ).toBeVisible();
   await expect(
-    page.getByText(/Calculated for held meeting, 14 days/),
+    page.getByText(/Calculated for meeting held, 14 days/),
   ).toBeVisible();
   await expect(page.getByLabel("Available rep minutes")).toHaveValue("1");
 });

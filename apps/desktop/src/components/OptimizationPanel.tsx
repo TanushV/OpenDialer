@@ -126,6 +126,18 @@ interface OptimizationReport {
     p95_render_ms: number | null;
   };
 }
+interface ReportProjection {
+  status: "pending" | "stale" | "ready";
+  as_of: string | null;
+  calculated_settings?: OptimizationSettings;
+  refresh_status?: string | null;
+  refresh_error?: string | null;
+  job_id?: string | null;
+}
+type ReportResponse =
+  | (OptimizationReport & { projection: ReportProjection })
+  | { settings: OptimizationSettings; projection: ReportProjection };
+
 const percent = (value: number | null | undefined) =>
   value == null ? "Awaiting evidence" : (100 * value).toFixed(1) + "%";
 
@@ -135,7 +147,10 @@ export function OptimizationPanel({
   numbersOnly?: boolean;
 }) {
   const { api, run, notice, refresh, snapshot: w, subscribe } = useWorkspace();
-  const [report, setReport] = useState<OptimizationReport | null>(null);
+  const [response, setResponse] = useState<ReportResponse | null>(null);
+  const report = response && "metrics" in response ? response : null;
+  const epoch = useRef<string | null>(null);
+  const requestVersion = useRef(0);
   const [settings, setSettings] = useState<OptimizationSettings | null>(null);
   const dirty = useRef(false);
   const [goalPreview, setGoalPreview] = useState<GoalPreview | null>(null);
@@ -149,10 +164,16 @@ export function OptimizationPanel({
   const [cohortReportId, setCohortReportId] = useState("");
   const admin = ["owner", "admin"].includes(w.user.role);
   const load = useCallback(async () => {
-    const next = await api<OptimizationReport>("/v1/optimization");
-    setReport(next);
+    const version = ++requestVersion.current;
+    const next = await api<ReportResponse>(
+      "/v1/optimization" +
+        (epoch.current ? "?epoch=" + encodeURIComponent(epoch.current) : ""),
+    );
+    if (version !== requestVersion.current) return;
+    setResponse(next);
     if (!dirty.current) setSettings(next.settings);
-    setNumberId((value) => value || next.numbers[0]?.id || "");
+    if ("numbers" in next)
+      setNumberId((value) => value || next.numbers[0]?.id || "");
   }, [api]);
   useEffect(() => {
     void run(load);
@@ -175,10 +196,11 @@ export function OptimizationPanel({
     });
     return () => {
       stop();
+      requestVersion.current++;
       if (pending) clearTimeout(pending);
     };
   }, [load, run, subscribe]);
-  if (!report || !settings)
+  if (!response || !settings)
     return <p className="fine">Loading allocation and learning evidence…</p>;
   const change = <K extends keyof OptimizationSettings>(
     key: K,
@@ -188,20 +210,74 @@ export function OptimizationPanel({
     setGoalPreview(null);
     setSettings({ ...settings, [key]: value });
   };
-  const selected = report.numbers.find((n) => n.id === numberId);
+  const selected = report?.numbers.find((n) => n.id === numberId);
   return (
     <>
       {!numbersOnly && <ConversationLearning />}
+      <section className="card padded" aria-label="Report freshness">
+        <p>
+          {response.projection.status === "pending"
+            ? "Preparing the first report in the background."
+            : response.projection.refresh_status === "dead"
+              ? "Saved report; refresh failed. Review the job in Recovery."
+              : response.projection.status === "stale"
+                ? "Showing saved evidence while the report refreshes."
+                : "Report is current."}
+        </p>
+        {response.projection.as_of && (
+          <p className="fine">Calculated {date(response.projection.as_of)}.</p>
+        )}
+        {response.projection.calculated_settings && (
+          <p className="fine">
+            Calculated for{" "}
+            {label(
+              response.projection.calculated_settings.conversion_goal,
+            ).toLowerCase()}
+            , {response.projection.calculated_settings.window_days} days
+            {response.projection.status === "stale"
+              ? "; totals may differ from current settings."
+              : "."}
+          </p>
+        )}
+        {response.projection.refresh_error &&
+          response.projection.refresh_status !== "dead" && (
+            <p className="fine">
+              The last refresh failed; a bounded retry is pending.
+            </p>
+          )}
+        {response.projection.status !== "ready" && (
+          <button className="secondary" onClick={() => void run(load)}>
+            Check report status
+          </button>
+        )}
+        {epoch.current && (
+          <button
+            className="secondary"
+            onClick={() =>
+              void run(async () => {
+                epoch.current = null;
+                setResponse(null);
+                await load();
+              })
+            }
+          >
+            Return to current cohort
+          </button>
+        )}
+      </section>
       {!numbersOnly && (
         <section className="card padded optimization-panel">
           <span className="eyebrow">PICKUP AND CONVERSION</span>
           <h2>Learn from the whole eligible cohort</h2>
-          <p className="muted small">
-            {report.metrics.unique_conversions} unique conversions /{" "}
-            {report.metrics.original_eligible_leads} original eligible leads.{" "}
-            {report.metrics.unique_right_party} people reached. Conversion rate:{" "}
-            {percent(report.metrics.conversion_per_original_eligible_lead)}.
-          </p>
+          {report && (
+            <p className="muted small">
+              {report.metrics.unique_conversions} unique conversions /{" "}
+              {report.metrics.original_eligible_leads} original eligible leads.{" "}
+              {report.metrics.unique_right_party} people reached. Conversion
+              rate:{" "}
+              {percent(report.metrics.conversion_per_original_eligible_lead)}.
+            </p>
+          )}
           {admin && (
             <>
               <div className="optimization-fields">
@@ -326,8 +402,8 @@ export function OptimizationPanel({
                     void run(async () => {
                       if (
                         settings.conversion_goal !==
-                          report.settings.conversion_goal ||
-                        settings.window_days !== report.settings.window_days
+                          response.settings.conversion_goal ||
+                        settings.window_days !== response.settings.window_days
                       ) {
                         setGoalPreview(
                           await api<GoalPreview>(
@@ -354,7 +430,7 @@ export function OptimizationPanel({
                       await api("/v1/admin/optimization/refresh", "POST", {});
                       await load();
                       await refresh();
-                      notice("Learning and capacity refreshed");
+                      notice("Learning and capacity refresh queued");
                     })
                   }
                 >
@@ -422,169 +498,174 @@ export function OptimizationPanel({
           )}
         </section>
       )}
-      <section className="card padded optimization-panel">
-        <h2>Capacity before procurement</h2>
-        <p className="muted small">
-          Forecast includes due attempts, usable inventory and available rep
-          time. New rentals are blocked; proposed additions are shared-capacity
-          scenarios, not one number per area code.
-        </p>
-        <div className="optimization-table">
-          <table>
-            <thead>
-              <tr>
-                <th>Region</th>
-                <th>Due attempts</th>
-                <th>Rep capacity allocated</th>
-                <th>Existing capacity</th>
-                <th>General fallback</th>
-                <th>Owned capacity awaiting review</th>
-                <th>Additional numbers</th>
-              </tr>
-            </thead>
-            <tbody>
-              {report.forecast.regions.map((region) => (
-                <tr key={region.region}>
-                  <td>{region.region}</td>
-                  <td>{region.forecast_attempts}</td>
-                  <td>{region.planned_attempts}</td>
-                  <td>{region.usable_existing_capacity}</td>
-                  <td>{region.general_fallback_capacity}</td>
-                  <td>{region.capacity_waiting_for_review}</td>
-                  <td>{region.proposed_additional ?? "Not established"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {report.forecast.planning_limited ? (
-          <p className="notice">
-            Allocation is incomplete; remaining bottlenecks are not established.
+      {report && (
+        <section className="card padded optimization-panel">
+          <h2>Capacity before procurement</h2>
+          <p className="muted small">
+            Forecast includes due attempts, usable inventory and available rep
+            time. New rentals are blocked; proposed additions are
+            shared-capacity scenarios, not one number per area code.
           </p>
-        ) : (
-          report.forecast.capacity_shortfall > 0 && (
-            <p className="fine">
-              {report.forecast.staffing_shortfall} attempts exceed declared rep
-              time; {report.forecast.number_shortfall} staffed attempts lack
-              usable number capacity. These are separate constraints.
-            </p>
-          )
-        )}
-        <h3>Number evidence and workload</h3>
-        <div className="optimization-table">
-          <table>
-            <thead>
-              <tr>
-                <th>Number</th>
-                <th>State</th>
-                <th>Observed health</th>
-                <th>Samples</th>
-                <th>Active obligations</th>
-                <th>Daily limit</th>
-              </tr>
-            </thead>
-            <tbody>
-              {report.numbers.map((n) => (
-                <tr key={n.id}>
-                  <td>{n.phone}</td>
-                  <td>{label(n.lifecycle)}</td>
-                  <td title={n.health.reason}>{percent(n.health.score)}</td>
-                  <td>{n.health.samples}</td>
-                  <td>{n.active_obligations}</td>
-                  <td>{n.daily_limit}</td>
+          <div className="optimization-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Region</th>
+                  <th>Due attempts</th>
+                  <th>Rep capacity allocated</th>
+                  <th>Existing capacity</th>
+                  <th>General fallback</th>
+                  <th>Owned capacity awaiting review</th>
+                  <th>Additional numbers</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <p className="fine">
-          Health uses first-party delivery and adjusted answer evidence. A low
-          pickup rate is not proof of a carrier spam label.
-        </p>
-        {numbersOnly && admin && (
-          <details>
-            <summary>Review number workload</summary>
-            <div className="optimization-fields">
-              <label>
-                Number to review
-                <select
-                  value={numberId}
-                  onChange={(e) => {
-                    setNumberId(e.target.value);
-                    setReviewLimit(
-                      String(
-                        report.numbers.find((n) => n.id === e.target.value)
-                          ?.daily_limit || 5,
-                      ),
-                    );
-                  }}
-                >
-                  {report.numbers.map((n) => (
-                    <option key={n.id} value={n.id}>
-                      {n.phone}
+              </thead>
+              <tbody>
+                {report.forecast.regions.map((region) => (
+                  <tr key={region.region}>
+                    <td>{region.region}</td>
+                    <td>{region.forecast_attempts}</td>
+                    <td>{region.planned_attempts}</td>
+                    <td>{region.usable_existing_capacity}</td>
+                    <td>{region.general_fallback_capacity}</td>
+                    <td>{region.capacity_waiting_for_review}</td>
+                    <td>{region.proposed_additional ?? "Not established"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {report.forecast.planning_limited ? (
+            <p className="notice">
+              Allocation is incomplete; remaining bottlenecks are not
+              established.
+            </p>
+          ) : (
+            report.forecast.capacity_shortfall > 0 && (
+              <p className="fine">
+                {report.forecast.staffing_shortfall} attempts exceed declared
+                rep time; {report.forecast.number_shortfall} staffed attempts
+                lack usable number capacity. These are separate constraints.
+              </p>
+            )
+          )}
+          <h3>Number evidence and workload</h3>
+          <div className="optimization-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Number</th>
+                  <th>State</th>
+                  <th>Observed health</th>
+                  <th>Samples</th>
+                  <th>Active obligations</th>
+                  <th>Daily limit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.numbers.map((n) => (
+                  <tr key={n.id}>
+                    <td>{n.phone}</td>
+                    <td>{label(n.lifecycle)}</td>
+                    <td title={n.health.reason}>{percent(n.health.score)}</td>
+                    <td>{n.health.samples}</td>
+                    <td>{n.active_obligations}</td>
+                    <td>{n.daily_limit}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="fine">
+            Health uses first-party delivery and adjusted answer evidence. A low
+            pickup rate is not proof of a carrier spam label.
+          </p>
+          {numbersOnly && admin && (
+            <details>
+              <summary>Review number workload</summary>
+              <div className="optimization-fields">
+                <label>
+                  Number to review
+                  <select
+                    value={numberId}
+                    onChange={(e) => {
+                      setNumberId(e.target.value);
+                      setReviewLimit(
+                        String(
+                          report.numbers.find((n) => n.id === e.target.value)
+                            ?.daily_limit || 5,
+                        ),
+                      );
+                    }}
+                  >
+                    {report.numbers.map((n) => (
+                      <option key={n.id} value={n.id}>
+                        {n.phone}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Number review decision
+                  <select
+                    value={reviewDecision}
+                    onChange={(e) => setReviewDecision(e.target.value)}
+                  >
+                    <option value="pause">
+                      Pause outbound; retain callbacks
                     </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Number review decision
-                <select
-                  value={reviewDecision}
-                  onChange={(e) => setReviewDecision(e.target.value)}
-                >
-                  <option value="pause">
-                    Pause outbound; retain callbacks
-                  </option>
-                  <option value="reduce">Reduce workload</option>
-                  <option value="increase">Increase after observed use</option>
-                  <option value="resume">Resume limited use</option>
-                </select>
-              </label>
-              <label>
-                Reviewed daily limit
-                <input
-                  type="number"
-                  min={1}
-                  value={reviewLimit}
-                  onChange={(e) => setReviewLimit(e.target.value)}
-                />
-              </label>
-              <label>
-                Number review reference
-                <input
-                  value={reviewReference}
-                  onChange={(e) => setReviewReference(e.target.value)}
-                />
-              </label>
-            </div>
-            <button
-              className="secondary"
-              disabled={!selected || !reviewReference}
-              onClick={() =>
-                void run(async () => {
-                  await api(
-                    "/v1/admin/numbers/" + numberId + "/review",
-                    "POST",
-                    {
-                      decision: reviewDecision,
-                      review_reference: reviewReference,
-                      daily_limit: Number(reviewLimit),
-                    },
-                  );
-                  await load();
-                  await refresh();
-                  notice(
-                    "Number workload reviewed; inbound callbacks retained",
-                  );
-                })
-              }
-            >
-              Apply number review
-            </button>
-          </details>
-        )}
-      </section>
-      {!numbersOnly && (
+                    <option value="reduce">Reduce workload</option>
+                    <option value="increase">
+                      Increase after observed use
+                    </option>
+                    <option value="resume">Resume limited use</option>
+                  </select>
+                </label>
+                <label>
+                  Reviewed daily limit
+                  <input
+                    type="number"
+                    min={1}
+                    value={reviewLimit}
+                    onChange={(e) => setReviewLimit(e.target.value)}
+                  />
+                </label>
+                <label>
+                  Number review reference
+                  <input
+                    value={reviewReference}
+                    onChange={(e) => setReviewReference(e.target.value)}
+                  />
+                </label>
+              </div>
+              <button
+                className="secondary"
+                disabled={!selected || !reviewReference}
+                onClick={() =>
+                  void run(async () => {
+                    await api(
+                      "/v1/admin/numbers/" + numberId + "/review",
+                      "POST",
+                      {
+                        decision: reviewDecision,
+                        review_reference: reviewReference,
+                        daily_limit: Number(reviewLimit),
+                      },
+                    );
+                    await load();
+                    await refresh();
+                    notice(
+                      "Number workload reviewed; inbound callbacks retained",
+                    );
+                  })
+                }
+              >
+                Apply number review
+              </button>
+            </details>
+          )}
+        </section>
+      )}
+      {!numbersOnly && report && (
         <>
           <section className="card padded optimization-panel">
             <h2>Future calling opportunities</h2>
@@ -700,11 +781,9 @@ export function OptimizationPanel({
                 value={report.trial.epoch}
                 onChange={(e) =>
                   void run(async () => {
-                    const next = await api<OptimizationReport>(
-                      "/v1/optimization?epoch=" +
-                        encodeURIComponent(e.target.value),
-                    );
-                    setReport(next);
+                    epoch.current = e.target.value;
+                    setResponse(null);
+                    await load();
                   })
                 }
               >

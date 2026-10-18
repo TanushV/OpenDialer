@@ -227,7 +227,7 @@ def register_optimization(app, service, principal, administrator):
 
     @app.get("/v1/optimization")
     def report(epoch: str | None = None, p=Depends(principal)):
-        return service.optimization_report(p, epoch=epoch)
+        return service.cached_optimization_report(p, epoch=epoch)
 
     @app.post("/v1/admin/optimization/comparisons")
     def start_comparison(body: Comparison, p=Depends(administrator)):
@@ -389,7 +389,7 @@ def register_optimization(app, service, principal, administrator):
 
     @app.post("/v1/admin/optimization/refresh")
     def refresh(p=Depends(administrator)):
-        return service.refresh_optimization(p)
+        return service.request_optimization_refresh(p)
 
     @app.post("/v1/admin/optimization/train")
     def train(body: Empty, p=Depends(administrator)):

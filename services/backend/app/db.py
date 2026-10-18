@@ -171,6 +171,7 @@ TABLES = [
     "evaluation_reports",
     "coaching_feedback",
     "work_intervals",
+    "report_projections",
 ]
 MODELS = {}
 for _name in TABLES:
@@ -195,6 +196,13 @@ for _name in TABLES:
             "__module__": __name__,
         },
     )
+
+
+class ReportRevision(Base):
+    __tablename__ = "report_revisions"
+    tenant_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    seller_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class ActiveClaim(Base):
@@ -414,6 +422,9 @@ def index_pending_rows(session, *_):
     for row in session.new | session.dirty:
         if isinstance(row, Document):
             sync_columns(row, _DATABASE_LOOKUP_KEY.get())
+    from app.reporting import invalidate_reports
+
+    invalidate_reports(session)
 
 
 def get(s, kind, object_id, tenant_id=None):
