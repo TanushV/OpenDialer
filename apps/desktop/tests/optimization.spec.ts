@@ -27,6 +27,9 @@ test("optimization goals, forecast, learning state and provider settings persist
     .getByRole("button", { name: "Save optimization settings" })
     .click();
   await page
+    .getByRole("button", { name: "Apply reviewed goal change" })
+    .click();
+  await page
     .getByRole("button", { name: "Refresh learning and capacity" })
     .click();
   await expect(
