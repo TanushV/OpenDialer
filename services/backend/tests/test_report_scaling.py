@@ -1,0 +1,74 @@
+"""Background reports must join attempts by lead once, not rescan per assignment."""
+
+from datetime import timedelta
+from types import SimpleNamespace
+
+from test_remediation_privacy import principal
+
+
+def test_report_history_join_grows_linearly(workspace, app, clock, monkeypatch):
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction(False) as s:
+        campaign = service.scoped(s, "campaigns", p)[0]
+        epoch = campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
+    original = service.scoped
+    visits = []
+
+    class Counted(list):
+        def __iter__(self):
+            for item in super().__iter__():
+                visits.append(item.id)
+                yield item
+
+    def row(identity, values):
+        return SimpleNamespace(id=identity, data=values, version=1)
+
+    calls = Counted(
+        [
+            row(
+                f"call-{i}",
+                {
+                    "lead_id": f"lead-{i}",
+                    "rep_id": p["user_id"],
+                    "started_at": (clock.now - timedelta(days=1)).isoformat(),
+                    "submitted_at": (clock.now - timedelta(days=1)).isoformat(),
+                    "ended_at": (clock.now - timedelta(days=1)).isoformat(),
+                    "outcome": "no_answer",
+                    "state": "FINALIZED",
+                },
+            )
+            for i in range(300)
+        ]
+    )
+    assignments = [
+        row(
+            f"assignment-{i}",
+            {
+                "epoch": epoch,
+                "lead_id": f"lead-{i}",
+                "arm": "control" if i % 2 else "candidate",
+                "assigned_at": (clock.now - timedelta(days=2)).isoformat(),
+                "coverage_due_at": clock.now.isoformat(),
+                "goal": "meeting_held",
+                "outcome_window_days": 14,
+            },
+        )
+        for i in range(300)
+    ]
+    monkeypatch.setattr(
+        service,
+        "scoped",
+        lambda s, kind, who: (
+            calls
+            if kind == "call_attempts"
+            else assignments
+            if kind == "experiment_assignments"
+            else original(s, kind, who)
+        ),
+    )
+    monkeypatch.setattr(service, "operational_dataset", lambda *args: [])
+    monkeypatch.setattr(service, "forecast", lambda *args: {})
+    monkeypatch.setattr(service, "inventory_evidence", lambda *args: [])
+    result = service.optimization_report(p)
+    assert sum(a["leads"] for a in result["trial"]["arms"].values()) == 300
+    assert len(visits) <= 300 * 12, {"attempt_visits": len(visits)}
