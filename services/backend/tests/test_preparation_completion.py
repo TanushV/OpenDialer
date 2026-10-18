@@ -1,12 +1,13 @@
 """Advance template preparation acceptance, written before the implementation."""
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from app.db import Job
+from app.db import Job, update
 from app.providers.inference import InferenceResult
 from conftest import start
-from sqlalchemy import select
+from sqlalchemy import event, select
 from test_remediation_rep_workflow import p
 
 TEMPLATE = {
@@ -21,8 +22,10 @@ TEMPLATE = {
 
 
 def configure(workspace, **changes):
-    workspace["lead_ids"] = [lead["id"] for lead in workspace["client"].get(
-        "/v1/workspace", headers=workspace["headers"]).json()["leads"]]
+    workspace["lead_ids"] = [
+        lead["id"]
+        for lead in workspace["client"].get("/v1/workspace", headers=workspace["headers"]).json()["leads"]
+    ]
     response = workspace["client"].put(
         "/v1/admin/operating-policy",
         headers=workspace["headers"],
@@ -100,7 +103,17 @@ async def test_template_fallback_and_readiness_are_prepared_without_credentials(
     assert "customer service" in script["gatekeeper"]
     assert "customer service" in script["screening_intro"]
     assert script["closing_question"] == TEMPLATE["closing_question"]
-    assert "{" not in str(script)
+    assert all(
+        "{" not in text
+        for text in [
+            script["opener"],
+            script["gatekeeper"],
+            script["screening_intro"],
+            *script["discovery_questions"],
+            script["proof"],
+            script["closing_question"],
+        ]
+    )
     assert packet["preparation"]["status"] == "fallback"
     status = workspace["client"].get("/v1/preparation", headers=workspace["headers"])
     assert status.status_code == 200
@@ -217,3 +230,123 @@ async def test_partial_template_failures_do_not_regenerate_successes(workspace, 
         await service.prepare(p(workspace), lead_ids)
     await service.prepare(p(workspace), lead_ids)
     assert attempts == {lead_ids[0]: 1, lead_ids[1]: 2}
+
+
+@pytest.mark.asyncio
+async def test_concurrent_preparation_pays_for_one_generation(workspace, app, monkeypatch):
+    configure(workspace)
+    service, lead_id = app.state.service, workspace["lead_ids"][0]
+    requests = []
+
+    class Provider:
+        async def complete(self, *args):
+            requests.append(1)
+            await asyncio.sleep(0.05)
+            return InferenceResult(
+                {
+                    "lead_id": lead_id,
+                    "slots": {
+                        "relevance": {"text": "", "fact_ids": []},
+                        "proof": {"text": "", "fact_ids": []},
+                    },
+                },
+                {},
+                "concurrent-" + str(len(requests)),
+            )
+
+    monkeypatch.setattr(service, "inference", lambda *args: Provider())
+    results = await asyncio.gather(
+        service.prepare(p(workspace), [lead_id]),
+        service.prepare(p(workspace), [lead_id]),
+        return_exceptions=True,
+    )
+    assert not any(isinstance(value, Exception) for value in results), results
+    assert len(requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_rejected_slots_never_leak_through_the_generic_fallback(workspace, app, monkeypatch):
+    configure(workspace)
+    service, lead_id = app.state.service, workspace["lead_ids"][0]
+    await service.prepare(p(workspace), [lead_id])
+    with service.db.transaction() as s:
+        lead = service.required(s, "leads", lead_id, p(workspace))
+        fact = next(
+            f
+            for f in service.scoped(s, "research_facts", p(workspace))
+            if f.data["domain"] == lead.data["domain"]
+        )
+        update(fact, statement="We guarantee 10x revenue.")
+
+    class Provider:
+        async def complete(self, prompt, context, schema):
+            fact = context["facts"][0]
+            return InferenceResult(
+                {
+                    "lead_id": lead_id,
+                    "slots": {
+                        "relevance": {"text": fact["statement"], "fact_ids": [fact["fact_id"]]},
+                        "proof": {"text": "", "fact_ids": []},
+                    },
+                },
+                {},
+                "rejected-filled-slot",
+            )
+
+    monkeypatch.setattr(service, "inference", lambda *args: Provider())
+    with pytest.raises(RuntimeError):
+        await service.prepare(p(workspace), [lead_id])
+    assert "guarantee" not in service.packet(p(workspace), lead_id)["script"]["opener"]
+
+
+@pytest.mark.asyncio
+async def test_template_change_during_generation_cannot_publish_old_work(workspace, app, monkeypatch):
+    configure(workspace)
+    service, lead_id = app.state.service, workspace["lead_ids"][0]
+
+    class Provider:
+        async def complete(self, *args):
+            configure(workspace, script_template={**TEMPLATE, "opener": "New purpose from {seller}."})
+            return InferenceResult(
+                {
+                    "lead_id": lead_id,
+                    "slots": {
+                        "relevance": {"text": "", "fact_ids": []},
+                        "proof": {"text": "", "fact_ids": []},
+                    },
+                },
+                {},
+                "stale-template",
+            )
+
+    monkeypatch.setattr(service, "inference", lambda *args: Provider())
+    with pytest.raises(RuntimeError):
+        await service.prepare(p(workspace), [lead_id])
+    assert service.packet(p(workspace), lead_id)["script"]["opener"] == "New purpose from Example Seller."
+
+
+def test_readiness_query_count_does_not_grow_per_candidate(workspace, app):
+    configure(workspace)
+    service = app.state.service
+    service.import_leads(
+        p(workspace),
+        {
+            "campaign_id": workspace["campaign_id"],
+            "rows": [
+                {"name": "Readiness fixture", "phone": f"+1415666{i:04d}", "timezone": "America/Los_Angeles"}
+                for i in range(100)
+            ],
+        },
+    )
+    statements = []
+
+    def count(*args):
+        statements.append(1)
+
+    event.listen(service.db.engine, "before_cursor_execute", count)
+    try:
+        status = service.preparation_status(p(workspace))
+    finally:
+        event.remove(service.db.engine, "before_cursor_execute", count)
+    assert status["inspected_leads"] == 103
+    assert len(statements) <= 20, len(statements)
