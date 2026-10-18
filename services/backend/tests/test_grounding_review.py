@@ -305,3 +305,45 @@ async def test_extraction_deadline_cannot_outlive_original_evidence_expiry(
             if r.data.get("work_kind") == "postcall_extract"
         ]
     assert len(usage) == 1 and usage[0]["status"] == "uncertain"
+
+
+@pytest.mark.asyncio
+async def test_review_does_not_submit_after_budget_wait_consumed_lifetime():
+    import time
+    from types import SimpleNamespace
+
+    from app.grounding import review_generated, review_request
+
+    calls, released = [], []
+    request = review_request(
+        "analysis",
+        [{"field": "summary", "value": "A short summary", "evidence": ["s"]}],
+        [{"id": "s", "text": "A source"}],
+    )
+
+    class Provider:
+        async def complete(self, *args):
+            calls.append(True)
+            return InferenceResult(review_response(request), {}, "expired-request")
+
+    def reserve(*args, **kwargs):
+        time.sleep(0.04)
+        return True
+
+    service = SimpleNamespace(
+        inference=lambda *args: Provider(),
+        reserve_optional_budget=reserve,
+        usage=lambda *args, **kwargs: None,
+        release_unsubmitted_budget=lambda *args: released.append(True),
+    )
+    with pytest.raises(ValueError):
+        await review_generated(
+            service,
+            {"tenant_id": "t", "user_id": "u"},
+            request,
+            object_id="c",
+            role="scorecard_review",
+            seconds=0.01,
+        )
+    assert calls == []
+    assert released == [True]
