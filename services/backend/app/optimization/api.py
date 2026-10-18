@@ -5,6 +5,7 @@ from fastapi import Depends
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.db import audit, doc, emit, put, uid, update
+from app.optimization.goals import goal_plan
 from app.optimization.numbering import timestamp
 from app.service import fail
 
@@ -14,6 +15,7 @@ class Strict(BaseModel):
 
 
 class OptimizationSettings(Strict):
+    expected_campaign_version: int | None = Field(default=None, ge=1)
     conversion_goal: Literal["qualified_conversation", "meeting_held", "sale_won"] | None = None
     window_days: int | None = Field(default=None, ge=1, le=180)
     exploration: float | None = Field(default=None, ge=0, le=0.3)
@@ -160,25 +162,68 @@ def register_optimization(app, service, principal, administrator):
             emit(s, p["tenant_id"], "optimization.updated", campaign, service.clock())
             return {"stopped": True}
 
+    @app.post("/v1/admin/optimization/preview")
+    def preview(body: OptimizationSettings, p=Depends(administrator)):
+        with service.db.transaction(False) as s:
+            campaign = service.scoped(s, "campaigns", p)[0]
+            current = service.optimization_config(s, p, campaign.id)
+            result, _ = goal_plan(service, s, p, campaign, body.conversion_goal or current["conversion_goal"])
+            return {
+                **result,
+                "from_window_days": current["window_days"],
+                "to_window_days": body.window_days or current["window_days"],
+            }
+
     @app.put("/v1/admin/optimization")
     def configure(body: OptimizationSettings, p=Depends(administrator)):
-        values = body.model_dump(exclude_none=True)
+        values = body.model_dump(exclude_none=True, exclude={"expected_campaign_version"})
         with service.db.transaction() as s:
+            service.db.authorize_stream(s, p)
             campaign = service.scoped(s, "campaigns", p)[0]
-            previous = service.optimization_config(s, p)
-            update(campaign, optimization={**previous, **values})
-            if any(
-                key in values and values[key] != previous[key] for key in ("conversion_goal", "window_days")
+            if (
+                body.expected_campaign_version is not None
+                and campaign.version != body.expected_campaign_version
             ):
+                fail(409, "Campaign changed; preview the current definition before saving")
+            previous = service.optimization_config(s, p)
+            definition_changed = any(
+                key in values and values[key] != previous[key] for key in ("conversion_goal", "window_days")
+            )
+            if definition_changed:
+                service.ensure_experiment_cohort(s, p)
+                summary, changes = goal_plan(
+                    service, s, p, campaign, values.get("conversion_goal", previous["conversion_goal"])
+                )
+                for lead, state in changes:
+                    if any(lead.data.get(key) != value for key, value in state.items()):
+                        update(lead, **state)
+                        service.refresh_packet_in(s, p, lead)
+                        emit(s, p["tenant_id"], "lead.goal_updated", lead, service.clock())
+                update(
+                    campaign,
+                    goal_history=[
+                        *campaign.data.get("goal_history", []),
+                        {
+                            "epoch": campaign.data.get("optimization_epoch", "conversion-v2"),
+                            "definition": previous,
+                            "changed_at": service.clock().isoformat(),
+                            "summary": summary,
+                        },
+                    ],
+                    selection_profile={},
+                )
+            update(campaign, optimization={**previous, **values})
+            if definition_changed:
                 update(campaign, optimization_epoch=uid(), optimization_trial=None)
                 for candidate in service.scoped(s, "model_versions", p):
-                    if candidate.data.get("trial_active"):
-                        update(candidate, trial_active=False)
+                    if candidate.data.get("trial_active") or candidate.data.get("active"):
+                        update(
+                            candidate,
+                            trial_active=False,
+                            active=False,
+                            deactivation_reason="Conversion definition changed",
+                        )
                 service.ensure_experiment_cohort(s, p)
-            if values.get("conversion_goal") and values["conversion_goal"] != previous["conversion_goal"]:
-                for model in service.scoped(s, "model_versions", p):
-                    if model.data.get("active"):
-                        update(model, active=False, deactivation_reason="Conversion goal changed")
             audit(
                 s,
                 p["tenant_id"],
@@ -353,6 +398,8 @@ def register_optimization(app, service, principal, administrator):
                 fail(404, "Conversion not found")
             if p["role"] == "rep":
                 service.required(s, "call_attempts", result.data.get("call_id"), p)
+            if result.data.get("retracted"):
+                return doc(result)
             update(
                 result,
                 retracted=True,

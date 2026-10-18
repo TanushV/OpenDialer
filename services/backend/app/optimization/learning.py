@@ -34,6 +34,48 @@ def derive_labels(outcome):
     }
 
 
+def outcome_at(call, now):
+    """Only observed dispositions; a later correction is not historical knowledge."""
+    versions = [*call.get("outcome_history", []), call]
+    known = []
+    for version in versions:
+        available = timestamp(version.get("outcome_available_at"))
+        if not version.get("outcome") or version.get("outcome_source") == "llm_provisional":
+            continue
+        if available and available > now:
+            continue
+        known.append({**version, "available": available or now, "timing_known": available is not None})
+    # Stored order breaks ties when two corrections share a clock tick.
+    return max(reversed(known), key=lambda value: value["available"], default=None)
+
+
+def conversion_at(event, now):
+    versions = [*event.get("history", []), event]
+    known = []
+    for version in versions:
+        occurred = timestamp(version.get("occurred_at"))
+        available = timestamp(
+            version.get("label_available_at") or version.get("observed_at") or version.get("recorded_at")
+        )
+        if not occurred or occurred > now or (available and available > now):
+            continue
+        if version.get("source") == "llm_provisional":
+            continue
+        retracted_at = timestamp(version.get("retracted_at"))
+        retracted = bool(version.get("retracted")) and (retracted_at is None or retracted_at <= now)
+        known.append(
+            {
+                **version,
+                "id": event["id"],
+                "available": max(occurred, available or now),
+                "timing_known": available is not None,
+                "retracted": retracted,
+                "correction_available": (retracted_at or now) if retracted else None,
+            }
+        )
+    return max(reversed(known), key=lambda value: value["available"], default=None)
+
+
 def freeze_features(lead, *, health, now, calls=()):
     try:
         local = now.astimezone(ZoneInfo(lead.get("timezone") or "UTC"))
@@ -59,7 +101,11 @@ def freeze_features(lead, *, health, now, calls=()):
         "number_health_samples": int(health.get("samples", 0)),
         "requested_contact": int(bool(lead.get("requested_contact"))),
         "callback_history": sum(
-            c.get("outcome") == "callback_requested" for c in calls if c.get("lead_id") == lead.get("id")
+            (outcome_at(c, now) or {}).get("outcome") == "callback_requested"
+            for c in calls
+            if c.get("lead_id") == lead.get("id")
+            and timestamp(c.get("started_at"))
+            and timestamp(c["started_at"]) <= now
         ),
     }
 
@@ -68,29 +114,45 @@ def training_rows(calls, snapshots, events, *, now, goal, window_days):
     if goal not in GOALS or not 1 <= window_days <= 180:
         raise ValueError("Reviewed conversion goal and bounded outcome window required")
     by_id = {r["id"]: r for r in snapshots}
+    known_events = [known for event in events if (known := conversion_at(event, now))]
     result = []
     for call in sorted(calls, key=lambda c: c.get("started_at", "")):
         at = timestamp(call.get("started_at"))
         snapshot = by_id.get(call.get("feature_snapshot_id"))
         if not at or at > now or not snapshot or timestamp(snapshot.get("as_of")) is None:
             continue
-        if timestamp(snapshot["as_of"]) > at or not call.get("outcome"):
+        outcome = outcome_at(call, now)
+        if timestamp(snapshot["as_of"]) > at or not outcome:
             continue
         end = at + timedelta(days=window_days)
-        matched = [
+        relevant = [
             e
-            for e in events
+            for e in known_events
             if e.get("lead_id") == call["lead_id"]
             and e.get("kind") == goal
-            and not e.get("retracted")
             and (not e.get("call_id") or e["call_id"] == call["id"])
             and at <= (timestamp(e.get("occurred_at")) or now + timedelta(days=1)) <= min(now, end)
         ]
-        labels = derive_labels(call["outcome"])
+        matched = [e for e in relevant if not e["retracted"]]
+        labels = derive_labels(outcome["outcome"])
         direct = labels.get(goal if goal != "qualified_conversation" else "qualified", False)
         positive = bool(matched) or direct
         closed = now >= end
         ended = timestamp(call.get("ended_at"))
+        positive_times = [e["available"] for e in matched] + ([outcome["available"]] if direct else [])
+        label_available = (
+            min(positive_times)
+            if positive
+            else max(
+                [
+                    end,
+                    outcome["available"],
+                    *[e["correction_available"] for e in relevant if e["correction_available"]],
+                ]
+            )
+            if closed
+            else None
+        )
         result.append(
             {
                 "call_id": call["id"],
@@ -101,7 +163,12 @@ def training_rows(calls, snapshots, events, *, now, goal, window_days):
                 "at": at.isoformat(),
                 "features": dict(snapshot["features"]),
                 **labels,
-                "outcome": call["outcome"],
+                "outcome": outcome["outcome"],
+                "outcome_available_at": outcome["available"].isoformat(),
+                "label_available_at": label_available.isoformat() if label_available else None,
+                "label_timing_quality": "observed"
+                if outcome["timing_known"] and all(e["timing_known"] for e in matched)
+                else "observation_time_unknown",
                 "conversion": int(positive) if positive or closed else None,
                 "goal": goal,
                 "window_status": "matured" if closed else "resolved" if positive else "pending",

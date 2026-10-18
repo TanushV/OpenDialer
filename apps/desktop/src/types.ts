@@ -141,6 +141,7 @@ export interface Fact {
   expires_at: string;
 }
 export interface Packet {
+  review_token?: string;
   preparation?: { status: string; as_of?: string };
   tasks?: FollowupTask[];
   prospect_brief?: {

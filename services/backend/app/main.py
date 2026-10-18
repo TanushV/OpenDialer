@@ -24,7 +24,7 @@ from app.compliance.operating import DNCAuthorization, bind_operating_api
 from app.config import Settings
 from app.db import Database, Event, audit, doc, put, rows, update
 from app.providers.telnyx import verify_webhook
-from app.rep_workflows import MeetingEdit, TaskEdit
+from app.rep_workflows import MeetingEdit, OutreachEdit, TaskEdit
 from app.security import DUMMY_HASH, PASSWORDS, admin, decode_session, issue_session
 from app.service import dt, fail
 from app.telephony.reducer import TERMINAL
@@ -1161,6 +1161,10 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.patch("/v1/tasks/{task_id}")
     def task_status(task_id: str, data: TaskEdit, p=Depends(principal)):
         return service.edit_task(p, task_id, data.model_dump(exclude_unset=True))
+
+    @app.patch("/v1/leads/{lead_id}/outreach")
+    def review_outreach(lead_id: str, data: OutreachEdit, p=Depends(principal)):
+        return service.resolve_goal_review(p, lead_id, data.model_dump(exclude_unset=True))
 
     @app.post("/v1/calls/{call_id}/dtmf")
     async def dtmf(call_id: str, data: dict, p=Depends(principal)):

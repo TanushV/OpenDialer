@@ -13,6 +13,16 @@ interface OptimizationSettings {
   daily_capacity_per_number: number;
   training_min_rows: number;
 }
+interface GoalPreview {
+  campaign_version: number;
+  from_goal: string;
+  to_goal: string;
+  completed_before: number;
+  completed_after: number;
+  requires_next_action: number;
+  preserved_holds: number;
+  preserved_callbacks: number;
+}
 interface OptimizationReport {
   settings: OptimizationSettings;
   forecast: {
@@ -123,6 +133,7 @@ export function OptimizationPanel({
   const [report, setReport] = useState<OptimizationReport | null>(null);
   const [settings, setSettings] = useState<OptimizationSettings | null>(null);
   const dirty = useRef(false);
+  const [goalPreview, setGoalPreview] = useState<GoalPreview | null>(null);
   const [numberId, setNumberId] = useState("");
   const [reviewDecision, setReviewDecision] = useState("pause");
   const [reviewReference, setReviewReference] = useState("");
@@ -169,6 +180,7 @@ export function OptimizationPanel({
     value: OptimizationSettings[K],
   ) => {
     dirty.current = true;
+    setGoalPreview(null);
     setSettings({ ...settings, [key]: value });
   };
   const selected = report.numbers.find((n) => n.id === numberId);
@@ -298,6 +310,20 @@ export function OptimizationPanel({
                   className="secondary"
                   onClick={() =>
                     void run(async () => {
+                      if (
+                        settings.conversion_goal !==
+                          report.settings.conversion_goal ||
+                        settings.window_days !== report.settings.window_days
+                      ) {
+                        setGoalPreview(
+                          await api<GoalPreview>(
+                            "/v1/admin/optimization/preview",
+                            "POST",
+                            settings,
+                          ),
+                        );
+                        return;
+                      }
                       await api("/v1/admin/optimization", "PUT", settings);
                       dirty.current = false;
                       await load();
@@ -321,6 +347,58 @@ export function OptimizationPanel({
                   Refresh learning and capacity
                 </button>
               </div>
+              {goalPreview && (
+                <section aria-label="Review goal change" className="alert">
+                  <div>
+                    <strong>
+                      {label(goalPreview.from_goal)} →{" "}
+                      {label(goalPreview.to_goal)}
+                    </strong>
+                    <p>
+                      {goalPreview.completed_before} completed before;{" "}
+                      {goalPreview.completed_after} completed under the new
+                      goal.
+                    </p>
+                    <p>
+                      Previously completed prospects require next-action review
+                      before new outreach: {goalPreview.requires_next_action}.
+                      Existing holds: {goalPreview.preserved_holds}; callbacks:{" "}
+                      {goalPreview.preserved_callbacks}. Historical trials
+                      retain their original definition.
+                    </p>
+                    <div className="button-row">
+                      <button
+                        className="primary"
+                        onClick={() =>
+                          void run(async () => {
+                            try {
+                              await api("/v1/admin/optimization", "PUT", {
+                                ...settings,
+                                expected_campaign_version:
+                                  goalPreview.campaign_version,
+                              });
+                              dirty.current = false;
+                              await load();
+                              await refresh();
+                              notice("Optimization settings saved");
+                            } finally {
+                              setGoalPreview(null);
+                            }
+                          })
+                        }
+                      >
+                        Apply reviewed goal change
+                      </button>
+                      <button
+                        className="secondary"
+                        onClick={() => setGoalPreview(null)}
+                      >
+                        Cancel change
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              )}
               <p className="fine">
                 Callbacks, calling permissions, stable identity and coverage
                 remain mandatory. These settings do not authorize number

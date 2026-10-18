@@ -1,3 +1,4 @@
+import { coalesceRefresh } from "./state/refresh";
 import { receiveSpeech } from "./state/privacy";
 import {
   Activity,
@@ -18,7 +19,7 @@ import {
   Wifi,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { version as desktopVersion } from "../package.json";
 import {
   canUseOfflineCache,
@@ -104,7 +105,8 @@ export function App() {
     email: "",
     password: "",
   });
-  const refreshLock = useRef(false);
+  const authority = useRef({ runtime, session });
+  authority.current = { runtime, session };
   const api = useCallback(
     async <T,>(path: string, method?: string, body?: unknown): Promise<T> => {
       if (!runtime || !session)
@@ -142,29 +144,45 @@ export function App() {
     },
     [runtime, session],
   );
-  const refresh = useCallback(async () => {
-    if (!session || !runtime || refreshLock.current) return;
-    refreshLock.current = true;
-    try {
-      const result = await request<Workspace>(
-        runtime.url,
-        session.access_token,
-        "/v1/workspace",
-      );
-      setSnapshot(result);
-      setOffline(false);
-      void writeCache(
-        `workspace-${session.user_id}`,
-        { ...result, leads: result.leads.slice(0, 20) },
-        result.simulation,
-      ).catch(() => {});
-    } catch (error) {
-      setOffline(true);
-      throw error;
-    } finally {
-      refreshLock.current = false;
-    }
-  }, [runtime, session]);
+  const refresh = useMemo(
+    () =>
+      coalesceRefresh(
+        async () => {
+          if (!session || !runtime) return null;
+          try {
+            return await request<Workspace>(
+              runtime.url,
+              session.access_token,
+              "/v1/workspace",
+            );
+          } catch (error) {
+            if (
+              authority.current.runtime === runtime &&
+              authority.current.session === session
+            )
+              setOffline(true);
+            throw error;
+          }
+        },
+        (result) => {
+          if (
+            !result ||
+            !session ||
+            authority.current.runtime !== runtime ||
+            authority.current.session !== session
+          )
+            return;
+          setSnapshot(result);
+          setOffline(false);
+          void writeCache(
+            `workspace-${session.user_id}`,
+            { ...result, leads: result.leads.slice(0, 20) },
+            result.simulation,
+          ).catch(() => {});
+        },
+      ),
+    [runtime, session],
+  );
   const notice = useCallback((message: string) => setToast({ message }), []);
   const run = useCallback(async (work: () => Promise<void>) => {
     try {

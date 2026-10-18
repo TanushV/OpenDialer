@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 
 from app.db import MODELS, audit, doc, emit, put, update
+from app.optimization.goals import review_token
 from app.service import dt, fail
 from app.telephony.reducer import TERMINAL
 
@@ -60,6 +61,7 @@ class TaskEdit(DatedEdit):
 
 
 class MeetingEdit(DatedEdit):
+    expected_review_token: str | None = Field(default=None, min_length=64, max_length=64)
     status: Literal["booked", "held", "no_show", "cancelled", "rescheduled"]
     next_action: Literal["keep_hold", "resume", "callback"] = "keep_hold"
     callback_at: str | None = None
@@ -71,7 +73,64 @@ class MeetingEdit(DatedEdit):
         return zoned_time(value)
 
 
+class OutreachEdit(DatedEdit):
+    expected_review_token: str | None = Field(default=None, min_length=64, max_length=64)
+    next_action: Literal["resume", "callback"]
+    reason: str = Field(min_length=3, max_length=500)
+
+
 class RepWorkflows:
+    def check_prospect_review(self, s, p, lead, data):
+        token = data.get("expected_review_token")
+        if token:
+            campaign = self.required(s, "campaigns", lead.data["campaign_id"], p)
+            matches = token == review_token(lead, campaign)
+        else:
+            matches = lead.version == data["expected_version"]
+        if not matches:
+            fail(409, "Prospect context changed; refresh before saving your review")
+
+    def resolve_goal_review(self, p, lead_id, data):
+        with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
+            lead = self.required(s, "leads", lead_id, p)
+            self.check_prospect_review(s, p, lead, data)
+            if lead.data.get("outreach_hold") != "goal_changed":
+                fail(409, "Refresh the prospect; only a goal-change review can be resolved here")
+            if p["role"] == "rep" and lead.data.get("rep_id") not in (None, p["user_id"]):
+                fail(403, "This prospect belongs to another rep")
+            if self.suppressed(s, p, lead.data["phone"]):
+                fail(403, "An opt-out cannot be cleared by a next-action review")
+            if data["next_action"] == "callback":
+                if not data.get("due_at") or not data.get("timezone"):
+                    fail(422, "Confirm a callback time and timezone")
+                self._callback_task(
+                    s,
+                    p,
+                    lead,
+                    key="goal-callback:" + lead.id,
+                    call_id=None,
+                    owner_id=p["user_id"],
+                    due_at=data["due_at"],
+                    timezone=data["timezone"],
+                    note=data["reason"],
+                    explicit_replacement=True,
+                )
+            update(lead, outreach_hold=None)
+            self.refresh_packet_in(s, p, lead)
+            audit(
+                s,
+                p["tenant_id"],
+                p["seller_id"],
+                p["user_id"],
+                "lead.goal_reviewed",
+                lead.id,
+                self.clock(),
+                {"next_action": data["next_action"], "reason": data["reason"]},
+            )
+            emit(s, p["tenant_id"], "lead.goal_updated", lead, self.clock())
+            return doc(lead)
+
     def prospect_context_in(self, s, p, lead, calls, commitments):
         from app.optimization.learning import freeze_features, funnel_predictions
 
@@ -117,6 +176,7 @@ class RepWorkflows:
             why = "Eligible work is ranked by pooled outcome estimates within calling windows."
         samples = int(prediction.get("observations", 0))
         return {
+            "review_token": review_token(lead, campaign),
             "tasks": tasks,
             "prospect_brief": {
                 "version": lead.version,
@@ -385,7 +445,15 @@ class RepWorkflows:
                 "call_id": None,
             }
             if event:
-                update(event, **values)
+                update(
+                    event,
+                    **values,
+                    retracted_at=None,
+                    history=[
+                        *event.data.get("history", []),
+                        {key: value for key, value in event.data.items() if key != "history"},
+                    ],
+                )
             else:
                 put(
                     s,
@@ -405,8 +473,7 @@ class RepWorkflows:
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             lead = self.required(s, "leads", lead_id, p)
-            if lead.version != data["expected_version"]:
-                fail(409, "Prospect changed; refresh before reporting the meeting")
+            self.check_prospect_review(s, p, lead, data)
             self._meeting_in(
                 s,
                 p,
@@ -459,6 +526,20 @@ class RepWorkflows:
                     disposition_input=canonical,
                     outcome_available_at=self.clock().isoformat(),
                     outcome_source="rep_reported",
+                    outcome_history=[
+                        *call.data.get("outcome_history", []),
+                        *(
+                            [
+                                {
+                                    "outcome": call.data["outcome"],
+                                    "outcome_available_at": call.data.get("outcome_available_at"),
+                                    "outcome_source": call.data.get("outcome_source", "legacy_unknown"),
+                                }
+                            ]
+                            if call.data.get("outcome")
+                            else []
+                        ),
+                    ],
                 )
                 update(lead, last_outcome=outcome, last_outcome_at=self.clock().isoformat())
                 if outcome in {"wrong_party", "invalid_endpoint"}:

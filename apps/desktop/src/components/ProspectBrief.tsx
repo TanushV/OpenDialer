@@ -17,6 +17,9 @@ export function ProspectBrief({
   const [next, setNext] = useState("keep_hold");
   const [when, setWhen] = useState(localDateInput(brief?.meeting?.due_at));
   const [callback, setCallback] = useState("");
+  const [reviewAction, setReviewAction] = useState("resume");
+  const [reviewReason, setReviewReason] = useState("");
+  const [reviewTime, setReviewTime] = useState("");
   return (
     <div className="prospect-context">
       <div data-testid="statistical-guidance" className="small">
@@ -72,6 +75,78 @@ export function ProspectBrief({
           <p role="status">
             Outreach paused: {label(packet.lead.outreach_hold)}
           </p>
+        )}
+        {packet.lead.outreach_hold === "goal_changed" && (
+          <section aria-label="Review next outreach">
+            <p>
+              The campaign goal changed. Review the relationship and choose the
+              next action.
+            </p>
+            <label>
+              Goal review next action
+              <select
+                aria-label="Goal review next action"
+                value={reviewAction}
+                onChange={(e) => setReviewAction(e.target.value)}
+              >
+                <option value="resume">Resume when policy allows</option>
+                <option value="callback">Confirmed callback</option>
+              </select>
+            </label>
+            <label>
+              Goal review reason
+              <input
+                aria-label="Goal review reason"
+                value={reviewReason}
+                onChange={(e) => setReviewReason(e.target.value)}
+              />
+            </label>
+            {reviewAction === "callback" && (
+              <label>
+                Reviewed callback time (your device timezone)
+                <input
+                  type="datetime-local"
+                  value={reviewTime}
+                  onChange={(e) => setReviewTime(e.target.value)}
+                />
+              </label>
+            )}
+            <button
+              className="small secondary"
+              disabled={
+                reviewReason.trim().length < 3 ||
+                (reviewAction === "callback" && !reviewTime)
+              }
+              onClick={() =>
+                void run(async () => {
+                  try {
+                    await api(`/v1/leads/${packet.lead.id}/outreach`, "PATCH", {
+                      expected_version: packet.lead.version,
+                      expected_review_token: packet.review_token,
+                      next_action: reviewAction,
+                      reason: reviewReason,
+                      due_at:
+                        reviewAction === "callback"
+                          ? new Date(reviewTime).toISOString()
+                          : null,
+                      timezone:
+                        Intl.DateTimeFormat().resolvedOptions().timeZone,
+                    });
+                    notice("Next outreach action saved");
+                  } finally {
+                    onChange(
+                      await api<Packet>(`/v1/leads/${packet.lead.id}/packet`),
+                    );
+                    await refresh();
+                  }
+                })
+              }
+            >
+              {reviewAction === "callback"
+                ? "Schedule reviewed callback"
+                : "Resume outreach after review"}
+            </button>
+          </section>
         )}
         {brief?.meeting && (
           <p>
@@ -132,6 +207,7 @@ export function ProspectBrief({
                   await api(`/v1/leads/${packet.lead.id}/meeting`, "POST", {
                     status,
                     expected_version: packet.lead.version,
+                    expected_review_token: packet.review_token,
                     due_at: when ? new Date(when).toISOString() : null,
                     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
                     next_action: next,

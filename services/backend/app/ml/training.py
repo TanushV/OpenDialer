@@ -11,6 +11,7 @@ from sklearn.frozen import FrozenEstimator
 from sklearn.metrics import brier_score_loss, log_loss
 
 from app.optimization.learning import funnel_predictions
+from app.optimization.numbering import timestamp
 
 FEATURE_ORDER = [
     "local_hour",
@@ -37,16 +38,42 @@ def vector(features, order):
     ]
 
 
-def independent_partitions(rows):
-    ordered = sorted(rows, key=lambda r: r["at"])
+def label_time(row, label=None):
+    at = timestamp(row["at"])
+    if label == "conversion" or label is None and "conversion" in row:
+        return max(
+            at,
+            timestamp(row.get("outcome_available_at")) or at,
+            timestamp(row.get("label_available_at")) or at,
+            timestamp(row.get("window_ends_at")) or at,
+        )
+    return max(at, timestamp(row.get("outcome_available_at")) or at)
+
+
+def independent_partitions(rows, *, label=None):
+    ordered = sorted(rows, key=lambda r: timestamp(r["at"]))
+    if len(ordered) < 3:
+        return [], [], []
     cut, calibration_cut = int(len(ordered) * 0.6), int(len(ordered) * 0.8)
-    train, calibration, validation = ordered[:cut], ordered[cut:calibration_cut], ordered[calibration_cut:]
-    train_ids = {r["endpoint_id"] for r in train} | {r["lead_id"] for r in train}
-    calibration = [
-        r for r in calibration if r["endpoint_id"] not in train_ids and r["lead_id"] not in train_ids
+    calibration_at = timestamp(ordered[cut]["at"])
+    validation_at = timestamp(ordered[calibration_cut]["at"])
+    train = [
+        r for r in ordered if timestamp(r["at"]) < calibration_at and label_time(r, label) < calibration_at
     ]
-    prior = train_ids | {r["endpoint_id"] for r in calibration} | {r["lead_id"] for r in calibration}
-    validation = [r for r in validation if r["endpoint_id"] not in prior and r["lead_id"] not in prior]
+    calibration = [
+        r
+        for r in ordered
+        if calibration_at <= timestamp(r["at"]) < validation_at and label_time(r, label) < validation_at
+    ]
+    validation = [r for r in ordered if timestamp(r["at"]) >= validation_at]
+
+    def entities(partition):
+        return {(field, r[field]) for r in partition for field in ("endpoint_id", "lead_id")}
+
+    train_ids = entities(train)
+    calibration = [r for r in calibration if not entities([r]) & train_ids]
+    prior = train_ids | entities(calibration)
+    validation = [r for r in validation if not entities([r]) & prior]
     return train, calibration, validation
 
 
@@ -111,7 +138,7 @@ def train_challenger(rows, output_dir):
 def _train_challenger(rows, output_dir):
     if len(rows) < 100:
         raise ValueError("At least 100 outcome-labeled rows required for a challenger")
-    train, calibration, validation = independent_partitions(rows)
+    train, calibration, validation = independent_partitions(rows, label="human")
     if not calibration or not validation:
         raise ValueError("Insufficient independent chronological calibration/validation rows")
 
@@ -124,7 +151,9 @@ def _train_challenger(rows, output_dir):
                 [int(r[label]) for r in part]
             )
 
-        model = HistGradientBoostingClassifier(max_iter=40, max_leaf_nodes=7, random_state=42)
+        model = HistGradientBoostingClassifier(
+            max_iter=40, max_leaf_nodes=7, random_state=42, early_stopping=False
+        )
         model.fit(*xy(partitions[0]))
         calibrated = CalibratedClassifierCV(FrozenEstimator(model), method="sigmoid")
         calibrated.fit(*xy(partitions[1]))
@@ -134,6 +163,11 @@ def _train_challenger(rows, output_dir):
             "brier": float(brier_score_loss(yv, probabilities)),
             "log_loss": float(log_loss(yv, probabilities, labels=[0, 1])),
             "validation_samples": len(yv),
+            "partition_policy": "as-of-grouped-embargo-v1",
+            "train_labels_through": max(label_time(r, label) for r in partitions[0]).isoformat(),
+            "calibration_from": min(timestamp(r["at"]) for r in partitions[1]).isoformat(),
+            "calibration_labels_through": max(label_time(r, label) for r in partitions[1]).isoformat(),
+            "validation_from": min(timestamp(r["at"]) for r in partitions[2]).isoformat(),
         }
 
     human = fit_stage((train, calibration, validation), "human")
@@ -152,7 +186,9 @@ def _train_challenger(rows, output_dir):
             lambda r: r.get("right_party") and r.get("window_closed") and r.get("conversion") is not None,
         ),
     ]:
-        partitions = tuple([r for r in part if predicate(r)] for part in (train, calibration, validation))
+        partitions = tuple(
+            [r for r in part if predicate(r)] for part in independent_partitions(rows, label=label)
+        )
         result = fit_stage(partitions, label) if sum(map(len, partitions)) >= 100 else None
         if result:
             models[name], metrics[name] = result

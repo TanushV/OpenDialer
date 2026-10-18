@@ -125,31 +125,19 @@ class OptimizationWorkflows(ComparisonWorkflows):
         return predict
 
     def reconcile_goal_status(self, s, p, lead):
+        from app.optimization.goals import goal_state
+
         config = self.optimization_config(s, p, lead.data["campaign_id"])
-        goal = config["conversion_goal"]
-        label = "qualified" if goal == "qualified_conversation" else goal
-        calls = [c for c in self.scoped(s, "call_attempts", p) if c.data["lead_id"] == lead.id]
-        achieved = any(derive_labels(c.data.get("outcome")).get(label) for c in calls)
-        achieved |= any(
-            r.data["lead_id"] == lead.id and r.data["kind"] == goal and not r.data.get("retracted")
-            for r in self.scoped(s, "conversion_events", p)
+        change = goal_state(
+            lead.data,
+            config["conversion_goal"],
+            [doc(c) for c in self.lead_records(s, p, "call_attempts", lead.id)],
+            [doc(e) for e in self.lead_records(s, p, "conversion_events", lead.id)],
+            now=self.clock(),
+            suppressed=self.suppressed(s, p, lead.data["phone"]),
         )
-        if achieved:
-            update(
-                lead,
-                conversion_goal_achieved=goal,
-                status="converted" if lead.data.get("status") == "eligible" else lead.data.get("status"),
-            )
-        elif lead.data.get("conversion_goal_achieved") == goal:
-            update(
-                lead,
-                conversion_goal_achieved=None,
-                status="needs_review"
-                if self.suppressed(s, p, lead.data["phone"])
-                else "eligible"
-                if lead.data.get("status") == "converted"
-                else lead.data.get("status"),
-            )
+        if any(lead.data.get(key) != value for key, value in change.items()):
+            update(lead, **change)
 
     def schedule_optimization(self, tenant_id=None):
         from app.db import rows
