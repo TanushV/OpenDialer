@@ -115,7 +115,12 @@ def training_rows(calls, snapshots, events, *, now, goal, window_days):
     if goal not in GOALS or not 1 <= window_days <= 180:
         raise ValueError("Reviewed conversion goal and bounded outcome window required")
     by_id = {r["id"]: r for r in snapshots}
-    known_events = [known for event in events if (known := conversion_at(event, now))]
+    known_events = {}
+    for event in events:
+        known = conversion_at(event, now)
+        if known and known.get("kind") == goal:
+            key = (known.get("lead_id"), known.get("call_id") or None)
+            known_events.setdefault(key, []).append(known)
     result = []
     for call in sorted(calls, key=lambda c: c.get("started_at", "")):
         at = timestamp(call.get("started_at"))
@@ -128,11 +133,11 @@ def training_rows(calls, snapshots, events, *, now, goal, window_days):
         end = at + timedelta(days=window_days)
         relevant = [
             e
-            for e in known_events
-            if e.get("lead_id") == call["lead_id"]
-            and e.get("kind") == goal
-            and (not e.get("call_id") or e["call_id"] == call["id"])
-            and at <= (timestamp(e.get("occurred_at")) or now + timedelta(days=1)) <= min(now, end)
+            for e in (
+                *known_events.get((call["lead_id"], None), []),
+                *known_events.get((call["lead_id"], call["id"]), []),
+            )
+            if at <= timestamp(e["occurred_at"]) <= min(now, end)
         ]
         matched = [e for e in relevant if not e["retracted"]]
         labels = derive_labels(outcome["outcome"])
@@ -389,6 +394,10 @@ def trial_report(assignments, events, *, now, goal, window_days=14, baseline_rat
     unique = {}
     for assignment in sorted(assignments, key=lambda a: a.get("assigned_at", "")):
         unique.setdefault(assignment["lead_id"], assignment)
+    events_by_lead = {}
+    for event in events:
+        if event.get("kind") == goal and not event.get("retracted"):
+            events_by_lead.setdefault(event.get("lead_id"), []).append(timestamp(event["occurred_at"]))
     arms, pending = {}, 0
     for arm in ("control", "candidate"):
         selected = [a for a in unique.values() if a["arm"] == arm]
@@ -397,11 +406,8 @@ def trial_report(assignments, events, *, now, goal, window_days=14, baseline_rat
         def converted(assignment):
             start = timestamp(assignment["assigned_at"])
             return any(
-                e.get("lead_id") == assignment["lead_id"]
-                and e.get("kind") == goal
-                and not e.get("retracted")
-                and start <= timestamp(e["occurred_at"]) <= min(now, start + timedelta(days=window_days))
-                for e in events
+                start <= at <= min(now, start + timedelta(days=window_days))
+                for at in events_by_lead.get(assignment["lead_id"], [])
             )
 
         total_positive = sum(converted(a) for a in selected)
