@@ -1,7 +1,8 @@
 from datetime import timedelta
 
-from app.db import put, rows, update
+from app.db import Job, put, rows, update
 from conftest import completed_report, start
+from sqlalchemy import select
 
 
 def auth(workspace):
@@ -336,6 +337,18 @@ async def test_enabled_worker_schedules_bounded_automatic_learning_without_opera
     c, h = workspace["client"], workspace["headers"]
     report = completed_report(workspace, headers=h).json()
     assert report["dataset"]["snapshots"]
-    before = len(c.get("/v1/workspace", headers=h).json()["jobs"])
+
+    def learning_jobs():
+        with app.state.db.transaction(False) as s:
+            return {
+                job.id
+                for job in s.scalars(select(Job).where(Job.tenant_id == workspace["tenant_id"]))
+                if job.payload.get("kind") == "optimization_refresh" or "rows" in job.payload
+            }
+
+    before = learning_jobs()
+    assert len(before) == 1
+    # Workspace GET may queue its independent home-metric refresh.
+    assert c.get("/v1/workspace", headers=h).status_code == 200
     await app.state.service.run_jobs(tenant_id=workspace["tenant_id"], queues=["ml"])
-    assert len(c.get("/v1/workspace", headers=h).json()["jobs"]) == before
+    assert learning_jobs() == before
