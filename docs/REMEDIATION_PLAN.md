@@ -785,7 +785,7 @@ Depends on this written plan. Exit: maintained acceptance suite, reproducible fa
 
 Depends on M0. Exit: P1 defects and event/control recovery pass A04–A10, A13 and A49 with crash/retry evidence.
 
-- [ ] M1.01 Add resumable received/processing/processed event state and atomic reducer/output completion.
+- [ ] M1.01 Active: add resumable received/processing/processed event state and atomic reducer/output completion. Twelve new prompt-ACK/atomicity/retention/recovery counterexamples fail before this repair (webhook-completion-red.txt).
 - [x] M1.02 Normalize documented transcript-track variants and keep unknown side/finality honest.
 - [x] M1.03 Enforce terminal-state monotonicity and late-event handling for every call leg.
 - [ ] M1.04 Complete leased/fenced recovery for every control command, not only dial/hangup; wire heartbeats where needed.
