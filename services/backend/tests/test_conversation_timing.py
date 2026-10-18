@@ -48,12 +48,14 @@ def test_other_side_speech_interrupts_a_monologue_and_nested_turns_have_no_false
         ]
     )
     assert metrics["longest_monologue_ms"] == 20
-    assert metrics["response_gaps_ms"] == [0, 0, 0, 0]
-    assert metrics["turn_exchanges"] == 4
+    # Overlap alone cannot prove a transfer of the conversational floor.
+    assert metrics["response_gaps_ms"] == []
+    assert metrics["turn_exchanges"] == 0
 
 
 @pytest.mark.parametrize(
-    "start,end", [(None, 1), (0, None), (-1, 5), (5, 4), (0, math.inf), (0, math.nan), ("0", 5), (False, 5)]
+    "start,end",
+    [(None, 1), (0, None), (-1, 5), (5, 4), (5, 5), (0, math.inf), (0, math.nan), ("0", 5), (False, 5)],
 )
 def test_missing_or_invalid_timing_is_unknown_not_fabricated_speaking_time(start, end):
     metrics = behavioral_metrics([segment("rep", start, end, question_count=1)])
@@ -63,6 +65,29 @@ def test_missing_or_invalid_timing_is_unknown_not_fabricated_speaking_time(start
     assert metrics["overlap_ms"] is None
     assert metrics["longest_monologue_ms"] is None
     assert metrics["question_count"] == 1
+
+
+def test_overlap_is_not_a_response_pause_and_simultaneous_sides_have_no_inferred_floor():
+    observed = behavioral_metrics([segment("rep", 0, 10), segment("remote", 5, 15)])
+    assert observed["turn_exchanges"] == 1
+    assert observed["response_gaps_ms"] == [0]
+    assert observed["longest_monologue_ms"] == 5
+    simultaneous = behavioral_metrics([segment("rep", 0, 10), segment("remote", 0, 10)])
+    assert simultaneous["turn_exchanges"] == 0
+    assert simultaneous["longest_monologue_ms"] == 0
+
+
+def test_system_audio_and_unknown_sides_are_excluded_from_behavior():
+    measured = behavioral_metrics(
+        [
+            segment("rep", 0, 10, system_audio=True, question_count=2),
+            segment("unknown", 0, 20, question_count=1),
+            segment("remote", 25, 30),
+        ]
+    )
+    assert measured["talk_ms"] == {"rep": 0, "remote": 5}
+    assert measured["question_count"] == 0
+    assert measured["timed_segments"] == 1
 
 
 def test_timing_matches_an_independent_small_interval_union_oracle():
