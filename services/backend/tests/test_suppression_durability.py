@@ -121,3 +121,55 @@ def test_suppression_of_an_unsent_reservation_cannot_release_a_live_call_claim(w
     service.suppress(p, phone, "opt_out", event_id="retained-live-claim")
     with service.db.transaction(False) as s:
         assert s.scalar(select(ActiveClaim).where(ActiveClaim.call_id == call["id"])) is not None
+
+
+def test_nested_optout_failure_preserves_a_hold_after_the_outer_transaction_rolls_back(
+    workspace, app, monkeypatch
+):
+    import os
+
+    service, p = app.state.service, principal(workspace)
+    original = os.fsync
+    failed = False
+
+    def interrupted(fd):
+        nonlocal failed
+        if not failed:
+            failed = True
+            raise OSError("Synthetic nested flush failure")
+        return original(fd)
+
+    monkeypatch.setattr(os, "fsync", interrupted)
+    with pytest.raises(HTTPException) as error:
+        with service.db.transaction() as session:
+            service.suppress(p, "+14155550775", "opt_out", event_id="nested-optout", session=session)
+    assert error.value.status_code == 503
+    with service.db.transaction(False) as s:
+        assert get(s, "sellers", p["seller_id"]).data.get("journal_recovery_required") is True
+
+
+@pytest.mark.asyncio
+async def test_restore_release_requires_original_missing_suppression_receipt(workspace, app, monkeypatch):
+    import os
+
+    service, p = app.state.service, principal(workspace)
+    original = os.fsync
+    failed = False
+
+    def interrupted(fd):
+        nonlocal failed
+        if not failed:
+            failed = True
+            raise OSError("Synthetic missing durable receipt")
+        return original(fd)
+
+    monkeypatch.setattr(os, "fsync", interrupted)
+    try:
+        service.suppress(p, "+14155550776", "opt_out", event_id="missing-optout")
+    except (OSError, HTTPException):
+        pass
+    path = service.settings.data_dir / "suppression-journal.enc"
+    path.unlink()
+    with pytest.raises(HTTPException) as error:
+        await service.reconcile_restore(p, "Synthetic review cannot replace missing denial bytes")
+    assert error.value.status_code == 409
