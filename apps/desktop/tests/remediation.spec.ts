@@ -94,3 +94,39 @@ test("batch script preparation exposes gatekeeper and screening sections", async
   await expect(page.getByText(/Gatekeeper/i).first()).toBeVisible();
   await expect(page.getByText(/iPhone screening/i).first()).toBeVisible();
 });
+
+test("seller can save a fixed script and an overnight preparation window", async ({
+  page,
+}) => {
+  await enter(page);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page
+    .getByLabel("Script topic", { exact: true })
+    .fill("service scheduling");
+  await page
+    .getByLabel("Gatekeeper template", { exact: true })
+    .fill("Who handles {topic} for your team?");
+  await page.getByLabel("Prepared-ahead target", { exact: true }).fill("6");
+  await page
+    .getByLabel("Preparation starts at hour", { exact: true })
+    .fill("18");
+  await page.getByLabel("Preparation ends at hour", { exact: true }).fill("8");
+  await page
+    .getByRole("button", { name: "Save script and preparation" })
+    .click();
+  await expect(page.getByText("Script and preparation saved")).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel("Script topic", { exact: true })).toHaveValue(
+    "service scheduling",
+  );
+  await expect(
+    page.getByLabel("Preparation starts at hour", { exact: true }),
+  ).toHaveValue("18");
+  await page.getByRole("button", { name: "Leads", exact: true }).click();
+  await expect(page.getByTestId("preparation-runway")).toContainText(
+    "Target 6",
+  );
+  await expect(page.getByTestId("preparation-runway")).toContainText(
+    "Outside preparation window",
+  );
+});
