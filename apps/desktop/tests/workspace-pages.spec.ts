@@ -1,5 +1,9 @@
 import { expect, test } from "@playwright/test";
 
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: "wait" });
+});
+
 async function enter(page: import("@playwright/test").Page) {
   await page.goto("/");
   await expect(page.getByText("Opening your workspace…")).toBeHidden();
@@ -176,19 +180,177 @@ test("registry history remains accessible beyond the workspace preview", async (
   await expect(page.getByText(/older-snapshot/)).toBeVisible();
 });
 
-test("a newer searched lead is not overwritten by an older workspace preview", async ({ page }) => {
-  await page.route("**/v1/workspace", async route => {
-    const response = await route.fetch(); const data = await response.json();
-    data.leads = [{ id: "same-lead", version: 1, name: "Old Name", company: "Example", phone: "+12125550199", status: "eligible", attempt_count: 0 }];
+test("a newer searched lead is not overwritten by an older workspace preview", async ({
+  page,
+}) => {
+  await page.route("**/v1/workspace", async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.leads = [
+      {
+        id: "same-lead",
+        version: 1,
+        name: "Old Name",
+        company: "Example",
+        phone: "+12125550199",
+        status: "eligible",
+        attempt_count: 0,
+      },
+    ];
     await route.fulfill({ response, json: data });
   });
-  await page.route("**/v1/workspace/leads**", route => route.fulfill({ json: {
-    items: [{ id: "same-lead", version: 2, name: "Corrected Name", company: "Example", phone: "+12125550199", status: "eligible", attempt_count: 0 }],
-    total: 1, next_cursor: null,
-  }}));
+  await page.route("**/v1/workspace/leads**", (route) =>
+    route.fulfill({
+      json: {
+        items: [
+          {
+            id: "same-lead",
+            version: 2,
+            name: "Corrected Name",
+            company: "Example",
+            phone: "+12125550199",
+            status: "eligible",
+            attempt_count: 0,
+          },
+        ],
+        total: 1,
+        next_cursor: null,
+      },
+    }),
+  );
   await enter(page);
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   await page.getByRole("textbox", { name: "Search leads" }).fill("Corrected");
-  await page.getByRole("button", { name: "Search lead history", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Open lead Corrected Name", exact: true })).toBeVisible();
+  await page
+    .getByRole("button", { name: "Search lead history", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Open lead Corrected Name", exact: true }),
+  ).toBeVisible();
+});
+
+test("failed workspace totals expose recovery even before the first result", async ({
+  page,
+}) => {
+  await page.route("**/v1/workspace", async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.calls = [];
+    data.metrics = {
+      projection: {
+        status: "pending",
+        refresh_status: "dead",
+        refresh_error: "Workspace totals need recovery",
+      },
+    };
+    await route.fulfill({ response, json: data });
+  });
+  await enter(page);
+  await expect(
+    page.getByText("Workspace totals need recovery", { exact: true }),
+  ).toBeVisible();
+});
+
+test("editing an older follow-up keeps the returned version beyond the preview", async ({
+  page,
+}) => {
+  const task = {
+    id: "old-edit-task",
+    version: 1,
+    call_id: "old-edit-call",
+    action: "Complete the old promise",
+    status: "open",
+    due_at: "2026-10-20T18:00:00Z",
+  };
+  await page.route("**/v1/workspace", async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.tasks = [];
+    data.pages = {
+      ...data.pages,
+      tasks: { total: 100, next_cursor: "older-tasks" },
+    };
+    await route.fulfill({ response, json: data });
+  });
+  await page.route("**/v1/workspace/tasks**", (route) =>
+    route.fulfill({ json: { items: [task], total: 100, next_cursor: null } }),
+  );
+  await page.route("**/v1/tasks/old-edit-task", (route) =>
+    route.fulfill({
+      json: { ...task, ...route.request().postDataJSON(), version: 2 },
+    }),
+  );
+  await enter(page);
+  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Load more follow-ups", exact: true })
+    .click();
+  const row = page.locator('[data-call-id="old-edit-call"]');
+  await row.getByRole("button", { name: "Complete", exact: true }).click();
+  await expect(row.getByText("Completed", { exact: true })).toBeVisible();
+  await expect(
+    row.getByRole("button", { name: "Complete", exact: true }),
+  ).toBeDisabled();
+});
+
+test("editing a number beyond the preview immediately updates its lifecycle", async ({
+  page,
+}) => {
+  const number = {
+    id: "old-edit-number",
+    version: 1,
+    phone: "+12125550930",
+    region: "general",
+    lifecycle: "healthy",
+    capacity: 1,
+    daily_limit: 20,
+  };
+  await page.route("**/v1/workspace", async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.numbers = [];
+    data.pages = {
+      ...data.pages,
+      numbers: { total: 100, next_cursor: "older-numbers" },
+    };
+    await route.fulfill({ response, json: data });
+  });
+  await page.route("**/v1/workspace/numbers**", (route) =>
+    route.fulfill({ json: { items: [number], total: 100, next_cursor: null } }),
+  );
+  await page.route("**/v1/admin/numbers/old-edit-number", (route) =>
+    route.fulfill({
+      json: { ...number, ...route.request().postDataJSON(), version: 2 },
+    }),
+  );
+  await enter(page);
+  await page.getByRole("button", { name: "Numbers", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Load more numbers", exact: true })
+    .click();
+  const row = page.getByRole("row").filter({ hasText: number.phone });
+  await row
+    .getByRole("button", { name: "Pause outbound", exact: true })
+    .click();
+  await expect(
+    row.getByText("Paused for outbound", { exact: true }),
+  ).toBeVisible();
+});
+
+test("failed call filtering keeps the previously displayed filter honest", async ({
+  page,
+}) => {
+  await page.route("**/v1/workspace/calls**", (route) =>
+    route.fulfill({
+      status: 503,
+      json: { detail: "History temporarily unavailable" },
+    }),
+  );
+  await enter(page);
+  await page.getByRole("button", { name: "Review", exact: true }).click();
+  await page.getByRole("combobox").selectOption("wrong_party");
+  await expect(
+    page.getByText("History temporarily unavailable", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("combobox")).toHaveValue("all");
 });
