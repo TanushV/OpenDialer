@@ -215,3 +215,20 @@ def test_removed_batch_evidence_is_an_object_retry_not_a_reconciliation_failure(
     assert result.status_code == 200, result.text
     assert result.json()["published"] == []
     assert result.json()["retry_lead_ids"] == [deferred["lead_id"]]
+
+
+def test_changed_fact_statement_invalidates_a_previously_filled_slot(deferred, workspace, app):
+    from app.db import update
+
+    deferred["candidate"]["slots"]["relevance"] = {
+        "text": "The company offers maintenance.",
+        "fact_ids": [deferred["fact_id"]],
+    }
+    service = app.state.service
+    with service.db.transaction() as s:
+        fact = service.required(s, "research_facts", deferred["fact_id"], p(workspace))
+        update(fact, statement="The company no longer offers maintenance.")
+    result = deferred["finish"]()
+    assert result.status_code == 200, result.text
+    assert result.json()["published"] == []
+    assert result.json()["retry_lead_ids"] == [deferred["lead_id"]]

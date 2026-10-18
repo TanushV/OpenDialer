@@ -16,7 +16,11 @@ def review_response(request, *, verdict="SUPPORTED"):
     return {
         "fingerprint": request["fingerprint"],
         "verdicts": [
-            {"field": item["field"], "verdict": verdict, "evidence": item["evidence"]}
+            {
+                "field": item["field"],
+                "verdict": verdict,
+                "evidence": item["evidence"] or [source["id"] for source in request["sources"]],
+            }
             for item in request["fields"]
         ],
     }
@@ -242,3 +246,24 @@ async def test_review_completion_cannot_extend_raw_lifetime(workspace, app, monk
         ]
         assert len(usage) == 1
     assert service.analysis(p(workspace), call["id"])["transcript"] == []
+
+
+@pytest.mark.asyncio
+async def test_source_correction_invalidates_the_review_status(workspace, app, monkeypatch):
+    call, _ = setup_analysis(workspace, app, monkeypatch)
+    service = app.state.service
+    await service.analyze_postcall(p(workspace), call["id"])
+    assert service.analysis(p(workspace), call["id"])["grounding_status"] == "model_reviewed"
+    service._accept_transcript(
+        p(workspace),
+        call["id"],
+        {
+            "segment_id": "s",
+            "revision": 2,
+            "is_final": True,
+            "side": "remote",
+            "text": "There is no agreed callback.",
+        },
+        None,
+    )
+    assert service.analysis(p(workspace), call["id"])["grounding_status"] == "unreviewed"

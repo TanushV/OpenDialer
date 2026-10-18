@@ -21,6 +21,51 @@ TEMPLATE = {
 }
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["withdraw", "statement", "delete"])
+async def test_immediate_publication_rechecks_fact_after_inference(workspace, app, monkeypatch, change):
+    configure(workspace)
+    service = app.state.service
+    lead_id = workspace["lead_ids"][0]
+    # Produce ordinary first-party simulation facts before installing the racing provider.
+    await service.prepare(p(workspace), [lead_id])
+    packet = service.packet(p(workspace), lead_id)
+    fact = packet["research"]["facts"][0]
+
+    class Provider:
+        async def complete(self, instructions, context, schema):
+            assert any(f["fact_id"] == fact["fact_id"] for f in context["facts"])
+            with service.db.transaction() as s:
+                row = service.required(s, "research_facts", fact["id"], p(workspace))
+                if change == "delete":
+                    s.delete(row)
+                else:
+                    update(
+                        row,
+                        **(
+                            {"status": "withdrawn"}
+                            if change == "withdraw"
+                            else {"statement": "Corrected company evidence."}
+                        ),
+                    )
+            return InferenceResult(
+                {
+                    "lead_id": lead_id,
+                    "slots": {
+                        "relevance": {"text": fact["statement"], "fact_ids": [fact["fact_id"]]},
+                        "proof": {"text": "", "fact_ids": []},
+                    },
+                },
+                {"cost": 0.001},
+                "stale-fact-result",
+            )
+
+    monkeypatch.setattr(service, "inference", lambda *args: Provider())
+    with pytest.raises(RuntimeError):
+        await service.prepare(p(workspace), [lead_id])
+    assert service.packet(p(workspace), lead_id)["script"]["fallback"] is True
+
+
 def configure(workspace, **changes):
     workspace["lead_ids"] = [
         lead["id"]
