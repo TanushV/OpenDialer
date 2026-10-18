@@ -23,6 +23,7 @@ test("callback fallback settings survive reload and explain offline routing", as
     .fill("sip:reception@example.test");
   await panel.getByRole("button", { name: "Save callback routing" }).click();
   await expect(panel).toContainText("Callback routing saved");
+  await expect(panel).toContainText("$0.10 per transfer");
   await expect(panel).toContainText(
     "Carrier-side fallback is required while this computer is offline",
   );
