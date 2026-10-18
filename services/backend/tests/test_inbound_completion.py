@@ -299,3 +299,97 @@ def test_live_callback_cannot_be_reassigned_by_task_editor(workspace, clock):
             s.scalar(select(ActiveClaim).where(ActiveClaim.call_id == task["id"])).rep_id
             == workspace["user_id"]
         )
+
+
+def test_recheck_rep_pause_before_transfer_submission(workspace, carrier, clock):
+    _, phone = previous_call(workspace)
+    teammate(workspace, clock)
+    task = incoming(workspace, phone=phone)
+    workspace["client"].post("/v1/rep/presence", headers=workspace["headers"], json={"status": "paused"})
+    dispatch(workspace)
+    assert all("responsible@" not in a["payload"].get("to", "") for a in carrier.actions)
+    assert saved(workspace, "followup_tasks", task["id"])["route"] == "teammate"
+
+
+def test_answer_receipt_reconciles_uncertain_ack_before_routing(workspace, carrier, monkeypatch):
+    action = carrier.action
+
+    async def lost_answer(provider_id, kind, payload):
+        await action(provider_id, kind, payload)
+        if kind == "answer":
+            raise TimeoutError("answer accepted, response lost")
+
+    monkeypatch.setattr(carrier, "action", lost_answer)
+    incoming(workspace)
+    dispatch(workspace)
+    assert not any(a["action"] == "speak" for a in carrier.actions)
+    webhook(workspace, "call.answered", {"call_control_id": "inbound-1"})
+    dispatch(workspace)
+    assert len([a for a in carrier.actions if a["action"] == "speak"]) == 1
+
+
+@pytest.mark.parametrize("context", [[], "not-an-object", 12])
+def test_unmatched_client_state_is_not_a_processing_failure(workspace, context):
+    encoded = base64.b64encode(json.dumps(context).encode()).decode()
+    result = webhook(workspace, "call.bridged", {"call_control_id": "unknown", "client_state": encoded})
+    assert result.get("unmatched")
+
+
+def test_rep_can_end_the_current_inbound_call_and_both_known_legs(workspace, carrier):
+    _, phone = previous_call(workspace)
+    task = incoming(workspace, phone=phone)
+    dispatch(workspace)
+    webhook(workspace, "call.bridged", target_payload(carrier))
+    result = workspace["client"].post(f"/v1/callbacks/{task['id']}/hangup", headers=workspace["headers"])
+    assert result.status_code == 200, result.text
+    dispatch(workspace)
+    assert {h["provider_id"] for h in carrier.hangups} == {"inbound-1", "destination-leg"}
+    again = workspace["client"].post(f"/v1/callbacks/{task['id']}/hangup", headers=workspace["headers"])
+    assert again.status_code == 200
+    dispatch(workspace)
+    assert len(carrier.hangups) == 2
+
+
+def test_connected_callback_completes_only_the_related_unedited_return_task(workspace, carrier, clock):
+    call, phone = previous_call(workspace)
+    service = workspace["client"].app.state.service
+    with service.db.transaction() as s:
+        common = {
+            "lead_id": call["lead_id"],
+            "call_id": call["id"],
+            "kind": "callback",
+            "status": "open",
+            "owner_id": workspace["user_id"],
+            "action": "Return call",
+            "due_at": clock().isoformat(),
+        }
+        promised = put(
+            s, "followup_tasks", workspace["tenant_id"], workspace["seller_id"], common, now=clock()
+        )
+        edited = put(
+            s,
+            "followup_tasks",
+            workspace["tenant_id"],
+            workspace["seller_id"],
+            {**common, "human_edited": True},
+            now=clock(),
+        )
+        promised_id, edited_id = promised.id, edited.id
+    incoming(workspace, phone=phone)
+    dispatch(workspace)
+    webhook(workspace, "call.bridged", target_payload(carrier))
+    assert saved(workspace, "followup_tasks", promised_id)["status"] == "completed"
+    assert saved(workspace, "followup_tasks", edited_id)["status"] == "open"
+
+
+def test_ended_provider_callback_is_reconciled_after_restart_without_replaying_transfer(workspace, carrier):
+    _, phone = previous_call(workspace)
+    task = incoming(workspace, phone=phone)
+    dispatch(workspace)
+    webhook(workspace, "call.initiated", target_payload(carrier))
+    carrier.calls["inbound-1"] = {"call_control_id": "inbound-1", "is_alive": False}
+    carrier.calls["destination-leg"] = {"call_control_id": "destination-leg", "is_alive": False}
+    service = workspace["client"].app.state.service
+    asyncio.run(service.recover(principal(workspace)))
+    assert saved(workspace, "followup_tasks", task["id"])["inbound_state"] == "ended"
+    assert len([a for a in carrier.actions if a["action"] == "transfer"]) == 1
