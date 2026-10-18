@@ -126,4 +126,33 @@ test("campaign scoring anchors persist and a rep can correct the call purpose", 
   await expect(
     page.getByLabel("Actual call purpose", { exact: true }),
   ).toHaveValue("follow_up");
+  const review = page.getByRole("region", {
+    name: "Human score review",
+    exact: true,
+  });
+  await review.getByLabel("Review action", { exact: true }).selectOption("N/A");
+  await review
+    .getByLabel("Review dimension", { exact: true })
+    .selectOption("problem_discovery");
+  await review
+    .getByLabel("Review reason", { exact: true })
+    .fill("No new discovery opportunity was offered during this follow-up.");
+  await review
+    .getByRole("button", { name: "Save review", exact: true })
+    .click();
+  await expect(review).toContainText("Human rating");
+  await expect(review).toContainText(
+    "No new discovery opportunity was offered during this follow-up.",
+  );
+  await page
+    .getByRole("button", { name: "All conversations", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: /^Review call / })
+    .first()
+    .click();
+  await expect(review).toContainText(
+    "No new discovery opportunity was offered during this follow-up.",
+  );
+  await expect(review).toContainText("AI assessment remains available above");
 });
