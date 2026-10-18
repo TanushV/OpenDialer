@@ -302,3 +302,53 @@ def test_listing_does_not_decrypt_unrelated_command_history(workspace, batch, mo
     response = workspace["client"].get("/v1/admin/batches", headers=workspace["headers"])
     assert response.status_code == 200 and len(response.json()["batches"]) == 1
     assert len(reads) <= 5 and not batch["reads"]
+
+
+def test_terminal_provider_receipt_is_not_finished_publication(workspace, batch, monkeypatch):
+    async def complete(provider, requests):
+        batch["sent"].append(requests)
+        return {"id": "batch-original", "status": "completed"}
+
+    monkeypatch.setattr(OpenAIBatch, "submit", complete)
+    assert submit(workspace, batch).status_code == 200
+    response = submit(workspace, batch, "accidental-new-key")
+    assert response.status_code == 409 and len(batch["sent"]) == 1
+    assert stored(batch)["status"] == "awaiting_publication"
+
+
+def test_repeated_completed_batch_read_never_regresses_or_reissues_reviews(workspace, batch, monkeypatch):
+    batch["lose"] = False
+    assert submit(workspace, batch).status_code == 200
+
+    async def complete(provider, identity):
+        batch["reads"].append(identity)
+        return {"id": identity, "status": "completed", "results": []}
+
+    monkeypatch.setattr(OpenAIBatch, "retrieve", complete)
+    response = reconcile(workspace, stored(batch))
+    assert response.status_code == 200, response.text
+    original = response.json()
+    monkeypatch.setattr(OpenAIBatch, "retrieve", batch["retrieve"])
+    response = reconcile(workspace, stored(batch))
+    assert response.status_code == 200 and response.json() == original
+    assert len(batch["reads"]) == 1 and stored(batch)["status"] == "completed"
+
+
+def test_shared_provider_receipt_is_not_bound_to_another_submission(workspace, batch):
+    batch["lose"] = False
+    assert submit(workspace, batch).status_code == 200
+    leads = workspace["client"].get("/v1/workspace", headers=workspace["headers"]).json()["leads"]
+    batch["lead"] = next(lead["id"] for lead in leads if lead["id"] != batch["lead"])
+    response = submit(workspace, batch, "different-work")
+    assert response.status_code == 503, response.text
+    with batch["service"].db.transaction(False) as s:
+        attempts = [
+            r.data
+            for r in batch["service"].scoped(s, "command_outbox", batch["p"])
+            if r.data.get("kind") == "script_batch"
+        ]
+        assert len(attempts) == 2
+        uncertain = next(row for row in attempts if row["status"] == "uncertain")
+        assert not uncertain.get("provider_batch_id")
+        holds = batch["service"].scoped(s, "usage_ledger", batch["p"])
+        assert len(holds) == 2 and all(row.data["reserved_usd"] > 0 for row in holds)

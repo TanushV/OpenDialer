@@ -56,8 +56,9 @@ def deferred(workspace, app, monkeypatch, clock):
     }
 
     async def submit(self, requests):
+        receipt = "batch-fixture" if not state["requests"] else "batch-fixture-next"
         state["requests"].extend(requests)
-        return {"id": "batch-fixture", "status": "in_progress"}
+        return {"id": receipt, "status": "in_progress"}
 
     async def retrieve(self, batch_id):
         return {
