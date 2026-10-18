@@ -47,6 +47,9 @@ def test_recovery_selects_due_obligations_before_recent_healthy_calls(
     _, calls, _ = service._recovery_snapshot(p)
     assert [r["id"] for r in calls] == [identity], "Only currently due call obligations belong in this tick"
     assert len(decoded) <= 10, len(decoded)
+    assert service._recovery_snapshot(p)[1] == [], (
+        "Another worker tick must not immediately repeat the same checks"
+    )
 
 
 @pytest.mark.asyncio
@@ -67,3 +70,70 @@ async def test_old_terminal_receipt_cannot_finish_a_rebound_ending_call(workspac
         current = get(s, "call_attempts", call["id"])
         assert current.data["state"] == "ENDING", "A stale receipt cannot release the current live obligation"
         assert current.data["provider_id"] == "replacement-leg"
+
+
+def test_orphan_due_index_backfills_without_changing_saved_call_content(workspace, app, clock):
+    from sqlalchemy import inspect, text
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        call = put(
+            s,
+            "call_attempts",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "state": "HUMAN",
+                "started_at": clock().isoformat(),
+                "max_call_seconds": 300,
+            },
+        )
+        identity, version, content = call.id, call.version, dict(call.data)
+    with service.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE call_attempts SET op_due_at=NULL, op_index_version=2 WHERE id=:id"), {"id": identity}
+        )
+    service.db.backfill_operational_columns()
+    with service.db.transaction(False) as s:
+        saved = get(s, "call_attempts", identity)
+        from app.service import dt
+
+        assert dt(saved.op_due_at) == clock() + timedelta(seconds=300)
+        assert (saved.id, saved.version, saved.data) == (identity, version, content)
+    assert "ix_call_attempts_recovery_due" in {
+        i["name"] for i in inspect(service.db.engine).get_indexes("call_attempts")
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_failed_orphan_check_does_not_block_the_remaining_due_calls(
+    workspace, app, clock, carrier, monkeypatch
+):
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        for i in range(2):
+            put(
+                s,
+                "call_attempts",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    "state": "ENDING",
+                    "started_at": clock().isoformat(),
+                    "max_call_seconds": 300,
+                    "provider_id": f"ending-{i}",
+                },
+                now=clock() + timedelta(seconds=i),
+            )
+    seen = []
+
+    async def reconcile(command_id, provider_id):
+        seen.append(provider_id)
+        raise TimeoutError()
+
+    monkeypatch.setattr(carrier, "reconcile", reconcile)
+    await service.recover(p)
+    assert set(seen) == {"ending-0", "ending-1"}
+    assert service._recovery_snapshot(p)[1] == []
+    clock.now += timedelta(seconds=31)
+    assert len(service._recovery_snapshot(p)[1]) == 2
