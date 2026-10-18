@@ -288,3 +288,51 @@ def test_historical_cohort_is_loaded_through_a_separate_projection(workspace, ap
     assert past["trial"]["epoch"] == epoch
     assert past["projection"]["status"] == "ready"
     assert service.cached_optimization_report(p)["projection"]["status"] == "pending"
+
+
+def test_backups_exclude_rebuildable_reports(workspace, app):
+    import json
+
+    service, p = app.state.service, principal(workspace)
+    service.refresh_optimization(p)
+    receipt = service.backup(p)
+    path = service.settings.data_dir / "backups" / (receipt["backup_id"] + ".backup")
+    payload = json.loads(service.vault.cipher.decrypt(path.read_bytes()))
+    assert not payload["tables"].get("report_projections")
+
+
+def test_backup_from_installed_schema_restores_without_new_cache_tables(workspace, app):
+    import json
+
+    service, p = app.state.service, principal(workspace)
+    service.refresh_optimization(p)
+    receipt = service.backup(p)
+    path = service.settings.data_dir / "backups" / (receipt["backup_id"] + ".backup")
+    payload = json.loads(service.vault.cipher.decrypt(path.read_bytes()))
+    before_ids = {r["id"] for r in payload["tables"]["leads"]}
+    payload["tables"].pop("report_projections", None)
+    payload["tables"].pop("work_intervals", None)
+    path.write_bytes(service.vault.cipher.encrypt(json.dumps(payload).encode()))
+    assert service.restore(p, receipt["backup_id"])["restored"]
+    with service.db.transaction(False) as s:
+        assert {r.id for r in service.scoped(s, "leads", p)} == before_ids
+        assert not service.scoped(s, "report_projections", p)
+    assert service.cached_optimization_report(p)["projection"]["status"] == "pending"
+
+
+def test_incomplete_backup_cannot_delete_required_source_tables(workspace, app):
+    import json
+
+    from fastapi import HTTPException
+
+    service, p = app.state.service, principal(workspace)
+    receipt = service.backup(p)
+    path = service.settings.data_dir / "backups" / (receipt["backup_id"] + ".backup")
+    payload = json.loads(service.vault.cipher.decrypt(path.read_bytes()))
+    payload["tables"].pop("leads")
+    path.write_bytes(service.vault.cipher.encrypt(json.dumps(payload).encode()))
+    with pytest.raises(HTTPException) as exc:
+        service.restore(p, receipt["backup_id"])
+    assert exc.value.status_code == 422
+    with service.db.transaction(False) as s:
+        assert len(service.scoped(s, "leads", p)) == 3
