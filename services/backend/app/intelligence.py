@@ -108,8 +108,17 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
         )
 
     def approved_playbook(self, s, p):
-        candidates = [r for r in self.scoped(s, "playbooks", p) if r.data.get("approved")]
-        return max(candidates, key=lambda r: (r.version, r.created_at)) if candidates else None
+        model = MODELS["playbooks"]
+        return s.scalar(
+            select(model)
+            .where(
+                model.tenant_id == p["tenant_id"],
+                model.seller_id == p["seller_id"],
+                model.ctx_key == "approved",
+            )
+            .order_by(model.version.desc(), model.created_at.desc(), model.id.desc())
+            .limit(1)
+        )
 
     def fallback_script(self, s, p, lead):
         playbook = self.approved_playbook(s, p)

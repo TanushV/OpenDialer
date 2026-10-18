@@ -249,10 +249,14 @@ export interface Policy {
 }
 export interface Playbook {
   id: string;
+  version: number;
   name: string;
   approved: boolean;
   opener: string;
   screening_intro: string;
+  product_description?: string;
+  claims?: string[];
+  prohibited_claims?: string[];
   cards: { id: string; text: string; tags: string[] }[];
 }
 export interface HistoryPage<T> {
@@ -265,6 +269,7 @@ export interface HistoryPage<T> {
   filter?: string;
 }
 export interface Workspace {
+  active_playbook?: Playbook | null;
   pages?: Record<string, Omit<HistoryPage<never>, "items">>;
   mode: string;
   simulation: boolean;

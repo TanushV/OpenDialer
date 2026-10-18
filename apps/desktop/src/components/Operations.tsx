@@ -1,6 +1,6 @@
+import { ProductKnowledge } from "./ProductKnowledge";
 import {
   ArrowRight,
-  Check,
   ChevronRight,
   Layers3,
   Plus,
@@ -725,10 +725,6 @@ export function IntelligencePage() {
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
   const jobsHistory = useHistory("jobs", w.jobs);
   const modelHistory = useHistory("models", w.models);
-  const playbook = w.playbooks[0];
-  const [opener, setOpener] = useState(playbook?.opener || "");
-  const [intro, setIntro] = useState(playbook?.screening_intro || "");
-  const [reason, setReason] = useState("");
   return (
     <>
       <div className="page-heading">
@@ -744,53 +740,7 @@ export function IntelligencePage() {
       </div>
       <OptimizationPanel />
       <div className="two-column">
-        <section className="card padded">
-          <span className="eyebrow">APPROVED PLAYBOOK</span>
-          <h2>{playbook?.name || "Create a playbook"}</h2>
-          <label>
-            Opener
-            <textarea
-              value={opener}
-              onChange={(e) => setOpener(e.target.value)}
-              rows={4}
-            />
-          </label>
-          <label>
-            Screening introduction
-            <textarea
-              value={intro}
-              onChange={(e) => setIntro(e.target.value)}
-              rows={3}
-            />
-          </label>
-          <label>
-            Publication reason
-            <input value={reason} onChange={(e) => setReason(e.target.value)} />
-          </label>
-          <button
-            className="primary"
-            disabled={!reason}
-            onClick={() =>
-              void run(async () => {
-                await api("/v1/admin/playbooks", "POST", {
-                  name: playbook?.name || "Business introduction",
-                  opener,
-                  screening_intro: intro,
-                  cards: playbook?.cards || [],
-                  reason,
-                  approved: true,
-                });
-                await refresh();
-                notice(
-                  "New playbook version published. Active call scripts stay stable.",
-                );
-              })
-            }
-          >
-            Publish reviewed version
-            <Check size={15} />
-          </button>
-        </section>
+        <ProductKnowledge />
         <section className="card padded">
           <span className="eyebrow">FOLLOW-THROUGH</span>
           <h2>Promises worth keeping</h2>

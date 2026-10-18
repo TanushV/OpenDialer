@@ -123,7 +123,11 @@ export function DialerPage() {
     };
     load();
     const unsubscribe = subscribe((events) => {
-      if (events.some((e) => e.entity_id === call.id)) {
+      if (
+        events.some(
+          (e) => e.entity_id === call.id || e.type === "knowledge.updated",
+        )
+      ) {
         eventReceived.current = performance.now();
         load();
       }
@@ -608,7 +612,7 @@ export function DialerPage() {
               <span className="eyebrow">OPEN WITH A LITTLE CONTEXT</span>
               <blockquote>
                 {packet?.script.opener ||
-                  w.playbooks[0]?.opener.replace("{rep}", w.user.name) ||
+                  w.active_playbook?.opener.replace("{rep}", w.user.name) ||
                   "Start with your name, business, and a truthful reason for calling."}
               </blockquote>
             </div>
@@ -637,7 +641,10 @@ export function DialerPage() {
             </span>
             <p>
               {packet?.script.screening_intro ||
-                w.playbooks[0]?.screening_intro.replace("{rep}", w.user.name)}
+                w.active_playbook?.screening_intro.replace(
+                  "{rep}",
+                  w.user.name,
+                )}
             </p>
           </div>
           <div className="screening-intro">

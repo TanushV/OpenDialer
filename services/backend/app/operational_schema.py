@@ -57,6 +57,7 @@ HOT_TABLES = {
 
 # Only the relationship/expiry fields used to assemble a single call's context.
 CONTEXT_FIELDS = {
+    "playbooks": ("approval_state", None, None),
     "model_versions": ("serving_state", "goal", "trial_ends_at"),
     "registry_snapshots": ("kind", "status", None),
     "research_facts": ("domain", "status", "expires_at"),
@@ -86,6 +87,10 @@ def context_columns(kind):
 
 
 def context_indexes(kind):
+    if kind == "playbooks":
+        return (
+            Index("ix_playbooks_current", "tenant_id", "seller_id", "ctx_key", "version", "created_at", "id"),
+        )
     _, status, expiry = CONTEXT_FIELDS[kind]
     return (
         Index(
@@ -188,6 +193,8 @@ def sync_columns(row, lookup_key=None):
     if row.__tablename__ in CONTEXT_FIELDS:
         key, status, expiry = CONTEXT_FIELDS[row.__tablename__]
         row.ctx_key = context_key(row.__tablename__, row.data.get(key), lookup_key)
+        if row.__tablename__ == "playbooks":
+            row.ctx_key = "approved" if row.data.get("approved") else "unapproved"
         if row.__tablename__ == "model_versions":
             row.ctx_key = (
                 "active"

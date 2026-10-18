@@ -123,6 +123,7 @@ class LiveHelper:
                         },
                         "approved_cards": book.data.get("cards", []) if book else [],
                         "approved_claims": book.data.get("claims", []) if book else [],
+                        "prohibited_claims": book.data.get("prohibited_claims", []) if book else [],
                         "reviewed_examples": examples,
                         "practice_goals": user.data.get("coaching_goals", []),
                         "recent_dialogue": [],
@@ -442,6 +443,7 @@ class LiveHelper:
                 ),
                 "locally_retrieved_card_ids": [c["id"] for c in cards],
                 "approved_claims": book.data.get("claims", []) if book else [],
+                "prohibited_claims": book.data.get("prohibited_claims", []) if book else [],
                 "facts": facts,
                 "seller": {
                     "name": seller.data["name"],

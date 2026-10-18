@@ -151,6 +151,7 @@ def ground_guidance(card, request):
         raise CardRejected("Conversation has declined")
     knowledge = " ".join(str(f.get("statement", f.get("text", ""))) for f in request.get("facts", []))
     knowledge += " " + " ".join(str(c) for c in request.get("approved_claims", []))
+    knowledge += " " + request.get("seller", {}).get("knowledge", "")
     knowledge += " " + " ".join(c.get("text", "") for c in cards.values())
     transcript = " ".join(sources[i]["text"] for i in card.get("evidence_segment_ids", []))
     visible = card.get("say_or_ask", "") + " " + card.get("reason", "")

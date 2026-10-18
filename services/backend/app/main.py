@@ -20,7 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.administration import Dialer
-from app.coaching import library
+from app.coaching import knowledge, library
 from app.compliance.consent import ConsentChange
 from app.compliance.consent import record as record_consent
 from app.compliance.consent import replay as replay_consent
@@ -1185,45 +1185,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
             return doc(lead)
 
     @app.post("/v1/admin/playbooks")
-    def publish_playbook(data: dict, p=Depends(administrator)):
-        from app.research.validation import BANNED
-
-        with db.transaction() as session:
-            seller = service.required(session, "sellers", p["seller_id"], p)
-            if (
-                not data.get("reason")
-                or not data.get("opener")
-                or not data.get("screening_intro")
-                or seller.data["name"].casefold() not in data["screening_intro"].casefold()
-                or BANNED.search(str(data))
-            ):
-                fail(422, "Reviewed truthful identity and publication reason required")
-            cards = data.get("cards", [])
-            if any(not c.get("id") or not c.get("text") or len(c["text"].split()) > 25 for c in cards):
-                fail(422, "Cards require stable IDs and at most 25 guidance words")
-            previous = service.approved_playbook(session, p)
-            obj = put(
-                session,
-                "playbooks",
-                p["tenant_id"],
-                p["seller_id"],
-                {
-                    "name": str(data.get("name", "Business introduction"))[:200],
-                    "opener": data["opener"][:600],
-                    "screening_intro": data["screening_intro"][:400],
-                    "cards": cards,
-                    "claims": data.get("claims", []),
-                    "approved": bool(data.get("approved")),
-                    "reason": data["reason"],
-                    "previous_id": previous.id if previous else None,
-                },
-                now=clock(),
-            )
-            obj.version = previous.version + 1 if previous else 1
-            audit(
-                session, p["tenant_id"], p["seller_id"], p["user_id"], "playbook.published", obj.id, clock()
-            )
-            return doc(obj)
+    def publish_playbook(data: knowledge.Edit, p=Depends(administrator)):
+        return knowledge.publish(service, p, data.model_dump())
 
     @app.patch("/v1/tasks/{task_id}")
     def task_status(task_id: str, data: TaskEdit, p=Depends(principal)):

@@ -237,6 +237,7 @@ class WorkspaceReads:
                     "presence": user.data.get("presence", {}),
                 },
                 **{section: value["items"] for section, value in pages.items()},
+                "active_playbook": doc(book) if (book := self.approved_playbook(s, p)) else None,
                 "pages": {
                     section: {k: v for k, v in value.items() if k != "items"}
                     for section, value in pages.items()
