@@ -1,6 +1,8 @@
 # OpenDialer
 
-A Tauri desktop calling workspace with two complete authority modes: a private local backend and an authenticated shared PostgreSQL backend. The app includes lead import and correction, seller-scoped call permissions, number pools and procurement, script preparation, live guidance, evidence-linked review, and controlled model experiments.
+A Tauri desktop calling workspace with two authority modes: a private local backend and an authenticated shared PostgreSQL backend. The app includes lead import and correction, seller-scoped call permissions, number pools and procurement, script preparation, live guidance, evidence-linked review, and controlled model experiments.
+
+**Audit status, October 17:** reproducible defects and incomplete workflows remain. The [completion and simplification plan](docs/REMEDIATION_PLAN.md) covers all 17 findings, freeform Cerebras assistance, coaching, allocation, Telnyx reputation, local/CRM follow-through, performance repairs, tests and updates. Its execution todos are open; the plan is documentation, not a completed implementation. Earlier release acceptance records cover their stated checks and do not establish full readiness.
 
 **Current release: [0.2.1 developer preview](https://github.com/TanushV/OpenDialer/releases/tag/v0.2.1).** The Mac Apple Silicon and Windows x64 apps include their Python backend; users do not need Python, Node, Rust, Docker or API keys to try isolated simulation. Live calling needs a configured Telnyx account and reviewed permissions. Provider contracts and simulation are tested; live carrier behavior, model quality, hardware audio and trusted OS publisher signing are separate acceptance gates. See [validation](docs/VALIDATION.md).
 

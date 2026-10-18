@@ -1,6 +1,8 @@
 # OpenDialer implementation plan
 
-Source: [complete specification](spec/IMPLEMENTATION_SPEC.md), preserved verbatim. Re-read the full source on every context compaction. Checkboxes mean implemented and verified by the stated software checks; external acceptance gates remain separate.
+**October 17 correction:** the active completion contract is [REMEDIATION_PLAN.md](REMEDIATION_PLAN.md). It maps all 17 audit defects and the missing rep/CRM/coaching/number workflows to fixes, tests and open execution todos. The checkboxes below record historical release checks; they are not a current declaration that these capabilities are complete. Reopened work is tracked once in the remediation plan. Current user request: write the plan, without beginning application changes.
+
+Source: [complete specification](spec/IMPLEMENTATION_SPEC.md), preserved verbatim. Re-read the full source and active plans on every context compaction. Software, external-provider, hardware and outcome evidence remain separate.
 
 ## Scope and operating modes
 

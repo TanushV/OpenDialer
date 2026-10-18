@@ -1,5 +1,7 @@
 # Pickup, conversion, allocation, and live-guidance completion
 
+**October 17 correction:** [REMEDIATION_PLAN.md](REMEDIATION_PLAN.md) supersedes the completion claims and rigid coaching behavior below. All audit defects and missing workflows are open there. In particular, Cerebras must generate contextual freeform help, statistical learning must use trustworthy observed outcomes, and allocation must minimize useful additions to existing capacity. These historical checkboxes do not certify those repaired behaviors. The current turn authorizes planning only.
+
 Accepted October 16, 2026. This is the implementation checklist for the user's instruction to write down and implement the complete follow-up proposal. It extends the preserved original specification and both local and connected modes. Re-read this file, the original specification, PLAN.md, and STATUS.md after every compaction.
 
 ## Outcome contract

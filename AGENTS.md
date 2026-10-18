@@ -1,6 +1,6 @@
 # Working agreement
 
-Read `docs/spec/IMPLEMENTATION_SPEC.md`, `docs/PLAN.md`, `docs/OPTIMIZATION_PLAN.md`, and `docs/STATUS.md` on every continuation or context compaction. The user's standalone local mode is an explicit extension of the original shared-server specification. Do not lose either mode. The October 16 optimization plan supersedes the initial simplified ML/coaching behavior; checked initial-release entries do not imply the new plan is finished.
+Read `docs/spec/IMPLEMENTATION_SPEC.md`, `docs/PLAN.md`, `docs/OPTIMIZATION_PLAN.md`, `docs/REMEDIATION_PLAN.md`, and `docs/STATUS.md` on every continuation or context compaction. The user's standalone local mode is an explicit extension of the original shared-server specification. Do not lose either mode. The October 17 remediation plan is the active completion contract and incorporates both audits plus the user's freeform Cerebras, coaching/tips, minimum-number allocation and simplicity requirements. Earlier checked release/optimization entries are historical evidence, not current completion. Preserve the original specification verbatim; follow the latest user instruction on whether the current turn authorizes documentation, audit or implementation.
 
 Write acceptance tests before implementation and retain the red/green evidence in `docs/STATUS.md`. Add regression tests before fixing defects. Update the plan checkboxes as work passes its checks. Commit coherent milestones frequently. Never commit credentials, app databases, recordings, build products, or test caches.
 
