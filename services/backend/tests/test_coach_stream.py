@@ -76,3 +76,55 @@ async def test_manual_stream_errors_never_publish_partial_content(changes):
             await OpenRouterCoach("fixture", http=http).suggest(
                 {"state_version": 1, "private_question": "Explain"}
             )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "field,value", [("id", "different-request"), ("provider", "Other"), ("model", "different-model")]
+)
+async def test_stream_identity_cannot_change_and_then_revert(field, value):
+    original = frames()
+    lines = original.splitlines(keepends=True)
+    positions = [i for i, line in enumerate(lines) if line.startswith("data: {")]
+    changed = json.loads(lines[positions[1]][6:])
+    changed[field] = value
+    lines[positions[1]] = "data: " + json.dumps(changed) + "\n"
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, text="".join(lines)))
+    ) as http:
+        provider = OpenRouterCoach("fixture", http=http)
+        with pytest.raises(InferenceError):
+            await provider.suggest({"state_version": 1, "private_question": "Explain"})
+        # A contradictory later identity cannot steal the original request's liability.
+        assert provider.last_request_id == "stream-one"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "frame",
+    [
+        [],
+        {"choices": [None]},
+        {"choices": [{"delta": {"content": 42}}]},
+        {"choices": [{"index": 1, "delta": {"content": "other answer"}}]},
+    ],
+)
+async def test_malformed_stream_frames_fail_through_the_provider_contract(frame):
+    text = "data: " + json.dumps(frame) + "\n\n" + frames()
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, text=text))
+    ) as http:
+        with pytest.raises(InferenceError):
+            await OpenRouterCoach("fixture", http=http).suggest({"private_question": "Explain"})
+
+
+@pytest.mark.asyncio
+async def test_terminal_accounting_frame_does_not_reopen_content_or_overwrite_an_error():
+    text = frames(finish="error", done=False)
+    text += 'data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"cost":0.001}}\n\n'
+    text += "data: [DONE]\n\n"
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, text=text))
+    ) as http:
+        with pytest.raises(InferenceError):
+            await OpenRouterCoach("fixture", http=http).suggest({"private_question": "Explain"})
