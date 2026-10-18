@@ -22,6 +22,15 @@ test("local setup, readiness, calling, evidence, human notes and opt-out", async
 }) => {
   await page.setViewportSize({ width: 1028, height: 749 });
   await enterSimulation(page);
+  await page.getByRole("button", { name: "Leads", exact: true }).click();
+  await page
+    .getByLabel("CSV lead data")
+    .fill(
+      "name,phone,company,timezone,region\nWorkflow Call,+12125550931,Workflow Example,America/New_York,212",
+    );
+  await page.getByRole("button", { name: "Import leads", exact: true }).click();
+  await expect(page.getByText("Workflow Call", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Dialer", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Your next conversation" }),
   ).toBeVisible();
@@ -75,7 +84,9 @@ test("admin inventory, lead import, policy, preparation and real readiness bound
     );
   await page.getByRole("button", { name: "Import leads" }).click();
   await expect(page.getByText("Taylor Example", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Prepare lead packets" }).click();
+  await page
+    .getByRole("button", { name: "Prepare displayed lead packets" })
+    .click();
   await expect(page.getByText(/Preparation queued/)).toBeVisible();
   await page.getByRole("button", { name: "Numbers", exact: true }).click();
   await expect(

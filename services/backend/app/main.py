@@ -396,6 +396,12 @@ def create_app(settings=None, *, clock=None, carrier=None):
     def workspace(p=Depends(principal)):
         return service.snapshot(p)
 
+    @app.get("/v1/workspace/{section}")
+    def workspace_page(
+        section: str, cursor: str | None = None, q: str = "", filter: str = "all", p=Depends(principal)
+    ):
+        return service.workspace_page(p, section, cursor=cursor, q=q, filter=filter)
+
     @app.get("/v1/metrics")
     def metrics(p=Depends(principal)):
         return service.metrics(p)

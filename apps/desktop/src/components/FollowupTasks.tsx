@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useHistory } from "../state/useHistory";
+import { HistoryMore } from "./HistoryMore";
 import { date, label, useWorkspace } from "../context";
 import type { FollowupTask } from "../types";
 
@@ -10,21 +12,32 @@ export function localDateInput(value?: string | null) {
     .slice(0, 16);
 }
 
-function Task({ task }: { task: FollowupTask }) {
+function Task({
+  task,
+  owners,
+  onSaved,
+}: {
+  task: FollowupTask;
+  owners: { id: string; name: string }[];
+  onSaved: (task: FollowupTask) => void;
+}) {
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
   const [when, setWhen] = useState(localDateInput(task.due_at));
   const [owner, setOwner] = useState(task.owner_id || "");
   const routing = task.inbound && task.inbound_state !== "ended";
   const closed = ["completed", "cancelled"].includes(task.status) || routing;
   const name =
-    w.leads.find((l) => l.id === task.lead_id)?.name || "Incoming callback";
+    task.lead_name ||
+    w.leads.find((l) => l.id === task.lead_id)?.name ||
+    "Incoming callback";
   function change(edits: Record<string, unknown>) {
     return run(async () => {
       try {
-        await api(`/v1/tasks/${task.id}`, "PATCH", {
+        const saved = await api<FollowupTask>(`/v1/tasks/${task.id}`, "PATCH", {
           expected_version: task.version,
           ...edits,
         });
+        onSaved(saved);
         notice("Follow-up saved.");
       } finally {
         await refresh();
@@ -93,13 +106,11 @@ function Task({ task }: { task: FollowupTask }) {
           disabled={closed}
         >
           <option value="">Choose an owner</option>
-          {(w.task_owners || [{ id: w.user.id, name: w.user.name }]).map(
-            (o) => (
-              <option key={o.id} value={o.id}>
-                {o.name}
-              </option>
-            ),
-          )}
+          {owners.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name}
+            </option>
+          ))}
         </select>
       </label>
       <div className="button-row">
@@ -150,8 +161,13 @@ function Task({ task }: { task: FollowupTask }) {
 }
 
 export function FollowupTasks() {
-  const { snapshot: w } = useWorkspace();
-  const sorted = [...w.tasks].sort(
+  const { snapshot: w, run } = useWorkspace();
+  const history = useHistory("tasks", w.tasks);
+  const owners = useHistory(
+    "task_owners",
+    w.task_owners || [{ id: w.user.id, name: w.user.name }],
+  );
+  const sorted = [...history.items].sort(
     (a, b) =>
       Number(["completed", "cancelled"].includes(a.status)) -
         Number(["completed", "cancelled"].includes(b.status)) ||
@@ -159,13 +175,36 @@ export function FollowupTasks() {
   );
   return (
     <>
+      <label>
+        Follow-up history
+        <select
+          value={history.filter}
+          onChange={(event) =>
+            void run(() => history.load(false, "", event.target.value))
+          }
+        >
+          <option value="all">All follow-ups</option>
+          <option value="open">Open follow-ups</option>
+          <option value="overdue">Overdue follow-ups</option>
+          <option value="closed">Completed or cancelled</option>
+        </select>
+      </label>
       {sorted.length ? (
-        sorted.map((t) => <Task key={`${t.id}:${t.version}`} task={t} />)
+        sorted.map((t) => (
+          <Task
+            key={`${t.id}:${t.version}`}
+            task={t}
+            owners={owners.items}
+            onSaved={history.update}
+          />
+        ))
       ) : (
         <p className="muted">
           Agreed callbacks will appear here, ready to confirm or reschedule.
         </p>
       )}
+      <HistoryMore history={history} label="Load more follow-ups" />
+      <HistoryMore history={owners} label="Load more task owners" />
     </>
   );
 }

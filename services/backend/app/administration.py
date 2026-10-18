@@ -3,9 +3,9 @@ import json
 import os
 import re
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 
-from app.db import MODELS, ActiveClaim, Job, audit, doc, emit, get, put, rows, uid, update
+from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, rows, uid, update
 from app.intelligence import Application
 from app.measurement import Measurement, cohort_metrics
 from app.number_operations import NumberOperations
@@ -19,9 +19,11 @@ from app.telephony.recovery import CommandRecovery
 from app.telephony.recovery_actions import RecoveryActions
 from app.telephony.reducer import TERMINAL
 from app.telephony.workflows import TelephonyWorkflows
+from app.workspace import WorkspaceReads
 
 
 class Dialer(
+    WorkspaceReads,
     ReportProjections,
     RecoveryActions,
     CommandRecovery,
@@ -65,7 +67,20 @@ class Dialer(
                 "simulation": self.settings.simulation,
             }
 
-    def preflight(self, p):
+    def preflight(self, p, *, full=True):
+        if not full:
+            return {
+                "integrity_ok": None,
+                "ready_to_call": None,
+                "checks_scope": "operational",
+                "blockers": [],
+                "warnings": [
+                    "Run preflight for database and provider readiness; each call is authorized at submission."
+                ],
+                "mode": self.settings.mode,
+                "simulation": self.settings.simulation,
+                "version": self.settings.version,
+            }
         conf = self.vault.read(p["tenant_id"])
         blockers, warnings = [], []
         with self.db.transaction(False) as s:
@@ -139,56 +154,6 @@ class Dialer(
             if self.settings.simulation
             else "requires live account validation",
         }
-
-    def snapshot(self, p):
-        with self.db.transaction(False) as s:
-            campaign = self.scoped(s, "campaigns", p)[0]
-            policy = self.required(s, "policy_versions", campaign.data["policy_id"], p)
-            user = self.required(s, "users", p["user_id"], p)
-            tables = {
-                name: [doc(r) for r in self.scoped(s, table, p)]
-                for name, table in [
-                    ("numbers", "number_inventory"),
-                    ("calls", "call_attempts"),
-                    ("registries", "registry_snapshots"),
-                    ("playbooks", "playbooks"),
-                    ("models", "model_versions"),
-                    ("tasks", "followup_tasks"),
-                    ("trackers", "trackers"),
-                ]
-            }
-            if p["role"] == "rep":
-                tables["calls"] = [c for c in tables["calls"] if c["rep_id"] == p["user_id"]]
-            # Never distribute compliance dataset contents or raw source/transcript/secret tables in global snapshots.
-            tables["registries"] = [
-                {k: v for k, v in r.items() if k not in {"listed_numbers", "bitmap"}}
-                for r in tables["registries"]
-            ]
-            jobs = [
-                {"id": j.id, "queue": j.queue, "status": j.status, "attempts": j.attempts, "error": j.error}
-                for j in s.scalars(select(Job).where(Job.tenant_id == p["tenant_id"]))
-            ]
-            current = {
-                "task_owners": [
-                    {"id": u.id, "name": u.data["name"]}
-                    for u in self.scoped(s, "users", p)
-                    if not u.data.get("disabled")
-                ],
-                "mode": self.settings.mode,
-                "simulation": self.settings.simulation,
-                "seller": doc(self.required(s, "sellers", p["seller_id"], p)),
-                "campaign": doc(campaign),
-                "policy": doc(policy),
-                "user": {
-                    "id": user.id,
-                    "name": user.data["name"],
-                    "role": user.data["role"],
-                    "presence": user.data.get("presence", {}),
-                },
-                "jobs": jobs,
-                **tables,
-            }
-        return {**current, "leads": self.leads(p), "metrics": self.metrics(p), "readiness": self.preflight(p)}
 
     def publish(self, p, policy_id, body):
         now = self.clock()

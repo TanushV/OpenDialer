@@ -106,9 +106,9 @@ class ReportProjections:
         key = hashlib.sha256(f"{p['user_id']}:{p['role']}:{epoch}".encode()).hexdigest()
         return p, campaign, epoch, key
 
-    def enqueue_report(self, p, key, revision, epoch, *, full=False):
-        slot = int(self.clock().timestamp()) // REPORT_TTL_SECONDS
-        prefix = f"{'optimization' if full else 'report'}:{key}:"
+    def enqueue_report(self, p, key, revision, epoch, *, full=False, home=False):
+        slot = int(self.clock().timestamp()) // (60 if home else REPORT_TTL_SECONDS)
+        prefix = f"{'home' if home else 'optimization' if full else 'report'}:{key}:"
         identity = f"{prefix}{revision}:{slot}"
         try:
             with self.db.transaction() as s:
@@ -128,7 +128,11 @@ class ReportProjections:
                     s,
                     "ml",
                     {
-                        "kind": "optimization_refresh" if full else "report_refresh",
+                        "kind": "home_refresh"
+                        if home
+                        else "optimization_refresh"
+                        if full
+                        else "report_refresh",
                         "seller_id": p["seller_id"],
                         "user_id": p["user_id"],
                         "role": p["role"],
@@ -215,3 +219,57 @@ class ReportProjections:
             )
             emit(s, p["tenant_id"], "optimization.updated", row, self.clock())
             return {"status": "ready", "id": row.id, "source_revision": generation}
+
+    def cached_home_metrics(self, p):
+        with self.db.transaction(False) as s:
+            p, _, epoch, identity = self.report_scope(s, p)
+            key = "home:" + identity
+            revision = self.report_revision(s, p)
+            row = self._by_key(s, p, "report_projections", key)
+            saved = dict(row.data) if row else {}
+        fresh = bool(
+            saved and saved["source_revision"] == revision and dt(saved["expires_at"]) > self.clock()
+        )
+        job = None if fresh else self.enqueue_report(p, key, revision, epoch, home=True)
+        return {
+            **saved.get("report", {}),
+            "projection": {
+                "status": "ready" if fresh else "stale" if saved else "pending",
+                "as_of": saved.get("as_of"),
+                "source_revision": saved.get("source_revision"),
+                "current_revision": revision,
+                "job_id": job["id"] if job else None,
+                "refresh_status": job["status"] if job else None,
+                "refresh_error": "Workspace totals need recovery" if job and job["error"] else None,
+            },
+        }
+
+    def rebuild_home_metrics(self, p):
+        with self.db.transaction(False) as s:
+            p, _, epoch, identity = self.report_scope(s, p)
+            revision = self.report_revision(s, p)
+        report = self.metrics(p)
+        with self.db.transaction() as s:
+            _, _, _, current_identity = self.report_scope(s, p)
+            if current_identity != identity or self.report_revision(s, p, lock=True) != revision:
+                return {"status": "superseded"}
+            key = "home:" + identity
+            row = self._by_key(s, p, "report_projections", key)
+            values = {
+                "report": report,
+                "source_revision": revision,
+                "as_of": report["as_of"],
+                "expires_at": (self.clock() + timedelta(seconds=60)).isoformat(),
+                "epoch": epoch,
+                "owner_id": p["user_id"],
+                "role": p["role"],
+            }
+            row = (
+                update(row, **values)
+                if row
+                else put(
+                    s, "report_projections", p["tenant_id"], p["seller_id"], values, key=key, now=self.clock()
+                )
+            )
+            emit(s, p["tenant_id"], "workspace.metrics_ready", row, self.clock())
+            return {"status": "ready", "id": row.id}

@@ -470,22 +470,22 @@ export function DialerPage() {
         <div className="metric-row">
           <Metric
             title="LEADS IN YOUR COHORT"
-            value={String(w.metrics.original_cohort)}
-            detail={`${w.metrics.eligible_now} currently eligible`}
+            value={String(w.metrics.original_cohort ?? "—")}
+            detail={`${w.metrics.eligible_now ?? "Unknown"} currently eligible`}
           />
           <Metric
             title="UNIQUE RIGHT-PARTY REACH"
-            value={String(w.metrics.right_party_unique)}
+            value={String(w.metrics.right_party_unique ?? "—")}
             detail="Across the original cohort"
           />
           <Metric
             title="HELD MEETINGS"
-            value={String(w.metrics.held_meetings)}
+            value={String(w.metrics.held_meetings ?? "—")}
             detail="Confirmed outcomes"
           />
           <Metric
             title="COVERAGE OVERDUE"
-            value={String(w.metrics.coverage_overdue)}
+            value={String(w.metrics.coverage_overdue ?? "—")}
             detail="No lead left behind"
             last
           />

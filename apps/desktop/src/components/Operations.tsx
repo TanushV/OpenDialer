@@ -12,6 +12,8 @@ import {
   Upload,
 } from "lucide-react";
 import { useState } from "react";
+import { useHistory } from "../state/useHistory";
+import { HistoryMore } from "./HistoryMore";
 import { openSource } from "../api/client";
 import { date, label, useWorkspace } from "../context";
 import { parseCSV } from "../state/csv";
@@ -33,11 +35,8 @@ export function LeadsPage() {
     invalid: number;
   } | null>(null);
   const [packet, setPacket] = useState<Packet | null>(null);
-  const leads = w.leads.filter((l) =>
-    `${l.name} ${l.company} ${l.phone}`
-      .toLowerCase()
-      .includes(query.toLowerCase()),
-  );
+  const history = useHistory("leads", w.leads);
+  const leads = history.items;
   return (
     <>
       <div className="page-heading">
@@ -56,7 +55,9 @@ export function LeadsPage() {
           onClick={() =>
             void run(async () => {
               await api("/v1/research/batches", "POST", {
-                lead_ids: w.leads.filter((l) => !l.suppressed).map((l) => l.id),
+                lead_ids: leads
+                  .filter((lead) => !lead.suppressed)
+                  .map((lead) => lead.id),
               });
               notice(
                 "Preparation queued. Lead packets will update as work completes.",
@@ -66,16 +67,16 @@ export function LeadsPage() {
           }
         >
           <Sparkles size={16} />
-          Prepare lead packets
+          Prepare displayed lead packets
         </button>
       </div>
       <PreparationRunway />
       <section className="card table-card">
         <div className="table-toolbar">
           <h3>
-            {w.leads.length} leads{" "}
+            {history.total ?? w.leads.length} leads{" "}
             <span className="subtle-count">
-              {w.metrics.suppressed} suppressed
+              {w.metrics.suppressed ?? "Unknown"} suppressed
             </span>
           </h3>
           <div className="search">
@@ -86,8 +87,17 @@ export function LeadsPage() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
+            <button
+              disabled={history.busy}
+              onClick={() => void run(() => history.load(false, query))}
+            >
+              Search lead history
+            </button>
           </div>
         </div>
+        {history.query && history.cursor && (
+          <p role="status">More records remain to search.</p>
+        )}
         <table>
           <thead>
             <tr>
@@ -134,9 +144,23 @@ export function LeadsPage() {
             ))}
           </tbody>
         </table>
-        {!leads.length && (
-          <Empty text="Your next cohort starts with an import." />
+        {!leads.length && !history.cursor && (
+          <Empty
+            text={
+              history.query
+                ? "No matching leads."
+                : "Your next cohort starts with an import."
+            }
+          />
         )}
+        <HistoryMore
+          history={history}
+          label={history.query ? "Continue lead search" : "Load more leads"}
+        />
+        <p className="fine">
+          Preparation above applies to displayed leads. Advance preparation uses
+          the configured ready-queue target across the cohort.
+        </p>
       </section>
       <section className="card import-card">
         <div>
@@ -319,6 +343,7 @@ interface Proposal {
 }
 export function NumbersPage() {
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
+  const history = useHistory("numbers", w.numbers);
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [phone, setPhone] = useState("");
   return (
@@ -351,15 +376,15 @@ export function NumbersPage() {
       <div className="number-summary">
         <div className="card">
           <Radio size={23} />
-          <strong>{w.numbers.length}</strong>
+          <strong>{history.total ?? history.items.length}</strong>
           <p>Owned numbers in inventory</p>
         </div>
         <div className="card">
           <ShieldCheck size={23} />
           <strong>
-            {w.numbers.filter((n) => n.lifecycle === "healthy").length}
+            {history.items.filter((n) => n.lifecycle === "healthy").length}
           </strong>
-          <p>Healthy and available</p>
+          <p>Healthy in displayed inventory</p>
         </div>
         <div className="card">
           <RefreshCw size={23} />
@@ -402,12 +427,17 @@ export function NumbersPage() {
             </tr>
           </thead>
           <tbody>
-            {w.numbers.map((number) => (
-              <NumberRow key={number.id} number={number} />
+            {history.items.map((number) => (
+              <NumberRow
+                key={number.id}
+                number={number}
+                onSaved={history.update}
+              />
             ))}
           </tbody>
         </table>
-        {!w.numbers.length && (
+        <HistoryMore history={history} label="Load more numbers" />
+        {!history.items.length && (
           <Empty text="Connect Telnyx to sync your existing owned numbers." />
         )}
       </section>
@@ -555,7 +585,13 @@ export function NumbersPage() {
     </>
   );
 }
-function NumberRow({ number }: { number: NumberRecord }) {
+function NumberRow({
+  number,
+  onSaved,
+}: {
+  number: NumberRecord;
+  onSaved: (number: NumberRecord) => void;
+}) {
   const { api, refresh, run, notice } = useWorkspace();
   const [editing, setEditing] = useState(false);
   const [reference, setReference] = useState("");
@@ -601,15 +637,20 @@ function NumberRow({ number }: { number: NumberRecord }) {
               disabled={!reference}
               onClick={() =>
                 void run(async () => {
-                  await api(`/v1/admin/numbers/${number.id}`, "PATCH", {
-                    lifecycle: next,
-                    reason: reference,
-                    identity_configured: true,
-                    callback_tested: stages.indexOf(next) >= 2,
-                    registration_reference: reference,
-                    callback_test_reference: reference,
-                    real_use_review_reference: reference,
-                  });
+                  const saved = await api<NumberRecord>(
+                    `/v1/admin/numbers/${number.id}`,
+                    "PATCH",
+                    {
+                      lifecycle: next,
+                      reason: reference,
+                      identity_configured: true,
+                      callback_tested: stages.indexOf(next) >= 2,
+                      registration_reference: reference,
+                      callback_test_reference: reference,
+                      real_use_review_reference: reference,
+                    },
+                  );
+                  onSaved(saved);
                   await refresh();
                   setEditing(false);
                   notice("Number lifecycle updated");
@@ -627,10 +668,11 @@ function NumberRow({ number }: { number: NumberRecord }) {
                 disabled={number.provider_present === false}
                 onClick={() =>
                   void run(async () => {
-                    await api(
+                    const saved = await api<NumberRecord>(
                       `/v1/admin/numbers/${number.id}/configure`,
                       "POST",
                     );
+                    onSaved(saved);
                     await refresh();
                     notice(
                       "Voice connection confirmed. A new callback test is still required.",
@@ -658,10 +700,15 @@ function NumberRow({ number }: { number: NumberRecord }) {
               className="text-button small"
               onClick={() =>
                 void run(async () => {
-                  await api(`/v1/admin/numbers/${number.id}`, "PATCH", {
-                    lifecycle: "paused_for_outbound",
-                    reason: "Operator paused outbound; inbound retained",
-                  });
+                  const saved = await api<NumberRecord>(
+                    `/v1/admin/numbers/${number.id}`,
+                    "PATCH",
+                    {
+                      lifecycle: "paused_for_outbound",
+                      reason: "Operator paused outbound; inbound retained",
+                    },
+                  );
+                  onSaved(saved);
                   await refresh();
                 })
               }
@@ -676,6 +723,8 @@ function NumberRow({ number }: { number: NumberRecord }) {
 }
 export function IntelligencePage() {
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
+  const jobsHistory = useHistory("jobs", w.jobs);
+  const modelHistory = useHistory("models", w.models);
   const playbook = w.playbooks[0];
   const [opener, setOpener] = useState(playbook?.opener || "");
   const [intro, setIntro] = useState(playbook?.screening_intro || "");
@@ -784,7 +833,7 @@ export function IntelligencePage() {
             </tr>
           </thead>
           <tbody>
-            {w.jobs.map((j) => (
+            {jobsHistory.items.map((j) => (
               <tr key={j.id}>
                 <td>{label(j.queue)}</td>
                 <td>
@@ -796,7 +845,8 @@ export function IntelligencePage() {
             ))}
           </tbody>
         </table>
-        {!w.jobs.length && (
+        <HistoryMore history={jobsHistory} label="Load more jobs" />
+        {!jobsHistory.items.length && (
           <Empty text="Preparation and analysis run in bounded, durable work units." />
         )}
       </section>
@@ -808,8 +858,8 @@ export function IntelligencePage() {
           Challengers need chronological evaluation, calibration, a controlled
           outcome trial, and manual activation.
         </p>
-        {w.models.length ? (
-          w.models.map((m) => (
+        {modelHistory.items.length ? (
+          modelHistory.items.map((m) => (
             <p key={m.id}>
               {m.active ? "Active" : "Challenger"} · Brier{" "}
               {m.metrics.brier?.toFixed(4)} · {m.checksum.slice(0, 12)}
@@ -818,6 +868,7 @@ export function IntelligencePage() {
         ) : (
           <span className="pill green">Coverage-first baseline active</span>
         )}
+        <HistoryMore history={modelHistory} label="Load more models" />
         <p className="fine">
           Observed associations are correlations. Emotion, honesty, and
           personality inference are excluded.

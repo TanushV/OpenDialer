@@ -44,6 +44,7 @@ from app.operational_schema import (
     context_indexes,
     ensure_columns,
     indexes,
+    page_indexes,
     sync_columns,
 )
 
@@ -187,6 +188,7 @@ for _name in TABLES:
             "__table_args__": (
                 UniqueConstraint("tenant_id", "seller_id", "external_key", name=f"uq_{_name}_key"),
                 *(indexes(_name) if _name in HOT_TABLES else ()),
+                *page_indexes(_name),
                 *(context_indexes(_name) if _name in CONTEXT_FIELDS else ()),
                 *(
                     (
@@ -255,6 +257,8 @@ class Job(Base):
     __tablename__ = "jobs"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     tenant_id: Mapped[str] = mapped_column(String(36), index=True)
+    seller_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    owner_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     queue: Mapped[str] = mapped_column(String(40), index=True)
     key: Mapped[str] = mapped_column(String(512))
     payload: Mapped[dict] = mapped_column(EncryptedJSON)
@@ -266,7 +270,11 @@ class Job(Base):
     lease_owner: Mapped[str | None] = mapped_column(String(100), nullable=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    __table_args__ = (UniqueConstraint("tenant_id", "key"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "key"),
+        Index("ix_jobs_scope_page", "tenant_id", "seller_id", "id"),
+        Index("ix_jobs_owner_page", "tenant_id", "seller_id", "owner_id", "id"),
+    )
 
 
 class Database:
@@ -334,6 +342,14 @@ class Database:
                 connection.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
 
     def backfill_operational_columns(self):
+        while True:
+            with self.transaction() as s:
+                jobs = list(s.scalars(select(Job).where(Job.seller_id.is_(None)).limit(500)))
+                if not jobs:
+                    break
+                for job in jobs:
+                    job.seller_id = job.payload.get("seller_id") or ""
+                    job.owner_id = job.payload.get("user_id") or ""
         for kind in sorted(HOT_TABLES | CONTEXT_FIELDS.keys()):
             model = MODELS[kind]
             version = model.op_index_version if kind in HOT_TABLES else model.ctx_index_version
@@ -465,6 +481,10 @@ def prefetch(s, p, specifications):
 
 @event.listens_for(Session, "before_flush")
 def index_pending_rows(session, *_):
+    for job in session.new:
+        if isinstance(job, Job):
+            job.seller_id = job.payload.get("seller_id") or ""
+            job.owner_id = job.payload.get("user_id") or ""
     for row in session.new | session.dirty:
         if isinstance(row, Document):
             sync_columns(row, _DATABASE_LOOKUP_KEY.get())

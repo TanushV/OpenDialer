@@ -1,3 +1,5 @@
+import { useHistory } from "../state/useHistory";
+import { HistoryMore } from "./HistoryMore";
 import { useState } from "react";
 import { date, label, useWorkspace } from "../context";
 
@@ -36,6 +38,7 @@ export function TrialControls({
   load: () => Promise<void>;
 }) {
   const { api, run, refresh, notice, snapshot: w } = useWorkspace();
+  const history = useHistory("models", w.models);
   const [modelId, setModelId] = useState("");
   const [reference, setReference] = useState("");
   const [comparisonReference, setComparisonReference] = useState("");
@@ -44,7 +47,7 @@ export function TrialControls({
   const [limit, setLimit] = useState(200);
   const [savedReport, setSavedReport] = useState("");
   const admin = ["owner", "admin"].includes(w.user.role);
-  const selected = w.models.find((model) => model.id === modelId);
+  const selected = history.items.find((model) => model.id === modelId);
   const changed = async () => {
     await load();
     await refresh();
@@ -66,7 +69,7 @@ export function TrialControls({
               onChange={(e) => setModelId(e.target.value)}
             >
               <option value="">Choose an owned candidate</option>
-              {w.models.map((model) => (
+              {history.items.map((model) => (
                 <option value={model.id} key={model.id}>
                   {model.id.slice(0, 12)} ·{" "}
                   {model.active
@@ -78,6 +81,7 @@ export function TrialControls({
               ))}
             </select>
           </label>
+          <HistoryMore history={history} label="Load more pilot candidates" />
           {selected && (
             <p className="fine">
               Human-answer Brier {selected.metrics.brier?.toFixed(4)} · Pooled

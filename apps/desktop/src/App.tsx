@@ -681,7 +681,9 @@ export function App() {
                 <Icon size={18} />
                 {title}
                 {title === "Leads" && (
-                  <span className="nav-count">{snapshot.leads.length}</span>
+                  <span className="nav-count">
+                    {snapshot.pages?.leads?.total ?? snapshot.leads.length}
+                  </span>
                 )}
               </button>
             ))}
@@ -723,7 +725,7 @@ export function App() {
             </div>
             <div className="connection">
               <span
-                className={`status-dot ${snapshot.readiness.integrity_ok ? "" : "danger"}`}
+                className={`status-dot ${offline || snapshot.readiness.integrity_ok === false ? "danger" : ""}`}
               />
               <span>
                 {offline

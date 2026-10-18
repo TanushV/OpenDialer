@@ -149,13 +149,38 @@ export function WorkTime() {
 export function CallingHealth() {
   const {
     snapshot: { metrics: m },
+    refresh,
+    run,
   } = useWorkspace();
+  if (m.projection?.status === "pending")
+    return (
+      <section className="card padded" aria-label="Calling health">
+        <p role="status">
+          {m.projection.refresh_error ||
+            "Preparing workspace totals in the background."}
+        </p>
+        <button onClick={() => void run(refresh)}>
+          Check workspace totals
+        </button>
+      </section>
+    );
   const health = m.health?.connect_rate;
   const rate = (value: number | null | undefined) =>
     value == null ? "Unknown" : `${(value * 100).toFixed(1)}%`;
   return (
     <section className="card padded" aria-label="Calling health">
       <h3>Calling health</h3>
+      {m.projection && (
+        <p role="status">
+          Totals as of {date(m.projection.as_of)}
+          {m.projection.status === "stale"
+            ? " · Updating in the background; these are the previous totals."
+            : ""}
+        </p>
+      )}
+      {m.projection?.refresh_error && (
+        <p role="status">{m.projection.refresh_error}</p>
+      )}
       {m.warnings?.map((warning) => (
         <p role="status" key={warning}>
           {warning}

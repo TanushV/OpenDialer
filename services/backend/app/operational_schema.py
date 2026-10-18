@@ -7,6 +7,36 @@ from datetime import UTC, datetime
 
 from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, String, inspect, text
 
+PAGE_TABLES = {
+    "leads": "leads",
+    "calls": "call_attempts",
+    "tasks": "followup_tasks",
+    "numbers": "number_inventory",
+    "registries": "registry_snapshots",
+    "models": "model_versions",
+    "playbooks": "playbooks",
+    "trackers": "trackers",
+    "task_owners": "users",
+}
+
+
+def page_indexes(name):
+    if name not in PAGE_TABLES.values():
+        return ()
+    return (
+        Index(f"ix_{name}_page", "tenant_id", "seller_id", "created_at", "id"),
+        *(
+            (
+                Index(
+                    "ix_call_attempts_owner_page", "tenant_id", "seller_id", "op_owner_id", "created_at", "id"
+                ),
+            )
+            if name == "call_attempts"
+            else ()
+        ),
+    )
+
+
 HOT_TABLES = {
     "leads",
     "call_attempts",
@@ -188,4 +218,15 @@ def ensure_columns(connection, metadata):
                 sql_type = definition.type.compile(dialect=connection.dialect)
                 connection.execute(text(f'ALTER TABLE "{name}" ADD COLUMN "{column}" {sql_type}'))  # noqa: S608 fixed table/column allowlists
         for index in metadata.tables[name].indexes:
+            index.create(connection, checkfirst=True)
+
+    for name in set(PAGE_TABLES.values()) & existing:
+        for index in metadata.tables[name].indexes:
+            index.create(connection, checkfirst=True)
+    if "jobs" in existing:
+        actual = {c["name"] for c in inspector.get_columns("jobs")}
+        for column in ("seller_id", "owner_id"):
+            if column not in actual:
+                connection.execute(text(f'ALTER TABLE "jobs" ADD COLUMN "{column}" VARCHAR(36)'))  # noqa: S608 fixed columns
+        for index in metadata.tables["jobs"].indexes:
             index.create(connection, checkfirst=True)

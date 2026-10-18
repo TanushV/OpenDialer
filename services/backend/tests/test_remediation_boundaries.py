@@ -102,6 +102,7 @@ def test_no_new_generic_coaching_cards_are_published_as_seller_approved_knowledg
 def test_practice_uses_knowledge_but_does_not_create_calls_or_outcomes(workspace):
     c, h = workspace["client"], workspace["headers"]
     before = c.get("/v1/workspace", headers=h).json()
+    attempts = c.get("/v1/metrics", headers=h).json()["attempts"]
     response = c.post(
         "/v1/coaching/practice",
         headers=h,
@@ -111,7 +112,8 @@ def test_practice_uses_knowledge_but_does_not_create_calls_or_outcomes(workspace
     assert response.json()["simulation"] is True
     assert response.json()["status"] in {"ready", "unconfigured"}
     after = c.get("/v1/workspace", headers=h).json()
-    assert before["calls"] == after["calls"] and before["metrics"]["attempts"] == after["metrics"]["attempts"]
+    assert before["calls"] == after["calls"]
+    assert c.get("/v1/metrics", headers=h).json()["attempts"] == attempts
 
 
 def test_configuration_rejects_silent_paid_or_non_zdr_fallback(workspace):

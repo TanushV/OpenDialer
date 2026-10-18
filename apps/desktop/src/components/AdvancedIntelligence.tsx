@@ -1,9 +1,12 @@
+import { useHistory } from "../state/useHistory";
+import { HistoryMore } from "./HistoryMore";
 import { Check, Plus } from "lucide-react";
 import { useState } from "react";
 import { label, useWorkspace } from "../context";
 
 export function AdvancedIntelligence() {
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
+  const history = useHistory("trackers", w.trackers);
   const [tracker, setTracker] = useState({
     name: "",
     definition: "",
@@ -25,12 +28,13 @@ export function AdvancedIntelligence() {
         <section className="card padded">
           <span className="eyebrow">ASK THE SAME QUESTION CONSISTENTLY</span>
           <h2>Conversation trackers</h2>
-          {w.trackers.map((t) => (
+          {history.items.map((t) => (
             <p key={t.id}>
               <span className="pill green">{t.name}</span> · {label(t.kind)} · v
               {t.version}
             </p>
           ))}
+          <HistoryMore history={history} label="Load more trackers" />
           <label>
             Tracker name
             <input

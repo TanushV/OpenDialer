@@ -116,10 +116,11 @@ def test_denied_first_page_does_not_hide_eligible_work(workspace, app, clock):
     p = {k: workspace[k] for k in ("tenant_id", "seller_id", "user_id")}
     with service.db.transaction() as s:
         leads = rows(s, "leads", p["tenant_id"], p["seller_id"])
-        allowed = leads[0]
+        allowed = next(lead for lead in leads if lead.data["region"] == "415")
         update(allowed, coverage_due_at=(clock.now + timedelta(days=1)).isoformat())
-        for lead in leads[1:]:
-            update(lead, outreach_hold=True)
+        for lead in leads:
+            if lead.id != allowed.id:
+                update(lead, outreach_hold=True)
         for i in range(280):
             put(
                 s,

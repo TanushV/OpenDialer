@@ -3,7 +3,7 @@
 from datetime import timedelta
 
 from app.db import put, update
-from conftest import completed_report, start
+from conftest import completed_home_metrics, completed_report, start
 
 
 def principal(workspace):
@@ -345,7 +345,7 @@ def test_home_metrics_use_the_same_funnel_and_later_conversion_evidence(workspac
     c, h = workspace["client"], workspace["headers"]
     c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
     c.post(f"/v1/calls/{call['id']}/disposition", headers=h, json={"outcome": "qualified_conversation"})
-    metrics = c.get("/v1/workspace", headers=h).json()["metrics"]
+    metrics = completed_home_metrics(workspace)
     assert metrics["human_pickups"] == 1 and metrics["right_party_unique"] == 1
     event = c.post(
         f"/v1/leads/{call['lead_id']}/conversions",
@@ -358,13 +358,13 @@ def test_home_metrics_use_the_same_funnel_and_later_conversion_evidence(workspac
             "source_reference": "Observed held meeting",
         },
     ).json()
-    assert c.get("/v1/workspace", headers=h).json()["metrics"]["held_meetings"] == 1
+    assert completed_home_metrics(workspace)["held_meetings"] == 1
     c.post(
         f"/v1/leads/{call['lead_id']}/conversions/{event['id']}/retract",
         headers=h,
         json={"reason": "Incorrect entry"},
     )
-    assert c.get("/v1/workspace", headers=h).json()["metrics"]["held_meetings"] == 0
+    assert completed_home_metrics(workspace)["held_meetings"] == 0
     c.post(
         "/v1/suppressions", headers=h, json={"phone": "+12125550190", "reason": "opt_out"}
     ).raise_for_status()
@@ -376,7 +376,7 @@ def test_home_metrics_use_the_same_funnel_and_later_conversion_evidence(workspac
             "rows": [{"name": "Excluded existing opt-out", "phone": "+12125550190"}],
         },
     )
-    metrics = c.get("/v1/workspace", headers=h).json()["metrics"]
+    metrics = completed_home_metrics(workspace)
     assert metrics["original_cohort"] == 4 and metrics["original_eligible_denominator"] == 3
 
 

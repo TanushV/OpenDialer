@@ -81,7 +81,11 @@ class JobQueue:
     def fail(self, job_id, worker, error, retry_seconds=10):
         self._finish(job_id, worker, error, retry_seconds)
 
-    def _finish(self, job_id, worker, error=None, retry_seconds=0):
+    def coalesce_refresh(self, job_id, worker):
+        """A changed metrics source is newer work, not a failed provider attempt."""
+        self._finish(job_id, worker, coalesced=True)
+
+    def _finish(self, job_id, worker, error=None, retry_seconds=0, *, coalesced=False):
         with self.db.transaction() as s:
             job = s.get(Job, job_id)
             if (
@@ -91,9 +95,19 @@ class JobQueue:
                 or aware(job.lease_expires_at) < self.clock()
             ):
                 raise ValueError("Job lease is not owned by this worker")
+            if coalesced:
+                if job.queue != "ml" or job.payload.get("kind") != "home_refresh":
+                    raise ValueError("Only read-only workspace refresh can be coalesced")
+                job.attempts = max(0, job.attempts - 1)
             job.error = error[:500] if error else None
             job.status = (
-                "completed" if not error else ("dead" if job.attempts >= job.max_attempts else "queued")
+                "queued"
+                if coalesced
+                else "completed"
+                if not error
+                else "dead"
+                if job.attempts >= job.max_attempts
+                else "queued"
             )
             job.available_at = self.clock() + timedelta(seconds=retry_seconds)
             job.lease_owner, job.lease_expires_at = None, None

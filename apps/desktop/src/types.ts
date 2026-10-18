@@ -30,6 +30,8 @@ export interface Lead {
   outreach_hold?: string | null;
 }
 export interface FollowupTask {
+  lead_name?: string;
+  lead_company?: string;
   id: string;
   version: number;
   inbound?: boolean;
@@ -100,6 +102,8 @@ export interface Coach {
   evidence_segment_ids: string[];
 }
 export interface Call {
+  lead_name?: string;
+  lead_company?: string;
   rubric_snapshot?: { call_type: string; rubric_version: string };
   rubric_revision?: number;
   version: number;
@@ -215,8 +219,9 @@ export interface Reservation {
   number: NumberRecord;
 }
 export interface Readiness {
-  integrity_ok: boolean;
-  ready_to_call: boolean;
+  integrity_ok: boolean | null;
+  checks_scope?: string;
+  ready_to_call: boolean | null;
   blockers: string[];
   warnings: string[];
   mode: string;
@@ -249,7 +254,17 @@ export interface Playbook {
   screening_intro: string;
   cards: { id: string; text: string; tags: string[] }[];
 }
+export interface HistoryPage<T> {
+  items: T[];
+  total: number | null;
+  next_cursor: string | null;
+  search_complete?: boolean;
+  scanned?: number;
+  query?: string;
+  filter?: string;
+}
 export interface Workspace {
+  pages?: Record<string, Omit<HistoryPage<never>, "items">>;
   mode: string;
   simulation: boolean;
   seller: { id: string; name: string; approved: boolean };
@@ -269,14 +284,20 @@ export interface Workspace {
   numbers: NumberRecord[];
   calls: Call[];
   metrics: {
-    original_cohort: number;
-    eligible_now: number;
-    right_party_unique: number;
-    held_meetings: number;
-    coverage_overdue: number;
-    suppressed: number;
-    reserved_cost_usd: number;
-    billing_verified: boolean;
+    original_cohort?: number;
+    eligible_now?: number;
+    right_party_unique?: number;
+    held_meetings?: number;
+    coverage_overdue?: number;
+    suppressed?: number;
+    reserved_cost_usd?: number;
+    billing_verified?: boolean;
+    projection?: {
+      status: string;
+      as_of?: string | null;
+      refresh_status?: string;
+      refresh_error?: string | null;
+    };
     rep_work_seconds?: number | null;
     conversions_per_rep_hour?: number | null;
     work_time?: { note: string };

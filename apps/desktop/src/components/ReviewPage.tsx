@@ -8,6 +8,8 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useState } from "react";
+import { useHistory } from "../state/useHistory";
+import { HistoryMore } from "./HistoryMore";
 import { date, label, useWorkspace } from "../context";
 import type { Analysis } from "../types";
 import { Empty } from "./Operations";
@@ -20,7 +22,6 @@ export function ReviewPage() {
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   useSpeechExpiry(analysis, setAnalysis);
   const [notes, setNotes] = useState("");
-  const [filter, setFilter] = useState("all");
   const [comment, setComment] = useState("");
   const [highlight, setHighlight] = useState<string[]>([]);
   async function open(id: string) {
@@ -28,13 +29,8 @@ export function ReviewPage() {
     setAnalysis(result);
     setNotes(result.human_notes ?? result.notes.summary);
   }
-  const calls = [...w.calls]
-    .reverse()
-    .filter(
-      (c) =>
-        filter === "all" ||
-        (filter === "unconfirmed" ? !c.outcome : c.outcome === filter),
-    );
+  const history = useHistory("calls", w.calls);
+  const calls = history.items;
   if (!analysis)
     return (
       <>
@@ -51,7 +47,12 @@ export function ReviewPage() {
           </div>
           <label className="inline-label">
             Filter
-            <select value={filter} onChange={(e) => setFilter(e.target.value)}>
+            <select
+              value={history.filter}
+              onChange={(e) => {
+                void run(() => history.load(false, "", e.target.value));
+              }}
+            >
               <option value="all">All calls</option>
               <option value="unconfirmed">Needs outcome review</option>
               <option value="wrong_party">Wrong party</option>
@@ -76,10 +77,13 @@ export function ReviewPage() {
                 <tr key={c.id}>
                   <td>
                     <strong>
-                      {w.leads.find((l) => l.id === c.lead_id)?.name || "Lead"}
+                      {c.lead_name ||
+                        w.leads.find((l) => l.id === c.lead_id)?.name ||
+                        "Lead"}
                     </strong>
                     <small>
-                      {w.leads.find((l) => l.id === c.lead_id)?.company}
+                      {c.lead_company ||
+                        w.leads.find((l) => l.id === c.lead_id)?.company}
                     </small>
                   </td>
                   <td>{date(c.started_at)}</td>
@@ -92,7 +96,7 @@ export function ReviewPage() {
                   <td>
                     <button
                       className="text-button"
-                      aria-label={`Review call ${w.leads.find((l) => l.id === c.lead_id)?.name}`}
+                      aria-label={`Review call ${c.lead_name || w.leads.find((l) => l.id === c.lead_id)?.name}`}
                       onClick={() => void run(() => open(c.id))}
                     >
                       Review call
@@ -103,7 +107,8 @@ export function ReviewPage() {
               ))}
             </tbody>
           </table>
-          {!calls.length && (
+          <HistoryMore history={history} label="Load older calls" />
+          {!calls.length && !history.cursor && (
             <Empty text="Your completed conversations will appear here." />
           )}
         </section>

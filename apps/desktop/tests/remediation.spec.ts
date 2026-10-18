@@ -71,7 +71,11 @@ test("no-subscription costs, short retention and prepaid DNC configuration are e
 }) => {
   await enter(page);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await expect(page.getByText(/five minutes|5 minutes/i).first()).toBeVisible();
+  await expect(
+    page.getByText("Raw calls and transcripts: five minutes at most.", {
+      exact: true,
+    }),
+  ).toBeVisible();
   await expect(page.getByText(/No subscriptions/i).first()).toBeVisible();
   await expect(page.getByLabel("Prepaid DNC API key")).toBeVisible();
   await expect(page.getByText(/seller.*authorization/i).first()).toBeVisible();
@@ -88,7 +92,9 @@ test("batch script preparation exposes gatekeeper and screening sections", async
   await enter(page);
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   await expect(page.getByTestId("preparation-runway")).toBeVisible();
-  await page.getByRole("button", { name: "Prepare lead packets" }).click();
+  await page
+    .getByRole("button", { name: "Prepare displayed lead packets" })
+    .click();
   await expect(page.getByText(/Preparation queued/)).toBeVisible();
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
   await expect(page.getByText(/Gatekeeper/i).first()).toBeVisible();

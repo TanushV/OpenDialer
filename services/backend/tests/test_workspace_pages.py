@@ -473,7 +473,9 @@ def test_refresh_coalescing_cannot_refund_paid_work_or_take_another_lease(worksp
     if case == "expired":
         clock.now += timedelta(seconds=61)
     with pytest.raises(ValueError):
-        service.jobs.coalesce_refresh(job["id"], "foreign-worker" if case == "wrong_owner" else "original-worker")
+        service.jobs.coalesce_refresh(
+            job["id"], "foreign-worker" if case == "wrong_owner" else "original-worker"
+        )
     stored = service.jobs.get(job["id"])
     assert stored["status"] == "running"
     assert stored["attempts"] == 1

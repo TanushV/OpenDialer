@@ -1,3 +1,5 @@
+import { useHistory } from "../state/useHistory";
+import { HistoryMore } from "./HistoryMore";
 import { BillingReconciliation } from "./BillingReconciliation";
 import { OperatingPolicySettings } from "./OperatingPolicySettings";
 import { WorkTime } from "./WorkTime";
@@ -26,6 +28,7 @@ import { AccessAndRecovery } from "./AdminWorkflows";
 type SettingsData = Record<string, string | Record<string, boolean>>;
 export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
+  const history = useHistory("registries", w.registries);
   const [config, setConfig] = useState<Record<string, string>>({});
   const [configured, setConfigured] = useState<Record<string, boolean>>({});
   const [preflight, setPreflight] = useState<Readiness | null>(null);
@@ -629,7 +632,7 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
           <section className="card padded">
             <span className="eyebrow">AUTHORITATIVE DATA</span>
             <h2>Registry snapshots</h2>
-            {w.registries.map((r) => (
+            {history.items.map((r) => (
               <div className="registry-row" key={r.id}>
                 <strong>
                   {label(r.kind)}{" "}
@@ -643,6 +646,10 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
                 <small>SHA-256 {r.checksum.slice(0, 18)}…</small>
               </div>
             ))}
+            <HistoryMore
+              history={history}
+              label="Load older registry snapshots"
+            />
             <p className="muted small">
               Import seller-authorized data only. Missing or stale coverage
               blocks calling. Registry membership never enters scheduling
@@ -799,7 +806,9 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
               <div className="section-rule" />
               <p>
                 Reserved usage: $
-                {Number(w.metrics.reserved_cost_usd).toFixed(2)}
+                {w.metrics.reserved_cost_usd == null
+                  ? "Unknown"
+                  : w.metrics.reserved_cost_usd.toFixed(2)}
               </p>
               <p>
                 Verified provider billing:{" "}
