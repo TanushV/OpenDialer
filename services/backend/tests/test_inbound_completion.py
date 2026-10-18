@@ -448,3 +448,44 @@ def test_callback_rates_are_visible_without_a_paid_request(workspace, carrier):
     assert response.json()["costs"]["transfer_per_invocation_usd"] == 0.1
     assert response.json()["costs"]["standard_tts_per_character_usd"] == 0.000009
     assert not carrier.actions
+
+
+def test_control_retry_does_not_extend_original_inbound_deadline(workspace, carrier, clock, monkeypatch):
+    configure(workspace, destination="sip:reception@example.test")
+    original = carrier.action
+
+    async def timeout(provider_id, action, payload):
+        await original(provider_id, action, payload)
+        if action == "transfer":
+            raise TimeoutError("uncertain transfer")
+
+    monkeypatch.setattr(carrier, "action", timeout)
+    task = incoming(workspace)
+    dispatch(workspace)
+    deadline = saved(workspace, "followup_tasks", task["id"])["inbound_deadline"]
+    clock.now += timedelta(seconds=10)
+    service = workspace["client"].app.state.service
+    asyncio.run(service.recover(principal(workspace)))
+    dispatch(workspace)
+    assert saved(workspace, "followup_tasks", task["id"])["inbound_deadline"] == deadline
+
+
+@pytest.mark.parametrize("cost", ["NaN", "Infinity", True, "bad-number"])
+def test_nonfinite_or_invalid_billing_never_corrupts_callback_budget(workspace, cost):
+    task = incoming(workspace)
+    response = workspace["client"].post(
+        "/v1/admin/billing/reconcile",
+        headers=workspace["headers"],
+        json={
+            "source_reference": "untrusted-import",
+            "rows": [
+                {
+                    "callback_id": task["id"],
+                    "provider_record_id": "bad-receipt",
+                    "cost_usd": cost,
+                    "duration_seconds": 0,
+                }
+            ],
+        },
+    )
+    assert response.status_code == 422
