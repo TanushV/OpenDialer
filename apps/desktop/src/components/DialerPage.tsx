@@ -172,13 +172,6 @@ export function DialerPage() {
         e.preventDefault();
         void run(hangup);
       }
-      if (e.key === "F1" && call) {
-        e.preventDefault();
-        void run(async () => {
-          await api(`/v1/calls/${call.id}/coach`, "POST");
-          await reloadCall(call.id);
-        });
-      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);

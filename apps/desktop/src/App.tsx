@@ -293,6 +293,7 @@ export function App() {
             (event) =>
               ![
                 "coach.card_ready",
+                "coach.cancelled",
                 "transcript.updated",
                 "conversation.updated",
               ].includes(event.type),

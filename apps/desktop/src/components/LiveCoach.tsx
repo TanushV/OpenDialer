@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Sparkles, Pin, MicOff, X } from "lucide-react";
 import { useWorkspace } from "../context";
 import type { Call } from "../types";
@@ -15,6 +15,8 @@ export function LiveCoach({
   const [expanded, setExpanded] = useState(false);
   const [question, setQuestion] = useState("");
   const [waiting, setWaiting] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const pending = useRef<{ id: string; callId: string } | null>(null);
   const [dismissed, setDismissed] = useState<string | null>(null);
   const hasQuestion = !!question;
   useEffect(() => {
@@ -28,25 +30,81 @@ export function LiveCoach({
   }, [call?.id]);
   const advice = call?.coach?.id !== dismissed ? call?.coach : null;
   const active = !!call && !terminal(call) && call.state !== "ENDING";
+  useEffect(() => {
+    setWaiting(false);
+    setCancelling(false);
+    return () => {
+      const old = pending.current;
+      pending.current = null;
+      if (old)
+        void api(`/v1/calls/${old.callId}/coach/cancel`, "POST", {
+          request_id: old.id,
+        }).catch(() => {
+          /* Server request lifetime and call-state fences still apply. */
+        });
+    };
+  }, [call?.id, active, api]);
+  useEffect(() => {
+    const hotkey = (event: KeyboardEvent) => {
+      if (event.key !== "F1" || !active) return;
+      event.preventDefault();
+      if (!event.repeat) void run(help);
+    };
+    window.addEventListener("keydown", hotkey);
+    return () => window.removeEventListener("keydown", hotkey);
+  });
   async function preference(fields: { muted?: boolean; pinned?: boolean }) {
     if (!call) return;
     await api(`/v1/calls/${call.id}/coach`, "PATCH", fields);
     await onChange();
   }
   async function help() {
-    if (!call || waiting) return;
+    if (!call || !active || pending.current) return;
+    const current = { id: crypto.randomUUID(), callId: call.id };
+    pending.current = current;
     setWaiting(true);
     const submitted = question;
     setQuestion("");
     try {
-      await api(`/v1/calls/${call.id}/coach`, "POST", {
-        question: submitted || null,
-        urgent: true,
-      });
+      const response = await api<{ status?: string }>(
+        `/v1/calls/${call.id}/coach`,
+        "POST",
+        {
+          question: submitted || null,
+          urgent: true,
+          request_id: current.id,
+        },
+      );
+      if (pending.current !== current) return;
+      if (response.status === "busy")
+        notice("The helper is busy. Try again shortly.");
       setDismissed(null);
       await onChange();
     } finally {
-      setWaiting(false);
+      if (pending.current === current) {
+        pending.current = null;
+        setWaiting(false);
+      }
+    }
+  }
+  async function cancelHelp() {
+    const current = pending.current;
+    if (!current || cancelling) return;
+    setCancelling(true);
+    try {
+      await api(`/v1/calls/${current.callId}/coach/cancel`, "POST", {
+        request_id: current.id,
+      });
+      if (pending.current === current) {
+        await onChange();
+        if (pending.current === current) {
+          pending.current = null;
+          setWaiting(false);
+          setCancelling(false);
+        }
+      }
+    } finally {
+      if (pending.current === current) setCancelling(false);
     }
   }
   return (
@@ -67,6 +125,15 @@ export function LiveCoach({
               : "Quiet guidance alongside your script"}
         </span>
         <div className="helper-actions">
+          {waiting && (
+            <button
+              className="text-button"
+              disabled={cancelling}
+              onClick={() => void run(cancelHelp)}
+            >
+              {cancelling ? "Cancelling…" : "Cancel help"}
+            </button>
+          )}
           <button
             className="text-button"
             disabled={!active}

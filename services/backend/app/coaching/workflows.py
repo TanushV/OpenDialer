@@ -6,6 +6,7 @@ from datetime import timedelta
 
 from sqlalchemy import or_, select
 
+from app.coaching import requests as help_requests
 from app.coaching.context import (
     build_context,
     ground_guidance,
@@ -39,6 +40,8 @@ class LiveHelper:
         )
 
     async def practice(self, p, scenario):
+        expires = self.clock() + timedelta(seconds=300)
+
         def context():
             with self.db.transaction(False) as s:
                 book = self.approved_playbook(s, p)
@@ -88,7 +91,7 @@ class LiveHelper:
             "simulation": True,
             "status": "ready",
             "guidance": result,
-            "raw_expires_at": (self.clock() + timedelta(seconds=300)).isoformat(),
+            "raw_expires_at": expires.isoformat(),
         }
 
     def coach_content(self, p, record):
@@ -129,6 +132,10 @@ class LiveHelper:
 
     def _help_allowed(self, s, p, call):
         user = self.required(s, "users", p["user_id"], p)
+        if p.get("session_id"):
+            session = self.required(s, "sessions", p["session_id"], p)
+            if session.data.get("revoked") or dt(session.data["expires_at"]) <= self.clock():
+                return False
         return not (
             user.data.get("disabled")
             or user.data.get("role") not in {"owner", "admin", "rep"}
@@ -138,10 +145,13 @@ class LiveHelper:
             or call.data.get("transcription_disabled")
         )
 
-    def _help_context(self, p, call_id, urgent, question):
+    def _help_context(self, p, call_id, urgent, question, identity=None):
         started = time.perf_counter()
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
+            # Context/receipt writes for this call share one short lock. No provider
+            # I/O occurs here, and unrelated calls remain independent.
+            s.refresh(call, with_for_update=True)
             if not self._help_allowed(s, p, call):
                 return None
             lead = self.required(s, "leads", call.data["lead_id"], p)
@@ -330,6 +340,13 @@ class LiveHelper:
             deadline = min(
                 [dt(r["raw_expires_at"]) for r in stable] or [self.clock() + timedelta(seconds=300)]
             )
+            if identity:
+                original = next(
+                    (r for r in previous.get("manual_help_requests", []) if r["id"] == identity), None
+                )
+                if not original:
+                    return None
+                deadline = min(deadline, dt(original["expires_at"]))
             return (
                 request,
                 fallback,
@@ -339,8 +356,47 @@ class LiveHelper:
                 call.data.get("coaching_comparison"),
             )
 
-    async def coach_turn(self, p, call_id, urgent=False, question=None):
-        prepared = await asyncio.to_thread(self._help_context, p, call_id, urgent, question)
+    def cancel_help(self, p, call_id, request_id):
+        return help_requests.cancel(self, p, call_id, request_id)
+
+    async def coach_turn(self, p, call_id, urgent=False, question=None, request_id=None):
+        identity = request_id or uid() if urgent else None
+        result = {"action": "NO_ACTION", "status": "cancelled"}
+        if identity:
+            try:
+                prior = await finish_shielded(
+                    asyncio.to_thread(
+                        help_requests.begin,
+                        self,
+                        p,
+                        call_id,
+                        identity,
+                        question,
+                    )
+                )
+            except asyncio.CancelledError:
+                await finish_shielded(asyncio.to_thread(self.cancel_help, p, call_id, identity))
+                raise
+            if prior is not None:
+                return {**prior, "request_id": identity, "private": bool(question)}
+        try:
+            result = await self._coach_turn(p, call_id, urgent, question, identity)
+        finally:
+            if identity:
+                result = await finish_shielded(
+                    asyncio.to_thread(
+                        help_requests.finish,
+                        self,
+                        p,
+                        call_id,
+                        identity,
+                        result,
+                    )
+                )
+        return {**result, "request_id": identity, "private": bool(question)}
+
+    async def _coach_turn(self, p, call_id, urgent=False, question=None, identity=None):
+        prepared = await asyncio.to_thread(self._help_context, p, call_id, urgent, question, identity)
         if not prepared:
             return {"action": "NO_ACTION", "status": "no_action", "private": bool(question)}
         request, fallback, expires, state_ms, retrieval_ms, comparison = prepared
@@ -352,7 +408,8 @@ class LiveHelper:
         if (comparison or {}).get("arm") == "control" and not urgent:
             provider = None
         result, source = fallback, "cached_knowledge"
-        request_key = f"coach:{call_id}:{request['state_version']}:{uid()}"
+        request_key = help_requests.request_key(call_id, identity or uid())
+        request["manual_request_id"] = identity
         began = time.perf_counter()
         if provider and not self.settings.simulation:
             request["help_request_id"] = request_key
@@ -421,14 +478,16 @@ class LiveHelper:
             call = self.required(s, "call_attempts", call_id, p)
             s.refresh(call, with_for_update=True)
             lead = self.required(s, "leads", call.data["lead_id"], p)
+            state = self._by_key(s, p, "conversation_states", call_id)
             if (
                 not self.coach.current(call_id, request["help_request_id"])
+                or not help_requests.current(self, state, request)
                 or not self._help_allowed(s, p, call)
                 or call.data["transcript_version"] != request["state_version"]
                 or self.suppressed(s, p, lead.data["phone"])
             ):
                 return False
-            update(call, coach_request_key=request["help_request_id"])
+            update(state, coach_request_key=request["help_request_id"])
             return True
 
     def _defer_busy_help(self, p, call_id):
@@ -505,10 +564,16 @@ class LiveHelper:
             call = self.required(s, "call_attempts", call_id, p)
             s.refresh(call, with_for_update=True)
             key = request.get("help_request_id")
+            state_record = self._by_key(s, p, "conversation_states", call_id)
+            lead = self.required(s, "leads", call.data["lead_id"], p)
             if (
                 not self._help_allowed(s, p, call)
+                or self.suppressed(s, p, lead.data["phone"])
+                or not help_requests.current(self, state_record, request)
                 or key
-                and (call.data.get("coach_request_key") != key or not self.coach.current(call_id, key))
+                and (
+                    state_record.data.get("coach_request_key") != key or not self.coach.current(call_id, key)
+                )
             ):
                 return {"action": "NO_ACTION", "status": "superseded", "private": result["private"]}
             metadata = self.transcript_metadata(s, p, call_id)
@@ -520,7 +585,6 @@ class LiveHelper:
                 for item in request["recent_dialogue"]
             ):
                 return {"action": "NO_ACTION", "status": "expired_or_corrected", "private": result["private"]}
-            state_record = self._by_key(s, p, "conversation_states", call_id)
             if (
                 result.get("state_update") is not None
                 and result.get("state_version") == request["state_version"]
@@ -582,6 +646,12 @@ class LiveHelper:
                     },
                 )
                 obj = put(s, "coach_events", p["tenant_id"], p["seller_id"], metadata, now=self.clock())
+                if request.get("manual_request_id"):
+                    receipts = [dict(r) for r in state_record.data.get("manual_help_requests", [])]
+                    for receipt in receipts:
+                        if receipt["id"] == request["manual_request_id"]:
+                            receipt["event_id"] = obj.id
+                    update(state_record, manual_help_requests=receipts)
                 self.raw.put(
                     "help:" + p["tenant_id"] + ":" + obj.id,
                     {**doc(obj), **result},

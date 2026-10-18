@@ -8,6 +8,7 @@ import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
+from uuid import UUID
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -64,6 +65,11 @@ class CoachPreferences(Strict):
 class CoachQuestion(Strict):
     question: str | None = Field(default=None, max_length=2000)
     urgent: bool = True
+    request_id: UUID | None = None
+
+
+class CoachCancel(Strict):
+    request_id: UUID
 
 
 class PracticeRequest(Strict):
@@ -537,7 +543,17 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/calls/{call_id}/coach")
     async def coach(call_id: str, data: CoachQuestion | None = None, p=Depends(principal)):
-        return await service.coach_turn(p, call_id, urgent=True, question=data.question if data else None)
+        return await service.coach_turn(
+            p,
+            call_id,
+            urgent=True,
+            question=data.question if data else None,
+            request_id=str(data.request_id) if data and data.request_id else None,
+        )
+
+    @app.post("/v1/calls/{call_id}/coach/cancel")
+    def cancel_coach(call_id: str, data: CoachCancel, p=Depends(principal)):
+        return service.cancel_help(p, call_id, str(data.request_id))
 
     @app.post("/v1/coaching/practice")
     async def practice(data: PracticeRequest, p=Depends(principal)):
