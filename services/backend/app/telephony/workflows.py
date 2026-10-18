@@ -6,7 +6,7 @@ from datetime import timedelta
 from sqlalchemy import delete
 
 from app.compliance.policy import authorize
-from app.db import ActiveClaim, audit, doc, put, rows, uid, update
+from app.db import ActiveClaim, audit, doc, emit, put, rows, uid, update
 from app.service import dt, fail
 from app.telephony.reducer import TERMINAL
 
@@ -136,7 +136,9 @@ class TelephonyWorkflows:
                         optout_phone = lead.data["phone"]
                         self.control_intent(s, p, call_id, "playback_stop", {}, suffix="optout-stop")
                         self.control_intent(s, p, call_id, "hangup", {}, suffix="optout-hangup")
-                        self.finish_call(s, p, call, "voicemail_optout")
+                        if call.data["state"] not in TERMINAL:
+                            update(call, state="ENDING", end_reason="voicemail_optout")
+                            emit(s, p["tenant_id"], "call.updated", call, self.clock())
                     elif call.data["state"] not in TERMINAL:
                         self.control_intent(
                             s,
@@ -169,7 +171,9 @@ class TelephonyWorkflows:
                     optout_phone = lead.data["phone"]
                     self.control_intent(s, p, call_id, "playback_stop", {}, suffix="optout-stop")
                     self.control_intent(s, p, call_id, "hangup", {}, suffix="optout-hangup")
-                    self.finish_call(s, p, call, "voicemail_optout")
+                    if call.data["state"] not in TERMINAL:
+                        update(call, state="ENDING", end_reason="voicemail_optout")
+                        emit(s, p["tenant_id"], "call.updated", call, self.clock())
                 if event_type == "call.recording.saved":
                     update(
                         call,
@@ -242,11 +246,32 @@ class TelephonyWorkflows:
                 current = self.required(s, "command_outbox", command["id"], p)
                 if current.data["status"] != "pending":
                     continue
+                sent = dt(current.data.get("sent_at"))
+                if (
+                    sent
+                    and not 0 <= (self.clock() - sent).total_seconds() < 45
+                    and command["action"]
+                    not in {"hangup", "playback_stop", "transcription_stop", "record_stop"}
+                ):
+                    update(
+                        current,
+                        status="review_required",
+                        recovery_reason="Original command deduplication window expired before retry submission",
+                    )
+                    continue
                 inbound = command.get("inbound", False)
                 call = self.required(
                     s, "followup_tasks" if inbound else "call_attempts", command["call_id"], p
                 )
                 if inbound and not self.inbound_admit_command(s, p, call, current):
+                    continue
+                if (
+                    not inbound
+                    and call.data["state"] in TERMINAL | {"ENDING"}
+                    and command["action"]
+                    not in {"hangup", "playback_stop", "transcription_stop", "record_stop"}
+                ):
+                    update(current, status="cancelled", reason="CALL_NO_LONGER_ACTIVE")
                     continue
                 if not inbound and command["action"] == "playback_start":
                     reasons = self.voicemail_reasons(
@@ -288,6 +313,11 @@ class TelephonyWorkflows:
                         continue
                 target = command.get("target") or call.data.get("provider_id")
                 if not target:
+                    update(
+                        current,
+                        status="review_required",
+                        recovery_reason="Missing carrier call reference; reconcile the original dial first",
+                    )
                     continue
                 owner = uid()
                 update(
@@ -369,8 +399,9 @@ class TelephonyWorkflows:
                 fail(503, "Configure a scoped incoming-only SIP credential and an owned healthy caller ID")
         carrier = self.carrier(p["tenant_id"])
         await carrier.verify_incoming_only_credential(credential)
-        leg_id = uid()
+        leg_id, owner = uid(), uid()
         with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
             prior = next(
                 (
                     r
@@ -396,6 +427,8 @@ class TelephonyWorkflows:
                     "provider_id": None,
                     "state": "submitting",
                     "command_id": leg_id,
+                    "lease_owner": owner,
+                    "lease_until": (self.clock() + timedelta(seconds=30)).isoformat(),
                 },
                 object_id=leg_id,
                 now=self.clock(),
@@ -414,17 +447,33 @@ class TelephonyWorkflows:
             )
         except Exception:
             with self.db.transaction() as s:
-                update(self.required(s, "call_legs", leg.id, p), state="uncertain")
+                current = self.required(s, "call_legs", leg.id, p)
+                if current.data["state"] == "submitting" and current.data.get("lease_owner") == owner:
+                    update(current, state="uncertain", lease_owner=None, lease_until=None)
+                if current.data.get("provider_id"):
+                    return {"agent_call_control_id": current.data["provider_id"]}
             fail(503, "Agent submission is uncertain; await its signed receipt or reconcile before retrying")
         with self.db.transaction() as s:
+            current = self.required(s, "call_legs", leg.id, p)
+            if current.data.get("lease_owner") not in {owner, None}:
+                fail(409, "Agent reconciliation owns the result; refresh its current status")
+            if current.data.get("provider_id") not in {None, receipt["call_control_id"]}:
+                fail(409, "Carrier returned a conflicting agent leg reference")
             update(
-                self.required(s, "call_legs", leg.id, p),
+                current,
                 provider_id=receipt["call_control_id"],
-                state="ringing",
+                lease_owner=None,
+                lease_until=None,
+                state="ringing"
+                if current.data["state"] in {"submitting", "uncertain"}
+                else current.data["state"],
             )
         return {"agent_call_control_id": receipt["call_control_id"]}
 
     def agent_event(self, tenant_id, payload, event_type, *, session=None):
+        provider_id = payload.get("call_control_id")
+        if not isinstance(provider_id, str) or not provider_id:
+            return False
         with self.db.transaction(session=session) as s:
             legs = rows(s, "call_legs", tenant_id)
             leg = next(
@@ -439,16 +488,25 @@ class TelephonyWorkflows:
             if not leg:
                 try:
                     context = json.loads(base64.b64decode(payload.get("client_state", "")))
-                    if not isinstance(context, dict):
+                    if not isinstance(context, dict) or context.get("tenant_id") != tenant_id:
                         return False
-                    leg = next((r for r in legs if r.id == context.get("agent_leg_id")), None)
+                    leg = next(
+                        (
+                            r
+                            for r in legs
+                            if r.id == context.get("agent_leg_id") and r.data.get("kind") == "agent"
+                        ),
+                        None,
+                    )
                 except (ValueError, TypeError):
                     return False
-            if not leg:
+            if not leg or leg.data.get("provider_id") not in {None, provider_id}:
                 return False
             update(
                 leg,
                 provider_id=payload.get("call_control_id"),
+                lease_owner=None,
+                lease_until=None,
                 state="ended"
                 if leg.data["state"] == "ended"
                 else "answered"
@@ -459,7 +517,7 @@ class TelephonyWorkflows:
             )
             if event_type == "call.hangup":
                 user = next((u for u in rows(s, "users", tenant_id) if u.id == leg.data["rep_id"]), None)
-                if user:
+                if user and user.data.get("presence", {}).get("agent_call_control_id") in {None, provider_id}:
                     update(
                         user, presence={"status": "paused", "audio_ready": False, "telephony_ready": False}
                     )

@@ -1,6 +1,7 @@
 import { OperatingPolicySettings } from "./OperatingPolicySettings";
 import { WorkTime } from "./WorkTime";
 import { CallbackRouting } from "./CallbackRouting";
+import { RecoveryPanel } from "./RecoveryPanel";
 import { PreparationSettings } from "./Preparation";
 import type { Update } from "@tauri-apps/plugin-updater";
 import {
@@ -887,6 +888,7 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
             </button>
           </section>
           <AccessAndRecovery />
+          <RecoveryPanel />
         </>
       )}
       {section === "App updates" && (

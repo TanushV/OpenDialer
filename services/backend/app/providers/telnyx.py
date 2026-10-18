@@ -58,7 +58,14 @@ class TelnyxCarrier:
             body["webhook_url_method"] = "POST"
         try:
             response = await self.request("POST", "/calls", body)
-            return response["data"]
+            data = response.get("data") if isinstance(response, dict) else None
+            if (
+                not isinstance(data, dict)
+                or not isinstance(data.get("call_control_id"), str)
+                or not data["call_control_id"]
+            ):
+                raise UncertainCarrierResult("Carrier accepted request without a usable call reference")
+            return data
         except (httpx.TimeoutException, httpx.NetworkError) as e:
             raise UncertainCarrierResult(
                 "Provider response uncertain; awaiting signed webhook/reconciliation"
@@ -78,7 +85,11 @@ class TelnyxCarrier:
     async def action(self, provider_id, action, payload):
         from urllib.parse import quote
 
-        return await self.request("POST", f"/calls/{quote(provider_id, safe='')}/actions/{action}", payload)
+        result = await self.request("POST", f"/calls/{quote(provider_id, safe='')}/actions/{action}", payload)
+        data = result.get("data") if isinstance(result, dict) else None
+        if not isinstance(data, dict) or data.get("result") != "ok":
+            raise UncertainCarrierResult("Carrier control has no successful acknowledgement")
+        return result
 
     async def playback(self, provider_id, payload):
         return await self.action(provider_id, "playback_start", payload)

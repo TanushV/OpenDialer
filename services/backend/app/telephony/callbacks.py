@@ -4,6 +4,7 @@ import asyncio
 import base64
 import ipaddress
 import json
+import logging
 import re
 from datetime import timedelta
 
@@ -479,7 +480,11 @@ class InboundCallbacks:
                 identity = leg.get("provider_id")
                 if not identity or leg.get("state") in ENDED:
                     continue
-                receipt = await self.carrier(p["tenant_id"]).reconcile(identity, identity)
+                try:
+                    receipt = await self.carrier(p["tenant_id"]).reconcile(identity, identity)
+                except Exception as exc:
+                    logging.getLogger(__name__).warning("Inbound status unavailable: %s", type(exc).__name__)
+                    continue
                 if (
                     receipt
                     and receipt.get("call_control_id", identity) == identity

@@ -1,6 +1,5 @@
 import hashlib
 import json
-import logging
 import os
 import re
 
@@ -15,11 +14,15 @@ from app.rep_workflows import RepWorkflows
 from app.service import dt, fail
 from app.telephony.callbacks import InboundCallbacks
 from app.telephony.ingress import WebhookIngress
+from app.telephony.recovery import CommandRecovery
+from app.telephony.recovery_actions import RecoveryActions
 from app.telephony.reducer import TERMINAL
 from app.telephony.workflows import TelephonyWorkflows
 
 
 class Dialer(
+    RecoveryActions,
+    CommandRecovery,
     InboundCallbacks,
     Measurement,
     RepWorkflows,
@@ -304,103 +307,6 @@ class Dialer(
             fail(422, "Positive daily capacity required")
         with self.db.transaction(False) as s:
             return self.forecast(s, p, campaign_id=campaign_id, capacity=capacity)
-
-    async def recover(self, p):
-        self.jobs.recover_expired()
-        await self.reconcile_inbound(p)
-        with self.db.transaction() as s:
-            self._expire_claims(s)
-            calls = [doc(c) for c in self.scoped(s, "call_attempts", p) if c.data["state"] not in TERMINAL]
-            commands = [
-                doc(c)
-                for c in self.scoped(s, "command_outbox", p)
-                if c.data.get("status") in {"pending", "sending", "uncertain"}
-            ]
-        for command in commands:
-            if command["kind"] == "dial":
-                if command["status"] == "pending":
-                    await self.dispatch_call(p, command["call_id"])
-                else:
-                    receipt = await self.carrier(p["tenant_id"]).reconcile(
-                        command["call_id"], command.get("provider_id")
-                    )
-                    if receipt:
-                        with self.db.transaction() as s:
-                            call = self.required(s, "call_attempts", command["call_id"], p)
-                            if call.data["state"] not in TERMINAL:
-                                update(
-                                    call,
-                                    provider_id=receipt["call_control_id"],
-                                    state="RINGING" if self.settings.simulation else "DIALING",
-                                )
-                            update(
-                                self.required(s, "command_outbox", command["id"], p),
-                                status="completed",
-                                provider_id=receipt["call_control_id"],
-                            )
-            elif command["kind"] == "action" and command["status"] in {"sending", "uncertain"}:
-                with self.db.transaction() as s:
-                    current = self.required(s, "command_outbox", command["id"], p)
-                    lease = dt(current.data.get("lease_until"))
-                    if lease and lease > self.clock():
-                        continue
-                    sent = dt(current.data.get("sent_at"))
-                    # Telnyx only documents command deduplication inside 60 seconds.
-                    # Old/unknown effects require review instead of a blind paid replay.
-                    retryable = bool(sent and 0 <= (self.clock() - sent).total_seconds() < 45)
-                    update(
-                        current,
-                        status="pending" if retryable else "review_required",
-                        lease_owner=None,
-                        lease_until=None,
-                        recovery_reason="same_command_within_dedupe_window"
-                        if retryable
-                        else "Carrier effect is uncertain beyond the command deduplication window",
-                    )
-            elif command["kind"] == "hangup":
-                with self.db.transaction(False) as s:
-                    target_call = self.required(s, "call_attempts", command["call_id"], p)
-                    provider_id = command.get("provider_id") or target_call.data.get("provider_id")
-                if not provider_id:
-                    continue
-                try:
-                    await self.carrier(p["tenant_id"]).hangup(provider_id, command["call_id"] + ":hangup")
-                    with self.db.transaction() as s:
-                        update(
-                            self.required(s, "command_outbox", command["id"], p),
-                            status="completed",
-                            provider_id=provider_id,
-                        )
-                        if self.settings.simulation:
-                            self.finish_call(
-                                s,
-                                p,
-                                self.required(s, "call_attempts", command["call_id"], p),
-                                "simulated_recovery_hangup",
-                            )
-                except Exception as exc:
-                    logging.getLogger(__name__).warning(
-                        "Carrier reconciliation deferred: %s", type(exc).__name__
-                    )
-                    continue
-        for call in calls:
-            if call["state"] == "ENDING" and call.get("provider_id"):
-                receipt = await self.carrier(p["tenant_id"]).reconcile(call["id"], call["provider_id"])
-                if receipt and (
-                    receipt.get("is_alive") is False
-                    or receipt.get("state") in {"hangup", "ended", "completed"}
-                ):
-                    with self.db.transaction() as s:
-                        self.finish_call(
-                            s,
-                            p,
-                            self.required(s, "call_attempts", call["id"], p),
-                            "provider_terminal_reconciliation",
-                        )
-                    continue
-            if (self.clock() - dt(call["started_at"])).total_seconds() > self.settings.max_call_seconds:
-                await self.hangup(p, call["id"])
-        return {"reconciled": len(commands), "examined_calls": len(calls)}
 
     def backup(self, p):
         from app.privacy import persistent_document

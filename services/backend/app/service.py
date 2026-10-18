@@ -6,6 +6,7 @@ import os
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import httpx
 from fastapi import HTTPException
 from sqlalchemy import delete, select
 
@@ -15,7 +16,7 @@ from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, rows, uid, u
 from app.jobs.queue import JobQueue, aware
 from app.optimization.numbering import select_number
 from app.privacy import event_metadata
-from app.providers.simulated import SimulatedCarrier, UncertainCarrierResult
+from app.providers.simulated import SimulatedCarrier
 from app.providers.telnyx import TelnyxCarrier
 from app.scheduling.queue import ReservationPlanner
 from app.security import PASSWORDS, Vault, issue_session
@@ -737,6 +738,7 @@ class Service(ReservationPlanner):
             return doc(self.required(s, "call_attempts", call.id, p))
 
     async def dispatch_call(self, p, call_id):
+        owner = uid()
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             call = self.required(s, "call_attempts", call_id, p)
@@ -757,7 +759,15 @@ class Service(ReservationPlanner):
                 return
             payload = command.data["payload"]
             self.journal_authorization(p, call, payload)
-            update(command, status="sending", attempts=1, submitted_at=self.clock().isoformat())
+            update(
+                command,
+                status="sending",
+                attempts=1,
+                submitted_at=self.clock().isoformat(),
+                sent_at=self.clock().isoformat(),
+                lease_owner=owner,
+                lease_until=(self.clock() + timedelta(seconds=30)).isoformat(),
+            )
             update(
                 call,
                 state="DIALING",
@@ -784,36 +794,64 @@ class Service(ReservationPlanner):
             )
         try:
             receipt = await self.carrier(p["tenant_id"]).dial(payload)
-        except UncertainCarrierResult:
+        except Exception as exc:
             with self.db.transaction() as s:
                 command = self.required(s, "command_outbox", command.id, p)
                 call = self.required(s, "call_attempts", call_id, p)
-                update(command, status="uncertain")
-                update(call, state="RECONCILING")
-                emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": "RECONCILING"})
-            return
-        except Exception as e:
-            with self.db.transaction() as s:
-                update(
-                    self.required(s, "command_outbox", command.id, p), status="failed", error=type(e).__name__
-                )
-                self.finish_call(s, p, self.required(s, "call_attempts", call_id, p), "provider_failure")
+                if command.data.get("lease_owner") == owner and command.data["status"] == "sending":
+                    rejected = (
+                        isinstance(exc, httpx.HTTPStatusError) and 400 <= exc.response.status_code < 500
+                    )
+                    update(
+                        command,
+                        status="failed" if rejected else "uncertain",
+                        error=type(exc).__name__,
+                        lease_owner=None,
+                        lease_until=None,
+                    )
+                    if rejected:
+                        self.finish_call(s, p, call, "provider_rejected")
+                    elif call.data["state"] == "DIALING" and not call.data.get("provider_id"):
+                        update(call, state="RECONCILING")
+                        emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": "RECONCILING"})
             return
         self.journal_authorization(p, call, payload, provider_id=receipt["call_control_id"])
         cancel = False
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
-            update(
-                self.required(s, "command_outbox", command.id, p),
-                status="completed",
-                provider_id=receipt["call_control_id"],
+            current = self.required(s, "command_outbox", command.id, p)
+            if current.data["status"] != "completed":
+                if current.data.get("lease_owner") != owner:
+                    return
+                self.bind_dial_receipt(s, p, call, receipt["call_control_id"])
+            cancel = call.data["state"] not in TERMINAL and (
+                call.data["state"] == "ENDING" or self.suppressed(s, p, lead.data["phone"])
             )
-            cancel = call.data["state"] in TERMINAL or self.suppressed(s, p, lead.data["phone"])
             update(
                 call,
-                provider_id=receipt["call_control_id"],
-                state="ENDED" if cancel else ("RINGING" if self.settings.simulation else "DIALING"),
+                state=reduce_state(
+                    call.data["state"], "call.ringing" if self.settings.simulation else "call.initiated"
+                ),
             )
+            emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": call.data["state"]})
+        if cancel:
+            await self.hangup(p, call_id)
+
+    def bind_dial_receipt(self, s, p, call, provider_id):
+        if call.data.get("provider_id") not in {None, provider_id}:
+            fail(409, "Provider call reference conflicts with the established leg")
+        update(call, provider_id=provider_id)
+        for command in self.scoped(s, "command_outbox", p):
+            if (
+                command.data.get("call_id") == call.id
+                and command.data.get("kind") == "dial"
+                and command.data.get("status") in {"sending", "uncertain", "reconciling", "review_required"}
+            ):
+                update(
+                    command, status="completed", provider_id=provider_id, lease_owner=None, lease_until=None
+                )
+        prior = next((r for r in self.scoped(s, "call_legs", p) if r.external_key == provider_id), None)
+        if not prior:
             put(
                 s,
                 "call_legs",
@@ -821,16 +859,13 @@ class Service(ReservationPlanner):
                 p["seller_id"],
                 {
                     "call_id": call.id,
-                    "provider_id": receipt["call_control_id"],
+                    "provider_id": provider_id,
                     "kind": "prospect",
                     "state": call.data["state"],
                 },
-                key=receipt["call_control_id"],
+                key=provider_id,
                 now=self.clock(),
             )
-            emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": call.data["state"]})
-        if cancel:
-            await self.carrier(p["tenant_id"]).hangup(receipt["call_control_id"], call_id + ":suppression")
 
     def finish_call(self, s, p, call, reason=None):
         if call.data["state"] != "FINALIZED":
@@ -839,12 +874,25 @@ class Service(ReservationPlanner):
             answered = dt(call.data.get("answered_at"))
             if answered and answered <= ended:
                 update(call, connected_seconds=(ended - answered).total_seconds())
+        legs = MODELS["call_legs"]
+        if call.data.get("provider_id"):
+            for leg in s.scalars(
+                select(legs).where(
+                    legs.tenant_id == p["tenant_id"],
+                    legs.seller_id == p["seller_id"],
+                    legs.op_provider_id == call.data["provider_id"],
+                )
+            ):
+                if leg.data.get("kind") == "prospect" and leg.data.get("call_id") == call.id:
+                    update(leg, state="ENDED", ended_at=call.data.get("ended_at"))
         for claim in list(s.scalars(select(ActiveClaim).where(ActiveClaim.call_id == call.id))):
             s.delete(claim)
         emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": call.data["state"]})
 
     async def hangup(self, p, call_id):
+        owner = uid()
         with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
             call = self.required(s, "call_attempts", call_id, p)
             if p["role"] == "rep" and call.data["rep_id"] != p["user_id"]:
                 fail(403, "Call belongs to another rep")
@@ -865,20 +913,40 @@ class Service(ReservationPlanner):
                     key=command_id,
                     now=self.clock(),
                 )
+            if existing.data.get("lease_until") and dt(existing.data["lease_until"]) > self.clock():
+                return doc(call)
+            if existing.data.get("status") == "completed":
+                return doc(call)
+            update(
+                existing,
+                status="sending" if provider_id else "review_required",
+                provider_id=provider_id,
+                lease_owner=owner if provider_id else None,
+                lease_until=(self.clock() + timedelta(seconds=30)).isoformat() if provider_id else None,
+                sent_at=existing.data.get("sent_at") or self.clock().isoformat(),
+                recovery_reason=None
+                if provider_id
+                else "Await the signed dial receipt or attach a verified carrier call reference",
+            )
             update(call, state="ENDING")
             emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": "ENDING"})
         if provider_id:
             try:
                 await self.carrier(p["tenant_id"]).hangup(provider_id, command_id)
                 with self.db.transaction() as s:
-                    update(self.required(s, "command_outbox", existing.id, p), status="completed")
+                    current = self.required(s, "command_outbox", existing.id, p)
+                    if current.data.get("lease_owner") != owner or current.data["status"] != "sending":
+                        return doc(self.required(s, "call_attempts", call_id, p))
+                    update(current, status="completed", lease_owner=None, lease_until=None)
                     if self.settings.simulation:
                         self.finish_call(
                             s, p, self.required(s, "call_attempts", call_id, p), "simulated_hangup_receipt"
                         )
             except Exception as exc:
                 with self.db.transaction() as s:
-                    update(self.required(s, "command_outbox", existing.id, p), status="uncertain")
+                    current = self.required(s, "command_outbox", existing.id, p)
+                    if current.data.get("lease_owner") == owner:
+                        update(current, status="uncertain", lease_owner=None, lease_until=None)
                 logging.getLogger(__name__).warning("Durable hangup pending: %s", type(exc).__name__)
         with self.db.transaction(False) as s:
             call = self.required(s, "call_attempts", call_id, p)
@@ -1001,19 +1069,12 @@ class Service(ReservationPlanner):
             if timing:
                 update(call, **timing)
             target = reduce_state(call.data["state"], event_type)
+            if payload.get("call_control_id"):
+                self.bind_dial_receipt(s, p, call, payload["call_control_id"])
             if target == "ENDED":
                 self.finish_call(s, p, call, event_type)
             else:
                 update(call, state=target)
-                if payload.get("call_control_id") and not call.data.get("provider_id"):
-                    update(call, provider_id=payload["call_control_id"])
-                    for command in self.scoped(s, "command_outbox", p):
-                        if (
-                            command.data.get("call_id") == call.id
-                            and command.data.get("kind") == "dial"
-                            and command.data.get("status") in {"sending", "uncertain"}
-                        ):
-                            update(command, status="completed", provider_id=payload["call_control_id"])
                 emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": target})
             return {"duplicate": False, "event_id": event_id, "state": target}
 

@@ -37,6 +37,16 @@ class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class RecoveryEdit(Strict):
+    expected_version: int = Field(ge=1)
+    action: Literal["reconcile", "end_call", "cancel_unsent"]
+    provider_id: str | None = Field(default=None, min_length=1, max_length=2048)
+
+
+class JobRetry(Strict):
+    expected_attempts: int = Field(ge=0)
+
+
 class Setup(Strict):
     seller_name: str = Field(min_length=1, max_length=200)
     campaign_name: str = Field(default="My campaign", max_length=200)
@@ -874,6 +884,24 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.post("/v1/admin/recovery")
     async def recovery(p=Depends(administrator)):
         return await service.recover(p)
+
+    @app.get("/v1/admin/recovery")
+    def recovery_items(p=Depends(administrator)):
+        return service.recovery_items(p)
+
+    @app.post("/v1/admin/recovery/commands/{identity}")
+    async def recovery_action(identity: str, data: RecoveryEdit, p=Depends(administrator)):
+        return await service.recovery_action(p, identity, **data.model_dump())
+
+    @app.post("/v1/admin/recovery/agents/{identity}")
+    async def recover_agent(identity: str, data: RecoveryEdit, p=Depends(administrator)):
+        if data.action != "reconcile":
+            fail(422, "Agent recovery requires carrier reconciliation")
+        return await service.reconcile_agent(p, identity, data.expected_version, data.provider_id)
+
+    @app.post("/v1/admin/recovery/jobs/{identity}/retry")
+    def retry_job(identity: str, data: JobRetry, p=Depends(administrator)):
+        return service.retry_job(p, identity, data.expected_attempts)
 
     @app.post("/v1/admin/jobs/run")
     async def run_jobs(p=Depends(administrator)):
