@@ -66,9 +66,19 @@ test("campaign scoring anchors persist and a rep can correct the call purpose", 
   ).toHaveValue("Confirmed the buyer's workflow and constraints.");
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
   await page.getByRole("button", { name: "Go ready", exact: true }).click();
+  const reserved = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/v1/queue/next") &&
+      response.request().method() === "POST",
+  );
   await page
     .getByRole("button", { name: "Get next lead", exact: true })
     .click();
+  const selected = await (await reserved).json();
+  const reviewCall = page.getByRole("button", {
+    name: `Review call ${selected.lead.name}`,
+    exact: true,
+  });
   await page.getByRole("button", { name: "Start call", exact: true }).click();
   await page.getByRole("button", { name: "Hang up", exact: true }).click();
   await page.getByLabel("Disposition").selectOption("right_party");
@@ -77,10 +87,7 @@ test("campaign scoring anchors persist and a rep can correct the call purpose", 
     .getByRole("button", { name: "Pause dialing", exact: true })
     .click();
   await page.getByRole("button", { name: "Review", exact: true }).click();
-  await page
-    .getByRole("button", { name: /^Review call / })
-    .first()
-    .click();
+  await reviewCall.click();
   await expect(
     page.getByRole("region", { name: "Conversation signals", exact: true }),
   ).toContainText("Explicit callback");
@@ -119,10 +126,7 @@ test("campaign scoring anchors persist and a rep can correct the call purpose", 
   await page
     .getByRole("button", { name: "All conversations", exact: true })
     .click();
-  await page
-    .getByRole("button", { name: /^Review call / })
-    .first()
-    .click();
+  await reviewCall.click();
   await expect(
     page.getByLabel("Actual call purpose", { exact: true }),
   ).toHaveValue("follow_up");
@@ -165,10 +169,7 @@ test("campaign scoring anchors persist and a rep can correct the call purpose", 
   await page
     .getByRole("button", { name: "All conversations", exact: true })
     .click();
-  await page
-    .getByRole("button", { name: /^Review call / })
-    .first()
-    .click();
+  await reviewCall.click();
   await expect(review).toContainText(
     "No new discovery opportunity was offered during this follow-up.",
   );
