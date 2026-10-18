@@ -1,0 +1,136 @@
+"""A25: latest help, manual priority and bounded admission under slow providers."""
+
+import asyncio
+
+import pytest
+from app.coaching.engine import CoachEngine
+
+FALLBACK = {"action": "NO_ACTION"}
+
+
+@pytest.mark.asyncio
+async def test_provider_ignoring_cancel_cannot_publish_obsolete_same_version_advice():
+    engine, entered = CoachEngine(), asyncio.Event()
+
+    class Provider:
+        async def suggest(self, request, **kwargs):
+            if request["id"] == "old":
+                entered.set()
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    pass  # An upstream completion raced cancellation.
+            return {"action": "SHOW_CARD", "say_or_ask": request["id"], "state_version": 1}
+
+    provider = Provider()
+    old = asyncio.create_task(engine.suggest("call", {"id": "old"}, provider, FALLBACK))
+    await entered.wait()
+    new = await engine.suggest("call", {"id": "new"}, provider, FALLBACK)
+    assert new["say_or_ask"] == "new"
+    assert (await old)["action"] == "NO_ACTION", "Transcript version alone cannot fence two private questions"
+    assert not engine.active
+
+
+@pytest.mark.asyncio
+async def test_automatic_turn_cannot_cancel_a_manual_answer_in_progress():
+    engine, entered, release, requests = CoachEngine(), asyncio.Event(), asyncio.Event(), []
+
+    class Provider:
+        async def suggest(self, request, **kwargs):
+            requests.append(request)
+            entered.set()
+            await release.wait()
+            return {"action": "SHOW_CARD", "say_or_ask": "A contextual answer"}
+
+    provider = Provider()
+    manual = asyncio.create_task(
+        engine.suggest("call", {"private_question": "Explain?", "manual_help": True}, provider, FALLBACK)
+    )
+    await entered.wait()
+    try:
+        automatic = await engine.suggest("call", {"state_version": 2}, provider, FALLBACK, deadline_ms=30)
+        assert automatic["action"] == "NO_ACTION"
+        assert len(requests) == 1, "Background interpretation displaced explicit rep help"
+        release.set()
+        assert (await manual)["action"] == "SHOW_CARD"
+    finally:
+        release.set()
+        await asyncio.gather(manual, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_local_capacity_wait_is_not_a_provider_failure_or_global_circuit_break():
+    engine, entered, release = CoachEngine(), asyncio.Event(), asyncio.Event()
+    engine.capacity = asyncio.Semaphore(1)
+
+    class Provider:
+        async def suggest(self, request, **kwargs):
+            if request.get("hold"):
+                entered.set()
+                await release.wait()
+            return {"action": "SHOW_CARD"}
+
+    provider = Provider()
+    active = asyncio.create_task(
+        engine.suggest("active", {"hold": True}, provider, FALLBACK, deadline_ms=1000)
+    )
+    await entered.wait()
+    try:
+        for i in range(3):
+            assert (await engine.suggest(f"waiting-{i}", {}, provider, FALLBACK, deadline_ms=15))[
+                "action"
+            ] == "NO_ACTION"
+        assert engine.failures == 0 and engine.open_until == 0
+        release.set()
+        assert (await active)["action"] == "SHOW_CARD"
+        assert (await engine.suggest("next", {}, provider, FALLBACK))["action"] == "SHOW_CARD"
+    finally:
+        release.set()
+        await asyncio.gather(active, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_admission_bounds_waiting_calls_instead_of_accumulating_a_backlog():
+    engine, release = CoachEngine(), asyncio.Event()
+    engine.capacity = asyncio.Semaphore(1)
+    engine.max_pending = 4
+
+    class Provider:
+        async def suggest(self, *args, **kwargs):
+            await release.wait()
+            return FALLBACK
+
+    tasks = [
+        asyncio.create_task(engine.suggest(str(i), {}, Provider(), FALLBACK, deadline_ms=1000))
+        for i in range(12)
+    ]
+    try:
+        await asyncio.sleep(0.03)
+        assert len(engine.active) <= 4, "Active and queued helper requests exceed the declared bound"
+        assert sum(t.done() for t in tasks) >= 8
+    finally:
+        release.set()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_call_end_cancels_from_the_storage_thread_and_fences_late_provider_output():
+    engine, entered = CoachEngine(), asyncio.Event()
+
+    class Provider:
+        async def suggest(self, *args, **kwargs):
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                return {"action": "SHOW_CARD", "say_or_ask": "Too late"}
+
+    task = asyncio.create_task(engine.suggest("call", {}, Provider(), FALLBACK))
+    await entered.wait()
+    try:
+        assert await asyncio.to_thread(engine.cancel, "call")
+        assert (await asyncio.wait_for(task, 1))["action"] == "NO_ACTION"
+        assert not engine.active
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
