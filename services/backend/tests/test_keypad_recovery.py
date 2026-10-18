@@ -110,7 +110,7 @@ def test_lost_carrier_response_retains_original_intent_and_local_status(workspac
     assert len(commands(app.state.service, principal(workspace))) == 1
 
 
-@pytest.mark.parametrize("change", ["ended", "detached", "revoked", "target", "expired"])
+@pytest.mark.parametrize("change", ["ended", "detached", "revoked", "deleted", "moved", "target", "expired"])
 def test_queued_keypad_rechecks_call_requester_target_and_deadline(
     workspace, app, carrier, monkeypatch, clock, change
 ):
@@ -130,6 +130,10 @@ def test_queued_keypad_rechecks_call_requester_target_and_deadline(
     with service.db.transaction() as s:
         if change == "revoked":
             update(get(s, "users", p["user_id"]), disabled=True)
+        elif change == "deleted":
+            s.delete(get(s, "users", p["user_id"]))
+        elif change == "moved":
+            get(s, "users", p["user_id"]).seller_id = "different-seller"
         elif change != "expired":
             update(
                 get(s, "call_attempts", call["id"]),
@@ -220,11 +224,11 @@ def test_other_rep_cannot_send_or_inspect_keypad(workspace, app, carrier, clock,
         credentials = issue_session(s, app.state.settings, user, clock())
     headers = {"Authorization": f"Bearer {credentials['access_token']}"}
     response = workspace["client"].get(f"/v1/calls/{call['id']}/dtmf/keypad-request", headers=headers)
-    assert response.status_code == (404 if other_seller else 403)
+    assert response.status_code == 404
     response = workspace["client"].post(
         f"/v1/calls/{call['id']}/dtmf",
         headers=headers,
         json={"digits": "1", "idempotency_key": "stolen-call"},
     )
-    assert response.status_code == (404 if other_seller else 403)
+    assert response.status_code == 404
     assert len(tones(carrier)) == 1
