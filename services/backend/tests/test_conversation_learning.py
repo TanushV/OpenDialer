@@ -634,3 +634,34 @@ async def test_rep_cannot_review_another_reps_observation_or_change_shared_names
         ).status_code
         == 403
     )
+
+
+def test_background_association_calculation_does_not_hold_a_write_transaction(workspace, app, monkeypatch):
+    from contextlib import contextmanager
+
+    from app.optimization import conversations
+
+    service = app.state.service
+    transaction = service.db.transaction
+    original = conversations.conversation_associations
+    writes = []
+    calls = []
+
+    @contextmanager
+    def watched(write=True):
+        writes.append(write)
+        try:
+            with transaction(write) as s:
+                yield s
+        finally:
+            writes.pop()
+
+    def calculate(*args, **kwargs):
+        assert not any(writes), "Background association scoring held the database writer"
+        calls.append(True)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(service.db, "transaction", watched)
+    monkeypatch.setattr(conversations, "conversation_associations", calculate)
+    service.refresh_optimization(p(workspace))
+    assert calls
