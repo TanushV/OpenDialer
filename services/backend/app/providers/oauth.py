@@ -142,8 +142,8 @@ class PlanOAuth:
         async with httpx.AsyncClient() as client:
             return await exchange(client)
 
-    async def refresh(self, registration):
-        async with httpx.AsyncClient() as client:
+    async def refresh(self, registration, *, http=None):
+        async def exchange(client):
             response = await client.post(
                 self.issuer + "/api/accounts/oauth/token",
                 data={
@@ -171,11 +171,17 @@ class PlanOAuth:
                 "saved_at": self.clock().isoformat(),
             }
 
+        if http:
+            return await exchange(http)
+        async with httpx.AsyncClient() as client:
+            return await exchange(client)
+
 
 class RegisteredPlanClient:
-    def __init__(self, load, save, model, host_id, clock):
+    def __init__(self, load, save, model, host_id, clock, *, http=None):
         self.load, self.save, self.model = load, save, model
         self.oauth = PlanOAuth(host_id, clock)
+        self.http = http
 
     async def complete(self, instructions, context, schema):
         from app.providers.inference import InferenceClient
@@ -184,7 +190,7 @@ class RegisteredPlanClient:
         if profile.get("expires_at", 0) and profile["expires_at"] < self.oauth.clock().timestamp() + 30:
             if not profile.get("refresh_token"):
                 raise OAuthError("Plan session expired; sign in again")
-            profile = await self.oauth.refresh(profile)
+            profile = await self.oauth.refresh(profile, http=self.http)
             self.save(profile)
         if not profile.get("access_token"):
             raise OAuthError("A personal eligible ChatGPT registration is required")
@@ -193,6 +199,6 @@ class RegisteredPlanClient:
             + "\nReturn only a JSON object matching this schema: "
             + __import__("json").dumps(schema)
         )
-        return await InferenceClient("chatgpt_plan", profile["access_token"], self.model).complete(
-            prompt, context, schema
-        )
+        return await InferenceClient(
+            "chatgpt_plan", profile["access_token"], self.model, http=self.http
+        ).complete(prompt, context, schema)

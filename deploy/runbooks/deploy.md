@@ -9,4 +9,6 @@
 
 The API owns call-control maintenance, webhook recovery, live coaching and immediate post-call work. One background worker handles bounded preparation and statistical refresh/training. The default deployment runs maintenance without an optional profile. Raw conversation content remains only in the API process. Research concurrency, optional-job budgets, deadlines and the resource-limited background worker protect live work. Monitor queue age, uncertain commands, registry freshness, budget consumption, carrier errors and disk growth. Do not infer provider availability from an HTTP health response.
 
+Each process owns separate reusable HTTP pools for call control (16 connections), live coaching (12) and optional background work (4). Authentication stays per request; provider cookies are not retained and redirects are not followed. These engineering limits prevent background socket exhaustion from filling the live pool; they are not a certified rep-count capacity. Shutdown cancels workers before closing transports. Research fetching keeps its separate restricted transport.
+
 For local container acceptance only, bind the API port to 127.0.0.1 and use synthetic credentials. `OPENDIALER_SIMULATION=true` is an explicit test override; production Compose defaults false. The reset-based pytest database is always separate from a running acceptance server.

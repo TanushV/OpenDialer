@@ -2,6 +2,10 @@
 
 import asyncio
 import logging
+from contextlib import AsyncExitStack, asynccontextmanager
+from http.cookiejar import CookieJar, DefaultCookiePolicy
+
+import httpx
 
 
 class AuthorityRuntime:
@@ -37,3 +41,42 @@ class AuthorityRuntime:
         for task in self.tasks:
             task.cancel()
         await asyncio.gather(*self.tasks, return_exceptions=True)
+
+
+class _NoProviderCookies(DefaultCookiePolicy):
+    """Provider pools serve multiple accounts; only per-request credentials are allowed."""
+
+    def set_ok(self, cookie, request):
+        return False
+
+    def return_ok(self, cookie, request):
+        return False
+
+
+@asynccontextmanager
+async def authority_lifetime(service, *, queues, enabled=True):
+    """API and worker share one lifetime; slow background I/O cannot fill live pools."""
+    runtime = AuthorityRuntime(service, queues=queues)
+    try:
+        async with AsyncExitStack() as stack:
+            # Engineering admission bounds, not provider quotas or a capacity claim.
+            for name, maximum in (("control_http", 16), ("coach_http", 12), ("background_http", 4)):
+                client = await stack.enter_async_context(
+                    httpx.AsyncClient(
+                        limits=httpx.Limits(max_connections=maximum, max_keepalive_connections=maximum),
+                        timeout=httpx.Timeout(30, connect=5, pool=1),
+                        cookies=CookieJar(policy=_NoProviderCookies()),
+                        follow_redirects=False,
+                    )
+                )
+                setattr(service, name, client)
+            try:
+                if enabled:
+                    await runtime.start()
+                yield
+            finally:
+                # Finish/cancel workers before their owned transports are closed.
+                await runtime.close()
+    finally:
+        service.raw.clear()
+        service.db.engine.dispose()

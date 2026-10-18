@@ -233,7 +233,7 @@ def register_batches(app, service, administrator):
             return prior
         provider = OpenAIBatch(
             conf["openai_api_key"],
-            http=getattr(service, "coach_http", None),
+            http=getattr(service, "background_http", None),
             metadata={"opendialer_intent": intent["id"], "request_digest": intent["request_digest"]},
         )
         try:
@@ -254,7 +254,7 @@ def register_batches(app, service, administrator):
         value = await asyncio.to_thread(claim_recovery, service, p, intent_id, data)
         if value.get("publication_cached"):
             return {key: value[key] for key in ("status", "published", "retry_lead_ids")}
-        provider = OpenAIBatch(conf.get("openai_api_key", ""), http=getattr(service, "coach_http", None))
+        provider = OpenAIBatch(conf.get("openai_api_key", ""), http=getattr(service, "background_http", None))
 
         async def heartbeat():
             while True:

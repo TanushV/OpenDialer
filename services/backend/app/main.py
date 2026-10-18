@@ -9,7 +9,6 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 
-import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -247,21 +246,12 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @asynccontextmanager
     async def lifespan(app):
-        service.coach_http = httpx.AsyncClient(
-            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10)
-        )
-        from app.runtime import AuthorityRuntime
+        from app.runtime import authority_lifetime
 
-        runtime = AuthorityRuntime(service, queues=settings.worker_queues)
-        if settings.worker_enabled:
-            await runtime.start()
-        try:
+        async with authority_lifetime(
+            service, queues=settings.worker_queues, enabled=settings.worker_enabled
+        ):
             yield
-        finally:
-            await runtime.close()
-            service.raw.clear()
-            await service.coach_http.aclose()
-            db.engine.dispose()
 
     app = FastAPI(title="OpenDialer authority", version=settings.version, lifespan=lifespan)
     app.state.db, app.state.service, app.state.settings = db, service, settings
@@ -1485,7 +1475,12 @@ def create_app(settings=None, *, clock=None, carrier=None):
         service.vault.write(key, {"pending": {**pending, "used": True}})
         try:
             result = await PlanOAuth(service.host_id(), clock).finish(
-                pending, state=state, code=code, client_id=client_id, error=error
+                pending,
+                state=state,
+                code=code,
+                client_id=client_id,
+                error=error,
+                http=service.background_http,
             )
         except (OAuthError, Exception) as exc:
             fail(400, "Authorization was not completed: " + type(exc).__name__)
@@ -1497,8 +1492,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/inference/chatgpt/import")
     async def import_chatgpt_profile(data: dict, p=Depends(principal)):
-        import httpx
-
         from app.providers.oauth import PlanOAuth
 
         if (
@@ -1507,10 +1500,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
             or not data.get("id_token")
         ):
             fail(422, "A complete protected official registration is required")
-        async with httpx.AsyncClient() as http:
-            identity = await PlanOAuth(service.host_id(), clock).identity(
-                data["id_token"], data["client_id"], http
-            )
+        identity = await PlanOAuth(service.host_id(), clock).identity(
+            data["id_token"], data["client_id"], service.background_http
+        )
         if identity["sub"] != data.get("subject") or "chatgpt.tokens.use.direct" not in data.get(
             "scopes", []
         ):
@@ -1520,24 +1512,22 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.get("/v1/inference/chatgpt/models")
     async def chatgpt_models(p=Depends(principal)):
-        import httpx
-
         profile = service.vault.read("plan-" + p["user_id"])
         if not profile.get("access_token"):
             fail(409, "Sign in with your own eligible ChatGPT account first")
-        async with httpx.AsyncClient(timeout=10) as http:
-            response = await http.get(
-                "https://api.openai.com/v1/models",
-                headers={"Authorization": "Bearer " + profile["access_token"]},
-            )
-            response.raise_for_status()
-            return {
-                "models": [
-                    {"slug": m["slug"], "display_name": m["display_name"]}
-                    for m in response.json().get("models", [])
-                    if m.get("visibility") == "list"
-                ]
-            }
+        response = await service.background_http.get(
+            "https://api.openai.com/v1/models",
+            headers={"Authorization": "Bearer " + profile["access_token"]},
+            timeout=10,
+        )
+        response.raise_for_status()
+        return {
+            "models": [
+                {"slug": m["slug"], "display_name": m["display_name"]}
+                for m in response.json().get("models", [])
+                if m.get("visibility") == "list"
+            ]
+        }
 
     @app.post("/v1/admin/restore/reconcile")
     async def reconcile_restore(data: dict, p=Depends(administrator)):

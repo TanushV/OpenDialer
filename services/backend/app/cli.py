@@ -51,22 +51,10 @@ def main():
         settings.worker_enabled = True  # Separate worker processes also own bounded automatic scheduling.
 
         async def run():
-            import httpx
+            from app.runtime import authority_lifetime
 
-            async with httpx.AsyncClient(
-                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10)
-            ) as http:
-                app.state.service.coach_http = http
-                from app.runtime import AuthorityRuntime
-
-                runtime = AuthorityRuntime(app.state.service, queues=args.queue or settings.worker_queues)
-                await runtime.start()
-                try:
-                    await asyncio.Event().wait()
-                finally:
-                    await runtime.close()
-                    app.state.service.raw.clear()
-                    app.state.db.engine.dispose()
+            async with authority_lifetime(app.state.service, queues=args.queue or settings.worker_queues):
+                await asyncio.Event().wait()
 
         asyncio.run(run())
     else:

@@ -91,6 +91,7 @@ class Service(ReservationPlanner):
             conf["telnyx_api_key"],
             conf["telnyx_connection_id"],
             webhook_url=conf.get("webhook_url", self.settings.webhook_public_url),
+            http=getattr(self, "control_http", None),
         )
 
     def setup(self, data, *, first=True):

@@ -92,6 +92,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 conf.get(role + "_model", conf.get("model", "gpt-6.1-sol")),
                 self.host_id(),
                 self.clock,
+                http=getattr(self, "background_http", None),
             )
         token = conf.get("openai_api_key")
         if not token and mode != "litellm":
@@ -103,6 +104,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             token or "",
             conf.get(role + "_model", conf.get("model", "gpt-6-luna")),
             base_url=conf.get("inference_base_url") or None,
+            http=getattr(self, "background_http", None),
         )
 
     def approved_playbook(self, s, p):
