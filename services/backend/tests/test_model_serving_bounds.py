@@ -100,7 +100,10 @@ def test_oversized_artifact_is_rejected_before_reading_or_loading(tmp_path, monk
     assert training.predict_funnel_batch(model, [{}], root) == [{}]
 
 
-def test_retired_model_history_does_not_enter_reservation_reads(workspace, app, clock, monkeypatch):
+@pytest.mark.parametrize("expired_trial", [False, True])
+def test_retired_model_history_does_not_enter_reservation_reads(
+    workspace, app, clock, monkeypatch, expired_trial
+):
     service, p = app.state.service, principal(workspace)
     with service.db.transaction() as s:
         for _ in range(600):
@@ -109,7 +112,12 @@ def test_retired_model_history_does_not_enter_reservation_reads(workspace, app, 
                 "model_versions",
                 p["tenant_id"],
                 p["seller_id"],
-                {"active": False, "goal": "meeting_held"},
+                {
+                    "active": False,
+                    "trial_active": expired_trial,
+                    "trial_ends_at": (clock.now - timedelta(days=1)).isoformat(),
+                    "goal": "meeting_held",
+                },
                 now=clock.now,
             )
     ready(workspace)
@@ -232,3 +240,40 @@ def test_queue_scores_one_vector_batch_for_each_selected_model(workspace, app, c
     assert len(calls[0]) >= 18
     with service.db.transaction(False) as s:
         assert doc(service.serving_model(s, p, service.optimization_config(s, p)))["id"] == expected_id
+
+
+def test_trial_pointer_cannot_cross_its_reviewed_epoch(workspace, app, clock):
+    from app.db import uid
+    from app.optimization.learning import stable_control
+
+    service, p = app.state.service, principal(workspace)
+    lead_id = uid()
+    while stable_control(lead_id):
+        lead_id = uid()
+    with service.db.transaction() as s:
+        campaign = service.scoped(s, "campaigns", p)[0]
+        epoch = campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
+        put(
+            s,
+            "experiment_assignments",
+            p["tenant_id"],
+            p["seller_id"],
+            {"lead_id": lead_id, "epoch": epoch, "family": "optimization"},
+            now=clock.now,
+        )
+        put(
+            s,
+            "model_versions",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "active": False,
+                "trial_active": True,
+                "trial_epoch": "different-reviewed-epoch",
+                "trial_ends_at": (clock.now + timedelta(days=1)).isoformat(),
+                "goal": "meeting_held",
+            },
+            now=clock.now,
+        )
+    with service.db.transaction(False) as s:
+        assert service.serving_model(s, p, service.optimization_config(s, p), lead_id) is None
