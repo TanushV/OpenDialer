@@ -15,7 +15,7 @@ from app.coaching.context import (
     retrieve_cards,
 )
 from app.coaching.engine import CardRejected, finish_shielded
-from app.db import MODELS, doc, emit, put, uid, update
+from app.db import MODELS, doc, emit, get, put, uid, update
 from app.privacy import persistent_document
 from app.providers.inference import InferenceResult
 from app.service import dt
@@ -98,6 +98,37 @@ class LiveHelper:
         if record.get("private") and record.get("user_id") != p["user_id"]:
             return None
         return self.raw.get("help:" + p["tenant_id"] + ":" + record["id"])
+
+    def visible_help(self, s, p, call, state):
+        """Read at most the current answer and explicitly pinned answer, by identity."""
+        if call.data["state"] in TERMINAL | {"ENDING"}:
+            return None
+        latest = state.get("latest_coach_event_id")
+        pinned = call.data.get("coach_preferences", {}).get("pinned_event_id")
+        manual = next(
+            (r for r in state.get("manual_help_requests", []) if r["id"] == state.get("manual_help_current")),
+            {},
+        )
+        identities = [latest, pinned] if latest and manual.get("event_id") == latest else [pinned, latest]
+        for identity in dict.fromkeys(identities):
+            row = get(s, "coach_events", identity, p["tenant_id"]) if identity else None
+            if not row or row.seller_id != p["seller_id"] or row.data["call_id"] != call.id:
+                continue
+            is_pinned = identity == pinned
+            deadline = dt(row.data["raw_expires_at"] if is_pinned else row.data["expires_at"])
+            if deadline <= self.clock() or (
+                not is_pinned and row.data["state_version"] != call.data["transcript_version"]
+            ):
+                continue
+            content = self.coach_content(p, doc(row))
+            if content:
+                return {
+                    **content,
+                    "pinned": is_pinned,
+                    "expires_at": deadline.isoformat(),
+                    "remaining_ms": max(0, int((deadline - self.clock()).total_seconds() * 1000)),
+                }
+        return None
 
     async def _reserve_coach(self, p, key, object_id, kind):
         # A cancelled to_thread still runs. Finish admission before deciding whether
@@ -413,6 +444,34 @@ class LiveHelper:
         began = time.perf_counter()
         if provider and not self.settings.simulation:
             request["help_request_id"] = request_key
+            progress_id = final_id = None
+
+            async def publish_progress(result):
+                nonlocal progress_id
+                shown = await self._validated_help(
+                    p,
+                    call_id,
+                    request,
+                    result,
+                    route,
+                    provider,
+                    expires,
+                    state_ms,
+                    retrieval_ms,
+                    (time.perf_counter() - began) * 1000,
+                    progressive=True,
+                )
+                progress_id = shown.get("id")
+                return bool(progress_id)
+
+            if question:
+
+                async def progress(result):
+                    # A cancelled storage thread still runs: retain its identity
+                    # before propagating cancellation so finally can withdraw it.
+                    return await finish_shielded(publish_progress(result))
+
+                provider.on_progress = progress
 
             async def admit(submit):
                 if not await asyncio.to_thread(self._admit_help, p, call_id, request):
@@ -432,7 +491,8 @@ class LiveHelper:
                 await self._settle_coach(p, request_key, call_id, "live_coach", route, provider, submitted)
 
             async def publish(result):
-                return await self._validated_help(
+                nonlocal final_id
+                final = await self._validated_help(
                     p,
                     call_id,
                     request,
@@ -443,20 +503,27 @@ class LiveHelper:
                     state_ms,
                     retrieval_ms,
                     (time.perf_counter() - began) * 1000,
+                    event_id=progress_id if result is not fallback else None,
                 )
+                final_id = final.get("id")
+                return final
 
-            result = await self.coach.suggest(
-                call_id,
-                request,
-                provider,
-                fallback,
-                deadline_ms=min(int(remaining * 1000), 8000 if urgent else 1500),
-                admit=admit,
-                settle=settle,
-                publish=publish,
-                circuit_key=(p["tenant_id"], p["seller_id"], route),
-                owner_key=(p["tenant_id"], p["seller_id"], p["user_id"]),
-            )
+            try:
+                result = await self.coach.suggest(
+                    call_id,
+                    request,
+                    provider,
+                    fallback,
+                    deadline_ms=min(int(remaining * 1000), 8000 if urgent else 1500),
+                    admit=admit,
+                    settle=settle,
+                    publish=publish,
+                    circuit_key=(p["tenant_id"], p["seller_id"], route),
+                    owner_key=(p["tenant_id"], p["seller_id"], p["user_id"]),
+                )
+            finally:
+                if progress_id and final_id != progress_id:
+                    await finish_shielded(asyncio.to_thread(self._withdraw_help, p, call_id, progress_id))
             if not urgent and result.get("status") in {"busy", "manual_pending"}:
                 await asyncio.to_thread(self._defer_busy_help, p, call_id)
             return {**result, "private": bool(question)}
@@ -509,6 +576,9 @@ class LiveHelper:
         state_ms,
         retrieval_ms,
         inference_ms,
+        *,
+        progressive=False,
+        event_id=None,
     ):
         try:
             ground_guidance(result, request)
@@ -524,7 +594,9 @@ class LiveHelper:
         result = {
             **result,
             "private": bool(request.get("private_question")),
-            "status": "ready" if result["action"] != "NO_ACTION" else "no_action",
+            "status": ("streaming" if progressive else "ready")
+            if result["action"] != "NO_ACTION"
+            else "no_action",
         }
         try:
             return await asyncio.to_thread(
@@ -539,6 +611,7 @@ class LiveHelper:
                 state_ms,
                 retrieval_ms,
                 inference_ms,
+                event_id,
             )
         except CardRejected:
             return {
@@ -546,6 +619,16 @@ class LiveHelper:
                 "status": "no_action",
                 "private": bool(request.get("private_question")),
             }
+
+    def _withdraw_help(self, p, call_id, event_id):
+        with self.db.transaction() as s:
+            call = self.required(s, "call_attempts", call_id, p)
+            event = self.required(s, "coach_events", event_id, p)
+            if event.data["call_id"] != call.id:
+                raise CardRejected("Incorrect guidance identity")
+            update(event, expires_at=self.clock().isoformat(), status="withdrawn")
+            self.raw.discard("help:" + p["tenant_id"] + ":" + event_id)
+            emit(s, p["tenant_id"], "coach.cancelled", call, self.clock())
 
     def _publish_help(
         self,
@@ -559,6 +642,7 @@ class LiveHelper:
         state_ms,
         retrieval_ms,
         inference_ms,
+        event_id=None,
     ):
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
@@ -645,7 +729,16 @@ class LiveHelper:
                         },
                     },
                 )
-                obj = put(s, "coach_events", p["tenant_id"], p["seller_id"], metadata, now=self.clock())
+                if event_id:
+                    obj = self.required(s, "coach_events", event_id, p)
+                    if obj.data["call_id"] != call_id or obj.data.get("user_id") != p["user_id"]:
+                        raise CardRejected("Incorrect guidance identity")
+                    metadata["created_at"] = obj.data["created_at"]
+                    metadata["latency"]["first_useful_ms"] = obj.data["latency"]["inference_ms"]
+                    update(obj, **metadata)
+                else:
+                    obj = put(s, "coach_events", p["tenant_id"], p["seller_id"], metadata, now=self.clock())
+                update(state_record, latest_coach_event_id=obj.id)
                 if request.get("manual_request_id"):
                     receipts = [dict(r) for r in state_record.data.get("manual_help_requests", [])]
                     for receipt in receipts:

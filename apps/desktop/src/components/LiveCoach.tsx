@@ -118,11 +118,13 @@ export function LiveCoach({
           <Sparkles size={15} /> Live helper
         </strong>
         <span className="fine">
-          {waiting
-            ? "Thinking with your call context…"
-            : call?.coach_preferences?.muted
-              ? "Automatic tips muted"
-              : "Quiet guidance alongside your script"}
+          {advice?.status === "streaming"
+            ? "Answer ready · finishing explanation…"
+            : waiting
+              ? "Thinking with your call context…"
+              : call?.coach_preferences?.muted
+                ? "Automatic tips muted"
+                : "Quiet guidance alongside your script"}
         </span>
         <div className="helper-actions">
           {waiting && (

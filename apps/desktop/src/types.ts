@@ -85,6 +85,7 @@ export interface Segment {
   end_ms: number | null;
 }
 export interface Coach {
+  status?: string;
   pinned?: boolean;
   private?: boolean;
   _expires?: number;

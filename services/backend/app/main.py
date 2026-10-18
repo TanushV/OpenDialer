@@ -32,7 +32,6 @@ from app.rep_workflows import MeetingEdit, OutreachEdit, TaskEdit
 from app.security import DUMMY_HASH, PASSWORDS, admin, decode_session, issue_session
 from app.service import dt, fail
 from app.telephony.callbacks import CallbackRoutingEdit
-from app.telephony.reducer import TERMINAL
 
 
 class Strict(BaseModel):
@@ -452,39 +451,15 @@ def create_app(settings=None, *, clock=None, carrier=None):
             call = service.required(s, "call_attempts", call_id, p)
             if p["role"] == "rep" and call.data["rep_id"] != p["user_id"]:
                 fail(404, "Object not found")
-            coach = [
-                service.coach_content(p, doc(r))
-                for r in service.scoped(s, "coach_events", p)
-                if r.data["call_id"] == call_id
-                and (
-                    r.id == call.data.get("coach_preferences", {}).get("pinned_event_id")
-                    and dt(r.data.get("raw_expires_at", r.data["expires_at"])) > clock()
-                    or dt(r.data["expires_at"]) > clock()
-                    and r.data["state_version"] == call.data["transcript_version"]
-                )
-            ]
-            coach = [item for item in coach if item]
-            pinned_id = call.data.get("coach_preferences", {}).get("pinned_event_id")
-            pinned = next((item for item in coach if item["id"] == pinned_id), None)
-            if pinned:
-                coach = [{**pinned, "pinned": True, "expires_at": pinned["raw_expires_at"]}]
+            state = service._by_key(s, p, "conversation_states", call_id)
+            state = state.data if state else {}
+            coach = service.visible_help(s, p, call, state)
             segments = service.transcript_rows(s, p, call_id)
-            state = next(
-                (r.data for r in service.scoped(s, "conversation_states", p) if r.external_key == call_id),
-                None,
-            )
             return {
                 **{k: v for k, v in doc(call).items() if k != "recording_url"},
                 "transcript": segments,
                 "raw_evidence_status": service.raw_status(call, segments),
-                "coach": {
-                    **coach[-1],
-                    "remaining_ms": max(
-                        0, int((dt(coach[-1]["expires_at"]) - clock()).total_seconds() * 1000)
-                    ),
-                }
-                if coach and call.data["state"] not in TERMINAL | {"ENDING"}
-                else None,
+                "coach": coach,
                 "conversation_state": state,
             }
 
@@ -533,14 +508,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
             call = service.required(s, "call_attempts", call_id, p)
             preferences = {**call.data.get("coach_preferences", {}), **data.model_dump(exclude_none=True)}
             if data.pinned is not None:
-                visible = [
-                    r
-                    for r in service.scoped(s, "coach_events", p)
-                    if r.data["call_id"] == call_id
-                    and dt(r.data["expires_at"]) > clock()
-                    and service.coach_content(p, doc(r))
-                ]
-                preferences["pinned_event_id"] = visible[-1].id if data.pinned and visible else None
+                state = service._by_key(s, p, "conversation_states", call_id)
+                visible = service.visible_help(s, p, call, state.data if state else {})
+                preferences["pinned_event_id"] = visible["id"] if data.pinned and visible else None
             update(call, coach_preferences=preferences)
             return preferences
 
