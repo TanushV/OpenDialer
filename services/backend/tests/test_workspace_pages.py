@@ -457,3 +457,24 @@ def test_old_open_followup_is_visible_before_recent_closed_history(workspace, ap
     fill(workspace, app, clock, 100)
     result = snapshot(workspace)
     assert identity in {t["id"] for t in result["tasks"]}
+
+
+@pytest.mark.parametrize("case", ["wrong_owner", "expired", "paid_work"])
+def test_refresh_coalescing_cannot_refund_paid_work_or_take_another_lease(workspace, app, clock, case):
+    service, p = app.state.service, principal(workspace)
+    job = service.jobs.enqueue(
+        "ml" if case != "paid_work" else "research",
+        {"kind": "home_refresh" if case != "paid_work" else "prepare", **p},
+        "coalescing-boundary",
+        tenant_id=p["tenant_id"],
+    )
+    claimed = service.jobs.claim(job["queue"], "original-worker")
+    assert claimed["id"] == job["id"]
+    if case == "expired":
+        clock.now += timedelta(seconds=61)
+    with pytest.raises(ValueError):
+        service.jobs.coalesce_refresh(job["id"], "foreign-worker" if case == "wrong_owner" else "original-worker")
+    stored = service.jobs.get(job["id"])
+    assert stored["status"] == "running"
+    assert stored["attempts"] == 1
+    assert stored["lease_owner"] == "original-worker"
