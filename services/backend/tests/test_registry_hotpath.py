@@ -159,3 +159,60 @@ def test_bounded_prefetch_keeps_the_exact_current_prepaid_result(workspace, app,
         number = service.scoped(s, "number_inventory", p)[0]
         context = service.context(s, p, lead, number)
         assert context.registry_covered is True and context.registry_listed is listed
+
+
+def test_direct_authorization_looks_up_only_matching_internal_suppression(workspace, app, clock, monkeypatch):
+    service, p = app.state.service, principal(workspace)
+    phone = "+14155550101"
+    with service.db.transaction() as s:
+        for i in range(600):
+            other = f"+1415556{i:04d}"
+            put(
+                s,
+                "suppressions",
+                p["tenant_id"],
+                p["seller_id"],
+                {"phone": other, "active": True},
+                key=other,
+                now=clock.now,
+            )
+        put(
+            s,
+            "suppressions",
+            p["tenant_id"],
+            p["seller_id"],
+            {"phone": phone, "active": True},
+            key=phone,
+            now=clock.now,
+        )
+    decrypted = count_decrypted(app, monkeypatch)
+    with service.db.transaction(False) as s:
+        assert service.suppressed(s, p, phone) is True
+    assert len(decrypted) == 1, len(decrypted)
+
+
+def test_registry_status_backfill_changes_only_indexed_metadata(workspace, app):
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        row = service.scoped(s, "registry_snapshots", p)[0]
+        before = row.id, dict(row.data), row.version
+        row.ctx_status = None
+        row.ctx_index_version = 1
+    service.db.backfill_operational_columns()
+    with service.db.transaction(False) as s:
+        row = get(s, "registry_snapshots", before[0])
+        assert (row.id, row.data, row.version) == before
+        assert row.ctx_status == "published" and row.ctx_index_version >= 2
+
+
+def test_bitmap_cache_rechecks_changed_source_inside_the_transaction(workspace, app, clock):
+    service, p = app.state.service, principal(workspace)
+    phone = "+14155550101"
+    with service.db.transaction() as s:
+        row = service.scoped(s, "registry_snapshots", p)[0]
+        lead = next(r for r in service.scoped(s, "leads", p) if r.data["phone"] == phone)
+        number = service.scoped(s, "number_inventory", p)[0]
+        for listed in (False, True, False):
+            bitmap = RegistryBitmap.build([phone] if listed else [])
+            update(row, bitmap=base64.b64encode(bitmap.dump()).decode(), checksum=bitmap.checksum)
+            assert service.context(s, p, lead, number).registry_listed is listed
