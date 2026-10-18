@@ -91,3 +91,71 @@ async def test_slow_hangup_storage_does_not_stop_unrelated_async_delivery(worksp
         await pulse
     assert len(ticks) >= 5
     assert max(b - a for a, b in zip(ticks, ticks[1:], strict=False)) < 0.075
+
+
+@pytest.mark.parametrize("operation", ["token", "dtmf", "voicemail", "webhook"])
+def test_control_http_handlers_do_not_move_sql_back_onto_the_loop(workspace, app, clock, operation):
+    import base64
+    import json
+
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+    from test_final_attempt_voicemail import mailbox, voicemail_policy
+
+    client, headers = workspace["client"], workspace["headers"]
+    if operation == "token":
+        request = partial(client.post, "/v1/telephony/token", headers=headers)
+    else:
+        if operation == "voicemail":
+            voicemail_policy(app, workspace, 1)
+        call = start(workspace)
+        if operation == "voicemail":
+            mailbox(app, workspace, call)
+            request = partial(
+                client.post, f"/v1/calls/{call['id']}/voicemail", headers=headers, json={"asset_id": "vm"}
+            )
+        elif operation == "dtmf":
+            request = partial(
+                client.post, f"/v1/calls/{call['id']}/dtmf", headers=headers, json={"digits": "42#"}
+            )
+        else:
+            private = Ed25519PrivateKey.generate()
+            public = private.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+            app.state.service.vault.write(
+                workspace["tenant_id"], {"telnyx_public_key": base64.b64encode(public).decode()}
+            )
+            body = json.dumps(
+                {
+                    "data": {
+                        "id": "loop-signature",
+                        "event_type": "call.hangup",
+                        "payload": {"call_control_id": call["provider_id"]},
+                    }
+                }
+            ).encode()
+            timestamp = str(int(clock().timestamp()))
+            signature = base64.b64encode(private.sign(timestamp.encode() + b"|" + body)).decode()
+            request = partial(
+                client.post,
+                "/webhooks/telnyx",
+                content=body,
+                headers={"telnyx-signature-ed25519": signature, "telnyx-timestamp": timestamp},
+            )
+    violations, total = [], []
+
+    def inspected(connection, cursor, statement, *rest):
+        total.append(1)
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        violations.append(statement.split()[0])
+
+    event.listen(app.state.db.engine, "before_cursor_execute", inspected)
+    try:
+        response = request()
+    finally:
+        event.remove(app.state.db.engine, "before_cursor_execute", inspected)
+    assert response.status_code == 200, response.text
+    assert total
+    assert not violations, f"{operation} HTTP handler executed {len(violations)} SQL statements on the loop"
