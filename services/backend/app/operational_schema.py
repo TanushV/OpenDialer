@@ -159,13 +159,19 @@ def sync_columns(row, lookup_key=None):
     row.op_amount = float(
         data.get("cost_usd") if data.get("cost_usd") is not None else data.get("reserved_usd") or 0
     )
+    if row.__tablename__ == "usage_ledger" and data.get("cost_usd") is not None:
+        from decimal import Decimal
+
+        row.op_amount = float(Decimal(str(data["cost_usd"])) - Decimal(str(data.get("credited_usd", 0))))
     row.op_index_version = 1
     if row.__tablename__ == "command_outbox":
         row.op_kind = data.get("kind")
         row.op_index_version = 2
     if row.__tablename__ == "usage_ledger":
-        row.op_provider_id = receipt_key(data.get("provider"), data.get("request_id"), lookup_key)
-        row.op_index_version = 2
+        row.op_provider_id = receipt_key(
+            data.get("provider"), data.get("request_id") or data.get("provider_record_id"), lookup_key
+        )
+        row.op_index_version = 3
 
 
 def ensure_columns(connection, metadata):

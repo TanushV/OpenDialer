@@ -1,4 +1,7 @@
-export function parseCSV(text: string): Record<string, string>[] {
+export function parseCSV(
+  text: string,
+  requiredHeaders: string[] = ["phone"],
+): Record<string, string>[] {
   const rows: string[][] = [];
   let row: string[] = [];
   let value = "";
@@ -31,8 +34,13 @@ export function parseCSV(text: string): Record<string, string>[] {
         .trim()
         .toLowerCase(),
     ) ?? [];
-  if (!header.includes("phone") || new Set(header).size !== header.length)
-    throw new Error("CSV needs unique headers including phone.");
+  if (
+    requiredHeaders.some((name) => !header.includes(name)) ||
+    new Set(header).size !== header.length
+  )
+    throw new Error(
+      `CSV needs unique headers including ${requiredHeaders.join(", ")}.`,
+    );
   return rows.map((r, i) => {
     if (r.length !== header.length)
       throw new Error(`CSV row ${i + 2} has the wrong number of columns.`);

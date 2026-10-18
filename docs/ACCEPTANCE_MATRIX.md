@@ -52,7 +52,7 @@ Authored before October 17 remediation production edits. This map indexes the ma
 | A46 | [test_connected_security](../services/backend/tests/test_connected_security.py), [test_remediation_rep_workflow](../services/backend/tests/test_remediation_rep_workflow.py) |
 | A47 | [test_remediation_learning](../services/backend/tests/test_remediation_learning.py), [test_remediation_rep_workflow](../services/backend/tests/test_remediation_rep_workflow.py), [test_optimization_completion](../services/backend/tests/test_optimization_completion.py) |
 | A48 | [test_remediation_learning](../services/backend/tests/test_remediation_learning.py), [test_remediation_rep_workflow](../services/backend/tests/test_remediation_rep_workflow.py) |
-| A49 | [test_remediation_learning](../services/backend/tests/test_remediation_learning.py), [test_remediation_audit](../services/backend/tests/test_remediation_audit.py) |
+| A49 | [test_remediation_learning](../services/backend/tests/test_remediation_learning.py), [test_remediation_audit](../services/backend/tests/test_remediation_audit.py), [request accounting](../services/backend/tests/test_request_accounting.py), [billing resolution](../services/backend/tests/test_billing_resolution.py), [billing UI](../apps/desktop/tests/billing-resolution.spec.ts) |
 | A50 | [test_remediation_performance](../services/backend/tests/test_remediation_performance.py), [test_remediation_boundaries](../services/backend/tests/test_remediation_boundaries.py) |
 | A51 | [test_remediation_performance](../services/backend/tests/test_remediation_performance.py), [test_remediation_boundaries](../services/backend/tests/test_remediation_boundaries.py) |
 | A52 | [test_operations](../services/backend/tests/test_operations.py) |

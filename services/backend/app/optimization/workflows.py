@@ -319,7 +319,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 and record.data.get("provider_record_id")
             ):
                 key = record.data["call_id"]
-                costs[key] = costs.get(key, 0) + float(record.data["cost_usd"])
+                costs[key] = costs.get(key, 0) + record.op_amount
         by_snapshot = {r["id"]: r for r in snapshots}
         for call in calls:
             snapshot = by_snapshot.get(call.get("feature_snapshot_id"))

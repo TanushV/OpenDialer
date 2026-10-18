@@ -54,7 +54,13 @@ class Dialer(
                     now=self.clock(),
                 ),
                 "reserved_cost_usd": sum(r.get("reserved_usd", 0) for r in costs),
-                "verified_cost_usd": sum(r.get("cost_usd") or 0 for r in costs if r.get("billing_verified")),
+                "verified_cost_usd": sum(
+                    (r.get("cost_usd") or 0) - r.get("credited_usd", 0)
+                    for r in costs
+                    if r.get("billing_verified")
+                ),
+                "gross_cost_usd": sum(r.get("cost_usd") or 0 for r in costs if r.get("billing_verified")),
+                "credited_cost_usd": sum(r.get("credited_usd", 0) for r in costs),
                 "billing_verified": bool(costs) and all(r.get("billing_verified") for r in costs),
                 "simulation": self.settings.simulation,
             }

@@ -339,14 +339,42 @@ class Database:
             version = model.op_index_version if kind in HOT_TABLES else model.ctx_index_version
             outdated = version.is_(None)
             if kind in {"command_outbox", "usage_ledger"}:
-                outdated = outdated | (version < 2)
+                outdated = outdated | (version < (3 if kind == "usage_ledger" else 2))
             while True:
                 with self.transaction() as s:
                     batch = list(s.scalars(select(model).where(outdated).limit(500)))
                     if not batch:
                         break
                     for row in batch:
-                        sync_columns(row, self.identity_key)  # Preserve content, IDs and source versions.
+                        if (
+                            kind == "usage_ledger"
+                            and row.data.get("kind") == "call_authorization"
+                            and row.data.get("reconciled_to_provider_records")
+                            and row.data.get("status") != "settled"
+                        ):
+                            # Older imports cleared the entire 5-cent call estimate on the
+                            # first CDR. No complete-statement proof existed in that version.
+                            update(
+                                row,
+                                status="uncertain",
+                                cost_usd=None,
+                                reserved_usd=row.data.get("estimate_usd", 0.05),
+                                billing_verified=False,
+                                reconciled_to_provider_records=False,
+                                review_reason="Legacy partial receipt did not prove complete call charges",
+                            )
+                            audit(
+                                s,
+                                row.tenant_id,
+                                row.seller_id,
+                                "system-migration",
+                                "billing.legacy_partial_reopened",
+                                row.id,
+                                utcnow(),
+                            )
+                        sync_columns(
+                            row, self.identity_key
+                        )  # Other index repairs preserve source content/version.
 
     @contextmanager
     def transaction(self, write=True, *, session=None):

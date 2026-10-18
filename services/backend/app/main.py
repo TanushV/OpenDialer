@@ -2,7 +2,6 @@ import asyncio
 import base64
 import hashlib
 import json
-import math
 import re
 import secrets
 import time
@@ -315,6 +314,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
         return p
 
     bind_operating_api(app, service, administrator)
+    from app.billing import bind_api as bind_billing_api
+
+    bind_billing_api(app, service, administrator)
     from app.postcall.review import bind_api as bind_review_api
     from app.postcall.rubrics import bind_api as bind_rubrics_api
 
@@ -1330,130 +1332,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 now=clock(),
             )
             return doc(obj)
-
-    @app.post("/v1/admin/billing/reconcile")
-    def reconcile_billing(data: dict, p=Depends(administrator)):
-        if (
-            not data.get("source_reference")
-            or not isinstance(data.get("rows", []), list)
-            or len(data.get("rows", [])) > 10000
-        ):
-            fail(422, "Bounded provider record batch and original source reference required")
-        matched = duplicates = 0
-        duration = 0
-        with db.transaction() as session:
-            for record in data.get("rows", []):
-                if not isinstance(record, dict):
-                    fail(422, "Billing rows must be objects")
-                try:
-                    cost = float(record.get("cost_usd", -1))
-                    seconds = float(record.get("duration_seconds", -1))
-                except (TypeError, ValueError):
-                    fail(422, "Numeric billed amount and duration required")
-                if (
-                    not record.get("provider_record_id")
-                    or isinstance(record.get("cost_usd"), bool)
-                    or isinstance(record.get("duration_seconds"), bool)
-                    or not math.isfinite(cost)
-                    or cost < 0
-                    or not math.isfinite(seconds)
-                    or seconds < 0
-                    or not seconds.is_integer()
-                ):
-                    fail(422, "Provider ID, nonnegative billed amount and duration required")
-                callback = bool(record.get("callback_id"))
-                if callback and record.get("call_id"):
-                    fail(422, "Choose one call or callback billing identity")
-                call = service.required(
-                    session,
-                    "followup_tasks" if callback else "call_attempts",
-                    record.get("callback_id") if callback else record.get("call_id"),
-                    p,
-                )
-                if callback and not call.data.get("inbound"):
-                    fail(422, "Callback billing requires an inbound call")
-                key = "cdr:" + record["provider_record_id"]
-                entries = service.scoped(session, "usage_ledger", p)
-                existing = next(
-                    (
-                        r
-                        for r in entries
-                        if r.external_key == key
-                        or r.data.get("provider_record_id") == record["provider_record_id"]
-                    ),
-                    None,
-                )
-                if existing:
-                    if callback and (
-                        existing.data.get("object_id") != call.id
-                        or existing.data.get("cost_usd") != float(record["cost_usd"])
-                    ):
-                        fail(409, "Billing receipt attribution conflicts")
-                    duplicates += 1
-                    continue
-                values = {
-                    "callback_id" if callback else "call_id": call.id,
-                    "object_id": call.id,
-                    "provider": "telnyx",
-                    "provider_record_id": record["provider_record_id"],
-                    "leg_id": record.get("leg_id"),
-                    "kind": record.get("kind", "voice"),
-                    "duration_seconds": int(record["duration_seconds"]),
-                    "cost_usd": float(record["cost_usd"]),
-                    "source_reference": data["source_reference"],
-                    "billing_verified": True,
-                    "status": "settled",
-                    "reserved_usd": 0,
-                    "at": clock().isoformat(),
-                }
-                hold = next(
-                    (
-                        r
-                        for r in entries
-                        if record.get("request_key") and r.data.get("request_key") == record["request_key"]
-                    ),
-                    None,
-                )
-                if callback and record.get("request_key"):
-                    if (
-                        not hold
-                        or hold.data.get("object_id") != call.id
-                        or hold.data.get("work_kind") != record.get("kind")
-                    ):
-                        fail(409, "Callback billing does not match the reserved action")
-                    update(hold, **values)
-                else:
-                    put(session, "usage_ledger", p["tenant_id"], p["seller_id"], values, key=key, now=clock())
-                for reserved in service.scoped(session, "usage_ledger", p):
-                    if (
-                        reserved.data.get("call_id") == call.id
-                        and reserved.data.get("kind") == "call_authorization"
-                    ):
-                        update(
-                            reserved,
-                            reserved_usd=0,
-                            reconciled_to_provider_records=True,
-                            billing_verified=True,
-                        )
-                matched += 1
-                duration += int(record["duration_seconds"])
-            audit(
-                session,
-                p["tenant_id"],
-                p["seller_id"],
-                p["user_id"],
-                "billing.reconciled",
-                p["tenant_id"],
-                clock(),
-                {"matched": matched, "duplicates": duplicates},
-            )
-        return {
-            "matched": matched,
-            "duplicates": duplicates,
-            "duration_seconds": duration,
-            "evidence": "operator-imported provider records",
-            "invoice_verified": False,
-        }
 
     @app.post("/v1/admin/models/train")
     def train_model(data: dict, p=Depends(administrator)):

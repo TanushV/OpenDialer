@@ -1,3 +1,4 @@
+import { BillingReconciliation } from "./BillingReconciliation";
 import { OperatingPolicySettings } from "./OperatingPolicySettings";
 import { WorkTime } from "./WorkTime";
 import { CallbackRouting } from "./CallbackRouting";
@@ -736,6 +737,7 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
       {section === "Operations" && (
         <>
           <RubricSettings />
+          <BillingReconciliation />
           <div className="two-column">
             <section className="card padded">
               <span className="eyebrow">ACCOUNTABLE LIMITS</span>
