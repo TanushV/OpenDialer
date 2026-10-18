@@ -911,15 +911,33 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             processed += sum(await asyncio.gather(*(bounded(j) for j in jobs)))
         return {"processed": processed}
 
-    async def train_model_job(self, p, payload):
-        import asyncio
+    def _training_source(self, s, p, payload):
+        user = self.required(s, "users", p["user_id"], p)
+        if user.data.get("disabled") or user.data.get("role") not in {"owner", "admin"}:
+            fail(403, "Current administrator authority is required for training")
+        dataset = self.required(s, "learning_datasets", payload.get("source_dataset_id"), p)
+        if (
+            dataset.data.get("source") != "immutable_operational_feature_snapshots"
+            or dataset.data.get("rows") != payload["rows"]
+            or dataset.data.get("goal") != payload.get("goal")
+            or self.optimization_config(s, p)["conversion_goal"] != payload.get("goal")
+        ):
+            fail(409, "Training source or goal changed; prepare the current owned dataset")
+        prior = self._by_key(s, p, "model_versions", "training:" + dataset.id)
+        return dataset.version, doc(prior) if prior else None
 
-        from app.ml.training import train_challenger
+    def _training_snapshot(self, p, payload):
+        with self.db.transaction(False) as s:
+            return self._training_source(s, p, payload)
 
-        result = await asyncio.to_thread(
-            train_challenger, payload["rows"], self.settings.data_dir / "models" / uid()
-        )
+    def _training_publish(self, p, payload, version, result):
         with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
+            current, prior = self._training_source(s, p, payload)
+            if current != version:
+                fail(409, "Training dataset changed during fitting")
+            if prior:
+                return False
             put(
                 s,
                 "model_versions",
@@ -931,8 +949,35 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     "source_dataset_id": payload.get("source_dataset_id"),
                     "goal": payload.get("goal", "meeting_held"),
                 },
+                key="training:" + payload["source_dataset_id"],
                 now=self.clock(),
             )
+        return True
+
+    async def train_model_job(self, p, payload):
+        import shutil
+
+        from app.ml.worker import train_isolated
+
+        version, prior = await asyncio.to_thread(self._training_snapshot, p, payload)
+        if prior:
+            return
+        directory = self.settings.data_dir / "models" / uid()
+        published = False
+        try:
+            result = await train_isolated(payload["rows"], directory)
+            publication = asyncio.create_task(
+                asyncio.to_thread(self._training_publish, p, payload, version, result)
+            )
+            try:
+                published = await asyncio.shield(publication)
+            except asyncio.CancelledError:
+                # A cancelled await cannot roll back an already-running commit.
+                published = await publication
+                raise
+        finally:
+            if not published:
+                await asyncio.to_thread(shutil.rmtree, directory, True)
 
     async def periodic_optimization(self, tenant_id=None):
         now = time.monotonic()
