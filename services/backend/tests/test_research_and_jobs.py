@@ -54,7 +54,7 @@ def test_script_rejects_wrong_company_stale_and_unsupported_claims(clock):
         "fact_ids_used": ["f1"],
         "claims": [{"text": "Commercial repair", "fact_ids": ["f1"]}],
     }
-    assert validate_script(script, facts, "example.test", "Seller", clock.now)
+    assert validate_script(script, facts, "example.test", "Seller", clock.now, approved=script)
     with pytest.raises(ValidationFailure):
         validate_script(script, facts, "other.test", "Seller", clock.now)
     facts[0]["expires_at"] = (clock.now - timedelta(seconds=1)).isoformat()

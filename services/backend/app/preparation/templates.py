@@ -132,7 +132,7 @@ def fill(candidate, template, *, lead, seller, rep, facts):
                 raise ValidationFailure("Every inserted factual slot requires supported facts")
             # Use an already verified statement as the slot. Novel factual paraphrases need
             # semantic review; a model-supplied claims list cannot exempt visible text.
-            if slot["text"].casefold() not in " ".join(mapped[i]["statement"].casefold() for i in ids):
+            if slot["text"].strip() not in {mapped[i]["statement"].strip() for i in ids}:
                 raise ValidationFailure("Inserted text is not supported by the cited fact statements")
         text[key] = slot["text"]
         used.update(ids)

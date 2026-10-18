@@ -3,6 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.grounding import require_review, review_request
 from app.postcall.analysis import DIMENSIONS
 from app.postcall.dates import resolve_time
 
@@ -45,7 +46,7 @@ class AnalysisOutput(StrictModel):
     score_items: list[ScoreItem]
 
 
-def validate_analysis(data, segments, *, call_at=None, timezone=None, dimensions=None):
+def parse_analysis(data, segments, *, call_at=None, timezone=None, dimensions=None):
     result = AnalysisOutput.model_validate(data).model_dump()
     sources = {
         s["segment_id"]: s["text"] for s in segments if s.get("is_final") and not s.get("system_audio")
@@ -77,4 +78,43 @@ def validate_analysis(data, segments, *, call_at=None, timezone=None, dimensions
                 raise ValueError("Score without an anchored rating")
         elif item["score"] is not None:
             raise ValueError("An unscored item cannot carry a numerical rating")
+    return result
+
+
+def analysis_review_request(data, segments, *, call_at=None, timezone=None, dimensions=None):
+    data = AnalysisOutput.model_validate(data).model_dump()
+    fields = [{"field": "summary", "value": data["summary"], "evidence": data["summary_evidence"]}]
+    for name in ("problems", "objections", "commitments", "unknowns", "score_items"):
+        for index, item in enumerate(data[name]):
+            fields.append(
+                {
+                    "field": f"{name}/{index}",
+                    "value": item,
+                    "evidence": item.get("evidence", []) if isinstance(item, dict) else [],
+                }
+            )
+    sources = [
+        {"id": s["segment_id"], **{k: s.get(k) for k in ("text", "revision", "side", "speaker_id")}}
+        for s in segments
+        if s.get("is_final") and not s.get("system_audio")
+    ]
+    return review_request(
+        "analysis",
+        fields,
+        sources,
+        {
+            "call_at": call_at.isoformat() if call_at else None,
+            "timezone": timezone,
+            "dimensions": dimensions or DIMENSIONS,
+            "evidence_scope": "Only still-live chunks; missing older conversation is unknown",
+        },
+    )
+
+
+def validate_analysis(data, segments, *, call_at=None, timezone=None, dimensions=None, review=None):
+    result = parse_analysis(data, segments, call_at=call_at, timezone=timezone, dimensions=dimensions)
+    request = analysis_review_request(
+        data, segments, call_at=call_at, timezone=timezone, dimensions=dimensions
+    )
+    require_review(request, review)
     return result

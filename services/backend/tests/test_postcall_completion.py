@@ -134,6 +134,12 @@ def setup_analysis(workspace, app, monkeypatch):
     class Provider:
         async def complete(self, *args):
             state["requests"] += 1
+            if "fingerprint" in args[1]:
+                from test_grounding_review import review_response
+
+                return InferenceResult(
+                    review_response(args[1]), {}, "fixture-review-" + str(state["requests"])
+                )
             return InferenceResult(
                 state["body"],
                 {"input_tokens": 30, "output_tokens": 30},

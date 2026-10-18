@@ -9,11 +9,12 @@ from fastapi import Depends
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.db import doc, emit, get, put, uid, update
+from app.grounding import ReviewReceipt, review_generated
 from app.intelligence import SCRIPT_SCHEMA
 from app.preparation.templates import SLOT_SCHEMA, fill
 from app.providers.batch import OpenAIBatch, join_batch_results
 from app.providers.inference import InferenceResult
-from app.research.validation import validate_script
+from app.research.validation import script_review_request, validate_script, validate_script_evidence
 from app.service import fail
 
 
@@ -202,10 +203,126 @@ def register_batches(app, service, administrator):
             request_key=value["request_key"],
             reserved=0,
         )
-        return await asyncio.to_thread(publish_results, service, p, intent_id, value, result, joined)
+        reviews = await review_results(service, p, intent_id, value, joined)
+        return await asyncio.to_thread(publish_results, service, p, intent_id, value, result, joined, reviews)
 
 
-def publish_results(service, p, intent_id, value, result, joined):
+def current_candidate(service, s, p, context, output):
+    lead = service.required(s, "leads", context["lead_id"], p)
+    if (
+        not output
+        or output.get("status") in {"failed", "incomplete"}
+        or not context.get("source_key")
+        or service.preparation_key(s, p, lead) != context["source_key"]
+        or lead.data.get("preparation", {}).get("script_id") != context.get("previous_script_id")
+    ):
+        raise ValueError("Missing, incomplete or superseded result")
+    pieces = [c for item in output.get("output", []) for c in item.get("content", [])]
+    if any(c.get("type") == "refusal" for c in pieces):
+        raise ValueError("Refused result")
+    raw = json.loads("".join(c.get("text", "") for c in pieces if c.get("type") == "output_text"))
+    candidate = (
+        fill(
+            raw,
+            context["template"],
+            lead=context["lead"],
+            seller=context["seller"],
+            rep=context["rep"],
+            facts=context["facts"],
+        )
+        if context.get("template")
+        else raw
+    )
+    current_facts = []
+    for fact_id in candidate.get("fact_ids_used", []):
+        fact = get(s, "research_facts", fact_id, p["tenant_id"])
+        if not fact or fact.seller_id != p["seller_id"]:
+            raise ValueError("Supporting evidence is no longer available")
+        current_facts.append(doc(fact))
+    if context.get("template"):
+        candidate = fill(
+            raw,
+            context["template"],
+            lead=context["lead"],
+            seller=context["seller"],
+            rep=context["rep"],
+            facts=current_facts,
+        )
+    validate_script_evidence(candidate, current_facts, context["domain"], context["seller"], service.clock())
+    if candidate["lead_id"] != context["lead_id"]:
+        raise ValueError("Wrong lead ID")
+    return lead, raw, candidate, current_facts
+
+
+async def review_results(service, p, intent_id, value, joined):
+    """Only novel legacy text needs review; locked-template batches stay inexpensive."""
+    accepted = {}
+    for custom_id, context in value["contexts"].items():
+        if context.get("template") or custom_id not in joined["completed"]:
+            continue
+        owner = await asyncio.to_thread(service.claim_preparation, p, context["lead_id"])
+        if not owner:
+            continue
+        try:
+
+            def prepare_review(custom_id=custom_id, context=context):
+                with service.db.transaction() as s:
+                    service.db.authorize_stream(s, p)
+                    if service._by_key(s, p, "script_versions", "batch:" + custom_id):
+                        return None, None
+                    _, _, candidate, facts = current_candidate(
+                        service, s, p, context, joined["completed"][custom_id]
+                    )
+                    request = script_review_request(
+                        candidate, facts, context["domain"], context["seller"], approved=context["baseline"]
+                    )
+                    if not request:
+                        return None, None
+                    row = service.required(s, "command_outbox", intent_id, p)
+                    cache = dict(row.data.get("grounding_reviews") or {})
+                    prior = cache.get(custom_id)
+                    if prior and prior["fingerprint"] == request["fingerprint"]:
+                        return request, prior
+                    # A crash after submission cannot silently spend again on reload.
+                    cache[custom_id] = {"fingerprint": request["fingerprint"], "status": "sending"}
+                    update(row, grounding_reviews=cache)
+                    return request, None
+
+            request, prior = await asyncio.to_thread(prepare_review)
+            if not request:
+                continue
+            if prior:
+                if prior["status"] == "model_reviewed":
+                    accepted[custom_id] = ReviewReceipt(
+                        prior["fingerprint"], prior["request_id"], tuple(prior["reviewed_fields"])
+                    )
+                continue
+            try:
+                receipt = await review_generated(
+                    service, p, request, object_id=context["lead_id"], role="script_write"
+                )
+                metadata = receipt.metadata()
+                accepted[custom_id] = receipt
+            except Exception:
+                metadata = {"fingerprint": request["fingerprint"], "status": "review_required"}
+
+            def save_review(custom_id=custom_id, metadata=metadata):
+                with service.db.transaction() as s:
+                    service.db.authorize_stream(s, p)
+                    row = service.required(s, "command_outbox", intent_id, p)
+                    cache = dict(row.data.get("grounding_reviews") or {})
+                    cache[custom_id] = metadata
+                    update(row, grounding_reviews=cache)
+
+            await asyncio.to_thread(save_review)
+        except (ValueError, KeyError, TypeError):
+            pass  # Publication returns the exact object for retry; no partial text leaks.
+        finally:
+            await asyncio.to_thread(service.release_preparation, p, context["lead_id"], owner)
+    return accepted
+
+
+def publish_results(service, p, intent_id, value, result, joined, reviews=None):
     db, clock = service.db, service.clock
     published, retry = [], []
     for custom_id, context in value["contexts"].items():
@@ -215,45 +332,19 @@ def publish_results(service, p, intent_id, value, result, joined):
             if prior:
                 published.append(context["lead_id"])
                 continue
-            lead = service.required(s, "leads", context["lead_id"], p)
             output = joined["completed"].get(custom_id)
             try:
-                if (
-                    not output
-                    or output.get("status") in {"failed", "incomplete"}
-                    or not context.get("source_key")
-                    or service.preparation_key(s, p, lead) != context["source_key"]
-                    or lead.data.get("preparation", {}).get("script_id") != context.get("previous_script_id")
-                ):
-                    raise ValueError("Missing, incomplete or superseded result")
-                pieces = [c for item in output.get("output", []) for c in item.get("content", [])]
-                if any(c.get("type") == "refusal" for c in pieces):
-                    raise ValueError("Refused result")
-                raw = json.loads("".join(c.get("text", "") for c in pieces if c.get("type") == "output_text"))
+                lead, raw, candidate, current_facts = current_candidate(service, s, p, context, output)
                 template = context.get("template")
-                candidate = (
-                    fill(
-                        raw,
-                        template,
-                        lead=context["lead"],
-                        seller=context["seller"],
-                        rep=context["rep"],
-                        facts=context["facts"],
-                    )
-                    if template
-                    else raw
+                validate_script(
+                    candidate,
+                    current_facts,
+                    context["domain"],
+                    context["seller"],
+                    clock(),
+                    approved=candidate if template else context["baseline"],
+                    review=(reviews or {}).get(custom_id),
                 )
-                # Re-read supporting facts: withdrawing evidence while Batch runs
-                # must revoke publication even if the old request copied it.
-                current_facts = []
-                for fact_id in candidate.get("fact_ids_used", []):
-                    fact = get(s, "research_facts", fact_id, p["tenant_id"])
-                    if not fact or fact.seller_id != p["seller_id"]:
-                        raise ValueError("Supporting evidence is no longer available")
-                    current_facts.append(doc(fact))
-                validate_script(candidate, current_facts, context["domain"], context["seller"], clock())
-                if candidate["lead_id"] != context["lead_id"]:
-                    raise ValueError("Wrong lead ID")
             except (ValueError, KeyError, TypeError):
                 retry.append(context["lead_id"])
                 continue
@@ -271,6 +362,10 @@ def publish_results(service, p, intent_id, value, result, joined):
                     "fallback": False,
                     "created_at": clock().isoformat(),
                     "model": value["model"],
+                    "evidence_versions": {fact["fact_id"]: fact["version"] for fact in current_facts},
+                    "grounding": reviews[custom_id].metadata()
+                    if reviews and custom_id in reviews
+                    else {"status": "approved_template"},
                     "provider_batch_id": value["provider_batch_id"],
                     "prompt_version": "batch-template-v1",
                     "previous_version": context.get("previous_script_id"),

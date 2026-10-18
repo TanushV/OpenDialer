@@ -57,6 +57,16 @@ def test_deferred_batch_publishes_independent_validated_results_and_reports_miss
 
     monkeypatch.setattr(OpenAIBatch, "submit", submit)
     monkeypatch.setattr(OpenAIBatch, "retrieve", retrieve)
+    from app.providers.inference import InferenceResult
+    from test_grounding_review import review_response
+
+    class Reviewer:
+        async def complete(self, instructions, context, schema):
+            return InferenceResult(
+                review_response(context, verdict="NON_FACTUAL"), {}, "fixture-batch-review"
+            )
+
+    monkeypatch.setattr(c.app.state.service, "inference", lambda *args: Reviewer())
     c.put(
         "/v1/admin/settings", headers=h, json={"inference_mode": "api", "openai_api_key": "contract-only-key"}
     )

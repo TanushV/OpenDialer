@@ -141,6 +141,13 @@ export function ReviewPage() {
             : "AI draft · review required"}
         </span>
       </div>
+      {analysis.grounding_status === "review_required" && (
+        <p className="notice" role="status" aria-label="Evidence review">
+          AI interpretation needs review. Its evidence check was unavailable or
+          incomplete. Review your notes and follow-up before relying on the AI
+          rundown.
+        </p>
+      )}
       <ConversionForm call={analysis.call} />
       <div className="review-grid">
         <section className="card padded">
@@ -198,6 +205,7 @@ export function ReviewPage() {
             <label>
               Your notes
               <textarea
+                aria-label="Your notes"
                 rows={6}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}

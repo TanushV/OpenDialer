@@ -67,6 +67,10 @@ def test_provider_postcall_validates_evidence_and_preserves_human_notes(workspac
 
     class Provider:
         async def complete(self, instructions, context, schema):
+            if "fingerprint" in context:
+                from test_grounding_review import review_response
+
+                return InferenceResult(review_response(context), {}, "mock-meaning-review")
             return InferenceResult(
                 {
                     "summary": "The prospect requested repair help and a callback.",

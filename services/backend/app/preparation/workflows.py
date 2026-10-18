@@ -126,6 +126,16 @@ class Preparation:
             ]
         current = self.preparation_settings(s, p)["script_template"]
         stale = script.get("template_version", "legacy-playbook") != template_version(current)
+        if row and not script.get("fallback"):
+            stale = stale or script.get("grounding", {}).get("status") not in {
+                "model_reviewed",
+                "approved_template",
+            }
+        if facts is not None:
+            versions = {fact["fact_id"]: fact["version"] for fact in facts}
+            stale = stale or any(
+                versions.get(key) != version for key, version in script.get("evidence_versions", {}).items()
+            )
         if (
             state["status"] == "stale"
             or stale

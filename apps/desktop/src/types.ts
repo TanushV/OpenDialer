@@ -326,6 +326,7 @@ export interface EvidenceItem {
 }
 export interface Analysis {
   raw_evidence_status?: string;
+  grounding_status?: "unreviewed" | "model_reviewed" | "review_required";
   call: Call;
   notes: {
     summary: string;
