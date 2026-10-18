@@ -586,7 +586,11 @@ export function DialerPage() {
             <span className="pill subtle">
               {packet
                 ? packet.script.fallback
-                  ? "Approved baseline"
+                  ? packet.preparation?.status === "failed"
+                    ? "Preparation failed · generic"
+                    : packet.preparation?.status === "stale"
+                      ? "Refresh due · generic"
+                      : "Generic baseline"
                   : "Prepared"
                 : "Approved playbook"}
             </span>
@@ -622,13 +626,32 @@ export function DialerPage() {
           </div>
           <div className="screening-intro">
             <span>
-              <ShieldCheck size={14} /> Screening introduction
+              <ShieldCheck size={14} /> iPhone screening
             </span>
             <p>
               {packet?.script.screening_intro ||
                 w.playbooks[0]?.screening_intro.replace("{rep}", w.user.name)}
             </p>
           </div>
+          <div className="screening-intro">
+            <span>Gatekeeper</span>
+            <p>
+              {packet?.script.gatekeeper ||
+                "Who is the right person to speak with about this?"}
+            </p>
+          </div>
+          {packet?.script.proof && (
+            <div className="screening-intro">
+              <span>Supported proof</span>
+              <p>{packet.script.proof}</p>
+            </div>
+          )}
+          {packet?.script.closing_question && (
+            <div className="screening-intro">
+              <span>Next step</span>
+              <p>{packet.script.closing_question}</p>
+            </div>
+          )}
           <div className="script-footer">
             <Layers3 size={13} />
             <span>

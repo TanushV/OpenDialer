@@ -21,6 +21,7 @@ import { AdvancedIntelligence } from "./AdvancedIntelligence";
 import { NumberOrders } from "./NumberOrders";
 import { FollowupTasks } from "./FollowupTasks";
 import { ProspectBrief } from "./ProspectBrief";
+import { PreparationRunway } from "./Preparation";
 
 export function LeadsPage() {
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
@@ -68,6 +69,7 @@ export function LeadsPage() {
           Prepare lead packets
         </button>
       </div>
+      <PreparationRunway />
       <section className="card table-card">
         <div className="table-toolbar">
           <h3>

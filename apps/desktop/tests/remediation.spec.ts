@@ -116,6 +116,7 @@ test("seller can save a fixed script and an overnight preparation window", async
     .click();
   await expect(page.getByText("Script and preparation saved")).toBeVisible();
   await page.reload();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(page.getByLabel("Script topic", { exact: true })).toHaveValue(
     "service scheduling",
   );

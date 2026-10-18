@@ -456,6 +456,10 @@ def create_app(settings=None, *, clock=None, carrier=None):
     def packet(lead_id: str, p=Depends(principal)):
         return service.packet(p, lead_id)
 
+    @app.get("/v1/preparation")
+    def preparation(p=Depends(principal)):
+        return service.preparation_status(p)
+
     @app.post("/v1/research/batches")
     def research(data: ResearchBatch, p=Depends(administrator)):
         return service.queue_research(p, data.lead_ids)

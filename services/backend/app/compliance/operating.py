@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from sqlalchemy import select
 
 from app.db import MODELS, audit, put, uid, update
+from app.preparation.templates import PreparationPolicy, ScriptTemplate, policy_values, template_version
 from app.providers.dnc import DNCError, PrepaidDNC
 from app.providers.inference import InferenceResult
 from app.service import dt, fail
@@ -24,10 +25,8 @@ class OperatingPolicy(BaseModel):
     inference_data_collection: Literal["deny"] = "deny"
     inference_zdr: Literal[True] = True
     auto_coach_interval_seconds: int = Field(default=8, ge=3, le=60)
-    prepared_ahead: int = Field(default=20, ge=1, le=100)
-    preparation_timezone: str = "America/Los_Angeles"
-    preparation_start_hour: int = Field(default=0, ge=0, le=23)
-    preparation_end_hour: int = Field(default=24, ge=1, le=24)
+    script_template: ScriptTemplate | None = None
+    preparation: PreparationPolicy = Field(default_factory=PreparationPolicy)
     transcription_privacy_verified: bool = False
     transcription_privacy_reference: str = Field(default="", max_length=1000)
     dnc_source_max_age_days: int = Field(default=31, ge=1, le=31)
@@ -173,12 +172,14 @@ def bind_operating_api(app, service, administrator):
             policy = OperatingPolicy(
                 **{
                     k: v
-                    for k, v in seller.data.get("operating_policy", {}).items()
+                    for k, v in policy_values(seller.data.get("operating_policy", {})).items()
                     if k in OperatingPolicy.model_fields
                 }
             ).model_dump()
         return {
             **policy,
+            "template_version": template_version(policy["script_template"]),
+            "template_defaults": ScriptTemplate().model_dump(),
             "coach_provider": service.vault.read(p["tenant_id"]).get("coach_provider", "openrouter"),
             "external_reputation": {
                 "available": False,
@@ -198,19 +199,19 @@ def bind_operating_api(app, service, administrator):
 
     @app.put("/v1/admin/operating-policy")
     def put_policy(data: OperatingPolicy, p=Depends(administrator)):
-        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-
         with service.db.transaction() as s:
             seller = service.required(s, "sellers", p["seller_id"], p)
             current = {
                 k: v
-                for k, v in seller.data.get("operating_policy", {}).items()
+                for k, v in policy_values(seller.data.get("operating_policy", {})).items()
                 if k in OperatingPolicy.model_fields
             }
             try:
-                merged = OperatingPolicy(**{**current, **data.model_dump(exclude_unset=True)})
-                ZoneInfo(merged.preparation_timezone)
-            except (ZoneInfoNotFoundError, ValidationError):
+                incoming = data.model_dump(exclude_unset=True)
+                if "preparation" in incoming:
+                    incoming["preparation"] = {**current.get("preparation", {}), **incoming["preparation"]}
+                merged = OperatingPolicy(**{**current, **incoming})
+            except ValidationError:
                 fail(422, "Valid operating settings and an IANA preparation timezone are required")
             if merged.transcription_privacy_verified and not merged.transcription_privacy_reference.strip():
                 fail(422, "Provider/account retention evidence is required")

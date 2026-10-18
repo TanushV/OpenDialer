@@ -661,6 +661,9 @@ class Service(ReservationPlanner):
                     "decision_id": reservation.data.get("policy_decision_id"),
                     "allocation_decision_id": reservation.data.get("allocation_decision_id"),
                     "coaching_comparison": reservation.data.get("coaching_comparison"),
+                    "script_snapshot": self.selected_script(
+                        s, p, lead, variant_id=reservation.data.get("treatment_variant_id")
+                    )[0],
                     "state": "AUTHORIZED",
                     "started_at": now.isoformat(),
                     "provider_id": None,

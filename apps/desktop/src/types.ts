@@ -119,6 +119,10 @@ export interface Call {
 }
 export interface Script {
   opener: string;
+  gatekeeper?: string;
+  proof?: string;
+  closing_question?: string;
+  template_version?: string;
   screening_intro: string;
   discovery_questions: string[];
   script_version: string;
@@ -137,6 +141,7 @@ export interface Fact {
   expires_at: string;
 }
 export interface Packet {
+  preparation?: { status: string; as_of?: string };
   tasks?: FollowupTask[];
   prospect_brief?: {
     version: number;

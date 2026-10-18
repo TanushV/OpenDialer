@@ -179,6 +179,7 @@ class RepWorkflows:
         )
 
     def refresh_packet_in(self, s, p, lead):
+        update(lead, preparation_revision=lead.data.get("preparation_revision", 0) + 1)
         self.jobs.enqueue_in(
             s,
             "research",

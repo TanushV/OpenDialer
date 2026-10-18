@@ -1,4 +1,5 @@
 import { OperatingPolicySettings } from "./OperatingPolicySettings";
+import { PreparationSettings } from "./Preparation";
 import type { Update } from "@tauri-apps/plugin-updater";
 import {
   ArrowDownToLine,
@@ -109,6 +110,7 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
   return (
     <>
       <OperatingPolicySettings />
+      <PreparationSettings />
       <div className="page-heading">
         <div>
           <span className="eyebrow">A WORKSPACE YOU CAN TRUST</span>
