@@ -1,0 +1,119 @@
+import { expect, test, type Page } from "@playwright/test";
+
+async function activeHelper(page: Page) {
+  let call: Record<string, unknown> = {};
+  await page.route("**/v1/workspace", async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    call = {
+      id: "helper-cancel-call",
+      version: 1,
+      lead_id: data.leads[0].id,
+      rep_id: data.user.id,
+      state: "HUMAN",
+      created_at: new Date().toISOString(),
+    };
+    data.calls = [call];
+    await route.fulfill({ response, json: data });
+  });
+  await page.route("**/v1/calls/helper-cancel-call", (route) =>
+    route.fulfill({ json: call }),
+  );
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  const enter = page.getByRole("button", { name: "Try a simulated workspace" });
+  if (await enter.isVisible()) await enter.click();
+  await page.getByRole("button", { name: "Private help", exact: true }).click();
+}
+
+test("private help can be cancelled without a late response clearing a newer request", async ({
+  page,
+}) => {
+  await activeHelper(page);
+  const pending: { body: { request_id: string }; release: () => void }[] = [];
+  const cancelled: string[] = [];
+  await page.route("**/v1/calls/*/coach", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    await new Promise<void>((resolve) =>
+      pending.push({ body: route.request().postDataJSON(), release: resolve }),
+    );
+    await route.fulfill({ json: { action: "NO_ACTION", status: "no_action" } });
+  });
+  await page.route("**/v1/calls/*/coach/cancel", (route) => {
+    cancelled.push(route.request().postDataJSON().request_id);
+    return route.fulfill({ json: { status: "cancelled" } });
+  });
+  try {
+    await page
+      .getByLabel("Private helper question")
+      .fill("First private question?");
+    await page
+      .getByRole("button", { name: "Ask privately", exact: true })
+      .click();
+    await expect.poll(() => pending.length).toBe(1);
+    await page
+      .getByRole("button", { name: "Cancel help", exact: true })
+      .click();
+    expect(cancelled).toEqual([pending[0].body.request_id]);
+    expect(cancelled[0]).toMatch(/^[\da-f-]{36}$/);
+    await page
+      .getByLabel("Private helper question")
+      .fill("Second private question?");
+    await page
+      .getByRole("button", { name: "Ask privately", exact: true })
+      .click();
+    await expect.poll(() => pending.length).toBe(2);
+    const response = page.waitForResponse(
+      (r) => r.url().endsWith("/coach") && r.request().method() === "POST",
+    );
+    pending[0].release();
+    await response;
+    await expect(
+      page.getByRole("button", { name: "Cancel help", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Working…", exact: true }),
+    ).toBeDisabled();
+    await page
+      .getByRole("button", { name: "Cancel help", exact: true })
+      .click();
+    expect(cancelled[1]).toBe(pending[1].body.request_id);
+  } finally {
+    pending.forEach((p) => p.release());
+    await page.unrouteAll({ behavior: "wait" });
+  }
+});
+
+test("the help hotkey has one cancellable request and respects key repeats", async ({
+  page,
+}) => {
+  await activeHelper(page);
+  let release!: () => void;
+  const delayed = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let requests = 0;
+  await page.route("**/v1/calls/*/coach", async (route) => {
+    requests++;
+    await delayed;
+    await route.fulfill({ json: { action: "NO_ACTION" } });
+  });
+  await page.route("**/v1/calls/*/coach/cancel", (route) =>
+    route.fulfill({ json: { status: "cancelled" } }),
+  );
+  try {
+    await page.keyboard.press("F1");
+    await expect.poll(() => requests).toBe(1);
+    await page.keyboard.press("F1");
+    await expect(
+      page.getByRole("button", { name: "Cancel help", exact: true }),
+    ).toBeVisible();
+    expect(requests).toBe(1);
+    await page
+      .getByRole("button", { name: "Cancel help", exact: true })
+      .click();
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: "wait" });
+  }
+});
