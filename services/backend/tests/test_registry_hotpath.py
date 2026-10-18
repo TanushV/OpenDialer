@@ -81,8 +81,8 @@ def test_bitmap_is_decoded_once_per_decision_not_per_candidate(workspace, app, c
     with service.db.transaction() as s:
         registry = service.scoped(s, "registry_snapshots", p)[0]
         update(registry, bitmap=base64.b64encode(bitmap.dump()).decode(), checksum=bitmap.checksum)
-        lead = service.scoped(s, "leads", p)[0]
-        for i in range(20):
+        lead = next(r for r in service.scoped(s, "leads", p) if r.data["phone"] == "+14155550101")
+        for _ in range(20):
             put(s, "leads", p["tenant_id"], p["seller_id"], dict(lead.data), now=clock.now)
     ready(workspace)
     load, calls = RegistryBitmap.load, []
@@ -216,3 +216,93 @@ def test_bitmap_cache_rechecks_changed_source_inside_the_transaction(workspace, 
             bitmap = RegistryBitmap.build([phone] if listed else [])
             update(row, bitmap=base64.b64encode(bitmap.dump()).decode(), checksum=bitmap.checksum)
             assert service.context(s, p, lead, number).registry_listed is listed
+
+
+def test_authorization_reads_endpoint_consents_without_unrelated_history(workspace, app, clock, monkeypatch):
+    service, p = app.state.service, principal(workspace)
+    ready(workspace)
+    with service.db.transaction() as s:
+        lead = next(r for r in service.scoped(s, "leads", p) if r.data["phone"] == "+14155550101")
+        number = service.scoped(s, "number_inventory", p)[0]
+        lead_id, number_id = lead.id, number.id
+        for i in range(600):
+            put(
+                s,
+                "consent_evidence",
+                p["tenant_id"],
+                p["seller_id"],
+                {"endpoint_id": f"other-{i}", "permissions": ["live"], "revoked": False},
+                now=clock.now,
+            )
+        put(
+            s,
+            "consent_evidence",
+            p["tenant_id"],
+            p["seller_id"],
+            {"endpoint_id": lead.data["endpoint_id"], "permissions": ["live"], "revoked": True},
+            now=clock.now,
+        )
+    decrypted = count_decrypted(app, monkeypatch)
+    with service.db.transaction(False) as s:
+        decision = authorize(
+            service.context(s, p, get(s, "leads", lead_id), get(s, "number_inventory", number_id))
+        )
+        assert not decision.allowed and "CONSENT_REVOKED" in decision.reasons
+    assert len(decrypted) <= 20, len(decrypted)
+
+
+def test_new_registry_publication_between_ranking_and_claim_is_authoritative(workspace, app, clock):
+    service, p = app.state.service, principal(workspace)
+    ready(workspace)
+    selection = service._selection(p, workspace["campaign_id"])
+    with service.db.transaction(False) as s:
+        lead = get(s, "leads", selection["selection"]["lead_id"])
+        phone = lead.data["phone"]
+    response = workspace["client"].post(
+        "/v1/admin/registry/import",
+        headers=workspace["headers"],
+        json={
+            "kind": "national",
+            "npas": [phone[2:5]],
+            "subscription_reference": "changed-authorized-source",
+            "refreshed_at": clock.now.isoformat(),
+            "numbers": [phone],
+        },
+    )
+    assert response.status_code == 200, response.text
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as denied:
+        service._claim_selection(p, workspace["campaign_id"], selection)
+    assert denied.value.status_code == 403 and "REGISTRY_LISTED" in denied.value.detail
+
+
+def test_registry_replacement_does_not_rewrite_retired_source_history(workspace, app, clock, monkeypatch):
+    service, p = app.state.service, principal(workspace)
+    add_history(service, p, clock, count=100)
+    with service.db.transaction(False) as s:
+        history = [
+            (r.id, r.version, dict(r.data))
+            for r in service.scoped(s, "registry_snapshots", p)
+            if not r.data.get("published")
+        ]
+    decrypted = count_decrypted(app, monkeypatch)
+    result = workspace["client"].post(
+        "/v1/admin/registry/import",
+        headers=workspace["headers"],
+        json={
+            "kind": "national",
+            "npas": ["415"],
+            "subscription_reference": "new-authorized-source",
+            "refreshed_at": clock.now.isoformat(),
+            "numbers": [],
+        },
+    )
+    assert result.status_code == 200, result.text
+    assert len(decrypted) <= 15, len(decrypted)
+    with service.db.transaction(False) as s:
+        assert all(
+            (row.version, row.data) == (version, data)
+            for identifier, version, data in history
+            for row in [get(s, "registry_snapshots", identifier)]
+        )
