@@ -298,6 +298,33 @@ def test_two_devices_union_and_logout_do_not_extend_stale_work(workspace, clock)
     assert metrics(second)["rep_work_seconds"] == 90
 
 
+@pytest.mark.parametrize("action", ["pause", "idle"])
+def test_deliberate_pause_closes_all_devices_but_idle_device_does_not_pause_another(workspace, clock, action):
+    c, h = workspace["client"], workspace["headers"]
+    ready(workspace)
+    login = c.post(
+        "/v1/auth/session",
+        json={
+            "email": "operator@example.test",
+            "password": "a-test-only-password-123",
+        },
+    ).json()
+    second = {**workspace, "headers": {"Authorization": "Bearer " + login["access_token"]}}
+    ready(second)
+    clock.now += timedelta(seconds=60)
+    heartbeat(second)
+    if action == "pause":
+        c.post("/v1/rep/presence", headers=h, json={"status": "paused"})
+        clock.now += timedelta(minutes=5)
+        assert metrics(workspace)["rep_work_seconds"] == 60
+    else:
+        heartbeat(workspace, "idle")
+        assert c.get("/v1/workspace", headers=h).json()["user"]["presence"]["status"] == "ready"
+        clock.now += timedelta(seconds=60)
+        assert heartbeat(second).status_code == 200
+        assert metrics(workspace)["rep_work_seconds"] == 120
+
+
 @pytest.mark.parametrize("start_delta,end_delta", [(0, 1), (10, 0), (-90000, 0)])
 def test_manual_work_correction_rejects_future_reversed_or_unbounded_time(
     workspace,
