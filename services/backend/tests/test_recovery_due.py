@@ -236,3 +236,20 @@ def test_concurrent_recovery_ticks_claim_each_due_call_once(workspace, app, cloc
     claimed = [call["id"] for batch in results for call in batch]
     assert len(claimed) == len(set(claimed)) == len(identities)
     assert set(claimed) == identities
+
+
+def test_recovery_deadline_uses_the_saved_lifetime_without_a_hidden_limit(workspace, app, clock):
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        put(
+            s,
+            "call_attempts",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "state": "HUMAN",
+                "started_at": clock().isoformat(),
+                "max_call_seconds": 100000,
+            },
+        )
+    assert service._recovery_snapshot(p)[1] == []
