@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useWorkspace } from "../context";
+import { DncScreeningPanel } from "./DncScreeningPanel";
 
 type Policy = {
   auto_coach_interval_seconds: number;
@@ -298,6 +299,7 @@ export function OperatingPolicySettings() {
           Save seller authorization
         </button>
       </details>
+      <DncScreeningPanel />
     </section>
   );
 }

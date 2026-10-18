@@ -74,7 +74,7 @@ class RequestAccounting:
         )
         return True
 
-    def usage(self, p, provider, kind, result, *, object_id, request_key, reserved=0.01):
+    def usage(self, p, provider, kind, result, *, object_id, request_key, reserved=0.01, session=None):
         if not isinstance(request_key, str) or not request_key:
             raise ValueError("Usage must identify its original local request")
         usage = result.usage or {}
@@ -93,7 +93,7 @@ class RequestAccounting:
             or reserved < 0
         ):
             raise ValueError("A finite nonnegative liability is required")
-        with self.db.transaction() as s:
+        with self.db.transaction(session=session) as s:
             self.db.authorize_stream(s, p)
             model = MODELS["usage_ledger"]
             receipts = (

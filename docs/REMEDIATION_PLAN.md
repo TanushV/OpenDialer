@@ -791,6 +791,7 @@ Depends on M0. Exit: P1 defects and event/control recovery pass A04–A10, A13 a
 - [ ] M1.04 Complete leased/fenced recovery for every control command, not only dial/hangup; wire heartbeats where needed.
 - [x] M1.04a Dial, hangup, agent setup and call controls use owned leases and verified original-target reconciliation; unsafe starting effects require review outside the retry window, stops retain live obligations. Scoped uncertainty actions and duplicate/late-response tests pass. Configuration, screening and deferred-inference recovery remain open.
 - [x] M1.04b Route recovery by operation kind and verify uncertain number configuration against its original carrier identity/connection, with version, lease, ownership and role fences. Terminal/unsent effects cannot be revived, interrupted reads resume without another configuration request, and unrelated batch work cannot starve call recovery. Dual-database/browser receipts are in STATUS.md. Screening and deferred-inference recovery remain open.
+- [x] M1.04c Prepaid DNC results retain original attempt liabilities, leased/versioned publication and explicit charged retries; changed source/role/opt-out and old responses cannot publish clearance. Lost or cancelled results remain recoverable without automatic paid retries. See the October 18 DNC recovery receipts in STATUS.md; deferred inference and full accounting remain open.
 - [x] M1.05 Persist purchase intent identity across UI retry/reload; reconcile uncertainty before any new order. New purchases are disabled; existing intents reconcile by verified carrier order ID (STATUS.md, October 18 order-recovery receipts).
 - [ ] M1.06 Repair usage-hold settlement and uncertain liability; deduplicate provider receipts.
 - [x] M1.06a Make optional admission atomic per seller, bind request keys to work/amount, settle only matching receipts and index hashed provider identities without decrypting billing history. Batch intent/hold creation is atomic, legacy batch holds bind only to the original verified intent, and verified callback replay retains its original liability. Dual-database receipts are in STATUS.md; unresolved-charge review, provider credits and complete recovery accounting remain open.
@@ -798,6 +799,7 @@ Depends on M0. Exit: P1 defects and event/control recovery pass A04–A10, A13 a
 - [ ] M1.08 Add actionable recovery/dead-letter status; no ordinary recovery requires editing database rows manually.
 - [x] M1.08a Add scoped command/agent verification, stop-existing-leg, cancel-unsent and one-attempt failed-job retry actions with version fences, raw-expiry refusal and a tested recovery screen. Other operation-specific exceptions remain open.
 - [x] M1.08b Separate non-call operations in recovery and expose original-number-route verification without call-control buttons. Unknown/batch/purchase effects show their own review instructions; their complete workflows remain separately tracked.
+- [x] M1.08c Add bounded DNC status/recovery, no-charge reads, explicit retry-cost acknowledgement and lost-response identity reuse. Freshness follows the shortest source/access/policy deadline; GET/reload cannot spend credits.
 
 ### M2 — Make the normal backend small and fast
 
@@ -885,6 +887,7 @@ Replaces the withdrawn CRM/calendar milestone. Depends on M1/M5; acceptance A40�
 - [ ] M6.05 Migrate legacy raw content and verify sanitized backup/restore; no app reinstall/reset.
 - [ ] M6.06 Enforce Cerebras ZDR/data-collection-deny and verified STT retention capability; no silent incompatible provider fallback.
 - [ ] M6.07 Implement documented prepaid DNC adapter plus authorized snapshot import, freshness/coverage and seller authorization.
+- [x] M6.07a Complete prepaid screening publication, current-source cache validation and recoverable uncertainty; exact phone/timestamp checks, strict results, seller isolation, budget denial and original liabilities pass both databases. Snapshot/background refresh and actual source/account certification remain separately open.
 - [ ] M6.08 Recheck national and local DNC for every US submission; queue background refresh and fail closed on unavailable data.
 - [ ] M6.09 Enforce no subscription/new rental commitments, disclose existing obligations, and document PAYG prices/minimums/limits.
 - [ ] M6.10 Verify both modes without CRM/calendar credentials; no integration buttons, writes, invitations or synchronization.

@@ -27,6 +27,7 @@ HOT_TABLES = {
 
 # Only the relationship/expiry fields used to assemble a single call's context.
 CONTEXT_FIELDS = {
+    "registry_snapshots": ("kind", "status", None),
     "research_facts": ("domain", "status", "expires_at"),
     "research_sources": ("domain", None, None),
     "script_versions": ("lead_id", None, None),

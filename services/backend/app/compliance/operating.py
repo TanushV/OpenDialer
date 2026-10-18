@@ -1,6 +1,5 @@
 """No-recurring-spend policy and seller-authorized, cached prepaid screening."""
 
-import asyncio
 import hashlib
 import hmac
 from datetime import datetime, timedelta
@@ -10,10 +9,8 @@ from fastapi import Depends
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlalchemy import select
 
-from app.db import MODELS, audit, put, uid, update
+from app.db import MODELS, audit, update
 from app.preparation.templates import PreparationPolicy, ScriptTemplate, policy_values, template_version
-from app.providers.dnc import DNCError, PrepaidDNC
-from app.providers.inference import InferenceResult
 from app.service import dt, fail
 
 
@@ -116,7 +113,7 @@ def screening_key(service, phone):
     return "prepaid:" + hmac.new(service.db.identity_key, phone.encode(), hashlib.sha256).hexdigest()
 
 
-def authorized_screen(service, config, phone):
+def authorized_screen(service, config, phone, max_age_days=31):
     auth = config.get("dnc_seller_authorization") or {}
     try:
         return bool(
@@ -125,9 +122,11 @@ def authorized_screen(service, config, phone):
             and phone[2:5] in auth.get("npas", [])
             and dt(auth["expires_at"]) > service.clock()
             and (
-                service.settings.simulation
+                (service.settings.simulation and not auth.get("source_refreshed_at"))
                 or auth.get("source_refreshed_at")
-                and 0 <= (service.clock() - dt(auth["source_refreshed_at"])).total_seconds() <= 31 * 86400
+                and 0
+                <= (service.clock() - dt(auth["source_refreshed_at"])).total_seconds()
+                <= max_age_days * 86400
             )
         )
     except (ValueError, KeyError, TypeError):
@@ -138,7 +137,8 @@ def cached_screen(service, s, p, phone):
     if "provider_config" not in s.info:
         s.info["provider_config"] = service.vault.read(p["tenant_id"])
     config = s.info["provider_config"]
-    if not authorized_screen(service, config, phone) or (
+    max_age = screening_max_age(service, s, p)
+    if not authorized_screen(service, config, phone, max_age) or (
         not service.settings.simulation
         and config.get("dnc_seller_authorization", {}).get("seller_id") != p["seller_id"]
     ):
@@ -157,17 +157,41 @@ def cached_screen(service, s, p, phone):
             )
         )
     )
-    if not record:
+    if not record or record.data.get("phone") != phone:
         return None
-    data = record.data
-    if (
-        data.get("phone") == phone
-        and data.get("status") == "completed"
-        and data.get("authorization_reference") == config["dnc_seller_authorization"]["reference"]
-        and dt(data["expires_at"]) > service.clock()
-        and (service.settings.simulation or not data.get("synthetic"))
-    ):
-        return data
+    return usable_screen(service, config, record.data, max_age)
+
+
+def screening_max_age(service, s, p):
+    seller = service.required(s, "sellers", p["seller_id"], p)
+    return seller.data.get("operating_policy", {}).get("dnc_source_max_age_days", 31)
+
+
+def screening_expiry(service, config, data, max_age):
+    auth = config["dnc_seller_authorization"]
+    limits = [dt(auth["expires_at"]), dt(data["checked_at"]) + timedelta(days=max_age)]
+    if auth.get("source_refreshed_at"):
+        limits.append(dt(auth["source_refreshed_at"]) + timedelta(days=max_age))
+    if data.get("expires_at"):
+        limits.append(dt(data["expires_at"]))
+    return min(limits)
+
+
+def usable_screen(service, config, data, max_age):
+    auth = config.get("dnc_seller_authorization", {})
+    try:
+        if (
+            data.get("status") == "completed"
+            and type(data.get("listed")) is bool
+            and dt(data["checked_at"]) <= service.clock() + timedelta(seconds=60)
+            and data.get("authorization_reference") == auth.get("reference")
+            and authorized_screen(service, config, data["phone"], max_age)
+            and screening_expiry(service, config, data, max_age) > service.clock()
+            and (service.settings.simulation or not data.get("synthetic"))
+        ):
+            return data
+    except (ValueError, TypeError, KeyError):
+        pass
     return None
 
 
@@ -236,164 +260,6 @@ def bind_operating_api(app, service, administrator):
             )
         return get_policy(p)
 
-    @app.post("/v1/admin/dnc/screen")
-    async def screen(data: ScreeningRequest, p=Depends(administrator)):
-        from app.compliance.phone import normalize_phone
+    from app.compliance.screening import bind_screening_api
 
-        config = service.vault.read(p["tenant_id"])
-        if not config.get("dnc_api_key"):
-            fail(409, "DNC_PROVIDER_NOT_CONFIGURED")
-        phones = list(dict.fromkeys(normalize_phone(value).e164 for value in data.phones))
-        if any(not phone or not phone.startswith("+1") for phone in phones):
-            fail(422, "Valid US phone numbers are required")
-        if any(not authorized_screen(service, config, phone) for phone in phones):
-            fail(403, "DNC_SELLER_AUTHORIZATION_REQUIRED")
-        if (
-            not service.settings.simulation
-            and config.get("dnc_seller_authorization", {}).get("seller_id") != p["seller_id"]
-        ):
-            fail(403, "DNC_SELLER_AUTHORIZATION_REQUIRED")
-        provider = PrepaidDNC(
-            config["dnc_api_key"], http=getattr(service, "coach_http", None), clock=service.clock
-        )
-        results = []
-        for phone in phones:
-
-            def claim(phone=phone):
-                with service.db.transaction() as s:
-                    service.db.authorize_stream(s, p)
-                    if service.suppressed(s, p, phone):
-                        return None, {
-                            "phone": phone,
-                            "listed": True,
-                            "internal_suppressed": True,
-                            "provider": "local_registry",
-                        }
-                    cached = cached_screen(service, s, p, phone)
-                    if cached:
-                        return None, cached
-                    model = MODELS["registry_snapshots"]
-                    row = s.scalar(
-                        select(model).where(
-                            model.tenant_id == p["tenant_id"],
-                            model.seller_id == p["seller_id"],
-                            model.external_key == screening_key(service, phone),
-                        )
-                    )
-                    if row and row.data.get("status") in {"sending", "uncertain"}:
-                        fail(409, "DNC_SCREENING_PENDING_OR_UNCERTAIN_REVIEW_REQUIRED")
-                    key = "dnc:" + uid()
-                    values = {
-                        "kind": "prepaid",
-                        "published": False,
-                        "phone": phone,
-                        "status": "sending",
-                        "request_key": key,
-                        "started_at": service.clock().isoformat(),
-                    }
-                    if row:
-                        update(row, **values)
-                    else:
-                        put(
-                            s,
-                            "registry_snapshots",
-                            p["tenant_id"],
-                            p["seller_id"],
-                            values,
-                            key=screening_key(service, phone),
-                            now=service.clock(),
-                        )
-                    return key, None
-
-            key, cached = await asyncio.to_thread(claim)
-            if cached:
-                results.append({**cached, "cached": True})
-                continue
-
-            def mark(status, phone=phone):
-                with service.db.transaction() as s:
-                    model = MODELS["registry_snapshots"]
-                    row = s.scalar(
-                        select(model).where(
-                            model.tenant_id == p["tenant_id"],
-                            model.seller_id == p["seller_id"],
-                            model.external_key == screening_key(service, phone),
-                        )
-                    )
-                    update(row, status=status)
-
-            admitted = await asyncio.to_thread(
-                service.reserve_optional_budget,
-                p,
-                key,
-                100 / 60000,
-                object_id=screening_key(service, phone),
-                work_kind="dnc_screen",
-            )
-            if not admitted:
-                await asyncio.to_thread(mark, "unsubmitted")
-                fail(403, "DNC_QUERY_BUDGET_EXHAUSTED")
-            try:
-                result = await provider.check(phone)
-            except DNCError:
-                # An uncertain provider request is never automatically repeated or cleared.
-                await asyncio.to_thread(mark, "uncertain")
-                await asyncio.to_thread(
-                    service.usage,
-                    p,
-                    "donotcalldnc",
-                    "dnc_screen",
-                    InferenceResult({}, {}, None),
-                    object_id=screening_key(service, phone),
-                    request_key=key,
-                    reserved=0,
-                )
-                fail(503, "DNC_SCREENING_UNAVAILABLE_NO_CLEARANCE")
-
-            def save(phone=phone, result=result, key=key):
-                with service.db.transaction() as s:
-                    auth = config["dnc_seller_authorization"]
-                    expires = min(dt(auth["expires_at"]), service.clock() + timedelta(days=31))
-                    values = {
-                        **result,
-                        "kind": "prepaid",
-                        "status": "completed",
-                        "published": False,
-                        "authorization_reference": auth["reference"],
-                        "expires_at": expires.isoformat(),
-                        "synthetic": service.settings.simulation,
-                    }
-                    model = MODELS["registry_snapshots"]
-                    row = s.scalar(
-                        select(model).where(
-                            model.tenant_id == p["tenant_id"],
-                            model.seller_id == p["seller_id"],
-                            model.external_key == screening_key(service, phone),
-                        )
-                    )
-                    if row:
-                        update(row, **values)
-                    else:
-                        put(
-                            s,
-                            "registry_snapshots",
-                            p["tenant_id"],
-                            p["seller_id"],
-                            values,
-                            key=screening_key(service, phone),
-                            now=service.clock(),
-                        )
-                # The API gives remaining credits, not a monetary billing receipt: retain estimated liability.
-                service.usage(
-                    p,
-                    "donotcalldnc",
-                    "dnc_screen",
-                    InferenceResult({}, {"credits_remaining": result.get("credits_remaining")}, key),
-                    object_id=screening_key(service, phone),
-                    request_key=key,
-                    reserved=0,
-                )
-
-            await asyncio.to_thread(save)
-            results.append({**result, "cached": False})
-        return {"results": results, "authorization_required": True}
+    bind_screening_api(app, service, administrator)
