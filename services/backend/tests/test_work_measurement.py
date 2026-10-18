@@ -185,6 +185,16 @@ def test_missing_answer_timestamp_is_not_zero_second_connection(workspace, clock
     assert saved.get("connected_seconds") is None
 
 
+def test_rep_human_classification_does_not_invent_carrier_answer_timing(workspace, app, clock):
+    call = start(workspace)
+    clock.now += timedelta(seconds=60)
+    app.state.service.event(p(workspace), "manual-classification", "human.confirmed", call["id"])
+    clock.now += timedelta(seconds=4)
+    workspace["client"].post(f"/v1/calls/{call['id']}/hangup", headers=workspace["headers"])
+    saved = workspace["client"].get("/v1/calls/" + call["id"], headers=workspace["headers"]).json()
+    assert saved.get("answered_at") is None and saved.get("connected_seconds") is None
+
+
 def test_connect_warning_requires_supported_comparison_and_keeps_unknown_visible(clock):
     from app.measurement import connect_health
 
