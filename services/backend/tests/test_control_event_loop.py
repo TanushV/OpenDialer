@@ -116,7 +116,10 @@ def test_control_http_handlers_do_not_move_sql_back_onto_the_loop(workspace, app
             )
         elif operation == "dtmf":
             request = partial(
-                client.post, f"/v1/calls/{call['id']}/dtmf", headers=headers, json={"digits": "42#"}
+                client.post,
+                f"/v1/calls/{call['id']}/dtmf",
+                headers=headers,
+                json={"digits": "42#", "idempotency_key": "keypad-compatibility"},
             )
         else:
             private = Ed25519PrivateKey.generate()

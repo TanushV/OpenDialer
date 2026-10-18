@@ -93,6 +93,11 @@ class CallStart(Strict):
     idempotency_key: str = Field(min_length=1, max_length=128)
 
 
+class KeypadRequest(Strict):
+    digits: str = Field(pattern=r"^[0-9*#]{1,30}$")
+    idempotency_key: str = Field(pattern=r"^[A-Za-z0-9_-]{1,128}$")
+
+
 class Suppress(Strict):
     phone: str
     reason: Literal["opt_out", "wrong_party", "temporary_hold", "invalid_endpoint"] = "opt_out"
@@ -1220,29 +1225,12 @@ def create_app(settings=None, *, clock=None, carrier=None):
         return service.resolve_goal_review(p, lead_id, data.model_dump(exclude_unset=True))
 
     @app.post("/v1/calls/{call_id}/dtmf")
-    async def dtmf(call_id: str, data: dict, p=Depends(principal)):
-        import re
+    async def dtmf(call_id: str, data: KeypadRequest, p=Depends(principal)):
+        return await service.send_keypad(p, call_id, data.digits, data.idempotency_key)
 
-        digits = data.get("digits", "")
-        if not isinstance(digits, str) or not re.fullmatch(r"[0-9*#]{1,30}", digits):
-            fail(422, "Keypad digits only")
-
-        def target():
-            with db.transaction(False) as session:
-                call = service.required(session, "call_attempts", call_id, p)
-                if call.data["state"] in {"ENDED", "FINALIZED"}:
-                    fail(409, "Call is no longer active")
-                if call.data["rep_id"] != p["user_id"] and p["role"] == "rep":
-                    fail(403, "Call belongs to another rep")
-                provider_id = call.data["provider_id"]
-            return provider_id
-
-        provider_id = await asyncio.to_thread(target)
-        provider = await asyncio.to_thread(service.carrier, p["tenant_id"])
-        await provider.action(
-            provider_id, "send_dtmf", {"digits": digits, "command_id": str(__import__("uuid").uuid4())}
-        )
-        return {"sent": True}
+    @app.get("/v1/calls/{call_id}/dtmf/{request_id}")
+    def keypad_status(call_id: str, request_id: str, p=Depends(principal)):
+        return service.keypad_status(p, call_id, request_id)
 
     @app.post("/v1/admin/seller/approve")
     def approve_seller(data: dict, p=Depends(administrator)):

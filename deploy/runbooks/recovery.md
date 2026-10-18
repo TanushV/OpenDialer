@@ -14,6 +14,8 @@ If a carrier response is lost, preserve the original deterministic intent. Wait 
 
 For desktop or VM failure, preserve app data and restart the same installed identity. Carrier time limits bound abandoned legs while the authority is down. The recovery sweep reconciles commands/active calls; voicemail watchdogs keep detached obligations independent of the rep. New calls pause during authority loss; cached scripts/notes remain viewable and pending local opt-outs block further outbound work until acknowledged.
 
+Keypad presses have their own saved request identity. After a lost response, reopen the keypad to check that request, then use its retry action if still current. Do not press another digit to simulate a retry. Old menu presses cannot be replayed; when delivery remains uncertain, listen to the live menu and explicitly allow a new choice. That choice leaves the old uncertainty intact. A carrier acknowledgement does not prove the menu heard the tone, and Telnyx supplies no DTMF completion webhook.
+
 Test restoring a dedicated synthetic workspace before production and record checksum, recovery point, reconciled calls/opt-outs and elapsed recovery time. Do not test against live data or remove user application stores as cleanup.
 
 ## Previously submitted number orders

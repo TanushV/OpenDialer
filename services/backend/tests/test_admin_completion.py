@@ -70,13 +70,29 @@ def test_playbook_publication_preserves_versions_and_validates_identity(workspac
 def test_agent_dtmf_and_detached_voicemail_are_separately_controlled(workspace, carrier):
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
-    assert c.post(f"/v1/calls/{call['id']}/dtmf", headers=h, json={"digits": "42#"}).status_code == 200
     assert (
-        c.post(f"/v1/calls/{call['id']}/dtmf", headers=h, json={"digits": "javascript:bad"}).status_code
+        c.post(
+            f"/v1/calls/{call['id']}/dtmf",
+            headers=h,
+            json={"digits": "42#", "idempotency_key": "keypad-compatibility"},
+        ).status_code
+        == 200
+    )
+    assert (
+        c.post(
+            f"/v1/calls/{call['id']}/dtmf",
+            headers=h,
+            json={"digits": "javascript:bad", "idempotency_key": "keypad-invalid"},
+        ).status_code
         == 422
     )
     c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
-    assert c.post(f"/v1/calls/{call['id']}/dtmf", headers=h, json={"digits": "1"}).status_code == 409
+    assert (
+        c.post(
+            f"/v1/calls/{call['id']}/dtmf", headers=h, json={"digits": "1", "idempotency_key": "keypad-ended"}
+        ).status_code
+        == 409
+    )
 
 
 def test_maintenance_tick_ends_expired_live_obligation(workspace, clock):

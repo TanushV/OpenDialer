@@ -7,12 +7,65 @@ from datetime import timedelta
 from sqlalchemy import delete, select
 
 from app.compliance.policy import authorize
-from app.db import MODELS, ActiveClaim, audit, doc, emit, put, rows, uid, update
+from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, rows, uid, update
 from app.service import dt, fail
 from app.telephony.reducer import TERMINAL
 
+KEYPAD_STATES = {"DIALING", "RINGING", "ANSWERED_UNCLASSIFIED", "HUMAN", "GATEKEEPER", "SCREENING", "IVR"}
+
 
 class TelephonyWorkflows:
+    def _keypad_intent(self, p, call_id, digits, request_id):
+        with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
+            call = self.required(s, "call_attempts", call_id, p)
+            if call.data["rep_id"] != p["user_id"] and p["role"] == "rep":
+                fail(403, "Call belongs to another rep")
+            prior = self._by_key(s, p, "command_outbox", f"{call_id}:dtmf:{request_id}")
+            if prior:
+                if prior.data["payload"]["digits"] != digits:
+                    fail(409, "Keypad request identity already belongs to different digits")
+                return prior.id
+            if call.data["state"] not in KEYPAD_STATES or call.data.get("detached"):
+                fail(409, "Call is no longer active for this rep")
+            if not call.data.get("provider_id"):
+                fail(409, "Wait for the original carrier call reference")
+            command = self.control_intent(
+                s,
+                p,
+                call_id,
+                "send_dtmf",
+                {"digits": digits},
+                target=call.data["provider_id"],
+                suffix=f"dtmf:{request_id}",
+            )
+            update(
+                command,
+                requested_by=p["user_id"],
+                expires_at=(self.clock() + timedelta(seconds=10)).isoformat(),
+            )
+            return command.id
+
+    def keypad_status(self, p, call_id, request_id):
+        with self.db.transaction(False) as s:
+            call = self.required(s, "call_attempts", call_id, p)
+            if call.data["rep_id"] != p["user_id"] and p["role"] == "rep":
+                fail(403, "Call belongs to another rep")
+            command = self._by_key(s, p, "command_outbox", f"{call_id}:dtmf:{request_id}")
+            if not command or command.data.get("action") != "send_dtmf":
+                fail(404, "Keypad request not received")
+            return {
+                "command_id": command.id,
+                "status": command.data["status"],
+                "sent": command.data["status"] == "completed",
+                "reason": command.data.get("recovery_reason") or command.data.get("reason"),
+            }
+
+    async def send_keypad(self, p, call_id, digits, request_id):
+        command_id = await asyncio.to_thread(self._keypad_intent, p, call_id, digits, request_id)
+        await self.dispatch_controls(p, command_id=command_id)
+        return await asyncio.to_thread(self.keypad_status, p, call_id, request_id)
+
     def control_intent(self, s, p, call_id, action, payload, *, target=None, suffix=None):
         if action == "record_start":
             fail(403, "Call recording is disabled by the short-retention policy")
@@ -277,6 +330,25 @@ class TelephonyWorkflows:
             call = self.required(s, "followup_tasks" if inbound else "call_attempts", command["call_id"], p)
             if inbound and not self.inbound_admit_command(s, p, call, current):
                 return None
+            if command["action"] == "send_dtmf":
+                user = get(s, "users", command.get("requested_by"), p["tenant_id"])
+                if (
+                    not user
+                    or user.seller_id != p["seller_id"]
+                    or user.data.get("disabled")
+                    or (user.id != call.data["rep_id"] and user.data["role"] not in {"owner", "admin"})
+                    or call.data.get("detached")
+                    or call.data["state"] not in KEYPAD_STATES
+                    or command.get("target") != call.data.get("provider_id")
+                    or not command.get("expires_at")
+                    or dt(command["expires_at"]) <= self.clock()
+                ):
+                    update(
+                        current,
+                        status="review_required" if sent else "cancelled",
+                        recovery_reason="Keypad context changed or expired; do not replay old digits",
+                    )
+                    return None
             if (
                 not inbound
                 and call.data["state"] in TERMINAL | {"ENDING"}
@@ -364,8 +436,10 @@ class TelephonyWorkflows:
                     s, p, self.required(s, "call_attempts", call_id, p), "simulated_control_hangup"
                 )
 
-    async def dispatch_controls(self, p):
-        commands, orphan_vms = await asyncio.to_thread(self._control_work, p)
+    async def dispatch_controls(self, p, *, command_id=None):
+        commands, orphan_vms = (
+            ([{"id": command_id}], []) if command_id else await asyncio.to_thread(self._control_work, p)
+        )
         for call in orphan_vms:
             await self.hangup(p, call["id"])
         for command in commands:

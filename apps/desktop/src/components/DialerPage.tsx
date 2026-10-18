@@ -18,7 +18,6 @@ import {
   PhoneOff,
   Plus,
   ShieldCheck,
-  X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { native, openSource, readCache, writeCache } from "../api/client";
@@ -26,6 +25,7 @@ import { label, useWorkspace } from "../context";
 import { MemoryStorage, OptOutJournal, type OptOut } from "../state/optouts";
 import { Telephony } from "../telephony/client";
 import { InboundCall } from "./InboundCall";
+import { Keypad } from "./Keypad";
 import type { Call, Packet, Reservation } from "../types";
 import { terminal } from "../types";
 
@@ -1007,36 +1007,8 @@ export function DialerPage() {
           Pause after call
         </label>
       </div>
-      {keypad && (
-        <div className="keypad-popover">
-          <div>
-            <strong>Keypad</strong>
-            <button
-              className="icon-button"
-              aria-label="Close keypad"
-              onClick={() => setKeypad(false)}
-            >
-              <X size={15} />
-            </button>
-          </div>
-          <div className="digits">
-            {"123456789*0#".split("").map((d) => (
-              <button
-                key={d}
-                onClick={() =>
-                  void run(async () => {
-                    if (call)
-                      await api(`/v1/calls/${call.id}/dtmf`, "POST", {
-                        digits: d,
-                      });
-                  })
-                }
-              >
-                {d}
-              </button>
-            ))}
-          </div>
-        </div>
+      {keypad && call && active && (
+        <Keypad key={call.id} callId={call.id} close={() => setKeypad(false)} />
       )}
     </>
   );
