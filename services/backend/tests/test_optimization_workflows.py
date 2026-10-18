@@ -223,6 +223,8 @@ def test_training_is_queued_once_from_real_stored_snapshots_and_produces_a_candi
                     "number_id": number_id,
                     "started_at": at.isoformat(),
                     "ended_at": (at + timedelta(seconds=60)).isoformat(),
+                    "outcome_available_at": (at + timedelta(seconds=60)).isoformat(),
+                    "outcome_source": "rep_reported",
                     "state": "FINALIZED",
                     "outcome": "right_party" if i % 3 == 0 else "no_answer",
                     "transcript_version": 0,
