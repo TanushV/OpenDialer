@@ -44,13 +44,19 @@ class ReservationPlanner:
                 "policy_versions",
                 "number_inventory",
                 "number_health",
-                "registry_snapshots",
                 "budgets",
             )
         }
         specifications.update(
             {
                 "campaigns": [MODELS["campaigns"].id == campaign_id],
+                "registry_snapshots": [
+                    (
+                        MODELS["registry_snapshots"].ctx_key.in_(("national", "state"))
+                        & (MODELS["registry_snapshots"].ctx_status == "published")
+                    )
+                    | MODELS["registry_snapshots"].external_key.in_(["prepaid:" + key for key in keys])
+                ],
                 "model_versions": [
                     (MODELS["model_versions"].ctx_key == "active")
                     | (

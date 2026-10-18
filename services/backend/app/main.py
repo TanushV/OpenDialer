@@ -1031,7 +1031,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/admin/registry/import")
     def registry_import(data: dict, p=Depends(administrator)):
-        from app.compliance.registry import RegistryBitmap
+        from app.compliance.registry import RegistryBitmap, published_snapshots
 
         npas = data.get("npas", [])
         if (
@@ -1053,7 +1053,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
         except (ValueError, KeyError, TypeError) as exc:
             fail(422, f"Invalid registry snapshot: {type(exc).__name__}")
         with db.transaction() as session:
-            for previous in service.scoped(session, "registry_snapshots", p):
+            db.authorize_stream(session, p)
+            for previous in published_snapshots(session, p):
                 if previous.data["kind"] == data["kind"] and previous.data.get(
                     "jurisdiction", ""
                 ) == data.get("jurisdiction", ""):

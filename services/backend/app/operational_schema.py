@@ -173,9 +173,11 @@ def sync_columns(row, lookup_key=None):
             )
         if status:
             row.ctx_status = row.data.get(status)
+        if row.__tablename__ == "registry_snapshots" and row.data.get("kind") in {"national", "state"}:
+            row.ctx_status = "published" if row.data.get("published") else "retired"
         if expiry:
             row.ctx_expires_at = as_time(row.data.get(expiry))
-        row.ctx_index_version = 1
+        row.ctx_index_version = 2 if row.__tablename__ == "registry_snapshots" else 1
         return
     if row.__tablename__ == "work_intervals":
         row.op_owner_id = row.data["rep_id"]

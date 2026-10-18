@@ -1,6 +1,46 @@
+import base64
 import hashlib
 import json
 import zlib
+
+from sqlalchemy import select
+
+from app.db import MODELS
+
+
+def published_snapshots(s, p):
+    scope = ("registry_snapshots", p["tenant_id"], p["seller_id"])
+    records = s.info.get("row_cache", {}).get(scope)
+    if records is None:
+        cache = s.info.setdefault("published_registries", {})
+        if scope not in cache:
+            model = MODELS["registry_snapshots"]
+            cache[scope] = list(
+                s.scalars(
+                    select(model).where(
+                        model.tenant_id == p["tenant_id"],
+                        model.seller_id == p["seller_id"],
+                        model.ctx_key.in_(("national", "state")),
+                        model.ctx_status == "published",
+                    )
+                )
+            )
+        records = cache[scope]
+    return [r for r in records if r.data.get("published") and r not in s.deleted]
+
+
+def registry_contains(s, snapshot, phone):
+    """Reuse exact membership only within this decision; new authorization reloads it."""
+    cache = s.info.setdefault("registry_membership", {})
+    key = (snapshot.id, snapshot.version, snapshot.data.get("checksum"))
+    if key not in cache:
+        cache[key] = (
+            RegistryBitmap.load(base64.b64decode(snapshot.data["bitmap"]), snapshot.data["checksum"])
+            if snapshot.data.get("bitmap")
+            else frozenset(snapshot.data.get("listed_numbers", []))
+        )
+    membership = cache[key]
+    return membership.contains(phone) if isinstance(membership, RegistryBitmap) else phone in membership
 
 
 class RegistryError(ValueError):

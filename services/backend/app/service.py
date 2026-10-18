@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -333,8 +334,20 @@ class Service(ReservationPlanner):
         return {"campaign_id": campaign.id, "policy_id": policy.id, "simulation": True}
 
     def suppressed(self, s, p, phone):
+        cache = s.info.get("row_cache", {}).get(("suppressions", p["tenant_id"], p["seller_id"]))
+        if cache is None:
+            model = MODELS["suppressions"]
+            key = hmac.new(self.db.identity_key, phone.encode(), hashlib.sha256).hexdigest()
+            row = s.scalar(
+                select(model).where(
+                    model.tenant_id == p["tenant_id"],
+                    model.seller_id == p["seller_id"],
+                    model.external_key == key,
+                )
+            )
+            cache = [row] if row else []
         return any(
-            r.data["phone"] == phone and r.data.get("active", True) for r in self.scoped(s, "suppressions", p)
+            r.data["phone"] == phone and r.data.get("active", True) and r not in s.deleted for r in cache
         )
 
     def import_leads(self, p, body):
@@ -481,7 +494,10 @@ class Service(ReservationPlanner):
         endpoint = self.required(s, "phone_endpoints", lead.data["endpoint_id"], p)
         user = self.required(s, "users", p["user_id"], p)
         config, presence = policy.data, user.data.get("presence", {})
-        snapshots = [r for r in self.scoped(s, "registry_snapshots", p) if r.data.get("published")]
+        from app.compliance.registry import published_snapshots, registry_contains
+
+        internal_suppressed = self.suppressed(s, p, lead.data["phone"])
+        snapshots = [] if internal_suppressed else published_snapshots(s, p)
         national = [r for r in snapshots if r.data.get("kind") == "national"]
         registry = max(national, key=lambda r: r.data["refreshed_at"], default=None)
         state = [
@@ -498,28 +514,21 @@ class Service(ReservationPlanner):
         ]
         state_current = bool(state)
 
-        def registry_contains(snapshot):
-            if snapshot.data.get("bitmap"):
-                from app.compliance.registry import RegistryBitmap
-
-                return RegistryBitmap.load(
-                    base64.b64decode(snapshot.data["bitmap"]), snapshot.data["checksum"]
-                ).contains(lead.data["phone"])
-            return lead.data["phone"] in snapshot.data.get("listed_numbers", [])
-
-        consents = [
-            r.data for r in self.scoped(s, "consent_evidence", p) if r.data.get("endpoint_id") == endpoint.id
-        ]
+        consent_rows = s.info.get("row_cache", {}).get(("consent_evidence", p["tenant_id"], p["seller_id"]))
+        if consent_rows is None:
+            model = MODELS["consent_evidence"]
+            consent_rows = s.scalars(
+                select(model).where(
+                    model.tenant_id == p["tenant_id"],
+                    model.seller_id == p["seller_id"],
+                    model.ctx_key == endpoint.id,
+                )
+            )
+        consents = [r.data for r in consent_rows if r.data.get("endpoint_id") == endpoint.id]
         revoked = any(c.get("revoked") for c in consents)
         granted = any(permission in c.get("permissions", []) and not c.get("revoked") for c in consents)
         registry_valid = bool(registry and (self.settings.simulation or not registry.data.get("synthetic")))
-        listed = lead.data["phone"] in (registry.data.get("listed_numbers", []) if registry_valid else [])
-        if registry_valid and registry.data.get("bitmap"):
-            from app.compliance.registry import RegistryBitmap
-
-            listed = RegistryBitmap.load(
-                base64.b64decode(registry.data["bitmap"]), registry.data["checksum"]
-            ).contains(lead.data["phone"])
+        listed = registry_contains(s, registry, lead.data["phone"]) if registry_valid else False
         healthy = number and number.data["lifecycle"] in {"healthy", "limited_real_use"}
         authorized_number = bool(
             number
@@ -528,7 +537,7 @@ class Service(ReservationPlanner):
         )
         from app.compliance.operating import cached_screen
 
-        prepaid = cached_screen(self, s, p, lead.data["phone"])
+        prepaid = None if internal_suppressed else cached_screen(self, s, p, lead.data["phone"])
         national_at = dt(registry.data["refreshed_at"]) if registry_valid else None
         if prepaid:
             national_at = max(filter(None, [national_at, dt(prepaid["checked_at"])]))
@@ -557,8 +566,8 @@ class Service(ReservationPlanner):
             registry_listed=listed,
             state_registry_required=config.get("state_registry_required", False),
             state_registry_current=state_current,
-            state_registry_listed=any(registry_contains(r) for r in state),
-            internal_suppressed=self.suppressed(s, p, lead.data["phone"]),
+            state_registry_listed=any(registry_contains(s, r, lead.data["phone"]) for r in state),
+            internal_suppressed=internal_suppressed,
             consent_required=config.get("consent_required", False),
             consent_valid=granted,
             consent_revoked=revoked,
