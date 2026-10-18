@@ -12,7 +12,7 @@ Authored before October 17 remediation production edits. This map indexes the ma
 | A06 | [test_remediation_boundaries](../services/backend/tests/test_remediation_boundaries.py), [test_carrier_and_recovery](../services/backend/tests/test_carrier_and_recovery.py) |
 | A07 | [test_remediation_audit](../services/backend/tests/test_remediation_audit.py), [test_remediation_privacy](../services/backend/tests/test_remediation_privacy.py) |
 | A08 | [test_operations](../services/backend/tests/test_operations.py), [test_carrier_and_recovery](../services/backend/tests/test_carrier_and_recovery.py) |
-| A09 | [owned HTTP lifetime/isolation](../services/backend/tests/test_http_runtime.py), [test_carrier_and_recovery](../services/backend/tests/test_carrier_and_recovery.py), [test_remediation_coach](../services/backend/tests/test_remediation_coach.py) |
+| A09 | [call-control loop isolation](../services/backend/tests/test_control_event_loop.py), [owned HTTP lifetime/isolation](../services/backend/tests/test_http_runtime.py), [test_carrier_and_recovery](../services/backend/tests/test_carrier_and_recovery.py), [test_remediation_coach](../services/backend/tests/test_remediation_coach.py) |
 | A10 | [test_telephony_workflows](../services/backend/tests/test_telephony_workflows.py), [test_remediation_rep_workflow](../services/backend/tests/test_remediation_rep_workflow.py) |
 | A11 | [test_telephony_workflows](../services/backend/tests/test_telephony_workflows.py), [test_remediation_rep_workflow](../services/backend/tests/test_remediation_rep_workflow.py) |
 | A12 | [test_remediation_boundaries](../services/backend/tests/test_remediation_boundaries.py), [test_admin_completion](../services/backend/tests/test_admin_completion.py) |

@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -650,7 +651,7 @@ class Service(ReservationPlanner):
             else None
         )
 
-    async def start_call(self, p, data):
+    def _prepare_call(self, p, data):
         now = self.clock()
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
@@ -664,7 +665,7 @@ class Service(ReservationPlanner):
                     or previous.data["reservation_id"] != data["reservation_id"]
                 ):
                     fail(409, "Idempotency key belongs to another intent")
-                return doc(previous)
+                return doc(previous), False
             reservation = self.required(s, "reservations", data["reservation_id"], p)
             if (
                 reservation.data["rep_id"] != p["user_id"]
@@ -768,12 +769,20 @@ class Service(ReservationPlanner):
                 now=now,
             )
             emit(s, p["tenant_id"], "call.updated", call, now, {"state": call.data["state"]})
-        await self.dispatch_call(p, call.id)
-        with self.db.transaction(False) as s:
-            return doc(self.required(s, "call_attempts", call.id, p))
+            return doc(call), True
 
-    async def dispatch_call(self, p, call_id):
-        owner = uid()
+    def _call_snapshot(self, p, call_id):
+        with self.db.transaction(False) as s:
+            return doc(self.required(s, "call_attempts", call_id, p))
+
+    async def start_call(self, p, data):
+        call, created = await asyncio.to_thread(self._prepare_call, p, data)
+        if not created:
+            return call
+        await self.dispatch_call(p, call["id"])
+        return await asyncio.to_thread(self._call_snapshot, p, call["id"])
+
+    def _claim_dial(self, p, call_id, owner):
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             call = self.required(s, "call_attempts", call_id, p)
@@ -799,7 +808,7 @@ class Service(ReservationPlanner):
                 self.finish_call(s, p, call, "policy_cancelled")
                 return
             payload = command.data["payload"]
-            self.journal_authorization(p, call, payload)
+            self.journal_authorization(p, doc(call), payload)
             update(
                 command,
                 status="sending",
@@ -833,40 +842,40 @@ class Service(ReservationPlanner):
                     self.clock() + timedelta(seconds=policy.data.get("min_retry_seconds", 3600))
                 ).isoformat(),
             )
-        try:
-            receipt = await self.carrier(p["tenant_id"]).dial(payload)
-        except Exception as exc:
-            with self.db.transaction() as s:
-                command = self.required(s, "command_outbox", command.id, p)
-                call = self.required(s, "call_attempts", call_id, p)
-                if command.data.get("lease_owner") == owner and command.data["status"] == "sending":
-                    rejected = (
-                        isinstance(exc, httpx.HTTPStatusError) and 400 <= exc.response.status_code < 500
-                    )
-                    update(
-                        command,
-                        status="failed" if rejected else "uncertain",
-                        error=type(exc).__name__,
-                        lease_owner=None,
-                        lease_until=None,
-                    )
-                    if rejected:
-                        self.finish_call(s, p, call, "provider_rejected")
-                    elif call.data["state"] == "DIALING" and not call.data.get("provider_id"):
-                        update(call, state="RECONCILING")
-                        emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": "RECONCILING"})
-            return
-        self.journal_authorization(p, call, payload, provider_id=receipt["call_control_id"])
+            return command.id, doc(call), lead.data["phone"], payload
+
+    def _dial_failed(self, p, call_id, command_id, owner, exc):
+        with self.db.transaction() as s:
+            command = self.required(s, "command_outbox", command_id, p)
+            call = self.required(s, "call_attempts", call_id, p)
+            if command.data.get("lease_owner") == owner and command.data["status"] == "sending":
+                rejected = isinstance(exc, httpx.HTTPStatusError) and 400 <= exc.response.status_code < 500
+                update(
+                    command,
+                    status="failed" if rejected else "uncertain",
+                    error=type(exc).__name__,
+                    lease_owner=None,
+                    lease_until=None,
+                )
+                if rejected:
+                    self.finish_call(s, p, call, "provider_rejected")
+                elif call.data["state"] == "DIALING" and not call.data.get("provider_id"):
+                    update(call, state="RECONCILING")
+                    emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": "RECONCILING"})
+
+    def _dial_completed(self, p, call_id, claimed, owner, receipt):
+        command_id, call_data, phone, payload = claimed
+        self.journal_authorization(p, call_data, payload, provider_id=receipt["call_control_id"])
         cancel = False
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
-            current = self.required(s, "command_outbox", command.id, p)
+            current = self.required(s, "command_outbox", command_id, p)
             if current.data["status"] != "completed":
                 if current.data.get("lease_owner") != owner:
                     return
                 self.bind_dial_receipt(s, p, call, receipt["call_control_id"])
             cancel = call.data["state"] not in TERMINAL and (
-                call.data["state"] == "ENDING" or self.suppressed(s, p, lead.data["phone"])
+                call.data["state"] == "ENDING" or self.suppressed(s, p, phone)
             )
             update(
                 call,
@@ -875,6 +884,20 @@ class Service(ReservationPlanner):
                 ),
             )
             emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": call.data["state"]})
+        return cancel
+
+    async def dispatch_call(self, p, call_id):
+        owner = uid()
+        claimed = await asyncio.to_thread(self._claim_dial, p, call_id, owner)
+        if not claimed:
+            return
+        try:
+            provider = await asyncio.to_thread(self.carrier, p["tenant_id"])
+            receipt = await provider.dial(claimed[3])
+        except Exception as exc:
+            await asyncio.to_thread(self._dial_failed, p, call_id, claimed[0], owner, exc)
+            return
+        cancel = await asyncio.to_thread(self._dial_completed, p, call_id, claimed, owner, receipt)
         if cancel:
             await self.hangup(p, call_id)
 
@@ -930,15 +953,14 @@ class Service(ReservationPlanner):
             s.delete(claim)
         emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": call.data["state"]})
 
-    async def hangup(self, p, call_id):
-        owner = uid()
+    def _claim_hangup(self, p, call_id, owner):
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             call = self.required(s, "call_attempts", call_id, p)
             if p["role"] == "rep" and call.data["rep_id"] != p["user_id"]:
                 fail(403, "Call belongs to another rep")
             if call.data["state"] in TERMINAL:
-                return doc(call)
+                return doc(call), None
             provider_id = call.data.get("provider_id")
             command_id = call.id + ":hangup"
             existing = next(
@@ -955,9 +977,9 @@ class Service(ReservationPlanner):
                     now=self.clock(),
                 )
             if existing.data.get("lease_until") and dt(existing.data["lease_until"]) > self.clock():
-                return doc(call)
+                return doc(call), None
             if existing.data.get("status") == "completed":
-                return doc(call)
+                return doc(call), None
             update(
                 existing,
                 status="sending" if provider_id else "review_required",
@@ -971,35 +993,50 @@ class Service(ReservationPlanner):
             )
             update(call, state="ENDING")
             emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": "ENDING"})
-        if provider_id:
-            try:
-                await self.carrier(p["tenant_id"]).hangup(provider_id, command_id)
-                with self.db.transaction() as s:
-                    current = self.required(s, "command_outbox", existing.id, p)
-                    if current.data.get("lease_owner") != owner or current.data["status"] != "sending":
-                        return doc(self.required(s, "call_attempts", call_id, p))
-                    update(current, status="completed", lease_owner=None, lease_until=None)
-                    if self.settings.simulation:
-                        self.finish_call(
-                            s, p, self.required(s, "call_attempts", call_id, p), "simulated_hangup_receipt"
-                        )
-            except Exception as exc:
-                with self.db.transaction() as s:
-                    current = self.required(s, "command_outbox", existing.id, p)
-                    if current.data.get("lease_owner") == owner:
-                        update(current, status="uncertain", lease_owner=None, lease_until=None)
-                logging.getLogger(__name__).warning("Durable hangup pending: %s", type(exc).__name__)
-        with self.db.transaction(False) as s:
+            return doc(call), {"id": existing.id, "provider_id": provider_id, "command_id": command_id}
+
+    def _hangup_completed(self, p, call_id, command_id, owner, error=None):
+        with self.db.transaction() as s:
+            current = self.required(s, "command_outbox", command_id, p)
+            if current.data.get("lease_owner") != owner:
+                return
+            if error is not None:
+                update(current, status="uncertain", lease_owner=None, lease_until=None)
+            elif current.data["status"] == "sending":
+                update(current, status="completed", lease_owner=None, lease_until=None)
+                if self.settings.simulation:
+                    self.finish_call(
+                        s, p, self.required(s, "call_attempts", call_id, p), "simulated_hangup_receipt"
+                    )
+
+    def _hangup_result(self, p, call_id):
+        with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
-            result = doc(call)
-        if result["state"] in TERMINAL:
-            self.jobs.enqueue(
-                "postcall",
-                {"call_id": call_id, "seller_id": p["seller_id"], "user_id": p["user_id"]},
-                "postcall:" + call_id + ":" + str(call.version),
-                tenant_id=p["tenant_id"],
-            )
-        return result
+            if call.data["state"] in TERMINAL:
+                self.jobs.enqueue_in(
+                    s,
+                    "postcall",
+                    {"call_id": call_id, "seller_id": p["seller_id"], "user_id": p["user_id"]},
+                    "postcall:" + call_id + ":" + str(call.version),
+                    tenant_id=p["tenant_id"],
+                )
+            return doc(call)
+
+    async def hangup(self, p, call_id):
+        owner = uid()
+        call, command = await asyncio.to_thread(self._claim_hangup, p, call_id, owner)
+        if not command:
+            return call
+        if command["provider_id"]:
+            try:
+                provider = await asyncio.to_thread(self.carrier, p["tenant_id"])
+                await provider.hangup(command["provider_id"], command["command_id"])
+            except Exception as exc:
+                await asyncio.to_thread(self._hangup_completed, p, call_id, command["id"], owner, exc)
+                logging.getLogger(__name__).warning("Durable hangup pending: %s", type(exc).__name__)
+            else:
+                await asyncio.to_thread(self._hangup_completed, p, call_id, command["id"], owner)
+        return await asyncio.to_thread(self._hangup_result, p, call_id)
 
     def suppress(self, p, phone, reason, *, event_id=None, session=None):
         normalized = normalize_phone(phone)
@@ -1121,13 +1158,13 @@ class Service(ReservationPlanner):
 
     def journal_authorization(self, p, call, payload, provider_id=None):
         record = {
-            "call_id": call.id,
+            "call_id": call["id"],
             "tenant_id": p["tenant_id"],
             "seller_id": p["seller_id"],
             "user_id": p["user_id"],
             "at": self.clock().isoformat(),
             "provider_id": provider_id,
-            "intent": call.data,
+            "intent": {k: v for k, v in call.items() if k not in {"id", "tenant_id", "seller_id", "version"}},
             "command_id": payload["command_id"],
             "command_hash": hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest(),
         }

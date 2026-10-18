@@ -644,14 +644,18 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/telephony/token")
     async def telephony_token(p=Depends(principal)):
-        provider = service.carrier(p["tenant_id"])
-        with db.transaction(False) as s:
-            user = service.required(s, "users", p["user_id"], p)
-            credential = user.data.get("telephony_credential_id") or (
-                service.vault.read(p["tenant_id"]).get("telephony_credential_id")
-                if p["role"] in {"owner", "admin"}
-                else None
-            )
+        def context():
+            provider = service.carrier(p["tenant_id"])
+            with db.transaction(False) as s:
+                user = service.required(s, "users", p["user_id"], p)
+                credential = user.data.get("telephony_credential_id") or (
+                    service.vault.read(p["tenant_id"]).get("telephony_credential_id")
+                    if p["role"] in {"owner", "admin"}
+                    else None
+                )
+            return provider, credential
+
+        provider, credential = await asyncio.to_thread(context)
         if not credential and not settings.simulation:
             fail(503, "Scoped rep telephony credential is not configured")
         if not settings.simulation:
@@ -946,47 +950,51 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/calls/{call_id}/voicemail")
     async def voicemail(call_id: str, data: Voicemail, p=Depends(principal)):
-        with db.transaction() as s:
-            service.db.authorize_stream(s, p)
-            call = service.required(s, "call_attempts", call_id, p)
-            if p["role"] == "rep" and call.data["rep_id"] != p["user_id"]:
-                fail(403, "Call belongs to another rep")
-            if call.data["state"] != "VOICEMAIL_READY":
-                fail(409, "MAILBOX_NOT_READY")
-            reasons = service.voicemail_reasons(s, p, call, data.asset_id, data.detach)
-            if reasons:
-                fail(403, {"code": "VOICEMAIL_DENIED", "reasons": reasons})
-            update(
-                call,
-                state="VM_PENDING",
-                detach_requested=data.detach,
-                voicemail_asset=data.asset_id,
-                voicemail_deadline=(clock() + timedelta(seconds=120)).isoformat(),
-            )
-            result = doc(call)
-            service.control_intent(
-                s,
-                p,
-                call_id,
-                "gather",
-                {
-                    "minimum_digits": 1,
-                    "maximum_digits": 1,
-                    "valid_digits": "9",
-                    "timeout_millis": 60000,
-                    "initial_timeout_millis": 60000,
-                    "gather_id": call_id,
-                },
-                suffix="voicemail-optout",
-            )
-            service.control_intent(
-                s,
-                p,
-                call_id,
-                "playback_start",
-                {"media_name": data.asset_id, "target_legs": "self"},
-                suffix="voicemail:" + data.asset_id,
-            )
+        def prepare():
+            with db.transaction() as s:
+                service.db.authorize_stream(s, p)
+                call = service.required(s, "call_attempts", call_id, p)
+                if p["role"] == "rep" and call.data["rep_id"] != p["user_id"]:
+                    fail(403, "Call belongs to another rep")
+                if call.data["state"] != "VOICEMAIL_READY":
+                    fail(409, "MAILBOX_NOT_READY")
+                reasons = service.voicemail_reasons(s, p, call, data.asset_id, data.detach)
+                if reasons:
+                    fail(403, {"code": "VOICEMAIL_DENIED", "reasons": reasons})
+                update(
+                    call,
+                    state="VM_PENDING",
+                    detach_requested=data.detach,
+                    voicemail_asset=data.asset_id,
+                    voicemail_deadline=(clock() + timedelta(seconds=120)).isoformat(),
+                )
+                result = doc(call)
+                service.control_intent(
+                    s,
+                    p,
+                    call_id,
+                    "gather",
+                    {
+                        "minimum_digits": 1,
+                        "maximum_digits": 1,
+                        "valid_digits": "9",
+                        "timeout_millis": 60000,
+                        "initial_timeout_millis": 60000,
+                        "gather_id": call_id,
+                    },
+                    suffix="voicemail-optout",
+                )
+                service.control_intent(
+                    s,
+                    p,
+                    call_id,
+                    "playback_start",
+                    {"media_name": data.asset_id, "target_legs": "self"},
+                    suffix="voicemail:" + data.asset_id,
+                )
+            return result
+
+        result = await asyncio.to_thread(prepare)
         await service.dispatch_controls(p)
         return result
 
@@ -995,29 +1003,34 @@ def create_app(settings=None, *, clock=None, carrier=None):
         body = await request.body()
         signature = request.headers.get("telnyx-signature-ed25519", "")
         timestamp = request.headers.get("telnyx-timestamp", "")
-        with db.transaction(False) as s:
-            tenants = rows(s, "tenants")
-        owner = next(
-            (
-                t
-                for t in tenants
-                if verify_webhook(
-                    body,
-                    signature,
-                    timestamp,
-                    service.vault.read(t.tenant_id).get("telnyx_public_key", ""),
-                    now=clock(),
-                )
-            ),
-            None,
-        )
-        if not owner:
+
+        def authenticated_tenant():
+            with db.transaction(False) as s:
+                tenants = rows(s, "tenants")
+            owner = next(
+                (
+                    t
+                    for t in tenants
+                    if verify_webhook(
+                        body,
+                        signature,
+                        timestamp,
+                        service.vault.read(t.tenant_id).get("telnyx_public_key", ""),
+                        now=clock(),
+                    )
+                ),
+                None,
+            )
+            return owner.tenant_id if owner else None
+
+        tenant_id = await asyncio.to_thread(authenticated_tenant)
+        if not tenant_id:
             fail(401, "Webhook signature invalid or stale")
         try:
             event = json.loads(body)["data"]
         except (ValueError, KeyError, TypeError):
             fail(422, "Invalid provider event")
-        return await service.accept_webhook(owner.tenant_id, event, hashlib.sha256(body).hexdigest())
+        return await service.accept_webhook(tenant_id, event, hashlib.sha256(body).hexdigest())
 
     @app.post("/v1/admin/registry/import")
     def registry_import(data: dict, p=Depends(administrator)):
@@ -1213,14 +1226,20 @@ def create_app(settings=None, *, clock=None, carrier=None):
         digits = data.get("digits", "")
         if not isinstance(digits, str) or not re.fullmatch(r"[0-9*#]{1,30}", digits):
             fail(422, "Keypad digits only")
-        with db.transaction(False) as session:
-            call = service.required(session, "call_attempts", call_id, p)
-            if call.data["state"] in {"ENDED", "FINALIZED"}:
-                fail(409, "Call is no longer active")
-            if call.data["rep_id"] != p["user_id"] and p["role"] == "rep":
-                fail(403, "Call belongs to another rep")
-            provider_id = call.data["provider_id"]
-        await service.carrier(p["tenant_id"]).action(
+
+        def target():
+            with db.transaction(False) as session:
+                call = service.required(session, "call_attempts", call_id, p)
+                if call.data["state"] in {"ENDED", "FINALIZED"}:
+                    fail(409, "Call is no longer active")
+                if call.data["rep_id"] != p["user_id"] and p["role"] == "rep":
+                    fail(403, "Call belongs to another rep")
+                provider_id = call.data["provider_id"]
+            return provider_id
+
+        provider_id = await asyncio.to_thread(target)
+        provider = await asyncio.to_thread(service.carrier, p["tenant_id"])
+        await provider.action(
             provider_id, "send_dtmf", {"digits": digits, "command_id": str(__import__("uuid").uuid4())}
         )
         return {"sent": True}

@@ -262,6 +262,12 @@ RED: http-pools-expanded-red.txt (five failures: missing pools/injection, cross-
 
 Next tests-first commit 0073559 reproduces SQL on the live event loop in call start (69 statements), dial (34), hangup (24), action dispatch (26), simulated agent creation (two) and maintenance (nine). The delayed-storage fixture paused unrelated async delivery for about 182 ms. All seven regressions are red in control-loop-red.txt before the control refactor. Preserve permission/lease/event ordering while moving complete short transactions into worker threads. Native 0.2.1 remains unchanged; no update/reinstall, paid request or new native/computer-use acceptance.
 
+2026-10-18 CALL-CONTROL EVENT-LOOP ISOLATION. Tests-first 0073559/3aae925 precede the fixes. Call start/dial/hangup, control actions, agent setup, token context, voicemail intent and webhook signature lookup now run complete synchronous transactions in worker threads. Provider I/O remains async; plain snapshots cross the boundary, never live SQLAlchemy sessions/objects. Owned leases, fresh authorization, terminal-event fences and durable post-call enqueueing remain intact. Maintenance loads user identities off-loop. No new dependency, service or runtime process was added.
+
+RED: control-loop-red.txt (seven failures; start 69/dial 34/hangup 24/control 26/agent two/maintenance nine on-loop statements; slow SQL delayed unrelated delivery approximately 182 ms), control-http-loop-red.txt (four failures; token/DTMF/voicemail/signature handlers). GREEN: **283 SQLite / 283 PostgreSQL**, **13 browser workflows**, Ruff/format/diff checks. Receipts: work/remediation/control-loop-accepted-{sqlite,postgres}.txt and control-loop-ui.txt. PostgreSQL ran alone. Scoped M2.08b only is checked; no full-load/native/provider acceptance is inferred.
+
+Tests-first 05a5b00 finds an idle control tick decrypting 1,200 ended records, inbound reconciliation reading 401 tasks and missing live-obligation metadata backfill (control-history-red.txt). Tests-first 6dcd9e4 finds preparation/restore performing 50/four SQL statements on the live loop (background-loop-red.txt). These are explicitly open next work. DTMF also still needs a durable retry identity rather than a fresh random command for each POST; retain it in M1.04. Installed Mac remains untouched 0.2.1; no paid request, real call, purchase or reinstall.
+
 ## Historical record (superseded where the current contract differs)
 
 

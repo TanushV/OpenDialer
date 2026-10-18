@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import json
 import re
@@ -223,7 +224,7 @@ class TelephonyWorkflows:
             reasons.append("DETACHED_TOPOLOGY_AND_HUMAN_RECOVERY_NOT_VERIFIED")
         return reasons
 
-    async def dispatch_controls(self, p):
+    def _control_work(self, p):
         self.inbound_watchdog(p)
         with self.db.transaction(False) as s:
             commands = [
@@ -238,149 +239,161 @@ class TelephonyWorkflows:
                 and r.data["state"] not in TERMINAL
                 and dt(r.data["voicemail_deadline"]) <= self.clock()
             ]
+        return commands, orphan_vms
+
+    def _claim_control(self, p, command_id):
+        with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
+            current = self.required(s, "command_outbox", command_id, p)
+            command = doc(current)
+            if current.data["status"] != "pending":
+                return None
+            sent = dt(current.data.get("sent_at"))
+            if (
+                sent
+                and not 0 <= (self.clock() - sent).total_seconds() < 45
+                and command["action"] not in {"hangup", "playback_stop", "transcription_stop", "record_stop"}
+            ):
+                update(
+                    current,
+                    status="review_required",
+                    recovery_reason="Original command deduplication window expired before retry submission",
+                )
+                return None
+            inbound = command.get("inbound", False)
+            call = self.required(s, "followup_tasks" if inbound else "call_attempts", command["call_id"], p)
+            if inbound and not self.inbound_admit_command(s, p, call, current):
+                return None
+            if (
+                not inbound
+                and call.data["state"] in TERMINAL | {"ENDING"}
+                and command["action"] not in {"hangup", "playback_stop", "transcription_stop", "record_stop"}
+            ):
+                update(current, status="cancelled", reason="CALL_NO_LONGER_ACTIVE")
+                return None
+            if not inbound and command["action"] == "playback_start":
+                reasons = self.voicemail_reasons(
+                    s,
+                    p,
+                    call,
+                    command["payload"].get("media_name"),
+                    call.data.get("detach_requested", False),
+                )
+                if call.data["state"] != "VM_PENDING":
+                    reasons.append("MAILBOX_NOT_READY")
+                if reasons:
+                    update(current, status="cancelled", reasons=reasons)
+                    update(call, voicemail_result="blocked_before_playback")
+                    return None
+            if command["action"] in {"transcription_start", "record_start"}:
+                privacy = self.required(s, "sellers", p["seller_id"], p).data.get("operating_policy", {})
+                if command["action"] == "record_start" or (
+                    not self.settings.simulation
+                    and not (
+                        privacy.get("transcription_privacy_verified")
+                        and privacy.get("transcription_privacy_reference")
+                    )
+                ):
+                    update(current, status="cancelled", reason="RAW_CAPTURE_PRIVACY_NOT_AUTHORIZED")
+                    return None
+                lead = self.required(s, "leads", call.data["lead_id"], p)
+                number = self.required(s, "number_inventory", call.data["number_id"], p)
+                permission = "transcription" if command["action"] == "transcription_start" else "recording"
+                if (
+                    call.data["state"] in TERMINAL
+                    or not authorize(
+                        self.context(s, p, lead, number, permission=permission, active=True)
+                    ).allowed
+                ):
+                    update(current, status="cancelled")
+                    return None
+            target = command.get("target") or call.data.get("provider_id")
+            if not target:
+                update(
+                    current,
+                    status="review_required",
+                    recovery_reason="Missing carrier call reference; reconcile the original dial first",
+                )
+                return None
+            owner = uid()
+            update(
+                current,
+                status="sending",
+                lease_owner=owner,
+                sent_at=current.data.get("sent_at") or self.clock().isoformat(),
+                lease_until=(self.clock() + timedelta(seconds=30)).isoformat(),
+            )
+            return command, call.id, inbound, target, owner, call.data.get("provider_id")
+
+    def _control_completed(self, p, claimed, error=None):
+        command, call_id, inbound, target, owner, provider_id = claimed
+        with self.db.transaction() as s:
+            current = self.required(s, "command_outbox", command["id"], p)
+            if current.data.get("lease_owner") != owner:
+                return
+            if error is not None:
+                update(
+                    current,
+                    status="uncertain",
+                    lease_owner=None,
+                    lease_until=None,
+                    error=type(error).__name__,
+                )
+                return
+            update(current, status="completed", lease_owner=None, lease_until=None)
+            if (
+                self.settings.simulation
+                and not inbound
+                and command["action"] == "hangup"
+                and target == provider_id
+            ):
+                self.finish_call(
+                    s, p, self.required(s, "call_attempts", call_id, p), "simulated_control_hangup"
+                )
+
+    async def dispatch_controls(self, p):
+        commands, orphan_vms = await asyncio.to_thread(self._control_work, p)
         for call in orphan_vms:
             await self.hangup(p, call["id"])
         for command in commands:
-            with self.db.transaction() as s:
-                self.db.authorize_stream(s, p)
-                current = self.required(s, "command_outbox", command["id"], p)
-                if current.data["status"] != "pending":
-                    continue
-                sent = dt(current.data.get("sent_at"))
-                if (
-                    sent
-                    and not 0 <= (self.clock() - sent).total_seconds() < 45
-                    and command["action"]
-                    not in {"hangup", "playback_stop", "transcription_stop", "record_stop"}
-                ):
-                    update(
-                        current,
-                        status="review_required",
-                        recovery_reason="Original command deduplication window expired before retry submission",
-                    )
-                    continue
-                inbound = command.get("inbound", False)
-                call = self.required(
-                    s, "followup_tasks" if inbound else "call_attempts", command["call_id"], p
-                )
-                if inbound and not self.inbound_admit_command(s, p, call, current):
-                    continue
-                if (
-                    not inbound
-                    and call.data["state"] in TERMINAL | {"ENDING"}
-                    and command["action"]
-                    not in {"hangup", "playback_stop", "transcription_stop", "record_stop"}
-                ):
-                    update(current, status="cancelled", reason="CALL_NO_LONGER_ACTIVE")
-                    continue
-                if not inbound and command["action"] == "playback_start":
-                    reasons = self.voicemail_reasons(
-                        s,
-                        p,
-                        call,
-                        command["payload"].get("media_name"),
-                        call.data.get("detach_requested", False),
-                    )
-                    if call.data["state"] != "VM_PENDING":
-                        reasons.append("MAILBOX_NOT_READY")
-                    if reasons:
-                        update(current, status="cancelled", reasons=reasons)
-                        update(call, voicemail_result="blocked_before_playback")
-                        continue
-                if command["action"] in {"transcription_start", "record_start"}:
-                    privacy = self.required(s, "sellers", p["seller_id"], p).data.get("operating_policy", {})
-                    if command["action"] == "record_start" or (
-                        not self.settings.simulation
-                        and not (
-                            privacy.get("transcription_privacy_verified")
-                            and privacy.get("transcription_privacy_reference")
-                        )
-                    ):
-                        update(current, status="cancelled", reason="RAW_CAPTURE_PRIVACY_NOT_AUTHORIZED")
-                        continue
-                    lead = self.required(s, "leads", call.data["lead_id"], p)
-                    number = self.required(s, "number_inventory", call.data["number_id"], p)
-                    permission = (
-                        "transcription" if command["action"] == "transcription_start" else "recording"
-                    )
-                    if (
-                        call.data["state"] in TERMINAL
-                        or not authorize(
-                            self.context(s, p, lead, number, permission=permission, active=True)
-                        ).allowed
-                    ):
-                        update(current, status="cancelled")
-                        continue
-                target = command.get("target") or call.data.get("provider_id")
-                if not target:
-                    update(
-                        current,
-                        status="review_required",
-                        recovery_reason="Missing carrier call reference; reconcile the original dial first",
-                    )
-                    continue
-                owner = uid()
-                update(
-                    current,
-                    status="sending",
-                    lease_owner=owner,
-                    sent_at=current.data.get("sent_at") or self.clock().isoformat(),
-                    lease_until=(self.clock() + timedelta(seconds=30)).isoformat(),
-                )
+            claimed = await asyncio.to_thread(self._claim_control, p, command["id"])
+            if not claimed:
+                continue
+            command, _, _, target, _, _ = claimed
             try:
-                provider = self.carrier(p["tenant_id"])
+                provider = await asyncio.to_thread(self.carrier, p["tenant_id"])
                 if command["action"] == "playback_start":
                     await provider.playback(target, command["payload"])
                 elif command["action"] == "hangup":
                     await provider.hangup(target, command["payload"]["command_id"])
                 else:
                     await provider.action(target, command["action"], command["payload"])
-                with self.db.transaction() as s:
-                    current = self.required(s, "command_outbox", command["id"], p)
-                    if current.data.get("lease_owner") != owner:
-                        continue
-                    update(current, status="completed", lease_owner=None, lease_until=None)
-                    if (
-                        self.settings.simulation
-                        and not inbound
-                        and command["action"] == "hangup"
-                        and target == call.data.get("provider_id")
-                    ):
-                        self.finish_call(
-                            s, p, self.required(s, "call_attempts", call.id, p), "simulated_control_hangup"
-                        )
             except Exception as exc:
-                with self.db.transaction() as s:
-                    current = self.required(s, "command_outbox", command["id"], p)
-                    if current.data.get("lease_owner") == owner:
-                        update(
-                            current,
-                            status="uncertain",
-                            lease_owner=None,
-                            lease_until=None,
-                            error=type(exc).__name__,
-                        )
+                await asyncio.to_thread(self._control_completed, p, claimed, exc)
+            else:
+                await asyncio.to_thread(self._control_completed, p, claimed)
         return {"processed": len(commands), "voicemail_watchdogs": len(orphan_vms)}
 
-    async def create_agent(self, p):
-        if self.settings.simulation:
-            provider_id = "agent-" + uid()
-            with self.db.transaction() as s:
-                put(
-                    s,
-                    "call_legs",
-                    p["tenant_id"],
-                    p["seller_id"],
-                    {
-                        "kind": "agent",
-                        "rep_id": p["user_id"],
-                        "provider_id": provider_id,
-                        "state": "answered",
-                    },
-                    key=provider_id,
-                    now=self.clock(),
-                )
-            return {"agent_call_control_id": provider_id}
+    def _simulated_agent(self, p):
+        provider_id = "agent-" + uid()
+        with self.db.transaction() as s:
+            put(
+                s,
+                "call_legs",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    "kind": "agent",
+                    "rep_id": p["user_id"],
+                    "provider_id": provider_id,
+                    "state": "answered",
+                },
+                key=provider_id,
+                now=self.clock(),
+            )
+        return {"agent_call_control_id": provider_id}
+
+    def _agent_context(self, p):
         conf = self.vault.read(p["tenant_id"])
         with self.db.transaction(False) as s:
             user = self.required(s, "users", p["user_id"], p)
@@ -397,9 +410,9 @@ class TelephonyWorkflows:
             )
             if not sip or not re.fullmatch(r"[A-Za-z0-9_.+-]{1,128}", sip) or not credential or not inventory:
                 fail(503, "Configure a scoped incoming-only SIP credential and an owned healthy caller ID")
-        carrier = self.carrier(p["tenant_id"])
-        await carrier.verify_incoming_only_credential(credential)
-        leg_id, owner = uid(), uid()
+        return sip, credential, inventory[0].data["phone"]
+
+    def _claim_agent(self, p, leg_id, owner):
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             prior = next(
@@ -414,7 +427,7 @@ class TelephonyWorkflows:
             )
             if prior:
                 if prior.data.get("provider_id"):
-                    return {"agent_call_control_id": prior.data["provider_id"]}
+                    return doc(prior), False
                 fail(409, "An agent leg is awaiting provider reconciliation; do not create a second leg")
             leg = put(
                 s,
@@ -433,28 +446,19 @@ class TelephonyWorkflows:
                 object_id=leg_id,
                 now=self.clock(),
             )
-        try:
-            receipt = await carrier.dial(
-                {
-                    "to": f"sip:{sip}@sip.telnyx.com;secure=srtp",
-                    "from": inventory[0].data["phone"],
-                    "time_limit_secs": self.settings.max_call_seconds,
-                    "command_id": leg_id,
-                    "client_state": base64.b64encode(
-                        json.dumps({"agent_leg_id": leg_id, "tenant_id": p["tenant_id"]}).encode()
-                    ).decode(),
-                }
-            )
-        except Exception:
-            with self.db.transaction() as s:
-                current = self.required(s, "call_legs", leg.id, p)
-                if current.data["state"] == "submitting" and current.data.get("lease_owner") == owner:
-                    update(current, state="uncertain", lease_owner=None, lease_until=None)
-                if current.data.get("provider_id"):
-                    return {"agent_call_control_id": current.data["provider_id"]}
-            fail(503, "Agent submission is uncertain; await its signed receipt or reconcile before retrying")
+        return doc(leg), True
+
+    def _agent_failed(self, p, leg_id, owner):
         with self.db.transaction() as s:
-            current = self.required(s, "call_legs", leg.id, p)
+            current = self.required(s, "call_legs", leg_id, p)
+            if current.data["state"] == "submitting" and current.data.get("lease_owner") == owner:
+                update(current, state="uncertain", lease_owner=None, lease_until=None)
+            if current.data.get("provider_id"):
+                return {"agent_call_control_id": current.data["provider_id"]}
+
+    def _agent_completed(self, p, leg_id, owner, receipt):
+        with self.db.transaction() as s:
+            current = self.required(s, "call_legs", leg_id, p)
             if current.data.get("lease_owner") not in {owner, None}:
                 fail(409, "Agent reconciliation owns the result; refresh its current status")
             if current.data.get("provider_id") not in {None, receipt["call_control_id"]}:
@@ -469,6 +473,35 @@ class TelephonyWorkflows:
                 else current.data["state"],
             )
         return {"agent_call_control_id": receipt["call_control_id"]}
+
+    async def create_agent(self, p):
+        if self.settings.simulation:
+            return await asyncio.to_thread(self._simulated_agent, p)
+        sip, credential, phone = await asyncio.to_thread(self._agent_context, p)
+        carrier = await asyncio.to_thread(self.carrier, p["tenant_id"])
+        await carrier.verify_incoming_only_credential(credential)
+        leg_id, owner = uid(), uid()
+        leg, created = await asyncio.to_thread(self._claim_agent, p, leg_id, owner)
+        if not created:
+            return {"agent_call_control_id": leg["provider_id"]}
+        try:
+            receipt = await carrier.dial(
+                {
+                    "to": f"sip:{sip}@sip.telnyx.com;secure=srtp",
+                    "from": phone,
+                    "time_limit_secs": self.settings.max_call_seconds,
+                    "command_id": leg_id,
+                    "client_state": base64.b64encode(
+                        json.dumps({"agent_leg_id": leg_id, "tenant_id": p["tenant_id"]}).encode()
+                    ).decode(),
+                }
+            )
+        except Exception:
+            result = await asyncio.to_thread(self._agent_failed, p, leg_id, owner)
+            if result:
+                return result
+            fail(503, "Agent submission is uncertain; await its signed receipt or reconcile before retrying")
+        return await asyncio.to_thread(self._agent_completed, p, leg_id, owner, receipt)
 
     def agent_event(self, tenant_id, payload, event_type, *, session=None):
         provider_id = payload.get("call_control_id")

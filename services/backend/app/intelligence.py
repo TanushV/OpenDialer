@@ -893,18 +893,19 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
         if prepare_due:
             self._next_preparation = time.monotonic() + 60
         prepared_sellers = set()
-        with self.db.transaction(False) as session:
-            users = [r for r in rows(session, "users") if not r.data.get("disabled")]
-        for user in users:
-            p = {
-                "tenant_id": user.tenant_id,
-                "seller_id": user.seller_id,
-                "user_id": user.id,
-                "role": "admin",
-            }
+
+        def users():
+            with self.db.transaction(False) as session:
+                return [
+                    {"tenant_id": r.tenant_id, "seller_id": r.seller_id, "user_id": r.id, "role": "admin"}
+                    for r in rows(session, "users")
+                    if not r.data.get("disabled")
+                ]
+
+        for p in await asyncio.to_thread(users):
             try:
-                if prepare_due and user.seller_id not in prepared_sellers:
-                    prepared_sellers.add(user.seller_id)
+                if prepare_due and p["seller_id"] not in prepared_sellers:
+                    prepared_sellers.add(p["seller_id"])
                     await asyncio.to_thread(self.prepare_ahead, p)
                 await self.recover(p)
                 await self.dispatch_controls(p)
