@@ -3,6 +3,21 @@ import { expect, test } from "@playwright/test";
 test("campaign scoring anchors persist and a rep can correct the call purpose", async ({
   page,
 }) => {
+  await page.route("**/v1/calls/*/analysis", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.trackers = [
+      {
+        tracker_id: "confirmed-callback",
+        name: "Explicit callback",
+        kind: "semantic",
+        version: 2,
+        evidence: ["expired-source"],
+        raw_evidence_status: "expired",
+      },
+    ];
+    await route.fulfill({ response, json: body });
+  });
   await page.goto("/");
   await expect(page.getByText("Opening your workspace…")).toBeHidden();
   if (
@@ -57,6 +72,12 @@ test("campaign scoring anchors persist and a rep can correct the call purpose", 
     .getByRole("button", { name: /^Review call / })
     .first()
     .click();
+  await expect(
+    page.getByRole("region", { name: "Conversation signals", exact: true }),
+  ).toContainText("Explicit callback");
+  await expect(
+    page.getByRole("region", { name: "Conversation signals", exact: true }),
+  ).toContainText("Original speech expired");
   await page
     .getByLabel("Actual call purpose", { exact: true })
     .selectOption("follow_up");
