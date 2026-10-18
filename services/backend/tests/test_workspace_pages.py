@@ -5,7 +5,7 @@ from datetime import timedelta
 import pytest
 from app.db import ActiveClaim, Job, get, put, update
 from conftest import start
-from sqlalchemy import inspect
+from sqlalchemy import inspect, select
 from test_context_reads import count_decrypted
 from test_remediation_privacy import principal
 
@@ -395,3 +395,44 @@ def test_job_scope_backfill_preserves_identity_content_and_status(workspace, app
             assert row.owner_id == p["user_id"]
     finally:
         reopened.engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_source_changes_do_not_exhaust_or_delay_metric_refresh(workspace, app, monkeypatch):
+    service, p = app.state.service, principal(workspace)
+    original = service.metrics
+
+    def changing(current):
+        result = original(current)
+        with service.db.transaction() as s:
+            lead = service.scoped(s, "leads", p)[0]
+            update(lead, name="Another corrected name")
+        return result
+
+    snapshot(workspace)
+    with monkeypatch.context() as m:
+        m.setattr(service, "metrics", changing)
+        for _ in range(4):
+            await service.run_jobs(queues=["ml"])
+    with service.db.transaction(False) as s:
+        jobs = list(s.scalars(select(Job).where(Job.queue == "ml")))
+        assert len(jobs) == 1
+        assert jobs[0].status == "queued"
+        assert jobs[0].attempts == 0
+        assert jobs[0].error is None
+    await service.run_jobs(queues=["ml"])
+    assert snapshot(workspace)["metrics"]["projection"]["status"] == "ready"
+
+
+def test_unknown_task_status_is_not_hidden_as_if_closed(workspace, app, clock):
+    with app.state.db.transaction() as s:
+        task = put(
+            s,
+            "followup_tasks",
+            workspace["tenant_id"],
+            workspace["seller_id"],
+            {"status": None, "action": "Legacy obligation", "due_at": clock.now.isoformat()},
+            now=clock.now,
+        )
+        identity = task.id
+    assert identity in {t["id"] for t in page(workspace, "tasks", filter="open")["items"]}

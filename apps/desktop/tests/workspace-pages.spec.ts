@@ -3,61 +3,192 @@ import { expect, test } from "@playwright/test";
 async function enter(page: import("@playwright/test").Page) {
   await page.goto("/");
   await expect(page.getByText("Opening your workspace…")).toBeHidden();
-  const choice = page.getByRole("button", { name: "Try a simulated workspace" });
+  const choice = page.getByRole("button", {
+    name: "Try a simulated workspace",
+  });
   if (await choice.isVisible()) await choice.click();
-  await expect(page.getByRole("button", { name: "Leads", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Leads", exact: true }),
+  ).toBeVisible();
 }
 
-test("home metrics show pending and stale evidence without invented zeros", async ({ page }) => {
-  await page.route("**/v1/workspace", async route => {
+test("home metrics show pending and stale evidence without invented zeros", async ({
+  page,
+}) => {
+  await page.route("**/v1/workspace", async (route) => {
     const response = await route.fetch();
     const data = await response.json();
     data.metrics = { projection: { status: "pending", as_of: null } };
     await route.fulfill({ response, json: data });
   });
   await enter(page);
-  await expect(page.getByText("Preparing workspace totals in the background.", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Preparing workspace totals in the background.", {
+      exact: true,
+    }),
+  ).toBeVisible();
   await expect(page.getByText("undefined", { exact: true })).toHaveCount(0);
   await expect(page.getByText("undefined currently eligible")).toHaveCount(0);
 });
 
-test("lead search continues beyond an empty bounded page without hiding older leads", async ({ page }) => {
+test("lead search continues beyond an empty bounded page without hiding older leads", async ({
+  page,
+}) => {
   let found = false;
-  await page.route("**/v1/workspace/leads**", async route => {
+  await page.route("**/v1/workspace/leads**", async (route) => {
     const url = new URL(route.request().url());
     if (!url.searchParams.get("q")) return route.continue();
     found = url.searchParams.has("cursor");
-    await route.fulfill({ json: {
-      items: found ? [{ id: "rare-id", name: "Rare Needle", company: "Archive Co", phone: "+12125550199", status: "eligible", attempt_count: 1 }] : [],
-      total: 900, next_cursor: found ? null : "search-next", search_complete: found,
-      scanned: 200,
-    }});
+    await route.fulfill({
+      json: {
+        items: found
+          ? [
+              {
+                id: "rare-id",
+                name: "Rare Needle",
+                company: "Archive Co",
+                phone: "+12125550199",
+                status: "eligible",
+                attempt_count: 1,
+              },
+            ]
+          : [],
+        total: 900,
+        next_cursor: found ? null : "search-next",
+        search_complete: found,
+        scanned: 200,
+      },
+    });
   });
   await enter(page);
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   await page.getByRole("textbox", { name: "Search leads" }).fill("needle");
-  await page.getByRole("button", { name: "Search lead history", exact: true }).click();
-  await expect(page.getByText("More records remain to search.", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Continue lead search", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Search lead history", exact: true })
+    .click();
+  await expect(
+    page.getByText("More records remain to search.", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Continue lead search", exact: true })
+    .click();
   await expect(page.getByText("Rare Needle", { exact: true })).toBeVisible();
   expect(found).toBe(true);
-  await expect(page.getByRole("button", { name: "Prepare displayed lead packets", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", {
+      name: "Prepare displayed lead packets",
+      exact: true,
+    }),
+  ).toBeVisible();
 });
 
-test("call history loads older named calls independently of the workspace lead preview", async ({ page }) => {
-  await page.route("**/v1/workspace", async route => {
-    const response = await route.fetch(); const data = await response.json();
-    data.calls = [{ id: "new-call", lead_id: "new-person", lead_name: "Recent Person", lead_company: "New Co", state: "FINALIZED", outcome: "right_party" }];
-    data.pages = { ...data.pages, calls: { total: 101, next_cursor: "older-calls" } };
+test("call history loads older named calls independently of the workspace lead preview", async ({
+  page,
+}) => {
+  await page.route("**/v1/workspace", async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.calls = [
+      {
+        id: "new-call",
+        lead_id: "new-person",
+        lead_name: "Recent Person",
+        lead_company: "New Co",
+        state: "FINALIZED",
+        outcome: "right_party",
+      },
+    ];
+    data.pages = {
+      ...data.pages,
+      calls: { total: 101, next_cursor: "older-calls" },
+    };
     await route.fulfill({ response, json: data });
   });
-  await page.route("**/v1/workspace/calls**", route => route.fulfill({ json: {
-    items: [{ id: "old-call", lead_id: "old-person", lead_name: "Older Person", lead_company: "Earlier Co", state: "FINALIZED", outcome: "callback_requested" }],
-    total: 101, next_cursor: null,
-  }}));
+  await page.route("**/v1/workspace/calls**", (route) =>
+    route.fulfill({
+      json: {
+        items: [
+          {
+            id: "old-call",
+            lead_id: "old-person",
+            lead_name: "Older Person",
+            lead_company: "Earlier Co",
+            state: "FINALIZED",
+            outcome: "callback_requested",
+          },
+        ],
+        total: 101,
+        next_cursor: null,
+      },
+    }),
+  );
   await enter(page);
   await page.getByRole("button", { name: "Review", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Review call Recent Person", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Load older calls", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Review call Older Person", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", {
+      name: "Review call Recent Person",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Load older calls", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Review call Older Person", exact: true }),
+  ).toBeVisible();
+});
+
+test("registry history remains accessible beyond the workspace preview", async ({
+  page,
+}) => {
+  await page.route("**/v1/workspace", async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.pages = {
+      ...data.pages,
+      registries: { total: 51, next_cursor: "older-registry" },
+    };
+    await route.fulfill({ response, json: data });
+  });
+  await page.route("**/v1/workspace/registries**", (route) =>
+    route.fulfill({
+      json: {
+        items: [
+          {
+            id: "older-registry",
+            kind: "state",
+            npas: ["999"],
+            refreshed_at: "2026-10-14T00:00:00Z",
+            checksum: "older-snapshot-checksum",
+          },
+        ],
+        total: 51,
+        next_cursor: null,
+      },
+    }),
+  );
+  await enter(page);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Policy & DNC", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Load older registry snapshots", exact: true })
+    .click();
+  await expect(page.getByText(/older-snapshot/)).toBeVisible();
+});
+
+test("a newer searched lead is not overwritten by an older workspace preview", async ({ page }) => {
+  await page.route("**/v1/workspace", async route => {
+    const response = await route.fetch(); const data = await response.json();
+    data.leads = [{ id: "same-lead", version: 1, name: "Old Name", company: "Example", phone: "+12125550199", status: "eligible", attempt_count: 0 }];
+    await route.fulfill({ response, json: data });
+  });
+  await page.route("**/v1/workspace/leads**", route => route.fulfill({ json: {
+    items: [{ id: "same-lead", version: 2, name: "Corrected Name", company: "Example", phone: "+12125550199", status: "eligible", attempt_count: 0 }],
+    total: 1, next_cursor: null,
+  }}));
+  await enter(page);
+  await page.getByRole("button", { name: "Leads", exact: true }).click();
+  await page.getByRole("textbox", { name: "Search leads" }).fill("Corrected");
+  await page.getByRole("button", { name: "Search lead history", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Open lead Corrected Name", exact: true })).toBeVisible();
 });
