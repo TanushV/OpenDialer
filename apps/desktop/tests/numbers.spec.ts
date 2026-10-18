@@ -137,3 +137,32 @@ test("order recovery remains retryable after receipt and refresh failures", asyn
     page.getByRole("button", { name: "Reconcile existing order" }),
   ).toBeEnabled();
 });
+
+test("declared staffing and setup time survive reload and explain the capacity plan", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (await page.getByRole("button", { name: "Try a simulated workspace" }).isVisible())
+    await page.getByRole("button", { name: "Try a simulated workspace" }).click();
+  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page.getByRole("button", { name: "Add staffed period" }).click();
+  await page.getByLabel("Staffed start 1").fill("2026-10-19T09:00");
+  await page.getByLabel("Staffed end 1").fill("2026-10-19T12:00");
+  await page.getByLabel("Available reps 1").fill("2");
+  await page.getByLabel("New number setup delay (hours)").fill("24");
+  await page.getByRole("button", { name: "Save optimization settings" }).click();
+  await page.reload();
+  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await expect(page.getByLabel("Staffed start 1")).toHaveValue("2026-10-19T09:00");
+  await expect(page.getByLabel("Available reps 1")).toHaveValue("2");
+  await expect(page.getByLabel("New number setup delay (hours)")).toHaveValue("24");
+  await page.getByRole("button", { name: "Numbers", exact: true }).click();
+  await page.getByRole("button", { name: "Plan regional capacity", exact: true }).click();
+  const proposal = page.getByTestId("capacity-proposal");
+  await expect(proposal.getByText("Declared staffed periods", { exact: true })).toBeVisible();
+  await expect(proposal.getByText("Stable-identity shortfall", { exact: true })).toBeVisible();
+  await expect(proposal.getByText("Setup-delay shortfall", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page.getByRole("button", { name: "Remove staffed period 1" }).click();
+  await page.getByLabel("New number setup delay (hours)").fill("0");
+  await page.getByRole("button", { name: "Save optimization settings" }).click();
+});

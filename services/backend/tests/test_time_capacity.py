@@ -1,5 +1,7 @@
 """A14-A18: capacity must fit declared work times, identities and daily limits."""
 
+import itertools
+import tracemalloc
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -190,12 +192,14 @@ def test_staffed_windows_persist_and_forecast_reads_real_binding(workspace, app,
         update(target, status="eligible", timezone="UTC", region="415", attempt_count=0)
         for inventory in service.scoped(s, "number_inventory", p):
             update(inventory, lifecycle="paused_for_outbound")
+        owned_data = number("n", daily_limit=0)
+        owned_data.pop("id")
         owned = put(
             s,
             "number_inventory",
             p["tenant_id"],
             p["seller_id"],
-            {**number("n", daily_limit=0), "phone": "+14155550199"},
+            {**owned_data, "phone": "+14155550199"},
         )
         put(
             s,
@@ -211,3 +215,129 @@ def test_staffed_windows_persist_and_forecast_reads_real_binding(workspace, app,
     assert result["existing_only_capacity"] == 0
     assert result["binding_shortfall"] == 1
     assert result["minimum_additional_numbers"] == 0
+
+
+def test_small_time_assignments_match_an_independent_exhaustive_oracle():
+    # Three actual start slots, two numbers, no assumptions shared with the planner.
+    for due_offsets, limits in itertools.product([(0, 0, 0), (0, 1, 2), (0, 2, 2)], [(1, 1), (1, 2), (2, 1)]):
+        leads = [
+            lead(
+                str(i),
+                region="415" if i < 2 else "212",
+                next_attempt_at=(NOW + timedelta(minutes=2 * due)).isoformat(),
+            )
+            for i, due in enumerate(due_offsets)
+        ]
+        numbers = [
+            number("regional", region="415", daily_limit=limits[0]),
+            number("shared", daily_limit=limits[1]),
+        ]
+        choices = [None, *itertools.product(range(3), range(2))]
+        maximum = 0
+        for trial in itertools.product(choices, repeat=3):
+            assigned = [(i, value) for i, value in enumerate(trial) if value is not None]
+            if any(
+                slot < due_offsets[i] or (i == 2 and number_index == 0)
+                for i, (slot, number_index) in assigned
+            ):
+                continue
+            if len({slot for _, (slot, _) in assigned}) != len(assigned):
+                continue
+            if any(sum(number_index == n for _, (_, number_index) in assigned) > limits[n] for n in range(2)):
+                continue
+            maximum = max(maximum, len(assigned))
+        result = forecast(leads, numbers, staffed_windows=[window(minutes=6)])
+        assert result["existing_only_capacity"] == maximum
+
+
+def test_existing_schedule_does_not_spend_more_than_declared_work_budget():
+    result = capacity_forecast(
+        [lead(str(i)) for i in range(5)],
+        [number()],
+        now=NOW,
+        rep_minutes=4,
+        handling_seconds=120,
+        policy={"max_attempts": 1},
+        staffed_windows=[window()],
+    )
+    assert result["existing_only_capacity"] == 2
+
+
+def test_low_sample_health_is_not_used_as_spam_proof_or_a_capacity_ban():
+    result = forecast([lead("cold")], [number(health={"samples": 0, "score": None})])
+    assert result["existing_only_capacity"] == 1 and result["cold_start"]
+    assert result["expected_conversion_lift"] is None
+
+
+def test_declared_weekday_closures_are_respected():
+    result = capacity_forecast(
+        [lead("closed")],
+        [number()],
+        now=NOW,
+        staffed_windows=[window()],
+        policy={"max_attempts": 1, "closed_dates": ["2026-10-19"]},
+    )
+    assert result["existing_only_capacity"] == 0
+
+
+def test_a_late_available_owned_number_does_not_disappear_when_reps_can_wait():
+    result = forecast([lead("later")], [number(ready_at=(NOW + timedelta(minutes=30)).isoformat())])
+    assert result["existing_only_capacity"] == 1
+    assert datetime.fromisoformat(result["existing_schedule"][0]["at"]) >= NOW + timedelta(minutes=30)
+
+
+def test_new_number_search_never_drops_an_achievable_callback_for_more_flexible_calls():
+    # The callback needs the only shared number; both earlier flexible calls can use the regional DID.
+    leads = [
+        lead(
+            "callback",
+            region="212",
+            callback_due_at=NOW.isoformat(),
+            callback_window_end=(NOW + timedelta(minutes=2)).isoformat(),
+        ),
+        lead("one"),
+        lead("two"),
+    ]
+    result = forecast(
+        leads,
+        [number("shared", daily_limit=1), number("regional", region="415", daily_limit=2)],
+        staffed_windows=[window(minutes=6)],
+    )
+    assert result["existing_schedule"][0]["lead_id"] == "callback"
+    assert result["existing_only_capacity"] == 3
+
+
+def test_promised_callback_has_priority_even_when_skipping_it_would_fit_more_calls():
+    leads = [
+        lead(
+            "callback",
+            region="212",
+            callback_due_at=NOW.isoformat(),
+            callback_window_end=(NOW + timedelta(minutes=2)).isoformat(),
+        ),
+        lead("later", region="212", next_attempt_at=(NOW + timedelta(minutes=2)).isoformat()),
+        lead("early", callback_window_end=(NOW + timedelta(minutes=2)).isoformat()),
+    ]
+    result = forecast(
+        leads,
+        [number("shared", daily_limit=1), number("regional", region="415", daily_limit=1)],
+        staffed_windows=[window(minutes=4)],
+    )
+    assert {item["lead_id"] for item in result["existing_schedule"]} == {"callback"}
+    assert result["minimum_additional_numbers"] == 1
+    assert any(item["lead_id"] == "callback" for item in result["expanded_schedule"])
+
+
+def test_repeated_time_windows_do_not_allocate_a_matrix_per_lead():
+    from app.optimization.capacity import Assignment, work_items
+
+    end = NOW + timedelta(hours=2)
+    work, _ = work_items([lead(str(i)) for i in range(5000)], NOW, end, {"max_attempts": 1})
+    slots = [(NOW + timedelta(minutes=2 * i), 20) for i in range(60)]
+    tracemalloc.start()
+    try:
+        assignment = Assignment(work, slots, NOW, {}, 120, 1200)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert assignment.allowed and peak < 1024 * 1024, f"Time-window workspace used {peak} bytes"
