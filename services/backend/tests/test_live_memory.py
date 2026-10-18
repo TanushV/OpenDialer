@@ -224,6 +224,18 @@ def test_unknown_memory_replacement_is_rejected():
         )
 
 
+def test_authoritative_commitments_are_not_copied_into_generated_call_memory():
+    state = build_context(
+        [],
+        version=1,
+        facts=[],
+        commitments=[{"id": "prior-task", "action": "Return call", "status": "confirmed"}],
+    )
+    assert not persistent_state(state)["commitments"], (
+        "Prior tasks already have a current authoritative context field; copying them keeps stale promises"
+    )
+
+
 def test_memory_bounds_keep_unresolved_context_and_report_compression():
     items = [
         {
@@ -354,3 +366,45 @@ async def test_bounded_backlog_is_drained_without_an_additional_turn(workspace, 
     assert len(requests) == 2, (
         "Bounded catch-up should consume the remaining chunks, not pay for each queued event"
     )
+
+
+@pytest.mark.asyncio
+async def test_rejected_advice_does_not_drop_valid_interpretation(workspace, app, monkeypatch):
+    call, p, _, _ = setup(workspace, app, monkeypatch)
+    service = app.state.service
+    original = service.configured_coach
+
+    def configured(p):
+        provider, route = original(p)
+        suggest = provider.suggest
+
+        async def invalid_advice(*args, **kwargs):
+            result = await suggest(*args, **kwargs)
+            result["say_or_ask"] = "Our price is $99999."
+            return result
+
+        provider.suggest = invalid_advice
+        return provider, route
+
+    monkeypatch.setattr(service, "configured_coach", configured)
+    turn(service, p, call, "valid-observation")
+    result = await service.coach_turn(p, call["id"])
+    assert result["action"] == "NO_ACTION"
+    analysis = service.analysis(p, call["id"])
+    assert analysis["call_memory"]["rundown_points"]
+    assert analysis["interpretation_coverage"]["interpreted_segments"] == 1
+
+
+@pytest.mark.asyncio
+async def test_processed_nearly_expired_raw_does_not_starve_the_new_turn(workspace, app, clock, monkeypatch):
+    call, p, requests, changes = setup(workspace, app, monkeypatch)
+    service = app.state.service
+    turn(service, p, call, "old")
+    await service.coach_turn(p, call["id"])
+    clock.now += timedelta(seconds=299)
+    turn(service, p, call, "new")
+    changes["during"] = lambda: setattr(clock, "now", clock.now + timedelta(seconds=2))
+    await service.coach_turn(p, call["id"])
+    assert "old" not in {item["segment_id"] for item in requests[-1]["recent_dialogue"]}
+    assert requests[-1]["state"]["rundown_points"], "Retain the old meaning without near-expiry raw text"
+    assert service.analysis(p, call["id"])["interpretation_coverage"]["interpreted_segments"] == 2
