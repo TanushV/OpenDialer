@@ -201,6 +201,62 @@ async def test_generated_slots_fill_template_without_replacing_the_seller_script
 
 
 @pytest.mark.asyncio
+async def test_preparation_cache_uses_selected_pointer_not_history_timestamp(workspace, app, monkeypatch):
+    from app.db import get, put
+
+    configure(workspace)
+    service, lead_id = app.state.service, workspace["lead_ids"][0]
+    requests = []
+
+    class Provider:
+        async def complete(self, prompt, context, schema):
+            requests.append(context)
+            return InferenceResult(
+                {
+                    "lead_id": lead_id,
+                    "slots": {
+                        "relevance": {"text": "", "fact_ids": []},
+                        "proof": {"text": "", "fact_ids": []},
+                    },
+                },
+                {"cost": 0.001},
+                f"selected-cache-{len(requests)}",
+            )
+
+    monkeypatch.setattr(service, "inference", lambda *args: Provider())
+    await service.prepare(p(workspace), [lead_id])
+    with service.db.transaction() as s:
+        lead = get(s, "leads", lead_id)
+        selected = get(s, "script_versions", lead.data["preparation"]["script_id"])
+        put(
+            s,
+            "script_versions",
+            lead.tenant_id,
+            lead.seller_id,
+            {**selected.data, "input_cache_key": "historical-unselected-input"},
+            now=service.clock() + timedelta(seconds=1),
+        )
+    await service.prepare(p(workspace), [lead_id])
+    assert len(requests) == 1, "An unselected historical script must not cause another paid request"
+
+
+@pytest.mark.asyncio
+async def test_returning_to_an_existing_template_repoints_the_prepared_packet(workspace, app):
+    configure(workspace)
+    service, lead_id = app.state.service, workspace["lead_ids"][0]
+    await service.prepare(p(workspace), [lead_id])
+    first = service.packet(p(workspace), lead_id)["script"]["script_version"]
+    configure(workspace, script_template={**TEMPLATE, "closing_question": "Would another discussion help?"})
+    await service.prepare(p(workspace), [lead_id])
+    assert service.packet(p(workspace), lead_id)["script"]["script_version"] != first
+    configure(workspace)
+    await service.prepare(p(workspace), [lead_id])
+    packet = service.packet(p(workspace), lead_id)
+    assert packet["preparation"]["status"] == "fallback"
+    assert packet["script"]["script_version"] == first
+
+
+@pytest.mark.asyncio
 async def test_unsupported_slot_is_rejected_even_without_a_claims_list(workspace, app, monkeypatch):
     configure(workspace)
     service, lead_id = app.state.service, workspace["lead_ids"][0]
