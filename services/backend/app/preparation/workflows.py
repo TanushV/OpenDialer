@@ -96,7 +96,27 @@ class Preparation:
             state["status"] = "stale" if state.get("script_id") else "missing"
         return state
 
-    def selected_script(self, s, p, lead, *, facts=None, variant_id=None):
+    def script_evidence(self, s, p, lead, script):
+        model = MODELS["research_facts"]
+        return (
+            [
+                doc(row)
+                for row in self.context_rows(
+                    s,
+                    p,
+                    "research_facts",
+                    lead.data.get("domain"),
+                    model.id.in_(script.get("fact_ids_used", [])[:32]),
+                    model.ctx_status == "supported",
+                    model.ctx_expires_at > self.clock(),
+                    limit=32,
+                )
+            ]
+            if script.get("fact_ids_used")
+            else []
+        )
+
+    def selected_script(self, s, p, lead, *, variant_id=None):
         state = self.preparation_state(s, p, lead)
         pointer = state.get("script_id")
         row = s.get(MODELS["script_versions"], pointer) if pointer else None
@@ -108,22 +128,10 @@ class Preparation:
             row = None
         if not pointer:
             # Compatibility reader until the legacy workspace migration is verified.
-            candidates = [r for r in self.scoped(s, "script_versions", p) if r.data["lead_id"] == lead.id]
-            row = max(candidates, key=lambda r: (r.created_at, r.id), default=None)
+            row = next(iter(self.context_rows(s, p, "script_versions", lead.id, limit=1)), None)
         script = dict(row.data) if row else self.fallback_script(s, p, lead)
-        if facts is None and script.get("fact_ids_used"):
-            model = MODELS["research_facts"]
-            facts = [
-                doc(row)
-                for row in s.scalars(
-                    select(model).where(
-                        model.tenant_id == p["tenant_id"],
-                        model.seller_id == p["seller_id"],
-                        model.id.in_(script["fact_ids_used"]),
-                    )
-                )
-                if row.data.get("status") == "supported" and dt(row.data["expires_at"]) > self.clock()
-            ]
+        # Validate the script's actual evidence, independently of the latest-facts page.
+        facts = self.script_evidence(s, p, lead, script)
         current = self.preparation_settings(s, p)["script_template"]
         stale = script.get("template_version", "legacy-playbook") != template_version(current)
         if row and not script.get("fallback"):
@@ -131,18 +139,14 @@ class Preparation:
                 "model_reviewed",
                 "approved_template",
             }
-        if facts is not None:
-            versions = {fact["fact_id"]: fact["version"] for fact in facts}
-            stale = stale or any(
-                versions.get(key) != version for key, version in script.get("evidence_versions", {}).items()
-            )
+        versions = {fact["fact_id"]: fact["version"] for fact in facts}
+        stale = stale or any(
+            versions.get(key) != version for key, version in script.get("evidence_versions", {}).items()
+        )
         if (
             state["status"] == "stale"
             or stale
-            or (
-                facts is not None
-                and not set(script.get("fact_ids_used", [])).issubset({f["fact_id"] for f in facts})
-            )
+            or (not set(script.get("fact_ids_used", [])).issubset({f["fact_id"] for f in facts}))
         ):
             script = self.fallback_script(s, p, lead)
             script["prohibited_claim_checks"] = [

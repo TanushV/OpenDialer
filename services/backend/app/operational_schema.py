@@ -1,5 +1,7 @@
 """Indexed non-content metadata for selecting work without decrypting its history."""
 
+import hashlib
+import hmac
 from datetime import UTC, datetime
 
 from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, String, inspect, text
@@ -21,6 +23,47 @@ HOT_TABLES = {
     "scheduling_plans",
     "usage_ledger",
 }
+
+# Only the relationship/expiry fields used to assemble a single call's context.
+CONTEXT_FIELDS = {
+    "research_facts": ("domain", "status", "expires_at"),
+    "research_sources": ("domain", None, None),
+    "script_versions": ("lead_id", None, None),
+    "consent_evidence": ("endpoint_id", None, None),
+    "transcript_segments": ("call_id", None, "raw_expires_at"),
+}
+
+
+def context_key(kind, value, secret):
+    if value is None:
+        return None
+    if CONTEXT_FIELDS[kind][0] == "domain":
+        return hmac.new(secret, value.lower().rstrip(".").encode(), hashlib.sha256).hexdigest()
+    return value
+
+
+def context_columns(kind):
+    _, status, expiry = CONTEXT_FIELDS[kind]
+    return {
+        "ctx_key": Column(String(100), nullable=True),
+        "ctx_index_version": Column(Integer, nullable=True),
+        **({"ctx_status": Column(String(40), nullable=True)} if status else {}),
+        **({"ctx_expires_at": Column(DateTime(timezone=True), nullable=True)} if expiry else {}),
+    }
+
+
+def context_indexes(kind):
+    _, status, expiry = CONTEXT_FIELDS[kind]
+    return (
+        Index(
+            f"ix_{kind}_context",
+            "tenant_id",
+            "seller_id",
+            "ctx_key",
+            *(["ctx_status"] if status else []),
+            *(["ctx_expires_at"] if expiry else ["created_at"]),
+        ),
+    )
 
 
 def columns():
@@ -70,7 +113,16 @@ def as_time(value):
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
 
 
-def sync_columns(row):
+def sync_columns(row, lookup_key=None):
+    if row.__tablename__ in CONTEXT_FIELDS:
+        key, status, expiry = CONTEXT_FIELDS[row.__tablename__]
+        row.ctx_key = context_key(row.__tablename__, row.data.get(key), lookup_key)
+        if status:
+            row.ctx_status = row.data.get(status)
+        if expiry:
+            row.ctx_expires_at = as_time(row.data.get(expiry))
+        row.ctx_index_version = 1
+        return
     if row.__tablename__ == "work_intervals":
         row.op_owner_id = row.data["rep_id"]
         return
@@ -99,9 +151,10 @@ def ensure_columns(connection, metadata):
     """Additive DDL only; authenticated bounded backfill happens under the authority key."""
     inspector = inspect(connection)
     existing = set(inspector.get_table_names())
-    for name in sorted(HOT_TABLES & existing):
+    for name in sorted((HOT_TABLES | CONTEXT_FIELDS.keys()) & existing):
         actual = {c["name"] for c in inspector.get_columns(name)}
-        for column, definition in columns().items():
+        definitions = columns() if name in HOT_TABLES else context_columns(name)
+        for column, definition in definitions.items():
             if column not in actual:
                 sql_type = definition.type.compile(dialect=connection.dialect)
                 connection.execute(text(f'ALTER TABLE "{name}" ADD COLUMN "{column}" {sql_type}'))  # noqa: S608 fixed table/column allowlists

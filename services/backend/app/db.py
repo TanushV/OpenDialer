@@ -36,7 +36,16 @@ from sqlalchemy.orm import (
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.types import TypeDecorator
 
-from app.operational_schema import HOT_TABLES, columns, ensure_columns, indexes, sync_columns
+from app.operational_schema import (
+    CONTEXT_FIELDS,
+    HOT_TABLES,
+    columns,
+    context_columns,
+    context_indexes,
+    ensure_columns,
+    indexes,
+    sync_columns,
+)
 
 _DATABASE_CIPHER = contextvars.ContextVar("opendialer_database_cipher", default=None)
 _DATABASE_LOOKUP_KEY = contextvars.ContextVar("opendialer_database_lookup_key", default=None)
@@ -171,10 +180,12 @@ for _name in TABLES:
         {
             "__tablename__": _name,
             **(columns() if _name in HOT_TABLES else {}),
+            **(context_columns(_name) if _name in CONTEXT_FIELDS else {}),
             **({"op_owner_id": Column(String(36), nullable=False)} if _name == "work_intervals" else {}),
             "__table_args__": (
                 UniqueConstraint("tenant_id", "seller_id", "external_key", name=f"uq_{_name}_key"),
                 *(indexes(_name) if _name in HOT_TABLES else ()),
+                *(context_indexes(_name) if _name in CONTEXT_FIELDS else ()),
                 *(
                     (Index("ix_work_intervals_owner", "tenant_id", "seller_id", "op_owner_id", "created_at"),)
                     if _name == "work_intervals"
@@ -300,15 +311,16 @@ class Database:
                 connection.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
 
     def backfill_operational_columns(self):
-        for kind in sorted(HOT_TABLES):
+        for kind in sorted(HOT_TABLES | CONTEXT_FIELDS.keys()):
             model = MODELS[kind]
+            version = model.op_index_version if kind in HOT_TABLES else model.ctx_index_version
             while True:
                 with self.transaction() as s:
-                    batch = list(s.scalars(select(model).where(model.op_index_version.is_(None)).limit(500)))
+                    batch = list(s.scalars(select(model).where(version.is_(None)).limit(500)))
                     if not batch:
                         break
                     for row in batch:
-                        sync_columns(row)  # Does not alter the original content, ID or source version.
+                        sync_columns(row, self.identity_key)  # Preserve content, IDs and source versions.
 
     @contextmanager
     def transaction(self, write=True, *, session=None):
@@ -401,7 +413,7 @@ def prefetch(s, p, specifications):
 def index_pending_rows(session, *_):
     for row in session.new | session.dirty:
         if isinstance(row, Document):
-            sync_columns(row)
+            sync_columns(row, _DATABASE_LOOKUP_KEY.get())
 
 
 def get(s, kind, object_id, tenant_id=None):

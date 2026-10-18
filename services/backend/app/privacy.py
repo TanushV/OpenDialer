@@ -237,7 +237,17 @@ class SpeechPrivacy:
         )
 
     def transcript_rows(self, s, p, call_id, *, metadata=None):
-        metadata = self.transcript_metadata(s, p, call_id) if metadata is None else metadata
+        if metadata is None:
+            from app.db import MODELS
+
+            metadata = self.context_rows(
+                s,
+                p,
+                "transcript_segments",
+                call_id,
+                MODELS["transcript_segments"].ctx_expires_at > self.clock(),
+                limit=self.raw.per_call_entries,
+            )
         result = []
         for row in metadata:
             item = self.raw.get(self.raw_key(p, call_id, row.data["segment_id"]))

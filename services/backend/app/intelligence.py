@@ -6,9 +6,11 @@ import re
 import time
 from datetime import timedelta
 
+from sqlalchemy import case, func, select
+
 from app.accounting import RequestAccounting
 from app.coaching.workflows import LiveHelper
-from app.db import audit, doc, emit, get, put, rows, uid, update
+from app.db import MODELS, audit, doc, emit, get, put, rows, uid, update
 from app.postcall.analysis import build_analysis
 from app.preparation.templates import SLOT_SCHEMA, fill, render, template_version
 from app.preparation.workflows import Preparation
@@ -147,50 +149,110 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
     def packet(self, p, lead_id):
         with self.db.transaction(False) as s:
             lead = self.required(s, "leads", lead_id, p)
+            fact_model = MODELS["research_facts"]
             facts = [
                 doc(r)
-                for r in self.scoped(s, "research_facts", p)
-                if r.data.get("domain") == lead.data["domain"]
-                and r.data.get("status") == "supported"
-                and dt(r.data["expires_at"]) > self.clock()
+                for r in self.context_rows(
+                    s,
+                    p,
+                    "research_facts",
+                    lead.data["domain"],
+                    fact_model.ctx_status == "supported",
+                    fact_model.ctx_expires_at > self.clock(),
+                    limit=32,
+                )
             ]
-            reservations = [
-                r
-                for r in self.scoped(s, "reservations", p)
-                if r.data["lead_id"] == lead.id and r.data["rep_id"] == p["user_id"]
-            ]
-            selected = (
-                max(reservations, key=lambda r: r.created_at).data.get("treatment_variant_id")
-                if reservations
-                else None
+            reservations = self.lead_records(
+                s,
+                p,
+                "reservations",
+                lead.id,
+                MODELS["reservations"].op_owner_id == p["user_id"],
+                limit=1,
+                newest=True,
             )
-            script, preparation = self.selected_script(s, p, lead, facts=facts, variant_id=selected)
-            active_calls = [
-                r
-                for r in self.lead_records(s, p, "call_attempts", lead.id)
-                if r.data["state"] not in {"ENDED", "FINALIZED", "FAILED"} and r.data.get("script_snapshot")
-            ]
-            if active_calls:
-                script = dict(max(active_calls, key=lambda r: r.created_at).data["script_snapshot"])
+            selected = reservations[0].data.get("treatment_variant_id") if reservations else None
+            script, preparation = self.selected_script(s, p, lead, variant_id=selected)
+            call_model = MODELS["call_attempts"]
+            active_calls = self.lead_records(
+                s,
+                p,
+                "call_attempts",
+                lead.id,
+                call_model.op_status.not_in(["ENDED", "FINALIZED", "FAILED"]),
+                limit=1,
+                newest=True,
+            )
+            if active_calls and active_calls[0].data.get("script_snapshot"):
+                script = dict(active_calls[0].data["script_snapshot"])
+            facts = list({f["id"]: f for f in [*facts, *self.script_evidence(s, p, lead, script)]}.values())
+            source_model = MODELS["research_sources"]
             sources = [
                 doc(r)
-                for r in self.scoped(s, "research_sources", p)
-                if r.data.get("domain") == lead.data["domain"]
+                for r in s.scalars(
+                    select(source_model).where(
+                        source_model.tenant_id == p["tenant_id"],
+                        source_model.seller_id == p["seller_id"],
+                        source_model.id.in_([f.get("source_id") for f in facts]),
+                    )
+                )
             ]
-            binding = next(
-                (r for r in self.scoped(s, "lead_number_bindings", p) if r.data["lead_id"] == lead.id), None
-            )
-            calls = [doc(r) for r in self.lead_records(s, p, "call_attempts", lead.id)]
-            commitments = [doc(r) for r in self.lead_records(s, p, "commitments", lead.id)]
+            binding = self._by_key(s, p, "lead_number_bindings", lead.id)
+            calls = [
+                doc(r)
+                for r in reversed(self.lead_records(s, p, "call_attempts", lead.id, limit=20, newest=True))
+            ]
+            history = {}
+            for kind in ("commitments", "followup_tasks"):
+                model = MODELS[kind]
+                history[kind] = [
+                    doc(r)
+                    for r in s.scalars(
+                        select(model)
+                        .where(
+                            model.tenant_id == p["tenant_id"],
+                            model.seller_id == p["seller_id"],
+                            model.op_lead_id == lead.id,
+                        )
+                        .order_by(
+                            case((model.op_status.in_(["completed", "cancelled", "retracted"]), 1), else_=0),
+                            model.op_at.desc(),
+                            model.id.desc(),
+                        )
+                        .limit(20)
+                    )
+                ]
+            commitments = history["commitments"]
+            totals = {}
+            for kind in ("call_attempts", "commitments", "followup_tasks"):
+                model = MODELS[kind]
+                totals[kind] = s.scalar(
+                    select(func.count())
+                    .select_from(model)
+                    .where(
+                        model.tenant_id == p["tenant_id"],
+                        model.seller_id == p["seller_id"],
+                        model.op_lead_id == lead.id,
+                    )
+                )
             return {
-                **self.prospect_context_in(s, p, lead, calls, commitments),
+                **self.prospect_context_in(s, p, lead, calls, commitments, history["followup_tasks"]),
                 "lead": {**doc(lead), "suppressed": self.suppressed(s, p, lead.data["phone"])},
                 "script": script,
                 "preparation": preparation,
-                "research": {"facts": facts, "sources": sources},
+                "research": {"facts": facts, "sources": sources, "fact_limit": 64},
                 "bound_number_id": binding.data["number_id"] if binding else None,
                 "previous_calls": calls,
                 "commitments": commitments,
+                "context_coverage": {
+                    "calls_total": totals["call_attempts"],
+                    "calls_omitted": max(0, totals["call_attempts"] - len(calls)),
+                    "commitments_total": totals["commitments"],
+                    "commitments_omitted": max(0, totals["commitments"] - len(commitments)),
+                    "tasks_total": totals["followup_tasks"],
+                    "tasks_omitted": max(0, totals["followup_tasks"] - len(history["followup_tasks"])),
+                    "scope": "Most recent 20 calls and up to 20 commitments/tasks, with unresolved work first. Full records remain retained.",
+                },
             }
 
     def queue_research(self, p, lead_ids):

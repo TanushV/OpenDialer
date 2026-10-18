@@ -151,6 +151,14 @@ export interface Fact {
   expires_at: string;
 }
 export interface Packet {
+  context_coverage?: {
+    calls_total: number;
+    calls_omitted: number;
+    commitments_total: number;
+    commitments_omitted: number;
+    tasks_total: number;
+    tasks_omitted: number;
+  };
   review_token?: string;
   preparation?: { status: string; as_of?: string };
   tasks?: FollowupTask[];

@@ -60,6 +60,26 @@ class Service(ReservationPlanner):
     def scoped(self, s, kind, p):
         return rows(s, kind, p["tenant_id"], p["seller_id"])
 
+    def context_rows(self, s, p, kind, value, *conditions, limit=100):
+        from app.operational_schema import context_key
+
+        if not value:
+            return []
+        model = MODELS[kind]
+        return list(
+            s.scalars(
+                select(model)
+                .where(
+                    model.tenant_id == p["tenant_id"],
+                    model.seller_id == p["seller_id"],
+                    model.ctx_key == context_key(kind, value, self.db.identity_key),
+                    *conditions,
+                )
+                .order_by(model.created_at.desc(), model.id.desc())
+                .limit(limit)
+            )
+        )
+
     def carrier(self, tenant_id):
         if self.settings.simulation:
             return self.simulated_carrier

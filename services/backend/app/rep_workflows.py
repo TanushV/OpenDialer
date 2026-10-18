@@ -131,7 +131,7 @@ class RepWorkflows:
             emit(s, p["tenant_id"], "lead.goal_updated", lead, self.clock())
             return doc(lead)
 
-    def prospect_context_in(self, s, p, lead, calls, commitments):
+    def prospect_context_in(self, s, p, lead, calls, commitments, tasks):
         from app.optimization.conversations import active_observations
         from app.optimization.learning import freeze_features, funnel_predictions
 
@@ -164,7 +164,6 @@ class RepWorkflows:
             else []
         )
         current = next((n.data["notes"] for n in notes if not n.data.get("stale")), {})
-        tasks = [doc(t) for t in self.lead_records(s, p, "followup_tasks", lead.id)]
         if lead.data.get("outreach_hold"):
             why = "Outreach paused: " + lead.data["outreach_hold"].replace("_", " ")
         elif lead.data.get("callback_due_at"):
@@ -198,7 +197,7 @@ class RepWorkflows:
                 "last_outcome": lead.data.get("last_outcome"),
                 "meeting": lead.data.get("meeting"),
                 "next_question": "Confirm the agreed next step."
-                if any(t["status"] in ACTIVE_TASKS for t in tasks)
+                if any(t.get("status") in ACTIVE_TASKS for t in tasks)
                 else "What would make this conversation useful for you?",
                 "raw_evidence": "Only current five-minute chunks are available; this brief retains derived notes.",
             },
@@ -218,7 +217,7 @@ class RepWorkflows:
             },
         }
 
-    def lead_records(self, s, p, kind, lead_id):
+    def lead_records(self, s, p, kind, lead_id, *conditions, limit=None, newest=False):
         model = MODELS[kind]
         return list(
             s.scalars(
@@ -227,8 +226,12 @@ class RepWorkflows:
                     model.tenant_id == p["tenant_id"],
                     model.seller_id == p["seller_id"],
                     model.op_lead_id == lead_id,
+                    *conditions,
                 )
-                .order_by(model.op_at, model.id)
+                .order_by(
+                    model.op_at.desc() if newest else model.op_at, model.id.desc() if newest else model.id
+                )
+                .limit(limit)
             )
         )
 

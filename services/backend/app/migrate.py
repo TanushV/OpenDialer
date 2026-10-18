@@ -24,7 +24,7 @@ def migrate_database(url):
                 actual = {c["name"] for c in inspect(engine).get_columns(table.name)}
                 if actual not in (
                     set(table.columns.keys()),
-                    {name for name in table.columns.keys() if not name.startswith("op_")},
+                    {name for name in table.columns.keys() if not name.startswith(("op_", "ctx_"))},
                 ):
                     raise RuntimeError(
                         "Unversioned schema differs from the known bootstrap schema; restore/review before migration"

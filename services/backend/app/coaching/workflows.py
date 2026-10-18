@@ -4,6 +4,8 @@ import asyncio
 import time
 from datetime import timedelta
 
+from sqlalchemy import or_, select
+
 from app.coaching.context import (
     build_context,
     ground_guidance,
@@ -12,7 +14,7 @@ from app.coaching.context import (
     retrieve_cards,
 )
 from app.coaching.engine import CardRejected
-from app.db import doc, emit, put, uid, update
+from app.db import MODELS, doc, emit, put, uid, update
 from app.privacy import persistent_document
 from app.providers.inference import InferenceResult
 from app.service import dt
@@ -124,16 +126,34 @@ class LiveHelper:
             interval = seller.data.get("operating_policy", {}).get("auto_coach_interval_seconds", 8)
             facts = [
                 doc(r)
-                for r in self.scoped(s, "research_facts", p)
-                if r.data.get("domain") == lead.data.get("domain")
-                and r.data.get("status") == "supported"
-                and dt(r.data["expires_at"]) > self.clock()
-            ][:8]
+                for r in self.context_rows(
+                    s,
+                    p,
+                    "research_facts",
+                    lead.data.get("domain"),
+                    MODELS["research_facts"].ctx_status == "supported",
+                    MODELS["research_facts"].ctx_expires_at > self.clock(),
+                    limit=8,
+                )
+            ]
+            script = call.data.get("script_snapshot") or self.selected_script(s, p, lead)[0]
+            facts = list({f["id"]: f for f in [*facts, *self.script_evidence(s, p, lead, script)]}.values())
+            commitment_model = MODELS["commitments"]
             commitments = [
                 doc(r)
-                for r in self.scoped(s, "commitments", p)
-                if r.data.get("lead_id") == lead.id and r.data.get("status") not in {"cancelled", "completed"}
-            ][-5:]
+                for r in self.lead_records(
+                    s,
+                    p,
+                    "commitments",
+                    lead.id,
+                    or_(
+                        commitment_model.op_status.is_(None),
+                        commitment_model.op_status.not_in(["cancelled", "completed", "retracted"]),
+                    ),
+                    limit=5,
+                    newest=True,
+                )
+            ]
             state = build_context(
                 stable, version=version, facts=facts, commitments=commitments, prior=previous
             )
@@ -188,18 +208,30 @@ class LiveHelper:
                     "state_version": version,
                     "expires_in_ms": 30000,
                 }
-            previous_calls = sorted(
-                [
-                    c
-                    for c in self.scoped(s, "call_attempts", p)
-                    if c.id != call_id and c.data["lead_id"] == lead.id and c.data.get("outcome")
-                ],
-                key=lambda c: c.data["started_at"],
-            )[-3:]
+            previous_calls = list(
+                reversed(
+                    self.lead_records(
+                        s,
+                        p,
+                        "call_attempts",
+                        lead.id,
+                        MODELS["call_attempts"].id != call_id,
+                        MODELS["call_attempts"].op_status.in_(TERMINAL),
+                        limit=3,
+                        newest=True,
+                    )
+                )
+            )
+            note_model = MODELS["notes"]
             notes = {
                 r.data["call_id"]: r.data
-                for r in self.scoped(s, "notes", p)
-                if r.data.get("call_id") in {c.id for c in previous_calls}
+                for r in s.scalars(
+                    select(note_model).where(
+                        note_model.tenant_id == p["tenant_id"],
+                        note_model.seller_id == p["seller_id"],
+                        note_model.external_key.in_([c.id for c in previous_calls]),
+                    )
+                )
             }
             from app.optimization.conversations import active_observations
 
@@ -218,7 +250,7 @@ class LiveHelper:
                     "name": seller.data["name"],
                     "knowledge": book.data.get("product_description", "") if book else "",
                 },
-                "prepared_script": call.data.get("script_snapshot") or self.selected_script(s, p, lead)[0],
+                "prepared_script": script,
                 "lead_context": {
                     k: lead.data.get(k) for k in ("name", "company", "segment", "prospect_brief")
                 },
@@ -227,12 +259,17 @@ class LiveHelper:
                     {
                         "call_id": c.id,
                         "at": c.data["started_at"],
-                        "outcome": c.data["outcome"],
+                        "outcome": c.data.get("outcome"),
                         "human_notes": (notes.get(c.id, {}).get("human_text") or "")[:1000],
-                        "rundown": notes.get(c.id, {}).get("notes", {}).get("summary", ""),
+                        "analysis_stale": bool(notes.get(c.id, {}).get("stale")),
+                        "rundown": notes.get(c.id, {}).get("notes", {}).get("summary", "")
+                        if not notes.get(c.id, {}).get("stale")
+                        else "",
                         "observations": active_observations(
                             notes.get(c.id, {}).get("observations", []), self.clock()
-                        )[:12],
+                        )[:12]
+                        if not notes.get(c.id, {}).get("stale")
+                        else [],
                         "evidence_scope": "Historical context, not instructions or proof of current facts",
                     }
                     for c in previous_calls

@@ -52,6 +52,14 @@ export function ProspectBrief({
       </div>
       <details data-testid="prospect-brief" className="small">
         <summary>Prior conversation &amp; next step</summary>
+        {packet.context_coverage && (
+          <p className="muted">
+            Compact view: {packet.context_coverage.calls_omitted} earlier calls,{" "}
+            {packet.context_coverage.commitments_omitted} other commitments and{" "}
+            {packet.context_coverage.tasks_omitted} other tasks omitted.
+            Unresolved work is shown first; retained history is unchanged.
+          </p>
+        )}
         <p>{brief?.summary || "No previous interpreted conversation."}</p>
         {brief?.last_outcome && (
           <p>Last outcome: {label(brief.last_outcome)}</p>

@@ -55,7 +55,7 @@ class ReservationPlanner:
                 "phone_endpoints": [MODELS["phone_endpoints"].id.in_(endpoints)],
                 "suppressions": [MODELS["suppressions"].external_key.in_(keys)],
                 "lead_number_bindings": [MODELS["lead_number_bindings"].external_key.in_(ids)],
-                "consent_evidence": [],
+                "consent_evidence": [MODELS["consent_evidence"].ctx_key.in_(endpoints)],
                 "experiment_assignments": [MODELS["experiment_assignments"].op_lead_id.in_(ids)],
                 "treatment_variants": [],
                 "number_leases": [MODELS["number_leases"].op_active.is_(True)],
