@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 
+import pytest
 from app.db import MODELS, get, put, update
 from conftest import ready, start
 from sqlalchemy import inspect, select
@@ -297,3 +298,115 @@ def test_context_index_backfill_preserves_identity_version_and_human_data(tmp_pa
                 == "saved"
             )
         db.engine.dispose()
+
+
+def test_unknown_commitment_status_stays_ahead_of_completed_history(workspace, app, clock):
+    service, p, call, _, _ = history(workspace, app, clock, count=25)
+    with service.db.transaction() as s:
+        promise = put(
+            s,
+            "commitments",
+            p["tenant_id"],
+            p["seller_id"],
+            {"lead_id": call["lead_id"], "action": "Confirm the older unclassified promise"},
+            now=clock.now - timedelta(days=30),
+        )
+    assert promise.id in {item["id"] for item in service.packet(p, call["lead_id"])["commitments"]}
+
+
+def test_packet_tasks_are_bounded_with_open_work_ahead_of_closed_history(workspace, app, clock, monkeypatch):
+    service, p, call, _, _ = history(workspace, app, clock, count=0)
+    with service.db.transaction() as s:
+        for i in range(300):
+            put(
+                s,
+                "followup_tasks",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    "lead_id": call["lead_id"],
+                    "status": "completed",
+                    "action": f"Old task {i}",
+                },
+                now=clock.now,
+            )
+        task = put(
+            s,
+            "followup_tasks",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "lead_id": call["lead_id"],
+                "status": "open",
+                "action": "Due callback",
+            },
+            now=clock.now - timedelta(days=30),
+        )
+    decrypted = count_decrypted(app, monkeypatch)
+    packet = service.packet(p, call["lead_id"])
+    assert len(packet["tasks"]) <= 20
+    assert packet["tasks"][0]["id"] == task.id
+    assert packet["context_coverage"]["tasks_omitted"] == 281
+    assert len(decrypted) <= 100
+
+
+@pytest.mark.parametrize("domain", [None, ""])
+def test_missing_company_domain_does_not_merge_unknown_company_evidence(workspace, app, clock, domain):
+    service, p, call, fact_id, _ = history(workspace, app, clock, count=0)
+    with service.db.transaction() as s:
+        update(get(s, "leads", call["lead_id"]), domain=domain)
+        update(get(s, "research_facts", fact_id), domain=domain)
+    assert not service.packet(p, call["lead_id"])["research"]["facts"]
+    assert not service._help_context(p, call["id"], True, "Context please")[0]["facts"]
+
+
+@pytest.mark.asyncio
+async def test_prepared_script_keeps_its_older_support_when_new_facts_fill_the_context_page(
+    workspace, app, clock, monkeypatch
+):
+    from app.providers.inference import InferenceResult
+    from test_preparation_completion import configure
+
+    configure(workspace)
+    service, p, lead_id = app.state.service, principal(workspace), workspace["lead_ids"][0]
+    await service.prepare(p, [lead_id])
+    fact = service.packet(p, lead_id)["research"]["facts"][0]
+
+    class Provider:
+        async def complete(self, instructions, context, schema):
+            return InferenceResult(
+                {
+                    "lead_id": lead_id,
+                    "slots": {
+                        "relevance": {"text": fact["statement"], "fact_ids": [fact["fact_id"]]},
+                        "proof": {"text": "", "fact_ids": []},
+                    },
+                },
+                {"cost": 0.001},
+                "old-fact-script",
+            )
+
+    monkeypatch.setattr(service, "inference", lambda *args: Provider())
+    await service.prepare(p, [lead_id])
+    assert service.packet(p, lead_id)["script"]["fallback"] is False
+    with service.db.transaction() as s:
+        for i in range(40):
+            put(
+                s,
+                "research_facts",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    **fact,
+                    "fact_id": f"new-{i}",
+                    "statement": f"More recent supported fact {i}.",
+                },
+                now=clock.now + timedelta(seconds=1),
+            )
+    packet = service.packet(p, lead_id)
+    assert packet["script"]["fallback"] is False
+    assert fact["fact_id"] in {item["fact_id"] for item in packet["research"]["facts"]}
+    # A bound reference must still respect withdrawal and the current source version.
+    with service.db.transaction() as s:
+        update(get(s, "research_facts", fact["id"]), status="withdrawn")
+    assert service.packet(p, lead_id)["script"]["fallback"] is True
