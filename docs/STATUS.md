@@ -230,6 +230,8 @@ RED: billing-resolution-red.txt (22 failures, including 1,206 decrypted records 
 
 Scoped M1.06b only is checked. A broader SQLite/branch-coverage inventory is running in system-current-sqlite.txt to find cross-system regressions; it is not yet an accepted full run. All other unchecked plan items remain open, including complete effect accounting and restore reconciliation. Installed Mac remains unchanged 0.2.1, with no new manual/native acceptance, provider request, paid inference, purchase or reinstall.
 
+2026-10-18 SYSTEM INVENTORY / WORKSPACE TESTS FIRST. Full current SQLite run at billing source bc75ab1: **1,083 passed**, seven warnings, 561.66s with branch instrumentation (system-current-sqlite.txt / system-current-coverage.json). This is software inventory, not completion of open milestones or native/provider acceptance. New workspace regressions reproduce synchronous full-history/integrity work, 2,025 decrypted records for a 400-lead history, missing resumable pages, and raw historical job-error/registry payload exposure. Initial backend RED: **10 failed / three prior passes** (workspace-pages-red.txt). New browser contracts cover pending totals, resumable encrypted search and named older calls. No product changes precede these tests. M2.02b is open; preserve active/wrap-up/callback obligations while bounding ordinary reads.
+
 ## Historical record (superseded where the current contract differs)
 
 

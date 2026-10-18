@@ -810,6 +810,7 @@ Depends on M1 state contracts. Exit: A01, A08, A33, A50–A51 and the relevant s
 
 - [x] M2.01 Add scoped indexed operational columns and lookup keys; backfill resumably while keeping sensitive content encrypted.
 - [ ] M2.02 Introduce only the bulk repository methods needed by hot paths; remove all-history/per-candidate reads there.
+- [ ] M2.02b Bound workspace refresh/history pages, keep active calls and wrap-up reachable, search encrypted leads in resumable chunks, and reuse saved home metrics with visible freshness. No full integrity scan on ordinary refresh; preserve explicit preflight.
 - [x] M2.02a Index single-call/lead context and candidate consent reads; bound decrypted facts, speech, prior calls, commitments and tasks. Preserve required script evidence and human notes, prioritize unresolved work and disclose omitted history. Dual-database/browser and additive migration receipts are in STATUS.md. Workspace/report projections and full-load performance remain open.
 - [x] M2.03 Move ranking outside the atomic claim transaction and recheck authoritative policy before send.
 - [x] M2.04 Remove the process-wide read/write mutex and unrelated shared advisory fence; retain resource-specific concurrency guarantees.
