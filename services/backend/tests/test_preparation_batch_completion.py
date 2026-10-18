@@ -232,3 +232,72 @@ def test_changed_fact_statement_invalidates_a_previously_filled_slot(deferred, w
     assert result.status_code == 200, result.text
     assert result.json()["published"] == []
     assert result.json()["retry_lead_ids"] == [deferred["lead_id"]]
+
+
+def test_batch_budget_is_bound_to_its_intent_and_legacy_binding_is_repaired(deferred, workspace, app):
+    from app.db import update
+
+    service, principal = app.state.service, p(workspace)
+    with service.db.transaction() as s:
+        hold = next(
+            r
+            for r in service.scoped(s, "usage_ledger", principal)
+            if r.data.get("work_kind") == "script_batch"
+        )
+        assert hold.data["object_id"] == deferred["intent"]["id"]
+        update(hold, object_id=None)  # Actual installed-version reservation shape.
+        identity = hold.id
+    response = deferred["finish"]()
+    assert response.status_code == 200, response.text
+    with service.db.transaction(False) as s:
+        hold = service.required(s, "usage_ledger", identity, principal)
+        assert hold.data["object_id"] == deferred["intent"]["id"]
+        assert hold.data["cost_usd"] == 0.004
+
+
+def test_batch_creation_failure_cannot_leave_an_orphan_budget_hold(workspace, app, monkeypatch):
+    import app.preparation.batches as batches
+
+    service, principal = app.state.service, p(workspace)
+    service.vault.write(principal["tenant_id"], {"inference_mode": "api", "openai_api_key": "synthetic"})
+    original = batches.put
+
+    def fail_intent(s, kind, *args, **kwargs):
+        if kind == "command_outbox":
+            raise RuntimeError("Intent storage failed")
+        return original(s, kind, *args, **kwargs)
+
+    monkeypatch.setattr(batches, "put", fail_intent)
+    with pytest.raises(RuntimeError, match="Intent storage failed"):
+        workspace["client"].post(
+            "/v1/admin/batches/scripts",
+            headers=workspace["headers"],
+            json={
+                "lead_ids": workspace["lead_ids"][:1],
+                "idempotency_key": "no-orphan-hold",
+            },
+        )
+    with service.db.transaction(False) as s:
+        assert not [
+            r
+            for r in service.scoped(s, "usage_ledger", principal)
+            if r.data.get("work_kind") == "script_batch"
+        ]
+
+
+def test_legacy_batch_receipt_can_settle_its_original_unbound_hold(deferred, workspace, app):
+    from app.db import update
+
+    service, principal = app.state.service, p(workspace)
+    with service.db.transaction() as s:
+        hold = next(
+            r
+            for r in service.scoped(s, "usage_ledger", principal)
+            if r.data.get("work_kind") == "script_batch"
+        )
+        update(hold, object_id=None)
+        identity = hold.id
+    assert deferred["finish"]().status_code == 200
+    with service.db.transaction(False) as s:
+        hold = service.required(s, "usage_ledger", identity, principal)
+        assert hold.data["object_id"] == deferred["intent"]["id"] and hold.data["cost_usd"] == 0.004

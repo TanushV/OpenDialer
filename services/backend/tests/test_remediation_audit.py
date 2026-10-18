@@ -363,6 +363,7 @@ def test_negated_budget_approval_does_not_resolve_an_objection():
     prior = {
         "objections": [
             {
+                "id": "prior-budget-objection",
                 "text": "Spending remains unapproved.",
                 "status": "unresolved",
                 "evidence_segment_ids": ["s1"],
