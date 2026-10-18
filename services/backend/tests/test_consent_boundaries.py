@@ -149,3 +149,42 @@ def test_partial_journal_write_is_not_acknowledged(workspace, app, monkeypatch):
         in decision(app.state.service, principal(workspace), body["endpoint_id"]).reasons
     )
     assert not records(app.state.service, principal(workspace))
+
+
+@pytest.mark.parametrize("already_received", [False, True])
+def test_signed_speech_receipts_do_not_retain_revoked_content_or_report_false_loss(
+    workspace, app, already_received
+):
+    call = start(workspace)
+    service, p = app.state.service, principal(workspace)
+    event = {
+        "id": "revoked-speech-event",
+        "event_type": "call.transcription",
+        "payload": {
+            "call_control_id": call["provider_id"],
+            "transcription_data": {
+                "transcript": "Keep this speech out of the cache",
+                "is_final": True,
+                "transcription_track": "inbound",
+            },
+        },
+    }
+    if already_received:
+        receipt = asyncio.run(service.accept_webhook(p["tenant_id"], event, "same-body-hash"))
+        assert service.raw.get("webhook:" + receipt["receipt_id"])
+    assert (
+        submit(
+            workspace,
+            evidence(workspace, app, endpoint_id=call["endpoint_id"], permissions=["transcription"]),
+        ).status_code
+        == 200
+    )
+    if not already_received:
+        receipt = asyncio.run(service.accept_webhook(p["tenant_id"], event, "same-body-hash"))
+    assert service.raw.get("webhook:" + receipt["receipt_id"]) is None
+    result = asyncio.run(service.process_webhook(p["tenant_id"], receipt["receipt_id"]))
+    assert result["status"] == "processed"
+    with service.db.transaction(False) as s:
+        current = get(s, "call_attempts", call["id"])
+        assert not current.data.get("unprocessed_speech_events")
+        assert service.raw_status(current, []) == "permission_revoked"
