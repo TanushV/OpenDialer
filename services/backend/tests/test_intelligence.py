@@ -101,15 +101,22 @@ def test_revision_lineage_optout_and_manual_notes_survive_finalization(workspace
         json={"expected_version": first["notes_version"], "text": "Human corrected note"},
     )
     assert r.status_code == 200, r.text
-    assert transcript("Please do not call me again.", 2).status_code == 200
+    assert transcript("The existing contract is still under review.", 2).status_code == 200
     assert transcript("old contradiction", 1).status_code == 409
+    revised = c.get(f"/v1/calls/{call['id']}/analysis", headers=h).json()
+    assert revised["human_notes"] == "Human corrected note"
+    assert revised["notes"]["transcript_version"] == 2
+    assert revised["suggested_update"] is not None
+    assert len(revised["transcript"]) == 1
+    assert transcript("Please do not call me again.", 3).status_code == 200
+    ignored = transcript("old contradiction", 1)
+    assert ignored.status_code == 200 and ignored.json()["unavailable"] == "permission_revoked"
     c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
     c.post("/v1/admin/jobs/run", headers=h)
     final = c.get(f"/v1/calls/{call['id']}/analysis", headers=h).json()
     assert final["human_notes"] == "Human corrected note"
-    assert final["notes"]["transcript_version"] == 2
-    assert final["suggested_update"] is not None
-    assert len(final["transcript"]) == 1
+    assert final["raw_evidence_status"] == "permission_revoked"
+    assert final["transcript"] == []
     leads = c.get("/v1/workspace", headers=h).json()["leads"]
     assert next(x for x in leads if x["id"] == call["lead_id"])["suppressed"]
 
