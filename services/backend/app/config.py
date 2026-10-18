@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     secret_key: str = ""
     simulation: bool = False
     worker_enabled: bool = True
+    worker_queues: list[
+        Literal[
+            "webhook", "live_coach", "postcall", "maintenance", "call_control", "research", "scripts", "ml"
+        ]
+    ] = ["webhook", "live_coach", "postcall", "maintenance", "research", "scripts", "ml"]
     allowed_origins: list[str] = [
         "tauri://localhost",
         "http://tauri.localhost",

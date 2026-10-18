@@ -1,9 +1,10 @@
 """Bounded queue reads, batched ranking, and a short authoritative resource claim."""
 
 import secrets
-from datetime import timedelta
+from collections import OrderedDict
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, func, or_, select, tuple_
 
 from app.compliance.policy import authorize
 from app.db import MODELS, ActiveClaim, audit, doc, emit, prefetch, put, update
@@ -17,6 +18,10 @@ from app.optimization.learning import (
 )
 from app.optimization.numbering import select_number, timestamp
 from app.scheduling.policy import rank_candidates
+
+
+class SelectionChanged(Exception):
+    """A ranked candidate lost eligibility before its atomic claim."""
 
 
 class ReservationPlanner:
@@ -73,7 +78,39 @@ class ReservationPlanner:
     def _selection(self, p, campaign_id):
         from app.service import fail
 
+        # Keyset pages bound each request while preserving progress past denied candidates.
+        # This is a ranking hint only; every eventual claim rechecks permission.
+        cursors = self.__dict__.setdefault("_queue_cursors", OrderedDict())
+        key = (p["tenant_id"], p["seller_id"], p["user_id"], campaign_id)
+        after = cursors.pop(key, None)
+        revisit_head = after is not None
+        reasons = set()
+        for _ in range(4):
+            plan, last, denied, complete = self._selection_page(p, campaign_id, after)
+            reasons.update(denied)
+            if plan:
+                return plan
+            if complete:
+                if revisit_head:
+                    # Revisit the head once so newly due/changed work is not skipped.
+                    after, revisit_head = None, False
+                    continue
+                fail(409, {"code": "NO_ELIGIBLE_LEADS", "reasons": sorted(reasons)})
+            after = last
+        cursors[key] = after
+        while len(cursors) > 256:
+            cursors.popitem(last=False)
+        fail(409, {"code": "QUEUE_SCAN_CONTINUES", "reasons": sorted(reasons), "retryable": True})
+
+    def _selection_page(self, p, campaign_id, after):
+        from app.service import fail
+
         now, model = self.clock(), MODELS["leads"]
+        order = (
+            -func.coalesce(model.op_priority, 0),
+            func.coalesce(model.op_coverage_at, datetime(1970, 1, 1, tzinfo=UTC)),
+            model.id,
+        )
         with self.db.transaction(False) as s:
             leads = list(
                 s.scalars(
@@ -84,8 +121,9 @@ class ReservationPlanner:
                         model.op_campaign_id == campaign_id,
                         model.op_status == "eligible",
                         or_(model.op_due_at <= now, model.op_due_at.is_(None)),
+                        *([tuple_(*order) > tuple_(*after)] if after is not None else []),
                     )
-                    .order_by(model.op_priority.desc(), model.op_coverage_at, model.id)
+                    .order_by(*order)
                     .limit(256)
                 )
             )
@@ -213,19 +251,41 @@ class ReservationPlanner:
                 draw=secrets.randbelow(1000000) / 1000000,
             )
             if not selection:
-                fail(409, {"code": "NO_ELIGIBLE_LEADS", "reasons": sorted(set(denied))})
+                last = leads[-1] if leads else None
+                cursor = (
+                    (
+                        -(last.op_priority or 0),
+                        last.op_coverage_at or datetime(1970, 1, 1, tzinfo=UTC),
+                        last.id,
+                    )
+                    if last
+                    else None
+                )
+                return None, cursor, denied, len(leads) < 256
             identifier = selection["lead_id"]
-            return {
-                "selection": selection,
-                "features": features[identifier],
-                "prediction": predictions[identifier],
-                "allocation": allocations[identifier],
-                "profile": profile,
-            }
+            return (
+                {
+                    "selection": selection,
+                    "features": features[identifier],
+                    "prediction": predictions[identifier],
+                    "allocation": allocations[identifier],
+                    "profile": profile,
+                },
+                None,
+                denied,
+                False,
+            )
 
     def reserve(self, p, campaign_id):
-        plan = self._selection(p, campaign_id)
-        return self._claim_selection(p, campaign_id, plan)
+        from app.service import fail
+
+        for _ in range(3):
+            plan = self._selection(p, campaign_id)
+            try:
+                return self._claim_selection(p, campaign_id, plan)
+            except SelectionChanged:
+                continue
+        fail(409, {"code": "QUEUE_CHANGED", "retryable": True})
 
     def _claim_selection(self, p, campaign_id, plan):
         from app.service import fail
@@ -245,18 +305,17 @@ class ReservationPlanner:
                 )
             )
             inventory = self.inventory_evidence(s, p, fast=True)
-            if any(
-                c.rep_id == p["user_id"] or c.endpoint_id == lead.data["endpoint_id"]
-                for c in s.info["active_claims"]
-            ):
+            if any(c.rep_id == p["user_id"] for c in s.info["active_claims"]):
                 fail(409, "RESERVATION_EXISTS")
+            if any(c.endpoint_id == lead.data["endpoint_id"] for c in s.info["active_claims"]):
+                raise SelectionChanged()
             allocation = select_number(doc(lead), inventory, bound_id=plan["allocation"]["number_id"])
             if (
                 lead.data["status"] != "eligible"
                 or lead.data.get("outreach_hold")
                 or allocation["number_id"] != plan["allocation"]["number_id"]
             ):
-                fail(409, "Candidate changed; select the next lead again")
+                raise SelectionChanged()
             number = (
                 self.required(s, "number_inventory", allocation["number_id"], p)
                 if allocation["number_id"]

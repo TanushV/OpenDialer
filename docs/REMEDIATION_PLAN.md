@@ -800,11 +800,11 @@ Depends on M1 state contracts. Exit: A01, A08, A33, A50–A51 and the relevant s
 
 - [x] M2.01 Add scoped indexed operational columns and lookup keys; backfill resumably while keeping sensitive content encrypted.
 - [ ] M2.02 Introduce only the bulk repository methods needed by hot paths; remove all-history/per-candidate reads there.
-- [ ] M2.03 Move ranking outside the atomic claim transaction and recheck authoritative policy before send.
+- [x] M2.03 Move ranking outside the atomic claim transaction and recheck authoritative policy before send.
 - [x] M2.04 Remove the process-wide read/write mutex and unrelated shared advisory fence; retain resource-specific concurrency guarantees.
 - [ ] M2.05 Batch model predictions, cache serving pointers/verified artifacts and keep heavy imports off the baseline path.
 - [ ] M2.06 Replace report-time planning with versioned incremental projections and explicit background refresh/replay.
-- [ ] M2.07 Consolidate job runtime and priorities; schedule recovery/health/retry maintenance without optional training mode.
+- [x] M2.07 Consolidate job runtime and priorities; schedule recovery/health/retry maintenance without optional training mode.
 - [ ] M2.08 Reuse bounded HTTP clients; move synchronous DB/CPU work off live event-loop paths without proliferating services.
 - [ ] M2.09 Measure 503-lead and growing-history profiles, query/decryption counts, locks, RSS/startup and mixed live/background load.
 - [ ] M2.10 Remove superseded readers, duplicate config/metrics helpers and unused dependencies after compatibility gates.

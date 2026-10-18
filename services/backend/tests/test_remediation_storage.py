@@ -103,3 +103,82 @@ def test_competing_updates_cannot_silently_overwrite_a_newer_record(workspace, a
         with pytest.raises(StaleDataError):
             second.flush()
         second.rollback()
+
+
+def test_denied_first_page_does_not_hide_eligible_work(workspace, app, clock):
+    from datetime import timedelta
+    from conftest import ready
+    from app.db import rows
+
+    ready(workspace)
+    service = app.state.service
+    p = {k: workspace[k] for k in ("tenant_id", "seller_id", "user_id")}
+    with service.db.transaction() as s:
+        leads = rows(s, "leads", p["tenant_id"], p["seller_id"])
+        allowed = leads[0]
+        update(allowed, coverage_due_at=(clock.now + timedelta(days=1)).isoformat())
+        for lead in leads[1:]:
+            update(lead, outreach_hold=True)
+        for i in range(280):
+            put(
+                s,
+                "leads",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    **allowed.data,
+                    "name": f"Held candidate {i}",
+                    "outreach_hold": True,
+                    "coverage_due_at": (clock.now - timedelta(days=1)).isoformat(),
+                },
+            )
+        allowed_id = allowed.id
+    result = workspace["client"].post(
+        "/v1/queue/next", headers=workspace["headers"], json={"campaign_id": workspace["campaign_id"]}
+    )
+    assert result.status_code == 200, result.text
+    assert result.json()["lead"]["id"] == allowed_id
+
+
+def test_candidate_changed_before_claim_retries_bounded_selection(workspace, app, monkeypatch):
+    from conftest import ready
+
+    ready(workspace)
+    service = app.state.service
+    selection = service._selection
+    changed = []
+
+    def race(p, campaign_id, *args, **kwargs):
+        plan = selection(p, campaign_id, *args, **kwargs)
+        if not changed:
+            identifier = plan["selection"]["lead_id"]
+            with service.db.transaction() as s:
+                update(get(s, "leads", identifier), status="needs_review")
+            changed.append(identifier)
+        return plan
+
+    monkeypatch.setattr(service, "_selection", race)
+    result = workspace["client"].post(
+        "/v1/queue/next", headers=workspace["headers"], json={"campaign_id": workspace["campaign_id"]}
+    )
+    assert result.status_code == 200, result.text
+    assert result.json()["lead"]["id"] not in changed
+
+
+def test_bounded_scan_reports_exhaustion_after_all_pages_are_denied(workspace, app, clock):
+    from app.db import rows
+    from conftest import ready
+
+    ready(workspace)
+    p = {k: workspace[k] for k in ("tenant_id", "seller_id", "user_id")}
+    with app.state.db.transaction() as s:
+        leads = rows(s, "leads", p["tenant_id"], p["seller_id"])
+        for lead in leads:
+            update(lead, outreach_hold=True)
+        for i in range(280):
+            put(s, "leads", p["tenant_id"], p["seller_id"], {**leads[0].data, "name": str(i)})
+    result = workspace["client"].post(
+        "/v1/queue/next", headers=workspace["headers"], json={"campaign_id": workspace["campaign_id"]}
+    )
+    assert result.status_code == 409
+    assert result.json()["detail"]["code"] == "NO_ELIGIBLE_LEADS"

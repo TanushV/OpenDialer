@@ -52,32 +52,21 @@ services:
   api:
     <<: *backend
     command: [serve, --mode, connected, --host, 0.0.0.0]
-    mem_limit: 384m
+    environment:
+      <<: *environment
+      OPENDIALER_WORKER_ENABLED: 'true'
+      OPENDIALER_WORKER_QUEUES: '["webhook","live_coach","postcall","maintenance"]'
+    mem_limit: 512m
     healthcheck:
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health')"]
       interval: 15s
       timeout: 5s
       retries: 5
-  worker-call-control:
+  # call_control, webhook, live_coach and postcall remain in the authority process.
+  # Raw conversation content never crosses into the preparation/training process.
+  worker-background:
     <<: *backend
-    command: [worker, --mode, connected, --queue, call_control]
-    mem_limit: 256m
-  worker-live:
-    <<: *backend
-    command: [worker, --mode, connected, --queue, live_coach]
-    mem_limit: 256m
-  worker-batch:
-    <<: *backend
-    command: [worker, --mode, connected, --queue, research, --queue, scripts]
-    mem_limit: 512m
-  worker-postcall:
-    <<: *backend
-    command: [worker, --mode, connected, --queue, postcall]
-    mem_limit: 384m
-  worker-ml:
-    <<: *backend
-    profiles: [training]
-    command: [worker, --mode, connected, --queue, ml]
+    command: [worker, --mode, connected, --queue, research, --queue, scripts, --queue, ml]
     mem_limit: 1024m
     cpus: 0.5
   caddy:

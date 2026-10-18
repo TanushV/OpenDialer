@@ -57,12 +57,16 @@ def main():
                 limits=httpx.Limits(max_connections=20, max_keepalive_connections=10)
             ) as http:
                 app.state.service.coach_http = http
-                while True:
-                    if args.queue and "call_control" in args.queue:
-                        await app.state.service.maintenance_tick()
-                    else:
-                        await app.state.service.run_jobs(queues=args.queue)
-                    await asyncio.sleep(0.5)
+                from app.runtime import AuthorityRuntime
+
+                runtime = AuthorityRuntime(app.state.service, queues=args.queue or settings.worker_queues)
+                await runtime.start()
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    await runtime.close()
+                    app.state.service.raw.clear()
+                    app.state.db.engine.dispose()
 
         asyncio.run(run())
     else:

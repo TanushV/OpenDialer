@@ -2,7 +2,6 @@ import asyncio
 import base64
 import hashlib
 import json
-import logging
 import re
 import secrets
 import time
@@ -208,42 +207,24 @@ def create_app(settings=None, *, clock=None, carrier=None):
     clock = clock or (lambda: datetime.now(UTC))
     db = Database(settings.database_url, encryption_key=settings.secret_key)
     service = Dialer(db, settings, clock, carrier)
-    stop = asyncio.Event()
-
-    async def worker(queues):
-        while not stop.is_set():
-            try:
-                if queues == ["call_control"]:
-                    await service.maintenance_tick()
-                else:
-                    await service.run_jobs(queues=queues)
-            except Exception as exc:
-                logging.getLogger(__name__).warning("Worker tick deferred: %s", type(exc).__name__)
-            try:
-                await asyncio.wait_for(stop.wait(), 0.5)
-            except TimeoutError:
-                continue
 
     @asynccontextmanager
     async def lifespan(app):
         service.coach_http = httpx.AsyncClient(
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10)
         )
-        tasks = (
-            [
-                asyncio.create_task(worker(lanes))
-                for lanes in [["call_control"], ["live_coach"], ["postcall"], ["research", "scripts"], ["ml"]]
-            ]
-            if settings.worker_enabled
-            else []
-        )
-        yield
-        stop.set()
-        for task in tasks:
-            task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-        await service.coach_http.aclose()
-        db.engine.dispose()
+        from app.runtime import AuthorityRuntime
+
+        runtime = AuthorityRuntime(service, queues=settings.worker_queues)
+        if settings.worker_enabled:
+            await runtime.start()
+        try:
+            yield
+        finally:
+            await runtime.close()
+            service.raw.clear()
+            await service.coach_http.aclose()
+            db.engine.dispose()
 
     app = FastAPI(title="OpenDialer authority", version=settings.version, lifespan=lifespan)
     app.state.db, app.state.service, app.state.settings = db, service, settings

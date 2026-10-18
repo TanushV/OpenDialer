@@ -834,7 +834,7 @@ class Application(RequestAccounting, Service):
 
     async def run_jobs(self, tenant_id=None, queues=None):
         if (queues is None or "ml" in queues) and self.settings.worker_enabled:
-            await asyncio.to_thread(self.schedule_optimization, tenant_id)
+            await self.periodic_optimization(tenant_id)
         processed, worker_id = 0, "worker-" + uid()
 
         async def execute(lane, job, obsolete=False):
@@ -925,7 +925,19 @@ class Application(RequestAccounting, Service):
                 now=self.clock(),
             )
 
+    async def periodic_optimization(self, tenant_id=None):
+        now = time.monotonic()
+        if now < getattr(self, "_next_optimization", 0):
+            return
+        self._next_optimization = now + 60
+        try:
+            await asyncio.to_thread(self.schedule_optimization, tenant_id)
+        except Exception:
+            self._next_optimization = 0
+            raise
+
     async def maintenance_tick(self):
+        await self.periodic_optimization()
         self.raw.purge()
         await asyncio.to_thread(self.queue_unfinished_webhooks)
         with self.db.transaction(False) as session:
