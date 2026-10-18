@@ -62,6 +62,16 @@ class Service(ReservationPlanner):
     def scoped(self, s, kind, p):
         return rows(s, kind, p["tenant_id"], p["seller_id"])
 
+    def _by_key(self, s, p, kind, key):
+        model = MODELS[kind]
+        return s.scalar(
+            select(model).where(
+                model.tenant_id == p["tenant_id"],
+                model.seller_id == p["seller_id"],
+                model.external_key == key,
+            )
+        )
+
     def context_rows(self, s, p, kind, value, *conditions, limit=100):
         from app.operational_schema import context_key
 
@@ -655,10 +665,7 @@ class Service(ReservationPlanner):
         now = self.clock()
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
-            previous = next(
-                (c for c in self.scoped(s, "call_attempts", p) if c.external_key == data["idempotency_key"]),
-                None,
-            )
+            previous = self._by_key(s, p, "call_attempts", data["idempotency_key"])
             if previous:
                 if (
                     previous.data["rep_id"] != p["user_id"]
@@ -905,16 +912,15 @@ class Service(ReservationPlanner):
         if call.data.get("provider_id") not in {None, provider_id}:
             fail(409, "Provider call reference conflicts with the established leg")
         update(call, provider_id=provider_id)
-        for command in self.scoped(s, "command_outbox", p):
-            if (
-                command.data.get("call_id") == call.id
-                and command.data.get("kind") == "dial"
-                and command.data.get("status") in {"sending", "uncertain", "reconciling", "review_required"}
-            ):
-                update(
-                    command, status="completed", provider_id=provider_id, lease_owner=None, lease_until=None
-                )
-        prior = next((r for r in self.scoped(s, "call_legs", p) if r.external_key == provider_id), None)
+        command = self._by_key(s, p, "command_outbox", call.id)
+        if (
+            command
+            and command.data.get("call_id") == call.id
+            and command.data.get("kind") == "dial"
+            and command.data.get("status") in {"sending", "uncertain", "reconciling", "review_required"}
+        ):
+            update(command, status="completed", provider_id=provider_id, lease_owner=None, lease_until=None)
+        prior = self._by_key(s, p, "call_legs", provider_id)
         if not prior:
             put(
                 s,
@@ -963,9 +969,7 @@ class Service(ReservationPlanner):
                 return doc(call), None
             provider_id = call.data.get("provider_id")
             command_id = call.id + ":hangup"
-            existing = next(
-                (c for c in self.scoped(s, "command_outbox", p) if c.external_key == command_id), None
-            )
+            existing = self._by_key(s, p, "command_outbox", command_id)
             if not existing:
                 existing = put(
                     s,
@@ -1117,9 +1121,7 @@ class Service(ReservationPlanner):
         )
         hashed = hashlib.sha256(canonical.encode()).hexdigest()
         with self.db.transaction(session=session) as s:
-            existing = next(
-                (r for r in self.scoped(s, "provider_events", p) if r.external_key == event_id), None
-            )
+            existing = self._by_key(s, p, "provider_events", event_id)
             if existing:
                 if existing.data["hash"] != hashed:
                     fail(409, "Provider event ID collision")

@@ -4,10 +4,10 @@ import json
 import re
 from datetime import timedelta
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.compliance.policy import authorize
-from app.db import ActiveClaim, audit, doc, emit, put, rows, uid, update
+from app.db import MODELS, ActiveClaim, audit, doc, emit, put, rows, uid, update
 from app.service import dt, fail
 from app.telephony.reducer import TERMINAL
 
@@ -17,7 +17,7 @@ class TelephonyWorkflows:
         if action == "record_start":
             fail(403, "Call recording is disabled by the short-retention policy")
         key = f"{call_id}:{suffix or action}"
-        prior = next((r for r in self.scoped(s, "command_outbox", p) if r.external_key == key), None)
+        prior = self._by_key(s, p, "command_outbox", key)
         if prior:
             return prior
         return put(
@@ -42,9 +42,7 @@ class TelephonyWorkflows:
             result = super().event(p, event_id, event_type, call_id, payload, session=session)
             if result["duplicate"]:
                 with self.db.transaction(False, session=session) as s:
-                    prior = next(
-                        r for r in self.scoped(s, "provider_events", p) if r.external_key == event_id
-                    )
+                    prior = self._by_key(s, p, "provider_events", event_id)
                     if prior.data.get("effects_complete", False):
                         return result
             payload = payload or {}
@@ -182,14 +180,12 @@ class TelephonyWorkflows:
                         recording_url=None,
                         recording_review_required=True,
                     )
-                receipt = next(r for r in self.scoped(s, "provider_events", p) if r.external_key == event_id)
+                receipt = self._by_key(s, p, "provider_events", event_id)
                 update(receipt, effects_complete=not bool(optout_phone))
             if optout_phone:
                 self.suppress(p, optout_phone, "opt_out", event_id=event_id, session=session)
                 with self.db.transaction(session=session) as s:
-                    receipt = next(
-                        r for r in self.scoped(s, "provider_events", p) if r.external_key == event_id
-                    )
+                    receipt = self._by_key(s, p, "provider_events", event_id)
                     update(receipt, effects_complete=True)
             return result
 
@@ -227,18 +223,35 @@ class TelephonyWorkflows:
     def _control_work(self, p):
         self.inbound_watchdog(p)
         with self.db.transaction(False) as s:
+            model = MODELS["command_outbox"]
             commands = [
                 doc(r)
-                for r in self.scoped(s, "command_outbox", p)
-                if r.data["kind"] == "action" and r.data["status"] == "pending"
+                for r in s.scalars(
+                    select(model)
+                    .where(
+                        model.tenant_id == p["tenant_id"],
+                        model.seller_id == p["seller_id"],
+                        model.op_kind == "action",
+                        model.op_status == "pending",
+                    )
+                    .order_by(model.created_at, model.id)
+                )
             ]
+            model = MODELS["call_attempts"]
             orphan_vms = [
                 doc(r)
-                for r in self.scoped(s, "call_attempts", p)
-                if r.data.get("voicemail_deadline")
-                and r.data["state"] not in TERMINAL
-                and dt(r.data["voicemail_deadline"]) <= self.clock()
+                for r in s.scalars(
+                    select(model)
+                    .where(
+                        model.tenant_id == p["tenant_id"],
+                        model.seller_id == p["seller_id"],
+                        model.op_control_due_at <= self.clock(),
+                    )
+                    .order_by(model.op_control_due_at, model.id)
+                )
             ]
+        # Answer precedes its dependent inbound transfer even when timestamps tie.
+        commands.sort(key=lambda command: bool(command.get("after_command_id")))
         return commands, orphan_vms
 
     def _claim_control(self, p, command_id):

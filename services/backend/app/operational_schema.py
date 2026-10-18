@@ -3,7 +3,7 @@
 import hashlib
 import hmac
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, String, inspect, text
 
@@ -99,7 +99,7 @@ def context_indexes(kind):
     )
 
 
-def columns():
+def columns(kind):
     return {
         **{
             k: Column(String(100), nullable=True)
@@ -120,6 +120,16 @@ def columns():
         "op_active": Column(Boolean, nullable=True),
         "op_amount": Column(Float, nullable=True),
         "op_index_version": Column(Integer, nullable=True),
+        **(
+            {"op_control_due_at": Column(DateTime(timezone=True), nullable=True)}
+            if kind in {"call_attempts", "followup_tasks"}
+            else {}
+        ),
+        **(
+            {"op_reconcile_at": Column(DateTime(timezone=True), nullable=True)}
+            if kind == "followup_tasks"
+            else {}
+        ),
     }
 
 
@@ -136,6 +146,16 @@ def indexes(name):
         ),
         Index(f"ix_{name}_lead", "tenant_id", "seller_id", "op_lead_id", "op_at"),
         Index(f"ix_{name}_time", "tenant_id", "seller_id", "op_at"),
+        *(
+            (Index(f"ix_{name}_control_due", "tenant_id", "seller_id", "op_control_due_at"),)
+            if name in {"call_attempts", "followup_tasks"}
+            else ()
+        ),
+        *(
+            (Index("ix_followup_tasks_reconcile", "tenant_id", "seller_id", "op_active", "op_reconcile_at"),)
+            if name == "followup_tasks"
+            else ()
+        ),
         *(
             (Index("ix_usage_ledger_receipt", "tenant_id", "seller_id", "op_provider_id"),)
             if name == "usage_ledger"
@@ -205,6 +225,28 @@ def sync_columns(row, lookup_key=None):
 
         row.op_amount = float(Decimal(str(data["cost_usd"])) - Decimal(str(data.get("credited_usd", 0))))
     row.op_index_version = 1
+    if row.__tablename__ == "call_attempts":
+        from app.telephony.reducer import TERMINAL
+
+        row.op_control_due_at = (
+            as_time(data.get("voicemail_deadline")) if row.op_status not in TERMINAL | {"ENDING"} else None
+        )
+        row.op_index_version = 2
+    if row.__tablename__ == "followup_tasks":
+        # Human task completion does not terminate a carrier leg.
+        row.op_active = bool(data.get("inbound") and data.get("inbound_state") != "ended")
+        row.op_control_due_at = (
+            as_time(data.get("inbound_deadline"))
+            if row.op_active and data.get("inbound_state") != "ending"
+            else None
+        )
+        last = as_time(data.get("last_reconciled_at"))
+        row.op_reconcile_at = (
+            (last + timedelta(seconds=30) if last else datetime(1970, 1, 1, tzinfo=UTC))
+            if row.op_active
+            else None
+        )
+        row.op_index_version = 2
     if row.__tablename__ == "command_outbox":
         row.op_kind = data.get("kind")
         row.op_index_version = 2
@@ -221,7 +263,7 @@ def ensure_columns(connection, metadata):
     existing = set(inspector.get_table_names())
     for name in sorted((HOT_TABLES | CONTEXT_FIELDS.keys()) & existing):
         actual = {c["name"] for c in inspector.get_columns(name)}
-        definitions = columns() if name in HOT_TABLES else context_columns(name)
+        definitions = columns(name) if name in HOT_TABLES else context_columns(name)
         if name == "command_outbox":
             definitions["op_kind"] = Column(String(40), nullable=True)
         for column, definition in definitions.items():

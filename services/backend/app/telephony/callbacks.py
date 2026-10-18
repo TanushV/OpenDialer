@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import delete, select
 
 from app.compliance.operating import COSTS
-from app.db import ActiveClaim, audit, doc, emit, get, put, rows, uid, update
+from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, rows, uid, update
 from app.service import dt, fail
 
 DEFAULT_MESSAGE = (
@@ -464,12 +464,17 @@ class InboundCallbacks:
         def pending():
             with self.db.transaction() as s:
                 pending_tasks = []
-                for task in self.scoped(s, "followup_tasks", p):
-                    if not task.data.get("inbound") or task.data.get("inbound_state") == "ended":
-                        continue
-                    last = dt(task.data.get("last_reconciled_at"))
-                    if last and (self.clock() - last).total_seconds() < 30:
-                        continue
+                model = MODELS["followup_tasks"]
+                for task in s.scalars(
+                    select(model)
+                    .where(
+                        model.tenant_id == p["tenant_id"],
+                        model.seller_id == p["seller_id"],
+                        model.op_active.is_(True),
+                        model.op_reconcile_at <= self.clock(),
+                    )
+                    .order_by(model.op_reconcile_at, model.id)
+                ):
                     update(task, last_reconciled_at=self.clock().isoformat())
                     pending_tasks.append(doc(task))
                 return pending_tasks
@@ -481,7 +486,8 @@ class InboundCallbacks:
                 if not identity or leg.get("state") in ENDED:
                     continue
                 try:
-                    receipt = await self.carrier(p["tenant_id"]).reconcile(identity, identity)
+                    provider = await asyncio.to_thread(self.carrier, p["tenant_id"])
+                    receipt = await provider.reconcile(identity, identity)
                 except Exception as exc:
                     logging.getLogger(__name__).warning("Inbound status unavailable: %s", type(exc).__name__)
                     continue
@@ -503,7 +509,16 @@ class InboundCallbacks:
     def inbound_watchdog(self, p):
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
-            for task in self.scoped(s, "followup_tasks", p):
+            model = MODELS["followup_tasks"]
+            for task in s.scalars(
+                select(model)
+                .where(
+                    model.tenant_id == p["tenant_id"],
+                    model.seller_id == p["seller_id"],
+                    model.op_control_due_at <= self.clock(),
+                )
+                .order_by(model.op_control_due_at, model.id)
+            ):
                 deadline = dt(task.data.get("inbound_deadline"))
                 if (
                     task.data.get("inbound")

@@ -235,16 +235,6 @@ class RepWorkflows:
             )
         )
 
-    def _by_key(self, s, p, kind, key):
-        model = MODELS[kind]
-        return s.scalar(
-            select(model).where(
-                model.tenant_id == p["tenant_id"],
-                model.seller_id == p["seller_id"],
-                model.external_key == key,
-            )
-        )
-
     def refresh_packet_in(self, s, p, lead):
         update(lead, preparation_revision=lead.data.get("preparation_revision", 0) + 1)
         self.jobs.enqueue_in(

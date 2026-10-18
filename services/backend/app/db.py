@@ -181,7 +181,7 @@ for _name in TABLES:
         (Document, Base),
         {
             "__tablename__": _name,
-            **(columns() if _name in HOT_TABLES else {}),
+            **(columns(_name) if _name in HOT_TABLES else {}),
             **({"op_kind": Column(String(40), nullable=True)} if _name == "command_outbox" else {}),
             **(context_columns(_name) if _name in CONTEXT_FIELDS else {}),
             **({"op_owner_id": Column(String(36), nullable=False)} if _name == "work_intervals" else {}),
@@ -354,7 +354,13 @@ class Database:
             model = MODELS[kind]
             version = model.op_index_version if kind in HOT_TABLES else model.ctx_index_version
             outdated = version.is_(None)
-            if kind in {"command_outbox", "usage_ledger", "registry_snapshots"}:
+            if kind in {
+                "command_outbox",
+                "usage_ledger",
+                "registry_snapshots",
+                "call_attempts",
+                "followup_tasks",
+            }:
                 outdated = outdated | (version < (3 if kind == "usage_ledger" else 2))
             while True:
                 with self.transaction() as s:
