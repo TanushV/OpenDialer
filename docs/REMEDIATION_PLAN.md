@@ -798,10 +798,10 @@ Depends on M0. Exit: P1 defects and event/control recovery pass A04–A10, A13 a
 
 Depends on M1 state contracts. Exit: A01, A08, A33, A50–A51 and the relevant section 18 targets pass.
 
-- [ ] M2.01 Add scoped indexed operational columns and lookup keys; backfill resumably while keeping sensitive content encrypted.
+- [x] M2.01 Add scoped indexed operational columns and lookup keys; backfill resumably while keeping sensitive content encrypted.
 - [ ] M2.02 Introduce only the bulk repository methods needed by hot paths; remove all-history/per-candidate reads there.
 - [ ] M2.03 Move ranking outside the atomic claim transaction and recheck authoritative policy before send.
-- [ ] M2.04 Remove the process-wide read/write mutex and unrelated shared advisory fence; retain resource-specific concurrency guarantees.
+- [x] M2.04 Remove the process-wide read/write mutex and unrelated shared advisory fence; retain resource-specific concurrency guarantees.
 - [ ] M2.05 Batch model predictions, cache serving pointers/verified artifacts and keep heavy imports off the baseline path.
 - [ ] M2.06 Replace report-time planning with versioned incremental projections and explicit background refresh/replay.
 - [ ] M2.07 Consolidate job runtime and priorities; schedule recovery/health/retry maintenance without optional training mode.

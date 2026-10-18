@@ -2,9 +2,9 @@ import hashlib
 import json
 from datetime import timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 
-from app.db import ActiveClaim, audit, doc, emit, get, put, update
+from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, update
 from app.optimization.experiments import ComparisonWorkflows
 from app.optimization.learning import (
     derive_labels,
@@ -182,7 +182,9 @@ class OptimizationWorkflows(ComparisonWorkflows):
         )
         return {**DEFAULTS, **campaign.data.get("optimization", {})}
 
-    def inventory_evidence(self, s, p):
+    def inventory_evidence(self, s, p, fast=False):
+        if fast:
+            return self.inventory_capacity(s, p)
         calls = [doc(c) for c in self.scoped(s, "call_attempts", p)]
         snapshots = {r.id: r.data for r in self.scoped(s, "feature_snapshots", p)}
         attempts = []
@@ -234,6 +236,73 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 }
             )
         return inventory
+
+    def inventory_capacity(self, s, p):
+        """Current capacity is authoritative; health reads the last derived observation."""
+        claims = list(
+            s.scalars(
+                select(ActiveClaim).where(
+                    ActiveClaim.tenant_id == p["tenant_id"],
+                    ActiveClaim.seller_id == p["seller_id"],
+                    or_(ActiveClaim.call_id.is_not(None), ActiveClaim.expires_at > self.clock()),
+                )
+            )
+        )
+        s.info["active_claims"] = claims
+        attempt = MODELS["call_attempts"]
+        today = self.clock().replace(hour=0, minute=0, second=0, microsecond=0)
+        used = dict(
+            s.execute(
+                select(attempt.op_number_id, func.count())
+                .where(
+                    attempt.tenant_id == p["tenant_id"],
+                    attempt.seller_id == p["seller_id"],
+                    attempt.op_at >= today,
+                    attempt.op_at <= self.clock(),
+                )
+                .group_by(attempt.op_number_id)
+            ).all()
+        )
+        health = {r.data["number_id"]: dict(r.data) for r in self.scoped(s, "number_health", p)}
+        leases = [r.data for r in self.scoped(s, "number_leases", p) if r.data.get("active")]
+        return [
+            {
+                **doc(n),
+                "health": health.get(n.id) or number_health([], pooled_attempts=[], now=self.clock()),
+                "used_today": used.get(n.id, 0),
+                "reserved_attempts": sum(c.number_id == n.id and not c.call_id for c in claims),
+                "active_obligations": sum(c.number_id == n.id for c in claims)
+                + sum(x["number_id"] == n.id for x in leases),
+            }
+            for n in self.scoped(s, "number_inventory", p)
+        ]
+
+    def selection_profile(self, s, p, data, config):
+        from app.optimization.learning import funnel_predictions, learn_distribution
+
+        segments = sorted({r.get("segment", "unknown") for r in data})
+        actions = [r.id for r in self.scoped(s, "treatment_variants", p) if r.data.get("approved")] or [
+            "approved-default"
+        ]
+        return {
+            "as_of": self.clock().isoformat(),
+            "goal": config["conversion_goal"],
+            "samples": len(data),
+            "pooled": funnel_predictions(data, {"segment": "unknown", "local_hour": 12}),
+            "predictions": {
+                str(segment) + ":" + str(hour): funnel_predictions(
+                    data, {"segment": segment, "local_hour": hour}
+                )
+                for segment in segments
+                for hour in range(24)
+            },
+            "treatments": {
+                str(segment): learn_distribution(
+                    actions, data, segment=segment, exploration=config["exploration"]
+                )
+                for segment in segments
+            },
+        }
 
     def operational_dataset(self, s, p, config=None):
         config = config or self.optimization_config(s, p)
@@ -306,6 +375,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
 
     def optimization_report(self, p, epoch=None):
         with self.db.transaction(False) as s:
+            s.info["row_cache"] = {}
             config = self.optimization_config(s, p)
             data = self.operational_dataset(s, p, config)
             leads = self.scoped(s, "leads", p)
@@ -460,20 +530,15 @@ class OptimizationWorkflows(ComparisonWorkflows):
             count = len(data)
             midpoint = max(0, count - max(20, count // 3))
             model_drift = drift_report(data[:midpoint], data[midpoint:])
-            futures = []
-            policy = self.required(s, "policy_versions", campaign.data["policy_id"], p).data
-            for lead in leads[:500]:
-                if lead.data.get("status") != "eligible" or self.suppressed(s, p, lead.data["phone"]):
-                    continue
-                candidates = future_slots(
-                    doc(lead),
-                    data,
-                    now=self.clock(),
-                    policy=policy,
-                    predictor=self.slot_predictor(s, p, lead, config),
-                )
-                if candidates:
-                    futures.append({**candidates[0], "name": lead.data["name"]})
+            latest_plans = {}
+            for plan in plans:
+                if plan.get("selected"):
+                    latest_plans[plan["lead_id"]] = plan["selected"]
+            futures = [
+                {**latest_plans[lead.id], "name": lead.data["name"]}
+                for lead in leads
+                if lead.id in latest_plans and lead.data.get("status") == "eligible"
+            ]
             durations = sum(r.get("duration_seconds", 0) for r in data)
             return {
                 "settings": config,
@@ -644,9 +709,11 @@ class OptimizationWorkflows(ComparisonWorkflows):
 
     def refresh_optimization(self, p):
         with self.db.transaction() as s:
+            s.info["row_cache"] = {}
             self.ensure_experiment_cohort(s, p)
         dataset = self.save_operational_dataset(p)
         with self.db.transaction() as s:
+            s.info["row_cache"] = {}
             config = self.optimization_config(s, p)
             for number in self.inventory_evidence(s, p):
                 existing = next(
@@ -731,6 +798,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 # Fresh leads remain immediately callable; completed attempts get the learned retry slot.
                 if lead.data.get("attempt_count") and not lead.data.get("callback_due_at"):
                     update(lead, next_attempt_at=selected["at"])
+            update(campaign, selection_profile=self.selection_profile(s, p, dataset["rows"], config))
             emit(s, p["tenant_id"], "optimization.updated", campaign, self.clock())
         training = self.train_operational(p) if config["auto_train"] else {"status": "disabled"}
         return {"dataset_id": dataset["id"], "rows": len(dataset["rows"]), "training": training}

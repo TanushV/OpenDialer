@@ -3,17 +3,38 @@ import contextvars
 import hashlib
 import hmac
 import json
-import threading
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from uuid import uuid4
 
 from cryptography.fernet import Fernet, InvalidToken
-from sqlalchemy import JSON, DateTime, Integer, String, UniqueConstraint, create_engine, event, select, text
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    Integer,
+    String,
+    UniqueConstraint,
+    create_engine,
+    event,
+    literal,
+    select,
+    text,
+    union_all,
+)
 from sqlalchemy.ext.mutable import MutableDict
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    Session,
+    declared_attr,
+    make_transient_to_detached,
+    mapped_column,
+    sessionmaker,
+)
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.types import TypeDecorator
+
+from app.operational_schema import HOT_TABLES, columns, ensure_columns, indexes, sync_columns
 
 _DATABASE_CIPHER = contextvars.ContextVar("opendialer_database_cipher", default=None)
 _DATABASE_LOOKUP_KEY = contextvars.ContextVar("opendialer_database_lookup_key", default=None)
@@ -69,6 +90,11 @@ class Document:
     data: Mapped[dict] = mapped_column(MutableDict.as_mutable(EncryptedJSON), default=dict)
     version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    @declared_attr.directive
+    def __mapper_args__(cls):
+        # update() owns the visible source version; SQL also compares it on writes.
+        return {"version_id_col": cls.version, "version_id_generator": False}
 
 
 # Explicit tables retain the specification's data ownership and lifecycle boundaries.
@@ -141,8 +167,10 @@ for _name in TABLES:
         (Document, Base),
         {
             "__tablename__": _name,
+            **(columns() if _name in HOT_TABLES else {}),
             "__table_args__": (
                 UniqueConstraint("tenant_id", "seller_id", "external_key", name=f"uq_{_name}_key"),
+                *(indexes(_name) if _name in HOT_TABLES else ()),
             ),
             "__module__": __name__,
         },
@@ -223,9 +251,12 @@ class Database:
                 connection.execute("PRAGMA secure_delete=ON")
 
         self.sessions = sessionmaker(self.engine, expire_on_commit=False)
-        self.lock = threading.RLock()
+        # create_all is additive for new tables; migrate metadata columns before mapped reads.
+        with self.engine.begin() as connection:
+            ensure_columns(connection, Base.metadata)
         Base.metadata.create_all(self.engine)
         self.encrypt_legacy_records()
+        self.backfill_operational_columns()
 
     def encrypt_legacy_records(self):
         # A one-time transactional codec migration preserves IDs and human edits during an app update.
@@ -259,19 +290,28 @@ class Database:
                 connection.exec_driver_sql("VACUUM")
                 connection.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
 
+    def backfill_operational_columns(self):
+        for kind in sorted(HOT_TABLES):
+            model = MODELS[kind]
+            while True:
+                with self.transaction() as s:
+                    batch = list(s.scalars(select(model).where(model.op_index_version.is_(None)).limit(500)))
+                    if not batch:
+                        break
+                    for row in batch:
+                        sync_columns(row)  # Does not alter the original content, ID or source version.
+
     @contextmanager
     def transaction(self, write=True):
-        # SQLite has one writer; PostgreSQL uses a transaction-scoped fence. No network I/O in here.
-        with self.lock, self.sessions() as session:
+        # SQLite serializes writers, while WAL readers never wait on a Python mutex.
+        # PostgreSQL row/unique constraints and explicit seller authorization fences protect conflicts.
+        with self.sessions() as session:
             context_token = _DATABASE_CIPHER.set(self.cipher)
             lookup_token = _DATABASE_LOOKUP_KEY.set(self.identity_key)
+            session.info["write"] = write
             try:
-                if write:
-                    session.execute(
-                        text("BEGIN IMMEDIATE")
-                        if self.sqlite
-                        else text("SELECT pg_advisory_xact_lock(721025917)")
-                    )
+                if write and self.sqlite:
+                    session.execute(text("BEGIN IMMEDIATE"))
                 yield session
                 session.commit()
             except Exception:
@@ -280,6 +320,12 @@ class Database:
             finally:
                 _DATABASE_CIPHER.reset(context_token)
                 _DATABASE_LOOKUP_KEY.reset(lookup_token)
+
+    def authorize_stream(self, session, principal):
+        if not self.sqlite:
+            scope = principal["tenant_id"] + ":" + principal["seller_id"]
+            key = int.from_bytes(hashlib.sha256(scope.encode()).digest()[:8], signed=True)
+            session.execute(text("SELECT pg_advisory_xact_lock(:scope)"), {"scope": key})
 
     def reset(self):
         Base.metadata.drop_all(self.engine)
@@ -300,7 +346,46 @@ def rows(s, kind, tenant_id=None, seller_id=None):
         query = query.where(model.tenant_id == tenant_id)
     if seller_id is not None:
         query = query.where(model.seller_id == seller_id)
-    return list(s.scalars(query))
+    cache_key = (kind, tenant_id, seller_id)
+    cache = s.info.get("row_cache")
+    if cache is not None and cache_key in cache:
+        return [r for r in cache[cache_key] if r not in s.deleted]
+    result = list(s.scalars(query))
+    if cache is not None:
+        cache[cache_key] = result
+    return result
+
+
+def prefetch(s, p, specifications):
+    """One round trip for small policy/context tables and bounded related rows.
+
+    Specifications explicitly filter large tables. Loaded objects enter this session's
+    identity map without a second SELECT. No cache survives the transaction.
+    """
+    common = ("id", "tenant_id", "seller_id", "external_key", "data", "version", "created_at")
+    queries = []
+    cache = s.info.setdefault("row_cache", {})
+    for kind, conditions in specifications.items():
+        model = MODELS[kind]
+        queries.append(
+            select(literal(kind).label("kind"), *(getattr(model, c) for c in common)).where(
+                model.tenant_id == p["tenant_id"], model.seller_id == p["seller_id"], *conditions
+            )
+        )
+        cache[(kind, p["tenant_id"], p["seller_id"])] = []
+    for value in s.execute(union_all(*queries)).mappings():
+        obj = MODELS[value["kind"]](**{name: value[name] for name in common})
+        make_transient_to_detached(obj)
+        obj = s.merge(obj, load=False)
+        cache[(value["kind"], p["tenant_id"], p["seller_id"])].append(obj)
+    return cache
+
+
+@event.listens_for(Session, "before_flush")
+def index_pending_rows(session, *_):
+    for row in session.new | session.dirty:
+        if isinstance(row, Document):
+            sync_columns(row)
 
 
 def get(s, kind, object_id, tenant_id=None):
@@ -322,9 +407,15 @@ def put(s, kind, tenant_id, seller_id, data, *, object_id=None, key=None, now=No
         external_key=key,
         data=data,
         created_at=now or utcnow(),
+        version=1,
     )
     s.add(obj)
-    s.flush()
+    cache = s.info.get("row_cache", {})
+    for cache_key, values in cache.items():
+        if cache_key[0] == kind and cache_key[1] in (None, tenant_id) and cache_key[2] in (None, seller_id):
+            values.append(obj)
+    if not s.info.get("defer_flush"):
+        s.flush()
     return obj
 
 

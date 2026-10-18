@@ -18,6 +18,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.administration import Dialer
 from app.config import Settings
@@ -277,6 +278,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response
 
+    @app.exception_handler(StaleDataError)
     @app.exception_handler(IntegrityError)
     async def constraint_error(request, error):
         return JSONResponse(

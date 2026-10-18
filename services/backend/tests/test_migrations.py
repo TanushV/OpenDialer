@@ -38,20 +38,20 @@ def test_additive_optimization_upgrade_preserves_existing_encrypted_records(tmp_
                 },
             )
             before[table] = connection.execute(
-                text("SELECT * FROM " + table)  # noqa: S608 - fixed migration table allowlist
+                text("SELECT id,tenant_id,seller_id,external_key,data,version,created_at FROM " + table)  # noqa: S608 - fixed migration table allowlist
             ).all()
     migrate_database(url)
     with engine.connect() as connection:
         for table, expected in before.items():
             assert (
                 connection.execute(
-                    text("SELECT * FROM " + table)  # noqa: S608 - fixed migration table allowlist
+                    text("SELECT id,tenant_id,seller_id,external_key,data,version,created_at FROM " + table)  # noqa: S608 - fixed migration table allowlist
                 ).all()
                 == expected
             )
         assert (
             connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
-            == "0002_optimization"
+            == "0003_operational_indexes"
         )
     migrate_database(url)
     engine.dispose()

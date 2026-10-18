@@ -210,26 +210,37 @@ def promotion_allowed(model):
     )
 
 
-def predict_funnel(model, features, artifact_root):
+def predict_funnel_batch(model, features, artifact_root):
     try:
         path = Path(model["artifact"]).resolve()
         if not path.is_relative_to(Path(artifact_root).resolve()) or not path.is_file():
-            return {}
-        if hashlib.sha256(path.read_bytes()).hexdigest() != model["checksum"]:
-            return {}
-        key = (str(path), model["checksum"])
+            return [{} for _ in features]
+        stat = path.stat()
+        key = (str(path), model["checksum"], stat.st_mtime_ns, stat.st_size, stat.st_ino)
         if key not in _MODELS:
-            _MODELS.clear()
+            if hashlib.sha256(path.read_bytes()).hexdigest() != model["checksum"]:
+                return [{} for _ in features]
+            if len(_MODELS) >= 4:
+                _MODELS.clear()
             _MODELS[key] = joblib.load(path)
         models = _MODELS[key]
         if not isinstance(models, dict):
-            models = {"human": models}  # Existing 0.1.x artifacts stay readable.
-        values = [vector(features, model["feature_order"])]
-        return {
-            "p_" + name: float(estimator.predict_proba(values)[0][1]) for name, estimator in models.items()
-        }
+            models = {"human": models}
+        if not features:
+            return []
+        values = [vector(row, model["feature_order"]) for row in features]
+        output = [{} for _ in features]
+        for name, estimator in models.items():
+            probabilities = estimator.predict_proba(values)[:, 1]
+            for row, probability in zip(output, probabilities, strict=True):
+                row["p_" + name] = float(probability)
+        return output
     except (OSError, ValueError, KeyError, TypeError):
-        return {}
+        return [{} for _ in features]
+
+
+def predict_funnel(model, features, artifact_root):
+    return predict_funnel_batch(model, [features], artifact_root)[0]
 
 
 def predict_challenger(model, features, artifact_root):

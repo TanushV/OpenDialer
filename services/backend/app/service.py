@@ -3,7 +3,6 @@ import hashlib
 import json
 import logging
 import os
-import secrets
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -12,21 +11,13 @@ from sqlalchemy import delete, select
 
 from app.compliance.phone import normalize_phone
 from app.compliance.policy import CallContext, authorize
-from app.db import ActiveClaim, audit, doc, emit, get, put, rows, uid, update
+from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, rows, uid, update
 from app.jobs.queue import JobQueue, aware
-from app.optimization.learning import (
-    choose_cohort_candidate,
-    conversion_score,
-    freeze_features,
-    funnel_predictions,
-    learn_distribution,
-    stable_control,
-)
 from app.optimization.numbering import select_number
 from app.privacy import event_metadata
 from app.providers.simulated import SimulatedCarrier, UncertainCarrierResult
 from app.providers.telnyx import TelnyxCarrier
-from app.scheduling.policy import rank_candidates
+from app.scheduling.queue import ReservationPlanner
 from app.security import PASSWORDS, Vault, issue_session
 from app.telephony.reducer import TERMINAL, reduce_state
 
@@ -39,7 +30,7 @@ def fail(status, message):
     raise HTTPException(status, message)
 
 
-class Service:
+class Service(ReservationPlanner):
     def __init__(self, db, settings, clock, carrier=None):
         self.db, self.settings, self.clock = db, settings, clock
         self.injected_carrier = carrier
@@ -425,20 +416,32 @@ class Service:
             ]
 
     def budget_ok(self, s, p, estimated=0.001):
+        from sqlalchemy import case, func
+
         budget = self.scoped(s, "budgets", p)[0].data
         now = self.clock()
-        daily = monthly = 0.0
-        for usage in self.scoped(s, "usage_ledger", p):
-            at = dt(usage.data["at"])
-            cost = float(
-                usage.data.get("cost_usd")
-                if usage.data.get("cost_usd") is not None
-                else usage.data.get("reserved_usd") or 0
-            )
-            if at.date() == now.date():
-                daily += cost
-            if at.year == now.year and at.month == now.month:
-                monthly += cost
+        usage = MODELS["usage_ledger"]
+        day, month = (
+            now.replace(hour=0, minute=0, second=0, microsecond=0),
+            now.replace(day=1, hour=0, minute=0, second=0, microsecond=0),
+        )
+        key = ("budget_totals", p["tenant_id"], p["seller_id"])
+        totals = s.info.get(key)
+        if totals is None:
+            totals = s.execute(
+                select(
+                    func.coalesce(func.sum(case((usage.op_at >= day, usage.op_amount), else_=0)), 0),
+                    func.coalesce(func.sum(usage.op_amount), 0),
+                ).where(
+                    usage.tenant_id == p["tenant_id"],
+                    usage.seller_id == p["seller_id"],
+                    usage.op_at >= month,
+                    usage.op_at <= now,
+                )
+            ).one()
+            if "row_cache" in s.info:
+                s.info[key] = totals
+        daily, monthly = totals
         return daily + estimated <= budget.get("daily_limit_usd", 0) and monthly + estimated <= budget.get(
             "monthly_limit_usd", 0
         )
@@ -591,301 +594,10 @@ class Service:
             else None
         )
 
-    def reserve(self, p, campaign_id):
-        now = self.clock()
-        with self.db.transaction() as s:
-            campaign = self.required(s, "campaigns", campaign_id, p)
-            self.ensure_experiment_cohort(s, p, campaign_id)
-            self._expire_claims(s)
-            claim = s.scalar(
-                select(ActiveClaim).where(
-                    ActiveClaim.tenant_id == p["tenant_id"], ActiveClaim.rep_id == p["user_id"]
-                )
-            )
-            if claim:
-                fail(409, "LIVE_OBLIGATION" if claim.call_id else "RESERVATION_EXISTS")
-            presence = self.required(s, "users", p["user_id"], p).data.get("presence", {})
-            if presence.get("pending_optouts", 0):
-                fail(409, "PENDING_LOCAL_OPTOUTS")
-            if (
-                presence.get("status") != "ready"
-                or not presence.get("audio_ready")
-                or not presence.get("telephony_ready")
-                or not presence.get("agent_call_control_id")
-            ):
-                fail(409, "REP_OR_AUDIO_NOT_READY")
-            leads = [
-                r
-                for r in self.scoped(s, "leads", p)
-                if r.data["campaign_id"] == campaign.id and r.data["status"] == "eligible"
-            ]
-            config = self.optimization_config(s, p, campaign_id)
-            history = self.operational_dataset(s, p, config)
-            inventory = self.inventory_evidence(s, p)
-            bindings = {
-                r.data["lead_id"]: r.data["number_id"] for r in self.scoped(s, "lead_number_bindings", p)
-            }
-            allocations, feature_values, predictions = {}, {}, {}
-            for candidate_lead in leads:
-                comparison = self.comparison_assignment(s, p, campaign, candidate_lead, "number_allocation")
-                allocation = select_number(
-                    doc(candidate_lead),
-                    inventory,
-                    bound_id=bindings.get(candidate_lead.id),
-                    strategy="general_first"
-                    if comparison and comparison["arm"] == "control"
-                    else "regional_first",
-                )
-                if comparison:
-                    allocation.update(
-                        comparison_id=comparison["comparison_id"], comparison_arm=comparison["arm"]
-                    )
-                allocations[candidate_lead.id] = allocation
-                number_view = next((n for n in inventory if n["id"] == allocation["number_id"]), None)
-                endpoint = get(s, "phone_endpoints", candidate_lead.data["endpoint_id"], p["tenant_id"])
-                features = freeze_features(
-                    {
-                        **doc(candidate_lead),
-                        "created_at": candidate_lead.data.get(
-                            "imported_at", candidate_lead.created_at.isoformat()
-                        ),
-                        "ownership_status": endpoint.data.get("ownership_status") if endpoint else None,
-                    },
-                    health=number_view["health"] if number_view else {"score": None, "samples": 0},
-                    now=now,
-                    calls=[doc(c) for c in self.scoped(s, "call_attempts", p)],
-                )
-                feature_values[candidate_lead.id] = features
-                predictions[candidate_lead.id] = funnel_predictions(history, features)
-            for candidate_lead in leads:
-                active_model = self.serving_model(s, p, config, candidate_lead.id)
-                if active_model:
-                    from app.ml.training import predict_funnel
-
-                    estimates = predict_funnel(
-                        active_model.data,
-                        feature_values[candidate_lead.id],
-                        self.settings.data_dir / "models",
-                    )
-                    if estimates:
-                        predictions[candidate_lead.id].update(**estimates, model_version=active_model.id)
-            by_id = {r.id: r for r in leads}
-            candidates = rank_candidates(
-                [{"id": r.id, **r.data, "propensity": conversion_score(predictions[r.id])} for r in leads],
-                now,
-            )
-            claimed_endpoints = set(
-                s.scalars(select(ActiveClaim.endpoint_id).where(ActiveClaim.seller_id == p["seller_id"]))
-            )
-            denied, allowed = [], {}
-
-            def permitted(candidate):
-                lead = by_id[candidate["id"]]
-                if lead.data["endpoint_id"] in claimed_endpoints:
-                    return False
-                number = (
-                    get(s, "number_inventory", allocations[lead.id]["number_id"], p["tenant_id"])
-                    if allocations[lead.id]["number_id"]
-                    else None
-                )
-                decision = authorize(self.context(s, p, lead, number))
-                record = self.record_decision(s, p, lead, decision)
-                if not decision.allowed:
-                    denied.extend(decision.reasons)
-                    return False
-                allowed[lead.id] = (lead, number, record)
-                return True
-
-            urgent_candidates = [
-                candidate
-                for candidate in candidates
-                if candidate.get("requested_contact")
-                or (dt(candidate.get("callback_due_at")) and dt(candidate["callback_due_at"]) <= now)
-                or (dt(candidate.get("coverage_due_at")) and dt(candidate["coverage_due_at"]) <= now)
-            ]
-            urgent = next((candidate for candidate in urgent_candidates if permitted(candidate)), None)
-            probes = [urgent] if urgent else []
-            if urgent is None:
-                for arm in ("control", "candidate"):
-                    group = [
-                        candidate
-                        for candidate in candidates
-                        if ("control" if stable_control(candidate["id"]) else "candidate") == arm
-                    ]
-                    if arm == "control":
-                        group.sort(key=lambda candidate: -predictions[candidate["id"]]["p_human"])
-                    available = next((candidate for candidate in group if permitted(candidate)), None)
-                    if available:
-                        probes.append(available)
-            selection = choose_cohort_candidate(
-                [
-                    {
-                        **candidate,
-                        "arm": "control" if stable_control(candidate["id"]) else "candidate",
-                        "p_human": predictions[candidate["id"]]["p_human"],
-                        "score": conversion_score(predictions[candidate["id"]]),
-                    }
-                    for candidate in probes
-                ],
-                now=now,
-                draw=secrets.randbelow(1000000) / 1000000,
-            )
-            for candidate in [{"id": selection["lead_id"]}] if selection else []:
-                lead, number, record = allowed[candidate["id"]]
-                coach_comparison = self.comparison_assignment(
-                    s, p, campaign, lead, "coaching", rep_id=p["user_id"]
-                )
-                reservation = put(
-                    s,
-                    "reservations",
-                    p["tenant_id"],
-                    p["seller_id"],
-                    {
-                        "rep_id": p["user_id"],
-                        "lead_id": lead.id,
-                        "endpoint_id": lead.data["endpoint_id"],
-                        "number_id": number.id,
-                        "expires_at": (now + timedelta(minutes=2)).isoformat(),
-                        "status": "reserved",
-                        "decision_id": record.id,
-                        "policy_id": campaign.data["policy_id"],
-                        "coaching_comparison": coach_comparison,
-                    },
-                    now=now,
-                )
-                s.add(
-                    ActiveClaim(
-                        tenant_id=p["tenant_id"],
-                        seller_id=p["seller_id"],
-                        endpoint_id=lead.data["endpoint_id"],
-                        lead_id=lead.id,
-                        rep_id=p["user_id"],
-                        number_id=number.id,
-                        reservation_id=reservation.id,
-                        expires_at=now + timedelta(minutes=2),
-                    )
-                )
-                if not any(b.data["lead_id"] == lead.id for b in self.scoped(s, "lead_number_bindings", p)):
-                    put(
-                        s,
-                        "lead_number_bindings",
-                        p["tenant_id"],
-                        p["seller_id"],
-                        {"lead_id": lead.id, "number_id": number.id},
-                        key=lead.id,
-                        now=now,
-                    )
-                else:
-                    b = next(
-                        b for b in self.scoped(s, "lead_number_bindings", p) if b.data["lead_id"] == lead.id
-                    )
-                    update(b, number_id=number.id)
-                features = feature_values[lead.id]
-                snapshot = put(
-                    s,
-                    "feature_snapshots",
-                    p["tenant_id"],
-                    p["seller_id"],
-                    {"lead_id": lead.id, "as_of": now.isoformat(), "features": features},
-                    now=now,
-                )
-                variants = [
-                    v
-                    for v in self.scoped(s, "treatment_variants", p)
-                    if v.data.get("approved") and v.data["campaign_id"] == campaign.id
-                ]
-                actions = [v.id for v in variants] or ["approved-default"]
-                control = stable_control(lead.id)
-                urgent = bool(
-                    lead.data.get("callback_due_at")
-                    or lead.data.get("requested_contact")
-                    or dt(lead.data["coverage_due_at"]) <= now
-                )
-                distribution = learn_distribution(
-                    actions,
-                    history,
-                    segment=features["segment"],
-                    exploration=config["exploration"],
-                    control=control,
-                    urgent=urgent,
-                )
-                draw, cumulative, selected = secrets.randbelow(1000000) / 1000000, 0.0, actions[-1]
-                for action, probability in distribution["probabilities"].items():
-                    cumulative += probability
-                    if draw < cumulative:
-                        selected = action
-                        break
-                choice = {
-                    "action": selected,
-                    "propensity": distribution["probabilities"][selected],
-                    "eligible_actions": actions,
-                    "action_distribution": distribution["probabilities"],
-                    "treatment_estimates": distribution.get("estimates", {}),
-                }
-                update(
-                    snapshot,
-                    predictions=predictions[lead.id],
-                    propensity=choice["propensity"],
-                    experiment_arm="control" if control else "candidate",
-                )
-                allocation = allocations[lead.id]
-                allocation_record = put(
-                    s,
-                    "allocation_decisions",
-                    p["tenant_id"],
-                    p["seller_id"],
-                    {"lead_id": lead.id, "rep_id": p["user_id"], **allocation, "created_at": now.isoformat()},
-                    now=now,
-                )
-                if allocation.get("reassignment_reason"):
-                    audit(
-                        s,
-                        p["tenant_id"],
-                        p["seller_id"],
-                        p["user_id"],
-                        "number.binding_changed",
-                        lead.id,
-                        now,
-                        allocation,
-                    )
-                update(
-                    reservation, feature_snapshot_id=snapshot.id, allocation_decision_id=allocation_record.id
-                )
-                update(reservation, treatment_variant_id=choice["action"])
-                policy_decision = put(
-                    s,
-                    "policy_decisions",
-                    p["tenant_id"],
-                    p["seller_id"],
-                    {
-                        "lead_id": lead.id,
-                        "feature_snapshot_id": snapshot.id,
-                        **choice,
-                        "policy_version": "conversion-coverage-v2",
-                        "rep_id": p["user_id"],
-                        "allocation": allocation,
-                        "predictions": predictions[lead.id],
-                        "conversion_goal": config["conversion_goal"],
-                        **selection,
-                        "experiment_arm": "control" if control else "candidate",
-                        "outcome_window_days": config["window_days"],
-                    },
-                    now=now,
-                )
-                update(reservation, policy_decision_id=policy_decision.id)
-                emit(s, p["tenant_id"], "reservation.created", reservation, now)
-                return {
-                    "reservation_id": reservation.id,
-                    "expires_at": reservation.data["expires_at"],
-                    "lead": doc(lead),
-                    "number": doc(number),
-                    "policy_version": campaign.data["policy_id"],
-                }
-        fail(409, {"code": "NO_ELIGIBLE_LEADS", "reasons": sorted(set(denied))})
-
     async def start_call(self, p, data):
         now = self.clock()
         with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
             previous = next(
                 (c for c in self.scoped(s, "call_attempts", p) if c.external_key == data["idempotency_key"]),
                 None,
@@ -997,6 +709,7 @@ class Service:
 
     async def dispatch_call(self, p, call_id):
         with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
             call = self.required(s, "call_attempts", call_id, p)
             command = next(
                 r
@@ -1163,6 +876,7 @@ class Service:
             f.flush()
             os.fsync(f.fileno())
         with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
             existing = next((r for r in self.scoped(s, "suppressions", p) if r.data["phone"] == phone), None)
             if existing:
                 if not existing.data.get("permanent"):

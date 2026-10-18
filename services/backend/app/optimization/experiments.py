@@ -125,7 +125,7 @@ def comparison_report(study, assignments, calls, events, feedback, *, now, goal,
 
 
 class ComparisonWorkflows:
-    def comparison_assignment(self, s, p, campaign, lead, family, *, rep_id=None):
+    def comparison_assignment(self, s, p, campaign, lead, family, *, rep_id=None, persist=True):
         studies = campaign.data.get("controlled_comparisons", [])
         study = next(
             (
@@ -154,6 +154,8 @@ class ComparisonWorkflows:
         prior = [r.data for r in assignments]
         arm = assign_arm(family, study["id"], lead.id, stratum, prior)
         rep_count = sum(r.get("rep_id") == rep_id for r in prior)
+        if not persist:
+            return {"comparison_id": study["id"], "arm": arm, "family": family}
         result = put(
             s,
             "experiment_assignments",
