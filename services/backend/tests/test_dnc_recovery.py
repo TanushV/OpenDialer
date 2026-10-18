@@ -366,3 +366,49 @@ def test_screening_history_read_is_bounded_and_legacy_index_preserves_rows(
     response = workspace["client"].get("/v1/admin/dnc/screens", headers=workspace["headers"])
     assert response.status_code == 200 and len(response.json()["screens"]) <= 120
     assert len(reads) <= 125 and len(calls) == 1
+
+
+@pytest.mark.parametrize("patch", [{"phone": "+14155550102"}, {"checked_at": "2099-01-01T00:00:00Z"}])
+def test_legacy_cache_requires_exact_phone_and_plausible_check_time(workspace, screening, patch):
+    service, p, _, _, _ = screening
+    assert screen(workspace).status_code == 200
+    row = snapshot(service, p)
+    with service.db.transaction() as s:
+        update(get(s, "registry_snapshots", row["id"]), **patch)
+    with service.db.transaction(False) as s:
+        assert cached_screen(service, s, p, PHONE) is None
+
+
+def test_unexpected_provider_failure_is_sanitized_and_recoverable(workspace, screening, monkeypatch):
+    service, p, calls, _, _ = screening
+
+    async def broken(provider, phone):
+        calls.append(phone)
+        raise RuntimeError("sensitive response containing an API key")
+
+    monkeypatch.setattr(PrepaidDNC, "check", broken)
+    response = screen(workspace)
+    assert response.status_code == 503 and "sensitive" not in response.text
+    assert snapshot(service, p)["status"] == "uncertain" and len(calls) == 1
+
+
+def test_cancelled_lookup_preserves_uncertainty_and_never_retries(screening, monkeypatch):
+    from app.compliance.screening import claim, execute
+
+    service, p, calls, _, _ = screening
+
+    async def cancelled(provider, phone):
+        calls.append(phone)
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(PrepaidDNC, "check", cancelled)
+    intent, _, config = claim(service, p, PHONE)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(execute(service, p, intent, config))
+    row = snapshot(service, p)
+    assert row["status"] == "uncertain" and row["lease_owner"] is None and len(calls) == 1
+    with service.db.transaction(False) as s:
+        costs = [
+            r.data for r in service.scoped(s, "usage_ledger", p) if r.data.get("work_kind") == "dnc_screen"
+        ]
+        assert len(costs) == 1 and costs[0]["status"] == "uncertain" and costs[0]["reserved_usd"] > 0
