@@ -341,3 +341,14 @@ def test_repeated_time_windows_do_not_allocate_a_matrix_per_lead():
     finally:
         tracemalloc.stop()
     assert assignment.allowed and peak < 1024 * 1024, f"Time-window workspace used {peak} bytes"
+
+
+def test_planning_budget_stops_search_without_claiming_a_minimum(monkeypatch):
+    import app.optimization.capacity as capacity
+
+    monkeypatch.setattr(capacity, "MAX_PLANNING_STEPS", 5, raising=False)
+    result = forecast([lead(str(i)) for i in range(30)], [number(daily_limit=2)])
+    assert result["planning_limited"]
+    assert result["minimum_additional_numbers"] is None
+    assert result["staffing_shortfall"] is None and result["number_shortfall"] is None
+    assert result["planning_steps"] <= 6
