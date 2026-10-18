@@ -3,19 +3,42 @@
 import asyncio
 import json
 import time
+from datetime import timedelta
 
 import httpx
 import pytest
+from app.db import put
 from app.providers.batch import OpenAIBatch
 from test_preparation_completion import TEMPLATE, configure
 from test_remediation_rep_workflow import p
 
 
 @pytest.fixture
-def deferred(workspace, app, monkeypatch):
+def deferred(workspace, app, monkeypatch, clock):
     configure(workspace)
     client, headers = workspace["client"], workspace["headers"]
     lead_id = workspace["lead_ids"][0]
+    service = app.state.service
+    with service.db.transaction() as s:
+        lead = service.required(s, "leads", lead_id, p(workspace))
+        fact = put(
+            s,
+            "research_facts",
+            p(workspace)["tenant_id"],
+            p(workspace)["seller_id"],
+            {
+                "fact_id": "batch-source",
+                "lead_id": lead_id,
+                "domain": lead.data["domain"],
+                "entity_domain": lead.data["domain"],
+                "statement": "The company offers maintenance.",
+                "source_id": "synthetic-source",
+                "status": "supported",
+                "expires_at": (clock.now + timedelta(days=1)).isoformat(),
+            },
+            object_id="batch-source",
+            now=clock.now,
+        )
     client.put(
         "/v1/admin/settings",
         headers=headers,
@@ -29,6 +52,7 @@ def deferred(workspace, app, monkeypatch):
             "slots": {"relevance": {"text": "", "fact_ids": []}, "proof": {"text": "", "fact_ids": []}},
         },
         "cost": 0.004,
+        "fact_id": fact.id,
     }
 
     async def submit(self, requests):
@@ -162,7 +186,9 @@ async def test_batch_preparation_reads_do_not_block_control_event_loop(deferred,
             await asyncio.sleep(0.02)
             delays.append(time.monotonic() - started)
 
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1") as client:
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
+    ) as client:
         result, _ = await asyncio.gather(
             client.post(
                 "/v1/admin/batches/scripts",
@@ -173,3 +199,19 @@ async def test_batch_preparation_reads_do_not_block_control_event_loop(deferred,
         )
     assert result.status_code == 200, result.text
     assert max(delays) < 0.1, delays
+
+
+def test_removed_batch_evidence_is_an_object_retry_not_a_reconciliation_failure(deferred, workspace, app):
+    context = json.loads(deferred["requests"][0]["body"]["input"][1]["content"])
+    assert context["facts"][0]["fact_id"] == deferred["fact_id"]
+    deferred["candidate"]["slots"]["relevance"] = {
+        "text": "The company offers maintenance.",
+        "fact_ids": [deferred["fact_id"]],
+    }
+    service = app.state.service
+    with service.db.transaction() as s:
+        s.delete(service.required(s, "research_facts", deferred["fact_id"], p(workspace)))
+    result = deferred["finish"]()
+    assert result.status_code == 200, result.text
+    assert result.json()["published"] == []
+    assert result.json()["retry_lead_ids"] == [deferred["lead_id"]]
