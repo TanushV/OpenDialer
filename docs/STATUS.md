@@ -8,6 +8,19 @@ Scope changes are requirements, not completions: proactive fixed top coach strip
 
 Continuation: reread original specification plus PLAN/OPTIMIZATION_PLAN/REMEDIATION_PLAN/STATUS in full after every compaction. Write all revised contracts before production; preserve actual red output, commit tests, then implement M1 onward. No product edits/tests/native changes have occurred yet in this implementation phase.
 
+2026-10-17 M0 TESTS-FIRST RED COMPLETE. Production source remains unchanged at planning commit 308590e. Eight new backend modules define 104 cases alongside the existing suite, and four new browser journeys cover local/shared proactive coaching, retention/cost settings and prepared scripts. [Acceptance map](ACCEPTANCE_MATRIX.md) links all 56 families to retained/new tests and native/provider evidence boundaries. Actual fresh SQLite: **95 failed, 9 passed, 42.51s**; disposable PostgreSQL 17: **95 failed, 9 passed, 94.12s**; new Playwright journeys: **4 failed** against absent UI. These are expected red contracts, not product acceptance. Earlier authoring runs are retained too; fixture mistakes were corrected before these final receipts. New Python test lint and formatting pass.
+
+Read-only installed baseline: existing Mac 0.2.1, both local/simulation SQLite integrity checks pass; simulation retains 3 leads, 2 calls, 2 notes, 1 suppression, 1 task, 0 active claims. IDs and installed executable hashes saved to protected ignored work/remediation/installed-baseline.json; prior protected note-hash continuity receipts remain. App not launched, reset or changed. Disposable PG is opendialer-remediation-postgres on loopback 55439, database opendialer_remediation_test; never point reset fixtures at any other database. User Supabase containers untouched.
+
+Red commands: `.venv/bin/pytest services/backend/tests/test_remediation*.py -q --tb=short` for SQLite and the same with OPENDIALER_TEST_POSTGRES_URL pointing only to the disposable database; `npm run test:e2e -- --grep 'fixed proactive|no-subscription costs|batch script preparation'`. Source/fixtures are frozen by this tests-only commit before production edits. No paid provider requests. Test acceptance targets remain section 18, including <=30 next-lead SQL statements and six independent 700ms jobs without serialization. Coverage floors remain unachieved gates, not claims from test counts.
+
+Raw red receipts (ignored, synthetic fixtures only):
+- `red-sqlite-final.txt` SHA-256 `0b22294d6f47060954dfe9ccd294800e0952e7d965c308bc84e468ae4ef9da53`
+- `red-postgres-final.txt` SHA-256 `742c59ec563f516ec4e8b79da2e7795f38412db7068e8e4ec8b6ebc9a0c8820a`
+- `red-browser.txt` SHA-256 `70e4e086cda5ec0e9f70ab4b462120dcff809bc702563235d155679ce436c7fa`
+
+Next: M1 event receipt/completion, track normalization, monotonic legs, uncertain commands and exact request-accounting; then M2 hot paths. M0 boxes only are checked. All M1–M9 and X gates remain open. Later code must preserve new no-subscription/five-minute/local-task scope, not reintroduce withdrawn connectors.
+
 ## Historical record (superseded where the current contract differs)
 
 

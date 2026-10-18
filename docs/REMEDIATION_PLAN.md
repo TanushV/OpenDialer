@@ -773,13 +773,13 @@ Each milestone ends with its focused red/green evidence, a reviewed documentatio
 
 Depends on this written plan. Exit: maintained acceptance suite, reproducible failing evidence and explicit implementation baseline; no product edits before this gate.
 
-- [ ] M0.01 Record baseline Git, installed versions/data, existing uncommitted work and protected evidence; preserve user-owned changes.
-- [ ] M0.02 Import the 17-defect regression catalogue and saved performance fixtures into maintained test locations; retain original red receipts.
-- [ ] M0.03 Write the complete A01–A56 acceptance suite and test data contracts before production changes; identify tests needing actual accounts/devices.
-- [ ] M0.04 Run and record meaningful initial red results in both database modes without touching user databases.
-- [ ] M0.05 Freeze source/fixture versions and acceptance latency/load definitions; inventory current coverage exclusions and critical invariants.
-- [ ] M0.06 Record latest scope, no-subscription policy and DNC authority limitations; replace withdrawn connector tests with A40–A44 privacy/DNC contracts.
-- [ ] M0.07 Commit the tests and baseline receipts before implementation; reopen contradictory completion claims as specified here.
+- [x] M0.01 Record baseline Git, installed versions/data, existing uncommitted work and protected evidence; preserve user-owned changes.
+- [x] M0.02 Import the 17-defect regression catalogue and saved performance fixtures into maintained test locations; retain original red receipts.
+- [x] M0.03 Write the complete A01–A56 acceptance suite and test data contracts before production changes; identify tests needing actual accounts/devices.
+- [x] M0.04 Run and record meaningful initial red results in both database modes without touching user databases.
+- [x] M0.05 Freeze source/fixture versions and acceptance latency/load definitions; inventory current coverage exclusions and critical invariants.
+- [x] M0.06 Record latest scope, no-subscription policy and DNC authority limitations; replace withdrawn connector tests with A40–A44 privacy/DNC contracts.
+- [x] M0.07 Commit the tests and baseline receipts before implementation; reopen contradictory completion claims as specified here.
 
 ### M1 — Repair durable events and external effects
 
@@ -1061,4 +1061,4 @@ Planning verification, October 17:
 - [x] Mapped every OD-01–OD-17 finding and original specification section; checked 66 internal/file/source links syntactically and verified all local/anchor targets.
 - [x] Verified that application/deployment/test code and the original specification are unchanged; documentation whitespace/diff checks pass.
 
-Current implementation cursor: establish M0's data-preservation baseline and tests-first red receipts, then M1. Do not start by reinstalling, changing language, purchasing inventory, broadening the framework stack or putting more canned labels around the existing coach. The simplest correct next step is to make the actual required behavior testable, fix its ownership/recovery, and remove measured redundant work.
+Current implementation cursor: M0 baseline is committed; execute M1 durability/accounting repairs, then M2 performance. Initial tests and receipts are mapped in ACCEPTANCE_MATRIX.md and STATUS.md. Do not start by reinstalling, changing language, purchasing inventory, broadening the framework stack or putting more canned labels around the existing coach. The simplest correct next step is to make the actual required behavior testable, fix its ownership/recovery, and remove measured redundant work.
