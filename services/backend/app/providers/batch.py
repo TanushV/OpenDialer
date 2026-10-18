@@ -1,4 +1,6 @@
 import json
+import re
+from contextlib import asynccontextmanager
 
 import httpx
 
@@ -17,14 +19,50 @@ def join_batch_results(expected, rows):
 
 
 class OpenAIBatch:
-    def __init__(self, api_key):
+    def __init__(self, api_key, *, http=None, metadata=None):
         self.headers = {"Authorization": "Bearer " + api_key}
+        self.http = http
+        self.metadata = metadata or {}
+
+    @asynccontextmanager
+    async def client(self):
+        if self.http is not None:
+            yield self.http
+        else:
+            async with httpx.AsyncClient(timeout=60) as http:
+                yield http
+
+    @staticmethod
+    def reference(value):
+        if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,200}", value):
+            raise ValueError("Invalid provider reference")
+        return value
+
+    async def lines(self, http, file_id):
+        path = f"https://api.openai.com/v1/files/{self.reference(file_id)}/content"
+        content = bytearray()
+        async with http.stream("GET", path, headers=self.headers, timeout=60) as response:
+            response.raise_for_status()
+            async for chunk in response.aiter_bytes():
+                if len(content) + len(chunk) > 8 * 1024 * 1024:
+                    raise ValueError("Batch content exceeds size limit")
+                content.extend(chunk)
+        rows = [json.loads(line) for line in content.splitlines() if line.strip()]
+        if len(rows) > 500 or any(not isinstance(row, dict) for row in rows):
+            raise ValueError("Batch content exceeds object limit")
+        return rows
+
+    async def input_requests(self, file_id):
+        async with self.client() as http:
+            return await self.lines(http, file_id)
 
     async def submit(self, requests):
         if len({r["custom_id"] for r in requests}) != len(requests):
             raise ValueError("Batch custom_id must be unique")
         payload = "\n".join(json.dumps(r) for r in requests)
-        async with httpx.AsyncClient(timeout=60) as http:
+        if len(payload.encode()) > 8 * 1024 * 1024 or len(requests) > 500:
+            raise ValueError("Batch request exceeds size limit")
+        async with self.client() as http:
             upload = await http.post(
                 "https://api.openai.com/v1/files",
                 headers=self.headers,
@@ -39,20 +77,23 @@ class OpenAIBatch:
                     "input_file_id": upload.json()["id"],
                     "endpoint": "/v1/responses",
                     "completion_window": "24h",
+                    "metadata": self.metadata,
                 },
             )
             batch.raise_for_status()
             return batch.json()
 
     async def retrieve(self, batch_id):
-        async with httpx.AsyncClient(timeout=60) as http:
-            r = await http.get(f"https://api.openai.com/v1/batches/{batch_id}", headers=self.headers)
+        async with self.client() as http:
+            r = await http.get(
+                f"https://api.openai.com/v1/batches/{self.reference(batch_id)}",
+                headers=self.headers,
+                timeout=60,
+            )
             r.raise_for_status()
             data = r.json()
+            if data.get("id") != batch_id:
+                raise ValueError("Batch identity mismatch")
             if data.get("output_file_id"):
-                result = await http.get(
-                    f"https://api.openai.com/v1/files/{data['output_file_id']}/content", headers=self.headers
-                )
-                result.raise_for_status()
-                data["results"] = [json.loads(line) for line in result.text.splitlines() if line.strip()]
+                data["results"] = await self.lines(http, data["output_file_id"])
             return data
