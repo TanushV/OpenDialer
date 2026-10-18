@@ -12,6 +12,8 @@ from app.db import MODELS, doc, emit, uid, update
 from app.service import dt, fail
 from app.telephony.reducer import TERMINAL, reduce_state
 
+CALL_COMMAND_KINDS = {"dial", "hangup", "action"}
+
 
 def call_receipt(receipt, provider_id, *, simulation=False):
     if not isinstance(receipt, dict):
@@ -35,6 +37,8 @@ class CommandRecovery:
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             command = self.required(s, "command_outbox", command_id, p)
+            if command.data.get("kind") not in CALL_COMMAND_KINDS:
+                fail(409, "Use this operation's own recovery workflow; it is not a call command")
             if expected_version is not None and command.version != expected_version:
                 fail(409, "Recovery item changed; refresh before continuing")
             lease = dt(command.data.get("lease_until"))
@@ -181,6 +185,7 @@ class CommandRecovery:
                     .where(
                         commands.tenant_id == p["tenant_id"],
                         commands.seller_id == p["seller_id"],
+                        commands.op_kind.in_(CALL_COMMAND_KINDS),
                         commands.op_status.in_(
                             ["pending", "sending", "uncertain", "reconciling", "review_required"]
                         ),
@@ -203,12 +208,26 @@ class CommandRecovery:
                     .limit(100)
                 )
             )
-            return [doc(c) for c in pending], [doc(c) for c in active]
+            configurations = list(
+                s.scalars(
+                    select(commands)
+                    .where(
+                        commands.tenant_id == p["tenant_id"],
+                        commands.seller_id == p["seller_id"],
+                        commands.op_kind == "number_configure",
+                        commands.op_status.in_(["sending", "uncertain", "reconciling", "review_required"]),
+                        or_(commands.op_due_at.is_(None), commands.op_due_at <= self.clock()),
+                    )
+                    .order_by(commands.op_due_at.asc().nullsfirst(), commands.created_at)
+                    .limit(25)
+                )
+            )
+            return [doc(c) for c in pending], [doc(c) for c in active], [doc(c) for c in configurations]
 
     async def recover(self, p):
         await asyncio.to_thread(self.jobs.recover_expired)
         await self.reconcile_inbound(p)
-        commands, calls = await asyncio.to_thread(self._recovery_snapshot, p)
+        commands, calls, configurations = await asyncio.to_thread(self._recovery_snapshot, p)
         limit = asyncio.Semaphore(4)
 
         async def recover_one(command):
@@ -225,6 +244,19 @@ class CommandRecovery:
 
         await asyncio.gather(*(recover_one(command) for command in commands))
         await self.dispatch_controls(p)
+
+        async def check_configuration(command):
+            async with limit:
+                try:
+                    await self.reconcile_number_configuration(
+                        p, command["id"], expected_version=command["version"]
+                    )
+                except Exception as exc:
+                    logging.getLogger(__name__).warning(
+                        "Number reconciliation deferred: %s", type(exc).__name__
+                    )
+
+        await asyncio.gather(*(check_configuration(command) for command in configurations))
         for call in calls:
             if call["state"] == "ENDING" and call.get("provider_id"):
                 try:

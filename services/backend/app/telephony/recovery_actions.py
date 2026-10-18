@@ -6,11 +6,11 @@ import json
 import re
 from datetime import timedelta
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.db import MODELS, Job, audit, doc, get, uid, update
 from app.service import dt, fail
-from app.telephony.recovery import call_receipt
+from app.telephony.recovery import CALL_COMMAND_KINDS, call_receipt
 
 UNFINISHED = {"pending", "sending", "uncertain", "reconciling", "review_required"}
 
@@ -71,6 +71,20 @@ class RecoveryActions:
                         commands.tenant_id == p["tenant_id"],
                         commands.seller_id == p["seller_id"],
                         commands.op_status.in_(UNFINISHED),
+                        commands.op_kind.in_(CALL_COMMAND_KINDS),
+                    )
+                    .order_by(commands.created_at)
+                    .limit(100)
+                )
+            )
+            operations = list(
+                s.scalars(
+                    select(commands)
+                    .where(
+                        commands.tenant_id == p["tenant_id"],
+                        commands.seller_id == p["seller_id"],
+                        commands.op_status.in_(UNFINISHED),
+                        or_(commands.op_kind.not_in(CALL_COMMAND_KINDS), commands.op_kind.is_(None)),
                     )
                     .order_by(commands.created_at)
                     .limit(100)
@@ -144,6 +158,29 @@ class RecoveryActions:
                     )
             return {
                 "commands": items,
+                "operations": [
+                    {
+                        "id": r.id,
+                        "version": r.version,
+                        "kind": r.data.get("kind", "unknown"),
+                        "status": r.data["status"],
+                        "provider_id": r.data.get("provider_id"),
+                        "number_id": r.data.get("number_id"),
+                        "connection_id": r.data.get("connection_id"),
+                        "can_reconcile": r.data.get("kind") == "number_configure"
+                        and r.data["status"] in {"sending", "reconciling", "uncertain", "review_required"},
+                        "reason": r.data.get("recovery_reason")
+                        or {
+                            "number_configure": "Verify the original number route; callback testing is separate.",
+                            "script_batch": "Review the original deferred preparation request; do not submit another batch.",
+                            "purchase": "Use prior order recovery in Numbers to verify the original carrier order.",
+                        }.get(
+                            r.data.get("kind"),
+                            "Unsupported effect requires operator review; it cannot be retried as a call.",
+                        ),
+                    }
+                    for r in operations
+                ],
                 "agents": [
                     {
                         "id": r.id,
@@ -155,7 +192,10 @@ class RecoveryActions:
                     for r in agents
                 ],
                 "jobs": jobs,
-                "limited": len(pending) == 100 or len(agents) == 100 or len(failed) == 200,
+                "limited": len(pending) == 100
+                or len(operations) == 100
+                or len(agents) == 100
+                or len(failed) == 200,
             }
 
     def _recovery_action(self, p, identity, expected_version, action):
@@ -165,6 +205,8 @@ class RecoveryActions:
             if command.version != expected_version:
                 fail(409, "Recovery item changed; refresh before continuing")
             data = command.data
+            if data.get("kind") not in CALL_COMMAND_KINDS:
+                fail(409, "Use this operation's own recovery workflow; it is not a call command")
             if data["status"] not in UNFINISHED:
                 fail(409, "This command is already resolved")
             if data.get("lease_until") and dt(data["lease_until"]) > self.clock():
@@ -202,6 +244,16 @@ class RecoveryActions:
             return doc(command)
 
     async def recovery_action(self, p, identity, expected_version, action, provider_id=None):
+        def kind():
+            with self.db.transaction(False) as s:
+                return self.required(s, "command_outbox", identity, p).data.get("kind")
+
+        if await asyncio.to_thread(kind) == "number_configure":
+            if action != "reconcile":
+                fail(409, "Number configuration supports verification only, not call controls")
+            return await self.reconcile_number_configuration(
+                p, identity, expected_version=expected_version, provider_id=provider_id
+            )
         if action == "reconcile":
             return await self.reconcile_command(
                 p, identity, provider_id=provider_id, expected_version=expected_version

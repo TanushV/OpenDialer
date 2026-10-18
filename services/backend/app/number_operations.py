@@ -13,6 +13,11 @@ from app.service import dt, fail
 
 
 class NumberOperations:
+    def _configuration_actor(self, s, p):
+        user = self.required(s, "users", p["user_id"], p)
+        if user.data.get("disabled") or user.data.get("role") not in {"owner", "admin"}:
+            fail(403, "An active administrator must reconcile number configuration")
+
     def number_orders(self, p, intent_id=None):
         with self.db.transaction(False) as s:
             if intent_id:
@@ -286,6 +291,7 @@ class NumberOperations:
     def _claim_number_configuration(self, p, number_id, connection):
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
+            self._configuration_actor(s, p)
             number = self.required(s, "number_inventory", number_id, p)
             if not number.data.get("provider_id"):
                 fail(409, "Sync owned carrier inventory before configuring this number")
@@ -305,29 +311,40 @@ class NumberOperations:
                     model.external_key == key,
                 )
             )
-            for prior in self.scoped(s, "command_outbox", p):
-                if prior.data.get("kind") != "number_configure" or prior.data.get("number_id") != number_id:
-                    continue
-                if prior.data.get("status") == "sending" and dt(prior.data["lease_until"]) > self.clock():
+            for prior in s.scalars(
+                select(model).where(
+                    model.tenant_id == p["tenant_id"],
+                    model.seller_id == p["seller_id"],
+                    model.op_kind == "number_configure",
+                    model.op_number_id == number_id,
+                    model.op_status.in_(["sending", "reconciling", "uncertain", "review_required"]),
+                )
+            ):
+                if dt(prior.data.get("lease_until")) and dt(prior.data["lease_until"]) > self.clock():
                     fail(409, "Number configuration is already in progress")
                 if prior.external_key != key and prior.data.get("status") in {
                     "sending",
+                    "reconciling",
                     "uncertain",
                     "review_required",
                 }:
                     fail(409, "Reconcile the previous route before configuring another one")
             reconcile = bool(
-                action and action.data.get("status") in {"sending", "uncertain", "review_required"}
+                action
+                and action.data.get("status") in {"sending", "reconciling", "uncertain", "review_required"}
             )
+            if reconcile and action.data.get("provider_id") != number.data["provider_id"]:
+                fail(409, "Original number identity changed; review the existing configuration intent")
             values = {
                 "kind": "number_configure",
                 "number_id": number_id,
                 "provider_id": number.data["provider_id"],
+                "phone": number.data["phone"],
                 "connection_id": connection,
                 "status": "sending",
                 "lease_owner": uid(),
                 "lease_until": (self.clock() + timedelta(seconds=60)).isoformat(),
-                "started_at": self.clock().isoformat(),
+                "started_at": action.data.get("started_at") if action else self.clock().isoformat(),
             }
             if action:
                 update(action, **values)
@@ -351,8 +368,7 @@ class NumberOperations:
                 receipt = await carrier.get_number(intent["provider_id"])
             else:
                 receipt = await carrier.configure_number(intent["provider_id"], connection)
-            receipt = receipt.get("data", receipt)
-            if receipt.get("id") != intent["provider_id"] or receipt.get("connection_id") != connection:
+            if not self._configuration_receipt(intent, receipt):
                 raise ValueError("Carrier configuration did not confirm the requested route")
         except Exception:
             await asyncio.to_thread(self._finish_number_configuration, p, intent, False)
@@ -362,12 +378,90 @@ class NumberOperations:
             )
         return await asyncio.to_thread(self._finish_number_configuration, p, intent, True)
 
-    def _finish_number_configuration(self, p, intent, confirmed):
-        stale = False
+    def _configuration_receipt(self, intent, receipt):
+        if not isinstance(receipt, dict):
+            return False
+        receipt = receipt.get("data", receipt)
+        if not isinstance(receipt, dict):
+            return False
+        if (
+            receipt.get("id") != intent["provider_id"]
+            or receipt.get("connection_id") != intent["connection_id"]
+        ):
+            return False
+        required = not self.settings.simulation
+        return all(
+            receipt.get(key) == expected and type(receipt.get(key)) is type(expected)
+            for key, expected in {
+                "phone_number": intent["phone"],
+                "status": "active",
+                "call_recording_enabled": False,
+            }.items()
+            if required or key in receipt
+        )
+
+    def _claim_number_check(self, p, identity, expected_version=None, provider_id=None):
         with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
+            self._configuration_actor(s, p)
+            action = self.required(s, "command_outbox", identity, p)
+            if action.data.get("kind") != "number_configure":
+                fail(409, "This effect is not number configuration")
+            if expected_version is not None and action.version != expected_version:
+                fail(409, "Configuration changed; refresh before reconciling")
+            if provider_id and provider_id != action.data.get("provider_id"):
+                fail(409, "Verify the original number identity; it cannot be replaced")
+            if action.data.get("status") == "completed":
+                return None, doc(action)
+            if action.data.get("status") not in {"sending", "reconciling", "uncertain", "review_required"}:
+                fail(409, "Only an uncertain submitted configuration can be reconciled")
+            if action.data.get("lease_until") and dt(action.data["lease_until"]) > self.clock():
+                fail(409, "Number configuration is already in progress")
+            number = self.required(s, "number_inventory", action.data["number_id"], p)
+            if (
+                not action.data.get("provider_id")
+                or number.data.get("provider_id") != action.data["provider_id"]
+            ):
+                fail(409, "Original number identity changed; sync and review its carrier ownership")
+            update(
+                action,
+                status="reconciling",
+                lease_owner=uid(),
+                lease_until=(self.clock() + timedelta(seconds=30)).isoformat(),
+            )
+            return {
+                **doc(action),
+                "phone": action.data.get("phone") or number.data["phone"],
+                "number_version": number.version,
+            }, None
+
+    async def reconcile_number_configuration(self, p, identity, *, expected_version=None, provider_id=None):
+        intent, cached = await asyncio.to_thread(
+            self._claim_number_check, p, identity, expected_version, provider_id
+        )
+        if cached:
+            return cached
+        try:
+            receipt = await self.carrier(p["tenant_id"]).get_number(intent["provider_id"])
+            confirmed = self._configuration_receipt(intent, receipt)
+        except Exception:
+            confirmed = False
+        return await asyncio.to_thread(self._finish_number_configuration, p, intent, confirmed, recovery=True)
+
+    def _finish_number_configuration(self, p, intent, confirmed, *, recovery=False):
+        stale = False
+        connection = self.vault.read(p["tenant_id"]).get("telnyx_connection_id")
+        with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
+            self._configuration_actor(s, p)
             action = self.required(s, "command_outbox", intent["id"], p)
             number = self.required(s, "number_inventory", intent["number_id"], p)
-            if action.data.get("lease_owner") != intent["lease_owner"]:
+            if (
+                action.version != intent["version"]
+                or action.data.get("lease_owner") != intent["lease_owner"]
+                or not action.data.get("lease_until")
+                or dt(action.data["lease_until"]) <= self.clock()
+            ):
                 fail(409, "Configuration was superseded; inspect its current state")
             stale = (
                 number.version != intent["number_version"]
@@ -375,10 +469,20 @@ class NumberOperations:
             )
             update(
                 action,
-                status="review_required" if stale else "completed" if confirmed else "uncertain",
+                status="review_required"
+                if stale
+                else "completed"
+                if confirmed
+                else "review_required"
+                if recovery
+                else "uncertain",
                 lease_until=None,
                 lease_owner=None,
                 finished_at=self.clock().isoformat(),
+                next_attempt_at=(self.clock() + timedelta(seconds=60)).isoformat(),
+                recovery_reason=None
+                if confirmed and not stale
+                else "Verify the original number, active route and disabled recording in the carrier account; this check never resubmits configuration.",
             )
             if confirmed and not stale:
                 lifecycle = number.data["lifecycle"]
@@ -387,14 +491,18 @@ class NumberOperations:
                 update(
                     number,
                     connection_id=intent["connection_id"],
-                    configuration_status="confirmed",
-                    identity_configured=True,
+                    configuration_status="confirmed"
+                    if connection == intent["connection_id"]
+                    else "route_changed",
+                    identity_configured=connection == intent["connection_id"],
                     callback_tested=False,
                     lifecycle=lifecycle,
                     callback_retained=True,
                 )
             elif not stale:
-                update(number, configuration_status="uncertain")
+                update(
+                    number, configuration_status="uncertain", identity_configured=False, callback_tested=False
+                )
             audit(
                 s,
                 p["tenant_id"],
@@ -406,7 +514,7 @@ class NumberOperations:
                 {"intent_id": action.id, "confirmed": confirmed and not stale, "stale": stale},
             )
             emit(s, p["tenant_id"], "number.updated", number, self.clock())
-            result = doc(number)
+            result = doc(action) if recovery else doc(number)
         if stale:
             fail(409, "Inventory changed during configuration; reconcile the current carrier identity")
         return result

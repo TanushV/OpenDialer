@@ -145,6 +145,9 @@ def sync_columns(row, lookup_key=None):
         data.get("cost_usd") if data.get("cost_usd") is not None else data.get("reserved_usd") or 0
     )
     row.op_index_version = 1
+    if row.__tablename__ == "command_outbox":
+        row.op_kind = data.get("kind")
+        row.op_index_version = 2
 
 
 def ensure_columns(connection, metadata):
@@ -154,6 +157,8 @@ def ensure_columns(connection, metadata):
     for name in sorted((HOT_TABLES | CONTEXT_FIELDS.keys()) & existing):
         actual = {c["name"] for c in inspector.get_columns(name)}
         definitions = columns() if name in HOT_TABLES else context_columns(name)
+        if name == "command_outbox":
+            definitions["op_kind"] = Column(String(40), nullable=True)
         for column, definition in definitions.items():
             if column not in actual:
                 sql_type = definition.type.compile(dialect=connection.dialect)

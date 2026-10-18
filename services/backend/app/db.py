@@ -181,12 +181,27 @@ for _name in TABLES:
         {
             "__tablename__": _name,
             **(columns() if _name in HOT_TABLES else {}),
+            **({"op_kind": Column(String(40), nullable=True)} if _name == "command_outbox" else {}),
             **(context_columns(_name) if _name in CONTEXT_FIELDS else {}),
             **({"op_owner_id": Column(String(36), nullable=False)} if _name == "work_intervals" else {}),
             "__table_args__": (
                 UniqueConstraint("tenant_id", "seller_id", "external_key", name=f"uq_{_name}_key"),
                 *(indexes(_name) if _name in HOT_TABLES else ()),
                 *(context_indexes(_name) if _name in CONTEXT_FIELDS else ()),
+                *(
+                    (
+                        Index(
+                            "ix_command_outbox_kind",
+                            "tenant_id",
+                            "seller_id",
+                            "op_kind",
+                            "op_status",
+                            "op_due_at",
+                        ),
+                    )
+                    if _name == "command_outbox"
+                    else ()
+                ),
                 *(
                     (Index("ix_work_intervals_owner", "tenant_id", "seller_id", "op_owner_id", "created_at"),)
                     if _name == "work_intervals"
@@ -322,9 +337,12 @@ class Database:
         for kind in sorted(HOT_TABLES | CONTEXT_FIELDS.keys()):
             model = MODELS[kind]
             version = model.op_index_version if kind in HOT_TABLES else model.ctx_index_version
+            outdated = version.is_(None)
+            if kind == "command_outbox":
+                outdated = outdated | (version < 2)
             while True:
                 with self.transaction() as s:
-                    batch = list(s.scalars(select(model).where(version.is_(None)).limit(500)))
+                    batch = list(s.scalars(select(model).where(outdated).limit(500)))
                     if not batch:
                         break
                     for row in batch:

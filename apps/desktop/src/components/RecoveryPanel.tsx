@@ -11,9 +11,12 @@ interface RecoveryItem {
   reason: string;
   can_end?: boolean;
   can_cancel?: boolean;
+  can_reconcile?: boolean;
+  connection_id?: string;
 }
 interface RecoveryState {
   commands: RecoveryItem[];
+  operations?: RecoveryItem[];
   agents: RecoveryItem[];
   jobs: {
     id: string;
@@ -99,6 +102,7 @@ export function RecoveryPanel() {
       ) : (
         <>
           {!data.commands.length &&
+            !data.operations?.length &&
             !data.agents.length &&
             !data.jobs.length && <p>No work needs recovery.</p>}
           {data.commands.map((item) => (
@@ -163,6 +167,34 @@ export function RecoveryPanel() {
               >
                 Verify agent status
               </button>
+            </article>
+          ))}
+          {data.operations?.map((item) => (
+            <article key={item.id} className="review-segment">
+              <strong>
+                {label(item.kind || "Operation")} · {label(item.status)}
+              </strong>
+              <p>{item.reason}</p>
+              {item.connection_id && (
+                <p className="small">
+                  Original connection: {item.connection_id}
+                </p>
+              )}
+              {item.can_reconcile && (
+                <button
+                  className="secondary"
+                  disabled={busy !== null}
+                  onClick={() =>
+                    void act(
+                      item.id,
+                      `/v1/admin/recovery/commands/${item.id}`,
+                      { expected_version: item.version, action: "reconcile" },
+                    )
+                  }
+                >
+                  Verify original number route
+                </button>
+              )}
             </article>
           ))}
           {data.jobs.map((job) => (

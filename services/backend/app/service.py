@@ -767,11 +767,17 @@ class Service(ReservationPlanner):
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             call = self.required(s, "call_attempts", call_id, p)
-            command = next(
-                r
-                for r in self.scoped(s, "command_outbox", p)
-                if r.data["call_id"] == call_id and r.data["kind"] == "dial"
+            model = MODELS["command_outbox"]
+            command = s.scalar(
+                select(model).where(
+                    model.tenant_id == p["tenant_id"],
+                    model.seller_id == p["seller_id"],
+                    model.external_key == call_id,
+                    model.op_kind == "dial",
+                )
             )
+            if not command or command.data.get("call_id") != call_id:
+                fail(409, "Original dial intent is missing; review this call before retrying")
             if command.data["status"] != "pending":
                 return
             lead = self.required(s, "leads", call.data["lead_id"], p)
