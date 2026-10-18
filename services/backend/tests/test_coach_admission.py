@@ -134,3 +134,66 @@ async def test_call_end_cancels_from_the_storage_thread_and_fences_late_provider
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_timeout_ignoring_provider_cannot_return_late_advice():
+    class Provider:
+        async def suggest(self, *args, **kwargs):
+            try:
+                await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                return {"action": "SHOW_CARD", "say_or_ask": "Beyond deadline"}
+
+    assert (await CoachEngine().suggest("call", {}, Provider(), FALLBACK, deadline_ms=10))[
+        "action"
+    ] == "NO_ACTION"
+
+
+@pytest.mark.asyncio
+async def test_breaker_is_scoped_to_the_affected_seller_route():
+    engine = CoachEngine()
+
+    class Failing:
+        async def suggest(self, *args, **kwargs):
+            raise TimeoutError()
+
+    class Healthy:
+        async def suggest(self, *args, **kwargs):
+            return {"action": "SHOW_CARD"}
+
+    for _ in range(3):
+        await engine.suggest("a", {}, Failing(), FALLBACK, circuit_key="seller-a")
+    assert (await engine.suggest("b", {}, Healthy(), FALLBACK, circuit_key="seller-b"))[
+        "action"
+    ] == "SHOW_CARD"
+    assert (await engine.suggest("a", {}, Healthy(), FALLBACK, circuit_key="seller-a"))[
+        "action"
+    ] == "NO_ACTION"
+
+
+@pytest.mark.asyncio
+async def test_cancel_resistant_work_still_counts_against_capacity():
+    engine, entered, release, requests = CoachEngine(), asyncio.Event(), asyncio.Event(), []
+    engine.max_pending = 1
+
+    class Provider:
+        async def suggest(self, request, **kwargs):
+            requests.append(request)
+            entered.set()
+            try:
+                await release.wait()
+            except asyncio.CancelledError:
+                await release.wait()
+            return FALLBACK
+
+    old = asyncio.create_task(engine.suggest("call", {}, Provider(), FALLBACK))
+    await entered.wait()
+    try:
+        # Supersession must not forget tasks whose provider has not stopped yet.
+        for _ in range(4):
+            await asyncio.wait_for(engine.suggest("call", {}, Provider(), FALLBACK), 0.2)
+        assert len(requests) == 1
+    finally:
+        release.set()
+        await asyncio.gather(old, return_exceptions=True)
