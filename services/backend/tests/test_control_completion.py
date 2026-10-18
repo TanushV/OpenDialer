@@ -432,3 +432,91 @@ async def test_recovered_suppressed_dial_is_stopped_not_left_ringing(workspace, 
     await service.recover(p)
     assert carrier.hangups
     assert len(carrier.dials) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", [{}, {"data": {}}, {"data": {"result": "failed"}}])
+async def test_control_without_success_acknowledgement_remains_uncertain(payload):
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload))
+    ) as http:
+        with pytest.raises(UncertainCarrierResult):
+            await TelnyxCarrier("test", "test", http=http).action("leg", "answer", {"command_id": "once"})
+
+
+@pytest.mark.asyncio
+async def test_agent_submission_has_lease_and_stale_response_cannot_overwrite_owner(
+    workspace, app, carrier, monkeypatch
+):
+    service, p = app.state.service, principal(workspace)
+    service.settings.simulation = False
+    service.vault.write(p["tenant_id"], {"sip_username": "test-rep", "telephony_credential_id": "test-cred"})
+    monkeypatch.setattr(service, "carrier", lambda _: carrier)
+    observed = {}
+
+    async def verified(_):
+        return True
+
+    async def taken_over(payload):
+        identity = json.loads(base64.b64decode(payload["client_state"]))["agent_leg_id"]
+        with service.db.transaction() as s:
+            leg = get(s, "call_legs", identity)
+            observed.update(leg.data)
+            update(leg, lease_owner="new-reconciler", state="uncertain")
+        return {"call_control_id": "delayed-agent"}
+
+    monkeypatch.setattr(carrier, "verify_incoming_only_credential", verified, raising=False)
+    monkeypatch.setattr(carrier, "dial", taken_over)
+    try:
+        await service.create_agent(p)
+    except Exception:
+        pass
+    assert observed.get("lease_owner") and observed.get("lease_until")
+    with service.db.transaction(False) as s:
+        leg = next(r for r in service.scoped(s, "call_legs", p) if r.data.get("kind") == "agent")
+        assert leg.data["state"] == "uncertain" and leg.data["lease_owner"] == "new-reconciler"
+
+
+@pytest.mark.asyncio
+async def test_one_unavailable_inbound_lookup_does_not_block_other_recovery(
+    workspace, app, carrier, monkeypatch
+):
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    with service.db.transaction() as s:
+        put(
+            s,
+            "followup_tasks",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "inbound": True,
+                "inbound_state": "ringing",
+                "provider_id": "failed-inbound",
+                "routing_attempts": [],
+                "status": "open",
+            },
+        )
+        put(
+            s,
+            "command_outbox",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "kind": "hangup",
+                "call_id": call["id"],
+                "provider_id": call["provider_id"],
+                "status": "pending",
+            },
+            key=call["id"] + ":hangup",
+        )
+    original = carrier.reconcile
+
+    async def lookup(command, provider_id=None):
+        if provider_id == "failed-inbound":
+            raise TimeoutError()
+        return await original(command, provider_id)
+
+    monkeypatch.setattr(carrier, "reconcile", lookup)
+    await service.recover(p)
+    assert carrier.hangups

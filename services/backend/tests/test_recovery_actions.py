@@ -227,3 +227,36 @@ def test_agent_recovery_verifies_reference_without_another_dial(workspace, app, 
     with service.db.transaction(False) as s:
         assert get(s, "call_legs", identity).data["state"] == "ended"
     assert not carrier.dials
+
+
+def test_unsent_cancel_releases_only_its_undialed_claim(workspace, app, carrier, monkeypatch):
+    async def do_not_submit(*_):
+        return None
+
+    service, p = app.state.service, principal(workspace)
+    monkeypatch.setattr(service, "dispatch_call", do_not_submit)
+    call = start(workspace)
+    item = command_for(service, p, call["id"])
+    response = act(workspace, item, "cancel_unsent")
+    assert response.status_code == 200, response.text
+    with service.db.transaction(False) as s:
+        assert get(s, "command_outbox", item["id"]).data["status"] == "cancelled"
+        assert s.scalar(select(ActiveClaim).where(ActiveClaim.call_id == call["id"])) is None
+    assert not carrier.dials
+
+
+def test_legacy_job_error_content_is_not_exposed_in_recovery(workspace, app):
+    service, p = app.state.service, principal(workspace)
+    job = service.jobs.enqueue(
+        "research",
+        {"seller_id": p["seller_id"], "user_id": p["user_id"], "lead_ids": []},
+        "legacy-error",
+        tenant_id=p["tenant_id"],
+    )
+    with service.db.transaction() as s:
+        saved = s.get(Job, job["id"])
+        saved.status, saved.error = "dead", "The prospect said PRIVATE_SPEECH_EXAMPLE"
+    response = workspace["client"].get("/v1/admin/recovery", headers=workspace["headers"])
+    assert response.status_code == 200
+    assert response.json()["jobs"]
+    assert "PRIVATE_SPEECH_EXAMPLE" not in response.text
