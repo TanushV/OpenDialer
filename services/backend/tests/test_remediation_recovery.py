@@ -36,15 +36,17 @@ def test_optout_is_retried_if_suppression_write_fails(workspace, app, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_unfinished_webhook_recovers_without_another_provider_delivery(workspace, app, monkeypatch):
+async def test_unfinished_webhook_recovers_without_another_provider_delivery(
+    workspace, app, clock, monkeypatch
+):
     call = start(workspace)
     service = app.state.service
-    original = service.transcript
+    original = service._accept_transcript
 
-    async def unavailable(*args, **kwargs):
+    def unavailable(*args, **kwargs):
         raise RuntimeError("processing interrupted")
 
-    monkeypatch.setattr(service, "transcript", unavailable)
+    monkeypatch.setattr(service, "_accept_transcript", unavailable)
     event = {
         "id": "worker-retry",
         "event_type": "call.transcription",
@@ -53,9 +55,11 @@ async def test_unfinished_webhook_recovers_without_another_provider_delivery(wor
             "transcription_data": {"track": "inbound", "is_final": True, "transcript": "We need help."},
         },
     }
-    with pytest.raises(RuntimeError):
-        await service.accept_webhook(workspace["tenant_id"], event, "body-hash")
-    monkeypatch.setattr(service, "transcript", original)
+    receipt = await service.accept_webhook(workspace["tenant_id"], event, "body-hash")
+    assert receipt["status"] == "received"
+    assert (await service.run_jobs(tenant_id=workspace["tenant_id"], queues=["webhook"]))["processed"] == 0
+    monkeypatch.setattr(service, "_accept_transcript", original)
+    clock.now += timedelta(seconds=11)
     await service.maintenance_tick()
     await service.run_jobs(tenant_id=workspace["tenant_id"], queues=["webhook"])
     saved = workspace["client"].get("/v1/calls/" + call["id"], headers=workspace["headers"]).json()

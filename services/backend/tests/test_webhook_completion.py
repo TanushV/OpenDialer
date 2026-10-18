@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from datetime import timedelta
 
 import pytest
-from app.db import Job, get, put, rows
+from app.db import Job, get, put, rows, update
 from app.privacy import event_metadata
 from conftest import start
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -358,3 +358,92 @@ async def test_legacy_completed_job_with_unfinished_receipt_resumes_once(workspa
     with service.db.transaction(False) as s:
         assert get(s, "webhook_inbox", identity).data["status"] == "processed"
         assert s.get(Job, job["id"]).attempts == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("restart", [False, True])
+async def test_lost_unprocessed_speech_is_visible_on_the_call(workspace, app, clock, restart):
+    service = app.state.service
+    call = start(workspace)
+    receipt = await service.accept_webhook(
+        workspace["tenant_id"],
+        {"id": "lost-speech", "event_type": "call.transcription", "payload": speech(call)},
+        "lost-body",
+    )
+    if restart:
+        service.raw.clear()
+    else:
+        clock.now += timedelta(seconds=301)
+    await service.process_webhook(workspace["tenant_id"], receipt["receipt_id"])
+    current = workspace["client"].get("/v1/calls/" + call["id"], headers=workspace["headers"]).json()
+    assert current["raw_evidence_status"] == ("unavailable_after_restart" if restart else "expired")
+    assert current["unprocessed_speech_events"] == 1
+    assert current["analysis_incomplete"] is True
+
+
+@pytest.mark.asyncio
+async def test_concurrent_admission_and_processing_apply_the_event_once(workspace, app):
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    event = {"id": "raced-delivery", "event_type": "call.transcription", "payload": speech(call)}
+    receipts = await asyncio.gather(
+        *(service.accept_webhook(workspace["tenant_id"], event, "identical-body") for _ in range(4))
+    )
+    identities = {r["receipt_id"] for r in receipts}
+    assert len(identities) == 1
+    await asyncio.gather(
+        *(service.process_webhook(workspace["tenant_id"], next(iter(identities))) for _ in range(4))
+    )
+    with service.db.transaction(False) as s:
+        assert len(service.scoped(s, "provider_events", p)) == 1
+        assert len(service.scoped(s, "transcript_segments", p)) == 1
+        assert len(list(s.scalars(select(Job).where(Job.queue == "live_coach")))) == 1
+
+
+@pytest.mark.asyncio
+async def test_receipt_hash_collision_does_not_replace_original_buffer(workspace, app):
+    from fastapi import HTTPException
+
+    service = app.state.service
+    call = start(workspace)
+    receipt = await service.accept_webhook(
+        workspace["tenant_id"],
+        {"id": "collision-raw", "event_type": "call.transcription", "payload": speech(call)},
+        "original",
+    )
+    with pytest.raises(HTTPException) as exc:
+        await service.accept_webhook(
+            workspace["tenant_id"],
+            {
+                "id": "collision-raw",
+                "event_type": "call.transcription",
+                "payload": speech(call, "Conflicting text."),
+            },
+            "altered",
+        )
+    assert exc.value.status_code == 409
+    assert (
+        service.raw.get("webhook:" + receipt["receipt_id"])["transcription_data"]["transcript"]
+        == "We need a clearer explanation."
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing", [False, True])
+async def test_event_identity_cannot_resolve_to_the_wrong_or_unknown_leg(workspace, app, missing):
+    service = app.state.service
+    call = start(workspace)
+    if missing:
+        with service.db.transaction() as s:
+            update(get(s, "call_attempts", call["id"]), provider_id=None)
+        payload = {"direction": "outgoing"}
+    else:
+        payload = {
+            "call_control_id": "different-call",
+            "client_state": base64.b64encode(json.dumps({"call_id": call["id"]}).encode()).decode(),
+        }
+    identity = pending(workspace, "call.hangup", payload)
+    result = await service.process_webhook(workspace["tenant_id"], identity)
+    assert result["status"] == "unmatched"
+    with service.db.transaction(False) as s:
+        assert get(s, "call_attempts", call["id"]).data["state"] == call["state"]

@@ -1,5 +1,6 @@
 """Maintained October 16 audit regressions; committed before October 17 product repairs."""
 
+import asyncio
 import base64
 import json
 from datetime import UTC, datetime, timedelta
@@ -87,17 +88,22 @@ def test_transcript_processing_retries_after_durable_event_receipt(workspace, ap
         "telnyx-timestamp": timestamp,
         "telnyx-signature-ed25519": base64.b64encode(private.sign(timestamp.encode() + b"|" + body)).decode(),
     }
-    original = service.transcript
+    original = service._accept_transcript
 
-    async def temporary_failure(*args, **kwargs):
+    def temporary_failure(*args, **kwargs):
         raise HTTPException(503, "Injected temporary processing failure")
 
-    monkeypatch.setattr(service, "transcript", temporary_failure)
+    monkeypatch.setattr(service, "_accept_transcript", temporary_failure)
     c = workspace["client"]
-    assert c.post("/webhooks/telnyx", content=body, headers=headers).status_code == 503
-    monkeypatch.setattr(service, "transcript", original)
+    # Admission now acknowledges durable receipt; processing failure is retried by its job.
+    assert c.post("/webhooks/telnyx", content=body, headers=headers).status_code == 200
+    failed = asyncio.run(service.run_jobs(tenant_id=workspace["tenant_id"], queues=["webhook"]))
+    assert failed["processed"] == 0
+    monkeypatch.setattr(service, "_accept_transcript", original)
     retried = c.post("/webhooks/telnyx", content=body, headers=headers)
     assert retried.status_code == 200
+    clock.now += timedelta(seconds=11)
+    asyncio.run(service.run_jobs(tenant_id=workspace["tenant_id"], queues=["webhook"]))
     saved = c.get("/v1/calls/" + call["id"], headers=workspace["headers"]).json()["transcript"]
     assert len(saved) == 1, {"retry_receipt": retried.json(), "transcript": saved}
 

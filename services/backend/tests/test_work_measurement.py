@@ -367,6 +367,7 @@ async def test_delayed_webhooks_use_source_answer_and_end_times(workspace, app, 
             },
             "hash-" + kind,
         )
+        await app.state.service.run_jobs(tenant_id=workspace["tenant_id"], queues=["webhook"])
     saved = workspace["client"].get("/v1/calls/" + call["id"], headers=workspace["headers"]).json()
     assert saved["connected_seconds"] == 4
     assert saved["answer_timing_source"] == "provider"
