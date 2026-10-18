@@ -132,6 +132,7 @@ def revoke_effects(service, s, p, endpoint_id, permissions):
                 )
             # Also fences a raw publication already committed before this revocation.
             service.raw.revoke_scope(p["tenant_id"] + ":" + call.id)
+            service.coach.cancel(call.id)
             service.control_intent(
                 s, p, call.id, "transcription_stop", {}, target=call.data.get("provider_id")
             )

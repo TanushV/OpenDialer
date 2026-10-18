@@ -930,6 +930,7 @@ class Service(ReservationPlanner):
             )
 
     def finish_call(self, s, p, call, reason=None):
+        self.coach.cancel(call.id)
         if call.data["state"] != "FINALIZED":
             ended = dt(call.data.get("ended_at")) or self.clock()
             update(call, state="ENDED", ended_at=ended.isoformat(), end_reason=reason or "hangup")
@@ -988,6 +989,7 @@ class Service(ReservationPlanner):
                 else "Await the signed dial receipt or attach a verified carrier call reference",
             )
             update(call, state="ENDING")
+            self.coach.cancel(call.id)
             emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": "ENDING"})
             return doc(call), {"id": existing.id, "provider_id": provider_id, "command_id": command_id}
 

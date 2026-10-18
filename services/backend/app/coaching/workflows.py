@@ -13,7 +13,7 @@ from app.coaching.context import (
     persistent_state,
     retrieve_cards,
 )
-from app.coaching.engine import CardRejected
+from app.coaching.engine import CardRejected, finish_shielded
 from app.db import MODELS, doc, emit, put, uid, update
 from app.privacy import persistent_document
 from app.providers.inference import InferenceResult
@@ -62,21 +62,23 @@ class LiveHelper:
         if not provider or self.settings.simulation:
             return {"simulation": True, "status": "unconfigured", "examples": request["approved_cards"]}
         key = "practice:" + uid()
-        admitted = await asyncio.to_thread(
-            self.reserve_optional_budget, p, key, 0.01, object_id=key, work_kind="coaching_practice"
-        )
-        if not admitted:
-            return {"simulation": True, "status": "budget_exhausted"}
-        result = await self.coach.suggest(key, request, provider, {"action": "NO_ACTION"}, deadline_ms=8000)
-        await asyncio.to_thread(
-            self.usage,
-            p,
-            route,
-            "coaching_practice",
-            InferenceResult({}, provider.last_usage, provider.last_request_id),
-            object_id=key,
-            request_key=key,
-            reserved=0,
+
+        async def admit(submit):
+            return not submit or await self._reserve_coach(p, key, key, "coaching_practice")
+
+        async def settle(submitted):
+            await self._settle_coach(p, key, key, "coaching_practice", route, provider, submitted)
+
+        result = await self.coach.suggest(
+            key,
+            request,
+            provider,
+            {"action": "NO_ACTION"},
+            deadline_ms=8000,
+            admit=admit,
+            settle=settle,
+            circuit_key=(p["tenant_id"], p["seller_id"], route),
+            owner_key=(p["tenant_id"], p["seller_id"], p["user_id"]),
         )
         try:
             ground_guidance(result, request)
@@ -94,11 +96,53 @@ class LiveHelper:
             return None
         return self.raw.get("help:" + p["tenant_id"] + ":" + record["id"])
 
+    async def _reserve_coach(self, p, key, object_id, kind):
+        # A cancelled to_thread still runs. Finish admission before deciding whether
+        # the hold is unused; cleanup is shared by practice and live help.
+        return await finish_shielded(
+            asyncio.to_thread(
+                self.reserve_optional_budget,
+                p,
+                key,
+                0.01,
+                object_id=object_id,
+                work_kind=kind,
+            )
+        )
+
+    async def _settle_coach(self, p, key, object_id, kind, route, provider, submitted):
+        if submitted:
+            await asyncio.to_thread(
+                self.usage,
+                p,
+                route,
+                kind,
+                InferenceResult(
+                    {}, getattr(provider, "last_usage", {}), getattr(provider, "last_request_id", None)
+                ),
+                object_id=object_id,
+                reserved=0,
+                request_key=key,
+            )
+        else:
+            await asyncio.to_thread(self.release_unsubmitted_budget, p, key)
+
+    def _help_allowed(self, s, p, call):
+        user = self.required(s, "users", p["user_id"], p)
+        return not (
+            user.data.get("disabled")
+            or user.data.get("role") not in {"owner", "admin", "rep"}
+            or user.data.get("role") == "rep"
+            and call.data["rep_id"] != user.id
+            or call.data["state"] in TERMINAL | {"ENDING"}
+            or call.data.get("transcription_disabled")
+        )
+
     def _help_context(self, p, call_id, urgent, question):
         started = time.perf_counter()
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
-            if call.data["state"] in TERMINAL | {"ENDING"}:
+            if not self._help_allowed(s, p, call):
                 return None
             lead = self.required(s, "leads", call.data["lead_id"], p)
             if self.suppressed(s, p, lead.data["phone"]):
@@ -310,36 +354,103 @@ class LiveHelper:
         result, source = fallback, "cached_knowledge"
         request_key = f"coach:{call_id}:{request['state_version']}:{uid()}"
         began = time.perf_counter()
-        if provider and not self.settings.simulation and time.monotonic() >= self.coach.open_until:
-            admitted = await asyncio.to_thread(
-                self.reserve_optional_budget, p, request_key, 0.01, object_id=call_id, work_kind="live_coach"
-            )
-            if admitted:
-                remaining = min(
-                    (expires - self.clock()).total_seconds(), monotonic_deadline - time.monotonic()
-                )
-                if remaining <= 0:
-                    await asyncio.to_thread(self.release_unsubmitted_budget, p, request_key)
-                    return {"action": "NO_ACTION", "status": "expired", "private": bool(question)}
-                result = await self.coach.suggest(
+        if provider and not self.settings.simulation:
+            request["help_request_id"] = request_key
+
+            async def admit(submit):
+                if not await asyncio.to_thread(self._admit_help, p, call_id, request):
+                    return False
+                if not submit:
+                    return True
+                allowed = await self._reserve_coach(p, request_key, call_id, "live_coach")
+                if (
+                    not allowed
+                    or min((expires - self.clock()).total_seconds(), monotonic_deadline - time.monotonic())
+                    <= 0
+                ):
+                    return False
+                return await asyncio.to_thread(self._admit_help, p, call_id, request)
+
+            async def settle(submitted):
+                await self._settle_coach(p, request_key, call_id, "live_coach", route, provider, submitted)
+
+            async def publish(result):
+                return await self._validated_help(
+                    p,
                     call_id,
                     request,
+                    result,
+                    route if result is not fallback else source,
                     provider,
-                    fallback,
-                    deadline_ms=min(int(remaining * 1000), 8000 if urgent else 1500),
+                    expires,
+                    state_ms,
+                    retrieval_ms,
+                    (time.perf_counter() - began) * 1000,
                 )
-                source = route if result is not fallback else "cached_knowledge"
-                if provider.last_usage or provider.last_request_id:
-                    await asyncio.to_thread(
-                        self.usage,
-                        p,
-                        route,
-                        "live_coach",
-                        InferenceResult({}, provider.last_usage, provider.last_request_id),
-                        object_id=call_id,
-                        reserved=0,
-                        request_key=request_key,
-                    )
+
+            result = await self.coach.suggest(
+                call_id,
+                request,
+                provider,
+                fallback,
+                deadline_ms=min(int(remaining * 1000), 8000 if urgent else 1500),
+                admit=admit,
+                settle=settle,
+                publish=publish,
+                circuit_key=(p["tenant_id"], p["seller_id"], route),
+                owner_key=(p["tenant_id"], p["seller_id"], p["user_id"]),
+            )
+            if not urgent and result.get("status") in {"busy", "manual_pending"}:
+                await asyncio.to_thread(self._defer_busy_help, p, call_id)
+            return {**result, "private": bool(question)}
+        return await self._validated_help(
+            p,
+            call_id,
+            request,
+            result,
+            source,
+            provider,
+            expires,
+            state_ms,
+            retrieval_ms,
+            (time.perf_counter() - began) * 1000,
+        )
+
+    def _admit_help(self, p, call_id, request):
+        with self.db.transaction() as s:
+            call = self.required(s, "call_attempts", call_id, p)
+            s.refresh(call, with_for_update=True)
+            lead = self.required(s, "leads", call.data["lead_id"], p)
+            if (
+                not self.coach.current(call_id, request["help_request_id"])
+                or not self._help_allowed(s, p, call)
+                or call.data["transcript_version"] != request["state_version"]
+                or self.suppressed(s, p, lead.data["phone"])
+            ):
+                return False
+            update(call, coach_request_key=request["help_request_id"])
+            return True
+
+    def _defer_busy_help(self, p, call_id):
+        with self.db.transaction() as s:
+            call = self.required(s, "call_attempts", call_id, p)
+            if call.data["state"] not in TERMINAL | {"ENDING"}:
+                due = self.clock() + timedelta(seconds=8)
+                self._defer_help(s, p, call, due, "capacity:" + due.isoformat())
+
+    async def _validated_help(
+        self,
+        p,
+        call_id,
+        request,
+        result,
+        source,
+        provider,
+        expires,
+        state_ms,
+        retrieval_ms,
+        inference_ms,
+    ):
         try:
             ground_guidance(result, request)
         except CardRejected:
@@ -353,7 +464,7 @@ class LiveHelper:
             }
         result = {
             **result,
-            "private": bool(question),
+            "private": bool(request.get("private_question")),
             "status": "ready" if result["action"] != "NO_ACTION" else "no_action",
         }
         try:
@@ -368,10 +479,14 @@ class LiveHelper:
                 expires,
                 state_ms,
                 retrieval_ms,
-                (time.perf_counter() - began) * 1000,
+                inference_ms,
             )
         except CardRejected:
-            return {"action": "NO_ACTION", "status": "no_action", "private": bool(question)}
+            return {
+                "action": "NO_ACTION",
+                "status": "no_action",
+                "private": bool(request.get("private_question")),
+            }
 
     def _publish_help(
         self,
@@ -389,6 +504,13 @@ class LiveHelper:
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
             s.refresh(call, with_for_update=True)
+            key = request.get("help_request_id")
+            if (
+                not self._help_allowed(s, p, call)
+                or key
+                and (call.data.get("coach_request_key") != key or not self.coach.current(call_id, key))
+            ):
+                return {"action": "NO_ACTION", "status": "superseded", "private": result["private"]}
             metadata = self.transcript_metadata(s, p, call_id)
             current = {row.data["segment_id"]: row for row in metadata}
             if expires <= self.clock() or any(
