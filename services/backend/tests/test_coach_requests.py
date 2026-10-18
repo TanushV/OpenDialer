@@ -155,3 +155,67 @@ async def test_manual_request_metadata_has_a_bound_and_original_expiry(workspace
     assert (await asyncio.to_thread(service.cancel_help, p, call["id"], str(uuid4())))[
         "status"
     ] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_cancel_between_answer_publication_and_response_hides_the_answer(workspace, app, monkeypatch):
+    call, p, _, _ = setup(workspace, app, monkeypatch)
+    service, identity, published = app.state.service, str(uuid4()), asyncio.Event()
+    turn(service, p, call, "cancel-published")
+    original = service._validated_help
+
+    async def pause(*args, **kwargs):
+        result = await original(*args, **kwargs)
+        assert result.get("id")
+        published.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(service, "_validated_help", pause)
+    task = asyncio.create_task(
+        service.coach_turn(p, call["id"], urgent=True, question="Help?", request_id=identity)
+    )
+    try:
+        await asyncio.wait_for(published.wait(), 2)
+        await asyncio.to_thread(service.cancel_help, p, call["id"], identity)
+        await asyncio.wait_for(task, 1)
+        with service.db.transaction(False) as s:
+            for record in service.scoped(s, "coach_events", p):
+                assert service.coach_content(p, {"id": record.id, **record.data}) is None
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_context_assembly_cannot_extend_private_answer_raw_lifetime(workspace, app, clock, monkeypatch):
+    from datetime import timedelta
+
+    from app.service import dt
+
+    call, p, _, _ = setup(workspace, app, monkeypatch)
+    service, received = app.state.service, clock.now
+    original = service._help_context
+
+    def slow(*args, **kwargs):
+        clock.now += timedelta(seconds=30)
+        return original(*args, **kwargs)
+
+    class Provider:
+        last_usage, last_request_id = {}, None
+
+        async def suggest(self, request, **kwargs):
+            from test_remediation_coach import advice
+
+            value = advice(request["state_version"])
+            value["evidence_segment_ids"] = []
+            return value
+
+    monkeypatch.setattr(service, "_help_context", slow)
+    monkeypatch.setattr(service, "configured_coach", lambda _: (Provider(), "openrouter"))
+    result = await service.coach_turn(
+        p, call["id"], urgent=True, question="What should I clarify?", request_id=str(uuid4())
+    )
+    assert result["action"] == "SHOW_CARD"
+    with service.db.transaction(False) as s:
+        event = get(s, "coach_events", result["id"])
+        assert dt(event.data["raw_expires_at"]) <= received + timedelta(seconds=300)
