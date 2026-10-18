@@ -1,5 +1,6 @@
 """A28: personal improvement, reviewed examples and private non-live practice."""
 
+import asyncio
 from datetime import timedelta
 from uuid import uuid4
 
@@ -127,7 +128,7 @@ def test_corrected_source_and_withdrawn_example_cannot_reenter_context(workspace
 def test_personal_coaching_reads_only_bounded_own_history(workspace, app, clock, monkeypatch):
     call, p = source(workspace, app)
     with app.state.db.transaction() as s:
-        for i in range(250):
+        for _i in range(250):
             old = put(
                 s,
                 "call_attempts",
@@ -211,3 +212,48 @@ async def test_revoked_practice_requester_receives_no_private_result(workspace, 
     with service.db.transaction(False) as s:
         usage = service.scoped(s, "usage_ledger", p)
         assert len(usage) == 1 and usage[0].data["cost_usd"] == 0.001
+
+
+@pytest.mark.asyncio
+async def test_practice_retry_reuses_original_request_and_never_extends_raw_expiry(
+    workspace, app, clock, monkeypatch
+):
+    service, p = app.state.service, principal(workspace)
+    calls, ready, release = [], asyncio.Event(), asyncio.Event()
+
+    class Provider:
+        last_usage, last_request_id = {"cost": 0.001}, "practice-once"
+
+        async def suggest(self, request, **kwargs):
+            calls.append(request)
+            ready.set()
+            await release.wait()
+            result = advice(0)
+            result["evidence_segment_ids"] = []
+            return result
+
+    monkeypatch.setattr(service.settings, "simulation", False)
+    monkeypatch.setattr(service, "configured_coach", lambda _: (Provider(), "openrouter"))
+    identity = str(uuid4())
+    task = asyncio.create_task(service.practice(p, "A private scenario", request_id=identity))
+    try:
+        await asyncio.wait_for(ready.wait(), 2)
+        duplicate = await service.practice(p, "A private scenario", request_id=identity)
+        assert duplicate["status"] == "pending"
+        release.set()
+        original = await task
+        assert original["status"] == "ready"
+        clock.now += timedelta(seconds=299)
+        retry = await service.practice(p, "A private scenario", request_id=identity)
+        assert retry["guidance"] == original["guidance"] and retry["raw_remaining_ms"] <= 1000
+        clock.now += timedelta(seconds=2)
+        assert (await service.practice(p, "A private scenario", request_id=identity))["status"] == "expired"
+        assert len(calls) == 1
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as error:
+            await service.practice(p, "Changed question", request_id=identity)
+        assert error.value.status_code == 409
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
