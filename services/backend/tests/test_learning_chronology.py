@@ -222,3 +222,35 @@ def test_disposition_corrections_retain_as_of_history_without_transcripts(worksp
     assert stored["outcome_history"][0]["outcome"] == "right_party"
     assert dataset(stored, snapshot, [], first_at)[0]["human"] is True
     assert dataset(stored, snapshot, [], clock.now)[0]["human"] is False
+
+
+def test_revised_meeting_reports_keep_observation_and_retraction_history(workspace, app, clock):
+    from app.optimization.learning import conversion_at
+
+    service = app.state.service
+    c, h = workspace["client"], workspace["headers"]
+    lead_id = c.get("/v1/workspace", headers=h).json()["leads"][0]["id"]
+    times = []
+    for status in ("held", "no_show", "held"):
+        packet = c.get(f"/v1/leads/{lead_id}/packet", headers=h).json()
+        result = c.post(
+            f"/v1/leads/{lead_id}/meeting",
+            headers=h,
+            json={
+                "expected_version": packet["lead"]["version"],
+                "status": status,
+            },
+        )
+        assert result.status_code == 200, result.text
+        times.append(clock.now)
+        clock.now += timedelta(hours=1)
+    with service.db.transaction(False) as s:
+        row = service._by_key(s, p(workspace), "conversion_events", "rep-meeting:" + lead_id)
+        event = {"id": row.id, **row.data}
+    first = conversion_at(event, times[0])
+    retracted = conversion_at(event, times[1])
+    latest = conversion_at(event, times[2])
+    assert first and first["retracted"] is False
+    assert first["available"] == times[0]
+    assert retracted and retracted["retracted"] is True
+    assert latest and latest["retracted"] is False and latest["available"] == times[2]
