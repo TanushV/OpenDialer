@@ -395,6 +395,8 @@ class Dialer(WebhookIngress, OptimizationWorkflows, TelephonyWorkflows, Applicat
         return {"reconciled": len(commands), "examined_calls": len(calls)}
 
     def backup(self, p):
+        from app.privacy import persistent_document
+
         directory = self.settings.data_dir / "backups"
         directory.mkdir(exist_ok=True, mode=0o700)
         with self.db.transaction(False) as s:
@@ -409,7 +411,7 @@ class Dialer(WebhookIngress, OptimizationWorkflows, TelephonyWorkflows, Applicat
                             "id": r.id,
                             "tenant_id": r.tenant_id,
                             "seller_id": r.seller_id,
-                            "data": r.data,
+                            "data": persistent_document(kind, r.data, legacy=True),
                             "external_key": r.external_key,
                             "version": r.version,
                         }
@@ -429,6 +431,8 @@ class Dialer(WebhookIngress, OptimizationWorkflows, TelephonyWorkflows, Applicat
         return {"backup_id": backup_id, "checksum": hashlib.sha256(blob).hexdigest(), "encrypted": True}
 
     def restore(self, p, backup_id):
+        from app.privacy import persistent_document
+
         if not re.fullmatch(r"[0-9a-f-]{36}", backup_id):
             fail(422, "Invalid backup ID")
         path = self.settings.data_dir / "backups" / (backup_id + ".backup")
@@ -462,7 +466,7 @@ class Dialer(WebhookIngress, OptimizationWorkflows, TelephonyWorkflows, Applicat
                 if kind == "audit_events":
                     values = list({r["id"]: r for r in [*values, *current_audit]}.values())
                 for raw in values:
-                    s.add(model(**raw))
+                    s.add(model(**{**raw, "data": persistent_document(kind, raw["data"], legacy=True)}))
             s.execute(delete(ActiveClaim).where(ActiveClaim.tenant_id == p["tenant_id"]))
             s.flush()
             for entry in events:
@@ -501,6 +505,7 @@ class Dialer(WebhookIngress, OptimizationWorkflows, TelephonyWorkflows, Applicat
                 self.clock(),
                 {"journal_replayed": len(events)},
             )
+        self.raw.clear()
         return {"restored": True, "suppression_journal_replayed": len(events), "outbound_paused": True}
 
     async def reconcile_restore(self, p, review_reference, provider_ids=None):

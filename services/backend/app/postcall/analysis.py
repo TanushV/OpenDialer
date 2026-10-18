@@ -1,5 +1,3 @@
-import re
-
 DIMENSIONS = [
     "identity_relevance",
     "listening_response",
@@ -65,27 +63,12 @@ def behavioral_metrics(segments):
     }
 
 
-def build_analysis(call_id, segments, *, outcome=None, transcript_version=1):
+def build_analysis(call_id, segments, *, outcome=None, transcript_version=1, derived=None):
     stable = [s for s in segments if s.get("is_final") and not s.get("system_audio")]
-    objections, commitments, problems = [], [], []
-    for s in stable:
-        text, evidence = s["text"], [s["segment_id"]]
-        if s.get("side") == "remote":
-            if re.search(r"another provider|too expensive|not interested|no budget|already use", text, re.I):
-                objections.append({"text": text, "status": "unresolved", "evidence": evidence})
-            if re.search(r"call (?:me )?back|next (?:tuesday|week)|send (?:me )?", text, re.I):
-                commitments.append(
-                    {
-                        "owner": "rep",
-                        "action": text,
-                        "due_at": None,
-                        "verbatim_time_expression": text,
-                        "evidence": evidence,
-                        "needs_time_confirmation": True,
-                    }
-                )
-            if re.search(r"problem|struggling|need help|difficult", text, re.I):
-                problems.append({"text": text, "evidence": evidence})
+    derived = derived or {}
+    objections = derived.get("objections", [])
+    commitments = derived.get("commitments", [])
+    problems = derived.get("needs", [])
     # Conservative extraction-only baseline. No manufactured ratings when an evaluated inference model is absent.
     items = [
         {
@@ -105,21 +88,22 @@ def build_analysis(call_id, segments, *, outcome=None, transcript_version=1):
         "notes": {
             "call_id": call_id,
             "transcript_version": transcript_version,
-            "summary": " ".join(s["text"] for s in stable)[:1200] or "No final transcript is available.",
+            "summary": derived.get("summary")
+            or "No model rundown is available. Review the recorded outcome and your notes.",
             "outcome": outcome or "unconfirmed",
             "problems": problems,
             "objections": objections,
             "commitments": commitments,
-            "unknowns": ["Budget and appointment details require confirmation"],
-            "suggested_crm_updates": [],
+            "unknowns": ["Uninterpreted conversation details remain unknown"],
             "review_required": True,
         },
         "scorecard": {
             "rubric_version": "cold-introduction-v1",
+            "transcript_version": transcript_version,
             "items": items,
             "overall": score_summary(items),
             "compliance_flags": [],
         },
         "metrics": behavioral_metrics(stable),
-        "provider": "extractive_baseline",
+        "provider": "derived_state_or_unavailable",
     }

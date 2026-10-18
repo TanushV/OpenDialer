@@ -814,7 +814,7 @@ Depends on M1 state contracts. Exit: A01, A08, A33, A50–A51 and the relevant s
 Depends on M1/M2 event and concurrency foundations. Exit: A22–A28 pass, with separate model-quality/provider gates still explicit.
 
 - [ ] M3.01 Build versioned seller/product/lead/history context and bounded incremental conversation memory.
-- [ ] M3.02 Remove exact sentence validation and fixed topic/regex semantic authority; retain factual/permission boundaries.
+- [x] M3.02 Remove exact sentence validation and fixed topic/regex semantic authority; retain factual/permission boundaries.
 - [ ] M3.03 Implement generated contextual suggestions and private manual questions without requiring matching cards.
 - [ ] M3.04 Support concise primary help, expandable analysis, evidence and unknown-fact responses; no arbitrary wording straitjacket.
 - [ ] M3.05 Add bounded cross-call concurrency, per-call ordering, latest-state replacement, cancellation, fairness and backpressure.
@@ -1061,4 +1061,4 @@ Planning verification, October 17:
 - [x] Mapped every OD-01–OD-17 finding and original specification section; checked 66 internal/file/source links syntactically and verified all local/anchor targets.
 - [x] Verified that application/deployment/test code and the original specification are unchanged; documentation whitespace/diff checks pass.
 
-Current implementation cursor: M0 baseline is committed; execute M1 durability/accounting repairs, then M2 performance. Initial tests and receipts are mapped in ACCEPTANCE_MATRIX.md and STATUS.md. Do not start by reinstalling, changing language, purchasing inventory, broadening the framework stack or putting more canned labels around the existing coach. The simplest correct next step is to make the actual required behavior testable, fix its ownership/recovery, and remove measured redundant work.
+Current implementation cursor: M0 baseline and M1/M2 slices are committed; M3/M6 core helper, privacy and prepaid screening have focused dual-database evidence. Continue helper controls/streaming/UI and the remaining M1–M9 boxes; consult STATUS.md for current red cases. Initial tests and receipts are mapped in ACCEPTANCE_MATRIX.md and STATUS.md. Do not start by reinstalling, changing language, purchasing inventory, broadening the framework stack or putting more canned labels around the existing coach. The simplest correct next step is to make the actual required behavior testable, fix its ownership/recovery, and remove measured redundant work.

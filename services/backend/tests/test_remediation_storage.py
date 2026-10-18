@@ -107,8 +107,9 @@ def test_competing_updates_cannot_silently_overwrite_a_newer_record(workspace, a
 
 def test_denied_first_page_does_not_hide_eligible_work(workspace, app, clock):
     from datetime import timedelta
-    from conftest import ready
+
     from app.db import rows
+    from conftest import ready
 
     ready(workspace)
     service = app.state.service

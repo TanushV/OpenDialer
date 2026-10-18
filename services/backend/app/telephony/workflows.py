@@ -13,6 +13,8 @@ from app.telephony.reducer import TERMINAL
 
 class TelephonyWorkflows:
     def control_intent(self, s, p, call_id, action, payload, *, target=None, suffix=None):
+        if action == "record_start":
+            fail(403, "Call recording is disabled by the short-retention policy")
         key = f"{call_id}:{suffix or action}"
         prior = next((r for r in self.scoped(s, "command_outbox", p) if r.external_key == key), None)
         if prior:
@@ -56,7 +58,6 @@ class TelephonyWorkflows:
                         "transcription_start",
                         {"transcription_engine": "Soniox", "transcription_tracks": "both"},
                     ),
-                    ("recording", "record_start", {"format": "mp3", "channels": "dual"}),
                 ]:
                     decision = authorize(self.context(s, p, lead, number, permission=permission, active=True))
                     if decision.allowed:
@@ -123,17 +124,13 @@ class TelephonyWorkflows:
                 else:
                     self.control_intent(s, p, call_id, "hangup", {}, suffix="late-human-no-destination")
                 update(call, late_human=True, recovery_required=True)
-            if (
-                event_type == "call.gather.ended"
-                and call.data.get("voicemail_asset")
-                and call.data["state"] not in TERMINAL
-            ):
+            if event_type == "call.gather.ended" and call.data.get("voicemail_asset"):
                 if payload.get("digits") == "9":
                     optout_phone = lead.data["phone"]
                     self.control_intent(s, p, call_id, "playback_stop", {}, suffix="optout-stop")
                     self.control_intent(s, p, call_id, "hangup", {}, suffix="optout-hangup")
                     self.finish_call(s, p, call, "voicemail_optout")
-                else:
+                elif call.data["state"] not in TERMINAL:
                     self.control_intent(
                         s,
                         p,
@@ -167,11 +164,11 @@ class TelephonyWorkflows:
                 self.control_intent(s, p, call_id, "hangup", {}, suffix="optout-hangup")
                 self.finish_call(s, p, call, "voicemail_optout")
             if event_type == "call.recording.saved":
-                urls = payload.get("recording_urls", {})
                 update(
                     call,
-                    recording_url=urls.get("mp3") or urls.get("wav"),
                     recording_id=payload.get("recording_id"),
+                    recording_url=None,
+                    recording_review_required=True,
                 )
             receipt = next(r for r in self.scoped(s, "provider_events", p) if r.external_key == event_id)
             update(receipt, effects_complete=not bool(optout_phone))
@@ -214,6 +211,16 @@ class TelephonyWorkflows:
                     s, "followup_tasks" if inbound else "call_attempts", command["call_id"], p
                 )
                 if command["action"] in {"transcription_start", "record_start"}:
+                    privacy = self.required(s, "sellers", p["seller_id"], p).data.get("operating_policy", {})
+                    if command["action"] == "record_start" or (
+                        not self.settings.simulation
+                        and not (
+                            privacy.get("transcription_privacy_verified")
+                            and privacy.get("transcription_privacy_reference")
+                        )
+                    ):
+                        update(current, status="cancelled", reason="RAW_CAPTURE_PRIVACY_NOT_AUTHORIZED")
+                        continue
                     lead = self.required(s, "leads", call.data["lead_id"], p)
                     number = self.required(s, "number_inventory", call.data["number_id"], p)
                     permission = (

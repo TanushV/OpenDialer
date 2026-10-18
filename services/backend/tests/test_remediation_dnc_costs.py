@@ -229,3 +229,49 @@ def test_covered_seller_prepaid_screen_is_cached_and_keeps_local_suppression(
     )
     lead = next(x for x in c.get("/v1/workspace", headers=h).json()["leads"] if x["phone"] == PHONE)
     assert lead["suppressed"]
+
+
+def test_overlapping_prepaid_requests_submit_only_once_and_uncertainty_survives_reload(
+    workspace, app, clock, monkeypatch
+):
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.providers.dnc import DNCError, PrepaidDNC
+
+    service = app.state.service
+    calls = []
+
+    async def fail_after_send(self, phone):
+        calls.append(phone)
+        await asyncio.sleep(0.1)
+        raise DNCError("lost response")
+
+    monkeypatch.setattr(PrepaidDNC, "check", fail_after_send)
+    service.vault.write(
+        workspace["tenant_id"],
+        {
+            "dnc_api_key": "fixture",
+            "dnc_seller_authorization": {
+                "reference": "SAN",
+                "npas": ["415"],
+                "source_access_verified": True,
+                "expires_at": (clock.now + timedelta(days=30)).isoformat(),
+            },
+        },
+    )
+
+    def screen():
+        return workspace["client"].post(
+            "/v1/admin/dnc/screen", headers=workspace["headers"], json={"phones": [PHONE]}
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(lambda _: screen(), range(2)))
+    responses.append(screen())
+    assert all(r.status_code in {409, 503} for r in responses)
+    assert calls == [PHONE]
+    p = {k: workspace[k] for k in ("tenant_id", "seller_id", "user_id")}
+    with service.db.transaction(False) as s:
+        entries = [r.data for r in service.scoped(s, "usage_ledger", p) if r.data.get("kind") == "dnc_screen"]
+        assert len(entries) == 1

@@ -498,6 +498,13 @@ class Service(ReservationPlanner):
             and number.seller_id == p["seller_id"]
             and (self.settings.simulation or not number.data.get("synthetic"))
         )
+        from app.compliance.operating import cached_screen
+
+        prepaid = cached_screen(self, s, p, lead.data["phone"])
+        national_at = dt(registry.data["refreshed_at"]) if registry_valid else None
+        if prepaid:
+            national_at = max(filter(None, [national_at, dt(prepaid["checked_at"])]))
+            listed = listed or prepaid["listed"]
         return CallContext(
             now=self.clock(),
             seller_approved=seller.data.get("approved", False),
@@ -510,9 +517,10 @@ class Service(ReservationPlanner):
             ownership=endpoint.data.get("ownership_status", "unknown"),
             timezone=lead.data.get("timezone"),
             timezone_confidence=lead.data.get("timezone_confidence", "unknown"),
-            registry_required=config.get("registry_required", True),
-            registry_checked_at=dt(registry.data["refreshed_at"]) if registry_valid else None,
-            registry_covered=registry_valid and lead.data["phone"][2:5] in registry.data["npas"],
+            registry_required=True,
+            registry_checked_at=national_at,
+            registry_covered=bool(prepaid)
+            or (registry_valid and lead.data["phone"][2:5] in registry.data["npas"]),
             registry_listed=listed,
             state_registry_required=config.get("state_registry_required", False),
             state_registry_current=state_current,

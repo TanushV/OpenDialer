@@ -148,7 +148,9 @@ class WebhookIngress:
             for segment in normalize_transcription(payload, call_id, event_id):
                 segment.pop("content_hash", None)
                 segment.pop("call_id", None)
-                await self.transcript(p, call_id, segment, defer_coach=True)
+                await self.transcript(
+                    p, call_id, segment, defer_coach=True, received_at=dt(receipt["received_at"])
+                )
         if event_type == "call.hangup":
             self.jobs.enqueue(
                 "postcall",

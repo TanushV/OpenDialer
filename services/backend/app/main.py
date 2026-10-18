@@ -20,6 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.administration import Dialer
+from app.compliance.operating import DNCAuthorization, bind_operating_api
 from app.config import Settings
 from app.db import Database, Event, audit, doc, emit, put, rows, update
 from app.providers.telnyx import verify_webhook
@@ -38,6 +39,16 @@ class Setup(Strict):
     email: str = Field(min_length=3, max_length=254)
     password: str = Field(min_length=12, max_length=200)
     name: str = Field(default="Local operator", max_length=120)
+
+
+class CoachPreferences(Strict):
+    muted: bool | None = None
+    pinned: bool | None = None
+
+
+class CoachQuestion(Strict):
+    question: str | None = Field(default=None, max_length=2000)
+    urgent: bool = True
 
 
 class Login(Strict):
@@ -149,7 +160,7 @@ class PolicyUpdate(Strict):
     approved: bool | None = None
     reason: str = Field(default="", max_length=1000)
     review_reference: str | None = None
-    registry_required: bool | None = None
+    registry_required: Literal[True] | None = None
     state_registry_required: bool | None = None
     consent_required: bool | None = None
     permissions: list[Literal["live", "prerecorded", "transcription", "recording", "messaging"]] | None = None
@@ -167,6 +178,8 @@ class PolicyUpdate(Strict):
 
 
 class ProviderSettings(Strict):
+    dnc_api_key: str | None = None
+    dnc_seller_authorization: DNCAuthorization | None = None
     telnyx_api_key: str | None = None
     telnyx_connection_id: str | None = None
     telnyx_public_key: str | None = None
@@ -185,12 +198,13 @@ class ProviderSettings(Strict):
     chatgpt_access_token: str | None = None
     groq_api_key: str | None = None
     groq_model: str | None = None
-    coach_provider: Literal["openrouter", "static", "groq"] | None = None
+    coach_provider: Literal["openrouter", "static"] | None = None
     openrouter_api_key: str | None = None
     coach_model: str | None = Field(default=None, min_length=3, max_length=200)
 
 
 SECRET_FIELDS = {
+    "dnc_api_key",
     "telnyx_api_key",
     "openai_api_key",
     "groq_api_key",
@@ -207,6 +221,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
     clock = clock or (lambda: datetime.now(UTC))
     db = Database(settings.database_url, encryption_key=settings.secret_key)
     service = Dialer(db, settings, clock, carrier)
+    service.privacy_cutover()
 
     @asynccontextmanager
     async def lifespan(app):
@@ -275,6 +290,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
     def administrator(p=Depends(principal)):
         admin(p)
         return p
+
+    bind_operating_api(app, service, administrator)
 
     def local_nonce(value):
         if settings.mode != "local":
@@ -374,19 +391,22 @@ def create_app(settings=None, *, clock=None, carrier=None):
             if p["role"] == "rep" and call.data["rep_id"] != p["user_id"]:
                 fail(404, "Object not found")
             coach = [
-                doc(r)
+                service.coach_content(p, doc(r))
                 for r in service.scoped(s, "coach_events", p)
                 if r.data["call_id"] == call_id
                 and dt(r.data["expires_at"]) > clock()
                 and r.data["state_version"] == call.data["transcript_version"]
             ]
+            coach = [item for item in coach if item]
+            segments = service.transcript_rows(s, p, call_id)
             state = next(
                 (r.data for r in service.scoped(s, "conversation_states", p) if r.external_key == call_id),
                 None,
             )
             return {
-                **doc(call),
-                "transcript": service.transcript_rows(s, p, call_id),
+                **{k: v for k, v in doc(call).items() if k != "recording_url"},
+                "transcript": segments,
+                "raw_evidence_status": service.raw_status(call, segments),
                 "coach": {
                     **coach[-1],
                     "remaining_ms": max(
@@ -497,9 +517,17 @@ def create_app(settings=None, *, clock=None, carrier=None):
             fail(403, "Transcript correction requires administrator review")
         return await service.transcript(p, call_id, data.model_dump())
 
+    @app.patch("/v1/calls/{call_id}/coach")
+    def coach_preferences(call_id: str, data: CoachPreferences, p=Depends(principal)):
+        with db.transaction() as s:
+            call = service.required(s, "call_attempts", call_id, p)
+            preferences = {**call.data.get("coach_preferences", {}), **data.model_dump(exclude_none=True)}
+            update(call, coach_preferences=preferences)
+            return preferences
+
     @app.post("/v1/calls/{call_id}/coach")
-    async def coach(call_id: str, p=Depends(principal)):
-        return await service.coach_turn(p, call_id, urgent=True)
+    async def coach(call_id: str, data: CoachQuestion | None = None, p=Depends(principal)):
+        return await service.coach_turn(p, call_id, urgent=True, question=data.question if data else None)
 
     @app.get("/v1/calls/{call_id}/analysis")
     def analysis(call_id: str, p=Depends(principal)):
@@ -663,6 +691,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.put("/v1/admin/settings")
     def write_settings(data: ProviderSettings, p=Depends(administrator)):
         values = data.model_dump(exclude_none=True)
+        if values.get("dnc_seller_authorization"):
+            values["dnc_seller_authorization"]["seller_id"] = p["seller_id"]
         from urllib.parse import urlsplit
 
         for key in ("webhook_url", "inference_base_url"):
@@ -1258,14 +1288,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.get("/v1/calls/{call_id}/recording")
     def recording(call_id: str, p=Depends(principal)):
-        with db.transaction(False) as session:
-            call = service.required(session, "call_attempts", call_id, p)
-            if not call.data.get("recording_url"):
-                fail(404, "No permitted recording available")
-            audit(
-                session, p["tenant_id"], p["seller_id"], p["user_id"], "recording.accessed", call.id, clock()
-            )
-            return {"url": call.data["recording_url"], "provider_signed": True}
+        with db.transaction(False) as s:
+            service.required(s, "call_attempts", call_id, p)
+        fail(410, "Call recordings are unavailable under the short-retention policy")
 
     @app.post("/v1/admin/trackers")
     def publish_tracker(data: dict, p=Depends(administrator)):

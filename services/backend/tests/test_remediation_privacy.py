@@ -212,3 +212,78 @@ def test_legacy_raw_cleanup_is_idempotent_and_preserves_human_notes(workspace, a
     with service.db.transaction(False) as s:
         note = service.required(s, "notes", note_id, p)
         assert note.data["human_text"] == "Keep my correction"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["record_start", "transcription_start"])
+async def test_legacy_pending_raw_capture_cannot_bypass_privacy_preflight(
+    workspace, app, carrier, action, monkeypatch
+):
+    call = start(workspace)
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        update(
+            service.required(s, "policy_versions", workspace["policy_id"], p),
+            permissions=["live", "transcription", "recording"],
+        )
+        put(
+            s,
+            "command_outbox",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "kind": "action",
+                "call_id": call["id"],
+                "action": action,
+                "status": "pending",
+                "payload": {"command_id": "legacy-raw-capture"},
+            },
+            key="legacy-raw-capture",
+        )
+    service.settings.simulation = False
+    from types import SimpleNamespace
+
+    monkeypatch.setattr("app.telephony.workflows.authorize", lambda *args: SimpleNamespace(allowed=True))
+    await service.dispatch_controls(p)
+    assert not any(item["action"] == action for item in carrier.actions)
+    with service.db.transaction(False) as s:
+        command = next(
+            r for r in service.scoped(s, "command_outbox", p) if r.external_key == "legacy-raw-capture"
+        )
+        assert command.data["status"] == "cancelled"
+        assert "PRIVACY" in command.data["reason"]
+
+
+def test_restore_sanitizes_legacy_backup_even_after_cutover(workspace, app):
+    call = start(workspace)
+    service, p = app.state.service, principal(workspace)
+    backup = service.backup(p)
+    path = service.settings.data_dir / "backups" / (backup["backup_id"] + ".backup")
+    payload = json.loads(service.vault.cipher.decrypt(path.read_bytes()))
+    payload["tables"]["call_attempts"][0]["data"]["recording_url"] = RAW
+    payload["tables"]["transcript_segments"].append(
+        {
+            "id": "legacy-raw-id",
+            "tenant_id": p["tenant_id"],
+            "seller_id": p["seller_id"],
+            "external_key": call["id"] + ":legacy",
+            "version": 1,
+            "data": {"call_id": call["id"], "segment_id": "legacy", "revision": 1, "text": RAW},
+        }
+    )
+    path.write_bytes(service.vault.cipher.encrypt(json.dumps(payload).encode()))
+    service.restore(p, backup["backup_id"])
+    assert RAW not in persisted_content(service, p)
+    with service.db.transaction(False) as s:
+        assert service.required(s, "transcript_segments", "legacy-raw-id", p).data["segment_id"] == "legacy"
+
+
+def test_noisy_call_cannot_evict_another_calls_entire_raw_context(clock):
+    from app.privacy import EphemeralBuffer
+
+    buffer = EphemeralBuffer(clock=clock, max_bytes=1000, per_call_bytes=300, per_call_entries=2)
+    buffer.put("b:one", {"text": "b" * 100}, scope="b")
+    for i in range(10):
+        buffer.put("a:" + str(i), {"text": "a" * 100}, scope="a")
+    assert buffer.get("b:one") is not None
+    assert sum(buffer.get("a:" + str(i)) is not None for i in range(10)) <= 2
