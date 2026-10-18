@@ -112,3 +112,42 @@ async def test_research_provider_publishes_and_settles_off_the_live_loop(workspa
     with service.db.transaction(False) as s:
         assert any(r.data["domain"] == "roofing.example" for r in service.scoped(s, "research_facts", p))
     assert not queries, f"Research ran {len(queries)} SQL statements on the live loop"
+
+
+@pytest.mark.asyncio
+async def test_one_prepared_lead_does_not_decrypt_unrelated_company_or_script_history(
+    workspace, app, clock, monkeypatch
+):
+    from datetime import timedelta
+
+    from app.db import put
+    from test_context_reads import count_decrypted
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        lead_id = next(r.id for r in service.scoped(s, "leads", p) if r.data.get("domain"))
+        for i in range(400):
+            domain = f"unrelated-{i}.example"
+            put(s, "companies", p["tenant_id"], p["seller_id"], {"domain": domain}, key=domain)
+            put(
+                s,
+                "research_facts",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    "domain": domain,
+                    "status": "supported",
+                    "expires_at": (clock() + timedelta(days=1)).isoformat(),
+                },
+            )
+            put(
+                s,
+                "script_versions",
+                p["tenant_id"],
+                p["seller_id"],
+                {"lead_id": f"old-lead-{i}", "opener": "Old script"},
+            )
+    decoded = count_decrypted(app, monkeypatch)
+    await service.prepare(p, [lead_id])
+    assert len(decoded) <= 120, len(decoded)
+    assert service.packet(p, lead_id)["script"]["script_version"]
