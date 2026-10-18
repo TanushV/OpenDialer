@@ -5,8 +5,8 @@ import os
 import stat
 
 import pytest
-from app.db import get, put, update
-from conftest import start
+from app.db import get, put
+from conftest import reserve, start
 from test_consent_journal import decision, evidence, records, submit
 from test_control_completion import principal
 
@@ -63,13 +63,20 @@ def test_restore_does_not_reenable_capture_on_an_older_call_snapshot(workspace, 
 
 def test_late_chunks_on_a_new_call_respect_prior_transcription_revocation(workspace, app):
     service, p = app.state.service, principal(workspace)
-    body = evidence(workspace, app, permissions=["transcription"])
+    selection = reserve(workspace)
+    assert selection.status_code == 200, selection.text
+    with service.db.transaction(False) as s:
+        reservation = get(s, "reservations", selection.json()["reservation_id"])
+        endpoint_id = reservation.data["endpoint_id"]
+    body = evidence(workspace, app, endpoint_id=endpoint_id, permissions=["transcription"])
     assert submit(workspace, body).status_code == 200
-    with service.db.transaction() as s:
-        for lead in service.scoped(s, "leads", p):
-            if lead.data["endpoint_id"] != body["endpoint_id"]:
-                update(lead, status="completed")
-    call = start(workspace)
+    response = workspace["client"].post(
+        "/v1/calls/start",
+        headers=workspace["headers"],
+        json={"reservation_id": selection.json()["reservation_id"], "idempotency_key": "new-call"},
+    )
+    assert response.status_code == 200, response.text
+    call = response.json()
     assert call["endpoint_id"] == body["endpoint_id"]
     result = asyncio.run(
         service.transcript(
@@ -117,6 +124,70 @@ def test_missing_failed_journal_entry_cannot_be_reviewed_away(workspace, app, mo
     assert "CONSENT_REVOKED" in decision(service, p, body["endpoint_id"]).reasons
     assert "JOURNAL_RECOVERY_REQUIRED" not in decision(service, p, body["endpoint_id"]).reasons
     assert len(records(service, p)) == 1
+
+
+def test_old_backup_cannot_erase_a_missing_revocation_journal_hold(workspace, app, monkeypatch):
+    service, p = app.state.service, principal(workspace)
+    backup = service.backup(p)
+    original = service.vault.append_journal
+
+    def unavailable(*args):
+        raise OSError("Synthetic disk failure before append")
+
+    monkeypatch.setattr(service.vault, "append_journal", unavailable)
+    body = evidence(workspace, app)
+    assert submit(workspace, body).status_code == 503
+    monkeypatch.setattr(service.vault, "append_journal", original)
+    service.restore(p, backup["backup_id"])
+    response = workspace["client"].post(
+        "/v1/admin/restore/reconcile",
+        headers=workspace["headers"],
+        json={"review_reference": "Restored the old backup"},
+    )
+    assert response.status_code == 409, "Rollback must retain the missing durable denial identity"
+    assert "JOURNAL_RECOVERY_REQUIRED" in decision(service, p, body["endpoint_id"]).reasons
+    assert submit(workspace, body).status_code == 200
+    assert (
+        workspace["client"]
+        .post(
+            "/v1/admin/restore/reconcile",
+            headers=workspace["headers"],
+            json={"review_reference": "Original denial is now durably recovered"},
+        )
+        .status_code
+        == 200
+    )
+
+
+def test_readable_but_unsynced_journal_cannot_release_recovery_hold(workspace, app, monkeypatch):
+    service, p = app.state.service, principal(workspace)
+    original = os.fsync
+
+    def unavailable(fd):
+        raise OSError("Synthetic fsync unavailable")
+
+    monkeypatch.setattr(os, "fsync", unavailable)
+    body = evidence(workspace, app)
+    assert submit(workspace, body).status_code == 503
+    assert service.vault.read_journal("consent"), "Bytes are readable but not confirmed durable"
+    response = workspace["client"].post(
+        "/v1/admin/restore/reconcile",
+        headers=workspace["headers"],
+        json={"review_reference": "Still unable to sync"},
+    )
+    assert response.status_code in {409, 503}, "Reading cached bytes is not proof storage is repaired"
+    assert "JOURNAL_RECOVERY_REQUIRED" in decision(service, p, body["endpoint_id"]).reasons
+    monkeypatch.setattr(os, "fsync", original)
+    assert (
+        workspace["client"]
+        .post(
+            "/v1/admin/restore/reconcile",
+            headers=workspace["headers"],
+            json={"review_reference": "Storage is repaired and synced"},
+        )
+        .status_code
+        == 200
+    )
 
 
 @pytest.mark.skipif(
