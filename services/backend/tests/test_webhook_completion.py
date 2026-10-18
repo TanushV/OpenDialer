@@ -13,6 +13,7 @@ from app.privacy import event_metadata
 from conftest import start
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+from sqlalchemy import event as sql_event
 from sqlalchemy import select
 
 
@@ -294,3 +295,66 @@ def test_late_raw_publication_cannot_replace_a_newer_committed_revision(app):
     raw.put("speech:test", {"revision": 2, "text": "newer"}, scope="call", revision=2)
     raw.put("speech:test", {"revision": 1, "text": "older"}, scope="call", revision=1)
     assert raw.get("speech:test")["text"] == "newer"
+
+
+@pytest.mark.asyncio
+async def test_raw_payload_is_available_when_its_job_becomes_visible(workspace, app):
+    service = app.state.service
+    call = start(workspace)
+    observations = []
+
+    def committed(session):
+        receipts = [
+            r for r in session.identity_map.values() if getattr(r, "__tablename__", "") == "webhook_inbox"
+        ]
+        for receipt in receipts:
+            observations.append(service.raw.get("webhook:" + receipt.id) is not None)
+
+    sql_event.listen(service.db.sessions, "after_commit", committed)
+    try:
+        await service.accept_webhook(
+            workspace["tenant_id"],
+            {"id": "publish-before-job", "event_type": "call.transcription", "payload": speech(call)},
+            "payload-hash",
+        )
+    finally:
+        sql_event.remove(service.db.sessions, "after_commit", committed)
+    assert observations and all(observations), observations
+
+
+@pytest.mark.asyncio
+async def test_unmatched_receipt_retries_same_job_then_reports_review(workspace, app, clock):
+    service = app.state.service
+    result = await service.accept_webhook(
+        workspace["tenant_id"],
+        {"id": "missing-call", "event_type": "call.hangup", "payload": {"call_control_id": "not-created"}},
+        "missing-call-hash",
+    )
+    for _ in range(4):
+        await service.run_jobs(tenant_id=workspace["tenant_id"], queues=["webhook"])
+        service.queue_unfinished_webhooks()
+        clock.now += timedelta(seconds=31)
+    with service.db.transaction(False) as s:
+        receipt = get(s, "webhook_inbox", result["receipt_id"])
+        jobs = list(s.scalars(select(Job).where(Job.queue == "webhook")))
+        assert len(jobs) == 1 and jobs[0].status == "dead" and jobs[0].attempts == 3
+        assert receipt.data["status"] == "review_required"
+        assert receipt.data.get("error")
+
+
+@pytest.mark.asyncio
+async def test_legacy_completed_job_with_unfinished_receipt_resumes_once(workspace, app):
+    service = app.state.service
+    call = start(workspace)
+    identity = pending(workspace, "call.hangup", {"call_control_id": call["provider_id"]})
+    with service.db.transaction() as s:
+        job = service.jobs.enqueue_in(
+            s, "webhook", {"receipt_id": identity}, "webhook:" + identity, tenant_id=workspace["tenant_id"]
+        )
+        row = s.get(Job, job["id"])
+        row.status, row.attempts = "completed", 1
+    service.queue_unfinished_webhooks()
+    await service.run_jobs(tenant_id=workspace["tenant_id"], queues=["webhook"])
+    with service.db.transaction(False) as s:
+        assert get(s, "webhook_inbox", identity).data["status"] == "processed"
+        assert s.get(Job, job["id"]).attempts == 2
