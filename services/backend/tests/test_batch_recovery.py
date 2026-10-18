@@ -181,8 +181,12 @@ def test_cancelled_submission_retains_liability_and_recovery_state(workspace, ba
                 json={"lead_ids": [batch["lead"]], "idempotency_key": "cancelled"},
             )
 
-    with pytest.raises(asyncio.CancelledError):
+    # Starlette's HTTP middleware can translate an internally cancelled handler
+    # into its no-response error. Either transport outcome still owes recovery.
+    with pytest.raises((asyncio.CancelledError, RuntimeError)) as error:
         asyncio.run(attempt())
+    if isinstance(error.value, RuntimeError):
+        assert str(error.value) == "No response returned."
     assert stored(batch)["status"] == "uncertain"
     with batch["service"].db.transaction(False) as s:
         assert batch["service"].scoped(s, "usage_ledger", batch["p"])[0].data["status"] == "uncertain"
@@ -220,3 +224,81 @@ def test_operator_reference_is_not_an_arbitrary_provider_path(workspace, batch, 
     assert submit(workspace, batch).status_code == 503
     result = reconcile(workspace, stored(batch), provider_batch_id=identity)
     assert result.status_code == 422 and not batch["reads"]
+
+
+@pytest.mark.parametrize("matches", [True, False])
+def test_legacy_unknown_reference_requires_original_input_content(workspace, batch, monkeypatch, matches):
+    assert submit(workspace, batch).status_code == 503
+    row = stored(batch)
+    with batch["service"].db.transaction() as s:
+        update(get(s, "command_outbox", row["id"]), request_digest=None)
+
+    async def legacy(provider, identity):
+        return {"id": identity, "status": "in_progress", "input_file_id": "file-original"}
+
+    async def inputs(provider, identity):
+        assert identity == "file-original"
+        return batch["sent"][0] if matches else [{"custom_id": "another-request"}]
+
+    monkeypatch.setattr(OpenAIBatch, "retrieve", legacy)
+    monkeypatch.setattr(OpenAIBatch, "input_requests", inputs)
+    response = reconcile(workspace, stored(batch))
+    assert response.status_code == (200 if matches else 409), response.text
+    assert bool(stored(batch).get("provider_batch_id")) == matches
+    assert len(batch["sent"]) == 1
+
+
+def test_recovery_heartbeat_keeps_the_owned_operation_live(workspace, batch, clock, monkeypatch):
+    import app.preparation.batches as module
+
+    batch["lose"] = False
+    assert submit(workspace, batch).status_code == 200
+    monkeypatch.setattr(module, "HEARTBEAT_SECONDS", 0.01, raising=False)
+
+    async def slow(provider, identity):
+        for _ in range(3):
+            clock.now += timedelta(seconds=80)
+            await asyncio.sleep(0.15)
+        return {"id": identity, "status": "in_progress"}
+
+    monkeypatch.setattr(OpenAIBatch, "retrieve", slow)
+    response = reconcile(workspace, stored(batch))
+    assert response.status_code == 200, response.text
+    assert stored(batch)["lease_owner"] is None
+
+
+def test_expired_submission_ack_preserves_reference_but_requires_recovery(
+    workspace, batch, clock, monkeypatch
+):
+    async def late(provider, requests):
+        batch["sent"].append(requests)
+        clock.now += timedelta(seconds=181)
+        return {"id": "batch-original", "status": "in_progress"}
+
+    monkeypatch.setattr(OpenAIBatch, "submit", late)
+    result = submit(workspace, batch)
+    assert result.status_code == 200, result.text
+    row = stored(batch)
+    assert row["status"] == "uncertain" and row["provider_batch_id"] == "batch-original"
+
+
+def test_listing_does_not_decrypt_unrelated_command_history(workspace, batch, monkeypatch, clock, app):
+    from app.db import put
+    from test_context_reads import count_decrypted
+
+    assert submit(workspace, batch).status_code == 503
+    with batch["service"].db.transaction() as s:
+        for i in range(600):
+            put(
+                s,
+                "command_outbox",
+                batch["p"]["tenant_id"],
+                batch["p"]["seller_id"],
+                {"kind": "call_control", "status": "done"},
+                key=f"history-{i}",
+                now=clock.now,
+            )
+    reads = count_decrypted(app, monkeypatch)
+    response = workspace["client"].get("/v1/admin/batches", headers=workspace["headers"])
+    assert response.status_code == 200 and len(response.json()["batches"]) == 1
+    assert len(reads) <= 5 and not batch["reads"]

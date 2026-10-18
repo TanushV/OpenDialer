@@ -170,6 +170,7 @@ def test_delayed_result_does_not_overwrite_newer_immediate_script(deferred, work
 
 @pytest.mark.asyncio
 async def test_batch_preparation_reads_do_not_block_control_event_loop(deferred, workspace, app, monkeypatch):
+    assert deferred["finish"]().status_code == 200
     service = app.state.service
     packet = service.packet
 
