@@ -190,3 +190,49 @@ async def test_failed_status_read_cannot_disable_the_expired_call_watchdog(
     monkeypatch.setattr(carrier, "hangup", hangup)
     await service.recover(p)
     assert ended == [call["provider_id"]]
+
+
+@pytest.mark.asyncio
+async def test_confirmed_original_terminal_leg_releases_its_claim(workspace, app, carrier, monkeypatch):
+    from app.db import ActiveClaim
+    from sqlalchemy import select
+
+    call, service, p = start(workspace), app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        update(get(s, "call_attempts", call["id"]), state="ENDING")
+
+    async def reconcile(command_id, provider_id):
+        return {"call_control_id": provider_id, "is_alive": False}
+
+    monkeypatch.setattr(carrier, "reconcile", reconcile)
+    await service.recover(p)
+    with service.db.transaction(False) as s:
+        assert get(s, "call_attempts", call["id"]).data["state"] == "ENDED"
+        assert s.scalar(select(ActiveClaim).where(ActiveClaim.call_id == call["id"])) is None
+
+
+def test_concurrent_recovery_ticks_claim_each_due_call_once(workspace, app, clock):
+    from concurrent.futures import ThreadPoolExecutor
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        identities = {
+            put(
+                s,
+                "call_attempts",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    "state": "ENDING",
+                    "started_at": clock().isoformat(),
+                    "max_call_seconds": 300,
+                    "provider_id": f"concurrent-{i}",
+                },
+            ).id
+            for i in range(4)
+        }
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: service._recovery_snapshot(p)[1], range(2)))
+    claimed = [call["id"] for batch in results for call in batch]
+    assert len(claimed) == len(set(claimed)) == len(identities)
+    assert set(claimed) == identities
