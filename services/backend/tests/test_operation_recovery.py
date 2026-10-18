@@ -196,7 +196,7 @@ async def test_number_reconciliation_blocks_competing_configuration(workspace, a
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("change", ["inventory", "owner", "lease", "role"])
+@pytest.mark.parametrize("change", ["inventory", "owner", "lease", "role", "action"])
 async def test_number_reconciliation_fences_late_receipts(
     workspace, app, carrier, monkeypatch, clock, change
 ):
@@ -210,6 +210,8 @@ async def test_number_reconciliation_fences_late_receipts(
                 update(get(s, "command_outbox", item["id"]), lease_owner="new-worker")
             elif change == "role":
                 update(get(s, "users", p["user_id"]), role="rep")
+            elif change == "action":
+                update(get(s, "command_outbox", item["id"]), status="cancelled")
             else:
                 clock.now += timedelta(seconds=61)
         return receipt
@@ -300,3 +302,38 @@ def test_operation_kind_is_indexed_and_old_rows_backfill_without_identity_change
             for k, v in item.items()
             if k not in {"id", "version", "tenant_id", "seller_id", "created_at"}
         }
+
+
+@pytest.mark.parametrize("status", ["cancelled", "failed", "pending"])
+def test_configuration_recovery_does_not_reopen_terminal_or_unsent_work(
+    workspace, app, carrier, monkeypatch, status
+):
+    service, _, item, receipt = configuration(workspace, app, status=status)
+    seen = original_get(monkeypatch, service, carrier, receipt)
+    assert act(workspace, item, "reconcile").status_code == 409
+    assert not seen
+
+
+@pytest.mark.asyncio
+async def test_interrupted_number_check_resumes_after_lease_without_resending(
+    workspace, app, carrier, monkeypatch, clock
+):
+    service, p, item, receipt = configuration(workspace, app)
+    entered = asyncio.Event()
+
+    async def interrupted(_):
+        entered.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(carrier, "get_number", interrupted)
+    task = asyncio.create_task(service.recovery_action(p, item["id"], item["version"], "reconcile"))
+    await asyncio.wait_for(entered.wait(), 1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    with service.db.transaction(False) as s:
+        saved = doc(get(s, "command_outbox", item["id"]))
+    clock.now += timedelta(seconds=31)
+    seen = original_get(monkeypatch, service, carrier, receipt)
+    result = await service.recovery_action(p, saved["id"], saved["version"], "reconcile")
+    assert result["status"] == "completed" and seen == ["owned"]
