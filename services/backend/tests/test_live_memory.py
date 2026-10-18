@@ -39,6 +39,7 @@ def setup(workspace, app, monkeypatch):
             }
             if changes.get("during"):
                 changes["during"]()
+            result.update(changes.get("result", {}))
             return result
 
     monkeypatch.setattr(service, "configured_coach", lambda _: (Provider(), "openrouter"))
@@ -236,6 +237,31 @@ def test_authoritative_commitments_are_not_copied_into_generated_call_memory():
     )
 
 
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"evidence_segment_ids": "new"},
+        {"evidence_segment_ids": [{}]},
+        {"quote": 123},
+        {"text": {"value": "Not a string"}},
+        {"status": {}},
+        {"replaces": [None]},
+    ],
+)
+def test_malformed_memory_is_rejected_without_a_worker_crash(change):
+    item = {
+        "text": "The buyer has a workflow constraint.",
+        "quote": memory_source()["text"],
+        "evidence_segment_ids": ["new"],
+        "status": "open",
+        **change,
+    }
+    with pytest.raises(ValueError):
+        merge_semantic_state(
+            {"stage": "discovery"}, {"stage": "discovery", "needs": [item]}, [memory_source()]
+        )
+
+
 def test_memory_bounds_keep_unresolved_context_and_report_compression():
     items = [
         {
@@ -408,3 +434,13 @@ async def test_processed_nearly_expired_raw_does_not_starve_the_new_turn(workspa
     assert "old" not in {item["segment_id"] for item in requests[-1]["recent_dialogue"]}
     assert requests[-1]["state"]["rundown_points"], "Retain the old meaning without near-expiry raw text"
     assert service.analysis(p, call["id"])["interpretation_coverage"]["interpreted_segments"] == 2
+
+
+@pytest.mark.asyncio
+async def test_no_action_cannot_publish_memory_from_the_wrong_response_version(workspace, app, monkeypatch):
+    call, p, _, changes = setup(workspace, app, monkeypatch)
+    service = app.state.service
+    turn(service, p, call, "versioned")
+    changes["result"] = {"action": "NO_ACTION", "state_version": -1}
+    await service.coach_turn(p, call["id"])
+    assert service.analysis(p, call["id"])["interpretation_coverage"]["interpreted_segments"] == 0
