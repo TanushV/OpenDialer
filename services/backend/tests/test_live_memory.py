@@ -323,3 +323,34 @@ async def test_help_hotkey_bypasses_muting_without_requiring_a_typed_question(wo
     turn(service, p, call, "hotkey")
     result = await service.coach_turn(p, call["id"], urgent=True)
     assert result["action"] == "SHOW_CARD"
+
+
+@pytest.mark.asyncio
+async def test_postcall_meaning_review_also_records_interpreted_source_coverage(
+    workspace, app, clock, monkeypatch
+):
+    from test_postcall_completion import setup_analysis
+
+    call, _ = setup_analysis(workspace, app, monkeypatch)
+    service, p = app.state.service, principal(workspace)
+    await service.analyze_postcall(p, call["id"])
+    clock.now += timedelta(seconds=301)
+    coverage = service.analysis(p, call["id"])["interpretation_coverage"]
+    assert coverage["interpreted_segments"] == 1
+    assert coverage["unavailable_segments"] == 0
+
+
+@pytest.mark.asyncio
+async def test_bounded_backlog_is_drained_without_an_additional_turn(workspace, app, clock, monkeypatch):
+    call, p, requests, _ = setup(workspace, app, monkeypatch)
+    service = app.state.service
+    for i in range(40):
+        turn(service, p, call, f"backlog-{i:03}")
+    await service.run_jobs(p["tenant_id"], queues=["live_coach"])
+    clock.now += timedelta(seconds=10)
+    await service.run_jobs(p["tenant_id"], queues=["live_coach"])
+    result = service.analysis(p, call["id"])["interpretation_coverage"]
+    assert result["interpreted_segments"] == 40 and result["pending_segments"] == 0
+    assert len(requests) == 2, (
+        "Bounded catch-up should consume the remaining chunks, not pay for each queued event"
+    )
