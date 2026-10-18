@@ -16,6 +16,7 @@ import { Empty } from "./Operations";
 import { ConversationObservations } from "./ConversationObservations";
 import { CallPurpose } from "./Rubrics";
 import { ScoreReview } from "./ScoreReview";
+import { Coaching, ReviewTip } from "./Coaching";
 
 export function ReviewPage() {
   const { snapshot: w, api, run, notice } = useWorkspace();
@@ -61,6 +62,7 @@ export function ReviewPage() {
             </select>
           </label>
         </div>
+        <Coaching onReview={open} />
         <section className="card table-card">
           <table>
             <thead>
@@ -203,6 +205,13 @@ export function ReviewPage() {
                   <li key={item.id || index}>
                     {item.text}
                     {item.status === "resolved" ? " · Resolved" : ""}
+                    {key === "coaching_points" && item.id && (
+                      <ReviewTip
+                        callId={analysis.call.id}
+                        version={analysis.call.transcript_version}
+                        pointId={item.id}
+                      />
+                    )}
                   </li>
                 ))}
               </ul>

@@ -223,7 +223,7 @@ def persistent_document(kind, data, *, legacy=False):
         data.update(
             action="Review the prior call commitment", privacy_contract=1, needs_time_confirmation=True
         )
-    if kind == "snippets" and legacy and data.get("call_id"):
+    if kind == "snippets" and legacy and data.get("call_id") and data.get("privacy_contract") != 1:
         data = {k: v for k, v in data.items() if k not in {"quote", "text", "transcript", "recording_url"}}
         data.update(raw_evidence_status="expired", approved=False)
     return data

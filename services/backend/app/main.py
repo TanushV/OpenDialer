@@ -20,6 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.administration import Dialer
+from app.coaching import library
 from app.compliance.consent import ConsentChange
 from app.compliance.consent import record as record_consent
 from app.compliance.consent import replay as replay_consent
@@ -73,6 +74,7 @@ class CoachCancel(Strict):
 
 class PracticeRequest(Strict):
     scenario: str = Field(min_length=1, max_length=2000)
+    request_id: UUID | None = None
 
 
 class Login(Strict):
@@ -530,7 +532,17 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/coaching/practice")
     async def practice(data: PracticeRequest, p=Depends(principal)):
-        return await service.practice(p, data.scenario)
+        return await service.practice(
+            p, data.scenario, request_id=str(data.request_id) if data.request_id else None
+        )
+
+    @app.get("/v1/coaching")
+    def coaching(p=Depends(principal)):
+        return library.overview(service, p)
+
+    @app.put("/v1/coaching/goals")
+    def coaching_goals(data: library.GoalsEdit, p=Depends(principal)):
+        return library.save_goals(service, p, data.model_dump(mode="json"))
 
     @app.get("/v1/calls/{call_id}/analysis")
     def analysis(call_id: str, p=Depends(principal)):
@@ -1360,32 +1372,12 @@ def create_app(settings=None, *, clock=None, carrier=None):
             return doc(model)
 
     @app.post("/v1/admin/snippets")
-    def publish_snippet(data: dict, p=Depends(administrator)):
-        with db.transaction() as session:
-            call = service.required(session, "call_attempts", data.get("call_id"), p)
-            segments = {seg["segment_id"] for seg in service.transcript_rows(session, p, call.id)}
-            if (
-                not data.get("evidence")
-                or not set(data["evidence"]).issubset(segments)
-                or not data.get("review_reference")
-            ):
-                fail(422, "Reviewed transcript evidence required before publishing a snippet")
-            return doc(
-                put(
-                    session,
-                    "snippets",
-                    p["tenant_id"],
-                    p["seller_id"],
-                    {
-                        "call_id": call.id,
-                        "evidence": data["evidence"],
-                        "title": str(data.get("title", "Reviewed example"))[:200],
-                        "review_reference": data["review_reference"],
-                        "approved": True,
-                    },
-                    now=clock(),
-                )
-            )
+    def publish_snippet(data: library.ExampleReview, p=Depends(administrator)):
+        return library.publish(service, p, data.model_dump())
+
+    @app.patch("/v1/admin/snippets/{example_id}")
+    def withdraw_snippet(example_id: str, data: library.ExampleWithdraw, p=Depends(administrator)):
+        return library.withdraw(service, p, example_id, data.expected_version)
 
     @app.post("/v1/admin/rnd/results")
     def import_rnd(data: dict, p=Depends(administrator)):

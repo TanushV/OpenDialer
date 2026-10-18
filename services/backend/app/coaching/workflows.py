@@ -1,11 +1,13 @@
 """Proactive/private help using one bounded context and one accountable inference."""
 
 import asyncio
+import hashlib
 import time
 from datetime import timedelta
 
 from sqlalchemy import or_, select
 
+from app.coaching import library
 from app.coaching import requests as help_requests
 from app.coaching.context import (
     build_context,
@@ -18,7 +20,7 @@ from app.coaching.engine import CardRejected, finish_shielded
 from app.db import MODELS, doc, emit, get, put, uid, update
 from app.privacy import persistent_document
 from app.providers.inference import InferenceResult
-from app.service import dt
+from app.service import dt, fail
 from app.telephony.reducer import TERMINAL
 
 
@@ -39,59 +41,181 @@ class LiveHelper:
             available_at=due,
         )
 
-    async def practice(self, p, scenario):
-        expires = self.clock() + timedelta(seconds=300)
+    def _coach_authority(self, s, p):
+        user = self.required(s, "users", p["user_id"], p)
+        if user.data.get("disabled") or user.data.get("role") not in {"owner", "admin", "rep"}:
+            return False
+        if p.get("session_id"):
+            session = self.required(s, "sessions", p["session_id"], p)
+            if session.data.get("revoked") or dt(session.data["expires_at"]) <= self.clock():
+                return False
+        return True
+
+    async def practice(self, p, scenario, request_id=None):
+        identity = request_id or uid()
+        key = "practice:" + p["user_id"] + ":" + identity
+        raw_key = p["tenant_id"] + ":" + key
+        digest = hashlib.sha256(scenario.encode()).hexdigest()
 
         def context():
-            with self.db.transaction(False) as s:
+            with self.db.transaction() as s:
+                user = self.required(s, "users", p["user_id"], p)
+                s.refresh(user, with_for_update=True)
+                if not self._coach_authority(s, p):
+                    return None, {"status": "unavailable"}, None
+                prior = self._by_key(s, p, "conversation_states", key)
+                if prior:
+                    if prior.data["request_hash"] != digest:
+                        fail(409, "Practice identity already belongs to a different scenario")
+                    expires = dt(prior.data["expires_at"])
+                    if expires > self.clock() and not self._practice_knowledge_current(s, p, prior):
+                        self.raw.discard(raw_key)
+                        update(prior, status="source_changed")
+                        return None, {"status": "source_changed"}, expires
+                    value = self.raw.get(raw_key)
+                    return (
+                        None,
+                        (
+                            {
+                                **value,
+                                "raw_remaining_ms": max(
+                                    0, int((expires - self.clock()).total_seconds() * 1000)
+                                ),
+                            }
+                            if value
+                            else {"status": "expired" if expires <= self.clock() else prior.data["status"]}
+                        ),
+                        expires,
+                    )
+                expires = self.clock() + timedelta(seconds=300)
                 book = self.approved_playbook(s, p)
                 seller = self.required(s, "sellers", p["seller_id"], p)
-                return {
-                    "state_version": 0,
-                    "simulation": True,
-                    "private_question": scenario,
-                    "seller": {
-                        "name": seller.data["name"],
-                        "knowledge": book.data.get("product_description", "") if book else "",
+                examples = library.context_examples(self, s, p, scenario)
+                put(
+                    s,
+                    "conversation_states",
+                    p["tenant_id"],
+                    p["seller_id"],
+                    {
+                        "kind": "practice",
+                        "user_id": p["user_id"],
+                        "request_hash": digest,
+                        "expires_at": expires.isoformat(),
+                        "status": "pending",
+                        "privacy_contract": 1,
+                        "knowledge": {
+                            "book": [book.id, book.version] if book else None,
+                            "examples": {item["id"]: item["version"] for item in examples},
+                            "seller_name": seller.data["name"],
+                            "goals_version": user.data.get("coaching_goals_version", 0),
+                        },
                     },
-                    "approved_cards": book.data.get("cards", []) if book else [],
-                    "approved_claims": book.data.get("claims", []) if book else [],
-                    "recent_dialogue": [],
-                    "facts": [],
-                }
+                    key=key,
+                    now=self.clock(),
+                )
+                return (
+                    {
+                        "state_version": 0,
+                        "simulation": True,
+                        "manual_help": True,
+                        "private_question": scenario,
+                        "seller": {
+                            "name": seller.data["name"],
+                            "knowledge": book.data.get("product_description", "") if book else "",
+                        },
+                        "approved_cards": book.data.get("cards", []) if book else [],
+                        "approved_claims": book.data.get("claims", []) if book else [],
+                        "reviewed_examples": examples,
+                        "practice_goals": user.data.get("coaching_goals", []),
+                        "recent_dialogue": [],
+                        "facts": [],
+                    },
+                    None,
+                    expires,
+                )
 
-        request = await asyncio.to_thread(context)
+        request, previous, expires = await asyncio.to_thread(context)
+        if previous is not None:
+            return {"simulation": True, "request_id": identity, **previous}
         provider, route = self.configured_coach(p)
-        if not provider or self.settings.simulation:
-            return {"simulation": True, "status": "unconfigured", "examples": request["approved_cards"]}
-        key = "practice:" + uid()
+        result = {"status": "unconfigured", "examples": request["approved_cards"]}
+        if provider and not self.settings.simulation:
 
-        async def admit(submit):
-            return not submit or await self._reserve_coach(p, key, key, "coaching_practice")
+            async def admit(submit):
+                with_authority = await asyncio.to_thread(self._practice_authorized, p)
+                return with_authority and (
+                    not submit or await self._reserve_coach(p, key, key, "coaching_practice")
+                )
 
-        async def settle(submitted):
-            await self._settle_coach(p, key, key, "coaching_practice", route, provider, submitted)
+            async def settle(submitted):
+                await self._settle_coach(p, key, key, "coaching_practice", route, provider, submitted)
 
-        result = await self.coach.suggest(
-            key,
-            request,
-            provider,
-            {"action": "NO_ACTION"},
-            deadline_ms=8000,
-            admit=admit,
-            settle=settle,
-            circuit_key=(p["tenant_id"], p["seller_id"], route),
-            owner_key=(p["tenant_id"], p["seller_id"], p["user_id"]),
-        )
-        try:
-            ground_guidance(result, request)
-        except CardRejected:
-            return {"simulation": True, "status": "unavailable"}
+            result = {"status": "unavailable"}
+            try:
+                guidance = await self.coach.suggest(
+                    key,
+                    request,
+                    provider,
+                    {"action": "NO_ACTION"},
+                    deadline_ms=8000,
+                    admit=admit,
+                    settle=settle,
+                    circuit_key=(p["tenant_id"], p["seller_id"], route),
+                    owner_key=(p["tenant_id"], p["seller_id"], p["user_id"]),
+                )
+                ground_guidance(guidance, request)
+                if guidance.get("action") == "SHOW_CARD":
+                    result = {"status": "ready", "guidance": guidance}
+            except CardRejected:
+                pass
+            finally:
+                if asyncio.current_task().cancelling():
+                    await finish_shielded(
+                        asyncio.to_thread(self._finish_practice, p, key, raw_key, expires, result)
+                    )
         return {
             "simulation": True,
-            "status": "ready",
-            "guidance": result,
+            "request_id": identity,
+            **await asyncio.to_thread(self._finish_practice, p, key, raw_key, expires, result),
+        }
+
+    def _practice_authorized(self, p):
+        with self.db.transaction(False) as s:
+            return self._coach_authority(s, p)
+
+    def _practice_knowledge_current(self, s, p, record):
+        knowledge = record.data.get("knowledge", {})
+        book = self.approved_playbook(s, p)
+        if knowledge.get("book") != ([book.id, book.version] if book else None):
+            return False
+        seller = self.required(s, "sellers", p["seller_id"], p)
+        user = self.required(s, "users", p["user_id"], p)
+        if knowledge.get("seller_name") != seller.data["name"] or knowledge.get(
+            "goals_version"
+        ) != user.data.get("coaching_goals_version", 0):
+            return False
+        expected = knowledge.get("examples", {})
+        current = {item["id"]: item["version"] for item in library.examples(self, s, p)} if expected else {}
+        return all(current.get(identity) == version for identity, version in expected.items())
+
+    def _finish_practice(self, p, key, raw_key, expires, result):
+        with self.db.transaction() as s:
+            record = self._by_key(s, p, "conversation_states", key)
+            if not self._coach_authority(s, p) or expires <= self.clock():
+                result = {"status": "unavailable"}
+            elif not self._practice_knowledge_current(s, p, record):
+                result = {"status": "source_changed"}
+            update(
+                record,
+                status=result["status"] if result["status"] != "ready" else "unavailable_after_restart",
+            )
+            self.raw.put(
+                raw_key, result, expires_at=expires, scope=p["tenant_id"] + ":practice:" + p["user_id"]
+            )
+        return {
+            **result,
             "raw_expires_at": expires.isoformat(),
+            "raw_remaining_ms": max(0, int((expires - self.clock()).total_seconds() * 1000)),
         }
 
     def coach_content(self, p, record):
@@ -163,15 +287,9 @@ class LiveHelper:
 
     def _help_allowed(self, s, p, call):
         user = self.required(s, "users", p["user_id"], p)
-        if p.get("session_id"):
-            session = self.required(s, "sessions", p["session_id"], p)
-            if session.data.get("revoked") or dt(session.data["expires_at"]) <= self.clock():
-                return False
-        return not (
-            user.data.get("disabled")
-            or user.data.get("role") not in {"owner", "admin", "rep"}
-            or user.data.get("role") == "rep"
-            and call.data["rep_id"] != user.id
+        return self._coach_authority(s, p) and not (
+            user.data.get("role") == "rep"
+            and call.data["rep_id"] != p["user_id"]
             or call.data["state"] in TERMINAL | {"ENDING"}
             or call.data.get("transcription_disabled")
         )
@@ -328,6 +446,9 @@ class LiveHelper:
                 "manual_help": urgent,
                 "private_question": question,
                 "approved_cards": all_cards[:32],
+                "reviewed_examples": library.context_examples(
+                    self, s, p, question or (state.get("last_remote") or {}).get("text", "")
+                ),
                 "locally_retrieved_card_ids": [c["id"] for c in cards],
                 "approved_claims": book.data.get("claims", []) if book else [],
                 "facts": facts,
