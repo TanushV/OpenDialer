@@ -1,5 +1,61 @@
 import { expect, test } from "@playwright/test";
 
+test("inferred follow-ups show time windows and source correction conflicts", async ({
+  page,
+}) => {
+  await page.route("**/v1/workspace", async (route) => {
+    const response = await route.fetch();
+    const workspace = await response.json();
+    workspace.tasks = [
+      {
+        id: "inferred-task",
+        version: 2,
+        call_id: "source-call",
+        lead_id: workspace.leads[0].id,
+        owner_id: workspace.user.id,
+        kind: "callback",
+        action: "Confirm the next conversation",
+        due_at: null,
+        timezone: "America/Los_Angeles",
+        status: "needs_confirmation",
+        time_window: {
+          date: "2026-10-20",
+          period: "afternoon",
+          timezone: "America/Los_Angeles",
+        },
+        source_stale: true,
+        review_required: true,
+      },
+    ];
+    await route.fulfill({ response, json: workspace });
+  });
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  const task = page.locator('[data-call-id="source-call"]');
+  await expect(
+    task.getByText(
+      "Requested window: 2026-10-20 · afternoon · America/Los_Angeles",
+    ),
+  ).toBeVisible();
+  await expect(
+    task.getByText(
+      "Source corrected. Confirm this follow-up; your edits are preserved.",
+    ),
+  ).toBeVisible();
+  await expect(
+    task.getByRole("button", { name: "Save follow-up" }),
+  ).toBeDisabled();
+});
+
 test("a local callback is confirmed, rescheduled, retained on reload and completed", async ({
   page,
 }) => {

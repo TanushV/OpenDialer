@@ -9,7 +9,12 @@ DIMENSIONS = [
 ]
 
 
-def score_summary(items):
+def score_summary(items, dimensions=None):
+    dimensions = dimensions or (DIMENSIONS if any("dimension" in i for i in items) else None)
+    total = len(dimensions) if dimensions else len(items)
+    if dimensions:
+        # Legacy/partial items cannot inflate coverage or count a repeated dimension twice.
+        items = list({i["dimension"]: i for i in items if i.get("dimension") in dimensions}.values())
     valid = [
         i for i in items if i.get("status") == "SCORED" and i.get("evidence") and i.get("score") is not None
     ]
@@ -18,9 +23,9 @@ def score_summary(items):
         "score": 100 * sum(i.get("weight", 1) * i["score"] / i.get("max_score", 2) for i in valid) / weight
         if weight
         else None,
-        "coverage": len(valid) / len(items) if items else 0,
+        "coverage": len(valid) / total if total else 0,
         "scorable_items": len(valid),
-        "total_items": len(items),
+        "total_items": total,
     }
 
 

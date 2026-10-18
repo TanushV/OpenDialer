@@ -4,6 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.postcall.analysis import DIMENSIONS
+from app.postcall.dates import resolve_time
 
 
 class StrictModel(BaseModel):
@@ -17,6 +18,7 @@ class Evidence(StrictModel):
 
 
 class Commitment(StrictModel):
+    kind: Literal["callback", "followup"] = "followup"
     owner: Literal["rep", "prospect", "unknown"]
     action: str = Field(max_length=1000)
     due_at: str | None
@@ -43,7 +45,7 @@ class AnalysisOutput(StrictModel):
     score_items: list[ScoreItem]
 
 
-def validate_analysis(data, segments):
+def validate_analysis(data, segments, *, call_at=None, timezone=None, dimensions=None):
     result = AnalysisOutput.model_validate(data).model_dump()
     sources = {
         s["segment_id"]: s["text"] for s in segments if s.get("is_final") and not s.get("system_audio")
@@ -61,16 +63,18 @@ def validate_analysis(data, segments):
     verify(result["summary_evidence"], result["summary"])
     for item in [*result["problems"], *result["objections"]]:
         verify(item["evidence"], item["text"], item["quote"])
-    for item in result["commitments"]:
+    for index, item in enumerate(result["commitments"]):
         verify(item["evidence"], item["action"], item["verbatim_time_expression"])
-        # Exact appointment resolution remains a reviewed operation; vague expressions never acquire a guessed date.
-        item["due_at"] = None
-        item["needs_time_confirmation"] = True
+        result["commitments"][index] = resolve_time(item, call_at=call_at, timezone=timezone)
+    dimensions = dimensions or DIMENSIONS
+    actual = [item["dimension"] for item in result["score_items"]]
+    if actual and (len(actual) != len(dimensions) or set(actual) != set(dimensions)):
+        raise ValueError("A complete rubric with unique configured dimensions is required")
     for item in result["score_items"]:
-        if item["dimension"] not in DIMENSIONS:
-            raise ValueError("Unknown scorecard dimension")
         if item["status"] == "SCORED":
             verify(item["evidence"])
             if item["score"] is None:
                 raise ValueError("Score without an anchored rating")
+        elif item["score"] is not None:
+            raise ValueError("An unscored item cannot carry a numerical rating")
     return result

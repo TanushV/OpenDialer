@@ -308,11 +308,13 @@ def test_app_score_coverage_counts_all_rubric_dimensions():
             }
         ],
     }
-    result = validate_analysis(data, segments)
-    coverage = score_summary(result["score_items"])["coverage"]
+    # The revised contract rejects partial rubrics at publication and still handles legacy reads honestly.
+    with pytest.raises(ValueError, match="complete rubric"):
+        validate_analysis(data, segments)
+    coverage = score_summary(data["score_items"])["coverage"]
     assert coverage <= 1 / len(DIMENSIONS), {
         "reported_coverage": coverage,
-        "returned_items": len(result["score_items"]),
+        "returned_items": len(data["score_items"]),
         "rubric_items": len(DIMENSIONS),
     }
 

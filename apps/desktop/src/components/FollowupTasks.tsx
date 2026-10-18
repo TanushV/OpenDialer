@@ -39,6 +39,29 @@ function Task({ task }: { task: FollowupTask }) {
         <span>{label(task.status)}</span> · {date(task.due_at)}{" "}
         {task.timezone ? `(${task.timezone})` : ""}
       </p>
+      {task.time_window && !task.due_at && (
+        <p>
+          Requested window:{" "}
+          {[
+            task.time_window.date,
+            task.time_window.period || task.time_window.local_time,
+            task.time_window.timezone,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </p>
+      )}
+      {task.source_stale && task.review_required && (
+        <p role="status">
+          Source corrected. Confirm this follow-up; your edits are preserved.
+        </p>
+      )}
+      {task.source_retracted && task.review_required && (
+        <p role="status">
+          The latest analysis no longer supports this promise. Review your next
+          action.
+        </p>
+      )}
       <label>
         Callback time (your device timezone)
         <input

@@ -129,12 +129,15 @@ def setup_analysis(workspace, app, monkeypatch):
         },
     )
     c.post("/v1/calls/" + call["id"] + "/hangup", headers=h)
-    state = {"body": analysis_body()}
+    state = {"body": analysis_body(), "requests": 0}
 
     class Provider:
         async def complete(self, *args):
+            state["requests"] += 1
             return InferenceResult(
-                state["body"], {"input_tokens": 30, "output_tokens": 30}, "fixture-interpretation"
+                state["body"],
+                {"input_tokens": 30, "output_tokens": 30},
+                "fixture-interpretation-" + str(state["requests"]),
             )
 
     monkeypatch.setattr(app.state.service, "inference", lambda *args: Provider())
@@ -166,6 +169,7 @@ async def test_rephrased_commitment_updates_one_task_and_preserves_rep_edit(work
         tasks2 = [doc(t) for t in service.lead_records(s, p(workspace), "followup_tasks", call["lead_id"])]
         commitments = [doc(t) for t in service.lead_records(s, p(workspace), "commitments", call["lead_id"])]
     assert len(tasks2) == len(commitments) == 1
+    assert commitments[0]["action"] == "Reconnect with the prospect"
     assert tasks2[0]["id"] == tasks[0]["id"]
     assert tasks2[0]["due_at"] == "2026-10-21T21:00:00+00:00"
     assert "verbatim_time_expression" not in commitments[0]
@@ -310,3 +314,93 @@ async def test_postcall_disposition_race_does_not_publish_old_interpretation(wor
     await service.analyze_postcall(p(workspace), call["id"])
     with service.db.transaction(False) as s:
         assert not service.lead_records(s, p(workspace), "followup_tasks", call["lead_id"])
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "October 20, 2026 at 2 PM London time",
+        "October 20, 2026 and November 20, 2026 at 2 PM Pacific time",
+    ],
+)
+def test_ambiguous_timezone_or_multiple_dates_cannot_reuse_a_fallback_zone(expression):
+    from app.postcall.dates import resolve_time
+
+    result = resolve_time(
+        {"verbatim_time_expression": expression, "due_at": None, "needs_time_confirmation": False},
+        timezone="America/Los_Angeles",
+    )
+    assert result["due_at"] is None
+    assert result["needs_time_confirmation"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rep_first", [False, True])
+async def test_manual_and_inferred_callback_share_one_task(workspace, app, monkeypatch, rep_first):
+    call, state = setup_analysis(workspace, app, monkeypatch)
+    service = app.state.service
+
+    def report():
+        service.save_disposition(
+            p(workspace), call["id"], {"outcome": "callback_requested", "callback_at": "2026-10-21T21:00:00Z"}
+        )
+
+    if rep_first:
+        report()
+    await service.analyze_postcall(p(workspace), call["id"])
+    if not rep_first:
+        report()
+    with service.db.transaction(False) as s:
+        tasks = service.lead_records(s, p(workspace), "followup_tasks", call["lead_id"])
+        assert len(tasks) == 1
+        assert tasks[0].data["due_at"] == "2026-10-21T21:00:00+00:00"
+        assert tasks[0].data["source"] == "rep_reported"
+
+
+@pytest.mark.asyncio
+async def test_confirming_corrected_task_acknowledges_review(workspace, app, monkeypatch):
+    call, _ = setup_analysis(workspace, app, monkeypatch)
+    service = app.state.service
+    await service.analyze_postcall(p(workspace), call["id"])
+    service._accept_transcript(
+        p(workspace),
+        call["id"],
+        {
+            "segment_id": "s",
+            "revision": 2,
+            "is_final": True,
+            "side": "remote",
+            "text": "Please confirm first.",
+        },
+        None,
+    )
+    with service.db.transaction(False) as s:
+        task = doc(service.lead_records(s, p(workspace), "followup_tasks", call["lead_id"])[0])
+    after = service.edit_task(
+        p(workspace),
+        task["id"],
+        {"expected_version": task["version"], "status": "open", "due_at": "2026-10-21T21:00:00+00:00"},
+    )
+    assert after["review_required"] is False
+    assert after["human_edited"] is True
+
+
+def test_non_scored_dimensions_cannot_carry_a_score():
+    from app.postcall.analysis import DIMENSIONS
+    from app.postcall.inference import validate_analysis
+
+    body = analysis_body()
+    body["commitments"] = []
+    body["score_items"] = [
+        {
+            "dimension": dimension,
+            "score": None,
+            "status": "N/A",
+            "evidence": [],
+            "explanation": "No observable opportunity",
+        }
+        for dimension in DIMENSIONS
+    ]
+    body["score_items"][0]["score"] = 2
+    with pytest.raises(ValueError):
+        validate_analysis(body, [{"segment_id": "s", "is_final": True, "text": "Please call next week."}])

@@ -234,6 +234,17 @@ class RepWorkflows:
         explicit_replacement=False,
     ):
         task = self._by_key(s, p, "followup_tasks", key)
+        if not task and call_id and key == "wrapup-callback:" + call_id:
+            inferred = [
+                t
+                for t in self.lead_records(s, p, "followup_tasks", lead.id)
+                if t.data.get("call_id") == call_id
+                and t.data.get("kind") == "callback"
+                and t.data.get("source") == "inferred"
+            ]
+            if len(inferred) == 1:
+                task = inferred[0]
+                task.external_key = key
         values = {
             "lead_id": lead.id,
             "call_id": call_id,
@@ -277,8 +288,17 @@ class RepWorkflows:
             if edits.get("due_at") and task.data["status"] == "needs_confirmation" and "status" not in edits:
                 edits["status"] = "open"
             update(
-                task, **edits, human_edited=True, edited_at=self.clock().isoformat(), edited_by=p["user_id"]
+                task,
+                **edits,
+                human_edited=True,
+                review_required=False,
+                reviewed_source_version=task.data.get("source_version"),
+                edited_at=self.clock().isoformat(),
+                edited_by=p["user_id"],
             )
+            if task.data.get("commitment_id"):
+                commitment = self.required(s, "commitments", task.data["commitment_id"], p)
+                update(commitment, task_status=task.data["status"])
             if task.data.get("lead_id"):
                 lead = self.required(s, "leads", task.data["lead_id"], p)
                 self._sync_callback(s, p, lead)

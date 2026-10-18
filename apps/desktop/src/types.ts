@@ -40,6 +40,15 @@ export interface FollowupTask {
   timezone?: string | null;
   status: string;
   source?: string;
+  source_stale?: boolean;
+  source_retracted?: boolean;
+  review_required?: boolean;
+  time_window?: {
+    date: string;
+    period: string | null;
+    timezone: string | null;
+    local_time?: string;
+  } | null;
 }
 export interface NumberRecord {
   id: string;

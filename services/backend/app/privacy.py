@@ -333,6 +333,10 @@ class SpeechPrivacy:
                 raw_expires_at=max(call.data.get("raw_expires_at", ""), expires.isoformat()),
             )
             version = call.data["transcript_version"]
+            if row:
+                from app.postcall.commitments import invalidate
+
+                invalidate(self, s, p, call, segment["segment_id"])
             preferences = call.data.get("coach_preferences", {})
             pinned_id = preferences.get("pinned_event_id")
             if row and pinned_id:
