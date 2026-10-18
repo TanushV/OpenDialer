@@ -157,3 +157,58 @@ async def test_published_help_is_hidden_after_knowledge_changes(workspace, app, 
                 is None
             )
     assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_new_prior_call_note_invalidates_a_prepared_empty_note_context(
+    workspace, app, clock, monkeypatch
+):
+    service, p, call, ids = prepared(workspace, app, clock)
+    with service.db.transaction() as s:
+        note = get(s, "notes", ids["note"])
+        old_call_id = note.data["call_id"]
+        s.delete(note)
+
+    class Provider:
+        last_usage, last_request_id = {"cost": 0.001}, "new-human-note"
+
+        async def suggest(self, request, **kwargs):
+            assert request["prior_call_context"][0]["human_notes"] == ""
+            with service.db.transaction() as s:
+                put(
+                    s,
+                    "notes",
+                    p["tenant_id"],
+                    p["seller_id"],
+                    {
+                        "call_id": old_call_id,
+                        "human_text": "Newly reported: do not assume who owns this.",
+                    },
+                    key=old_call_id,
+                )
+            return advice(request["state_version"], "lesson")
+
+    monkeypatch.setattr(service.settings, "simulation", False)
+    monkeypatch.setattr(service, "configured_coach", lambda _: (Provider(), "openrouter"))
+    result = await service.coach_turn(p, call["id"], urgent=True, question="What should I clarify?")
+    assert result["action"] == "NO_ACTION"
+
+
+@pytest.mark.asyncio
+async def test_ordinary_preparation_bookkeeping_does_not_discard_valid_live_help(
+    workspace, app, clock, monkeypatch
+):
+    service, p, call, ids = prepared(workspace, app, clock)
+
+    class Provider:
+        last_usage, last_request_id = {"cost": 0.001}, "preparation-bookkeeping"
+
+        async def suggest(self, request, **kwargs):
+            with service.db.transaction() as s:
+                update(get(s, "leads", call["lead_id"]), preparation_status="queued")
+            return advice(request["state_version"], "lesson")
+
+    monkeypatch.setattr(service.settings, "simulation", False)
+    monkeypatch.setattr(service, "configured_coach", lambda _: (Provider(), "openrouter"))
+    result = await service.coach_turn(p, call["id"], urgent=True, question="What should I clarify?")
+    assert result["action"] == "SHOW_CARD"
