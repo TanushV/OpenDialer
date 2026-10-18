@@ -219,3 +219,18 @@ async def test_context_assembly_cannot_extend_private_answer_raw_lifetime(worksp
     with service.db.transaction(False) as s:
         event = get(s, "coach_events", result["id"])
         assert dt(event.data["raw_expires_at"]) <= received + timedelta(seconds=300)
+
+
+@pytest.mark.asyncio
+async def test_private_help_does_not_mutate_the_call_control_or_wrapup_version(workspace, app, monkeypatch):
+    call, p, _, _ = setup(workspace, app, monkeypatch)
+    service, identity = app.state.service, str(uuid4())
+    turn(service, p, call, "control-version")
+    with service.db.transaction(False) as s:
+        before = get(s, "call_attempts", call["id"]).version
+    await service.coach_turn(p, call["id"], urgent=True, question="Help?", request_id=identity)
+    await asyncio.to_thread(service.cancel_help, p, call["id"], identity)
+    with service.db.transaction(False) as s:
+        assert get(s, "call_attempts", call["id"]).version == before, (
+            "Helper metadata cannot invalidate a rep's call control or wrap-up edit"
+        )
