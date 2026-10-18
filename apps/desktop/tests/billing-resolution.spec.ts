@@ -149,15 +149,13 @@ test("carrier statement import is explicit, repeatable and preserves original re
   await panel
     .getByText("Import carrier statement records", { exact: true })
     .click();
-  await panel
-    .getByLabel("Carrier statement file")
-    .setInputFiles({
-      name: "statement.csv",
-      mimeType: "text/csv",
-      buffer: Buffer.from(
-        "provider_record_id,call_id,leg_id,kind,cost_usd,duration_seconds\nrecord-1,original-call,leg-1,voice,0.02,61",
-      ),
-    });
+  await panel.getByLabel("Carrier statement file").setInputFiles({
+    name: "statement.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(
+      "provider_record_id,call_id,leg_id,kind,cost_usd,duration_seconds\nrecord-1,original-call,leg-1,voice,0.02,61",
+    ),
+  });
   await panel
     .getByLabel("Carrier statement reference")
     .fill("Synthetic statement export");
@@ -189,4 +187,89 @@ test("carrier statement import is explicit, repeatable and preserves original re
       },
     ],
   });
+});
+
+test("a confirmed no-charge statement is distinct from a missing carrier receipt", async ({
+  page,
+}) => {
+  let payload: Record<string, unknown> | undefined;
+  await page.route("**/v1/admin/billing/ledger?*", (route) =>
+    route.fulfill({
+      json: {
+        entries: [
+          {
+            id: "empty-call",
+            version: 2,
+            kind: "call_authorization",
+            provider: "telnyx",
+            request_id: null,
+            request_key: null,
+            status: "uncertain",
+            reserved_usd: 0.05,
+            cost_usd: null,
+            credited_usd: 0,
+            net_cost_usd: null,
+            provider_record_ids: [],
+            can_settle: false,
+            can_credit: false,
+            can_close_call: true,
+          },
+        ],
+        next_cursor: null,
+      },
+    }),
+  );
+  await page.route(
+    "**/v1/admin/billing/ledger/empty-call/reconcile",
+    (route) => {
+      payload = route.request().postDataJSON();
+      return route.fulfill({ json: {} });
+    },
+  );
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Operations", exact: true }).click();
+  const panel = page.getByRole("region", {
+    name: "Provider cost reconciliation",
+    exact: true,
+  });
+  await panel.getByLabel("Provider receipt ID").fill("confirmed-zero");
+  await panel
+    .getByLabel("Statement or source reference")
+    .fill("Provider statement explicitly confirms no charge");
+  await panel
+    .getByLabel("I checked this receipt against this original request")
+    .check();
+  await panel
+    .getByLabel("The imported records cover the complete call statement")
+    .check();
+  const close = panel.getByRole("button", {
+    name: "Confirm complete call costs",
+    exact: true,
+  });
+  await expect(close).toBeDisabled();
+  await panel
+    .getByLabel(
+      "The provider statement explicitly confirms no charge for this call",
+    )
+    .check();
+  await close.click();
+  await expect
+    .poll(() => payload)
+    .toMatchObject({
+      action: "close_call",
+      cost_usd: 0,
+      provider_record_ids: [],
+      confirm_complete: true,
+      confirm_no_charge: true,
+    });
 });
