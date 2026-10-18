@@ -480,6 +480,9 @@ def test_background_report_cannot_publish_an_outdated_dataset_after_a_correction
 
 def test_background_report_uses_the_selected_campaign_only(workspace, app, clock, monkeypatch):
     service = app.state.service
+    with service.db.transaction() as s:
+        campaign = service.required(s, "campaigns", workspace["campaign_id"], p(workspace))
+        update(campaign, optimization={**campaign.data.get("optimization", {}), "auto_train": False})
     other = cohort(clock) + cohort(clock, later=True)
     for row in other:
         row["campaign_id"] = "a-different-campaign"
