@@ -651,6 +651,9 @@ class Service(ReservationPlanner):
             self.record_decision(s, p, lead, decision)
             if not decision.allowed:
                 fail(403, {"code": "CALL_DENIED", "reasons": decision.reasons})
+            from app.postcall.rubrics import configuration, snapshot
+
+            rubric = snapshot(configuration(self.required(s, "campaigns", lead.data["campaign_id"], p)))
             call = put(
                 s,
                 "call_attempts",
@@ -659,6 +662,8 @@ class Service(ReservationPlanner):
                 {
                     "rep_id": p["user_id"],
                     "lead_id": lead.id,
+                    "rubric_snapshot": rubric,
+                    "rubric_revision": 1,
                     "endpoint_id": lead.data["endpoint_id"],
                     "number_id": number.id,
                     "reservation_id": reservation.id,

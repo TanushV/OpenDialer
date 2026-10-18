@@ -315,6 +315,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
         return p
 
     bind_operating_api(app, service, administrator)
+    from app.postcall.rubrics import bind_api as bind_rubrics_api
+
+    bind_rubrics_api(app, service, principal, administrator)
 
     def local_nonce(value):
         if settings.mode != "local":
@@ -551,6 +554,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 p["seller_id"],
                 {
                     "scorecard_id": scorecard_id,
+                    "rubric_version": card.data["rubric_version"],
                     "reviewer_id": p["user_id"],
                     "reason": str(data["reason"])[:1000],
                     "dimension": data.get("dimension"),

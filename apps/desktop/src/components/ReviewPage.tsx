@@ -13,6 +13,7 @@ import { date, label, useWorkspace } from "../context";
 import type { Analysis } from "../types";
 import { Empty } from "./Operations";
 import { ConversationObservations } from "./ConversationObservations";
+import { CallPurpose } from "./Rubrics";
 
 export function ReviewPage() {
   const { snapshot: w, api, run, notice } = useWorkspace();
@@ -292,6 +293,38 @@ export function ReviewPage() {
             analysis={analysis}
             reload={() => open(analysis.call.id)}
           />
+          <section className="card padded" aria-label="Conversation signals">
+            <h2>Conversation signals</h2>
+            <p className="small muted">
+              Configured concepts with supporting moments. A match describes the
+              conversation; it is not a conversion outcome or personality
+              judgment.
+            </p>
+            {!analysis.trackers?.length && (
+              <p className="small">No supported signals are available.</p>
+            )}
+            {analysis.trackers?.map((item, index) => (
+              <div key={`${item.tracker_id}:${index}`}>
+                <strong>{item.name || "Configured signal"}</strong>
+                <p className="small">
+                  {label(item.kind || "semantic")} · Definition{" "}
+                  {item.version ?? "unknown"}
+                  {item.raw_evidence_status === "expired"
+                    ? " · Original speech expired"
+                    : ""}
+                </p>
+                {item.raw_evidence_status !== "expired" &&
+                  evidence(item.evidence)}
+              </div>
+            ))}
+            {!!analysis.tracker_definitions_omitted && (
+              <p className="notice">
+                {analysis.tracker_definitions_omitted} definitions exceeded the
+                20-signal analysis limit. Narrow the active definitions before
+                relying on their absence.
+              </p>
+            )}
+          </section>
           <section className="card padded">
             <div className="card-eyebrow">
               <span>
@@ -303,6 +336,10 @@ export function ReviewPage() {
                   : `${Math.round(analysis.scorecard.overall.score)}/100`}
               </span>
             </div>
+            <CallPurpose
+              analysis={analysis}
+              reload={() => open(analysis.call.id)}
+            />
             <p className="muted small">
               Evidence coverage:{" "}
               {Math.round(analysis.scorecard.overall.coverage * 100)}%. N/A and
@@ -311,7 +348,7 @@ export function ReviewPage() {
             {analysis.scorecard.items.map((item) => (
               <div className="score-row" key={item.dimension}>
                 <div>
-                  <strong>{label(item.dimension)}</strong>
+                  <strong>{item.title || label(item.dimension)}</strong>
                   <small>{item.explanation}</small>
                 </div>
                 <span className="pill subtle">

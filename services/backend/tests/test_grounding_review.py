@@ -254,7 +254,7 @@ async def test_source_correction_invalidates_the_review_status(workspace, app, m
     service = app.state.service
     await service.analyze_postcall(p(workspace), call["id"])
     assert service.analysis(p(workspace), call["id"])["grounding_status"] == "model_reviewed"
-    service._accept_transcript(
+    await service.transcript(
         p(workspace),
         call["id"],
         {
@@ -264,7 +264,7 @@ async def test_source_correction_invalidates_the_review_status(workspace, app, m
             "side": "remote",
             "text": "There is no agreed callback.",
         },
-        None,
+        defer_coach=True,
     )
     assert service.analysis(p(workspace), call["id"])["grounding_status"] == "unreviewed"
 

@@ -43,6 +43,11 @@ class Observation(StrictModel):
     quote: str = Field(min_length=1, max_length=600)
 
 
+class TrackerMatch(StrictModel):
+    tracker_id: str
+    evidence: list[str] = Field(min_length=1, max_length=8)
+
+
 class AnalysisOutput(StrictModel):
     summary: str = Field(max_length=1200)
     summary_evidence: list[str]
@@ -52,9 +57,12 @@ class AnalysisOutput(StrictModel):
     unknowns: list[str]
     score_items: list[ScoreItem]
     observations: list[Observation] = Field(default_factory=list, max_length=12)
+    tracker_matches: list[TrackerMatch] = Field(default_factory=list, max_length=20)
 
 
-def parse_analysis(data, segments, *, call_at=None, timezone=None, dimensions=None):
+def parse_analysis(
+    data, segments, *, call_at=None, timezone=None, dimensions=None, rubric=None, trackers=None
+):
     result = AnalysisOutput.model_validate(data).model_dump()
     sources = {
         s["segment_id"]: s["text"] for s in segments if s.get("is_final") and not s.get("system_audio")
@@ -70,6 +78,13 @@ def parse_analysis(data, segments, *, call_at=None, timezone=None, dimensions=No
             raise ValueError("Analysis invented a number or date")
 
     verify(result["summary_evidence"], result["summary"])
+    known_trackers = {t["id"] for t in trackers or []}
+    matched = set()
+    for item in result["tracker_matches"]:
+        if item["tracker_id"] not in known_trackers or item["tracker_id"] in matched:
+            raise ValueError("Tracker matches require unique configured identities")
+        matched.add(item["tracker_id"])
+        verify(item["evidence"])
     for item in [*result["problems"], *result["objections"]]:
         verify(item["evidence"], item["text"], item["quote"])
     from app.privacy import paraphrased
@@ -90,7 +105,7 @@ def parse_analysis(data, segments, *, call_at=None, timezone=None, dimensions=No
     for index, item in enumerate(result["commitments"]):
         verify(item["evidence"], item["action"], item["verbatim_time_expression"])
         result["commitments"][index] = resolve_time(item, call_at=call_at, timezone=timezone)
-    dimensions = dimensions or DIMENSIONS
+    dimensions = DIMENSIONS if dimensions is None else dimensions
     actual = [item["dimension"] for item in result["score_items"]]
     if actual and (len(actual) != len(dimensions) or set(actual) != set(dimensions)):
         raise ValueError("A complete rubric with unique configured dimensions is required")
@@ -104,10 +119,20 @@ def parse_analysis(data, segments, *, call_at=None, timezone=None, dimensions=No
     return result
 
 
-def analysis_review_request(data, segments, *, call_at=None, timezone=None, dimensions=None):
+def analysis_review_request(
+    data, segments, *, call_at=None, timezone=None, dimensions=None, rubric=None, trackers=None
+):
     data = AnalysisOutput.model_validate(data).model_dump()
     fields = [{"field": "summary", "value": data["summary"], "evidence": data["summary_evidence"]}]
-    for name in ("problems", "objections", "commitments", "unknowns", "score_items", "observations"):
+    for name in (
+        "problems",
+        "objections",
+        "commitments",
+        "unknowns",
+        "score_items",
+        "observations",
+        "tracker_matches",
+    ):
         for index, item in enumerate(data[name]):
             fields.append(
                 {
@@ -128,16 +153,34 @@ def analysis_review_request(data, segments, *, call_at=None, timezone=None, dime
         {
             "call_at": call_at.isoformat() if call_at else None,
             "timezone": timezone,
-            "dimensions": dimensions or DIMENSIONS,
+            "dimensions": DIMENSIONS if dimensions is None else dimensions,
+            "rubric": rubric,
+            "trackers": trackers or [],
             "evidence_scope": "Only still-live chunks; missing older conversation is unknown",
         },
     )
 
 
-def validate_analysis(data, segments, *, call_at=None, timezone=None, dimensions=None, review=None):
-    result = parse_analysis(data, segments, call_at=call_at, timezone=timezone, dimensions=dimensions)
+def validate_analysis(
+    data, segments, *, call_at=None, timezone=None, dimensions=None, rubric=None, trackers=None, review=None
+):
+    result = parse_analysis(
+        data,
+        segments,
+        call_at=call_at,
+        timezone=timezone,
+        dimensions=dimensions,
+        rubric=rubric,
+        trackers=trackers,
+    )
     request = analysis_review_request(
-        data, segments, call_at=call_at, timezone=timezone, dimensions=dimensions
+        data,
+        segments,
+        call_at=call_at,
+        timezone=timezone,
+        dimensions=dimensions,
+        rubric=rubric,
+        trackers=trackers,
     )
     require_review(request, review)
     return result

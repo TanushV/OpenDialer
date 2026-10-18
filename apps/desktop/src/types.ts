@@ -100,6 +100,8 @@ export interface Coach {
   evidence_segment_ids: string[];
 }
 export interface Call {
+  rubric_snapshot?: { call_type: string; rubric_version: string };
+  rubric_revision?: number;
   version: number;
   raw_evidence_status?: string;
   analysis_incomplete?: boolean;
@@ -339,6 +341,15 @@ export interface EvidenceItem {
   evidence: string[];
 }
 export interface Analysis {
+  trackers?: {
+    tracker_id: string;
+    name?: string;
+    kind?: string;
+    version?: number;
+    evidence: string[];
+    raw_evidence_status?: string;
+  }[];
+  tracker_definitions_omitted?: number;
   observations?: {
     id: string;
     version: number;
@@ -372,9 +383,14 @@ export interface Analysis {
   status: string;
   scorecard_id: string;
   scorecard: {
+    call_type?: string;
+    rubric_version?: string;
+    title?: string;
+    purpose?: string;
     overall: { score: number | null; coverage: number };
     items: {
       dimension: string;
+      title?: string;
       score: number | null;
       status: string;
       explanation: string;

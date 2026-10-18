@@ -2,6 +2,7 @@ import { OperatingPolicySettings } from "./OperatingPolicySettings";
 import { WorkTime } from "./WorkTime";
 import { CallbackRouting } from "./CallbackRouting";
 import { RecoveryPanel } from "./RecoveryPanel";
+import { RubricSettings } from "./Rubrics";
 import { PreparationSettings } from "./Preparation";
 import type { Update } from "@tauri-apps/plugin-updater";
 import {
@@ -734,6 +735,7 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
       )}
       {section === "Operations" && (
         <>
+          <RubricSettings />
           <div className="two-column">
             <section className="card padded">
               <span className="eyebrow">ACCOUNTABLE LIMITS</span>

@@ -368,7 +368,7 @@ async def test_confirming_corrected_task_acknowledges_review(workspace, app, mon
     call, _ = setup_analysis(workspace, app, monkeypatch)
     service = app.state.service
     await service.analyze_postcall(p(workspace), call["id"])
-    service._accept_transcript(
+    await service.transcript(
         p(workspace),
         call["id"],
         {
@@ -378,7 +378,7 @@ async def test_confirming_corrected_task_acknowledges_review(workspace, app, mon
             "side": "remote",
             "text": "Please confirm first.",
         },
-        None,
+        defer_coach=True,
     )
     with service.db.transaction(False) as s:
         task = doc(service.lead_records(s, p(workspace), "followup_tasks", call["lead_id"])[0])
