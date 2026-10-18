@@ -1,9 +1,11 @@
 """Delayed work must obey the same fixed-template and receipt contracts."""
 
+import asyncio
 import json
+import time
 
+import httpx
 import pytest
-from app.db import update
 from app.providers.batch import OpenAIBatch
 from test_preparation_completion import TEMPLATE, configure
 from test_remediation_rep_workflow import p
@@ -125,13 +127,49 @@ def test_rejected_result_settles_one_budget_hold_and_preserves_uncertainty(defer
         assert holds[0].data["reserved_usd"] == (0 if cost is not None else 0.1)
 
 
-def test_delayed_result_does_not_overwrite_newer_immediate_script(deferred, workspace, app):
+def test_delayed_result_does_not_overwrite_newer_immediate_script(deferred, workspace, app, monkeypatch):
     service = app.state.service
-    with service.db.transaction() as s:
-        lead = service.required(s, "leads", deferred["lead_id"], p(workspace))
-        # A newer confirmed source change invalidates the delayed request.
-        update(lead, preparation_revision=1)
+    monkeypatch.setattr(service, "inference", lambda *args: None)
+    client = workspace["client"]
+    client.post(
+        "/v1/research/batches", headers=workspace["headers"], json={"lead_ids": [deferred["lead_id"]]}
+    )
+    client.post("/v1/admin/jobs/run", headers=workspace["headers"])
+    before = service.packet(p(workspace), deferred["lead_id"])["script"]["script_version"]
+    assert before != "approved-fallback-v1"
     result = deferred["finish"]()
     assert result.status_code == 200
     assert result.json()["published"] == []
     assert result.json()["retry_lead_ids"] == [deferred["lead_id"]]
+    assert service.packet(p(workspace), deferred["lead_id"])["script"]["script_version"] == before
+
+
+@pytest.mark.asyncio
+async def test_batch_preparation_reads_do_not_block_control_event_loop(deferred, workspace, app, monkeypatch):
+    service = app.state.service
+    packet = service.packet
+
+    def slow_packet(*args):
+        time.sleep(0.2)
+        return packet(*args)
+
+    monkeypatch.setattr(service, "packet", slow_packet)
+    delays = []
+
+    async def heartbeat():
+        for _ in range(8):
+            started = time.monotonic()
+            await asyncio.sleep(0.02)
+            delays.append(time.monotonic() - started)
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1") as client:
+        result, _ = await asyncio.gather(
+            client.post(
+                "/v1/admin/batches/scripts",
+                headers=workspace["headers"],
+                json={"lead_ids": [deferred["lead_id"]], "idempotency_key": "slow-build"},
+            ),
+            heartbeat(),
+        )
+    assert result.status_code == 200, result.text
+    assert max(delays) < 0.1, delays
