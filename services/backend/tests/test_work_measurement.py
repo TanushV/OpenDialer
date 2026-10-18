@@ -87,6 +87,15 @@ def test_verified_call_work_extends_past_the_last_presence_heartbeat(workspace, 
     assert metrics(workspace)["rep_work_seconds"] == 300
 
 
+def test_current_verified_call_counts_while_listening_and_stops_at_carrier_lifetime(workspace, clock, app):
+    start(workspace)
+    clock.now += timedelta(minutes=5)
+    assert metrics(workspace)["rep_work_seconds"] == 300
+    clock.now += timedelta(seconds=app.state.service.settings.max_call_seconds)
+    assert metrics(workspace)["rep_work_seconds"] == app.state.service.settings.max_call_seconds
+    assert heartbeat(workspace, "call").status_code == 409
+
+
 def test_manual_work_correction_is_scoped_versioned_and_audited(workspace, clock, app):
     ready(workspace)
     clock.now += timedelta(seconds=60)
