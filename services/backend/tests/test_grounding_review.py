@@ -267,3 +267,41 @@ async def test_source_correction_invalidates_the_review_status(workspace, app, m
         None,
     )
     assert service.analysis(p(workspace), call["id"])["grounding_status"] == "unreviewed"
+
+
+@pytest.mark.asyncio
+async def test_extraction_deadline_cannot_outlive_original_evidence_expiry(
+    workspace, app, monkeypatch, clock
+):
+    import asyncio
+    import time
+
+    call, _ = setup_analysis(workspace, app, monkeypatch)
+    service = app.state.service
+    clock.now += timedelta(seconds=299.95)
+    cancelled = []
+
+    class SlowExtractor:
+        async def complete(self, *args):
+            try:
+                await asyncio.sleep(0.7)
+                return InferenceResult(analysis_body(), {}, "too-late")
+            finally:
+                cancelled.append(True)
+
+    monkeypatch.setattr(
+        service,
+        "inference",
+        lambda tenant, role, user=None: SlowExtractor() if role == "postcall_extract" else None,
+    )
+    started = time.monotonic()
+    await service.analyze_postcall(p(workspace), call["id"])
+    assert time.monotonic() - started < 0.5
+    assert cancelled == [True]
+    with service.db.transaction(False) as s:
+        usage = [
+            r.data
+            for r in service.scoped(s, "usage_ledger", p(workspace))
+            if r.data.get("work_kind") == "postcall_extract"
+        ]
+    assert len(usage) == 1 and usage[0]["status"] == "uncertain"
