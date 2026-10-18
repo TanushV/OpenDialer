@@ -221,3 +221,17 @@ def test_authority_excludes_live_claimed_work_and_occupied_rep(workspace, app, c
     assert result["existing_plus_addition_capacity"] == 0
     assert result["rep_capacity_attempts"] == 0
     assert result["occupied_rep_count"] == 1
+
+
+def test_staffing_source_revision_changes_for_access_but_not_ordinary_presence(workspace, app):
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction(False) as s:
+        before = service.report_revision(s, p)
+    with service.db.transaction() as s:
+        update(get(s, "users", p["user_id"]), presence={"status": "paused"})
+    with service.db.transaction(False) as s:
+        assert service.report_revision(s, p) == before
+    with service.db.transaction() as s:
+        update(get(s, "users", p["user_id"]), disabled=True)
+    with service.db.transaction(False) as s:
+        assert service.report_revision(s, p) > before
