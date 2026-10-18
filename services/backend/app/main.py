@@ -315,9 +315,11 @@ def create_app(settings=None, *, clock=None, carrier=None):
         return p
 
     bind_operating_api(app, service, administrator)
+    from app.postcall.review import bind_api as bind_review_api
     from app.postcall.rubrics import bind_api as bind_rubrics_api
 
     bind_rubrics_api(app, service, principal, administrator)
+    bind_review_api(app, service, principal)
 
     def local_nonce(value):
         if settings.mode != "local":
@@ -537,34 +539,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.patch("/v1/calls/{call_id}/notes")
     def edit_notes(call_id: str, data: NoteEdit, p=Depends(principal)):
         return service.edit_notes(p, call_id, data.expected_version, data.text)
-
-    @app.post("/v1/scorecards/{scorecard_id}/review")
-    def review_score(scorecard_id: str, data: dict, p=Depends(principal)):
-        if not data.get("reason"):
-            fail(422, "Review reason required")
-        with db.transaction() as s:
-            card = service.required(s, "scorecards", scorecard_id, p)
-            segments = {r["segment_id"] for r in service.transcript_rows(s, p, card.data["call_id"])}
-            if not set(data.get("evidence", [])).issubset(segments):
-                fail(422, "Review evidence does not exist in this call")
-            obj = put(
-                s,
-                "reviews",
-                p["tenant_id"],
-                p["seller_id"],
-                {
-                    "scorecard_id": scorecard_id,
-                    "rubric_version": card.data["rubric_version"],
-                    "reviewer_id": p["user_id"],
-                    "reason": str(data["reason"])[:1000],
-                    "dimension": data.get("dimension"),
-                    "status": data.get("status", "disputed"),
-                    "evidence": data.get("evidence", []),
-                    "at": clock().isoformat(),
-                },
-                now=clock(),
-            )
-            return doc(obj)
 
     @app.post("/v1/calls/{call_id}/comments")
     def comment(call_id: str, data: dict, p=Depends(principal)):

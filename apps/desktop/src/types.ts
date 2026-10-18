@@ -382,6 +382,8 @@ export interface Analysis {
   suggested_update: unknown;
   status: string;
   scorecard_id: string;
+  scorecard_version: number;
+  reviewed_scorecard?: Analysis["scorecard"];
   scorecard: {
     call_type?: string;
     rubric_version?: string;
@@ -391,6 +393,7 @@ export interface Analysis {
     items: {
       dimension: string;
       title?: string;
+      source?: string;
       score: number | null;
       status: string;
       explanation: string;
@@ -399,7 +402,17 @@ export interface Analysis {
   };
   transcript: Segment[];
   metrics: Record<string, unknown>;
-  reviews: { reason: string; status: string; reviewer_id: string }[];
+  reviews: {
+    id?: string;
+    reason: string;
+    status: string;
+    reviewer_id: string;
+    reviewer_role?: string;
+    at?: string;
+    resolution_id?: string | null;
+    applies?: boolean;
+    raw_evidence_status?: string;
+  }[];
   comments: { text: string; author_id: string }[];
   recording_available: boolean;
   provider: string;

@@ -563,6 +563,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
 
         from app.db import MODELS
         from app.postcall.analysis import reviewed_tracker_matches
+        from app.postcall.review import reviewed_view
         from app.postcall.rubrics import effective
 
         with self.db.transaction() as s:
@@ -643,8 +644,11 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                         )
                     )
                 }
-                if note.data.get("semantic_trackers")
+                if note.data.get("semantic_trackers") or reviews
                 else {}
+            )
+            reviewed_card, reviews = reviewed_view(
+                card.data, reviews, revisions, {item["segment_id"] for item in segments}
             )
             return {
                 "call": doc(call),
@@ -657,7 +661,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 "grounding_status": note.data.get("grounding_status", "unreviewed"),
                 "observations": note.data.get("observations", []),
                 "scorecard_id": card.id,
+                "scorecard_version": card.version,
                 "scorecard": card.data,
+                "reviewed_scorecard": reviewed_card,
                 "reviews": reviews,
                 "transcript": segments,
                 "metrics": generated["metrics"],

@@ -137,9 +137,27 @@ test("campaign scoring anchors persist and a rep can correct the call purpose", 
   await review
     .getByLabel("Review reason", { exact: true })
     .fill("No new discovery opportunity was offered during this follow-up.");
+  let loseReviewResponse = true;
+  const reviewRequests: unknown[] = [];
+  await page.route("**/v1/scorecards/*/review", async (route) => {
+    reviewRequests.push(route.request().postDataJSON());
+    if (loseReviewResponse) {
+      loseReviewResponse = false;
+      await route.fetch();
+      await route.abort("connectionreset");
+    } else await route.continue();
+  });
   await review
     .getByRole("button", { name: "Save review", exact: true })
     .click();
+  await expect(
+    review.getByRole("button", { name: "Save review", exact: true }),
+  ).toBeEnabled();
+  await review
+    .getByRole("button", { name: "Save review", exact: true })
+    .click();
+  expect(reviewRequests).toHaveLength(2);
+  expect(reviewRequests[0]).toEqual(reviewRequests[1]);
   await expect(review).toContainText("Human rating");
   await expect(review).toContainText(
     "No new discovery opportunity was offered during this follow-up.",

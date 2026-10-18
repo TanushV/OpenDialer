@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   Check,
   ChevronRight,
-  Flag,
   MessageSquare,
   Quote,
   ShieldCheck,
@@ -14,6 +13,7 @@ import type { Analysis } from "../types";
 import { Empty } from "./Operations";
 import { ConversationObservations } from "./ConversationObservations";
 import { CallPurpose } from "./Rubrics";
+import { ScoreReview } from "./ScoreReview";
 
 export function ReviewPage() {
   const { snapshot: w, api, run, notice } = useWorkspace();
@@ -21,7 +21,6 @@ export function ReviewPage() {
   useSpeechExpiry(analysis, setAnalysis);
   const [notes, setNotes] = useState("");
   const [filter, setFilter] = useState("all");
-  const [appeal, setAppeal] = useState("");
   const [comment, setComment] = useState("");
   const [highlight, setHighlight] = useState<string[]>([]);
   async function open(id: string) {
@@ -356,39 +355,12 @@ export function ReviewPage() {
                 </span>
               </div>
             ))}
-            <label>
-              Challenge or correct a score
-              <textarea
-                rows={2}
-                value={appeal}
-                onChange={(e) => setAppeal(e.target.value)}
-                placeholder="Describe the evidence or missing opportunity…"
-              />
-            </label>
-            <button
-              className="secondary"
-              disabled={!appeal}
-              onClick={() =>
-                void run(async () => {
-                  await api(
-                    `/v1/scorecards/${analysis.scorecard_id}/review`,
-                    "POST",
-                    { reason: appeal, status: "disputed", evidence: highlight },
-                  );
-                  await open(analysis.call.id);
-                  setAppeal("");
-                  notice("Review request saved with an audit trail.");
-                })
-              }
-            >
-              <Flag size={14} />
-              Save review
-            </button>
-            {analysis.reviews.map((r, i) => (
-              <p className="small" key={i}>
-                {r.reason} · {label(r.status)}
-              </p>
-            ))}
+            <ScoreReview
+              key={analysis.call.id}
+              analysis={analysis}
+              evidence={highlight}
+              reload={() => open(analysis.call.id)}
+            />
           </section>
           <section className="card padded">
             <h3>Review comments</h3>

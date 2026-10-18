@@ -131,6 +131,8 @@ def test_notes_optimistic_concurrency_and_scorecard_appeal(workspace):
             "reason": "Too little evidence for discovery",
             "dimension": "problem_discovery",
             "status": "INSUFFICIENT_EVIDENCE",
+            "expected_version": analysis["scorecard_version"],
+            "request_id": "insufficient-review",
             "evidence": [],
         },
     )
