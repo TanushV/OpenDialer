@@ -1,0 +1,137 @@
+"""Delayed work must obey the same fixed-template and receipt contracts."""
+
+import json
+
+import pytest
+from app.db import update
+from app.providers.batch import OpenAIBatch
+from test_preparation_completion import TEMPLATE, configure
+from test_remediation_rep_workflow import p
+
+
+@pytest.fixture
+def deferred(workspace, app, monkeypatch):
+    configure(workspace)
+    client, headers = workspace["client"], workspace["headers"]
+    lead_id = workspace["lead_ids"][0]
+    client.put(
+        "/v1/admin/settings",
+        headers=headers,
+        json={"inference_mode": "api", "openai_api_key": "synthetic-batch-key"},
+    )
+    state = {
+        "requests": [],
+        "id": "batch-fixture",
+        "candidate": {
+            "lead_id": lead_id,
+            "slots": {"relevance": {"text": "", "fact_ids": []}, "proof": {"text": "", "fact_ids": []}},
+        },
+        "cost": 0.004,
+    }
+
+    async def submit(self, requests):
+        state["requests"].extend(requests)
+        return {"id": "batch-fixture", "status": "in_progress"}
+
+    async def retrieve(self, batch_id):
+        return {
+            "id": state["id"],
+            "status": "completed",
+            "results": [
+                {
+                    "custom_id": state["requests"][0]["custom_id"],
+                    "response": {
+                        "status_code": 200,
+                        "body": {
+                            "id": "resp-batch-fixture",
+                            "status": "completed",
+                            "output": [
+                                {"content": [{"type": "output_text", "text": json.dumps(state["candidate"])}]}
+                            ],
+                            "usage": {
+                                "input_tokens": 50,
+                                "output_tokens": 20,
+                                **({"cost": state["cost"]} if state["cost"] is not None else {}),
+                            },
+                        },
+                    },
+                }
+            ],
+        }
+
+    monkeypatch.setattr(OpenAIBatch, "submit", submit)
+    monkeypatch.setattr(OpenAIBatch, "retrieve", retrieve)
+    response = client.post(
+        "/v1/admin/batches/scripts",
+        headers=headers,
+        json={"lead_ids": [lead_id], "idempotency_key": "fixed-template"},
+    )
+    assert response.status_code == 200, response.text
+    state["intent"] = response.json()
+    state["lead_id"] = lead_id
+    state["finish"] = lambda: client.post(
+        f"/v1/admin/batches/{state['intent']['id']}/reconcile", headers=headers
+    )
+    return state
+
+
+def test_delayed_request_uses_slot_schema_and_publishes_current_template(deferred, workspace, app):
+    request = deferred["requests"][0]
+    assert set(request["body"]["text"]["format"]["schema"]["properties"]) == {"lead_id", "slots"}
+    result = deferred["finish"]()
+    assert result.status_code == 200, result.text
+    assert result.json()["published"] == [deferred["lead_id"]]
+    packet = app.state.service.packet(p(workspace), deferred["lead_id"])
+    assert packet["script"]["gatekeeper"] == "Could you direct me to whoever handles customer service?"
+    assert packet["preparation"]["status"] == "ready"
+    version = packet["script"]["script_version"]
+    assert deferred["finish"]().json() == result.json()
+    assert app.state.service.packet(p(workspace), deferred["lead_id"])["script"]["script_version"] == version
+
+
+def test_delayed_request_cannot_replace_template_after_edit(deferred, workspace, app):
+    # A legacy full-script response is valid under the old adapter. It must still
+    # be rejected when its template/source context has changed during the batch.
+    service = app.state.service
+    with service.db.transaction(False) as s:
+        lead = service.required(s, "leads", deferred["lead_id"], p(workspace))
+        deferred["candidate"] = service.fallback_script(s, p(workspace), lead)
+    configure(workspace, script_template={**TEMPLATE, "opener": "Changed from {seller}."})
+    result = deferred["finish"]()
+    assert result.status_code == 200
+    assert result.json()["published"] == []
+    assert result.json()["retry_lead_ids"] == [deferred["lead_id"]]
+    with service.db.transaction(False) as s:
+        assert not service.scoped(s, "script_versions", p(workspace))
+
+
+def test_batch_result_must_match_the_persisted_provider_identity(deferred):
+    deferred["id"] = "another-batch"
+    assert deferred["finish"]().status_code == 409
+
+
+@pytest.mark.parametrize("cost", [0.004, None])
+def test_rejected_result_settles_one_budget_hold_and_preserves_uncertainty(deferred, workspace, app, cost):
+    deferred["cost"] = cost
+    deferred["candidate"] = {"lead_id": "wrong-lead"}
+    for _ in range(2):
+        assert deferred["finish"]().status_code == 200
+    service = app.state.service
+    with service.db.transaction(False) as s:
+        holds = service.scoped(s, "usage_ledger", p(workspace))
+        assert len(holds) == 1
+        assert holds[0].data["status"] == ("settled" if cost is not None else "uncertain")
+        assert holds[0].data["cost_usd"] == cost
+        assert holds[0].data["reserved_usd"] == (0 if cost is not None else 0.1)
+
+
+def test_delayed_result_does_not_overwrite_newer_immediate_script(deferred, workspace, app):
+    service = app.state.service
+    with service.db.transaction() as s:
+        lead = service.required(s, "leads", deferred["lead_id"], p(workspace))
+        # A newer confirmed source change invalidates the delayed request.
+        update(lead, preparation_revision=1)
+    result = deferred["finish"]()
+    assert result.status_code == 200
+    assert result.json()["published"] == []
+    assert result.json()["retry_lead_ids"] == [deferred["lead_id"]]
