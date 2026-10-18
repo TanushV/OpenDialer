@@ -20,6 +20,11 @@ test("work time is visible, supported by a heartbeat and correctable after pause
     await expect(
       page.getByRole("region", { name: "Calling health" }),
     ).toContainText("Working time not observed");
+  const pause = page.getByRole("button", {
+    name: "Pause dialing",
+    exact: true,
+  });
+  if (await pause.isVisible()) await pause.click();
   await page.getByRole("button", { name: "Go ready", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Pause dialing", exact: true }),

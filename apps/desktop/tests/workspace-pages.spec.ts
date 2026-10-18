@@ -354,3 +354,20 @@ test("failed call filtering keeps the previously displayed filter honest", async
   ).toBeVisible();
   await expect(page.getByRole("combobox")).toHaveValue("all");
 });
+
+for (const integrity of [null, false]) {
+  test(`workspace indicator distinguishes unchecked integrity from ${integrity === null ? "failure" : "confirmed failure"}`, async ({
+    page,
+  }) => {
+    await page.route("**/v1/workspace", async (route) => {
+      const response = await route.fetch();
+      const data = await response.json();
+      data.readiness.integrity_ok = integrity;
+      await route.fulfill({ response, json: data });
+    });
+    await enter(page);
+    const indicator = page.locator("header.topbar .connection .status-dot");
+    if (integrity === false) await expect(indicator).toHaveClass(/danger/);
+    else await expect(indicator).not.toHaveClass(/danger/);
+  });
+}
