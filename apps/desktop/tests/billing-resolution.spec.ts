@@ -107,3 +107,86 @@ test("an imported receipt settles the original liability with recoverable lost-r
   await expect(panel).toContainText("0.003000");
   expect(posts).toHaveLength(2);
 });
+
+test("carrier statement import is explicit, repeatable and preserves original record units", async ({
+  page,
+}) => {
+  const posts: unknown[] = [];
+  await page.route("**/v1/admin/billing/reconcile", async (route) => {
+    posts.push(route.request().postDataJSON());
+    if (posts.length === 1)
+      await route.fulfill({
+        status: 503,
+        json: { detail: "Import response lost" },
+      });
+    else
+      await route.fulfill({
+        json: {
+          matched: 0,
+          duplicates: 1,
+          duration_seconds: 0,
+          evidence: "operator-imported provider records",
+          invoice_verified: false,
+        },
+      });
+  });
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Operations", exact: true }).click();
+  const panel = page.getByRole("region", {
+    name: "Provider cost reconciliation",
+    exact: true,
+  });
+  await panel
+    .getByText("Import carrier statement records", { exact: true })
+    .click();
+  await panel
+    .getByLabel("Carrier statement file")
+    .setInputFiles({
+      name: "statement.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from(
+        "provider_record_id,call_id,leg_id,kind,cost_usd,duration_seconds\nrecord-1,original-call,leg-1,voice,0.02,61",
+      ),
+    });
+  await panel
+    .getByLabel("Carrier statement reference")
+    .fill("Synthetic statement export");
+  expect(posts).toHaveLength(0);
+  await panel
+    .getByLabel("I checked the call IDs and charges in this statement")
+    .check();
+  const send = panel.getByRole("button", {
+    name: "Import recorded charges",
+    exact: true,
+  });
+  await send.click();
+  await expect(panel).toContainText("Import response lost");
+  await expect(send).toBeEnabled();
+  await send.click();
+  await expect(panel).toContainText("1 already recorded");
+  expect(posts).toHaveLength(2);
+  expect(posts[1]).toEqual(posts[0]);
+  expect(posts[0]).toEqual({
+    source_reference: "Synthetic statement export",
+    rows: [
+      {
+        provider_record_id: "record-1",
+        call_id: "original-call",
+        leg_id: "leg-1",
+        kind: "voice",
+        cost_usd: 0.02,
+        duration_seconds: 61,
+      },
+    ],
+  });
+});

@@ -281,3 +281,132 @@ def test_another_seller_or_rep_cannot_settle_original_liability(workspace, app):
         target = get(s, "usage_ledger", row["id"])
         target.seller_id = "unrelated-seller"
     assert resolve(workspace, row).status_code == 404
+
+
+def test_credit_is_used_consistently_by_metrics_and_operational_learning(workspace, app):
+    call, _ = call_hold(workspace, app)
+    c, h = workspace["client"], workspace["headers"]
+    c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
+    c.post(f"/v1/calls/{call['id']}/disposition", headers=h, json={"outcome": "no_answer"})
+    assert cdr(workspace, call).status_code == 200
+    p = principal(workspace)
+    row = next(
+        row for row in entries(app.state.service, p) if row.get("provider_record_id") == "cdr-original"
+    )
+    assert (
+        resolve(
+            workspace, row, action="credit", provider="telnyx", receipt_id="carrier-credit", cost_usd=0.01
+        ).status_code
+        == 200
+    )
+    metrics = app.state.service.metrics(p)
+    assert metrics["gross_cost_usd"] == 0.02 and metrics["credited_cost_usd"] == 0.01
+    assert metrics["verified_cost_usd"] == 0.01
+    with app.state.db.transaction(False) as s:
+        dataset = app.state.service.operational_dataset(s, p)
+    assert len(dataset) == 1
+    assert dataset[0]["observed_cost_usd"] == 0.01
+
+
+def test_legacy_partial_statement_is_reopened_once_without_losing_records(workspace, app):
+    call, hold = call_hold(workspace, app)
+    with app.state.db.transaction() as s:
+        target = get(s, "usage_ledger", hold["id"])
+        update(target, reserved_usd=0, billing_verified=True, reconciled_to_provider_records=True)
+        from app.db import MODELS
+
+        s.flush()
+        s.execute(
+            MODELS["usage_ledger"]
+            .__table__.update()
+            .where(MODELS["usage_ledger"].id == hold["id"])
+            .values(op_index_version=2)
+        )
+    app.state.db.backfill_operational_columns()
+    repaired = saved(app, hold)
+    assert repaired["reserved_usd"] == 0.05 and repaired["status"] == "uncertain"
+    assert repaired["call_id"] == call["id"]
+    assert not repaired["billing_verified"]
+    app.state.db.backfill_operational_columns()
+    assert saved(app, hold) == repaired
+
+
+def test_legacy_callback_receipt_cannot_be_reassigned_without_its_request_key(workspace, app, clock):
+    call, _ = call_hold(workspace, app)
+    p = principal(workspace)
+    with app.state.db.transaction() as s:
+        old = put(
+            s,
+            "usage_ledger",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "provider": "telnyx",
+                "provider_record_id": "cdr-original",
+                "kind": "callback_transfer",
+                "object_id": "original-inbound",
+                "request_key": "old-transfer",
+                "status": "settled",
+                "cost_usd": 0.1,
+                "at": clock.now.isoformat(),
+                "duration_seconds": 0,
+            },
+            key="optional:old-transfer",
+            now=clock.now,
+        )
+        from app.db import MODELS
+
+        s.execute(
+            MODELS["usage_ledger"]
+            .__table__.update()
+            .where(MODELS["usage_ledger"].id == old.id)
+            .values(op_index_version=2, op_provider_id=None)
+        )
+    app.state.db.backfill_operational_columns()
+    assert cdr(workspace, call).status_code == 409
+
+
+def test_explicit_zero_charge_statement_can_close_a_terminal_call_without_cdr(workspace, app):
+    call, hold = call_hold(workspace, app)
+    workspace["client"].post(f"/v1/calls/{call['id']}/hangup", headers=workspace["headers"])
+    args = {
+        "action": "close_call",
+        "provider": "telnyx",
+        "receipt_id": "zero-charge-confirmation",
+        "request_id": None,
+        "cost_usd": 0,
+        "confirm_complete": True,
+        "provider_record_ids": [],
+    }
+    assert resolve(workspace, hold, **args).status_code == 409
+    result = resolve(workspace, hold, **args, confirm_no_charge=True)
+    assert result.status_code == 200, result.text
+    assert saved(app, hold)["reserved_usd"] == 0
+
+
+def test_same_carrier_receipt_cannot_move_to_a_different_call(workspace, app, clock):
+    call, _ = call_hold(workspace, app)
+    assert cdr(workspace, call).status_code == 200
+    p = principal(workspace)
+    with app.state.db.transaction() as s:
+        other = put(s, "call_attempts", p["tenant_id"], p["seller_id"], {"state": "ENDED"}, now=clock.now)
+    assert cdr(workspace, {"id": other.id}).status_code == 409
+
+
+def test_concurrent_credits_cannot_over_refund_one_charge(workspace, app):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    row = uncertain(workspace, app)
+    assert resolve(workspace, row).status_code == 200
+    row = saved(app, row)
+    barrier = threading.Barrier(2)
+
+    def attempt(identity):
+        barrier.wait(timeout=5)
+        return resolve(workspace, row, action="credit", receipt_id=identity, cost_usd=0.002).status_code
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        statuses = list(pool.map(attempt, ["credit-one", "credit-two"]))
+    assert sorted(statuses) == [200, 409]
+    assert saved(app, row)["credited_usd"] == 0.002
