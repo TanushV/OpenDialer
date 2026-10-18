@@ -384,6 +384,18 @@ export interface Analysis {
   scorecard_id: string;
   scorecard_version: number;
   reviewed_scorecard?: Analysis["scorecard"];
+  call_memory?: {
+    rundown_points?: { id?: string; text: string; status: string }[];
+    coaching_points?: { id?: string; text: string; status: string }[];
+    open_questions?: { id?: string; text: string; status: string }[];
+    memory_omitted_items?: number;
+  };
+  interpretation_coverage?: {
+    total_segments: number;
+    interpreted_segments: number;
+    pending_segments: number;
+    unavailable_segments: number;
+  };
   scorecard: {
     call_type?: string;
     rubric_version?: string;

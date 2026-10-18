@@ -1,5 +1,6 @@
 """Bounded conversational context; semantic interpretation belongs to the configured model."""
 
+import hashlib
 import re
 
 from app.coaching.engine import CardRejected, validate_card
@@ -11,7 +12,25 @@ STATE_FIELDS = (
     "answered_questions",
     "buying_signals",
     "commitments",
+    "rundown_points",
+    "coaching_points",
+    "open_questions",
 )
+
+
+def memory_id(key, item):
+    return (
+        item.get("id")
+        or hashlib.sha256(
+            (key + ":" + ":".join(sorted(item.get("evidence_segment_ids", [])))).encode()
+        ).hexdigest()[:24]
+    )
+
+
+def bounded_memory(items):
+    # Preserve unresolved work before recent resolved details; report omitted material explicitly.
+    selected = sorted(enumerate(items), key=lambda pair: (pair[1].get("status") != "open", -pair[0]))[:12]
+    return [item for _, item in sorted(selected)]
 
 
 def words(text):
@@ -63,18 +82,20 @@ def build_context(segments, *, version, facts, commitments, prior=None):
         "last_remote": None,
         "asked_questions": [],
         "previous_guidance": prior.get("previous_guidance", [])[-5:],
+        "memory_omitted_items": prior.get("memory_omitted_items", 0),
     }
     for key in STATE_FIELDS:
         # Expiry does not invalidate a paraphrase; a source correction does.
         state[key] = [
-            i
+            {**i, "id": memory_id(key, i)}
             for i in prior.get(key, [])
             if not any(
                 identifier in sources and revision != sources[identifier].get("revision", 1)
                 for identifier, revision in i.get("evidence_revisions", {}).items()
             )
-        ][-12:]
-    state["commitments"] = (state["commitments"] + commitments)[-12:]
+        ]
+    # Authoritative tasks are supplied separately on each request. Copying them into
+    # generated memory would keep a cancelled or changed promise indefinitely.
     for segment in stable:
         if segment.get("side") == "rep" and "?" in segment["text"]:
             state["asked_questions"].append(evidence(segment))
@@ -158,42 +179,76 @@ def ground_guidance(card, request):
 
 
 def merge_semantic_state(state, update, segments):
-    if not update:
+    if update is None:
         return state
     from app.privacy import paraphrased
 
     sources = {s["segment_id"]: s for s in segments if s.get("is_final") and not s.get("system_audio")}
-    if update.get("stage") not in {"introduction", "discovery", "objection", "next_step", "declined"}:
+    if not isinstance(update, dict) or update.get("stage") not in (
+        "introduction",
+        "discovery",
+        "objection",
+        "next_step",
+        "declined",
+    ):
         raise CardRejected("Unknown conversation stage")
     merged = dict(state)
     for key in STATE_FIELDS:
         values = update.get(key, [])
         if not isinstance(values, list) or len(values) > 12:
             raise CardRejected("Unbounded conversation state")
-        accepted = []
+        previous = {memory_id(key, i): {**i, "id": memory_id(key, i)} for i in state.get(key, [])}
         for item in values:
+            if not isinstance(item, dict):
+                raise CardRejected("Invalid observation")
             ids, quote, text = (
                 item.get("evidence_segment_ids", []),
                 item.get("quote", ""),
                 item.get("text", ""),
             )
-            if not ids or not set(ids) <= set(sources) or not quote or not text:
+            if (
+                not isinstance(ids, list)
+                or not 0 < len(ids) <= 128
+                or not all(isinstance(i, str) and i in sources for i in ids)
+                or not isinstance(quote, str)
+                or not 0 < len(quote) <= 400
+                or not isinstance(text, str)
+                or not 0 < len(text) <= 400
+            ):
                 raise CardRejected("Missing semantic evidence")
+            replaces = item.get("replaces", [])
+            if (
+                not isinstance(replaces, list)
+                or len(replaces) > 12
+                or not all(isinstance(i, str) and i in previous for i in replaces)
+                or len(set(replaces)) != len(replaces)
+            ):
+                raise CardRejected("Unknown memory replacement")
+            if item.get("status", "open") not in ("open", "resolved", "confirmed"):
+                raise CardRejected("Unknown observation state")
             if quote.casefold() not in " ".join(sources[i]["text"] for i in ids).casefold():
                 raise CardRejected("State evidence is absent")
             if not paraphrased(text, segments):
                 continue  # Never persist a transcript quotation as a supposed summary.
-            accepted.append(
-                {
-                    "text": text[:400],
-                    "status": item.get("status", "open"),
-                    "evidence_segment_ids": ids,
-                    "evidence_revisions": {i: sources[i].get("revision", 1) for i in ids},
-                }
-            )
-        previous = {tuple(i.get("evidence_segment_ids", [])): i for i in state.get(key, [])}
-        previous.update({tuple(i["evidence_segment_ids"]): i for i in accepted})
-        merged[key] = list(previous.values())[-12:]
+            revisions = {
+                source_id: revision
+                for identity in replaces
+                for source_id, revision in previous[identity].get("evidence_revisions", {}).items()
+            }
+            revisions.update({i: sources[i].get("revision", 1) for i in ids})
+            if len(revisions) > 128:
+                raise CardRejected("Memory source lineage exceeds its bound")
+            for identity in replaces:
+                del previous[identity]
+            identity = memory_id(key, {"evidence_segment_ids": list(revisions)})
+            previous[identity] = {
+                "id": identity,
+                "text": text[:400],
+                "status": item.get("status", "open"),
+                "evidence_segment_ids": list(revisions),
+                "evidence_revisions": revisions,
+            }
+        merged[key] = list(previous.values())
     if state["stage"] != "declined":
         merged["stage"] = update["stage"]
     return merged
@@ -205,5 +260,7 @@ def persistent_state(state):
         "version": state["version"],
         "stage": state["stage"],
         "trigger": state["trigger"],
-        **{key: state.get(key, [])[-12:] for key in STATE_FIELDS},
+        **{key: bounded_memory(state.get(key, [])) for key in STATE_FIELDS},
+        "memory_omitted_items": state.get("memory_omitted_items", 0)
+        + sum(max(0, len(state.get(key, [])) - 12) for key in STATE_FIELDS),
     }

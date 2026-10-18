@@ -17,8 +17,9 @@ EVIDENCE_SCHEMA = {
         "quote": {"type": "string", "maxLength": 400},
         "evidence_segment_ids": {"type": "array", "items": {"type": "string"}},
         "status": {"type": "string", "enum": ["open", "resolved", "confirmed"]},
+        "replaces": {"type": "array", "maxItems": 12, "items": {"type": "string"}},
     },
-    "required": ["text", "quote", "evidence_segment_ids", "status"],
+    "required": ["text", "quote", "evidence_segment_ids", "status", "replaces"],
 }
 STATE_SCHEMA = {
     "type": "object",
@@ -37,6 +38,9 @@ STATE_SCHEMA = {
                 "answered_questions",
                 "buying_signals",
                 "commitments",
+                "rundown_points",
+                "coaching_points",
+                "open_questions",
             )
         },
     },
@@ -143,7 +147,12 @@ class OpenRouterCoach:
                             "Update compact state with short paraphrases and exact supporting source quotes/IDs for validation. "
                             "The quote is transient; the text must be a paraphrase, never copied dialogue. Preserve negation and uncertainty. "
                             "Topics are open ended. Do not infer emotion, honesty or personality. No external actions. "
-                            "Include only changed observations, at most three per category, and no unsupported state items.",
+                            "Include only changed observations, at most three per category, and no unsupported state items. "
+                            "Maintain brief rundown points, useful coaching improvements and open questions even when no advice is shown. "
+                            "When new evidence changes or resolves earlier context, list that category's existing memory IDs in replaces; "
+                            "otherwise use an empty replaces list. Never silently contradict retained context. "
+                            "If automatic_tips_muted is true, return NO_ACTION while still interpreting the new dialogue. "
+                            "A non-null state_update confirms you considered every supplied dialogue chunk; use empty lists for unchanged categories.",
                         },
                         {"role": "user", "content": json.dumps(request)},
                     ],

@@ -36,7 +36,7 @@ class JobQueue:
                 s, queue, payload, key, tenant_id=tenant_id, priority=priority, max_attempts=max_attempts
             )
 
-    def enqueue_in(self, s, queue, payload, key, *, tenant_id, priority=0, max_attempts=3):
+    def enqueue_in(self, s, queue, payload, key, *, tenant_id, priority=0, max_attempts=3, available_at=None):
         """Commit follow-on work in the same transaction as the change that requires it."""
         previous = s.scalar(select(Job).where(Job.tenant_id == tenant_id, Job.key == key))
         if previous:
@@ -49,7 +49,7 @@ class JobQueue:
             payload=payload,
             priority=priority,
             max_attempts=max_attempts,
-            available_at=self.clock(),
+            available_at=available_at or self.clock(),
         )
         s.add(job)
         s.flush()

@@ -162,6 +162,56 @@ export function ReviewPage() {
         </p>
       )}
       <ConversionForm call={analysis.call} />
+      <section className="card padded" aria-label="Retained call context">
+        <h2>Retained call context</h2>
+        <p className="small muted">
+          Brief interpretations from the live helper. These are provisional
+          context, separate from confirmed outcomes and the reviewed scorecard.
+          Original speech expires.
+        </p>
+        {analysis.interpretation_coverage && (
+          <p className="small">
+            {analysis.interpretation_coverage.interpreted_segments} of{" "}
+            {analysis.interpretation_coverage.total_segments} stable chunks
+            interpreted.
+            {analysis.interpretation_coverage.pending_segments > 0
+              ? ` ${analysis.interpretation_coverage.pending_segments} awaiting interpretation.`
+              : ""}
+            {analysis.interpretation_coverage.unavailable_segments > 0
+              ? ` ${analysis.interpretation_coverage.unavailable_segments} could not be interpreted before their raw content became unavailable.`
+              : ""}
+          </p>
+        )}
+        {(
+          [
+            ["rundown_points", "Rundown"],
+            ["open_questions", "Open questions"],
+            ["coaching_points", "Coaching tips"],
+          ] as const
+        ).map(([key, title]) => {
+          const items = analysis.call_memory?.[key] || [];
+          return items.length ? (
+            <div key={key}>
+              <h3>{title}</h3>
+              <ul>
+                {items.map((item, index) => (
+                  <li key={item.id || index}>
+                    {item.text}
+                    {item.status === "resolved" ? " · Resolved" : ""}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null;
+        })}
+        {!!analysis.call_memory?.memory_omitted_items && (
+          <p className="small muted">
+            {analysis.call_memory.memory_omitted_items} older context items were
+            omitted from the compact brief. This is not a complete transcript or
+            account of every detail.
+          </p>
+        )}
+      </section>
       <div className="review-grid">
         <section className="card padded">
           <div className="card-eyebrow">

@@ -559,19 +559,18 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
         return None, "approved_static"
 
     def analysis(self, p, call_id, *, force=False):
-        from sqlalchemy import select
-
-        from app.db import MODELS
-        from app.postcall.analysis import reviewed_tracker_matches
+        from app.coaching.context import persistent_state
+        from app.postcall.analysis import behavioral_metrics, reviewed_tracker_matches
         from app.postcall.review import reviewed_view
         from app.postcall.rubrics import effective
 
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
-            segments = self.transcript_rows(s, p, call_id)
-            derived = next(
-                (r.data for r in self.scoped(s, "conversation_states", p) if r.external_key == call_id), {}
-            )
+            metadata = self.transcript_metadata(s, p, call_id)
+            segments = self.transcript_rows(s, p, call_id, metadata=metadata)
+            memory = self._by_key(s, p, "conversation_states", call_id)
+            derived = memory.data if memory else {}
+            memory_revision = memory.version if memory else 0
             generated = build_analysis(
                 call_id,
                 segments,
@@ -595,13 +594,19 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                         "human_text": None,
                         "status": "ai_finalized" if force else "draft",
                         "suggested_update": None,
+                        "derived_state_revision": memory_revision,
                     },
                     key=call_id,
                     now=self.clock(),
                 )
-            elif note.data["notes"]["transcript_version"] != call.data["transcript_version"] or note.data[
-                "notes"
-            ].get("outcome") != (call.data.get("outcome") or "unconfirmed"):
+            elif (
+                note.data["notes"]["transcript_version"] != call.data["transcript_version"]
+                or note.data["notes"].get("outcome") != (call.data.get("outcome") or "unconfirmed")
+                or (
+                    note.data.get("grounding_status") != "model_reviewed"
+                    and note.data.get("derived_state_revision", 0) != memory_revision
+                )
+            ):
                 update(
                     note,
                     notes=generated["notes"],
@@ -610,6 +615,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     grounding_status="unreviewed",
                     status="ai_finalized" if force else "draft",
                     suggested_update=generated["notes"] if note.data.get("human_text") is not None else None,
+                    derived_state_revision=memory_revision,
                 )
             elif force and note.data["status"] == "draft":
                 update(note, status="ai_finalized")
@@ -632,20 +638,18 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             reviews = [doc(r) for r in self.scoped(s, "reviews", p) if r.data["scorecard_id"] == card.id]
             comments = [doc(r) for r in self.scoped(s, "comments", p) if r.data["call_id"] == call_id]
             trackers = [doc(r) for r in self.scoped(s, "trackers", p) if r.data["kind"] == "semantic"]
-            metadata = MODELS["transcript_segments"]
-            revisions = (
-                {
-                    r.data["segment_id"]: r.data.get("revision", 1)
-                    for r in s.scalars(
-                        select(metadata).where(
-                            metadata.tenant_id == p["tenant_id"],
-                            metadata.seller_id == p["seller_id"],
-                            metadata.external_key.startswith(call_id + ":"),
-                        )
-                    )
-                }
-                if note.data.get("semantic_trackers") or reviews
-                else {}
+            revisions = {r.data["segment_id"]: r.data.get("revision", 1) for r in metadata}
+            stable_metadata = [
+                r.data for r in metadata if r.data.get("is_final") and not r.data.get("system_audio")
+            ]
+            live_ids = {item["segment_id"] for item in segments}
+            interpreted = sum(
+                item.get("interpretation_revision") == item.get("revision", 1) for item in stable_metadata
+            )
+            pending = sum(
+                item["segment_id"] in live_ids
+                and item.get("interpretation_revision") != item.get("revision", 1)
+                for item in stable_metadata
             )
             reviewed_card, reviews = reviewed_view(
                 card.data, reviews, revisions, {item["segment_id"] for item in segments}
@@ -654,6 +658,13 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 "call": doc(call),
                 "lead_timezone": self.required(s, "leads", call.data["lead_id"], p).data.get("timezone"),
                 "notes": note.data["notes"],
+                "call_memory": persistent_state(derived) if memory else {},
+                "interpretation_coverage": {
+                    "total_segments": len(stable_metadata),
+                    "interpreted_segments": interpreted,
+                    "pending_segments": pending,
+                    "unavailable_segments": len(stable_metadata) - interpreted - pending,
+                },
                 "notes_version": note.version,
                 "human_notes": note.data.get("human_text"),
                 "suggested_update": note.data.get("suggested_update"),
@@ -666,7 +677,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 "reviewed_scorecard": reviewed_card,
                 "reviews": reviews,
                 "transcript": segments,
-                "metrics": generated["metrics"],
+                "metrics": behavioral_metrics(stable_metadata),
                 "comments": comments,
                 "recording_available": False,
                 "raw_evidence_status": self.raw_status(call, segments),
@@ -961,6 +972,14 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                             dt(segment["raw_expires_at"]) <= self.clock() for segment in initial["transcript"]
                         ):
                             return
+                        interpreted = {s["segment_id"]: s["revision"] for s in initial["transcript"]}
+                        for segment in self.transcript_metadata(session, p, call_id):
+                            if interpreted.get(segment.data["segment_id"]) == segment.data["revision"]:
+                                update(
+                                    segment,
+                                    interpretation_revision=segment.data["revision"],
+                                    interpreted_at=self.clock().isoformat(),
+                                )
                         note = self._by_key(session, p, "notes", call_id)
                         from app.optimization.conversations import invalidate_report, publish_observations
 

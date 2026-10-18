@@ -20,6 +20,22 @@ from app.telephony.reducer import TERMINAL
 
 
 class LiveHelper:
+    def _defer_help(self, s, p, call, due, marker):
+        self.jobs.enqueue_in(
+            s,
+            "live_coach",
+            {
+                "call_id": call.id,
+                "seller_id": p["seller_id"],
+                "user_id": call.data["rep_id"],
+                "state_version": call.data["transcript_version"],
+            },
+            f"coach-due:{call.id}:{call.data['transcript_version']}:{marker}",
+            tenant_id=p["tenant_id"],
+            priority=100,
+            available_at=due,
+        )
+
     async def practice(self, p, scenario):
         def context():
             with self.db.transaction(False) as s:
@@ -86,8 +102,6 @@ class LiveHelper:
             if self.suppressed(s, p, lead.data["phone"]):
                 return None
             preferences = call.data.get("coach_preferences", {})
-            if preferences.get("muted") and not urgent:
-                return None
             stable = [
                 r
                 for r in self.transcript_rows(s, p, call_id)
@@ -95,10 +109,16 @@ class LiveHelper:
             ]
             if not stable and not question:
                 return None
+            pending = [item for item in stable if item.get("interpretation_revision") != item["revision"]]
+            if not pending and not urgent:
+                return None
+            useful_until = self.clock() + timedelta(seconds=8 if urgent else 1.5)
+            recent = [item for item in stable if dt(item["raw_expires_at"]) > useful_until or item in pending]
+            # Service older unobserved chunks as well as the current turn, without growing the prompt.
+            selected = {item["segment_id"] for item in [*pending[:16], *recent[-16:]]}
+            stable = [item for item in stable if item["segment_id"] in selected]
             version = call.data.get("transcript_version", 0)
-            state_record = next(
-                (r for r in self.scoped(s, "conversation_states", p) if r.external_key == call_id), None
-            )
+            state_record = self._by_key(s, p, "conversation_states", call_id)
             previous = state_record.data if state_record else {}
             seller = self.required(s, "sellers", p["seller_id"], p)
             interval = seller.data.get("operating_policy", {}).get("auto_coach_interval_seconds", 8)
@@ -143,6 +163,13 @@ class LiveHelper:
                 and previous.get("last_request_at")
                 and (self.clock() - dt(previous["last_request_at"])).total_seconds() < interval
             ):
+                self._defer_help(
+                    s,
+                    p,
+                    call,
+                    dt(previous["last_request_at"]) + timedelta(seconds=interval),
+                    previous["last_request_at"],
+                )
                 return None
             book = self.approved_playbook(s, p)
             all_cards = book.data.get("cards", []) if book else []
@@ -178,8 +205,10 @@ class LiveHelper:
 
             request = {
                 "state_version": version,
-                "state": state,
-                "recent_dialogue": stable[-16:],
+                "state": persistent_state(state),
+                "recent_dialogue": stable,
+                "automatic_tips_muted": bool(preferences.get("muted") and not urgent),
+                "manual_help": urgent,
                 "private_question": question,
                 "approved_cards": all_cards[:32],
                 "locally_retrieved_card_ids": [c["id"] for c in cards],
@@ -235,6 +264,7 @@ class LiveHelper:
             return {"action": "NO_ACTION", "status": "no_action", "private": bool(question)}
         request, fallback, expires, state_ms, retrieval_ms, comparison = prepared
         remaining = (expires - self.clock()).total_seconds()
+        monotonic_deadline = time.monotonic() + remaining
         if remaining <= 0:
             return {"action": "NO_ACTION", "status": "expired", "private": bool(question)}
         provider, route = self.configured_coach(p)
@@ -248,6 +278,12 @@ class LiveHelper:
                 self.reserve_optional_budget, p, request_key, 0.01, object_id=call_id, work_kind="live_coach"
             )
             if admitted:
+                remaining = min(
+                    (expires - self.clock()).total_seconds(), monotonic_deadline - time.monotonic()
+                )
+                if remaining <= 0:
+                    await asyncio.to_thread(self.release_unsubmitted_budget, p, request_key)
+                    return {"action": "NO_ACTION", "status": "expired", "private": bool(question)}
                 result = await self.coach.suggest(
                     call_id,
                     request,
@@ -269,37 +305,42 @@ class LiveHelper:
                     )
         try:
             ground_guidance(result, request)
-            state = merge_semantic_state(
-                request["state"], result.get("state_update"), request["recent_dialogue"]
-            )
         except CardRejected:
-            return {"action": "NO_ACTION", "status": "no_action", "private": bool(question)}
+            # An unsafe suggestion need not lose a separately validated interpretation.
+            result = {
+                "action": "NO_ACTION",
+                "state_version": request["state_version"],
+                "state_update": result.get("state_update")
+                if result.get("state_version") == request["state_version"]
+                else None,
+            }
         result = {
             **result,
             "private": bool(question),
             "status": "ready" if result["action"] != "NO_ACTION" else "no_action",
         }
-        return await asyncio.to_thread(
-            self._publish_help,
-            p,
-            call_id,
-            request,
-            state,
-            result,
-            source,
-            provider,
-            expires,
-            state_ms,
-            retrieval_ms,
-            (time.perf_counter() - began) * 1000,
-        )
+        try:
+            return await asyncio.to_thread(
+                self._publish_help,
+                p,
+                call_id,
+                request,
+                result,
+                source,
+                provider,
+                expires,
+                state_ms,
+                retrieval_ms,
+                (time.perf_counter() - began) * 1000,
+            )
+        except CardRejected:
+            return {"action": "NO_ACTION", "status": "no_action", "private": bool(question)}
 
     def _publish_help(
         self,
         p,
         call_id,
         request,
-        state,
         result,
         source,
         provider,
@@ -310,21 +351,53 @@ class LiveHelper:
     ):
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
-            if call.data.get("transcript_version", 0) != request["state_version"] or call.data[
-                "state"
-            ] in TERMINAL | {"ENDING"}:
-                return {"action": "NO_ACTION", "status": "no_action", "private": result["private"]}
-            state_record = next(
-                r for r in self.scoped(s, "conversation_states", p) if r.external_key == call_id
-            )
-            update(
-                state_record,
-                **persistent_state(state),
-                stale=False,
-                privacy_contract=1,
-                updated_at=self.clock().isoformat(),
-            )
+            s.refresh(call, with_for_update=True)
+            metadata = self.transcript_metadata(s, p, call_id)
+            current = {row.data["segment_id"]: row for row in metadata}
+            if expires <= self.clock() or any(
+                item["segment_id"] not in current
+                or current[item["segment_id"]].data["revision"] != item["revision"]
+                or self.raw.get(self.raw_key(p, call_id, item["segment_id"])) is None
+                for item in request["recent_dialogue"]
+            ):
+                return {"action": "NO_ACTION", "status": "expired_or_corrected", "private": result["private"]}
+            state_record = self._by_key(s, p, "conversation_states", call_id)
+            if (
+                result.get("state_update") is not None
+                and result.get("state_version") == request["state_version"]
+            ):
+                state = merge_semantic_state(
+                    state_record.data, result["state_update"], request["recent_dialogue"]
+                )
+                state["version"] = call.data["transcript_version"]
+                update(
+                    state_record,
+                    **persistent_state(state),
+                    stale=False,
+                    privacy_contract=1,
+                    updated_at=self.clock().isoformat(),
+                )
+                for item in request["recent_dialogue"]:
+                    row = current[item["segment_id"]]
+                    update(
+                        row, interpretation_revision=item["revision"], interpreted_at=self.clock().isoformat()
+                    )
+                if call.data["state"] not in TERMINAL | {"ENDING"} and any(
+                    item.get("interpretation_revision") != item["revision"]
+                    for item in self.transcript_rows(s, p, call_id, metadata=metadata)
+                ):
+                    seller = self.required(s, "sellers", p["seller_id"], p)
+                    interval = seller.data.get("operating_policy", {}).get("auto_coach_interval_seconds", 8)
+                    self._defer_help(
+                        s, p, call, self.clock() + timedelta(seconds=interval), state_record.version
+                    )
             emit(s, p["tenant_id"], "conversation.updated", call, self.clock())
+            if (
+                call.data["transcript_version"] != request["state_version"]
+                or call.data["state"] in TERMINAL | {"ENDING"}
+                or (call.data.get("coach_preferences", {}).get("muted") and not request["manual_help"])
+            ):
+                return {"action": "NO_ACTION", "status": "context_updated", "private": result["private"]}
             if result["action"] != "NO_ACTION" and expires > self.clock():
                 deadline = min(expires, self.clock() + timedelta(milliseconds=result["expires_in_ms"]))
                 metadata = persistent_document(

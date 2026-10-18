@@ -99,7 +99,9 @@ def behavioral_metrics(segments):
         "rep_talk_ratio": duration["rep"] / total if total else None,
         "talk_ms": duration,
         "longest_monologue_ms": max((s["end_ms"] - s["start_ms"] for s in timed), default=None),
-        "question_count": sum(s.get("text", "").count("?") for s in segments if s.get("side") == "rep"),
+        "question_count": sum(
+            s.get("question_count", s.get("text", "").count("?")) for s in segments if s.get("side") == "rep"
+        ),
         "turn_exchanges": sum(a["side"] != b["side"] for a, b in zip(ordered, ordered[1:], strict=False)),
         "overlap_ms": overlap if timed else None,
         "response_gaps_ms": gaps,
@@ -137,6 +139,7 @@ def build_analysis(call_id, segments, *, outcome=None, transcript_version=1, der
             "call_id": call_id,
             "transcript_version": transcript_version,
             "summary": derived.get("summary")
+            or "\n".join(item["text"] for item in derived.get("rundown_points", []))[:2400]
             or "No model rundown is available. Review the recorded outcome and your notes.",
             "outcome": outcome or "unconfirmed",
             "problems": problems,

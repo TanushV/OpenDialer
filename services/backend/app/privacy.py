@@ -140,6 +140,9 @@ def persistent_document(kind, data, *, legacy=False):
                 "content_hash",
                 "effects_complete",
                 "transcript_version",
+                "interpretation_revision",
+                "interpreted_at",
+                "question_count",
             }
         }
     if kind == "coach_events":
@@ -217,19 +220,24 @@ class SpeechPrivacy:
     def raw_key(self, p, call_id, segment_id):
         return f"speech:{p['tenant_id']}:{p['seller_id']}:{call_id}:{segment_id}"
 
-    def transcript_rows(self, s, p, call_id):
+    def transcript_metadata(self, s, p, call_id):
         from sqlalchemy import select
 
         from app.db import MODELS
 
         model = MODELS["transcript_segments"]
-        metadata = s.scalars(
-            select(model).where(
-                model.tenant_id == p["tenant_id"],
-                model.seller_id == p["seller_id"],
-                model.external_key.startswith(call_id + ":"),
+        return list(
+            s.scalars(
+                select(model).where(
+                    model.tenant_id == p["tenant_id"],
+                    model.seller_id == p["seller_id"],
+                    model.external_key.startswith(call_id + ":"),
+                )
             )
         )
+
+    def transcript_rows(self, s, p, call_id, *, metadata=None):
+        metadata = self.transcript_metadata(s, p, call_id) if metadata is None else metadata
         result = []
         for row in metadata:
             item = self.raw.get(self.raw_key(p, call_id, row.data["segment_id"]))
@@ -239,6 +247,7 @@ class SpeechPrivacy:
                 result.append(
                     {
                         **item,
+                        "interpretation_revision": row.data.get("interpretation_revision"),
                         "raw_remaining_ms": max(
                             0, int((dt(item["raw_expires_at"]) - self.clock()).total_seconds() * 1000)
                         ),
@@ -309,6 +318,8 @@ class SpeechPrivacy:
                     "content_hash": content_hash,
                     "effects_complete": False,
                     "transcript_version": call.data.get("transcript_version", 0) + 1,
+                    "question_count": segment.get("text", "").count("?"),
+                    "interpretation_revision": None,
                 },
             )
             if row:
