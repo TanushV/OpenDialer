@@ -260,3 +260,19 @@ def test_legacy_job_error_content_is_not_exposed_in_recovery(workspace, app):
     assert response.status_code == 200
     assert response.json()["jobs"]
     assert "PRIVATE_SPEECH_EXAMPLE" not in response.text
+
+
+def test_legacy_command_error_content_is_not_exposed_in_recovery(workspace, app):
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    item = command_for(service, p, call["id"])
+    with service.db.transaction() as s:
+        update(
+            get(s, "command_outbox", item["id"]),
+            status="review_required",
+            error="Provider returned PRIVATE_SPEECH_EXAMPLE",
+            recovery_reason=None,
+        )
+    response = workspace["client"].get("/v1/admin/recovery", headers=workspace["headers"])
+    assert response.status_code == 200 and response.json()["commands"]
+    assert "PRIVATE_SPEECH_EXAMPLE" not in response.text

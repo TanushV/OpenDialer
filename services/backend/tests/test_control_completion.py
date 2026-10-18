@@ -11,6 +11,7 @@ from app.db import ActiveClaim, doc, get, put, update
 from app.providers.simulated import UncertainCarrierResult
 from app.providers.telnyx import TelnyxCarrier
 from conftest import start
+from fastapi import HTTPException
 from sqlalchemy import select
 
 
@@ -434,6 +435,39 @@ async def test_recovered_suppressed_dial_is_stopped_not_left_ringing(workspace, 
     assert len(carrier.dials) == 1
 
 
+def test_terminal_receipt_closes_prospect_leg_and_late_event_cannot_revive_it(workspace, app):
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    service.event(p, "terminal-leg", "call.hangup", call["id"], {"call_control_id": call["provider_id"]})
+    service.event(p, "late-leg", "call.answered", call["id"], {"call_control_id": call["provider_id"]})
+    with service.db.transaction(False) as s:
+        legs = [r for r in service.scoped(s, "call_legs", p) if r.data.get("call_id") == call["id"]]
+        assert len(legs) == 1 and legs[0].data["state"] == "ENDED"
+
+
+def test_unknown_agent_reference_requires_explicit_tenant_context(workspace, app):
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        leg = put(
+            s,
+            "call_legs",
+            p["tenant_id"],
+            p["seller_id"],
+            {"kind": "agent", "rep_id": p["user_id"], "provider_id": None, "state": "uncertain"},
+        )
+        identity = leg.id
+    assert not service.agent_event(
+        p["tenant_id"],
+        {
+            "call_control_id": "unbound-agent",
+            "client_state": base64.b64encode(json.dumps({"agent_leg_id": identity}).encode()).decode(),
+        },
+        "call.answered",
+    )
+    with service.db.transaction(False) as s:
+        assert get(s, "call_legs", identity).data["provider_id"] is None
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("payload", [{}, {"data": {}}, {"data": {"result": "failed"}}])
 async def test_control_without_success_acknowledgement_remains_uncertain(payload):
@@ -467,10 +501,8 @@ async def test_agent_submission_has_lease_and_stale_response_cannot_overwrite_ow
 
     monkeypatch.setattr(carrier, "verify_incoming_only_credential", verified, raising=False)
     monkeypatch.setattr(carrier, "dial", taken_over)
-    try:
+    with pytest.raises(HTTPException, match="Agent reconciliation owns the result"):
         await service.create_agent(p)
-    except Exception:
-        pass
     assert observed.get("lease_owner") and observed.get("lease_until")
     with service.db.transaction(False) as s:
         leg = next(r for r in service.scoped(s, "call_legs", p) if r.data.get("kind") == "agent")
