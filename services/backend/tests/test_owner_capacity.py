@@ -235,3 +235,62 @@ def test_staffing_source_revision_changes_for_access_but_not_ordinary_presence(w
         update(get(s, "users", p["user_id"]), disabled=True)
     with service.db.transaction(False) as s:
         assert service.report_revision(s, p) > before
+
+
+def test_missing_owner_diagnosis_does_not_scan_every_slot_for_every_callback(monkeypatch):
+    import app.optimization.capacity as planner
+
+    class ObservedRoster(frozenset):
+        visits = 0
+
+        def __contains__(self, value):
+            type(self).visits += 1
+            return super().__contains__(value)
+
+    slots = [(NOW + timedelta(minutes=2 * i), 1) for i in range(200)]
+    owners = [ObservedRoster(["bob"])] * len(slots)
+    monkeypatch.setattr(planner, "staffed_slots", lambda *args: (slots, owners, False))
+    result = forecast([callback(str(i)) for i in range(5000)], [number()])
+    assert result["existing_only_capacity"] == 0
+    assert ObservedRoster.visits <= 2000, f"Repeated {ObservedRoster.visits} ownership checks"
+
+
+def test_named_callback_deadline_cannot_extend_to_a_later_owner_shift():
+    result = forecast(
+        [callback(callback_window_end=(NOW + timedelta(minutes=2)).isoformat())],
+        [number()],
+        staffed_windows=[staffed("bob"), staffed("alice", start=NOW + timedelta(minutes=2))],
+    )
+    assert result["existing_only_capacity"] == 0
+    assert result["owner_unavailable_attempts"] == 1
+    assert result["minimum_additional_numbers"] == 0
+
+
+def test_expired_reservation_does_not_erase_declared_owner_capacity(workspace, app, clock):
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        campaign = get(s, "campaigns", workspace["campaign_id"])
+        update(
+            campaign,
+            optimization={
+                **campaign.data.get("optimization", {}),
+                "staffed_windows": [staffed(p["user_id"], start=clock.now, minutes=2)],
+            },
+        )
+        target = service.scoped(s, "leads", p)[0]
+        s.add(
+            ActiveClaim(
+                tenant_id=p["tenant_id"],
+                seller_id=p["seller_id"],
+                endpoint_id=target.data["endpoint_id"],
+                lead_id=target.id,
+                rep_id=p["user_id"],
+                number_id=service.scoped(s, "number_inventory", p)[0].id,
+                reservation_id="expired",
+                expires_at=clock.now - timedelta(seconds=1),
+            )
+        )
+    with service.db.transaction(False) as s:
+        result = service.forecast(s, p)
+    assert result["rep_capacity_attempts"] == 1
+    assert result["occupied_rep_count"] == 0
