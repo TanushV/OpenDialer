@@ -825,9 +825,10 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
               <span className="eyebrow">RECOVERABLE BY DESIGN</span>
               <h2>Encrypted backups</h2>
               <p className="muted small">
-                Restore reconciles the encrypted suppression journal and pauses
-                outbound work. Backups contain business records, never
-                unencrypted provider credentials.
+                Restore recovers missing records and keeps current records and
+                live obligations. It reconciles denial journals and pauses
+                outbound work for review. Backups contain business records,
+                never unencrypted provider credentials.
               </p>
               <button
                 className="primary"
@@ -858,12 +859,16 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
                 disabled={!restoreId}
                 onClick={() =>
                   void run(async () => {
-                    await api("/v1/admin/restore", "POST", {
-                      backup_id: restoreId,
-                    });
+                    const restored = await api<{ recovered_records: number }>(
+                      "/v1/admin/restore",
+                      "POST",
+                      {
+                        backup_id: restoreId,
+                      },
+                    );
                     await refresh();
                     notice(
-                      "Backup restored and suppression journal reconciled. Outbound calling is paused.",
+                      `Recovered ${restored.recovered_records} missing records. Current records were kept. Outbound calling is paused.`,
                     );
                   })
                 }

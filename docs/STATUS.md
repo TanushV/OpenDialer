@@ -320,6 +320,12 @@ RED: orphan-due-red.txt (three), orphan-due-expanded-red.txt (five), orphan-due-
 
 Next tests-first 52a8511 reproduces **seven restore-effect failures** (restore-effects-expanded-red.txt): lost later calls/dependencies, resurrected ended calls, rolled-back settled cost/credit, missing uncertain number configuration, lost rep holds/tasks/notes and replayable formerly processed inbox records. No restore product changes precede that evidence. Preserve the current effect history and obligations during recovery; full independent disaster-recovery accounting remains open.
 
+2026-10-18 NON-DESTRUCTIVE IN-PLACE RECOVERY. Tests-first 52a8511/749e10c/63a59ac precede the fixes. Restore now recovers missing records while keeping current business/configuration state, calls, original carrier actions, completed receipts, settled charges/credits, human notes, tasks, holds and live claims. It no longer deletes and reconstructs every table. Denial evidence from either source remains effective; conflicting request/record identities abort atomically. Missing legacy records retain available creation times and raw-content sanitation. Report caches rebuild; current identity/access grants remain outside restore. No new table, service or dependency was added.
+
+Restore reconciliation also examines live outbound calls missing from the authorization journal and rejects release if a new live obligation appears during provider checks. The UI explains the recovery semantics and reports how many missing records were recovered. A lost response can retry the same backup without replacing current records. This is explicitly not a historical rollback command or certification that later data lost from both the database and journals can be reconstructed; full independent effect/accounting disaster recovery remains open.
+
+RED: restore-effects-expanded-red.txt (seven failures), restore-merge-red.txt (nine), restore-merge-boundaries-red.txt (four/nine passes) and restore-merge-ui-red.txt (missing behavior explanation). GREEN: **136 SQLite / 136 PostgreSQL compatibility cases**, **three browser recovery workflows**, strict TypeScript and Ruff/Prettier/diff checks. Receipts: work/remediation/restore-merge-accepted-{sqlite,postgres}.txt and restore-merge-ui-green.txt. PostgreSQL ran alone. Scoped M8.04c only is checked. Installed Mac remains untouched 0.2.1; no new native/computer-use/provider acceptance, update, purchase or funded request occurred.
+
 ## Historical record (superseded where the current contract differs)
 
 

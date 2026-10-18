@@ -5,9 +5,9 @@ import json
 import os
 import re
 
-from sqlalchemy import delete
+from sqlalchemy import delete, or_, select
 
-from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, rows, uid, update
+from app.db import MODELS, audit, doc, emit, get, put, rows, uid, update
 from app.intelligence import Application
 from app.measurement import Measurement, cohort_metrics
 from app.number_operations import NumberOperations
@@ -365,83 +365,77 @@ class Dialer(
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             self._restore_operator(s, p)
-            current_seller = self.required(s, "sellers", p["seller_id"], p).data
-            recovery_required = current_seller.get("journal_recovery_required", False)
-            expected_denials = dict(current_seller.get("journal_expected", {}))
-            # Preserve newer denials and append-only audit records across rollback.
-            denials = {
-                kind: [
-                    {
-                        "id": r.id,
-                        "tenant_id": r.tenant_id,
-                        "seller_id": r.seller_id,
-                        "data": dict(r.data),
-                        "external_key": r.external_key,
-                        "version": r.version,
-                        "created_at": r.created_at.isoformat(),
-                    }
-                    for r in self.scoped(s, kind, p)
-                    if (r.data.get("active", True) if kind == "suppressions" else r.data.get("revoked"))
-                ]
-                for kind in ("suppressions", "consent_evidence")
-            }
-            # Preserve append-only current audit events even when restoring older business state.
-            current_audit = [
-                {
-                    "id": r.id,
-                    "tenant_id": r.tenant_id,
-                    "seller_id": r.seller_id,
-                    "data": r.data,
-                    "external_key": r.external_key,
-                    "version": r.version,
-                    "created_at": r.created_at.isoformat(),
-                }
-                for r in self.scoped(s, "audit_events", p)
-            ]
+            recovered = 0
             for kind, model in MODELS.items():
                 if kind in {"tenants", "users", "memberships", "sessions"}:
                     # Restore business state, never old access grants, passwords or sessions.
                     continue
-                created = {r.id: r.created_at for r in self.scoped(s, kind, p)}
-                s.execute(
-                    delete(model).where(model.tenant_id == p["tenant_id"], model.seller_id == p["seller_id"])
-                )
-                values = [] if kind == "report_projections" else payload["tables"].get(kind, [])
-                if kind == "audit_events":
-                    values = list({r["id"]: r for r in [*values, *current_audit]}.values())
-                if kind in denials:
-                    current = {r["external_key"] or r["id"]: r for r in denials[kind]}
-                    values = list({**{r["external_key"] or r["id"]: r for r in values}, **current}.values())
-                for raw in values:
-                    if kind == "sellers":
-                        raw = {
-                            **raw,
-                            "data": {
-                                **raw["data"],
-                                "journal_recovery_required": recovery_required
-                                or raw["data"].get("journal_recovery_required", False),
-                                "journal_expected": {
-                                    **raw["data"].get("journal_expected", {}),
-                                    **expected_denials,
-                                },
-                            },
-                        }
-                    s.add(
-                        model(
-                            **{
-                                **raw,
-                                "data": persistent_document(kind, raw["data"], legacy=True),
-                                "created_at": dt(raw["created_at"])
-                                if raw.get("created_at")
-                                else created.get(raw["id"], dt(payload["at"])),
-                            }
+                if kind == "report_projections":
+                    s.execute(
+                        delete(model).where(
+                            model.tenant_id == p["tenant_id"], model.seller_id == p["seller_id"]
                         )
                     )
-            s.execute(
-                delete(ActiveClaim).where(
-                    ActiveClaim.tenant_id == p["tenant_id"], ActiveClaim.seller_id == p["seller_id"]
-                )
-            )
+                    continue
+                # Recovery fills gaps; it cannot roll back facts, effects, costs or
+                # later human corrections. Do not delete and reconstruct live rows.
+                values = payload["tables"].get(kind, [])
+                for offset in range(0, len(values), 250):
+                    batch = values[offset : offset + 250]
+                    current = list(
+                        s.execute(
+                            select(model.id, model.tenant_id, model.seller_id, model.external_key).where(
+                                or_(
+                                    model.id.in_([r["id"] for r in batch]),
+                                    (
+                                        (model.tenant_id == p["tenant_id"])
+                                        & (model.seller_id == p["seller_id"])
+                                        & model.external_key.in_(
+                                            [r["external_key"] for r in batch if r.get("external_key")]
+                                        )
+                                    ),
+                                )
+                            )
+                        )
+                    )
+                    by_id = {r.id: r for r in current}
+                    by_key = {r.external_key: r.id for r in current if r.external_key}
+                    for raw in batch:
+                        existing = by_id.get(raw["id"])
+                        if existing:
+                            if (existing.tenant_id, existing.seller_id) != (p["tenant_id"], p["seller_id"]):
+                                fail(409, "Backup record identity conflicts with another authority")
+                            if kind == "suppressions" and raw["data"].get("active", True):
+                                row = self.required(s, kind, raw["id"], p)
+                                if row.data.get("phone") != raw["data"].get("phone"):
+                                    fail(409, "Backup suppression identity changed; review before recovery")
+                                if not row.data.get("active") or (
+                                    raw["data"].get("permanent") and not row.data.get("permanent")
+                                ):
+                                    update(row, **raw["data"])
+                            if kind == "consent_evidence" and raw["data"].get("revoked"):
+                                row = self.required(s, kind, raw["id"], p)
+                                if row.data.get("endpoint_id") != raw["data"].get("endpoint_id"):
+                                    fail(409, "Backup consent identity changed; review before recovery")
+                                if not row.data.get("revoked"):
+                                    update(row, **raw["data"])
+                            continue
+                        if raw.get("external_key") in by_key:
+                            fail(
+                                409,
+                                "Backup request identity conflicts with a current record; review before recovery",
+                            )
+                        s.add(
+                            model(
+                                **{
+                                    **raw,
+                                    "data": persistent_document(kind, raw["data"], legacy=True),
+                                    "created_at": dt(raw.get("created_at") or payload["at"]),
+                                }
+                            )
+                        )
+                        recovered += 1
+                    s.flush()
             s.flush()
             suppressions = {r.data["phone"]: r for r in self.scoped(s, "suppressions", p)}
             for entry in events:
@@ -485,10 +479,20 @@ class Dialer(
                 "backup.restored",
                 backup_id,
                 self.clock(),
-                {"journal_replayed": len(events)},
+                {
+                    "journal_replayed": len(events),
+                    "recovered_records": recovered,
+                    "mode": "recover_missing_keep_current",
+                },
             )
         self.raw.clear()
-        return {"restored": True, "suppression_journal_replayed": len(events), "outbound_paused": True}
+        return {
+            "restored": True,
+            "mode": "recover_missing_keep_current",
+            "recovered_records": recovered,
+            "suppression_journal_replayed": len(events),
+            "outbound_paused": True,
+        }
 
     def _restore_operator(self, session, p):
         user = self.required(session, "users", p["user_id"], p)
@@ -524,6 +528,15 @@ class Dialer(
         with self.db.transaction(False) as session:
             self._restore_operator(session, p)
             seller_version = self.required(session, "sellers", p["seller_id"], p).version
+            model = MODELS["call_attempts"]
+            for call in session.scalars(
+                select(model).where(
+                    model.tenant_id == p["tenant_id"],
+                    model.seller_id == p["seller_id"],
+                    model.op_status.not_in(TERMINAL),
+                )
+            ):
+                records.setdefault(call.id, {"call_id": call.id, "intent": dict(call.data)})
             for call_id, entry in records.items():
                 current = get(session, "call_attempts", call_id, p["tenant_id"])
                 if current and current.seller_id != p["seller_id"]:
@@ -609,6 +622,17 @@ class Dialer(
             seller = self.required(session, "sellers", p["seller_id"], p)
             if seller.version != seller_version or self._restore_journal(p)[1] != fingerprint:
                 fail(409, "Restore or authorization journal changed; reconcile again before resuming")
+            calls = MODELS["call_attempts"]
+            if session.scalar(
+                select(calls.id)
+                .where(
+                    calls.tenant_id == p["tenant_id"],
+                    calls.seller_id == p["seller_id"],
+                    calls.op_status.not_in(TERMINAL),
+                )
+                .limit(1)
+            ):
+                fail(409, "A live call obligation remains; reconcile before resuming")
             revocations = journal_entries(self)
             verify_recovery(self, session, p, revocations)
             replay_in(self, session, p=p, entries=revocations)
