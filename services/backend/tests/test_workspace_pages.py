@@ -436,3 +436,24 @@ def test_unknown_task_status_is_not_hidden_as_if_closed(workspace, app, clock):
         )
         identity = task.id
     assert identity in {t["id"] for t in page(workspace, "tasks", filter="open")["items"]}
+
+
+def test_old_open_followup_is_visible_before_recent_closed_history(workspace, app, clock):
+    with app.state.db.transaction() as s:
+        task = put(
+            s,
+            "followup_tasks",
+            workspace["tenant_id"],
+            workspace["seller_id"],
+            {
+                "owner_id": workspace["user_id"],
+                "action": "Keep the promised callback",
+                "status": "open",
+                "due_at": clock.now.isoformat(),
+            },
+            now=clock.now - timedelta(days=10),
+        )
+        identity = task.id
+    fill(workspace, app, clock, 100)
+    result = snapshot(workspace)
+    assert identity in {t["id"] for t in result["tasks"]}
