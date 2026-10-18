@@ -262,7 +262,9 @@ async def test_optout_received_during_inference_prevents_publication(workspace, 
     def suppress():
         with service.db.transaction(False) as s:
             phone = get(s, "leads", call["lead_id"]).data["phone"]
-        service.suppress(p, phone, "manual opt-out")
+        service.suppress(p, phone, "opt_out")
+        with service.db.transaction(False) as s:
+            assert service.suppressed(s, p, phone)
 
     changes["during"] = suppress
     answer = await service.coach_turn(p, call["id"], urgent=True, question="Help?", request_id=str(uuid4()))

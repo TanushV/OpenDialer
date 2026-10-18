@@ -42,10 +42,11 @@ class PausedStream(httpx.AsyncByteStream):
         yield frame(prefix, provider=self.provider)
         self.ready.set()
         await self.release.wait()
-        if self.broken:
+        if self.broken is True:
             yield frame(error={"message": "synthetic provider failure"})
             return
-        yield frame('A fuller explanation after the useful answer.", "state_update": null}')
+        suffix = ', "say_or_ask": "Altered later?"' if self.broken == "duplicate" else ""
+        yield frame('A fuller explanation after the useful answer.", "state_update": null' + suffix + "}")
         yield frame(
             choices=[{"delta": {}, "finish_reason": "stop"}],
             usage={"cost": 0.001, "completion_tokens": 60},
@@ -91,7 +92,9 @@ async def test_complete_primary_answer_is_visible_before_explanation_and_one_rec
             assert final["reason"] == "A fuller explanation after the useful answer."
             with service.db.transaction(False) as s:
                 assert len(service.scoped(s, "coach_events", p)) == 1
-                holds = service.scoped(s, "usage_ledger", p)
+                holds = [
+                    r for r in service.scoped(s, "usage_ledger", p) if r.data.get("work_kind") == "live_coach"
+                ]
                 assert len(holds) == 1 and holds[0].data["cost_usd"] == 0.001
         finally:
             release.set()
@@ -99,7 +102,7 @@ async def test_complete_primary_answer_is_visible_before_explanation_and_one_rec
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("boundary", ["cancel", "hangup", "correct", "expire", "failure"])
+@pytest.mark.parametrize("boundary", ["cancel", "hangup", "correct", "expire", "failure", "duplicate"])
 async def test_partial_help_is_withdrawn_at_a_changed_boundary(workspace, app, clock, monkeypatch, boundary):
     call, p, _, _ = setup(workspace, app, monkeypatch)
     service, ready, release = app.state.service, asyncio.Event(), asyncio.Event()
@@ -110,7 +113,10 @@ async def test_partial_help_is_withdrawn_at_a_changed_boundary(workspace, app, c
         return httpx.Response(
             200,
             stream=PausedStream(
-                advice(context["state_version"], "progress"), ready, release, broken=boundary == "failure"
+                advice(context["state_version"], "progress"),
+                ready,
+                release,
+                broken="duplicate" if boundary == "duplicate" else boundary == "failure",
             ),
         )
 
@@ -144,6 +150,56 @@ async def test_partial_help_is_withdrawn_at_a_changed_boundary(workspace, app, c
                 row = get(s, "coach_events", early_id)
                 assert service.coach_content(p, {"id": row.id, **row.data}) is None
         finally:
+            release.set()
+            await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_transport_cancel_during_early_publication_cannot_leave_an_unfinished_answer(
+    workspace, app, monkeypatch
+):
+    import threading
+
+    call, p, _, _ = setup(workspace, app, monkeypatch)
+    service = app.state.service
+    turn(service, p, call, "progress")
+    stored, resume = threading.Event(), threading.Event()
+    ready, release = asyncio.Event(), asyncio.Event()
+    original = service._publish_help
+
+    def delayed(*args, **kwargs):
+        result = original(*args, **kwargs)
+        stored.set()
+        assert resume.wait(3)
+        return result
+
+    monkeypatch.setattr(service, "_publish_help", delayed)
+
+    def handler(request):
+        context = json.loads(json.loads(request.content)["messages"][1]["content"])
+        return httpx.Response(
+            200, stream=PausedStream(advice(context["state_version"], "progress"), ready, release)
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        monkeypatch.setattr(
+            service, "configured_coach", lambda _: (OpenRouterCoach("fixture", http=http), "openrouter")
+        )
+        task = asyncio.create_task(
+            service.coach_turn(p, call["id"], urgent=True, question="Explain?", request_id=str(uuid4()))
+        )
+        try:
+            assert await asyncio.to_thread(stored.wait, 2)
+            task.cancel()
+            resume.set()
+            release.set()
+            await asyncio.gather(task, return_exceptions=True)
+            with service.db.transaction(False) as s:
+                records = service.scoped(s, "coach_events", p)
+                assert records
+                assert all(service.coach_content(p, {"id": row.id, **row.data}) is None for row in records)
+        finally:
+            resume.set()
             release.set()
             await asyncio.gather(task, return_exceptions=True)
 
