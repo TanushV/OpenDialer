@@ -21,12 +21,11 @@ from sqlalchemy.exc import IntegrityError
 
 from app.administration import Dialer
 from app.config import Settings
-from app.db import Database, Event, audit, doc, emit, get, put, rows, update
+from app.db import Database, Event, audit, doc, emit, put, rows, update
 from app.providers.telnyx import verify_webhook
 from app.security import DUMMY_HASH, PASSWORDS, admin, decode_session, issue_session
 from app.service import dt, fail
 from app.telephony.reducer import TERMINAL
-from app.transcripts import normalize_transcription
 
 
 class Strict(BaseModel):
@@ -801,78 +800,10 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/admin/numbers/purchase")
     async def purchase_numbers(data: dict, p=Depends(administrator)):
-        import math
-
-        numbers, budget = data.get("phone_numbers", []), data.get("approved_budget_usd", 0)
-        identifier = data.get("idempotency_key", "")
-        if (
-            not isinstance(numbers, list)
-            or not 1 <= len(numbers) <= 10
-            or len(set(numbers)) != len(numbers)
-            or not isinstance(budget, (int, float))
-            or not math.isfinite(budget)
-            or budget < 0
-            or not isinstance(identifier, str)
-            or not 1 <= len(identifier) <= 128
-        ):
-            fail(422, "Unique numbers, an explicit finite budget and an idempotency key are required")
-        with db.transaction() as s:
-            key = "purchase:" + identifier
-            prior = next((c for c in service.scoped(s, "command_outbox", p) if c.external_key == key), None)
-            if prior:
-                if prior.data["numbers"] != numbers or prior.data["approved_budget_usd"] != budget:
-                    fail(409, "Idempotency key belongs to another purchase")
-                return doc(prior)
-            quotes = [
-                q
-                for q in service.scoped(s, "command_outbox", p)
-                if q.data["kind"] == "number_quote" and dt(q.data["expires_at"]) > clock()
-            ]
-            total = 0.0
-            for phone in numbers:
-                quote = next((q for q in reversed(quotes) if q.data["phone"] == phone), None)
-                if not quote:
-                    fail(403, "Each number requires a fresh carrier quote")
-                if any(n.data["phone"] == phone for n in service.scoped(s, "number_inventory", p)):
-                    fail(409, "Number is already in inventory")
-                total += quote.data["initial_commitment_usd"]
-            configured = service.scoped(s, "budgets", p)[0].data.get("number_purchase_limit_usd", 0)
-            committed = sum(
-                c.data.get("committed_usd", 0)
-                for c in service.scoped(s, "command_outbox", p)
-                if c.data["kind"] == "purchase"
-                and c.data["status"] in {"sending", "uncertain", "completed"}
-                and c.created_at.replace(tzinfo=clock().tzinfo).date().replace(day=1)
-                == clock().date().replace(day=1)
-            )
-            if total > budget or budget > configured or committed + total > configured:
-                fail(403, "Quote exceeds the approved or monthly procurement ceiling")
-            intent = put(
-                s,
-                "command_outbox",
-                p["tenant_id"],
-                p["seller_id"],
-                {
-                    "kind": "purchase",
-                    "status": "sending",
-                    "numbers": numbers,
-                    "approved_budget_usd": budget,
-                    "committed_usd": total,
-                },
-                key=key,
-                now=clock(),
-            )
-        try:
-            receipt = await service.carrier(p["tenant_id"]).purchase(numbers, intent.id)
-        except Exception:
-            with db.transaction() as s:
-                update(service.required(s, "command_outbox", intent.id, p), status="uncertain")
-            fail(503, "Purchase outcome uncertain; reconcile the existing order before retrying")
-        with db.transaction() as s:
-            update(service.required(s, "command_outbox", intent.id, p), status="completed", receipt=receipt)
-        for n in numbers:
-            service.add_number(p, {"phone": n, "lifecycle": "purchased", "region": n[2:5]})
-        return {"order_id": receipt.get("data", receipt).get("id"), "purchased": True}
+        fail(
+            403,
+            "RECURRING_COMMITMENT_DISABLED: new numbers incur rental fees; reuse existing authorized inventory",
+        )
 
     @app.post("/v1/admin/variants")
     def create_variant(data: dict, p=Depends(administrator)):
@@ -1064,63 +995,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
             fail(401, "Webhook signature invalid or stale")
         try:
             event = json.loads(body)["data"]
-            payload = event["payload"]
-        except (ValueError, KeyError):
+        except (ValueError, KeyError, TypeError):
             fail(422, "Invalid provider event")
-        if service.agent_event(owner.tenant_id, payload, event["event_type"]):
-            return {"received": True, "agent_event": True}
-        if event["event_type"] == "call.initiated" and payload.get("direction") == "incoming":
-            return await service.inbound_callback(owner.tenant_id, payload, event["id"])
-        with db.transaction(False) as s:
-            calls = rows(s, "call_attempts", owner.tenant_id)
-            call = next(
-                (c for c in calls if c.data.get("provider_id") == payload.get("call_control_id")), None
-            )
-            if not call and payload.get("client_state"):
-                try:
-                    context = json.loads(base64.b64decode(payload["client_state"]))
-                    call = get(s, "call_attempts", context.get("call_id"), owner.tenant_id)
-                except (ValueError, TypeError):
-                    pass
-            if not call:
-                put(
-                    s,
-                    "webhook_inbox",
-                    owner.tenant_id,
-                    "",
-                    {
-                        "event_id": event["id"],
-                        "payload": event,
-                        "hash": hashlib.sha256(body).hexdigest(),
-                        "status": "unmatched",
-                    },
-                    key=event["id"],
-                    now=clock(),
-                )
-                return {"received": True, "unmatched": True}
-            p = {
-                "tenant_id": call.tenant_id,
-                "seller_id": call.seller_id,
-                "user_id": call.data["rep_id"],
-                "role": "rep",
-            }
-        event_type = event["event_type"]
-        if "machine" in event_type and payload.get("result"):
-            event_type += ":" + payload["result"]
-        result = service.event(p, event["id"], event_type, call.id, payload)
-        if event["event_type"] == "call.transcription" and not result["duplicate"]:
-            for segment in normalize_transcription(payload, call.id, event["id"]):
-                segment.pop("content_hash", None)
-                segment.pop("call_id", None)
-                await service.transcript(p, call.id, segment, defer_coach=True)
-        if event["event_type"] == "call.hangup":
-            service.jobs.enqueue(
-                "postcall",
-                {"call_id": call.id, "seller_id": p["seller_id"], "user_id": p["user_id"]},
-                "postcall-webhook:" + event["id"],
-                tenant_id=p["tenant_id"],
-            )
-        return result
+        return await service.accept_webhook(owner.tenant_id, event, hashlib.sha256(body).hexdigest())
 
     @app.post("/v1/admin/registry/import")
     def registry_import(data: dict, p=Depends(administrator)):

@@ -1,6 +1,6 @@
 # OpenDialer completion and simplification plan
 
-Date: October 17, 2026. Status: **implementation authorized; tests-first contract phase in progress**. Baseline: `2bad067c20d23bce84b78538ab00ef009b4c7e9f`, released desktop 0.2.1.
+Date: October 17, 2026. Status: **implementation authorized; M0 tests-first baseline complete; M1 implementation in progress**. Baseline: `2bad067c20d23bce84b78538ab00ef009b4c7e9f`, released desktop 0.2.1.
 
 OpenDialer should help a rep reach the right people, have better conversations, and reliably complete the agreed next steps. It should do this with a small local application, fast statistical models, Telnyx telephony and number intelligence, and a live Cerebras assistant that can reason and write freely using the actual conversation and business context.
 
@@ -765,7 +765,7 @@ Freeze the candidate source before complete SQLite/PostgreSQL, UI/native and rel
 
 ## 21. Ordered execution checklist
 
-**Current authorization is to implement the entire revised plan, tests first, with frequent commits/pushes and native Mac/Windows updates. No reinstall or database reset.** All unchecked items below are outstanding. M0 is active; do not reinterpret the older all-checked release plans as completion of these requirements.
+**Current authorization is to implement the entire revised plan, tests first, with frequent commits/pushes and native Mac/Windows updates. No reinstall or database reset.** All unchecked items below are outstanding. M1 is active; do not reinterpret the older all-checked release plans as completion of these requirements.
 
 Each milestone ends with its focused red/green evidence, a reviewed documentation/status update and a coherent Git commit. Push accepted milestones to `TanushV/OpenDialer`. Mark an item complete only when its stated behavior and tests pass; attach the test/evidence IDs, exact source and remaining external gate in `STATUS.md`. Read this plan, the original specification, earlier plans and current status after every compaction. Keep one current execution cursor so a continuation resumes rather than restarts.
 
@@ -786,8 +786,8 @@ Depends on this written plan. Exit: maintained acceptance suite, reproducible fa
 Depends on M0. Exit: P1 defects and event/control recovery pass A04–A10, A13 and A49 with crash/retry evidence.
 
 - [ ] M1.01 Add resumable received/processing/processed event state and atomic reducer/output completion.
-- [ ] M1.02 Normalize documented transcript-track variants and keep unknown side/finality honest.
-- [ ] M1.03 Enforce terminal-state monotonicity and late-event handling for every call leg.
+- [x] M1.02 Normalize documented transcript-track variants and keep unknown side/finality honest.
+- [x] M1.03 Enforce terminal-state monotonicity and late-event handling for every call leg.
 - [ ] M1.04 Complete leased/fenced recovery for every control command, not only dial/hangup; wire heartbeats where needed.
 - [ ] M1.05 Persist purchase intent identity across UI retry/reload; reconcile uncertainty before any new order.
 - [ ] M1.06 Repair usage-hold settlement and uncertain liability; deduplicate provider receipts.

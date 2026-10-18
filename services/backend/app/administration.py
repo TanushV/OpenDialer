@@ -11,11 +11,12 @@ from app.intelligence import Application
 from app.optimization.learning import derive_labels
 from app.optimization.workflows import OptimizationWorkflows
 from app.service import dt, fail
+from app.telephony.ingress import WebhookIngress
 from app.telephony.reducer import TERMINAL
 from app.telephony.workflows import TelephonyWorkflows
 
 
-class Dialer(OptimizationWorkflows, TelephonyWorkflows, Application):
+class Dialer(WebhookIngress, OptimizationWorkflows, TelephonyWorkflows, Application):
     def metrics(self, p):
         with self.db.transaction(False) as s:
             leads = self.scoped(s, "leads", p)
@@ -329,6 +330,25 @@ class Dialer(OptimizationWorkflows, TelephonyWorkflows, Application):
                                 status="completed",
                                 provider_id=receipt["call_control_id"],
                             )
+            elif command["kind"] == "action" and command["status"] in {"sending", "uncertain"}:
+                with self.db.transaction() as s:
+                    current = self.required(s, "command_outbox", command["id"], p)
+                    lease = dt(current.data.get("lease_until"))
+                    if lease and lease > self.clock():
+                        continue
+                    sent = dt(current.data.get("sent_at"))
+                    # Telnyx only documents command deduplication inside 60 seconds.
+                    # Old/unknown effects require review instead of a blind paid replay.
+                    retryable = bool(sent and 0 <= (self.clock() - sent).total_seconds() < 45)
+                    update(
+                        current,
+                        status="pending" if retryable else "review_required",
+                        lease_owner=None,
+                        lease_until=None,
+                        recovery_reason="same_command_within_dedupe_window"
+                        if retryable
+                        else "Carrier effect is uncertain beyond the command deduplication window",
+                    )
             elif command["kind"] == "hangup":
                 with self.db.transaction(False) as s:
                     target_call = self.required(s, "call_attempts", command["call_id"], p)

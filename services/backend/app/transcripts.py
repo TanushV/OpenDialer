@@ -3,7 +3,12 @@ from hashlib import sha256
 
 def normalize_transcription(payload, call_id, event_id):
     data = payload.get("transcription_data", payload)
-    track = data.get("track", payload.get("transcription_tracks"))
+    track = (
+        data.get("transcription_track")
+        or data.get("track")
+        or payload.get("transcription_track")
+        or payload.get("transcription_tracks")
+    )
     side = {"inbound": "remote", "outbound": "rep", "remote": "remote", "rep": "rep"}.get(track, "unknown")
     text = data.get("transcript", data.get("text", ""))
     if not text:

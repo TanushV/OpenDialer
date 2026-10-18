@@ -1,6 +1,7 @@
 import base64
 import json
 import re
+from datetime import timedelta
 
 from sqlalchemy import delete
 
@@ -36,7 +37,10 @@ class TelephonyWorkflows:
     def event(self, p, event_id, event_type, call_id, payload=None):
         result = super().event(p, event_id, event_type, call_id, payload)
         if result["duplicate"]:
-            return result
+            with self.db.transaction(False) as s:
+                prior = next(r for r in self.scoped(s, "provider_events", p) if r.external_key == event_id)
+                if prior.data.get("effects_complete", False):
+                    return result
         payload = payload or {}
         optout_phone = None
         with self.db.transaction() as s:
@@ -169,8 +173,13 @@ class TelephonyWorkflows:
                     recording_url=urls.get("mp3") or urls.get("wav"),
                     recording_id=payload.get("recording_id"),
                 )
+            receipt = next(r for r in self.scoped(s, "provider_events", p) if r.external_key == event_id)
+            update(receipt, effects_complete=not bool(optout_phone))
         if optout_phone:
-            self.suppress(p, optout_phone, "opt_out")
+            self.suppress(p, optout_phone, "opt_out", event_id=event_id)
+            with self.db.transaction() as s:
+                receipt = next(r for r in self.scoped(s, "provider_events", p) if r.external_key == event_id)
+                update(receipt, effects_complete=True)
         return result
 
     def finish_call(self, s, p, call, reason=None):
@@ -184,7 +193,7 @@ class TelephonyWorkflows:
             commands = [
                 doc(r)
                 for r in self.scoped(s, "command_outbox", p)
-                if r.data["kind"] == "action" and r.data["status"] in {"pending", "uncertain"}
+                if r.data["kind"] == "action" and r.data["status"] == "pending"
             ]
             orphan_vms = [
                 doc(r)
@@ -198,7 +207,7 @@ class TelephonyWorkflows:
         for command in commands:
             with self.db.transaction() as s:
                 current = self.required(s, "command_outbox", command["id"], p)
-                if current.data["status"] not in {"pending", "uncertain"}:
+                if current.data["status"] != "pending":
                     continue
                 inbound = command.get("inbound", False)
                 call = self.required(
@@ -221,7 +230,14 @@ class TelephonyWorkflows:
                 target = command.get("target") or call.data.get("provider_id")
                 if not target:
                     continue
-                update(current, status="sending")
+                owner = uid()
+                update(
+                    current,
+                    status="sending",
+                    lease_owner=owner,
+                    sent_at=current.data.get("sent_at") or self.clock().isoformat(),
+                    lease_until=(self.clock() + timedelta(seconds=30)).isoformat(),
+                )
             try:
                 provider = self.carrier(p["tenant_id"])
                 if command["action"] == "playback_start":
@@ -231,7 +247,10 @@ class TelephonyWorkflows:
                 else:
                     await provider.action(target, command["action"], command["payload"])
                 with self.db.transaction() as s:
-                    update(self.required(s, "command_outbox", command["id"], p), status="completed")
+                    current = self.required(s, "command_outbox", command["id"], p)
+                    if current.data.get("lease_owner") != owner:
+                        continue
+                    update(current, status="completed", lease_owner=None, lease_until=None)
                     if (
                         self.settings.simulation
                         and not inbound
@@ -243,11 +262,15 @@ class TelephonyWorkflows:
                         )
             except Exception as exc:
                 with self.db.transaction() as s:
-                    update(
-                        self.required(s, "command_outbox", command["id"], p),
-                        status="uncertain",
-                        error=type(exc).__name__,
-                    )
+                    current = self.required(s, "command_outbox", command["id"], p)
+                    if current.data.get("lease_owner") == owner:
+                        update(
+                            current,
+                            status="uncertain",
+                            lease_owner=None,
+                            lease_until=None,
+                            error=type(exc).__name__,
+                        )
         return {"processed": len(commands), "voicemail_watchdogs": len(orphan_vms)}
 
     async def create_agent(self, p):
@@ -365,7 +388,9 @@ class TelephonyWorkflows:
             update(
                 leg,
                 provider_id=payload.get("call_control_id"),
-                state="answered"
+                state="ended"
+                if leg.data["state"] == "ended"
+                else "answered"
                 if event_type == "call.answered"
                 else "ended"
                 if event_type == "call.hangup"

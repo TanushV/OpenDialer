@@ -92,7 +92,8 @@ def test_two_distinct_provider_attempts_settle_only_their_matching_holds(workspa
     )
     with service.db.transaction(False) as s:
         entries = [r.data for r in service.scoped(s, "usage_ledger", p)]
-    assert sum(float(r.get("cost_usd") or 0) for r in entries) == pytest.approx(0.011)
+    assert sum(float(r.get("cost_usd") or 0) for r in entries) == pytest.approx(0.001)
+    assert sum(float(r.get("reserved_usd") or 0) for r in entries) == pytest.approx(0.01)
     assert any(r.get("request_key") == "second" and r.get("status") == "reserved" for r in entries)
 
 

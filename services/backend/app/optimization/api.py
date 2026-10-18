@@ -515,8 +515,9 @@ def register_optimization(app, service, principal, administrator):
             async def suggest(self, request, deadline_ms=1200):
                 from app.providers.inference import InferenceError, InferenceResult
 
+                request_key = "replay:" + uid()
                 if not service.reserve_optional_budget(
-                    p, "replay:" + uid(), 0.01, object_id=usage_object_id, work_kind="coach_replay"
+                    p, request_key, 0.01, object_id=usage_object_id, work_kind="coach_replay"
                 ):
                     raise InferenceError("Replay exceeds the optional inference budget")
                 result = None
@@ -532,6 +533,7 @@ def register_optimization(app, service, principal, administrator):
                             InferenceResult(result or {}, provider.last_usage, provider.last_request_id),
                             object_id=usage_object_id,
                             reserved=0,
+                            request_key=request_key,
                         )
 
         report = await evaluate(

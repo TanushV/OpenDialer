@@ -21,6 +21,12 @@ Raw red receipts (ignored, synthetic fixtures only):
 
 Next: M1 event receipt/completion, track normalization, monotonic legs, uncertain commands and exact request-accounting; then M2 hot paths. M0 boxes only are checked. All M1–M9 and X gates remain open. Later code must preserve new no-subscription/five-minute/local-task scope, not reintroduce withdrawn connectors.
 
+2026-10-17 M1 RECOVERY SLICE. Added separate webhook receipt/processing leases and retry jobs, documented track normalization, monotonic ended agent legs, and command recovery that respects Telnyx's documented 60-second deduplication window. Old uncertain effects enter explicit review rather than a blind replay. Webhook text is now held in the bounded ephemeral buffer; complete transcript/privacy conversion remains M6 work. Commands and job heartbeats carry owner checks. Worker lanes prioritize webhook/live work, allow bounded cross-call concurrency and coalesce obsolete same-call jobs.
+
+Accounting now settles a matching request hold in place; duplicate receipts do not double charge, missing actual cost remains an uncertain liability, and rejected/stale inference responses are recorded before content validation. Updated the new two-hold assertion to distinguish actual $0.001 from still-reserved $0.01 (the original test incorrectly summed both as actual spend). All main inference paths carry explicit attempt keys; legacy Batch settlement remains open. New number rental submission is blocked and its unreachable purchase body removed; existing uncertain-order reconciliation remains open.
+
+Additional tests-first counterexamples: opt-out write failure after event reduction, unfinished webhook recovery without provider redelivery, missing billed cost, and unexpired command ownership. Actual initial run: 3 failed / 1 passed (`recovery-extra-red.txt`); then all four pass. Focused existing telephony/operations/jobs plus new recovery: **65 passed** (`m1-regression.txt`). Wider sampled audit/boundary/learning run: 25 passed / 22 still failing in later milestones (`m1-first.txt`), including the now-passing six independent 700ms coaching-job fixture. No full-release or live-provider claim. PostgreSQL focused recovery/accounting selection: **20 passed** (`m1-postgres.txt`). M1.02/M1.03 only are checked; atomic completion/uncertainty UI, complete effect recovery and remaining accounting still open.
+
 ## Historical record (superseded where the current contract differs)
 
 

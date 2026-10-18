@@ -1,9 +1,12 @@
+import asyncio
+import contextlib
 import hashlib
 import json
 import re
 import time
 from datetime import timedelta
 
+from app.accounting import RequestAccounting
 from app.coaching.context import build_context, ground_guidance, merge_semantic_state, retrieve_cards
 from app.coaching.engine import CardRejected
 from app.db import audit, doc, emit, put, rows, uid, update
@@ -63,7 +66,7 @@ SCRIPT_SCHEMA = {
 }
 
 
-class Application(Service):
+class Application(RequestAccounting, Service):
     def inference(self, tenant_id, role, user_id=None):
         conf = self.vault.read(tenant_id)
         mode = conf.get("inference_mode", "api")
@@ -235,27 +238,6 @@ class Application(Service):
             )
         return {"work_units": len(jobs), "jobs": jobs}
 
-    def usage(self, p, provider, kind, result, *, object_id, reserved=0.01):
-        with self.db.transaction() as s:
-            put(
-                s,
-                "usage_ledger",
-                p["tenant_id"],
-                p["seller_id"],
-                {
-                    "provider": provider,
-                    "kind": kind,
-                    "object_id": object_id,
-                    "request_id": result.request_id,
-                    "usage": result.usage,
-                    "at": self.clock().isoformat(),
-                    "reserved_usd": reserved,
-                    "cost_usd": None,
-                    "billing_verified": False,
-                },
-                now=self.clock(),
-            )
-
     async def prepare(self, p, lead_ids):
         failures = []
         for lead_id in lead_ids:
@@ -300,8 +282,9 @@ class Application(Service):
                 ):
                     continue
             provider_failed = False
+            request_key = "script:" + input_key + ":" + uid()
             if provider and self.reserve_optional_budget(
-                p, "script:" + input_key + ":" + uid(), 0.10, object_id=lead_id, work_kind="script_write"
+                p, request_key, 0.10, object_id=lead_id, work_kind="script_write"
             ):
                 try:
                     result = await provider.complete(
@@ -316,12 +299,14 @@ class Application(Service):
                         },
                         SCRIPT_SCHEMA,
                     )
+                    self.usage(
+                        p, "openai", "script_write", result, object_id=lead_id, request_key=request_key
+                    )
                     candidate = result.data
                     validate_script(candidate, packet["research"]["facts"], domain, seller_name, self.clock())
                     if candidate["lead_id"] != lead_id:
                         raise ValidationFailure("Wrong lead response")
                     script = {**script, **candidate, "fallback": False}
-                    self.usage(p, "openai", "script_write", result, object_id=lead_id)
                 except Exception:
                     provider_failed = True
                     failures.append(lead_id)
@@ -408,9 +393,10 @@ class Application(Service):
             ]
         else:
             provider = self.inference(p["tenant_id"], "research_extract", p["user_id"])
+            request_key = "research:" + domain + ":" + self.clock().date().isoformat() + ":" + uid()
             if provider and self.reserve_optional_budget(
                 p,
-                "research:" + domain + ":" + self.clock().date().isoformat() + ":" + uid(),
+                request_key,
                 0.10,
                 object_id=company.id,
                 work_kind="research_extract",
@@ -424,7 +410,15 @@ class Application(Service):
                         RESEARCH_SCHEMA,
                     )
                     extracted = result.data.get("facts", [])
-                    self.usage(p, "openai", "research_extract", result, object_id=company.id, reserved=0.05)
+                    self.usage(
+                        p,
+                        "openai",
+                        "research_extract",
+                        result,
+                        object_id=company.id,
+                        reserved=0.05,
+                        request_key=request_key,
+                    )
                 except Exception:
                     extracted = []
         with self.db.transaction() as s:
@@ -697,13 +691,12 @@ class Application(Service):
             provider, route = None, "approved_static"
         result, source = fallback, "approved_static"
         inference_started = time.perf_counter()
+        request_key = f"coach:{call_id}:{version}:{uid()}"
         if (
             provider
             and not self.settings.simulation
             and time.monotonic() >= self.coach.open_until
-            and self.reserve_optional_budget(
-                p, f"coach:{call_id}:{version}:{uid()}", 0.01, object_id=call_id, work_kind="live_coach"
-            )
+            and self.reserve_optional_budget(p, request_key, 0.01, object_id=call_id, work_kind="live_coach")
         ):
             result = await self.coach.suggest(call_id, request, provider, fallback)
             source = route if result is not fallback else "approved_static"
@@ -715,6 +708,7 @@ class Application(Service):
                     InferenceResult(result, provider.last_usage, provider.last_request_id),
                     object_id=call_id,
                     reserved=0,
+                    request_key=request_key,
                 )
         inference_ms = (time.perf_counter() - inference_started) * 1000
         try:
@@ -840,38 +834,72 @@ class Application(Service):
 
     async def run_jobs(self, tenant_id=None, queues=None):
         if (queues is None or "ml" in queues) and self.settings.worker_enabled:
-            self.schedule_optimization(tenant_id)
-        processed = 0
-        worker_id = "worker-" + uid()
-        for lane in queues or ["research", "scripts", "postcall", "live_coach", "ml"]:
+            await asyncio.to_thread(self.schedule_optimization, tenant_id)
+        processed, worker_id = 0, "worker-" + uid()
+
+        async def execute(lane, job, obsolete=False):
+            p = {
+                "tenant_id": job["tenant_id"],
+                "seller_id": job["payload"].get("seller_id"),
+                "user_id": job["payload"].get("user_id"),
+                "role": "admin",
+            }
+
+            async def heartbeat():
+                while True:
+                    await asyncio.sleep(20)
+                    await asyncio.to_thread(self.jobs.heartbeat, job["id"], worker_id, 60)
+
+            pulse = asyncio.create_task(heartbeat())
+            try:
+                if obsolete:
+                    pass  # A later queued turn replaces this paid request; retain the job receipt.
+                elif lane == "webhook":
+                    await self.process_webhook(job["tenant_id"], job["payload"]["receipt_id"])
+                elif lane in {"research", "scripts"}:
+                    await self.prepare(p, job["payload"]["lead_ids"])
+                elif lane == "postcall":
+                    await self.analyze_postcall(p, job["payload"]["call_id"])
+                elif lane == "live_coach":
+                    await self.coach_turn(p, job["payload"]["call_id"])
+                elif lane == "ml":
+                    if job["payload"].get("kind") == "optimization_refresh":
+                        await asyncio.to_thread(self.refresh_optimization, p)
+                    else:
+                        await self.train_model_job(p, job["payload"])
+                else:
+                    raise ValueError("Unknown work lane")
+                await asyncio.to_thread(self.jobs.complete, job["id"], worker_id)
+                return 1
+            except Exception as exc:
+                await asyncio.to_thread(self.jobs.fail, job["id"], worker_id, type(exc).__name__)
+                return 0
+            finally:
+                pulse.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await pulse
+
+        for lane in queues or ["webhook", "live_coach", "postcall", "scripts", "research", "ml"]:
+            jobs = []
             for _ in range(20):
-                job = self.jobs.claim(lane, worker_id, lease_seconds=300, tenant_id=tenant_id)
+                job = await asyncio.to_thread(self.jobs.claim, lane, worker_id, 60, tenant_id)
                 if not job:
                     break
-                p = {
-                    "tenant_id": job["tenant_id"],
-                    "seller_id": job["payload"].get("seller_id"),
-                    "user_id": job["payload"].get("user_id"),
-                    "role": "admin",
-                }
-                try:
-                    if lane in {"research", "scripts"}:
-                        await self.prepare(p, job["payload"]["lead_ids"])
-                    elif lane == "postcall":
-                        await self.analyze_postcall(p, job["payload"]["call_id"])
-                    elif lane == "live_coach":
-                        await self.coach_turn(p, job["payload"]["call_id"])
-                    elif lane == "ml":
-                        if job["payload"].get("kind") == "optimization_refresh":
-                            import asyncio
+                jobs.append(job)
+            latest = {(j["tenant_id"], j["payload"].get("call_id")): j["id"] for j in jobs}
+            capacity = 8 if lane in {"webhook", "live_coach"} else 2 if lane != "ml" else 1
+            limit = asyncio.Semaphore(capacity)
 
-                            await asyncio.to_thread(self.refresh_optimization, p)
-                        else:
-                            await self.train_model_job(p, job["payload"])
-                    self.jobs.complete(job["id"], worker_id)
-                    processed += 1
-                except Exception as e:
-                    self.jobs.fail(job["id"], worker_id, type(e).__name__)
+            async def bounded(job, lane=lane, limit=limit, latest=latest):
+                async with limit:
+                    return await execute(
+                        lane,
+                        job,
+                        lane == "live_coach"
+                        and latest[(job["tenant_id"], job["payload"].get("call_id"))] != job["id"],
+                    )
+
+            processed += sum(await asyncio.gather(*(bounded(j) for j in jobs)))
         return {"processed": processed}
 
     async def train_model_job(self, p, payload):
@@ -898,6 +926,8 @@ class Application(Service):
             )
 
     async def maintenance_tick(self):
+        self.raw.purge()
+        await asyncio.to_thread(self.queue_unfinished_webhooks)
         with self.db.transaction(False) as session:
             users = [r for r in rows(session, "users") if not r.data.get("disabled")]
         for user in users:
@@ -916,37 +946,6 @@ class Application(Service):
                 logging.getLogger(__name__).warning(
                     "Maintenance reconciliation deferred: %s", type(exc).__name__
                 )
-
-    def reserve_optional_budget(self, p, request_key, estimate_usd, *, object_id=None, work_kind=None):
-        if estimate_usd <= 0:
-            raise ValueError("Optional work requires a positive reserved estimate")
-        key = "optional:" + request_key
-        with self.db.transaction() as session:
-            prior = next((r for r in self.scoped(session, "usage_ledger", p) if r.external_key == key), None)
-            if prior:
-                return True
-            if not self.budget_ok(session, p, estimate_usd):
-                return False
-            put(
-                session,
-                "usage_ledger",
-                p["tenant_id"],
-                p["seller_id"],
-                {
-                    "kind": "optional_work_reservation",
-                    "object_id": object_id,
-                    "work_kind": work_kind,
-                    "user_id": p.get("user_id"),
-                    "request_key": request_key,
-                    "reserved_usd": estimate_usd,
-                    "at": self.clock().isoformat(),
-                    "cost_usd": None,
-                    "billing_verified": False,
-                },
-                key=key,
-                now=self.clock(),
-            )
-            return True
 
     def tracker_matches(self, s, p, segments):
         matches = []
@@ -981,12 +980,13 @@ class Application(Service):
 
         initial = self.analysis(p, call_id, force=True)
         provider = self.inference(p["tenant_id"], "postcall_extract", p["user_id"])
+        request_key = f"analysis:{call_id}:{initial['notes']['transcript_version']}:{uid()}"
         if (
             provider
             and initial["transcript"]
             and self.reserve_optional_budget(
                 p,
-                f"analysis:{call_id}:{initial['notes']['transcript_version']}:{uid()}",
+                request_key,
                 0.10,
                 object_id=call_id,
                 work_kind="postcall_extract",
@@ -1002,6 +1002,15 @@ class Application(Service):
                         "rubric": initial["scorecard"]["items"],
                     },
                     AnalysisOutput.model_json_schema(),
+                )
+                self.usage(
+                    p,
+                    "openai",
+                    "postcall_extract",
+                    result,
+                    object_id=call_id,
+                    reserved=0,
+                    request_key=request_key,
                 )
                 validated = validate_analysis(result.data, initial["transcript"])
                 with self.db.transaction() as session:
@@ -1040,7 +1049,6 @@ class Application(Service):
                             overall=score_summary(items),
                             model_request_id=result.request_id,
                         )
-                self.usage(p, "openai", "postcall_extract", result, object_id=call_id, reserved=0)
             except Exception as exc:
                 import logging
 
@@ -1078,8 +1086,9 @@ class Application(Service):
         if not trackers:
             return
         provider = self.inference(p["tenant_id"], "postcall_extract", p["user_id"])
+        request_key = "semantic:" + call_id + ":" + uid()
         if not provider or not self.reserve_optional_budget(
-            p, "semantic:" + call_id + ":" + uid(), 0.05, object_id=call_id, work_kind="semantic_tracker"
+            p, request_key, 0.05, object_id=call_id, work_kind="semantic_tracker"
         ):
             return
         schema = {
@@ -1106,6 +1115,9 @@ class Application(Service):
             {"trackers": trackers, "transcript": segments},
             schema,
         )
+        self.usage(
+            p, "openai", "semantic_tracker", result, object_id=call_id, reserved=0, request_key=request_key
+        )
         ids = {s["segment_id"] for s in segments if s.get("is_final")}
         known = {t["id"] for t in trackers}
         if any(
@@ -1116,7 +1128,6 @@ class Application(Service):
         with self.db.transaction() as session:
             note = next(r for r in self.scoped(session, "notes", p) if r.external_key == call_id)
             update(note, semantic_trackers=result.data["matches"])
-        self.usage(p, "openai", "semantic_tracker", result, object_id=call_id, reserved=0)
 
     def host_id(self):
         path = self.settings.data_dir / "host-id"

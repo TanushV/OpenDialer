@@ -23,6 +23,7 @@ from app.optimization.learning import (
     stable_control,
 )
 from app.optimization.numbering import select_number
+from app.privacy import event_metadata
 from app.providers.simulated import SimulatedCarrier, UncertainCarrierResult
 from app.providers.telnyx import TelnyxCarrier
 from app.scheduling.policy import rank_candidates
@@ -45,6 +46,9 @@ class Service:
         self.simulated_carrier = carrier or SimulatedCarrier()
         self.vault = Vault(settings.data_dir, settings.secret_key)
         self.jobs = JobQueue(db, clock)
+        from app.privacy import EphemeralBuffer
+
+        self.raw = EphemeralBuffer(clock=clock)
         from app.coaching.engine import CoachEngine
 
         self.coach = CoachEngine()
@@ -426,7 +430,11 @@ class Service:
         daily = monthly = 0.0
         for usage in self.scoped(s, "usage_ledger", p):
             at = dt(usage.data["at"])
-            cost = float(usage.data.get("reserved_usd", usage.data.get("cost_usd", 0)))
+            cost = float(
+                usage.data.get("cost_usd")
+                if usage.data.get("cost_usd") is not None
+                else usage.data.get("reserved_usd") or 0
+            )
             if at.date() == now.date():
                 daily += cost
             if at.year == now.year and at.month == now.month:
@@ -1229,7 +1237,8 @@ class Service:
                     "call_id": call_id,
                     "event_type": event_type,
                     "hash": hashed,
-                    "payload": payload,
+                    "payload": event_metadata(payload),
+                    "effects_complete": False,
                     "received_at": self.clock().isoformat(),
                 },
                 key=event_id,
