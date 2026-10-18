@@ -197,3 +197,39 @@ async def test_cancel_resistant_work_still_counts_against_capacity():
     finally:
         release.set()
         await asyncio.gather(old, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_one_rep_cannot_fill_the_shared_queue_with_practice_requests():
+    engine, entered, release = CoachEngine(), asyncio.Event(), asyncio.Event()
+
+    class Provider:
+        async def suggest(self, request, **kwargs):
+            entered.set()
+            if request.get("hold"):
+                await release.wait()
+            return {"action": "SHOW_CARD"}
+
+    tasks = []
+    try:
+        for i in range(2):
+            tasks.append(
+                asyncio.create_task(
+                    engine.suggest(
+                        str(i),
+                        {"hold": True},
+                        Provider(),
+                        FALLBACK,
+                        owner_key="rep-a",
+                    )
+                )
+            )
+        await asyncio.wait_for(entered.wait(), 0.5)
+        await asyncio.sleep(0)
+        denied = await engine.suggest("practice-3", {}, Provider(), FALLBACK, owner_key="rep-a")
+        assert denied["action"] == "NO_ACTION" and denied["status"] == "busy"
+        allowed = await engine.suggest("other", {}, Provider(), FALLBACK, owner_key="rep-b")
+        assert allowed["action"] == "SHOW_CARD"
+    finally:
+        release.set()
+        await asyncio.gather(*tasks, return_exceptions=True)

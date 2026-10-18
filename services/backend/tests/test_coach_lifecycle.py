@@ -164,7 +164,10 @@ async def test_automatic_wait_for_manual_help_is_not_billed_and_is_rescheduled(
 
 
 @pytest.mark.asyncio
-async def test_cancel_during_budget_storage_releases_proven_unsent_hold(workspace, app, monkeypatch):
+@pytest.mark.parametrize("cancellations", [1, 2])
+async def test_cancel_during_budget_storage_releases_proven_unsent_hold(
+    workspace, app, monkeypatch, cancellations
+):
     call, p, requests, _ = setup(workspace, app, monkeypatch)
     service, entered, release = app.state.service, threading.Event(), threading.Event()
     turn(service, p, call, "budget-storage")
@@ -180,6 +183,10 @@ async def test_cancel_during_budget_storage_releases_proven_unsent_hold(workspac
     try:
         assert await asyncio.to_thread(entered.wait, 2)
         task.cancel()
+        if cancellations == 2:
+            await asyncio.sleep(0.02)
+            task.cancel()
+            await asyncio.sleep(0.02)
         release.set()
         await asyncio.gather(task, return_exceptions=True)
         await asyncio.sleep(0.05)
