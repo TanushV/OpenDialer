@@ -257,3 +257,65 @@ async def test_practice_retry_reuses_original_request_and_never_extends_raw_expi
     finally:
         release.set()
         await asyncio.gather(task, return_exceptions=True)
+
+
+def test_new_source_revision_can_be_reviewed_without_reactivating_old_example(workspace, app):
+    call, p = source(workspace, app)
+    first = publish(workspace, call)
+    assert first.status_code == 200
+    service = app.state.service
+    turn(service, p, call, "lesson", revision=2, text="The actual process has a different owner.")
+    with service.db.transaction() as s:
+        state = service._by_key(s, p, "conversation_states", call["id"])
+        update(
+            state,
+            coaching_points=[
+                {
+                    "id": "tip-1",
+                    "text": "Confirm the decision owner's responsibilities.",
+                    "status": "confirmed",
+                    "evidence_revisions": {"lesson": 2},
+                    "evidence_segment_ids": ["lesson"],
+                }
+            ],
+        )
+    second = publish(workspace, call, expected_transcript_version=2)
+    assert second.status_code == 200, second.text
+    assert second.json()["id"] != first.json()["id"]
+    current = workspace["client"].get("/v1/coaching", headers=workspace["headers"]).json()["examples"]
+    assert [item["id"] for item in current] == [second.json()["id"]]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("boundary", ["withdraw", "knowledge", "correct"])
+async def test_practice_does_not_return_help_from_a_changed_knowledge_source(
+    workspace, app, monkeypatch, boundary
+):
+    call, p = source(workspace, app)
+    published = publish(workspace, call)
+    assert published.status_code == 200
+    example = published.json()
+    service = app.state.service
+
+    class Provider:
+        last_usage, last_request_id = {"cost": 0.001}, "practice-source-boundary"
+
+        async def suggest(self, request, **kwargs):
+            with service.db.transaction() as s:
+                if boundary == "withdraw":
+                    update(get(s, "snippets", example["id"]), approved=False)
+                elif boundary == "knowledge":
+                    update(
+                        service.approved_playbook(s, p),
+                        product_description="The product offering has changed.",
+                    )
+            if boundary == "correct":
+                turn(service, p, call, "lesson", revision=2, text="The earlier description was incorrect.")
+            result = advice(0)
+            result["evidence_segment_ids"] = []
+            return result
+
+    monkeypatch.setattr(service.settings, "simulation", False)
+    monkeypatch.setattr(service, "configured_coach", lambda _: (Provider(), "openrouter"))
+    result = await service.practice(p, "How should I clarify procurement ownership?")
+    assert result["status"] != "ready" and "guidance" not in result
