@@ -40,3 +40,75 @@ test("conversation learning is honest about sparse evidence and saves reviewed a
     "Purchasing signoff → Procurement approval",
   );
 });
+
+test("the rep can retract an interpreted response without editing the transcript", async ({
+  page,
+}) => {
+  let retracted = false;
+  await page.route("**/v1/calls/*/analysis", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.observations = [
+      {
+        id: "fixture-observation",
+        version: retracted ? 2 : 1,
+        concept: "Procurement approval",
+        approach: "Clarify approval steps",
+        status: retracted ? "retracted" : "active",
+        review_status: "model_reviewed",
+        observed_at: new Date().toISOString(),
+        evidence: ["expired-source"],
+      },
+    ];
+    await route.fulfill({ response, json: body });
+  });
+  await page.route(
+    "**/observations/fixture-observation/review",
+    async (route) => {
+      expect(route.request().postDataJSON()).toEqual({
+        expected_version: 1,
+        decision: "retract",
+        reason: "The approach was not used in this call.",
+      });
+      retracted = true;
+      await route.fulfill({ json: { status: "retracted" } });
+    },
+  );
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await page.getByRole("button", { name: "Go ready", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Get next lead", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Start call", exact: true }).click();
+  await page.getByRole("button", { name: "Hang up", exact: true }).click();
+  await page.getByLabel("Disposition").selectOption("no_answer");
+  await page.getByRole("button", { name: "Save outcome", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Pause dialing", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Review", exact: true }).click();
+  await page
+    .getByRole("button", { name: /^Review call / })
+    .first()
+    .click();
+  const section = page.getByRole("region", {
+    name: "Conversation observations",
+    exact: true,
+  });
+  await expect(section).toContainText("Clarify approval steps");
+  await section
+    .getByLabel("Observation review reason")
+    .fill("The approach was not used in this call.");
+  await section.getByRole("button", { name: "Retract observation" }).click();
+  await expect(section).toContainText("Retracted");
+  expect(retracted).toBe(true);
+});

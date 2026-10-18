@@ -430,3 +430,92 @@ def test_helper_uses_the_frozen_prepared_script_the_rep_is_reading(workspace, ap
         update(row, script_snapshot=script)
     context = service._help_context(p(workspace), call["id"], True, "Can you help?")[0]
     assert context["prepared_script"]["opener"] == script["opener"]
+
+
+def test_multiplicity_widens_intervals_instead_of_reusing_the_default_z():
+    from app.optimization.numbering import wilson
+
+    low, high = wilson(20, 40)
+    wider_low, wider_high = wilson(20, 40, z=3.5)
+    assert wider_low < low < high < wider_high
+
+
+def test_legacy_call_without_snapshot_still_gives_the_helper_a_script_object(workspace, app):
+    from conftest import start
+
+    call = start(workspace)
+    service = app.state.service
+    with service.db.transaction() as s:
+        row = service.required(s, "call_attempts", call["id"], p(workspace))
+        update(row, script_snapshot=None)
+    context = service._help_context(p(workspace), call["id"], True, "Help please")[0]
+    assert isinstance(context["prepared_script"], dict)
+    assert context["prepared_script"]["opener"]
+
+
+def test_transitively_shared_contacts_are_one_independent_unit(clock):
+    rows = cohort(clock, count=40)
+    for index, row in enumerate(rows):
+        row["lead_id"] = f"lead-{index // 2}"
+        row["endpoint_id"] = f"endpoint-{(index + 1) // 2}"
+    assert report(rows, clock)["patterns"] == []
+
+
+def test_background_report_cannot_publish_an_outdated_dataset_after_a_correction(workspace, app, monkeypatch):
+    service = app.state.service
+    original = service.save_operational_dataset
+
+    def changed(principal):
+        dataset = original(principal)
+        with service.db.transaction() as s:
+            campaign = service.required(s, "campaigns", workspace["campaign_id"], principal)
+            update(campaign, conversation_revision=campaign.data.get("conversation_revision", 0) + 1)
+        return dataset
+
+    monkeypatch.setattr(service, "save_operational_dataset", changed)
+    service.refresh_optimization(p(workspace))
+    result = workspace["client"].get("/v1/optimization/conversations", headers=workspace["headers"]).json()
+    assert result["report"]["status"] != "ready"
+
+
+def test_background_report_uses_the_selected_campaign_only(workspace, app, clock, monkeypatch):
+    service = app.state.service
+    other = cohort(clock) + cohort(clock, later=True)
+    for row in other:
+        row["campaign_id"] = "a-different-campaign"
+    monkeypatch.setattr(service, "operational_dataset", lambda *args: other)
+    service.refresh_optimization(p(workspace))
+    result = workspace["client"].get("/v1/optimization/conversations", headers=workspace["headers"]).json()
+    assert result["report"]["patterns"] == []
+
+
+@pytest.mark.asyncio
+async def test_retracted_conversion_marks_old_guidance_stale(workspace, app, monkeypatch, clock):
+    call, _ = observed_call(workspace, app, monkeypatch)
+    c, h = workspace["client"], workspace["headers"]
+    result = c.post(
+        f"/v1/leads/{call['lead_id']}/conversions",
+        headers=h,
+        json={
+            "event_id": "observed-conversion",
+            "kind": "meeting_held",
+            "occurred_at": clock.now.isoformat(),
+            "source_reference": "Rep confirmed",
+            "call_id": call["id"],
+        },
+    )
+    assert result.status_code == 200
+    with app.state.service.db.transaction() as s:
+        campaign = app.state.service.required(s, "campaigns", workspace["campaign_id"], p(workspace))
+        update(campaign, conversation_report={"stale": False, "patterns": []})
+    assert (
+        c.post(
+            f"/v1/leads/{call['lead_id']}/conversions/{result.json()['id']}/retract",
+            headers=h,
+            json={"reason": "Meeting was actually cancelled"},
+        ).status_code
+        == 200
+    )
+    with app.state.service.db.transaction(False) as s:
+        campaign = app.state.service.required(s, "campaigns", workspace["campaign_id"], p(workspace))
+        assert campaign.data["conversation_report"]["stale"]
