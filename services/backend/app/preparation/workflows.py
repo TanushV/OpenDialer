@@ -116,9 +116,8 @@ class Preparation:
             else []
         )
 
-    def selected_script(self, s, p, lead, *, variant_id=None):
-        state = self.preparation_state(s, p, lead)
-        pointer = state.get("script_id")
+    def script_row(self, s, p, lead):
+        pointer = (lead.data.get("preparation") or {}).get("script_id")
         row = s.get(MODELS["script_versions"], pointer) if pointer else None
         if row and (
             row.tenant_id != p["tenant_id"]
@@ -129,6 +128,11 @@ class Preparation:
         if not pointer:
             # Compatibility reader until the legacy workspace migration is verified.
             row = next(iter(self.context_rows(s, p, "script_versions", lead.id, limit=1)), None)
+        return row
+
+    def selected_script(self, s, p, lead, *, variant_id=None):
+        state = self.preparation_state(s, p, lead)
+        row = self.script_row(s, p, lead)
         script = dict(row.data) if row else self.fallback_script(s, p, lead)
         # Validate the script's actual evidence, independently of the latest-facts page.
         facts = self.script_evidence(s, p, lead, script)

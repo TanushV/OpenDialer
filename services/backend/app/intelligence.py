@@ -286,29 +286,44 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             )
 
     async def prepare_one(self, p, lead_id, owner):
-        with self.db.transaction(False) as s:
-            lead = self.required(s, "leads", lead_id, p)
-            domain = lead.data["domain"]
-            existing = [
-                r
-                for r in self.scoped(s, "research_facts", p)
-                if r.data.get("domain") == domain and dt(r.data["expires_at"]) > self.clock()
-            ]
-            data = dict(lead.data)
+        def research_context():
+            with self.db.transaction(False) as session:
+                lead = self.required(session, "leads", lead_id, p)
+                domain = lead.data["domain"]
+                model = MODELS["research_facts"]
+                existing = self.context_rows(
+                    session,
+                    p,
+                    "research_facts",
+                    domain,
+                    model.ctx_status == "supported",
+                    model.ctx_expires_at > self.clock(),
+                    limit=1,
+                )
+                return domain, dict(lead.data), bool(existing)
+
+        domain, data, existing = await asyncio.to_thread(research_context)
         if not existing and domain:
             await self.research_company(p, domain, data)
-        packet = self.packet(p, lead_id)
-        with self.db.transaction(False) as s:
-            lead = self.required(s, "leads", lead_id, p)
-            script = self.fallback_script(s, p, lead)
-            seller_name = self.required(s, "sellers", p["seller_id"], p).data["name"]
-            rep_name = self.required(s, "users", p["user_id"], p).data["name"]
-            template = self.preparation_settings(s, p)["script_template"]
-            source_key = self.preparation_key(s, p, lead)
+        packet = await asyncio.to_thread(self.packet, p, lead_id)
+
+        def inputs():
+            with self.db.transaction(False) as session:
+                lead = self.required(session, "leads", lead_id, p)
+                return (
+                    doc(lead),
+                    self.fallback_script(session, p, lead),
+                    self.required(session, "sellers", p["seller_id"], p).data["name"],
+                    self.required(session, "users", p["user_id"], p).data["name"],
+                    self.preparation_settings(session, p)["script_template"],
+                    self.preparation_key(session, p, lead),
+                )
+
+        lead, script, seller_name, rep_name, template, source_key = await asyncio.to_thread(inputs)
         fallback = dict(script)
         review = None
-        provider = self.inference(p["tenant_id"], "script_write", p["user_id"])
-        config = self.vault.read(p["tenant_id"])
+        provider = await asyncio.to_thread(self.inference, p["tenant_id"], "script_write", p["user_id"])
+        config = await asyncio.to_thread(self.vault.read, p["tenant_id"])
         input_key = hashlib.sha256(
             json.dumps(
                 [
@@ -325,15 +340,23 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 sort_keys=True,
             ).encode()
         ).hexdigest()
-        with self.db.transaction(False) as session:
-            if any(
-                r.data.get("input_cache_key") == input_key for r in self.scoped(session, "script_versions", p)
-            ):
-                return True
+
+        def cached():
+            with self.db.transaction(False) as session:
+                current = self.required(session, "leads", lead_id, p)
+                row = self.script_row(session, p, current)
+                return bool(
+                    row
+                    and row.data.get("input_cache_key") == input_key
+                    and self.preparation_state(session, p, current)["status"] in {"ready", "fallback"}
+                )
+
+        if await asyncio.to_thread(cached):
+            return True
         provider_failed = False
         request_key = "script:" + input_key + ":" + uid()
-        if provider and self.reserve_optional_budget(
-            p, request_key, 0.10, object_id=lead_id, work_kind="script_write"
+        if provider and await asyncio.to_thread(
+            self.reserve_optional_budget, p, request_key, 0.10, object_id=lead_id, work_kind="script_write"
         ):
             try:
                 result = await provider.complete(
@@ -351,12 +374,20 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     },
                     SLOT_SCHEMA if template else SCRIPT_SCHEMA,
                 )
-                self.usage(p, "openai", "script_write", result, object_id=lead_id, request_key=request_key)
+                await asyncio.to_thread(
+                    self.usage,
+                    p,
+                    "openai",
+                    "script_write",
+                    result,
+                    object_id=lead_id,
+                    request_key=request_key,
+                )
                 candidate = (
                     fill(
                         result.data,
                         template,
-                        lead=doc(lead),
+                        lead=lead,
                         seller=seller_name,
                         rep=rep_name,
                         facts=packet["research"]["facts"],
@@ -393,118 +424,137 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             except Exception:
                 provider_failed = True
                 script["prohibited_claim_checks"] = ["Provider result rejected; approved fallback retained"]
-        with self.db.transaction() as s:
-            current_lead = self.required(s, "leads", lead_id, p)
-            lease = current_lead.data.get("preparation_lease") or {}
-            if (
-                self.preparation_key(s, p, current_lead) != source_key
-                or lease.get("owner") != owner
-                or dt(lease["expires_at"]) <= self.clock()
-            ):
-                return False
-            if not script.get("fallback"):
-                try:
-                    current_facts = []
-                    for fact_id in script.get("fact_ids_used", []):
-                        fact = get(s, "research_facts", fact_id, p["tenant_id"])
-                        if not fact or fact.seller_id != p["seller_id"]:
-                            raise ValidationFailure("Source was removed")
-                        current_facts.append(doc(fact))
-                    if template:
-                        fill(
-                            result.data,
-                            template,
-                            lead=doc(current_lead),
-                            seller=seller_name,
-                            rep=rep_name,
-                            facts=current_facts,
+
+        def publish(script, provider_failed):
+            with self.db.transaction() as s:
+                current_lead = self.required(s, "leads", lead_id, p)
+                lease = current_lead.data.get("preparation_lease") or {}
+                if (
+                    self.preparation_key(s, p, current_lead) != source_key
+                    or lease.get("owner") != owner
+                    or dt(lease["expires_at"]) <= self.clock()
+                ):
+                    return False
+                if not script.get("fallback"):
+                    try:
+                        current_facts = []
+                        for fact_id in script.get("fact_ids_used", []):
+                            fact = get(s, "research_facts", fact_id, p["tenant_id"])
+                            if not fact or fact.seller_id != p["seller_id"]:
+                                raise ValidationFailure("Source was removed")
+                            current_facts.append(doc(fact))
+                        if template:
+                            fill(
+                                result.data,
+                                template,
+                                lead=doc(current_lead),
+                                seller=seller_name,
+                                rep=rep_name,
+                                facts=current_facts,
+                            )
+                        validate_script(
+                            script,
+                            current_facts,
+                            domain,
+                            seller_name,
+                            self.clock(),
+                            approved=script if template else fallback,
+                            review=review,
                         )
-                    validate_script(
-                        script,
-                        current_facts,
-                        domain,
-                        seller_name,
-                        self.clock(),
-                        approved=script if template else fallback,
-                        review=review,
+                        script["evidence_versions"] = {
+                            fact["fact_id"]: fact["version"] for fact in current_facts
+                        }
+                    except (ValueError, KeyError, TypeError):
+                        script = dict(fallback)
+                        provider_failed = True
+                        script["prohibited_claim_checks"] = [
+                            "Source changed during preparation; approved fallback retained"
+                        ]
+                previous = self.script_row(s, p, current_lead)
+                cache_key = hashlib.sha256(
+                    json.dumps(
+                        [input_key, script["opener"], uid() if provider_failed else None],
+                        sort_keys=True,
+                    ).encode()
+                ).hexdigest()
+                obj = self._by_key(s, p, "script_versions", cache_key)
+                if not obj:
+                    version = uid()
+                    script.update(
+                        script_version=version,
+                        input_cache_key=input_key
+                        if not provider_failed and (not provider or not script.get("fallback"))
+                        else None,
+                        prompt_version="template-slots-v1" if template else "script-v2",
+                        created_at=self.clock().isoformat(),
+                        previous_version=previous.id if previous else None,
+                        diff={
+                            "previous_opener": previous.data["opener"] if previous else None,
+                            "opener": script["opener"],
+                        },
                     )
-                    script["evidence_versions"] = {fact["fact_id"]: fact["version"] for fact in current_facts}
-                except (ValueError, KeyError, TypeError):
-                    script = dict(fallback)
-                    provider_failed = True
-                    script["prohibited_claim_checks"] = [
-                        "Source changed during preparation; approved fallback retained"
-                    ]
-            versions = [r for r in self.scoped(s, "script_versions", p) if r.data["lead_id"] == lead_id]
-            previous = max(versions, key=lambda r: r.created_at, default=None)
-            cache_key = hashlib.sha256(
-                json.dumps(
-                    [input_key, script["opener"], uid() if provider_failed else None],
-                    sort_keys=True,
-                ).encode()
-            ).hexdigest()
-            if any(r.external_key == cache_key for r in versions):
-                return True
-            version = uid()
-            script.update(
-                script_version=version,
-                input_cache_key=input_key
-                if not provider_failed and (not provider or not script.get("fallback"))
-                else None,
-                prompt_version="template-slots-v1" if template else "script-v2",
-                created_at=self.clock().isoformat(),
-                previous_version=previous.id if previous else None,
-                diff={
-                    "previous_opener": previous.data["opener"] if previous else None,
-                    "opener": script["opener"],
-                },
-            )
-            obj = put(
-                s,
-                "script_versions",
-                p["tenant_id"],
-                p["seller_id"],
-                script,
-                object_id=version,
-                key=cache_key,
-                now=self.clock(),
-            )
-            update(
-                current_lead,
-                preparation={
-                    "status": "failed" if provider_failed else "fallback" if script["fallback"] else "ready",
-                    "script_id": version,
-                    "key": source_key,
-                    "as_of": self.clock().isoformat(),
-                    "expires_at": min(
-                        (f["expires_at"] for f in packet["research"]["facts"]),
-                        default=(self.clock() + timedelta(days=1)).isoformat(),
-                    ),
-                    "attempt": current_lead.data.get("preparation", {}).get("attempt", 0) + 1,
-                },
-            )
-            emit(s, p["tenant_id"], "lead.packet_ready", obj, self.clock(), {"lead_id": lead_id})
-        return not provider_failed
+                    obj = put(
+                        s,
+                        "script_versions",
+                        p["tenant_id"],
+                        p["seller_id"],
+                        script,
+                        object_id=version,
+                        key=cache_key,
+                        now=self.clock(),
+                    )
+                update(
+                    current_lead,
+                    preparation={
+                        "status": "failed"
+                        if provider_failed
+                        else "fallback"
+                        if script["fallback"]
+                        else "ready",
+                        "script_id": obj.id,
+                        "key": source_key,
+                        "as_of": self.clock().isoformat(),
+                        "expires_at": min(
+                            (f["expires_at"] for f in packet["research"]["facts"]),
+                            default=(self.clock() + timedelta(days=1)).isoformat(),
+                        ),
+                        "attempt": current_lead.data.get("preparation", {}).get("attempt", 0) + 1,
+                    },
+                )
+                emit(s, p["tenant_id"], "lead.packet_ready", obj, self.clock(), {"lead_id": lead_id})
+            return not provider_failed
+
+        return await asyncio.to_thread(publish, script, provider_failed)
 
     async def research_company(self, p, domain, lead):
         # Durable single-flight claim per tenant/domain. Stale work may be reclaimed after bounded lease.
-        with self.db.transaction() as s:
-            company = next((r for r in self.scoped(s, "companies", p) if r.external_key == domain), None)
-            if company and company.data.get("lease_until") and dt(company.data["lease_until"]) > self.clock():
-                return
-            if not company:
-                company = put(
-                    s,
-                    "companies",
-                    p["tenant_id"],
-                    p["seller_id"],
-                    {"domain": domain},
-                    key=domain,
-                    now=self.clock(),
-                )
-            update(company, lease_until=(self.clock() + timedelta(minutes=3)).isoformat())
-            if not self.budget_ok(s, p, 0.05):
-                return
+        def claim():
+            with self.db.transaction() as s:
+                company = self._by_key(s, p, "companies", domain)
+                if (
+                    company
+                    and company.data.get("lease_until")
+                    and dt(company.data["lease_until"]) > self.clock()
+                ):
+                    return
+                if not company:
+                    company = put(
+                        s,
+                        "companies",
+                        p["tenant_id"],
+                        p["seller_id"],
+                        {"domain": domain},
+                        key=domain,
+                        now=self.clock(),
+                    )
+                update(company, lease_until=(self.clock() + timedelta(minutes=3)).isoformat())
+                if not self.budget_ok(s, p, 0.05):
+                    return
+                return company.id
+
+        company_id = await asyncio.to_thread(claim)
+        if not company_id:
+            return
         source_data, extracted = [], []
         if self.settings.simulation:
             source_id = uid()
@@ -524,13 +574,16 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 }
             ]
         else:
-            provider = self.inference(p["tenant_id"], "research_extract", p["user_id"])
+            provider = await asyncio.to_thread(
+                self.inference, p["tenant_id"], "research_extract", p["user_id"]
+            )
             request_key = "research:" + domain + ":" + self.clock().date().isoformat() + ":" + uid()
-            if provider and self.reserve_optional_budget(
+            if provider and await asyncio.to_thread(
+                self.reserve_optional_budget,
                 p,
                 request_key,
                 0.10,
-                object_id=company.id,
+                object_id=company_id,
                 work_kind="research_extract",
             ):
                 try:
@@ -542,74 +595,81 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                         RESEARCH_SCHEMA,
                     )
                     extracted = result.data.get("facts", [])
-                    self.usage(
+                    await asyncio.to_thread(
+                        self.usage,
                         p,
                         "openai",
                         "research_extract",
                         result,
-                        object_id=company.id,
+                        object_id=company_id,
                         reserved=0.05,
                         request_key=request_key,
                     )
                 except Exception:
                     extracted = []
-        with self.db.transaction() as s:
-            for source in source_data:
-                put(
-                    s,
-                    "research_sources",
-                    p["tenant_id"],
-                    p["seller_id"],
-                    {
-                        "domain": domain,
-                        "url": source["url"],
-                        "title": source["title"],
-                        "retrieved_at": self.clock().isoformat(),
-                        "content_hash": hashlib.sha256(source["text"].encode()).hexdigest(),
-                        "text": source["text"],
-                        "synthetic": self.settings.simulation,
-                    },
-                    object_id=source["id"],
-                    now=self.clock(),
+
+        def publish():
+            with self.db.transaction() as s:
+                for source in source_data:
+                    put(
+                        s,
+                        "research_sources",
+                        p["tenant_id"],
+                        p["seller_id"],
+                        {
+                            "domain": domain,
+                            "url": source["url"],
+                            "title": source["title"],
+                            "retrieved_at": self.clock().isoformat(),
+                            "content_hash": hashlib.sha256(source["text"].encode()).hexdigest(),
+                            "text": source["text"],
+                            "synthetic": self.settings.simulation,
+                        },
+                        object_id=source["id"],
+                        now=self.clock(),
+                    )
+                for fact in extracted:
+                    source = next((v for v in source_data if v["id"] == fact.get("source_id")), None)
+                    if (
+                        not source
+                        or not fact.get("quote")
+                        or fact["quote"].casefold() not in source["text"].casefold()
+                    ):
+                        continue
+                    if re.search(
+                        r"\b(rank(?:ing)?|traffic|ad spend|revenue)\b", fact.get("statement", ""), re.I
+                    ):
+                        continue
+                    fact_id = uid()
+                    put(
+                        s,
+                        "research_facts",
+                        p["tenant_id"],
+                        p["seller_id"],
+                        {
+                            "fact_id": fact_id,
+                            "domain": domain,
+                            "entity_domain": domain,
+                            "statement": fact["statement"],
+                            "source_id": source["id"],
+                            "source_url": source["url"],
+                            "source_date": None,
+                            "entity_match": "confirmed_company_domain",
+                            "status": "supported",
+                            "evidence_quote": fact["quote"],
+                            "expires_at": (self.clock() + timedelta(days=30)).isoformat(),
+                            "synthetic": self.settings.simulation,
+                        },
+                        object_id=fact_id,
+                        now=self.clock(),
+                    )
+                update(
+                    self.required(s, "companies", company_id, p),
+                    lease_until=None,
+                    researched_at=self.clock().isoformat(),
                 )
-            for fact in extracted:
-                source = next((v for v in source_data if v["id"] == fact.get("source_id")), None)
-                if (
-                    not source
-                    or not fact.get("quote")
-                    or fact["quote"].casefold() not in source["text"].casefold()
-                ):
-                    continue
-                if re.search(r"\b(rank(?:ing)?|traffic|ad spend|revenue)\b", fact.get("statement", ""), re.I):
-                    continue
-                fact_id = uid()
-                put(
-                    s,
-                    "research_facts",
-                    p["tenant_id"],
-                    p["seller_id"],
-                    {
-                        "fact_id": fact_id,
-                        "domain": domain,
-                        "entity_domain": domain,
-                        "statement": fact["statement"],
-                        "source_id": source["id"],
-                        "source_url": source["url"],
-                        "source_date": None,
-                        "entity_match": "confirmed_company_domain",
-                        "status": "supported",
-                        "evidence_quote": fact["quote"],
-                        "expires_at": (self.clock() + timedelta(days=30)).isoformat(),
-                        "synthetic": self.settings.simulation,
-                    },
-                    object_id=fact_id,
-                    now=self.clock(),
-                )
-            update(
-                self.required(s, "companies", company.id, p),
-                lease_until=None,
-                researched_at=self.clock().isoformat(),
-            )
+
+        await asyncio.to_thread(publish)
 
     def configured_coach(self, p):
         conf = self.vault.read(p["tenant_id"])

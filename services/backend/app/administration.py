@@ -1,3 +1,5 @@
+import asyncio
+import base64
 import hashlib
 import json
 import os
@@ -15,7 +17,7 @@ from app.reporting import ReportProjections
 from app.service import dt, fail
 from app.telephony.callbacks import InboundCallbacks
 from app.telephony.ingress import WebhookIngress
-from app.telephony.recovery import CommandRecovery
+from app.telephony.recovery import CommandRecovery, call_receipt
 from app.telephony.recovery_actions import RecoveryActions
 from app.telephony.reducer import TERMINAL
 from app.telephony.workflows import TelephonyWorkflows
@@ -301,8 +303,11 @@ class Dialer(
                             "data": persistent_document(kind, r.data, legacy=True),
                             "external_key": r.external_key,
                             "version": r.version,
+                            "created_at": r.created_at.isoformat(),
                         }
-                        for r in rows(s, kind, p["tenant_id"])
+                        for r in (
+                            rows(s, kind, p["tenant_id"]) if kind == "tenants" else self.scoped(s, kind, p)
+                        )
                     ]
                     for kind in MODELS
                     if kind != "report_projections"
@@ -327,7 +332,11 @@ class Dialer(
         if not path.exists():
             fail(404, "Backup not found")
         payload = json.loads(self.vault.cipher.decrypt(path.read_bytes()))
-        if payload["tenant_id"] != p["tenant_id"] or payload.get("schema") != 1:
+        if (
+            payload["tenant_id"] != p["tenant_id"]
+            or payload.get("seller_id") != p["seller_id"]
+            or payload.get("schema") != 1
+        ):
             fail(403, "Backup identity or schema mismatch")
         # The installed schema predates observed work intervals; report caches are disposable.
         optional = {"work_intervals", "report_projections"}
@@ -339,7 +348,33 @@ class Dialer(
             if journal.exists()
             else []
         )
+        for kind, values in payload.get("tables", {}).items():
+            if kind not in MODELS or any(
+                raw.get("tenant_id") != p["tenant_id"]
+                or raw.get("seller_id") != ("" if kind == "tenants" else p["seller_id"])
+                for raw in values
+            ):
+                fail(422, "Backup contains records outside this seller's authority")
         with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
+            self._restore_operator(s, p)
+            # Preserve newer denials and append-only audit records across rollback.
+            denials = {
+                kind: [
+                    {
+                        "id": r.id,
+                        "tenant_id": r.tenant_id,
+                        "seller_id": r.seller_id,
+                        "data": dict(r.data),
+                        "external_key": r.external_key,
+                        "version": r.version,
+                        "created_at": r.created_at.isoformat(),
+                    }
+                    for r in self.scoped(s, kind, p)
+                    if (r.data.get("active", True) if kind == "suppressions" else r.data.get("revoked"))
+                ]
+                for kind in ("suppressions", "consent_evidence")
+            }
             # Preserve append-only current audit events even when restoring older business state.
             current_audit = [
                 {
@@ -349,34 +384,65 @@ class Dialer(
                     "data": r.data,
                     "external_key": r.external_key,
                     "version": r.version,
+                    "created_at": r.created_at.isoformat(),
                 }
                 for r in self.scoped(s, "audit_events", p)
             ]
             for kind, model in MODELS.items():
-                s.execute(delete(model).where(model.tenant_id == p["tenant_id"]))
+                if kind in {"tenants", "users", "memberships", "sessions"}:
+                    # Restore business state, never old access grants, passwords or sessions.
+                    continue
+                created = {r.id: r.created_at for r in self.scoped(s, kind, p)}
+                s.execute(
+                    delete(model).where(model.tenant_id == p["tenant_id"], model.seller_id == p["seller_id"])
+                )
                 values = [] if kind == "report_projections" else payload["tables"].get(kind, [])
                 if kind == "audit_events":
                     values = list({r["id"]: r for r in [*values, *current_audit]}.values())
+                if kind in denials:
+                    current = {r["external_key"] or r["id"]: r for r in denials[kind]}
+                    values = list({**{r["external_key"] or r["id"]: r for r in values}, **current}.values())
                 for raw in values:
-                    s.add(model(**{**raw, "data": persistent_document(kind, raw["data"], legacy=True)}))
-            s.execute(delete(ActiveClaim).where(ActiveClaim.tenant_id == p["tenant_id"]))
+                    s.add(
+                        model(
+                            **{
+                                **raw,
+                                "data": persistent_document(kind, raw["data"], legacy=True),
+                                "created_at": dt(raw["created_at"])
+                                if raw.get("created_at")
+                                else created.get(raw["id"], dt(payload["at"])),
+                            }
+                        )
+                    )
+            s.execute(
+                delete(ActiveClaim).where(
+                    ActiveClaim.tenant_id == p["tenant_id"], ActiveClaim.seller_id == p["seller_id"]
+                )
+            )
             s.flush()
+            suppressions = {r.data["phone"]: r for r in self.scoped(s, "suppressions", p)}
             for entry in events:
-                if entry["tenant_id"] != p["tenant_id"]:
+                if entry["tenant_id"] != p["tenant_id"] or entry.get("seller_id") != p["seller_id"]:
                     continue
-                if not any(r.data["phone"] == entry["phone"] for r in self.scoped(s, "suppressions", p)):
-                    put(
+                existing = suppressions.get(entry["phone"])
+                if existing and existing.data.get("active") and existing.data.get("permanent"):
+                    continue
+                values = {
+                    "phone": entry["phone"],
+                    "reason": entry["reason"],
+                    "permanent": entry["reason"] != "temporary_hold",
+                    "active": True,
+                    "effective_at": entry["at"],
+                }
+                if existing:
+                    update(existing, **values)
+                else:
+                    suppressions[entry["phone"]] = put(
                         s,
                         "suppressions",
                         p["tenant_id"],
                         p["seller_id"],
-                        {
-                            "phone": entry["phone"],
-                            "reason": entry["reason"],
-                            "permanent": entry["reason"] != "temporary_hold",
-                            "active": True,
-                            "effective_at": entry["at"],
-                        },
+                        values,
                         key=entry["phone"],
                         now=self.clock(),
                     )
@@ -400,58 +466,118 @@ class Dialer(
         self.raw.clear()
         return {"restored": True, "suppression_journal_replayed": len(events), "outbound_paused": True}
 
-    async def reconcile_restore(self, p, review_reference, provider_ids=None):
-        if not review_reference:
-            fail(422, "A reviewed carrier and authorization-journal reconciliation reference is required")
-        journal_path = self.settings.data_dir / "authorization-journal.enc"
-        records = {}
-        if journal_path.exists():
-            for line in journal_path.read_bytes().splitlines():
-                entry = json.loads(self.vault.cipher.decrypt(line))
-                if entry["tenant_id"] == p["tenant_id"] and entry["seller_id"] == p["seller_id"]:
+    def _restore_operator(self, session, p):
+        user = self.required(session, "users", p["user_id"], p)
+        if user.data.get("disabled") or user.data.get("role") not in {"owner", "admin"}:
+            fail(403, "Current administrator authority is required for restore")
+
+    def _restore_journal(self, p):
+        records, fingerprint = {}, hashlib.sha256()
+        path = self.settings.data_dir / "authorization-journal.enc"
+        if path.exists():
+            with path.open("rb") as stream:
+                for line in stream:
+                    entry = json.loads(self.vault.cipher.decrypt(line.strip()))
+                    if entry["tenant_id"] != p["tenant_id"] or entry["seller_id"] != p["seller_id"]:
+                        continue
+                    fingerprint.update(line)
                     previous = records.get(entry["call_id"], {})
                     records[entry["call_id"]] = {
                         **previous,
                         **entry,
                         "provider_id": entry.get("provider_id") or previous.get("provider_id"),
                     }
-        unresolved = []
-        for call_id, entry in records.items():
-            with self.db.transaction(False) as session:
+        return records, fingerprint.hexdigest()
+
+    def _restore_snapshot(self, p, provider_ids):
+        records, fingerprint = self._restore_journal(p)
+        pending = []
+        with self.db.transaction(False) as session:
+            self._restore_operator(session, p)
+            seller_version = self.required(session, "sellers", p["seller_id"], p).version
+            for call_id, entry in records.items():
                 current = get(session, "call_attempts", call_id, p["tenant_id"])
+                if current and current.seller_id != p["seller_id"]:
+                    fail(409, "Journal call belongs to another seller")
+                known = entry.get("provider_id")
+                saved = current.data.get("provider_id") if current else None
+                if known and saved and known != saved:
+                    fail(409, "Saved carrier references conflict; review the original call")
+                known = known or saved
+                supplied = provider_ids.get(call_id)
+                if supplied and known and supplied != known:
+                    fail(409, "Cannot replace an established carrier reference")
                 if current and current.data["state"] in TERMINAL:
                     continue
-            provider_id = (provider_ids or {}).get(call_id) or entry.get("provider_id")
-            receipt = await self.carrier(p["tenant_id"]).reconcile(call_id, provider_id)
-            ended = receipt and (
-                receipt.get("is_alive") is False or receipt.get("state") in {"hangup", "ended", "completed"}
-            )
-            if not ended:
-                unresolved.append(call_id)
-                continue
-            with self.db.transaction() as session:
-                current = get(session, "call_attempts", call_id, p["tenant_id"])
-                if not current:
-                    current = put(
-                        session,
-                        "call_attempts",
-                        p["tenant_id"],
-                        p["seller_id"],
-                        {
-                            **entry["intent"],
-                            "provider_id": receipt.get("call_control_id", provider_id),
-                            "state": "ENDED",
-                            "restore_recovered": True,
-                        },
-                        object_id=call_id,
-                        now=self.clock(),
-                    )
-                else:
-                    self.finish_call(session, p, current, "restored_provider_terminal_receipt")
-        if unresolved:
-            fail(409, {"code": "AUTHORIZATION_RECONCILIATION_PENDING", "call_ids": unresolved})
+                pending.append(
+                    {
+                        "entry": entry,
+                        "target": known or supplied,
+                        "known": bool(known),
+                        "version": current.version if current else None,
+                    }
+                )
+        return pending, records, fingerprint, seller_version
+
+    def _restore_terminal(self, p, item, receipt):
+        entry, target = item["entry"], item["target"]
+        verified = call_receipt(receipt, target, simulation=self.settings.simulation)
+        if not verified or verified[1]:
+            return False
+        if not item["known"] and not self.settings.simulation:
+            try:
+                context = json.loads(base64.b64decode(receipt.get("client_state", "")))
+            except (ValueError, TypeError):
+                context = None
+            if (
+                not isinstance(context, dict)
+                or context.get("call_id") != entry["call_id"]
+                or context.get("tenant_id") != p["tenant_id"]
+            ):
+                return False
         with self.db.transaction() as session:
+            self.db.authorize_stream(session, p)
+            self._restore_operator(session, p)
+            current = get(session, "call_attempts", entry["call_id"], p["tenant_id"])
+            if current:
+                if current.seller_id != p["seller_id"] or current.data.get("provider_id") not in {
+                    None,
+                    verified[0],
+                }:
+                    return False
+                if current.data["state"] in TERMINAL:
+                    return True
+                if current.version != item["version"]:
+                    return False
+                if not current.data.get("provider_id"):
+                    update(current, provider_id=verified[0])
+            elif item["version"] is not None:
+                return False
+            else:
+                current = put(
+                    session,
+                    "call_attempts",
+                    p["tenant_id"],
+                    p["seller_id"],
+                    {
+                        **entry["intent"],
+                        "provider_id": verified[0],
+                        "state": "ENDED",
+                        "restore_recovered": True,
+                    },
+                    object_id=entry["call_id"],
+                    now=self.clock(),
+                )
+            self.finish_call(session, p, current, "restored_provider_terminal_receipt")
+        return True
+
+    def _restore_release(self, p, fingerprint, seller_version, review_reference, count):
+        with self.db.transaction() as session:
+            self.db.authorize_stream(session, p)
+            self._restore_operator(session, p)
             seller = self.required(session, "sellers", p["seller_id"], p)
+            if seller.version != seller_version or self._restore_journal(p)[1] != fingerprint:
+                fail(409, "Restore or authorization journal changed; reconcile again before resuming")
             update(seller, restore_hold=False, restore_review_reference=review_reference)
             audit(
                 session,
@@ -461,10 +587,27 @@ class Dialer(
                 "restore.reconciled",
                 seller.id,
                 self.clock(),
-                {"journal_calls": len(records), "reference": review_reference},
+                {"journal_calls": count, "reference": review_reference},
             )
-        return {
-            "reconciled": True,
-            "journal_calls": len(records),
-            "outbound_remains_paused_until_rep_ready": True,
-        }
+        return {"reconciled": True, "journal_calls": count, "outbound_remains_paused_until_rep_ready": True}
+
+    async def reconcile_restore(self, p, review_reference, provider_ids=None):
+        if not review_reference:
+            fail(422, "A reviewed carrier and authorization-journal reconciliation reference is required")
+        pending, records, fingerprint, seller_version = await asyncio.to_thread(
+            self._restore_snapshot, p, provider_ids or {}
+        )
+        unresolved = []
+        for item in pending:
+            try:
+                provider = await asyncio.to_thread(self.carrier, p["tenant_id"])
+                receipt = await provider.reconcile(item["entry"]["call_id"], item["target"])
+            except Exception:
+                receipt = None
+            if not await asyncio.to_thread(self._restore_terminal, p, item, receipt):
+                unresolved.append(item["entry"]["call_id"])
+        if unresolved:
+            fail(409, {"code": "AUTHORIZATION_RECONCILIATION_PENDING", "call_ids": unresolved})
+        return await asyncio.to_thread(
+            self._restore_release, p, fingerprint, seller_version, review_reference, len(records)
+        )
