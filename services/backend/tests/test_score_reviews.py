@@ -215,3 +215,22 @@ def test_foreign_rep_cannot_review_the_call(workspace, app):
     assert login.status_code == 200, login.text
     scoped = {**workspace, "headers": {"Authorization": f"Bearer {login.json()['access_token']}"}}
     assert submit(scoped, a, body(a)).status_code == 404
+
+
+def test_rating_cannot_resolve_an_appeal_for_another_dimension(workspace, app):
+    a = setup(workspace, app)
+    first = submit(workspace, a, body(a, status="disputed", score=None))
+    current = app.state.service.analysis(p(workspace), a["call"]["id"])
+    response = submit(
+        workspace,
+        current,
+        body(
+            current,
+            request_id="wrong-dimension-resolution",
+            dimension="next_step",
+            resolves_review_id=first.json()["id"],
+        ),
+    )
+    assert response.status_code == 422
+    after = app.state.service.analysis(p(workspace), a["call"]["id"])
+    assert after["reviews"][0]["resolution_id"] is None
