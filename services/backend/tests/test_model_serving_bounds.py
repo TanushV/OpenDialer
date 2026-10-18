@@ -277,3 +277,66 @@ def test_trial_pointer_cannot_cross_its_reviewed_epoch(workspace, app, clock):
         )
     with service.db.transaction(False) as s:
         assert service.serving_model(s, p, service.optimization_config(s, p), lead_id) is None
+
+
+@pytest.mark.parametrize("matching", [True, False])
+def test_trial_enrollment_reads_only_the_original_model_assignment(
+    workspace, app, clock, monkeypatch, matching
+):
+    from app.db import uid
+    from app.optimization.learning import stable_control
+
+    service, p = app.state.service, principal(workspace)
+    lead_id = uid()
+    while stable_control(lead_id):
+        lead_id = uid()
+    with service.db.transaction() as s:
+        campaign = service.scoped(s, "campaigns", p)[0]
+        epoch = campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
+        model = put(
+            s,
+            "model_versions",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "active": False,
+                "trial_active": True,
+                "trial_epoch": epoch,
+                "trial_ends_at": (clock.now + timedelta(days=1)).isoformat(),
+                "goal": "meeting_held",
+            },
+            now=clock.now,
+        )
+        model_id = model.id
+        for i in range(600):
+            put(
+                s,
+                "experiment_assignments",
+                p["tenant_id"],
+                p["seller_id"],
+                {"lead_id": f"other-{i}", "epoch": epoch, "family": "optimization", "arm": "candidate"},
+                key=epoch + f":other-{i}",
+                now=clock.now,
+            )
+        put(
+            s,
+            "experiment_assignments",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "lead_id": lead_id,
+                "epoch": epoch,
+                "family": "optimization",
+                "arm": "candidate",
+                "trial_model_id": model_id if matching else "different-reviewed-model",
+            },
+            key=epoch + ":" + lead_id,
+            now=clock.now,
+        )
+    decrypted = count_decrypted(app, monkeypatch)
+    with service.db.transaction(False) as s:
+        config = service.optimization_config(s, p)
+        for _ in range(20):
+            selected = service.serving_model(s, p, config, lead_id)
+            assert (selected.id if selected else None) == (model_id if matching else None)
+    assert len(decrypted) <= 8, len(decrypted)
