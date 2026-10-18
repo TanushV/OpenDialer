@@ -332,3 +332,66 @@ def test_invalid_page_parameters_and_deleted_cursor_require_reload(workspace, ap
         .status_code
         == 404
     )
+
+
+def test_foreign_job_history_cannot_starve_scoped_pages(workspace, app, clock, monkeypatch):
+    service, p = app.state.service, principal(workspace)
+    own = service.jobs.enqueue(
+        "research",
+        {"seller_id": p["seller_id"], "user_id": p["user_id"]},
+        "own-last",
+        tenant_id=p["tenant_id"],
+    )
+    for i in range(100):
+        clock.now += timedelta(seconds=1)
+        service.jobs.enqueue(
+            "research",
+            {"seller_id": "foreign-seller", "user_id": "foreign-rep"},
+            f"foreign-{i}",
+            tenant_id=p["tenant_id"],
+        )
+    reads = count_decrypted(app, monkeypatch)
+    result = page(workspace, "jobs")
+    assert [j["id"] for j in result["items"]] == [own["id"]]
+    assert result["next_cursor"] is None
+    assert len(reads) < 10
+
+
+@pytest.mark.asyncio
+async def test_time_only_metric_expiry_can_refresh_after_one_minute(workspace, app, clock):
+    snapshot(workspace)
+    await app.state.service.run_jobs(queues=["ml"])
+    previous = snapshot(workspace)["metrics"]
+    clock.now += timedelta(seconds=61)
+    assert snapshot(workspace)["metrics"]["projection"]["status"] == "stale"
+    await app.state.service.run_jobs(queues=["ml"])
+    refreshed = snapshot(workspace)["metrics"]
+    assert refreshed["projection"]["status"] == "ready"
+    assert refreshed["as_of"] != previous["as_of"]
+
+
+def test_job_scope_backfill_preserves_identity_content_and_status(workspace, app):
+    from app.db import Database
+
+    service, p = app.state.service, principal(workspace)
+    job = service.jobs.enqueue(
+        "research",
+        {"seller_id": p["seller_id"], "user_id": p["user_id"], "lead_ids": []},
+        "legacy-page-job",
+        tenant_id=p["tenant_id"],
+    )
+    columns = {c["name"] for c in inspect(service.db.engine).get_columns("jobs")}
+    assert {"seller_id", "owner_id"} <= columns
+    with service.db.transaction() as s:
+        row = s.get(Job, job["id"])
+        row.seller_id, row.owner_id = None, None
+    reopened = Database(service.settings.database_url, service.settings.secret_key)
+    try:
+        with reopened.transaction(False) as s:
+            row = s.get(Job, job["id"])
+            assert row.payload == job["payload"]
+            assert row.status == job["status"]
+            assert row.seller_id == p["seller_id"]
+            assert row.owner_id == p["user_id"]
+    finally:
+        reopened.engine.dispose()
