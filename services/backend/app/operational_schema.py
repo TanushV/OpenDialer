@@ -2,6 +2,7 @@
 
 import hashlib
 import hmac
+import json
 from datetime import UTC, datetime
 
 from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, String, inspect, text
@@ -103,7 +104,20 @@ def indexes(name):
         ),
         Index(f"ix_{name}_lead", "tenant_id", "seller_id", "op_lead_id", "op_at"),
         Index(f"ix_{name}_time", "tenant_id", "seller_id", "op_at"),
+        *(
+            (Index("ix_usage_ledger_receipt", "tenant_id", "seller_id", "op_provider_id"),)
+            if name == "usage_ledger"
+            else ()
+        ),
     )
+
+
+def receipt_key(provider, request_id, secret):
+    if not provider or not request_id:
+        return None
+    return hmac.new(
+        secret, json.dumps([provider, request_id], separators=(",", ":")).encode(), hashlib.sha256
+    ).hexdigest()
 
 
 def as_time(value):
@@ -147,6 +161,9 @@ def sync_columns(row, lookup_key=None):
     row.op_index_version = 1
     if row.__tablename__ == "command_outbox":
         row.op_kind = data.get("kind")
+        row.op_index_version = 2
+    if row.__tablename__ == "usage_ledger":
+        row.op_provider_id = receipt_key(data.get("provider"), data.get("request_id"), lookup_key)
         row.op_index_version = 2
 
 

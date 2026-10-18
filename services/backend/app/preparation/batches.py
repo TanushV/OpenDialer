@@ -8,7 +8,7 @@ from datetime import timedelta
 from fastapi import Depends
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.db import doc, emit, get, put, uid, update
+from app.db import audit, doc, emit, get, put, uid, update
 from app.grounding import ReviewReceipt, review_generated
 from app.intelligence import SCRIPT_SCHEMA
 from app.preparation.templates import SLOT_SCHEMA, fill
@@ -100,16 +100,17 @@ def register_batches(app, service, administrator):
                     fail(409, "Idempotency key belongs to another batch")
                 return doc(prior)
         contexts, requests = await asyncio.to_thread(build_requests, service, p, lead_ids, conf)
-        if not await asyncio.to_thread(
-            service.reserve_optional_budget, p, key, 0.10 * len(lead_ids), work_kind="script_batch"
-        ):
-            fail(403, "BUDGET_EXHAUSTED")
         with db.transaction() as s:
             service.db.authorize_stream(s, p)
             # Recheck after preparation outside the transaction.
             prior = next((r for r in service.scoped(s, "command_outbox", p) if r.external_key == key), None)
             if prior:
                 return doc(prior)
+            intent_id = uid()
+            if not service.reserve_budget_in(
+                s, p, key, 0.10 * len(lead_ids), object_id=intent_id, work_kind="script_batch"
+            ):
+                fail(403, "BUDGET_EXHAUSTED")
             intent = put(
                 s,
                 "command_outbox",
@@ -123,6 +124,7 @@ def register_batches(app, service, administrator):
                     "submitted_at": clock().isoformat(),
                     "model": requests[0]["body"]["model"],
                 },
+                object_id=intent_id,
                 key=key,
                 now=clock(),
             )
@@ -166,6 +168,38 @@ def register_batches(app, service, administrator):
             fail(409, "Batch response identity does not match the persisted request")
         if result["status"] not in {"completed", "expired", "cancelled", "failed"}:
             return {"status": result["status"], "published": [], "retry_lead_ids": []}
+
+        # Installed releases reserved Batch costs before assigning the intent ID.
+        # Repair only this exact original key after the carrier-independent batch
+        # receipt matches; never guess among another object's reservations.
+        def bind_legacy_hold():
+            with db.transaction() as s:
+                db.authorize_stream(s, p)
+                current = service.required(s, "command_outbox", intent_id, p)
+                if (
+                    current.external_key != value["request_key"]
+                    or current.data.get("provider_batch_id") != result["id"]
+                ):
+                    fail(409, "Batch identity changed during reconciliation")
+                hold = service._request_hold(s, p, current.external_key)
+                if (
+                    hold
+                    and hold.data.get("object_id") is None
+                    and hold.data.get("work_kind") == "script_batch"
+                ):
+                    update(hold, object_id=current.id)
+                    audit(
+                        s,
+                        p["tenant_id"],
+                        p["seller_id"],
+                        p["user_id"],
+                        "batch.legacy_budget_bound",
+                        current.id,
+                        clock(),
+                        {"usage_id": hold.id},
+                    )
+
+        await asyncio.to_thread(bind_legacy_hold)
         try:
             joined = join_batch_results(value["contexts"], result.get("results", []))
         except ValueError:

@@ -587,6 +587,18 @@ class InboundCallbacks:
                 else len(DEFAULT_MESSAGE) * COSTS["callbacks"]["standard_tts_per_character_usd"]
             )
             key = "inbound:" + command.id
+            hold = self._request_hold(s, p, key)
+            if (
+                data.get("sent_at")
+                and hold
+                and hold.data.get("object_id") == task.id
+                and hold.data.get("work_kind") == "callback_" + data["action"]
+                and hold.data.get("provider") == "telnyx"
+                and hold.data.get("status") in {"uncertain", "submitted", "settled"}
+            ):
+                # dispatch_controls already verified the original target and bounded
+                # deduplication window. This reuses an effect, never authorizes a new one.
+                return True
             if not self.reserve_budget_in(
                 s, p, key, estimate, object_id=task.id, work_kind="callback_" + data["action"]
             ):
@@ -605,7 +617,7 @@ class InboundCallbacks:
                 )
                 self._inbound_command(s, p, task, "hangup", suffix="inbound-budget-end")
                 return False
-            hold = next(r for r in self.scoped(s, "usage_ledger", p) if r.data.get("request_key") == key)
+            hold = self._request_hold(s, p, key)
             update(
                 hold,
                 provider="telnyx",

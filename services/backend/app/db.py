@@ -338,7 +338,7 @@ class Database:
             model = MODELS[kind]
             version = model.op_index_version if kind in HOT_TABLES else model.ctx_index_version
             outdated = version.is_(None)
-            if kind == "command_outbox":
+            if kind in {"command_outbox", "usage_ledger"}:
                 outdated = outdated | (version < 2)
             while True:
                 with self.transaction() as s:
