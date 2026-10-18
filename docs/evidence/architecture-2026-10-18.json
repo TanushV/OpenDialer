@@ -1,0 +1,515 @@
+{
+  "date": "2026-10-18",
+  "reviewed_commit": "6611d3c2fb486b0aac65df2bb42e20663457552a",
+  "baseline_commit": "2bad067c20d23bce84b78538ab00ef009b4c7e9f",
+  "method": "Python AST; own function body excludes nested function/class bodies. Decision nodes and Boolean edges are custom structural indicators, not certified cyclomatic complexity. No runtime execution.",
+  "scope": "Production services/backend/app Python and apps/desktop/src TS/TSX, excluding TypeScript .test. files and .d.ts declarations. Physical lines include blank lines and comments. Native Rust, CSS, migrations, tests and tooling are outside these counts.",
+  "production_source_tree_sha256": "dc880455671e4d76c66cae70d63b7971fd3042b23198c9d3d5e0025c5263da88",
+  "python": {
+    "2bad067": {
+      "files": 51,
+      "lines": 10434,
+      "functions": 346,
+      "functions_at_least_100_own_lines": 12,
+      "median_own_lines": 14.0,
+      "scoped_read_sites": 163,
+      "groups": {
+        "(root)": 5357,
+        "coaching": 401,
+        "compliance": 187,
+        "jobs": 120,
+        "ml": 239,
+        "optimization": 2180,
+        "postcall": 201,
+        "preparation": 222,
+        "providers": 786,
+        "research": 126,
+        "scheduling": 102,
+        "telephony": 513
+      }
+    },
+    "current": {
+      "files": 88,
+      "lines": 23672,
+      "functions": 844,
+      "functions_at_least_100_own_lines": 29,
+      "median_own_lines": 14.0,
+      "scoped_read_sites": 122,
+      "groups": {
+        "(root)": 9291,
+        "coaching": 2053,
+        "compliance": 1385,
+        "jobs": 140,
+        "ml": 531,
+        "optimization": 3694,
+        "postcall": 1217,
+        "preparation": 1215,
+        "providers": 1093,
+        "research": 179,
+        "scheduling": 598,
+        "telephony": 2276
+      }
+    }
+  },
+  "python_parse_errors": 0,
+  "typescript": {
+    "current": {
+      "files": 47,
+      "lines": 12185,
+      "functions": 956,
+      "parse_errors": 0,
+      "largest": [
+        {
+          "name": "DialerPage",
+          "file": "src/components/DialerPage.tsx",
+          "line": 32,
+          "lines": 984
+        },
+        {
+          "name": "SettingsPage",
+          "file": "src/components/SettingsPage.tsx",
+          "line": 29,
+          "lines": 979
+        },
+        {
+          "name": "OptimizationPanel",
+          "file": "src/components/OptimizationPanel.tsx",
+          "line": 144,
+          "lines": 779
+        },
+        {
+          "name": "App",
+          "file": "src/App.tsx",
+          "line": 78,
+          "lines": 711
+        },
+        {
+          "name": "ReviewPage",
+          "file": "src/components/ReviewPage.tsx",
+          "line": 21,
+          "lines": 441
+        },
+        {
+          "name": "TrialControls",
+          "file": "src/components/TrialControls.tsx",
+          "line": 31,
+          "lines": 374
+        },
+        {
+          "name": "OperatingPolicySettings",
+          "file": "src/components/OperatingPolicySettings.tsx",
+          "line": 21,
+          "lines": 285
+        },
+        {
+          "name": "Coaching",
+          "file": "src/components/Coaching.tsx",
+          "line": 21,
+          "lines": 280
+        }
+      ]
+    },
+    "baseline": {
+      "files": 19,
+      "lines": 6643,
+      "functions": 511,
+      "parse_errors": 0,
+      "largest": [
+        {
+          "name": "DialerPage",
+          "file": "src/components/DialerPage.tsx",
+          "line": 29,
+          "lines": 1040
+        },
+        {
+          "name": "SettingsPage",
+          "file": "src/components/SettingsPage.tsx",
+          "line": 20,
+          "lines": 972
+        },
+        {
+          "name": "App",
+          "file": "src/App.tsx",
+          "line": 75,
+          "lines": 686
+        },
+        {
+          "name": "OptimizationPanel",
+          "file": "src/components/OptimizationPanel.tsx",
+          "line": 115,
+          "lines": 624
+        },
+        {
+          "name": "TrialControls",
+          "file": "src/components/TrialControls.tsx",
+          "line": 29,
+          "lines": 372
+        },
+        {
+          "name": "ReviewPage",
+          "file": "src/components/ReviewPage.tsx",
+          "line": 15,
+          "lines": 361
+        },
+        {
+          "name": "LeadsPage",
+          "file": "src/components/Operations.tsx",
+          "line": 23,
+          "lines": 226
+        },
+        {
+          "name": "AdvancedIntelligence",
+          "file": "src/components/AdvancedIntelligence.tsx",
+          "line": 5,
+          "lines": 189
+        }
+      ]
+    }
+  },
+  "largest_python_own_bodies": [
+    {
+      "name": "optimization_report",
+      "file": "services/backend/app/optimization/workflows.py",
+      "line": 497,
+      "span_lines": 262,
+      "own_lines": 262,
+      "decision_nodes": 69,
+      "boolean_edges": 18
+    },
+    {
+      "name": "create_app",
+      "file": "services/backend/app/main.py",
+      "line": 252,
+      "span_lines": 1281,
+      "own_lines": 245,
+      "decision_nodes": 2,
+      "boolean_edges": 2
+    },
+    {
+      "name": "_help_context",
+      "file": "services/backend/app/coaching/workflows.py",
+      "line": 289,
+      "span_lines": 224,
+      "own_lines": 224,
+      "decision_nodes": 37,
+      "boolean_edges": 13
+    },
+    {
+      "name": "capacity_forecast",
+      "file": "services/backend/app/optimization/numbering.py",
+      "line": 146,
+      "span_lines": 200,
+      "own_lines": 200,
+      "decision_nodes": 24,
+      "boolean_edges": 13
+    },
+    {
+      "name": "_claim_selection",
+      "file": "services/backend/app/scheduling/queue.py",
+      "line": 302,
+      "span_lines": 195,
+      "own_lines": 195,
+      "decision_nodes": 15,
+      "boolean_edges": 9
+    },
+    {
+      "name": "defaults",
+      "file": "services/backend/app/postcall/rubrics.py",
+      "line": 78,
+      "span_lines": 175,
+      "own_lines": 175,
+      "decision_nodes": 2,
+      "boolean_edges": 0
+    },
+    {
+      "name": "_selection_page",
+      "file": "services/backend/app/scheduling/queue.py",
+      "line": 117,
+      "span_lines": 173,
+      "own_lines": 158,
+      "decision_nodes": 32,
+      "boolean_edges": 10
+    },
+    {
+      "name": "event",
+      "file": "services/backend/app/telephony/workflows.py",
+      "line": 93,
+      "span_lines": 151,
+      "own_lines": 151,
+      "decision_nodes": 23,
+      "boolean_edges": 9
+    },
+    {
+      "name": "time_forecast",
+      "file": "services/backend/app/optimization/capacity.py",
+      "line": 315,
+      "span_lines": 171,
+      "own_lines": 149,
+      "decision_nodes": 32,
+      "boolean_edges": 18
+    },
+    {
+      "name": "inbound_event",
+      "file": "services/backend/app/telephony/callbacks.py",
+      "line": 299,
+      "span_lines": 139,
+      "own_lines": 139,
+      "decision_nodes": 32,
+      "boolean_edges": 15
+    },
+    {
+      "name": "_accept_transcript",
+      "file": "services/backend/app/privacy.py",
+      "line": 316,
+      "span_lines": 138,
+      "own_lines": 138,
+      "decision_nodes": 18,
+      "boolean_edges": 5
+    },
+    {
+      "name": "restore",
+      "file": "services/backend/app/administration.py",
+      "line": 331,
+      "span_lines": 137,
+      "own_lines": 137,
+      "decision_nodes": 29,
+      "boolean_edges": 9
+    },
+    {
+      "name": "recovery_items",
+      "file": "services/backend/app/telephony/recovery_actions.py",
+      "line": 64,
+      "span_lines": 136,
+      "own_lines": 136,
+      "decision_nodes": 8,
+      "boolean_edges": 13
+    },
+    {
+      "name": "analysis",
+      "file": "services/backend/app/intelligence.py",
+      "line": 694,
+      "span_lines": 131,
+      "own_lines": 131,
+      "decision_nodes": 21,
+      "boolean_edges": 9
+    },
+    {
+      "name": "save_disposition",
+      "file": "services/backend/app/rep_workflows.py",
+      "line": 503,
+      "span_lines": 128,
+      "own_lines": 128,
+      "decision_nodes": 13,
+      "boolean_edges": 4
+    },
+    {
+      "name": "_publish_help",
+      "file": "services/backend/app/coaching/workflows.py",
+      "line": 758,
+      "span_lines": 126,
+      "own_lines": 126,
+      "decision_nodes": 16,
+      "boolean_edges": 16
+    },
+    {
+      "name": "seed",
+      "file": "services/backend/app/service.py",
+      "line": 222,
+      "span_lines": 125,
+      "own_lines": 125,
+      "decision_nodes": 7,
+      "boolean_edges": 0
+    },
+    {
+      "name": "analyze_postcall",
+      "file": "services/backend/app/intelligence.py",
+      "line": 1060,
+      "span_lines": 221,
+      "own_lines": 121,
+      "decision_nodes": 7,
+      "boolean_edges": 2
+    },
+    {
+      "name": "import_records",
+      "file": "services/backend/app/billing.py",
+      "line": 247,
+      "span_lines": 120,
+      "own_lines": 120,
+      "decision_nodes": 20,
+      "boolean_edges": 11
+    },
+    {
+      "name": "refresh_optimization",
+      "file": "services/backend/app/optimization/workflows.py",
+      "line": 826,
+      "span_lines": 119,
+      "own_lines": 119,
+      "decision_nodes": 13,
+      "boolean_edges": 7
+    }
+  ],
+  "python_highest_decision_counts": [
+    {
+      "name": "optimization_report",
+      "file": "services/backend/app/optimization/workflows.py",
+      "line": 497,
+      "span_lines": 262,
+      "own_lines": 262,
+      "decision_nodes": 69,
+      "boolean_edges": 18
+    },
+    {
+      "name": "_help_context",
+      "file": "services/backend/app/coaching/workflows.py",
+      "line": 289,
+      "span_lines": 224,
+      "own_lines": 224,
+      "decision_nodes": 37,
+      "boolean_edges": 13
+    },
+    {
+      "name": "time_forecast",
+      "file": "services/backend/app/optimization/capacity.py",
+      "line": 315,
+      "span_lines": 171,
+      "own_lines": 149,
+      "decision_nodes": 32,
+      "boolean_edges": 18
+    },
+    {
+      "name": "conversation_associations",
+      "file": "services/backend/app/optimization/conversations.py",
+      "line": 95,
+      "span_lines": 119,
+      "own_lines": 113,
+      "decision_nodes": 31,
+      "boolean_edges": 18
+    },
+    {
+      "name": "inbound_event",
+      "file": "services/backend/app/telephony/callbacks.py",
+      "line": 299,
+      "span_lines": 139,
+      "own_lines": 139,
+      "decision_nodes": 32,
+      "boolean_edges": 15
+    },
+    {
+      "name": "sync_columns",
+      "file": "services/backend/app/operational_schema.py",
+      "line": 194,
+      "span_lines": 95,
+      "own_lines": 95,
+      "decision_nodes": 31,
+      "boolean_edges": 14
+    },
+    {
+      "name": "workspace_page",
+      "file": "services/backend/app/workspace.py",
+      "line": 41,
+      "span_lines": 82,
+      "own_lines": 82,
+      "decision_nodes": 32,
+      "boolean_edges": 11
+    },
+    {
+      "name": "_selection_page",
+      "file": "services/backend/app/scheduling/queue.py",
+      "line": 117,
+      "span_lines": 173,
+      "own_lines": 158,
+      "decision_nodes": 32,
+      "boolean_edges": 10
+    },
+    {
+      "name": "_send",
+      "file": "services/backend/app/providers/openrouter.py",
+      "line": 100,
+      "span_lines": 89,
+      "own_lines": 89,
+      "decision_nodes": 26,
+      "boolean_edges": 15
+    },
+    {
+      "name": "comparison_report",
+      "file": "services/backend/app/optimization/experiments.py",
+      "line": 29,
+      "span_lines": 96,
+      "own_lines": 96,
+      "decision_nodes": 30,
+      "boolean_edges": 9
+    },
+    {
+      "name": "restore",
+      "file": "services/backend/app/administration.py",
+      "line": 331,
+      "span_lines": 137,
+      "own_lines": 137,
+      "decision_nodes": 29,
+      "boolean_edges": 9
+    },
+    {
+      "name": "context",
+      "file": "services/backend/app/service.py",
+      "line": 502,
+      "span_lines": 97,
+      "own_lines": 97,
+      "decision_nodes": 12,
+      "boolean_edges": 26
+    },
+    {
+      "name": "capacity_forecast",
+      "file": "services/backend/app/optimization/numbering.py",
+      "line": 146,
+      "span_lines": 200,
+      "own_lines": 200,
+      "decision_nodes": 24,
+      "boolean_edges": 13
+    },
+    {
+      "name": "_claim_control",
+      "file": "services/backend/app/telephony/workflows.py",
+      "line": 310,
+      "span_lines": 102,
+      "own_lines": 102,
+      "decision_nodes": 16,
+      "boolean_edges": 21
+    },
+    {
+      "name": "usage",
+      "file": "services/backend/app/accounting.py",
+      "line": 77,
+      "span_lines": 89,
+      "own_lines": 89,
+      "decision_nodes": 16,
+      "boolean_edges": 19
+    }
+  ],
+  "evidence_boundary": "Static source inspection only. No new product tests, benchmark runs, funded inference or native updates were performed for this architecture audit.",
+  "last_live_claim_test_receipt": {
+    "path": "work/remediation/live-claim-review-red.txt",
+    "failed": 9,
+    "passed": 2,
+    "duration_seconds": 5.24,
+    "sha256": "7cf574f3dfb7e4b749b52d272ba7992c4e8efb5a593fcd7ed6e634b58732b3b7"
+  },
+  "historical_performance_receipts": [
+    {
+      "path": "work/remediation/selection-benchmark.json",
+      "sha256": "3fc91284d49b3b24e0fd11bd3851d4c4d61299e4a45d7b1dc9d783f99017c166"
+    },
+    {
+      "path": "work/remediation/workspace-benchmark.json",
+      "sha256": "14c20aacad7c54623d55f63e3b92513df660b559e007481f1e4e74205a24354d"
+    },
+    {
+      "path": "work/remediation/conversation-timing-benchmark.json",
+      "sha256": "172e083225abc809a79dfec23f1d6c97bdf6d4d4a15b44e68f1bc77e3a502d67"
+    },
+    {
+      "path": "work/remediation/learning-join-benchmark.json",
+      "sha256": "b571813a683a2cfa1340aa2d52f8e5cbad589b311db2fab3b63d24ba8ad3d9a6"
+    }
+  ],
+  "infrastructure": "Dependency manifests and lockfiles unchanged since 2bad067; connected runtime has API/control/live, background worker, PostgreSQL and Caddy plus one-off migration. This is not a fresh dependency-security scan."
+}
