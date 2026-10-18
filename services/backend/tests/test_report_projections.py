@@ -172,3 +172,119 @@ def test_role_downgrade_does_not_reuse_privileged_report(workspace, app):
     result = service.cached_optimization_report({**p, "role": "rep"})
     assert result["projection"]["status"] == "pending"
     assert result.get("decisions") is None
+
+
+def test_savepoint_rollback_does_not_suppress_later_invalidation(workspace, app):
+    service, p = app.state.service, principal(workspace)
+    service.refresh_optimization(p)
+    with service.db.transaction() as s:
+        point = s.begin_nested()
+        update(service.scoped(s, "leads", p)[0], status="needs_review")
+        s.flush()
+        point.rollback()
+        update(service.scoped(s, "leads", p)[0], status="needs_review")
+    assert read(workspace)["projection"]["status"] == "stale"
+
+
+def test_repeated_changes_coalesce_one_pending_calculation(workspace, app):
+    service, p = app.state.service, principal(workspace)
+    identities = set()
+    for index in range(6):
+        with service.db.transaction() as s:
+            update(service.scoped(s, "leads", p)[0], name=f"Synthetic correction {index}")
+        identities.add(read(workspace)["projection"]["job_id"])
+    assert len(identities) == 1
+
+
+@pytest.mark.asyncio
+async def test_superseded_worker_retries_instead_of_claiming_completion(workspace, app, clock, monkeypatch):
+    service, p = app.state.service, principal(workspace)
+    first = read(workspace)
+    original = service.optimization_report
+
+    def changing(*args, **kwargs):
+        result = original(*args, **kwargs)
+        with service.db.transaction() as s:
+            update(service.scoped(s, "leads", p)[0], status="needs_review")
+        return result
+
+    with monkeypatch.context() as m:
+        m.setattr(service, "optimization_report", changing)
+        await service.run_jobs(queues=["ml"])
+    job = service.jobs.get(first["projection"]["job_id"])
+    assert job["status"] == "queued"
+    clock.now += timedelta(seconds=11)
+    await service.run_jobs(queues=["ml"])
+    assert read(workspace)["projection"]["status"] == "ready"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", [{"disabled": True}, {"role": "rep"}])
+async def test_revoked_admin_cannot_run_queued_full_refresh(workspace, app, monkeypatch, change):
+    service, p = app.state.service, principal(workspace)
+    job = service.request_optimization_refresh(p)
+    with service.db.transaction() as s:
+        update(get(s, "users", p["user_id"]), **change)
+    performed = []
+    monkeypatch.setattr(service, "refresh_optimization", lambda *args: performed.append(True))
+    await service.run_jobs(queues=["ml"])
+    assert not performed
+    assert service.jobs.get(job["job_id"])["status"] != "completed"
+
+
+def test_role_change_during_calculation_cannot_publish_old_scope(workspace, app, monkeypatch):
+    from fastapi import HTTPException
+
+    service, p = app.state.service, principal(workspace)
+    original = service.optimization_report
+
+    def revoked(*args, **kwargs):
+        result = original(*args, **kwargs)
+        with service.db.transaction() as s:
+            update(get(s, "users", p["user_id"]), disabled=True)
+        return result
+
+    monkeypatch.setattr(service, "optimization_report", revoked)
+    with pytest.raises(HTTPException) as exc:
+        service.rebuild_optimization_report(p)
+    assert exc.value.status_code == 403
+    with service.db.transaction(False) as s:
+        assert service.scoped(s, "report_projections", p) == []
+
+
+def test_stale_report_retains_its_calculation_definition(workspace, app):
+    service, p = app.state.service, principal(workspace)
+    service.refresh_optimization(p)
+    before = read(workspace)
+    response = workspace["client"].put(
+        "/v1/admin/optimization", headers=workspace["headers"], json={"rep_minutes": 1}
+    )
+    assert response.status_code == 200
+    after = read(workspace)
+    assert after["settings"]["rep_minutes"] == 1
+    assert after["projection"]["calculated_settings"] == before["settings"]
+    assert after["projection"]["status"] == "stale"
+
+
+def test_concurrent_report_views_share_the_same_job(workspace, app):
+    from concurrent.futures import ThreadPoolExecutor
+
+    service, p = app.state.service, principal(workspace)
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        results = list(pool.map(lambda _: service.cached_optimization_report(p), range(6)))
+    assert len({r["projection"]["job_id"] for r in results}) == 1
+
+
+def test_historical_cohort_is_loaded_through_a_separate_projection(workspace, app):
+    service, p = app.state.service, principal(workspace)
+    service.refresh_optimization(p)
+    epoch = read(workspace)["trial"]["epoch"]
+    changed = workspace["client"].put(
+        "/v1/admin/optimization", headers=workspace["headers"], json={"conversion_goal": "sale_won"}
+    )
+    assert changed.status_code == 200
+    service.rebuild_optimization_report(p, epoch)
+    past = service.cached_optimization_report(p, epoch)
+    assert past["trial"]["epoch"] == epoch
+    assert past["projection"]["status"] == "ready"
+    assert service.cached_optimization_report(p)["projection"]["status"] == "pending"
