@@ -67,6 +67,12 @@ def test_duplicate_entities_cannot_cross_fitting_partitions():
         assert not sets[0] & sets[1] and not sets[0] & sets[2] and not sets[1] & sets[2]
 
 
+def test_conversion_stage_waits_for_its_conditioning_right_party_label():
+    source = timeline()
+    source[0]["outcome_available_at"] = source[-1]["at"]
+    assert source[0] not in independent_partitions(source, label="conversion")[0]
+
+
 def test_challenger_persists_auditable_per_stage_cutoffs(tmp_path):
     model = train_challenger(timeline(400), tmp_path)
     for stage in ("human", "right_party_given_human", "conversion_given_right_party"):

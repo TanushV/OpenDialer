@@ -176,3 +176,83 @@ def test_changed_outcome_window_retires_models_from_the_old_definition(workspace
     with service.db.transaction(False) as s:
         value = service.required(s, "model_versions", model.id, p(workspace)).data
         assert value["active"] is False and value["trial_active"] is False
+
+
+def reviewed_packet(workspace, lead_id):
+    return workspace["client"].get(f"/v1/leads/{lead_id}/packet", headers=workspace["headers"]).json()
+
+
+def test_background_script_preparation_does_not_invalidate_outreach_review(goals, workspace, app):
+    c, h = workspace["client"], workspace["headers"]
+    c.put("/v1/admin/optimization", headers=h, json={"conversion_goal": "sale_won"})
+    packet = reviewed_packet(workspace, goals[0])
+    service = app.state.service
+    owner = service.claim_preparation(p(workspace), goals[0])
+    service.release_preparation(p(workspace), goals[0], owner)
+    result = c.patch(
+        f"/v1/leads/{goals[0]}/outreach",
+        headers=h,
+        json={
+            "expected_version": packet["lead"]["version"],
+            "expected_review_token": packet.get("review_token"),
+            "next_action": "resume",
+            "reason": "Reviewed next contact",
+        },
+    )
+    assert result.status_code == 200, result.text
+    assert result.json()["outreach_hold"] is None
+
+
+@pytest.mark.parametrize("change", ["relationship", "campaign"])
+def test_meaningful_change_still_invalidates_review(goals, workspace, app, change):
+    c, h = workspace["client"], workspace["headers"]
+    c.put("/v1/admin/optimization", headers=h, json={"conversion_goal": "sale_won"})
+    packet = reviewed_packet(workspace, goals[0])
+    assert packet.get("review_token")
+    if change == "campaign":
+        c.put("/v1/admin/optimization", headers=h, json={"window_days": 30})
+    else:
+        with app.state.service.db.transaction() as s:
+            lead = app.state.service.required(s, "leads", goals[0], p(workspace))
+            update(lead, last_outcome="refused")
+    result = c.patch(
+        f"/v1/leads/{goals[0]}/outreach",
+        headers=h,
+        json={
+            "expected_version": packet["lead"]["version"],
+            "expected_review_token": packet["review_token"],
+            "next_action": "resume",
+            "reason": "Stale review must not pass",
+        },
+    )
+    assert result.status_code == 409, result.text
+
+
+def test_background_preparation_does_not_invalidate_meeting_report(goals, workspace, app):
+    packet = reviewed_packet(workspace, goals[0])
+    service = app.state.service
+    owner = service.claim_preparation(p(workspace), goals[0])
+    service.release_preparation(p(workspace), goals[0], owner)
+    result = workspace["client"].post(
+        f"/v1/leads/{goals[0]}/meeting",
+        headers=workspace["headers"],
+        json={
+            "expected_version": packet["lead"]["version"],
+            "expected_review_token": packet.get("review_token"),
+            "status": "booked",
+        },
+    )
+    assert result.status_code == 200, result.text
+    assert result.json()["outreach_hold"] == "meeting_booked"
+
+
+def test_window_only_change_does_not_reopen_a_legacy_completed_relationship(workspace, app):
+    with app.state.service.db.transaction() as s:
+        lead = app.state.service.scoped(s, "leads", p(workspace))[0]
+        update(lead, status="converted", conversion_goal_achieved="meeting_held")
+        lead_id = lead.id
+    result = workspace["client"].put(
+        "/v1/admin/optimization", headers=workspace["headers"], json={"window_days": 30}
+    )
+    assert result.status_code == 200, result.text
+    assert get_lead(workspace, lead_id)["status"] == "converted"
