@@ -49,6 +49,8 @@ def test_playbook_publication_preserves_versions_and_validates_identity(workspac
     old = c.get("/v1/workspace", headers=h).json()["playbooks"][0]
     data = {
         "name": "Revised introduction",
+        "expected_previous_id": old["id"],
+        "expected_previous_version": old["version"],
         "opener": "Hi, this is {rep} from Example Seller.",
         "screening_intro": "{rep} from Example Seller, calling about business needs.",
         "cards": old["cards"],
