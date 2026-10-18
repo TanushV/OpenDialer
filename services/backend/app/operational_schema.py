@@ -71,6 +71,9 @@ def as_time(value):
 
 
 def sync_columns(row):
+    if row.__tablename__ == "work_intervals":
+        row.op_owner_id = row.data["rep_id"]
+        return
     if row.__tablename__ not in HOT_TABLES:
         return
     data = row.data

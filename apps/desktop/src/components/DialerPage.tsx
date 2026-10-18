@@ -1,5 +1,6 @@
 import { useSpeechExpiry } from "../state/useSpeechExpiry";
 import { LiveCoach } from "./LiveCoach";
+import { CallingHealth } from "./WorkTime";
 import { ProspectBrief } from "./ProspectBrief";
 import {
   ArrowRight,
@@ -478,6 +479,7 @@ export function DialerPage() {
           />
         </div>
       )}
+      {!packet && <CallingHealth />}
       <div className="dialer-grid">
         <section className="card lead-card">
           <div className="card-eyebrow">

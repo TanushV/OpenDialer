@@ -40,6 +40,7 @@ class WebhookIngress:
                         "hash": body_hash,
                         "status": "received",
                         "received_at": self.clock().isoformat(),
+                        "occurred_at": event.get("occurred_at"),
                         "raw_expires_at": (self.clock() + timedelta(seconds=RAW_TTL_SECONDS)).isoformat(),
                     },
                     key=event["id"],
@@ -142,7 +143,12 @@ class WebhookIngress:
             if "machine" in event_type and payload.get("result")
             else event_type
         )
-        result = self.event(p, event_id, normalized_type, call_id, payload)
+        event_payload = {
+            **payload,
+            "occurred_at": receipt.get("occurred_at") or receipt["received_at"],
+            "timing_source": "provider" if receipt.get("occurred_at") else "receipt",
+        }
+        result = self.event(p, event_id, normalized_type, call_id, event_payload)
         # Reducer deduplication does not imply transcript processing completed.
         if event_type == "call.transcription":
             for segment in normalize_transcription(payload, call_id, event_id):

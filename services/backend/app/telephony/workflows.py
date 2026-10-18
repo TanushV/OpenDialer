@@ -51,7 +51,7 @@ class TelephonyWorkflows:
             campaign = self.required(s, "campaigns", lead.data["campaign_id"], p)
             policy = self.required(s, "policy_versions", campaign.data["policy_id"], p).data
             number = self.required(s, "number_inventory", call.data["number_id"], p)
-            if event_type == "call.answered":
+            if event_type == "call.answered" and call.data["state"] not in TERMINAL | {"ENDING"}:
                 for permission, action, command in [
                     (
                         "transcription",
@@ -72,7 +72,7 @@ class TelephonyWorkflows:
                 ):
                     self.control_intent(s, p, call_id, "playback_stop", {})
                 else:
-                    update(call, detached=True)
+                    update(call, detached=True, rep_released_at=self.clock().isoformat())
                     s.execute(delete(ActiveClaim).where(ActiveClaim.call_id == call.id))
                     if not any(r.external_key == call.id for r in self.scoped(s, "number_leases", p)):
                         put(

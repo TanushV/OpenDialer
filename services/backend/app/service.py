@@ -581,6 +581,7 @@ class Service(ReservationPlanner):
 
     def presence(self, p, data):
         with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
             user = self.required(s, "users", p["user_id"], p)
             if not self.settings.simulation and data.get("agent_call_control_id"):
                 verified = [
@@ -593,6 +594,10 @@ class Service(ReservationPlanner):
                 ]
                 if not verified:
                     fail(403, "Agent leg must be established and verified by the server")
+            if data.get("status") == "paused":
+                self.pause_work_in(s, p)
+            else:
+                self.record_work_in(s, p, True)
             update(user, presence={**user.data.get("presence", {}), **data, "at": self.clock().isoformat()})
             return user.data["presence"]
 
@@ -666,6 +671,7 @@ class Service(ReservationPlanner):
                     )[0],
                     "state": "AUTHORIZED",
                     "started_at": now.isoformat(),
+                    "max_call_seconds": self.settings.max_call_seconds,
                     "provider_id": None,
                     "outcome": None,
                     "transcript_version": 0,
@@ -828,7 +834,11 @@ class Service(ReservationPlanner):
 
     def finish_call(self, s, p, call, reason=None):
         if call.data["state"] != "FINALIZED":
-            update(call, state="ENDED", ended_at=self.clock().isoformat(), end_reason=reason or "hangup")
+            ended = dt(call.data.get("ended_at")) or self.clock()
+            update(call, state="ENDED", ended_at=ended.isoformat(), end_reason=reason or "hangup")
+            answered = dt(call.data.get("answered_at"))
+            if answered and answered <= ended:
+                update(call, connected_seconds=(ended - answered).total_seconds())
         for claim in list(s.scalars(select(ActiveClaim).where(ActiveClaim.call_id == call.id))):
             s.delete(claim)
         emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": call.data["state"]})
@@ -985,6 +995,11 @@ class Service(ReservationPlanner):
                 key=event_id,
                 now=self.clock(),
             )
+            from app.measurement import call_timing
+
+            timing = call_timing(call.data, event_type, payload, now=self.clock())
+            if timing:
+                update(call, **timing)
             target = reduce_state(call.data["state"], event_type)
             if target == "ENDED":
                 self.finish_call(s, p, call, event_type)

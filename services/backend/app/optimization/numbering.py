@@ -51,9 +51,12 @@ def number_health(attempts, *, pooled_attempts, now):
     expected = sum(float(r.get("expected_human") or pooled_rate) for r in observed)
     ratio = (human + 5) / (expected + 5)
     delivery = (count - failed + 9) / (count + 10)
-    short = sum(
-        0 < float(r.get("duration_seconds") or 0) <= 6 for r in observed if r.get("outcome") in human_outcomes
-    )
+    durations = [
+        float(r["connected_seconds"])
+        for r in observed
+        if r.get("connected_seconds") is not None and float(r["connected_seconds"]) >= 0
+    ]
+    short = sum(seconds <= 6 for seconds in durations)
     low, high = wilson(count - failed, count)
     investigating = count >= 20 and (failed / count > 0.2 or ratio < 0.5)
     return {
@@ -68,6 +71,8 @@ def number_health(attempts, *, pooled_attempts, now):
         "confidence_high": high,
         "confidence_measure": "delivery_success",
         "short_connected_calls": short,
+        "connected_duration_samples": len(durations),
+        "short_connected_rate": short / len(durations) if durations else None,
         "callbacks": sum(bool(r.get("inbound_callback")) for r in observed),
         "spam_label_confirmed": False,
         "evidence_scope": "first_party",

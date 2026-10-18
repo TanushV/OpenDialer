@@ -1,4 +1,5 @@
 import { coalesceRefresh } from "./state/refresh";
+import { useWorkHeartbeat } from "./state/useWorkHeartbeat";
 import { receiveSpeech } from "./state/privacy";
 import {
   Activity,
@@ -184,6 +185,7 @@ export function App() {
     [runtime, session],
   );
   const notice = useCallback((message: string) => setToast({ message }), []);
+  useWorkHeartbeat(snapshot, api, refresh, notice);
   const run = useCallback(async (work: () => Promise<void>) => {
     try {
       await work();

@@ -193,7 +193,9 @@ def test_metrics_measure_actual_work_time_not_attempt_elapsed(workspace, clock):
 
     c, h = workspace["client"], workspace["headers"]
     ready(workspace)
-    clock.now += timedelta(minutes=30)
+    for _ in range(30):
+        clock.now += timedelta(minutes=1)
+        assert c.post("/v1/rep/heartbeat", headers=h, json={"activity": "ready"}).status_code == 200
     c.post(
         "/v1/rep/presence", headers=h, json={"status": "paused", "audio_ready": True, "telephony_ready": True}
     )

@@ -49,6 +49,9 @@ test("fixed helper remains visible, private controls work and no raw content is 
     .click();
   await expect(page.getByLabel("Private helper question")).toHaveValue("");
   await page.getByRole("button", { name: "Hang up", exact: true }).click();
+  await page.getByLabel("Disposition").selectOption("no_answer");
+  await page.getByRole("button", { name: "Save outcome", exact: true }).click();
+  await page.getByRole("button", { name: "Pause dialing", exact: true }).click();
 });
 
 test("settings display the authority cost register, including changed rates", async ({

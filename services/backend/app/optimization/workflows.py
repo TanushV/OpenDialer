@@ -5,6 +5,7 @@ from datetime import timedelta
 from sqlalchemy import func, or_, select
 
 from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, update
+from app.measurement import cohort_metrics
 from app.optimization.experiments import ComparisonWorkflows
 from app.optimization.learning import (
     derive_labels,
@@ -188,6 +189,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 {
                     **call,
                     "duration_seconds": max(0, (ended - at).total_seconds()) if at and ended else 0,
+                    "connected_seconds": call.get("connected_seconds"),
                     "delivery_failed": call.get("end_reason") in {"provider_failure", "route_failure"},
                     "expected_human": predicted.get("p_human"),
                 }
@@ -398,20 +400,6 @@ class OptimizationWorkflows(ComparisonWorkflows):
             calls = self.scoped(s, "call_attempts", p)
             known_calls = {c.id for c in calls if p["role"] != "rep" or c.data["rep_id"] == p["user_id"]}
             events = [doc(r) for r in self.scoped(s, "conversion_events", p)]
-            original = sum(lead.data.get("originally_eligible", True) for lead in leads)
-            converted = {
-                e["lead_id"]
-                for e in events
-                if e["kind"] == config["conversion_goal"] and not e.get("retracted")
-            }
-            goal_label = (
-                "qualified"
-                if config["conversion_goal"] == "qualified_conversation"
-                else config["conversion_goal"]
-            )
-            converted |= {
-                c.data["lead_id"] for c in calls if derive_labels(c.data.get("outcome")).get(goal_label)
-            }
             feedback = [
                 r.data for r in self.scoped(s, "coaching_feedback", p) if r.data["call_id"] in known_calls
             ]
@@ -555,7 +543,19 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 for lead in leads
                 if lead.id in latest_plans and lead.data.get("status") == "eligible"
             ]
-            durations = sum(r.get("duration_seconds", 0) for r in data)
+            call_rows = [doc(c) for c in calls]
+            blocked = {
+                r.data["phone"] for r in self.scoped(s, "suppressions", p) if r.data.get("active", True)
+            }
+            measured = cohort_metrics(
+                [doc(r) for r in leads],
+                call_rows,
+                events,
+                blocked,
+                self.work_in(s, p, call_rows),
+                config,
+                now=self.clock(),
+            )
             return {
                 "settings": config,
                 "comparisons": self.comparison_reports(s, p, campaign, calls, derived_events, feedback),
@@ -569,23 +569,13 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 "forecast": self.forecast(s, p),
                 "numbers": self.inventory_evidence(s, p),
                 "metrics": {
-                    "imported_leads": len(leads),
-                    "original_eligible_leads": original,
-                    "suppressed_now": sum(self.suppressed(s, p, lead.data["phone"]) for lead in leads),
-                    "attempts": len(calls),
-                    "human_answers": sum(derive_labels(c.data.get("outcome"))["human"] for c in calls),
-                    "unique_right_party": len(
-                        {
-                            c.data["lead_id"]
-                            for c in calls
-                            if derive_labels(c.data.get("outcome"))["right_party"]
-                        }
-                    ),
-                    "unique_conversions": len(converted),
-                    "conversion_per_original_eligible_lead": len(converted) / original if original else None,
-                    "conversions_per_rep_hour": len(converted) * 3600 / durations if durations else None,
+                    **measured,
+                    "imported_leads": measured["original_cohort"],
+                    "original_eligible_leads": measured["original_eligible_denominator"],
+                    "suppressed_now": measured["suppressed"],
+                    "human_answers": measured["human_pickups"],
+                    "unique_right_party": measured["right_party_unique"],
                     "observed_cost_usd": sum(r.get("observed_cost_usd") or 0 for r in data),
-                    "outcome_goal": config["conversion_goal"],
                 },
                 "dataset": {
                     "rows": count,

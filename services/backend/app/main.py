@@ -23,6 +23,7 @@ from app.administration import Dialer
 from app.compliance.operating import DNCAuthorization, bind_operating_api
 from app.config import Settings
 from app.db import Database, Event, audit, doc, put, rows, update
+from app.measurement import WorkEdit
 from app.providers.telnyx import verify_webhook
 from app.rep_workflows import MeetingEdit, OutreachEdit, TaskEdit
 from app.security import DUMMY_HASH, PASSWORDS, admin, decode_session, issue_session
@@ -67,6 +68,10 @@ class Presence(Strict):
     telephony_ready: bool = False
     agent_call_control_id: str | None = None
     pending_optouts: int = Field(default=0, ge=0)
+
+
+class Heartbeat(Strict):
+    activity: Literal["ready", "call", "wrapup", "idle"]
 
 
 class QueueNext(Strict):
@@ -363,6 +368,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.post("/v1/auth/logout")
     def logout(p=Depends(principal)):
         with db.transaction() as s:
+            db.authorize_stream(s, p)
+            service.record_work_in(s, p, False)
             update(service.required(s, "sessions", p["session_id"], p), revoked=True)
         return {"logged_out": True}
 
@@ -381,6 +388,18 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.post("/v1/rep/presence")
     def presence(data: Presence, p=Depends(principal)):
         return service.presence(p, data.model_dump())
+
+    @app.post("/v1/rep/heartbeat")
+    def heartbeat(data: Heartbeat, p=Depends(principal)):
+        return service.heartbeat(p, data.activity)
+
+    @app.get("/v1/rep/work")
+    def work_intervals(p=Depends(principal)):
+        return service.work_intervals(p)
+
+    @app.patch("/v1/rep/work/{interval_id}")
+    def edit_work(interval_id: str, data: WorkEdit, p=Depends(principal)):
+        return service.edit_work(p, interval_id, data.model_dump())
 
     @app.post("/v1/queue/next")
     def next_lead(data: QueueNext, p=Depends(principal)):

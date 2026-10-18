@@ -1,4 +1,5 @@
 import { OperatingPolicySettings } from "./OperatingPolicySettings";
+import { WorkTime } from "./WorkTime";
 import { PreparationSettings } from "./Preparation";
 import type { Update } from "@tauri-apps/plugin-updater";
 import {
@@ -109,6 +110,7 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
   );
   return (
     <>
+      <WorkTime />
       <OperatingPolicySettings />
       <PreparationSettings />
       <div className="page-heading">

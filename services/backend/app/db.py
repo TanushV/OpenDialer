@@ -10,7 +10,9 @@ from uuid import uuid4
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import (
     JSON,
+    Column,
     DateTime,
+    Index,
     Integer,
     String,
     UniqueConstraint,
@@ -159,6 +161,7 @@ TABLES = [
     "scheduling_plans",
     "evaluation_reports",
     "coaching_feedback",
+    "work_intervals",
 ]
 MODELS = {}
 for _name in TABLES:
@@ -168,9 +171,15 @@ for _name in TABLES:
         {
             "__tablename__": _name,
             **(columns() if _name in HOT_TABLES else {}),
+            **({"op_owner_id": Column(String(36), nullable=False)} if _name == "work_intervals" else {}),
             "__table_args__": (
                 UniqueConstraint("tenant_id", "seller_id", "external_key", name=f"uq_{_name}_key"),
                 *(indexes(_name) if _name in HOT_TABLES else ()),
+                *(
+                    (Index("ix_work_intervals_owner", "tenant_id", "seller_id", "op_owner_id", "created_at"),)
+                    if _name == "work_intervals"
+                    else ()
+                ),
             ),
             "__module__": __name__,
         },
