@@ -1,7 +1,9 @@
 """A06/A49/A54: rollback cannot undo external effects or their liabilities."""
 
+import pytest
 from app.db import ActiveClaim, doc, get, put, update
 from conftest import start
+from fastapi import HTTPException
 from sqlalchemy import select
 from test_control_completion import principal
 
@@ -216,9 +218,6 @@ def test_restore_recovers_missing_records_and_retains_current_business_correctio
 
 
 def test_restore_rejects_a_missing_identity_now_owned_by_another_seller_atomically(workspace, app):
-    import pytest
-    from fastapi import HTTPException
-
     service, p = app.state.service, principal(workspace)
     with service.db.transaction(False) as s:
         first, second, *_ = service.scoped(s, "leads", p)
@@ -234,3 +233,96 @@ def test_restore_rejects_a_missing_identity_now_owned_by_another_seller_atomical
     with service.db.transaction(False) as s:
         assert get(s, "leads", missing) is None
         assert get(s, "leads", conflict).seller_id == "separate-business"
+
+
+@pytest.mark.parametrize("kind", ["suppressions", "consent_evidence"])
+def test_backup_denial_cannot_be_lost_when_current_database_is_older(workspace, app, kind):
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        row = put(
+            s,
+            kind,
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "phone": "+14155550778",
+                "endpoint_id": "original-endpoint",
+                "permissions": ["live"],
+                "active": True,
+                "permanent": True,
+                "reason": "opt_out",
+                "revoked": True,
+            },
+            key="backup-denial",
+        )
+        identity = row.id
+    backup = service.backup(p)
+    with service.db.transaction() as s:
+        update(get(s, kind, identity), active=False, permanent=False, revoked=False)
+    service.restore(p, backup["backup_id"])
+    with service.db.transaction(False) as s:
+        data = get(s, kind, identity).data
+        assert data["active"] if kind == "suppressions" else data["revoked"]
+
+
+@pytest.mark.asyncio
+async def test_restore_reconciliation_includes_live_calls_missing_from_journal(
+    workspace, app, carrier, monkeypatch
+):
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        update(get(s, "sellers", p["seller_id"]), restore_hold=True)
+        put(
+            s,
+            "call_attempts",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "state": "ENDING",
+                "provider_id": "unjournaled-original-leg",
+            },
+        )
+    checked = []
+
+    async def reconcile(call_id, provider_id):
+        checked.append(provider_id)
+        return {"call_control_id": provider_id, "is_alive": True}
+
+    monkeypatch.setattr(carrier, "reconcile", reconcile)
+    with pytest.raises(HTTPException) as error:
+        await service.reconcile_restore(p, "Reviewed synthetic carrier records")
+    assert error.value.status_code == 409
+    assert checked == ["unjournaled-original-leg"]
+    with service.db.transaction(False) as s:
+        assert get(s, "sellers", p["seller_id"]).data["restore_hold"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_new_live_obligation_during_restore_reconciliation_prevents_release(
+    workspace, app, carrier, monkeypatch
+):
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    with service.db.transaction() as s:
+        update(get(s, "sellers", p["seller_id"]), restore_hold=True)
+
+    async def reconcile(call_id, provider_id):
+        with service.db.transaction() as s:
+            put(
+                s,
+                "call_attempts",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    "state": "ENDING",
+                    "provider_id": "additional-original-leg",
+                },
+            )
+        return {"call_control_id": call["provider_id"], "is_alive": False}
+
+    monkeypatch.setattr(carrier, "reconcile", reconcile)
+    with pytest.raises(HTTPException) as error:
+        await service.reconcile_restore(p, "Reviewed previous snapshot")
+    assert error.value.status_code == 409
+    with service.db.transaction(False) as s:
+        assert get(s, "sellers", p["seller_id"]).data["restore_hold"] is True
