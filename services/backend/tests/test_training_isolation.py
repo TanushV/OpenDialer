@@ -216,6 +216,38 @@ async def test_training_input_limits_reject_before_spawning(tmp_path, monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_cancellation_during_process_creation_still_reaps_owned_child(tmp_path, monkeypatch):
+    from app.ml import worker
+
+    monkeypatch.setattr(
+        worker, "child_command", lambda: [sys.executable, "-c", "import time; time.sleep(30)"]
+    )
+    spawn, started, release, children = asyncio.create_subprocess_exec, asyncio.Event(), asyncio.Event(), []
+
+    async def delayed(*args, **kwargs):
+        child = await spawn(*args, **kwargs)
+        children.append(child)
+        started.set()
+        await release.wait()
+        return child
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", delayed)
+    task = asyncio.create_task(worker.train_isolated(training_rows(), tmp_path / "models" / "candidate"))
+    await asyncio.wait_for(started.wait(), 3)
+    task.cancel()
+    await asyncio.sleep(0)
+    release.set()
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, 3)
+        assert children[0].returncode is not None, "Cancellation during spawn orphaned its CPU child"
+    finally:
+        if children[0].returncode is None:
+            children[0].kill()
+            await children[0].wait()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("changed", ["role", "goal", "source"])
 async def test_changed_authority_or_dataset_cannot_publish_trained_candidate(
     workspace, app, monkeypatch, changed
