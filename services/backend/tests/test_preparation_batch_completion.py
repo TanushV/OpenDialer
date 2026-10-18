@@ -258,6 +258,7 @@ def test_batch_budget_is_bound_to_its_intent_and_legacy_binding_is_repaired(defe
 def test_batch_creation_failure_cannot_leave_an_orphan_budget_hold(workspace, app, monkeypatch):
     import app.preparation.batches as batches
 
+    configure(workspace)
     service, principal = app.state.service, p(workspace)
     service.vault.write(principal["tenant_id"], {"inference_mode": "api", "openai_api_key": "synthetic"})
     original = batches.put

@@ -489,3 +489,39 @@ def test_nonfinite_or_invalid_billing_never_corrupts_callback_budget(workspace, 
         },
     )
     assert response.status_code == 422
+
+
+def test_verified_retry_reuses_callback_liability_without_readmitting_spend(
+    workspace, carrier, clock, monkeypatch
+):
+    configure(workspace, destination="sip:reception@example.test")
+    original = carrier.action
+
+    async def timeout(provider_id, action, payload):
+        await original(provider_id, action, payload)
+        if action == "transfer":
+            raise TimeoutError("carrier accepted, response lost")
+
+    async def alive(command_id, provider_id=None):
+        return {"call_control_id": provider_id, "is_alive": True}
+
+    monkeypatch.setattr(carrier, "action", timeout)
+    task = incoming(workspace)
+    dispatch(workspace)
+    service, p = workspace["client"].app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        hold = next(r for r in service.scoped(s, "usage_ledger", p) if r.data.get("object_id") == task["id"])
+        before = doc(hold)
+        update(service.scoped(s, "budgets", p)[0], daily_limit_usd=0, monthly_limit_usd=0)
+    clock.now += timedelta(seconds=10)
+    monkeypatch.setattr(carrier, "action", original)
+    monkeypatch.setattr(carrier, "reconcile", alive)
+    asyncio.run(service.recover(p))
+    actions = [a for a in carrier.actions if a["action"] == "transfer"]
+    assert len(actions) == 2 and actions[0]["payload"]["command_id"] == actions[1]["payload"]["command_id"]
+    with service.db.transaction(False) as s:
+        holds = [
+            doc(r) for r in service.scoped(s, "usage_ledger", p) if r.data.get("object_id") == task["id"]
+        ]
+    assert holds == [before]
+    assert saved(workspace, "followup_tasks", task["id"])["inbound_state"] == "ringing"
