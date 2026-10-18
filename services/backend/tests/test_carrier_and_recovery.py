@@ -101,6 +101,12 @@ def test_voicemail_cannot_run_over_greeting_or_without_separate_permission(works
 
 
 def test_monitored_voicemail_waits_for_start_confirmation(workspace, carrier):
+    c, h = workspace["client"], workspace["headers"]
+    c.post(
+        f"/v1/admin/policies/{workspace['policy_id']}/publish",
+        headers=h,
+        json={"approved": True, "max_attempts": 1},
+    )
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
     for i, event in enumerate(
