@@ -945,3 +945,61 @@ def test_retired_cleanup_is_bounded_scoped_and_never_deletes_active_buckets(work
         assert get(session, "metric_contributions", foreign_id) is not None
     assert projections.cleanup_page(service, p, {**payload, "table": "metric_buckets"})["status"] == "ready"
     assert active_total(service, p)[1] == values
+
+
+def test_new_definition_during_owned_rebuild_keeps_pending_generation(workspace, app):
+    from app.db import get
+    from app.optimization import projections
+
+    service, p = app.state.service, principal(workspace)
+    projections.rebuild_page(service, p, start=True)
+    job = service.jobs.claim(
+        "ml", "current-owner", tenant_id=p["tenant_id"], key_prefix=f"metric-rebuild:{p['seller_id']}:"
+    )
+    with service.db.transaction() as session:
+        campaign = get(session, "campaigns", workspace["campaign_id"])
+        update(
+            campaign,
+            optimization={**campaign.data.get("optimization", {}), "conversion_goal": "sale_won"},
+            optimization_epoch="new-definition",
+        )
+    projections.rebuild_page(service, p, start=True)
+    service.jobs.complete(job["id"], "current-owner")
+    saved = service.jobs.get(job["id"])
+    assert saved["status"] == "queued", "Completion of the former request cannot discard its replacement"
+    assert saved["payload"]["desired_generation"] > saved["payload"]["claimed_generation"]
+
+
+def test_rebuild_lease_expiring_during_math_cannot_write_inactive_units(workspace, app, clock, monkeypatch):
+    from datetime import timedelta
+    from app.db import Job
+    from app.optimization import projections
+
+    service, p = app.state.service, principal(workspace)
+    projections.rebuild_page(service, p, start=True)
+    job = service.jobs.claim(
+        "ml",
+        "slow-owner",
+        lease_seconds=1,
+        tenant_id=p["tenant_id"],
+        key_prefix=f"metric-rebuild:{p['seller_id']}:",
+    )
+    with service.db.transaction() as session:
+        saved = session.get(Job, job["id"])
+        saved.payload = {
+            **saved.payload,
+            "cursor": {"phase": 0, "after_id": "", "after_at": None, "day": None},
+        }
+        update(service.scoped(session, "leads", p)[0], status="invalid")
+    before = vectors(service, p, "metric_contributions")
+    original = projections._calculate_unit
+
+    def slow(*args, **kwargs):
+        result = original(*args, **kwargs)
+        clock.now += timedelta(seconds=2)
+        return result
+
+    monkeypatch.setattr(projections, "_calculate_unit", slow)
+    result = projections.rebuild_page(service, p, lease=(job["id"], "slow-owner"))
+    assert result["status"] == "lost_lease"
+    assert vectors(service, p, "metric_contributions") == before
