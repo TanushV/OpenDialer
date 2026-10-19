@@ -114,6 +114,32 @@ def test_learning_publication_rechecks_current_owner(workspace, app, monkeypatch
         assert not campaign.data.get("conversation_report")
 
 
+@pytest.mark.parametrize("during_calculation", [False, True])
+def test_health_refresh_rechecks_administrator_before_publication(
+    workspace, app, monkeypatch, during_calculation
+):
+    service, p = app.state.service, principal(workspace)
+    original = service.inventory_evidence
+
+    def revoke(s, *args, **kwargs):
+        result = original(s, *args, **kwargs)
+        # A concurrent authority revokes access after the snapshot was read.
+        with service.db.transaction() as write:
+            update(get(write, "users", p["user_id"]), role="rep")
+        return result
+
+    if during_calculation:
+        monkeypatch.setattr(service, "inventory_evidence", revoke)
+    else:
+        with service.db.transaction() as s:
+            update(get(s, "users", p["user_id"]), role="rep")
+    with pytest.raises(HTTPException) as error:
+        service.refresh_observed_health(p)
+    assert error.value.status_code == 403
+    with service.db.transaction(False) as s:
+        assert service.scoped(s, "number_health", p) == []
+
+
 def test_campaign_specific_goal_cannot_pollute_another_campaign_estimate(workspace, app, clock):
     service, p = app.state.service, principal(workspace)
     with service.db.transaction() as s:
