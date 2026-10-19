@@ -481,3 +481,107 @@ def test_one_batch_coalesces_many_dirty_ids_without_per_unit_reads(workspace, ap
         assert len(reads) <= 2, "One indexed job lookup per100 changed source IDs"
     finally:
         event.remove(service.db.engine, "before_cursor_execute", record)
+
+
+def test_suppression_fanout_is_content_free_scoped_and_resumable(workspace, app, clock):
+    from app.db import put
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as session:
+        sample = service.scoped(session, "leads", p)[0]
+        phone, endpoint = sample.data["phone"], sample.data["endpoint_id"]
+        session.info["defer_flush"] = True
+        for i in range(204):
+            put(
+                session,
+                "leads",
+                p["tenant_id"],
+                p["seller_id"],
+                dict(sample.data),
+                key=f"fanout-{i}",
+                now=clock.now,
+            )
+        put(session, "leads", p["tenant_id"], "other-seller", dict(sample.data), now=clock.now)
+    before = dirty_jobs(service, p)
+    with service.db.transaction() as session:
+        put(
+            session,
+            "suppressions",
+            p["tenant_id"],
+            p["seller_id"],
+            {"phone": phone, "active": True},
+            key=phone,
+            now=clock.now,
+        )
+    pending = [j for j in dirty_jobs(service, p).values() if j["payload"]["source_kind"] == "endpoint-leads"]
+    assert len(pending) == 1, (
+        "One denial schedules bounded dependent work, not all lead writes in the denial transaction"
+    )
+    payload = pending[0]["payload"]
+    assert payload["source_id"] == endpoint and phone not in str(payload)
+    from app.optimization.projections import expand_dependents
+
+    pages = []
+    for _ in range(4):
+        result = expand_dependents(service, p, payload)
+        pages.append(result["processed"])
+        assert result["processed"] <= 100
+        if result["status"] == "ready":
+            break
+    assert sum(pages) == 205 and result["status"] == "ready"
+    after = dirty_jobs(service, p)
+    changed = [
+        j
+        for k, j in after.items()
+        if j["payload"]["source_kind"] == "lead"
+        and j["payload"]["desired_generation"] > before[k]["payload"]["desired_generation"]
+    ]
+    assert len(changed) == 205
+
+
+def test_late_conversion_dirties_related_attempt_units(workspace, app, clock):
+    from app.db import put
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as session:
+        lead = service.scoped(session, "leads", p)[0]
+        put(
+            session,
+            "call_attempts",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "lead_id": lead.id,
+                "submitted_at": clock.now.isoformat(),
+                "started_at": clock.now.isoformat(),
+                "state": "ENDED",
+                "outcome": "no_answer",
+            },
+            now=clock.now,
+        )
+    before = dirty_jobs(service, p)
+    with service.db.transaction() as session:
+        put(
+            session,
+            "conversion_events",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "lead_id": lead.id,
+                "kind": "meeting_held",
+                "status": "confirmed",
+                "occurred_at": clock.now.isoformat(),
+            },
+            now=clock.now,
+        )
+    pending = [j for j in dirty_jobs(service, p).values() if j["payload"]["source_kind"] == "lead-calls"]
+    assert len(pending) == 1
+    from app.optimization.projections import expand_dependents
+
+    assert expand_dependents(service, p, pending[0]["payload"])["processed"] == 1
+    changed = dirty_jobs(service, p)
+    assert all(
+        j["payload"]["desired_generation"] > before[k]["payload"]["desired_generation"]
+        for k, j in changed.items()
+        if j["payload"]["source_kind"] == "call"
+    )

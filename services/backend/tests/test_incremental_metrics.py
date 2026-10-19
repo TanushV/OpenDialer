@@ -381,6 +381,10 @@ def test_work_projection_indexes_use_effective_times_not_record_creation(workspa
         "Corrected intervals require indexed start/end overlap reads"
     )
     assert "op_work_end_at" in {c["name"] for c in schema.get_columns("call_attempts")}
+    assert any(
+        index["column_names"] == ["tenant_id", "seller_id", "op_endpoint_id", "id"]
+        for index in schema.get_indexes("leads")
+    ), "Denial fanout uses endpoint identity without a lead-table scan"
     with service.db.transaction() as session:
         interval = put(
             session,
