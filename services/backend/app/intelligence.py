@@ -1300,7 +1300,18 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 elif lane == "live_coach":
                     await self.coach_turn(p, job["payload"]["call_id"])
                 elif lane == "ml":
-                    if job["payload"].get("kind") in {"metric_refresh", "metric_dependents"}:
+                    if job["payload"].get("kind") == "metric_rebuild":
+                        from app.optimization.projections import rebuild_page
+
+                        receipt = await asyncio.to_thread(rebuild_page, self, p, lease=(job["id"], worker_id))
+                        if receipt["status"] == "lost_lease":
+                            return 0
+                        if receipt["status"] == "pending":
+                            await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
+                            return 0
+                        if receipt["status"] == "blocked":
+                            raise RuntimeError("Projection replay awaits a failed source job")
+                    elif job["payload"].get("kind") in {"metric_refresh", "metric_dependents"}:
                         from app.optimization.projections import refresh_unit
 
                         receipt = await asyncio.to_thread(

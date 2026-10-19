@@ -799,7 +799,7 @@ _REBUILD_SOURCES = (
 )
 
 
-def _rebuild_control(service, p, *, start):
+def _rebuild_control(service, p, *, start, lease=None):
     with service.db.transaction() as session:
         watermark = service.report_revision(session, p, lock=True)
         campaign = session.scalar(
@@ -813,6 +813,8 @@ def _rebuild_control(service, p, *, start):
             select(Job).where(Job.tenant_id == p["tenant_id"], Job.key == key).with_for_update()
         )
         state = dict(job.payload) if job else {}
+        if lease and not _rebuild_owned(job, lease, service.clock()):
+            return state, "lost_lease"
         pointer = dict(campaign.data.get("metric_projection", {}))
         if start and (not state or state.get("state") != "building" or state["definition"] != definition):
             namespace = uid()
@@ -945,9 +947,22 @@ def _rebuild_catchup(service, p):
     return processed
 
 
-def rebuild_page(service, p, *, start=False):
+def _rebuild_owned(job, lease, now):
+    from app.jobs.queue import aware
+
+    return bool(
+        job
+        and job.id == lease[0]
+        and job.status == "running"
+        and job.lease_owner == lease[1]
+        and job.lease_expires_at
+        and aware(job.lease_expires_at) > now
+    )
+
+
+def rebuild_page(service, p, *, start=False, lease=None):
     """Resume one inactive page, then drain original dirty jobs before activation."""
-    state, definition = _rebuild_control(service, p, start=start)
+    state, definition = _rebuild_control(service, p, start=start, lease=lease)
     empty = {
         "processed": 0,
         "published": False,
@@ -956,6 +971,8 @@ def rebuild_page(service, p, *, start=False):
     }
     if not state:
         return {**empty, "status": "not_started"}
+    if definition == "lost_lease":
+        return {**empty, "status": "lost_lease"}
     if state["definition"] != definition:
         return {**empty, "status": "superseded"}
     if state["state"] == "ready":
@@ -977,6 +994,8 @@ def rebuild_page(service, p, *, start=False):
             )
             .with_for_update()
         )
+        if lease and not _rebuild_owned(job, lease, service.clock()):
+            return {**result, "status": "lost_lease"}
         campaign = session.scalar(
             _scoped_query(p, "campaigns")
             .where(MODELS["campaigns"].id == state["campaign_id"])
