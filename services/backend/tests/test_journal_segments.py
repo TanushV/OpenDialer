@@ -100,3 +100,37 @@ def test_append_does_not_redecrypt_prior_history(tmp_path, monkeypatch):
     monkeypatch.setattr(v.cipher, "decrypt", counted)
     v.append_journal("effects", {"n": 101})
     assert len(reads) <= 3, "One effect cannot scan all historical journal records"
+
+
+def test_separate_processes_share_the_same_journal_fence(tmp_path):
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    code = """
+import sys
+from app.security import Vault
+vault=Vault(sys.argv[1], 'synthetic-journal-key')
+for n in range(int(sys.argv[2]),int(sys.argv[2])+20): vault.append_journal('effects',{'n':n})
+"""
+    env = {**os.environ, "PYTHONPATH": str(Path(__file__).parents[1])}
+    workers = [
+        subprocess.Popen(
+            [sys.executable, "-c", code, str(tmp_path), str(i * 20)],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+        for i in range(3)
+    ]
+    try:
+        for worker in workers:
+            _, error = worker.communicate(timeout=30)
+            assert worker.returncode == 0, error.decode()
+    finally:
+        for worker in workers:
+            if worker.poll() is None:
+                worker.kill()
+                worker.wait(timeout=5)
+    assert sorted(r["n"] for r in vault(tmp_path).read_journal("effects")) == list(range(60))

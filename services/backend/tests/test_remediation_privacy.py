@@ -67,6 +67,37 @@ def test_event_and_job_metadata_drop_unknown_content(workspace, app):
     assert RAW not in persisted_content(service, p)
 
 
+def test_usage_receipts_keep_metering_without_provider_extensions(workspace, app):
+    from app.providers.inference import InferenceResult
+    from app.db import get
+
+    service, p = app.state.service, principal(workspace)
+    service.reserve_optional_budget(p, "private-meter", 0.01, object_id="call", work_kind="live_coach")
+    identity = service.usage(
+        p,
+        "openrouter",
+        "live_coach",
+        InferenceResult(
+            {},
+            {
+                "cost": 0.002,
+                "prompt_tokens": 40,
+                "completion_tokens": 20,
+                "prompt_tokens_details": {"cached_tokens": 10, "source_body": RAW},
+                "vendor_extension": RAW,
+            },
+            "meter-original",
+        ),
+        object_id="call",
+        request_key="private-meter",
+    )
+    with service.db.transaction(False) as s:
+        data = get(s, "usage_ledger", identity).data
+        assert RAW not in json.dumps(data)
+        assert data["usage"]["prompt_tokens_details"]["cached_tokens"] == 10
+        assert data["cost_usd"] == 0.002
+
+
 def principal(w):
     return {k: w[k] for k in ("tenant_id", "seller_id", "user_id")} | {"role": "owner"}
 
