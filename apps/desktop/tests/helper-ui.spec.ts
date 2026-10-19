@@ -15,6 +15,11 @@ test("fixed helper remains visible, private controls work and no raw content is 
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
   // The shared disposable authority may already be ready after another journey.
+  await expect(
+    page
+      .getByRole("button", { name: "Go ready", exact: true })
+      .or(page.getByRole("button", { name: "Pause dialing", exact: true })),
+  ).toBeVisible();
   if (await page.getByRole("button", { name: "Go ready" }).isVisible())
     await page.getByRole("button", { name: "Go ready" }).click();
   await page
