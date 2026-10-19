@@ -825,3 +825,54 @@ def test_rebuild_goal_change_cannot_activate_a_stale_definition(workspace, app, 
     finish_rebuild(service, p)
     assert active_total(service, p)[1]["unique_conversions"] == 0
     assert active_total(service, p)[1]["held_meetings"] == 1
+
+
+async def test_normal_ml_runner_executes_rebuild_without_training(workspace, app, monkeypatch):
+    from app.db import Job
+    from app.optimization import projections
+    from sqlalchemy import select
+
+    service, p = app.state.service, principal(workspace)
+    first = projections.rebuild_page(service, p, start=True)
+    assert not first["published"]
+    wrong = []
+
+    async def no_training(*args, **kwargs):
+        wrong.append(True)
+        raise AssertionError("Projection replay must not be interpreted as training")
+
+    monkeypatch.setattr(service, "train_model_job", no_training)
+    for _ in range(4):
+        await service.run_jobs(p["tenant_id"], queues=["ml"])
+        with service.db.transaction(False) as session:
+            job = session.scalar(
+                select(Job).where(Job.key == f"metric-rebuild:{p['seller_id']}:{workspace['campaign_id']}")
+            )
+            if job.payload["state"] == "ready":
+                break
+    assert not wrong
+    assert job.status == "completed" and job.payload["state"] == "ready"
+    assert active_total(service, p)[1]["original_cohort"] == 3
+
+
+def test_expired_rebuild_owner_cannot_advance_saved_cursor(workspace, app, clock):
+    from datetime import timedelta
+
+    from app.db import Job
+    from app.optimization import projections
+    from sqlalchemy import select
+
+    service, p = app.state.service, principal(workspace)
+    projections.rebuild_page(service, p, start=True)
+    with service.db.transaction() as session:
+        job = session.scalar(
+            select(Job).where(Job.key == f"metric-rebuild:{p['seller_id']}:{workspace['campaign_id']}")
+        )
+        saved = dict(job.payload)
+        job.status, job.lease_owner = "running", "expired-owner"
+        job.lease_expires_at = clock.now - timedelta(seconds=1)
+        identity = job.id
+    result = projections.rebuild_page(service, p, lease=(identity, "expired-owner"))
+    assert result["status"] == "lost_lease" and not result["published"]
+    with service.db.transaction(False) as session:
+        assert session.get(Job, identity).payload == saved
