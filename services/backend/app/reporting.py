@@ -355,12 +355,12 @@ class ReportProjections:
         job = self.enqueue_report(p, key, generation, epoch, full=True)
         return {"status": job["status"], "job_id": job["id"]}
 
-    def refresh_optimization_job(self, p):
+    def refresh_optimization_job(self, p, *, lease=None):
         with self.db.transaction(False) as s:
             p, _, _, _ = self.report_scope(s, p)
             if p["role"] != "admin":
                 fail(403, "Administrator access is required to refresh optimization")
-        return self.refresh_optimization(p)
+        return self.refresh_optimization(p, lease=lease)
 
     def cached_optimization_report(self, p, epoch=None):
         with self.db.transaction(False) as s:

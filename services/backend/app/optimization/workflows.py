@@ -1503,7 +1503,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
             "training": training,
         }
 
-    def refresh_optimization(self, p):
+    def refresh_optimization(self, p, *, lease=None):
         from app.optimization.projections import read_estimate_statistics
 
         if not self.prepare_metric_read(p):
@@ -1546,6 +1546,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 fail(403, "Optimization owner no longer has administrator access")
             if self.report_revision(s, p, lock=True) != generation:
                 return {"status": "superseded"}
+            self.jobs.require_owned_in(s, lease)
             campaign = self.required(s, "campaigns", campaign_id, p)
             update(campaign, selection_profile=profile)
             jobs = []
@@ -1579,7 +1580,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                     )
                 )
             emit(s, p["tenant_id"], "optimization.updated", campaign, self.clock())
-        self.rebuild_optimization_report(p)
+        self.rebuild_optimization_report(p, lease=lease)
         return {
             "status": "ready",
             "rows": profile["samples"],

@@ -1374,7 +1374,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                             await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
                             return 0
                     elif job["payload"].get("kind") == "optimization_refresh":
-                        receipt = await asyncio.to_thread(self.refresh_optimization_job, p)
+                        receipt = await asyncio.to_thread(
+                            self.refresh_optimization_job, p, lease=(job["id"], worker_id)
+                        )
                         if receipt and receipt.get("status") in {"superseded", "pending"}:
                             await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
                             return 0
