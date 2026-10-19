@@ -913,37 +913,37 @@
         "A52",
         "A55"
       ],
-      "checkpoint": "Shared capabilities/defaults and one-time ingress proof pass54 PostgreSQL checks; configuration fencing29 SQLite passes; new admission3 red cases repaired21 SQLite passes. Native/setup/UI/authority switching active.",
+      "checkpoint": "Protected native input14 checks; capability/admin SQLite50 passes; setup/browser six passes, three reservation failures; seven new backend red regressions; native binding contracts authored. E12 remains active.",
       "todos": [
         {
           "id": "E12.1",
           "task": "Shared capability/default and public ingress proof contracts",
-          "status": "implemented; final delta PostgreSQL pending"
+          "status": "implemented; broader final scope pending"
         },
         {
           "id": "E12.2",
           "task": "Versioned provider saves and native protected credential input",
-          "status": "tests-first active"
+          "status": "native transport14 checks; UI contract passed; OS dialog acceptance pending"
         },
         {
           "id": "E12.3",
           "task": "Owned SSH supervisor, exact Caddy boundary and deployment runbook",
-          "status": "native contracts authored; implementation pending"
+          "status": "owned SSH tests pass; Caddy recipe/HTTP acceptance pending"
         },
         {
           "id": "E12.4",
           "task": "Quiescent authority switch, logout and native cleanup",
-          "status": "tests-first active"
+          "status": "seven backend regressions red; native mode/binding contracts authored"
         },
         {
           "id": "E12.5",
           "task": "CallControls and WrapUp ownership; focused settings sections",
-          "status": "open"
+          "status": "CallControls/WrapUp extracted; Settings form ownership implemented"
         },
         {
           "id": "E12.6",
           "task": "Setup UI, shared defaults, accessible1024 controls and degraded states",
-          "status": "open"
+          "status": "capability/protected entry/saved-budget browser passes; final journeys pending"
         },
         {
           "id": "E12.7",

@@ -18,6 +18,350 @@ struct BackendConfig {
 #[derive(Default, Clone)]
 struct LocalBackend(Arc<Mutex<Option<Backend>>>);
 
+#[derive(Clone, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+struct AuthorityBinding {
+    url: String,
+    token: String,
+    tenant_id: String,
+    local: bool,
+    simulation: bool,
+}
+#[derive(Default)]
+struct AuthorityState {
+    binding: Option<AuthorityBinding>,
+    prompt: Option<OwnedWebhookTunnel>,
+}
+#[derive(Default, Clone)]
+struct NativeAuthority(Arc<Mutex<AuthorityState>>);
+
+#[derive(Deserialize, Serialize)]
+struct ConfiguredProviderState {
+    version: u64,
+    configured: std::collections::BTreeMap<String, bool>,
+}
+
+fn provider_input_label(field: &str) -> Result<&'static str, String> {
+    match field {
+        "telnyx_api_key" => Ok("Telnyx API key"),
+        "openrouter_api_key" => Ok("OpenRouter API key"),
+        "openai_api_key" => Ok("OpenAI / LiteLLM API key"),
+        "dnc_api_key" => Ok("Prepaid DNC API key"),
+        _ => Err("This field has no protected provider input".into()),
+    }
+}
+
+fn authority_client() -> Result<reqwest::blocking::Client, String> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|_| "Authority transport unavailable".into())
+}
+
+fn authority_response(response: reqwest::blocking::Response) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    match response.status().as_u16() {
+        200 => (),
+        401 => return Err("Session expired; reconnect to this workspace".into()),
+        403 => return Err("Administrator access is required for this operation".into()),
+        409 => return Err("Workspace changed or has unfinished obligations; reload and resolve them before retrying".into()),
+        _ => return Err("Authority refused the operation; no automatic retry was made".into()),
+    }
+    let mut body = Vec::new();
+    response
+        .take(65537)
+        .read_to_end(&mut body)
+        .map_err(|_| "Authority response interrupted")?;
+    if body.len() > 65536 {
+        return Err("Authority response exceeds the supported bound".into());
+    }
+    Ok(body)
+}
+
+fn save_provider_key_to(
+    authority: &AuthorityBinding,
+    field: &str,
+    secret: &str,
+    version: u64,
+) -> Result<ConfiguredProviderState, String> {
+    provider_input_label(field)?;
+    validate_backend_url(&authority.url)?;
+    if secret.is_empty() || secret.len() > 2048 || !secret.bytes().all(|v| v.is_ascii_graphic()) {
+        return Err(
+            "Enter a nonempty provider key of at most 2048 printable ASCII characters".into(),
+        );
+    }
+    let mut body =
+        serde_json::json!({"request_id": Uuid::new_v4().to_string(), "expected_version": version});
+    body[field] = serde_json::Value::String(secret.to_string());
+    let response = authority_client()?
+        .put(format!(
+            "{}/v1/admin/settings",
+            authority.url.trim_end_matches('/')
+        ))
+        .bearer_auth(&authority.token)
+        .json(&body)
+        .send()
+        .map_err(|_| "Save response unavailable; reload configured state before retrying")?;
+    serde_json::from_slice(&authority_response(response)?)
+        .map_err(|_| "Authority returned invalid configured state".into())
+}
+
+#[tauri::command]
+async fn bind_authority(app: tauri::AppHandle, binding: AuthorityBinding) -> Result<(), String> {
+    secure_io(move || {
+        validate_backend_url(&binding.url)?;
+        if binding.token.is_empty() || binding.token.len() > 16000 || binding.tenant_id.len() > 100
+        {
+            return Err("Invalid workspace identity".into());
+        }
+        if binding.local {
+            let local = app.state::<LocalBackend>();
+            let state = local.0.lock().map_err(|_| "Local authority unavailable")?;
+            if state.as_ref().is_none_or(|r| {
+                r.config.url != binding.url || r.config.simulation != binding.simulation
+            }) {
+                return Err("This is not the managed local authority".into());
+            }
+        }
+        let native = app.state::<NativeAuthority>();
+        let mut state = native
+            .0
+            .lock()
+            .map_err(|_| "Workspace identity unavailable")?;
+        if let Some(current) = &state.binding {
+            if current.url != binding.url
+                || current.tenant_id != binding.tenant_id
+                || current.local != binding.local
+            {
+                return Err("Sign out of the current workspace before changing authority".into());
+            }
+        }
+        state.binding = Some(binding);
+        Ok(())
+    })
+    .await
+}
+
+fn protected_prompt(
+    authority: &NativeAuthority,
+    binding: &AuthorityBinding,
+    label: &str,
+) -> Result<String, String> {
+    use std::io::Read;
+    let target = url::Url::parse(&binding.url).map_err(|_| "Invalid authority")?;
+    let title = format!(
+        "OpenDialer — {label}\nSave only to {}",
+        target.origin().ascii_serialization()
+    );
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = std::process::Command::new("/usr/bin/osascript");
+        command.args(["-e", "on run argv\nset result to display dialog (item 1 of argv) default answer \"\" with hidden answer buttons {\"Cancel\", \"Save\"} default button \"Save\" giving up after 120\nif gave up of result then error number -128\nreturn text returned of result\nend run", &title]);
+        command
+    };
+    #[cfg(windows)]
+    let mut command = {
+        let program = std::path::PathBuf::from(
+            std::env::var_os("SystemRoot").ok_or("Windows system directory unavailable")?,
+        )
+        .join("System32/WindowsPowerShell/v1.0/powershell.exe");
+        let mut command = std::process::Command::new(program);
+        command.args(["-NoProfile", "-NonInteractive", "-STA", "-Command", r#"
+Add-Type -AssemblyName System.Windows.Forms
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$form = New-Object Windows.Forms.Form
+$form.Text = 'OpenDialer protected credential'; $form.Width = 520; $form.Height = 210; $form.StartPosition = 'CenterScreen'
+$label = New-Object Windows.Forms.Label; $label.Text = $env:OPENDIALER_INPUT_LABEL; $label.SetBounds(15,15,480,55)
+$input = New-Object Windows.Forms.TextBox; $input.UseSystemPasswordChar = $true; $input.MaxLength = 2048; $input.SetBounds(15,75,475,25)
+$save = New-Object Windows.Forms.Button; $save.Text = 'Save'; $save.SetBounds(300,115,90,30); $save.DialogResult = [Windows.Forms.DialogResult]::OK
+$cancel = New-Object Windows.Forms.Button; $cancel.Text = 'Cancel'; $cancel.SetBounds(400,115,90,30); $cancel.DialogResult = [Windows.Forms.DialogResult]::Cancel
+$form.Controls.AddRange(@($label,$input,$save,$cancel)); $form.AcceptButton = $save; $form.CancelButton = $cancel
+$timer = New-Object Windows.Forms.Timer; $timer.Interval = 120000; $timer.Add_Tick({ $form.Close() }); $timer.Start()
+if ($form.ShowDialog() -eq [Windows.Forms.DialogResult]::OK) { [Console]::Write($input.Text) }
+$input.Clear(); $timer.Dispose(); $form.Dispose()
+"#]).env("OPENDIALER_INPUT_LABEL", title);
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+        command
+    };
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let mut command = {
+        let _ = title;
+        return Err("Protected input is supported by the Mac and Windows desktop".into());
+        #[allow(unreachable_code)]
+        std::process::Command::new("false")
+    };
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    {
+        let mut state = authority.0.lock().map_err(|_| "Workspace unavailable")?;
+        if state.binding.as_ref() != Some(binding) || state.prompt.is_some() {
+            return Err("Workspace changed or another protected entry is active".into());
+        }
+        state.prompt = Some(OwnedWebhookTunnel::new(
+            command
+                .spawn()
+                .map_err(|_| "OS protected input unavailable")?,
+        ));
+    }
+    let end = std::time::Instant::now() + Duration::from_secs(125);
+    loop {
+        {
+            let mut state = authority.0.lock().map_err(|_| "Workspace unavailable")?;
+            let same = state.binding.as_ref() == Some(binding);
+            let Some(prompt) = state.prompt.as_mut() else {
+                return Err("Credential entry canceled".into());
+            };
+            if !same || std::time::Instant::now() >= end {
+                prompt.stop()?;
+                state.prompt = None;
+                return Err("Credential entry expired or workspace changed".into());
+            }
+            match prompt.child.as_mut().unwrap().try_wait() {
+                Ok(Some(exit)) => {
+                    let mut prompt = state.prompt.take().unwrap();
+                    let mut secret = String::new();
+                    if exit.success() {
+                        prompt
+                            .child
+                            .as_mut()
+                            .unwrap()
+                            .stdout
+                            .take()
+                            .ok_or("Protected input unavailable")?
+                            .take(4097)
+                            .read_to_string(&mut secret)
+                            .map_err(|_| "Protected input interrupted")?;
+                    }
+                    prompt.stop()?;
+                    let secret = secret.trim_end_matches(['\r', '\n']).to_string();
+                    if secret.is_empty() {
+                        return Err("Credential entry canceled".into());
+                    }
+                    return Ok(secret);
+                }
+                Ok(None) => (),
+                Err(_) => {
+                    prompt.stop()?;
+                    state.prompt = None;
+                    return Err("Protected input interrupted".into());
+                }
+            }
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+#[tauri::command]
+async fn protected_provider_input(
+    app: tauri::AppHandle,
+    field: String,
+    expected_version: u64,
+) -> Result<ConfiguredProviderState, String> {
+    secure_io(move || {
+        let label = provider_input_label(&field)?;
+        let native = app.state::<NativeAuthority>();
+        let binding = native
+            .0
+            .lock()
+            .map_err(|_| "Workspace unavailable")?
+            .binding
+            .clone()
+            .ok_or("Choose a workspace first")?;
+        // Verify administrator access before presenting the protected entry dialog.
+        let response = authority_client()?
+            .get(format!(
+                "{}/v1/admin/settings",
+                binding.url.trim_end_matches('/')
+            ))
+            .bearer_auth(&binding.token)
+            .send()
+            .map_err(|_| "Authority is unavailable")?;
+        let before: ConfiguredProviderState =
+            serde_json::from_slice(&authority_response(response)?)
+                .map_err(|_| "Invalid authority state")?;
+        if before.version != expected_version {
+            return Err("Provider configuration changed; reload before entering a key".into());
+        }
+        let secret = protected_prompt(&native, &binding, label)?;
+        if native
+            .0
+            .lock()
+            .map_err(|_| "Workspace unavailable")?
+            .binding
+            .as_ref()
+            != Some(&binding)
+        {
+            return Err("Workspace changed; credential was not sent".into());
+        }
+        save_provider_key_to(&binding, &field, &secret, expected_version)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn disconnect_authority(app: tauri::AppHandle) -> Result<(), String> {
+    secure_io(move || {
+        let native = app.state::<NativeAuthority>();
+        let mut state = native.0.lock().map_err(|_| "Workspace unavailable")?;
+        let binding = state.binding.as_ref().ok_or("No active native workspace")?;
+        let (root, path) = cache_path(
+            &app,
+            &format!("optouts-{}", binding.tenant_id),
+            binding.simulation,
+        )?;
+        if path.exists() {
+            let bytes = std::fs::read(path).map_err(|_| "Cannot inspect pending opt-outs")?;
+            let clear = decrypt_blob(
+                &master_key(binding.simulation, &root)?,
+                &format!("optouts-{}", binding.tenant_id),
+                &bytes,
+            )?;
+            let pending: Vec<serde_json::Value> =
+                serde_json::from_slice(&clear).map_err(|_| "Opt-out journal requires recovery")?;
+            if !pending.is_empty() {
+                return Err("Synchronize pending opt-outs before changing workspace".into());
+            }
+        }
+        let response = authority_client()?
+            .post(format!(
+                "{}/v1/auth/logout",
+                binding.url.trim_end_matches('/')
+            ))
+            .bearer_auth(&binding.token)
+            .send()
+            .map_err(|_| {
+                "Authority unavailable; remain in this workspace until obligations can be checked"
+            })?;
+        authority_response(response)?;
+        if let Some(mut prompt) = state.prompt.take() {
+            prompt.stop()?;
+        }
+        app.state::<WebhookTunnel>().stop()?;
+        if let Some(backend) = app
+            .state::<LocalBackend>()
+            .0
+            .lock()
+            .map_err(|_| "Local authority unavailable")?
+            .take()
+        {
+            backend
+                .child
+                .kill()
+                .map_err(|_| "Cannot stop previous local authority")?;
+        }
+        state.binding = None;
+        Ok(())
+    })
+    .await
+}
+
 #[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct WebhookTunnelConfig {
@@ -104,6 +448,7 @@ impl OwnedWebhookTunnel {
     fn new(child: std::process::Child) -> Self {
         Self { child: Some(child) }
     }
+    #[cfg(test)]
     fn is_stopped(&self) -> bool {
         self.child.is_none()
     }
@@ -570,11 +915,77 @@ mod tests {
     }
 
     #[test]
+    fn authority_binding_guards_local_runtime_and_forwarding() {
+        let runtime = BackendConfig {
+            url: "http://127.0.0.1:33001".into(),
+            local_token: "local".into(),
+            simulation: false,
+        };
+        let mut binding = AuthorityBinding {
+            url: runtime.url.clone(),
+            token: "session".into(),
+            tenant_id: "tenant".into(),
+            local: true,
+            simulation: false,
+        };
+        assert!(guard_local_mode(Some(&binding), false).is_ok());
+        assert!(guard_local_mode(Some(&binding), true).is_err());
+        assert!(guard_forwarding(Some(&binding), Some(&runtime)).is_ok());
+        binding.local = false;
+        assert!(guard_local_mode(Some(&binding), false).is_err());
+        assert!(guard_forwarding(Some(&binding), Some(&runtime)).is_err());
+        binding.local = true;
+        binding.url = "http://127.0.0.1:33002".into();
+        assert!(guard_forwarding(Some(&binding), Some(&runtime)).is_err());
+        assert!(guard_forwarding(None, Some(&runtime)).is_err());
+        assert!(guard_local_mode(None, true).is_ok());
+    }
+
+    #[test]
+    fn protected_credential_redirect_is_not_followed() {
+        use std::io::{Read, Write};
+        let sink = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let target = sink.local_addr().unwrap();
+        sink.set_nonblocking(true).unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let mut bytes = [0; 4096];
+            let _ = socket.read(&mut bytes).unwrap();
+            write!(socket,"HTTP/1.1 307 Temporary Redirect\r\nLocation: http://{target}/steal\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+        });
+        let binding = AuthorityBinding {
+            url: format!("http://{address}"),
+            token: "fixture".into(),
+            tenant_id: "t".into(),
+            local: false,
+            simulation: false,
+        };
+        assert!(save_provider_key_to(&binding, "openrouter_api_key", "synthetic-only", 0).is_err());
+        server.join().unwrap();
+        assert!(sink.accept().is_err());
+    }
+
+    #[test]
     fn protected_provider_input_has_an_exact_secret_allowlist() {
-        for field in ["telnyx_api_key", "openrouter_api_key", "openai_api_key", "dnc_api_key"] {
+        for field in [
+            "telnyx_api_key",
+            "openrouter_api_key",
+            "openai_api_key",
+            "dnc_api_key",
+        ] {
             assert!(provider_input_label(field).is_ok());
         }
-        for field in ["url", "chatgpt_access_token", "groq_api_key", "x\nWrite-Output bad"] {
+        for field in [
+            "url",
+            "chatgpt_access_token",
+            "groq_api_key",
+            "x\nWrite-Output bad",
+        ] {
             assert!(provider_input_label(field).is_err());
         }
     }
@@ -586,21 +997,38 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
-            socket.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
             let mut request = Vec::new();
             let mut buffer = [0; 4096];
             loop {
                 let n = socket.read(&mut buffer).unwrap();
                 request.extend_from_slice(&buffer[..n]);
-                if request.windows(21).any(|x| x == b"synthetic-secret-only") { break; }
+                if request.windows(21).any(|x| x == b"synthetic-secret-only") {
+                    break;
+                }
             }
             let body = r#"{"version":2,"configured":{"openrouter_api_key":true},"unexpected":"secret-must-not-reach-renderer"}"#;
-            write!(socket, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+            write!(
+                socket,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
             String::from_utf8(request).unwrap()
         });
-        let authority = AuthorityBinding { url: format!("http://{address}"), token: "synthetic-session".into(),
-            local: false, simulation: false, tenant_id: "fixture".into() };
-        let result = save_provider_key_to(&authority, "openrouter_api_key", "synthetic-secret-only", 1).unwrap();
+        let authority = AuthorityBinding {
+            url: format!("http://{address}"),
+            token: "synthetic-session".into(),
+            local: false,
+            simulation: false,
+            tenant_id: "fixture".into(),
+        };
+        let result =
+            save_provider_key_to(&authority, "openrouter_api_key", "synthetic-secret-only", 1)
+                .unwrap();
         assert_eq!(result.version, 2);
         let shown = serde_json::to_string(&result).unwrap();
         assert!(!shown.contains("secret-must") && !shown.contains("synthetic-secret"));
@@ -1001,6 +1429,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(LocalBackend::default())
         .manage(WebhookTunnel::default())
+        .manage(NativeAuthority::default())
         .setup(|app| {
             let root = app.path().app_data_dir()?;
             for mode in ["local", "simulation"] {
@@ -1009,7 +1438,14 @@ pub fn run() {
             }
             let backend = app.state::<LocalBackend>().inner().clone();
             let tunnel = app.state::<WebhookTunnel>().inner().clone();
+            let authority = app.state::<NativeAuthority>().inner().clone();
             register_exit_cleanup(app.handle(), move || {
+                if let Ok(mut state) = authority.0.lock() {
+                    if let Some(mut prompt) = state.prompt.take() {
+                        let _ = prompt.stop();
+                    }
+                    state.binding = None;
+                }
                 let _ = tunnel.stop();
                 if let Ok(mut state) = backend.0.lock() {
                     if let Some(backend) = state.take() {
@@ -1029,7 +1465,10 @@ pub fn run() {
             cache_read,
             cache_write,
             webhook_tunnel_status,
-            webhook_tunnel_set
+            webhook_tunnel_set,
+            bind_authority,
+            protected_provider_input,
+            disconnect_authority
         ])
         .build(tauri::generate_context!())
         .expect("OpenDialer could not start");

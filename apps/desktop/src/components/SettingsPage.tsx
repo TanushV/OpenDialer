@@ -20,121 +20,35 @@ import {
   Wifi,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { native, openSource } from "../api/client";
+import {
+  native,
+  openSource,
+  tunnelStatus,
+  saveTunnel,
+  type TunnelStatus,
+  type ProviderCredential,
+} from "../api/client";
 import { date, label, useWorkspace } from "../context";
 import type { Readiness } from "../types";
 import { AccessAndRecovery } from "./AdminWorkflows";
 
-type SettingsData = Record<string, string | Record<string, boolean>>;
+type BudgetData = {
+  daily_limit_usd: number;
+  monthly_limit_usd: number;
+  number_purchase_limit_usd: number;
+};
+type SettingsData = {
+  version: number;
+  configured: Record<string, boolean>;
+  budget: BudgetData;
+  [key: string]: unknown;
+};
 export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
-  const { snapshot: w, api, run, refresh, notice } = useWorkspace();
-  const history = useHistory("registries", w.registries);
-  const [config, setConfig] = useState<Record<string, string>>({});
-  const [configLoading, setConfigLoading] = useState(true);
-  const [configured, setConfigured] = useState<Record<string, boolean>>({});
+  const { snapshot: w, api, run } = useWorkspace();
   const [preflight, setPreflight] = useState<Readiness | null>(null);
   const [section, setSection] = useState("Providers");
-  const [policy, setPolicy] = useState({
-    approved: w.policy.approved,
-    registry_required: w.policy.registry_required,
-    state_registry_required: w.policy.state_registry_required,
-    local_start_hour: w.policy.local_start_hour,
-    local_end_hour: w.policy.local_end_hour,
-    max_attempts: w.policy.max_attempts,
-    review_reference: w.policy.review_reference || "",
-    reason: "",
-    permissions: w.policy.permissions,
-    voicemail_enabled: w.policy.voicemail_enabled || false,
-    voicemail_optout_supported: w.policy.voicemail_optout_supported || false,
-    approved_assets: w.policy.approved_assets || [],
-    detached_topology_verified: w.policy.detached_topology_verified || false,
-    topology_test_reference: w.policy.topology_test_reference || "",
-    late_human_recovery_destination:
-      w.policy.late_human_recovery_destination || "",
-  });
-  const [registry, setRegistry] = useState({
-    numbers: "",
-    npas: "",
-    reference: "",
-    refreshed_at: new Date().toISOString().slice(0, 10),
-    kind: "national",
-    jurisdiction: "",
-    mode: "full",
-    base_snapshot_id: "",
-    authorization_expires_at: "",
-    add: "",
-    remove: "",
-  });
-  const [registryBusy, setRegistryBusy] = useState(false);
-  const [identityEvidence, setIdentityEvidence] = useState("");
-  const [backupId, setBackupId] = useState("");
-  const [restoreId, setRestoreId] = useState("");
-  const [budget, setBudget] = useState({
-    daily_limit_usd: 10,
-    monthly_limit_usd: 100,
-    number_purchase_limit_usd: 0,
-  });
-  const [updateInfo, setUpdateInfo] = useState<{
-    version: string;
-    body: string;
-  } | null>(null);
-  const [updateBusy, setUpdateBusy] = useState(false);
-  const update = useRef<Update | null>(null);
-  useEffect(() => {
-    let current = true;
-    void run(async () => {
-      const settings = await api<SettingsData>("/v1/admin/settings");
-      if (!current) return;
-      setConfigured(settings.configured as Record<string, boolean>);
-      setConfig(
-        Object.fromEntries(
-          Object.entries(settings).filter(
-            ([, value]) => typeof value === "string",
-          ),
-        ) as Record<string, string>,
-      );
-      setConfigLoading(false);
-    });
-    return () => {
-      current = false;
-    };
-  }, []);
-  const field = (
-    key: string,
-    title: string,
-    secret = false,
-    placeholder = "",
-  ) => (
-    <label key={key}>
-      {title}
-      <input
-        disabled={configLoading}
-        type={secret ? "password" : "text"}
-        autoComplete="off"
-        spellCheck={false}
-        value={config[key] || ""}
-        placeholder={
-          secret && configured[key]
-            ? "Configured · enter a value to replace"
-            : placeholder
-        }
-        onChange={(e) => setConfig({ ...config, [key]: e.target.value })}
-      />
-      {secret && (
-        <small className="field-note">
-          {configured[key]
-            ? "Protected credential is configured"
-            : "Optional until this provider is enabled"}
-        </small>
-      )}
-    </label>
-  );
   return (
     <>
-      <WorkTime />
-      <OperatingPolicySettings />
-      <PreparationSettings />
-      <CallbackRouting />
       <div className="page-heading">
         <div>
           <span className="eyebrow">A WORKSPACE YOU CAN TRUST</span>
@@ -214,6 +128,31 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
           ))}
         </section>
       )}
+      {preflight?.capabilities && (
+        <div className="two-column">
+          {preflight.capabilities.map((capability) => (
+            <section
+              className="card padded"
+              key={capability.id}
+              data-testid={`capability-${capability.id}`}
+            >
+              <h3>
+                {label(capability.id)} · {label(capability.state)}
+              </h3>
+              <p>{capability.remedy}</p>
+              <p className="fine">
+                {capability.reason_codes.map(label).join(" · ")}
+              </p>
+              <small>
+                {capability.evidence_at
+                  ? `Evidence ${date(capability.evidence_at)}`
+                  : "No live evidence"}{" "}
+                · Source {capability.source_version}
+              </small>
+            </section>
+          ))}
+        </div>
+      )}
       <div className="tabs">
         {["Providers", "Policy & DNC", "Operations", "App updates"].map(
           (tab) => (
@@ -227,1021 +166,1258 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
           ),
         )}
       </div>
-      {section === "Providers" && (
+      {section === "Providers" && <ProviderSettings />}
+      {section === "Policy & DNC" && (
         <>
+          <OperatingPolicySettings />
           <div className="two-column">
-            <section className="card padded">
-              <span className="eyebrow">CALLING &amp; TRANSCRIPTION</span>
-              <h2>Telnyx</h2>
-              <p className="muted small">
-                Account credentials stay with this authority. Desktop clients
-                receive scoped telephony tokens only.
-              </p>
-              {field("telnyx_api_key", "Telnyx API key", true)}
-              {field("telnyx_connection_id", "Call Control connection ID")}
-              {field("telnyx_public_key", "Ed25519 webhook public key")}
-              {field(
-                "telephony_credential_id",
-                "Scoped telephony credential ID",
-              )}
-              {field("sip_username", "Agent SIP username")}
-              {field(
-                "webhook_url",
-                "Public HTTPS webhook URL",
-                false,
-                "https://your-endpoint/webhooks/telnyx",
-              )}
-              {field(
-                "traffic_approval_reference",
-                "Carrier traffic approval reference",
-              )}
-              <p className="fine">
-                Standalone calling uses your local authority. Signed carrier
-                callbacks need a public HTTPS route to its webhook endpoint.
-                Keep administrative routes private.
-              </p>
-            </section>
-            <div>
-              <section className="card padded">
-                <span className="eyebrow">PREPARATION &amp; ANALYSIS</span>
-                <h2>OpenAI / LiteLLM</h2>
-                <label>
-                  Inference route
-                  <select
-                    value={config.inference_mode || "api"}
-                    onChange={(e) =>
-                      setConfig({ ...config, inference_mode: e.target.value })
-                    }
-                  >
-                    <option value="api">OpenAI Responses API</option>
-                    <option value="litellm">
-                      Explicit OpenAI-compatible LiteLLM endpoint
-                    </option>
-                    <option value="chatgpt_plan">
-                      Official eligible ChatGPT plan usage
-                    </option>
-                  </select>
-                </label>
-                {field(
-                  "openai_api_key",
-                  config.inference_mode === "litellm"
-                    ? "LiteLLM API key"
-                    : "OpenAI API key",
-                  true,
-                )}
-                {config.inference_mode === "litellm" &&
-                  field(
-                    "inference_base_url",
-                    "Inference base URL",
-                    false,
-                    "http://127.0.0.1:4000/v1",
-                  )}
-                {config.inference_mode === "chatgpt_plan" && (
-                  <>
-                    {field(
-                      "chatgpt_access_token",
-                      "Official registered OAuth access token",
-                      true,
-                    )}
-                    {w.mode === "local" && (
-                      <button
-                        className="secondary"
-                        onClick={() =>
-                          void run(async () => {
-                            const flow = await api<{
-                              authorization_url: string;
-                            }>("/v1/inference/chatgpt/start", "POST");
-                            await openSource(flow.authorization_url);
-                            notice(
-                              "Complete the official authorization in your browser, then return here.",
-                            );
-                          })
-                        }
-                      >
-                        Continue with ChatGPT
-                      </button>
-                    )}
-                    <p className="fine">
-                      Use an eligible registered application session. Inference
-                      uses the public Responses API with stream=true and
-                      store=false. It never uses browser cookies or undocumented
-                      endpoints.
-                    </p>
-                  </>
-                )}
-                {field("model", "Default evaluated model", false, "gpt-6-luna")}
-                <label>
-                  Optional research search
-                  <select
-                    aria-label="Optional research search"
-                    disabled={configLoading}
-                    value={config.research_search || "disabled"}
-                    onChange={(event) =>
-                      setConfig({
-                        ...config,
-                        research_search: event.target.value,
-                      })
-                    }
-                  >
-                    <option value="disabled">Disabled</option>
-                    <option value="openai_web_search">
-                      Metered OpenAI web search
-                    </option>
-                  </select>
-                </label>
-                <p className="fine">
-                  At most two metered searches per company, within the
-                  preparation budget, when official pages lack useful context.
-                  Requires the official API route and a search-capable evaluated
-                  model. Saving this choice makes no paid request. LiteLLM and
-                  plan routes retain generic preparation when official discovery
-                  is insufficient.
-                </p>
-                {field(
-                  "script_write_model",
-                  "Script-writing model",
-                  false,
-                  "gpt-6.1-sol",
-                )}
-                {field(
-                  "postcall_extract_model",
-                  "Post-call extraction model",
-                  false,
-                  "gpt-6-luna",
-                )}
-              </section>
-              <section className="card padded">
-                <span className="eyebrow">LIVE GUIDANCE</span>
-                <h2>Conversation coach</h2>
-                <label>
-                  Live coach provider
-                  <select
-                    value={config.coach_provider || "openrouter"}
-                    onChange={(e) =>
-                      setConfig({ ...config, coach_provider: e.target.value })
-                    }
-                  >
-                    <option value="openrouter">OpenRouter · Cerebras</option>
-                    <option value="static">Approved static guidance</option>
-                  </select>
-                </label>
-                {(config.coach_provider || "openrouter") === "openrouter" && (
-                  <>
-                    {field("openrouter_api_key", "OpenRouter API key", true)}
-                    {field(
-                      "coach_model",
-                      "Cerebras coach model",
-                      false,
-                      "openai/gpt-oss-120b",
-                    )}
-                    <p className="fine">
-                      Cerebras only · other-provider fallbacks disabled · strict
-                      structured responses. Endpoint support and live timing
-                      must pass your account checks.
-                    </p>
-                  </>
-                )}
-                <p className="fine">
-                  Guidance uses short structured text responses. Telephony
-                  continues if inference is unavailable.
-                </p>
-              </section>
-            </div>
-          </div>
-          <div className="settings-save">
-            <LockKeyhole size={16} />
-            <span>
-              Write-only secrets · encrypted at rest · no credentials in
-              workspace snapshots
-            </span>
-            <button
-              className="primary"
-              disabled={configLoading}
-              onClick={() =>
-                void run(async () => {
-                  const data = Object.fromEntries(
-                    Object.entries(config).filter(([, v]) => v !== ""),
-                  );
-                  const result = await api<SettingsData>(
-                    "/v1/admin/settings",
-                    "PUT",
-                    data,
-                  );
-                  setConfigured(result.configured as Record<string, boolean>);
-                  setConfig(
-                    Object.fromEntries(
-                      Object.entries(result).filter(
-                        ([, v]) => typeof v === "string",
-                      ),
-                    ) as Record<string, string>,
-                  );
-                  notice("Provider configuration saved securely.");
-                  await refresh();
-                })
-              }
-            >
-              Save provider settings
-              <Check size={15} />
-            </button>
+            <CallingPolicySettings />
+            <RegistrySettings />
           </div>
         </>
       )}
-      {section === "Policy & DNC" && (
-        <div className="two-column">
-          <section className="card padded">
-            <span className="eyebrow">VERSIONED CAMPAIGN POLICY</span>
-            <h2>Permission before every dial</h2>
+      {section === "Operations" && (
+        <OperationsSettings onDisconnect={onDisconnect} />
+      )}
+      {section === "App updates" && <UpdateSettings />}
+    </>
+  );
+}
+function ProviderSettings() {
+  const {
+    snapshot: w,
+    api,
+    run,
+    refresh,
+    notice,
+    configureCredential,
+  } = useWorkspace();
+  const [config, setConfig] = useState<Record<string, string>>({});
+  const [version, setVersion] = useState(0);
+  const [configured, setConfigured] = useState<Record<string, boolean>>({});
+  const [configLoading, setConfigLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [ingress, setIngress] = useState<Record<string, unknown> | null>(null);
+  const [tunnel, setTunnel] = useState<TunnelStatus | null>(null);
+  const edit = useRef<{ body: string; request_id: string } | null>(null);
+  const load = (settings: SettingsData) => {
+    setVersion(settings.version);
+    setConfigured(settings.configured);
+    setConfig(
+      Object.fromEntries(
+        Object.entries(settings).filter(
+          ([key, value]) =>
+            typeof value === "string" &&
+            !key.startsWith("_") &&
+            !key.endsWith("_api_key") &&
+            key !== "chatgpt_access_token",
+        ),
+      ) as Record<string, string>,
+    );
+    setConfigLoading(false);
+  };
+  useEffect(() => {
+    void run(async () => {
+      load(await api<SettingsData>("/v1/admin/settings"));
+      if (native()) setTunnel(await tunnelStatus());
+    });
+  }, []);
+  const field = (
+    key: string,
+    title: string,
+    secret = false,
+    placeholder = "",
+  ) =>
+    secret ? (
+      <div key={key} data-testid={`credential-${key}`}>
+        <button
+          className="secondary"
+          aria-label={title}
+          disabled={configLoading || busy || !native()}
+          onClick={() =>
+            void run(async () => {
+              setBusy(true);
+              try {
+                const result = await configureCredential(
+                  key as ProviderCredential,
+                  version,
+                );
+                setVersion(result.version);
+                setConfigured(result.configured);
+                notice("Credential saved in the selected authority.");
+                await refresh();
+              } finally {
+                setBusy(false);
+              }
+            })
+          }
+        >
+          {title}
+        </button>
+        <p className="fine">
+          {configured[key] ? "Configured" : "Not configured"} ·{" "}
+          {native()
+            ? "Enter in a protected system dialog"
+            : "Use the installed desktop to enter keys"}
+        </p>
+      </div>
+    ) : (
+      <label key={key}>
+        {title}
+        <input
+          disabled={configLoading || busy}
+          autoComplete="off"
+          spellCheck={false}
+          value={config[key] || ""}
+          placeholder={placeholder}
+          onChange={(e) => setConfig({ ...config, [key]: e.target.value })}
+        />
+      </label>
+    );
+  return (
+    <>
+      <div className="two-column">
+        <section className="card padded">
+          <span className="eyebrow">CALLING &amp; TRANSCRIPTION</span>
+          <h2>Telnyx</h2>
+          <p className="muted small">
+            Account credentials stay with this authority. Desktop clients
+            receive scoped telephony tokens only.
+          </p>
+          {field("telnyx_api_key", "Telnyx API key", true)}
+          {field("telnyx_connection_id", "Call Control connection ID")}
+          {field("telnyx_public_key", "Ed25519 webhook public key")}
+          {field("telephony_credential_id", "Scoped telephony credential ID")}
+          {field("sip_username", "Agent SIP username")}
+          {field(
+            "webhook_url",
+            "Public HTTPS webhook URL",
+            false,
+            "https://your-endpoint/webhooks/telnyx",
+          )}
+          {field(
+            "traffic_approval_reference",
+            "Carrier traffic approval reference",
+          )}
+          <p className="fine">
+            Standalone calling uses your local authority. Signed carrier
+            callbacks need a public HTTPS route to its webhook endpoint. Keep
+            administrative routes private.
+          </p>
+        </section>
+        <div>
+          <details className="card padded">
+            <summary>Advanced optional inference</summary>
+            <span className="eyebrow">PREPARATION &amp; ANALYSIS</span>
+            <h2>OpenAI / LiteLLM</h2>
             <label>
-              Business identity evidence
+              Inference route
+              <select
+                value={config.inference_mode || "api"}
+                onChange={(e) =>
+                  setConfig({ ...config, inference_mode: e.target.value })
+                }
+              >
+                <option value="api">OpenAI Responses API</option>
+                <option value="litellm">
+                  Explicit OpenAI-compatible LiteLLM endpoint
+                </option>
+                <option value="chatgpt_plan">
+                  Official eligible ChatGPT plan usage
+                </option>
+              </select>
+            </label>
+            {field(
+              "openai_api_key",
+              config.inference_mode === "litellm"
+                ? "LiteLLM API key"
+                : "OpenAI API key",
+              true,
+            )}
+            {config.inference_mode === "litellm" &&
+              field(
+                "inference_base_url",
+                "Inference base URL",
+                false,
+                "http://127.0.0.1:4000/v1",
+              )}
+            {config.inference_mode === "chatgpt_plan" && (
+              <>
+                {w.mode === "local" && (
+                  <button
+                    className="secondary"
+                    onClick={() =>
+                      void run(async () => {
+                        const flow = await api<{
+                          authorization_url: string;
+                        }>("/v1/inference/chatgpt/start", "POST");
+                        await openSource(flow.authorization_url);
+                        notice(
+                          "Complete the official authorization in your browser, then return here.",
+                        );
+                      })
+                    }
+                  >
+                    Continue with ChatGPT
+                  </button>
+                )}
+                <p className="fine">
+                  Use an eligible registered application session. Inference uses
+                  the public Responses API with stream=true and store=false. It
+                  never uses browser cookies or undocumented endpoints.
+                </p>
+              </>
+            )}
+            {field("model", "Default evaluated model", false, "gpt-6-luna")}
+            <label>
+              Optional research search
+              <select
+                aria-label="Optional research search"
+                disabled={configLoading || busy}
+                value={config.research_search || "disabled"}
+                onChange={(event) =>
+                  setConfig({
+                    ...config,
+                    research_search: event.target.value,
+                  })
+                }
+              >
+                <option value="disabled">Disabled</option>
+                <option value="openai_web_search">
+                  Metered OpenAI web search
+                </option>
+              </select>
+            </label>
+            <p className="fine">
+              At most two metered searches per company, within the preparation
+              budget, when official pages lack useful context. Requires the
+              official API route and a search-capable evaluated model. Saving
+              this choice makes no paid request. LiteLLM and plan routes retain
+              generic preparation when official discovery is insufficient.
+            </p>
+            {field(
+              "script_write_model",
+              "Script-writing model",
+              false,
+              "gpt-6.1-sol",
+            )}
+            {field("scorecard_review_model", "Optional stronger review model")}
+          </details>
+          <section className="card padded">
+            <span className="eyebrow">LIVE GUIDANCE</span>
+            <h2>Conversation coach</h2>
+            <label>
+              Live coach provider
+              <select
+                value={config.coach_provider || "openrouter"}
+                onChange={(e) =>
+                  setConfig({ ...config, coach_provider: e.target.value })
+                }
+              >
+                <option value="openrouter">OpenRouter · Cerebras</option>
+                <option value="static">Approved static guidance</option>
+              </select>
+            </label>
+            {(config.coach_provider || "openrouter") === "openrouter" && (
+              <>
+                {field("openrouter_api_key", "OpenRouter API key", true)}
+                {field(
+                  "coach_model",
+                  "Cerebras coach model",
+                  false,
+                  "openai/gpt-oss-120b",
+                )}
+                <p className="fine">
+                  Cerebras only · other-provider fallbacks disabled · strict
+                  structured responses. Endpoint support and live timing must
+                  pass your account checks.
+                </p>
+              </>
+            )}
+            <p className="fine">
+              Guidance uses short structured text responses. Telephony continues
+              if inference is unavailable.
+            </p>
+          </section>
+        </div>
+      </div>
+      <section className="card padded">
+        <h2>Webhook-only ingress</h2>
+        <p>
+          Save your HTTPS webhook URL first. This check verifies routing and
+          signature handling without a carrier call. Last real carrier evidence
+          remains separate.
+        </p>
+        <button
+          className="secondary"
+          disabled={busy || configLoading}
+          onClick={() =>
+            void run(async () => {
+              setBusy(true);
+              try {
+                setIngress(
+                  await api("/v1/admin/ingress-check", "POST", {
+                    request_id: crypto.randomUUID(),
+                    expected_version: version,
+                  }),
+                );
+              } finally {
+                setBusy(false);
+              }
+            })
+          }
+        >
+          Check saved ingress
+        </button>
+        {ingress && (
+          <pre className="small" aria-label="Ingress check result">
+            {JSON.stringify(ingress, null, 2)}
+          </pre>
+        )}
+        {tunnel && w.mode === "local" && (
+          <details>
+            <summary>Existing SSH forwarding host</summary>
+            <p>
+              Use an owned host with the webhook-only Caddy recipe, a pinned SSH
+              host key, and an existing SSH key or agent. Your local computer
+              must stay awake. No service is installed.
+            </p>
+            <p role="status">Forward: {label(tunnel.state)}</p>
+            <label className="check-label">
               <input
-                value={identityEvidence}
-                onChange={(e) => setIdentityEvidence(e.target.value)}
-                placeholder="Verified business registration / identity reference"
+                type="checkbox"
+                checked={tunnel.config.enabled}
+                disabled={w.simulation || busy}
+                onChange={(e) =>
+                  setTunnel({
+                    ...tunnel,
+                    config: { ...tunnel.config, enabled: e.target.checked },
+                  })
+                }
+              />
+              Enable owned SSH forward
+            </label>
+            {(["host", "user"] as const).map((key) => (
+              <label key={key}>
+                SSH {key}
+                <input
+                  value={tunnel.config[key]}
+                  disabled={busy}
+                  onChange={(e) =>
+                    setTunnel({
+                      ...tunnel,
+                      config: { ...tunnel.config, [key]: e.target.value },
+                    })
+                  }
+                />
+              </label>
+            ))}
+            <label>
+              Remote loopback port
+              <input
+                type="number"
+                min="1024"
+                max="65535"
+                value={tunnel.config.remote_port}
+                disabled={busy}
+                onChange={(e) =>
+                  setTunnel({
+                    ...tunnel,
+                    config: {
+                      ...tunnel.config,
+                      remote_port: Number(e.target.value),
+                    },
+                  })
+                }
               />
             </label>
             <button
               className="secondary"
-              disabled={!identityEvidence}
+              disabled={busy || w.simulation}
               onClick={() =>
                 void run(async () => {
-                  await api("/v1/admin/seller/approve", "POST", {
-                    approved: true,
-                    identity_reference: identityEvidence,
-                  });
-                  await refresh();
-                  notice(
-                    "Business identity review recorded. Campaign permission remains separately controlled.",
-                  );
+                  setBusy(true);
+                  try {
+                    await saveTunnel(tunnel.config);
+                    setTunnel(await tunnelStatus());
+                  } finally {
+                    setBusy(false);
+                  }
                 })
               }
             >
-              Record business identity approval
+              Save SSH forward
             </button>
-            <div className="section-rule" />
-            <label className="check-label">
-              <input
-                type="checkbox"
-                checked={policy.approved}
-                onChange={(e) =>
-                  setPolicy({ ...policy, approved: e.target.checked })
-                }
-              />
-              Campaign approved for live use
-            </label>
-            <label className="check-label">
-              <input
-                type="checkbox"
-                checked={policy.registry_required}
-                onChange={(e) =>
-                  setPolicy({ ...policy, registry_required: e.target.checked })
-                }
-              />
-              Require current national registry coverage
-            </label>
-            <label className="check-label">
-              <input
-                type="checkbox"
-                checked={policy.state_registry_required}
-                onChange={(e) =>
-                  setPolicy({
-                    ...policy,
-                    state_registry_required: e.target.checked,
-                  })
-                }
-              />
-              Require applicable state registry data
-            </label>
-            <div className="three-fields">
-              <label>
-                Local start hour
-                <input
-                  type="number"
-                  min="0"
-                  max="23"
-                  value={policy.local_start_hour}
-                  onChange={(e) =>
-                    setPolicy({
-                      ...policy,
-                      local_start_hour: Number(e.target.value),
-                    })
-                  }
-                />
-              </label>
-              <label>
-                Local end hour
-                <input
-                  type="number"
-                  min="1"
-                  max="24"
-                  value={policy.local_end_hour}
-                  onChange={(e) =>
-                    setPolicy({
-                      ...policy,
-                      local_end_hour: Number(e.target.value),
-                    })
-                  }
-                />
-              </label>
-              <label>
-                Attempt limit
-                <input
-                  type="number"
-                  min="1"
-                  max="20"
-                  value={policy.max_attempts}
-                  onChange={(e) =>
-                    setPolicy({
-                      ...policy,
-                      max_attempts: Number(e.target.value),
-                    })
-                  }
-                />
-              </label>
-            </div>
-            <h3>Separate treatment permissions</h3>
-            {[
-              "live",
-              "transcription",
-              "recording",
-              "prerecorded",
-              "messaging",
-            ].map((permission) => (
-              <label className="check-label" key={permission}>
-                <input
-                  type="checkbox"
-                  checked={policy.permissions.includes(permission)}
-                  onChange={(e) =>
-                    setPolicy({
-                      ...policy,
-                      permissions: e.target.checked
-                        ? [...policy.permissions, permission]
-                        : policy.permissions.filter((p) => p !== permission),
-                    })
-                  }
-                />
-                {label(permission)}
-              </label>
-            ))}
-            <h3>Approved voicemail assets</h3>
-            <label className="check-label">
-              <input
-                type="checkbox"
-                checked={policy.voicemail_enabled}
-                onChange={(e) =>
-                  setPolicy({ ...policy, voicemail_enabled: e.target.checked })
-                }
-              />
-              Enable permissioned voicemail
-            </label>
-            <label className="check-label">
-              <input
-                type="checkbox"
-                checked={policy.voicemail_optout_supported}
-                onChange={(e) =>
-                  setPolicy({
-                    ...policy,
-                    voicemail_optout_supported: e.target.checked,
-                  })
-                }
-              />
-              Reviewed message explains the digit 9 opt-out
-            </label>
-            <label>
-              Approved Telnyx media names
-              <input
-                value={policy.approved_assets.join(", ")}
-                onChange={(e) =>
-                  setPolicy({
-                    ...policy,
-                    approved_assets: e.target.value
-                      .split(",")
-                      .map((s) => s.trim())
-                      .filter(Boolean),
-                  })
-                }
-              />
-            </label>
-            <label className="check-label">
-              <input
-                type="checkbox"
-                checked={policy.detached_topology_verified}
-                onChange={(e) =>
-                  setPolicy({
-                    ...policy,
-                    detached_topology_verified: e.target.checked,
-                  })
-                }
-              />
-              Detached topology verified on the actual account
-            </label>
-            <label>
-              Topology test reference
-              <input
-                value={policy.topology_test_reference}
-                onChange={(e) =>
-                  setPolicy({
-                    ...policy,
-                    topology_test_reference: e.target.value,
-                  })
-                }
-              />
-            </label>
-            <label>
-              Late human recovery destination
-              <input
-                value={policy.late_human_recovery_destination}
-                onChange={(e) =>
-                  setPolicy({
-                    ...policy,
-                    late_human_recovery_destination: e.target.value,
-                  })
-                }
-              />
-            </label>
-            <label>
-              Reviewed policy reference
-              <input
-                value={policy.review_reference}
-                onChange={(e) =>
-                  setPolicy({ ...policy, review_reference: e.target.value })
-                }
-              />
-            </label>
-            <label>
-              Publication reason
-              <input
-                value={policy.reason}
-                onChange={(e) =>
-                  setPolicy({ ...policy, reason: e.target.value })
-                }
-              />
-            </label>
             <button
-              className="primary"
-              disabled={!policy.reason}
+              className="secondary"
               onClick={() =>
-                void run(async () => {
-                  await api(
-                    `/v1/admin/policies/${w.policy.id}/publish`,
-                    "POST",
-                    policy,
-                  );
-                  await refresh();
-                  notice(
-                    "New policy version published. Queued calls will recheck it.",
-                  );
-                })
+                void run(async () => setTunnel(await tunnelStatus()))
               }
             >
-              Publish policy version
-              <ShieldCheck size={15} />
+              Refresh forward status
             </button>
-          </section>
-          <section className="card padded">
-            <span className="eyebrow">AUTHORITATIVE DATA</span>
-            <h2>Registry snapshots</h2>
-            {history.items.map((r) => (
-              <div className="registry-row" key={r.id}>
-                <strong>
-                  {label(r.kind)}{" "}
-                  {r.synthetic && (
-                    <span className="pill subtle">Synthetic</span>
-                  )}
-                </strong>
-                <small>
-                  Updated {date(r.refreshed_at)} · {r.npas.join(", ")}
-                </small>
-                <small>SHA-256 {r.checksum.slice(0, 18)}…</small>
-              </div>
-            ))}
-            <HistoryMore
-              history={history}
-              label="Load older registry snapshots"
-            />
-            <p className="muted small">
-              Import seller-authorized data only. Missing or stale coverage
-              blocks calling. Registry membership never enters scheduling
-              features.
-            </p>
-            <label>
-              Dataset import mode
-              <select
-                value={registry.mode}
-                onChange={(e) =>
-                  setRegistry({ ...registry, mode: e.target.value })
-                }
-                disabled={registryBusy}
-              >
-                <option value="full">Complete authorized snapshot</option>
-                <option value="changes">Changes to a published snapshot</option>
-              </select>
-            </label>
-            {registry.mode === "changes" && (
-              <label>
-                Base publication
-                <select
-                  value={registry.base_snapshot_id}
-                  disabled={registryBusy}
-                  onChange={(e) => {
-                    const base = history.items.find(
-                      (r) => r.id === e.target.value,
-                    );
-                    setRegistry({
-                      ...registry,
-                      base_snapshot_id: e.target.value,
-                      ...(base
-                        ? {
-                            kind: base.kind,
-                            jurisdiction: base.jurisdiction || "",
-                            npas: base.npas.join(", "),
-                            reference:
-                              base.subscription_reference ||
-                              base.subscription_id ||
-                              "",
-                            authorization_expires_at:
-                              base.authorization_expires_at?.slice(0, 16) || "",
-                          }
-                        : {}),
-                    });
-                  }}
-                >
-                  <option value="">Choose the current source</option>
-                  {history.items
-                    .filter((r) => r.published)
-                    .map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {label(r.kind)} · {r.npas.join(", ")} · version{" "}
-                        {r.version}
-                      </option>
-                    ))}
-                </select>
-              </label>
-            )}
-            <fieldset disabled={registryBusy} style={{ border: 0, padding: 0 }}>
-              <label>
-                Dataset type
-                <select
-                  value={registry.kind}
-                  onChange={(e) =>
-                    setRegistry({ ...registry, kind: e.target.value })
-                  }
-                >
-                  <option value="national">National</option>
-                  <option value="state">State</option>
-                </select>
-              </label>
-              {registry.kind === "state" && (
-                <label>
-                  State jurisdiction
-                  <input
-                    value={registry.jurisdiction}
-                    onChange={(e) =>
-                      setRegistry({ ...registry, jurisdiction: e.target.value })
-                    }
-                  />
-                </label>
-              )}
-              <label>
-                Authorized area codes (comma separated)
-                <input
-                  value={registry.npas}
-                  onChange={(e) =>
-                    setRegistry({ ...registry, npas: e.target.value })
-                  }
-                />
-              </label>
-              <label>
-                Subscription / authorization reference
-                <input
-                  value={registry.reference}
-                  onChange={(e) =>
-                    setRegistry({ ...registry, reference: e.target.value })
-                  }
-                />
-              </label>
-              <label>
-                Dataset refreshed on
-                <input
-                  type="date"
-                  value={registry.refreshed_at}
-                  onChange={(e) =>
-                    setRegistry({ ...registry, refreshed_at: e.target.value })
-                  }
-                />
-              </label>
-              <label>
-                Source access expires at
-                <input
-                  type="datetime-local"
-                  value={registry.authorization_expires_at}
-                  onChange={(e) =>
-                    setRegistry({
-                      ...registry,
-                      authorization_expires_at: e.target.value,
-                    })
-                  }
-                />
-              </label>
-              <p className="fine">
-                Source access time is UTC. An earlier access expiry always
-                shortens the screening lifetime.
-              </p>
-              {registry.mode === "full" ? (
-                <label>
-                  Listed E.164 numbers (one per line)
-                  <textarea
-                    rows={4}
-                    value={registry.numbers}
-                    onChange={(e) =>
-                      setRegistry({ ...registry, numbers: e.target.value })
-                    }
-                  />
-                </label>
-              ) : (
-                <>
-                  <label>
-                    Added listed E.164 numbers
-                    <textarea
-                      value={registry.add}
-                      onChange={(e) =>
-                        setRegistry({ ...registry, add: e.target.value })
-                      }
-                    />
-                  </label>
-                  <label>
-                    Removed listed E.164 numbers
-                    <textarea
-                      value={registry.remove}
-                      onChange={(e) =>
-                        setRegistry({ ...registry, remove: e.target.value })
-                      }
-                    />
-                  </label>
-                </>
-              )}
-              <button
-                className="secondary"
-                disabled={
-                  registryBusy ||
-                  !registry.npas ||
-                  !registry.reference ||
-                  (registry.mode === "changes" && !registry.base_snapshot_id)
-                }
-                onClick={() =>
-                  void run(async () => {
-                    setRegistryBusy(true);
-                    try {
-                      const base = history.items.find(
-                        (r) => r.id === registry.base_snapshot_id,
-                      );
-                      const body = {
-                        kind: registry.kind,
-                        jurisdiction: registry.jurisdiction,
-                        npas: registry.npas.split(",").map((s) => s.trim()),
-                        subscription_reference: registry.reference,
-                        refreshed_at: new Date(
-                          registry.refreshed_at + "T00:00:00Z",
-                        ).toISOString(),
-                        ...(registry.authorization_expires_at
-                          ? {
-                              authorization_expires_at: new Date(
-                                registry.authorization_expires_at + "Z",
-                              ).toISOString(),
-                            }
-                          : {}),
-                        ...(registry.mode === "full"
-                          ? {
-                              numbers: registry.numbers
-                                .split(/\s+/)
-                                .filter(Boolean),
-                            }
-                          : {
-                              base_snapshot_id: base?.id,
-                              expected_version: base?.version,
-                              add: registry.add.split(/\s+/).filter(Boolean),
-                              remove: registry.remove
-                                .split(/\s+/)
-                                .filter(Boolean),
-                            }),
-                      };
-                      const digest = Array.from(
-                        new Uint8Array(
-                          await crypto.subtle.digest(
-                            "SHA-256",
-                            new TextEncoder().encode(JSON.stringify(body)),
-                          ),
-                        ),
-                      )
-                        .map((b) => b.toString(16).padStart(2, "0"))
-                        .join("");
-                      const key = "opendialer.registry-import." + w.seller.id;
-                      let previous: { digest?: string; request_id?: string } =
-                        {};
-                      try {
-                        previous = JSON.parse(
-                          sessionStorage.getItem(key) || "{}",
-                        );
-                      } catch {
-                        /* Invalid metadata cannot authorize anything. */
-                      }
-                      const request_id =
-                        previous.digest === digest && previous.request_id
-                          ? previous.request_id
-                          : crypto.randomUUID();
-                      // Retain only the request fingerprint, never registry membership, across reload.
-                      sessionStorage.setItem(
-                        key,
-                        JSON.stringify({ digest, request_id }),
-                      );
-                      const result = await api<{ published: boolean }>(
-                        "/v1/admin/registry/import",
-                        "POST",
-                        { ...body, request_id },
-                      );
-                      await refresh();
-                      notice(
-                        result.published
-                          ? "Validated registry snapshot published atomically."
-                          : "Original import recovered; a newer publication is current.",
-                      );
-                    } finally {
-                      setRegistryBusy(false);
-                    }
-                  })
-                }
-              >
-                Validate &amp; publish dataset
-              </button>
-            </fieldset>
-            <p className="fine">
-              If interrupted, resubmit the same source and fields to resume the
-              original import. The current source remains active until all
-              chunks validate. No source download or purchase runs here.
-            </p>
-          </section>
+            {w.simulation && <p>Forwarding is unavailable in simulation.</p>}
+          </details>
+        )}
+      </section>
+      <div className="settings-save">
+        <LockKeyhole size={16} />
+        <span>
+          Write-only secrets · encrypted at rest · no credentials in workspace
+          snapshots
+        </span>
+        <button
+          className="primary"
+          disabled={configLoading || busy}
+          onClick={() =>
+            void run(async () => {
+              setBusy(true);
+              try {
+                const data = Object.fromEntries(
+                  Object.entries(config).filter(([, v]) => v !== ""),
+                );
+                const body = JSON.stringify({ data, version });
+                if (edit.current?.body !== body)
+                  edit.current = { body, request_id: crypto.randomUUID() };
+                load(
+                  await api<SettingsData>("/v1/admin/settings", "PUT", {
+                    ...data,
+                    request_id: edit.current.request_id,
+                    expected_version: version,
+                  }),
+                );
+                edit.current = null;
+                notice("Provider configuration saved securely.");
+                await refresh();
+              } finally {
+                setBusy(false);
+              }
+            })
+          }
+        >
+          Save provider settings
+          <Check size={15} />
+        </button>
+      </div>
+    </>
+  );
+}
+function CallingPolicySettings() {
+  const { snapshot: w, api, run, refresh, notice } = useWorkspace();
+  const [policy, setPolicy] = useState({
+    approved: w.policy.approved,
+    registry_required: w.policy.registry_required,
+    state_registry_required: w.policy.state_registry_required,
+    local_start_hour: w.policy.local_start_hour,
+    local_end_hour: w.policy.local_end_hour,
+    max_attempts: w.policy.max_attempts,
+    review_reference: w.policy.review_reference || "",
+    reason: "",
+    permissions: w.policy.permissions,
+    voicemail_enabled: w.policy.voicemail_enabled || false,
+    voicemail_optout_supported: w.policy.voicemail_optout_supported || false,
+    approved_assets: w.policy.approved_assets || [],
+    detached_topology_verified: w.policy.detached_topology_verified || false,
+    topology_test_reference: w.policy.topology_test_reference || "",
+    late_human_recovery_destination:
+      w.policy.late_human_recovery_destination || "",
+  });
+  const [identityEvidence, setIdentityEvidence] = useState("");
+  return (
+    <section className="card padded">
+      <span className="eyebrow">VERSIONED CAMPAIGN POLICY</span>
+      <h2>Permission before every dial</h2>
+      <label>
+        Business identity evidence
+        <input
+          value={identityEvidence}
+          onChange={(e) => setIdentityEvidence(e.target.value)}
+          placeholder="Verified business registration / identity reference"
+        />
+      </label>
+      <button
+        className="secondary"
+        disabled={!identityEvidence}
+        onClick={() =>
+          void run(async () => {
+            await api("/v1/admin/seller/approve", "POST", {
+              approved: true,
+              identity_reference: identityEvidence,
+            });
+            await refresh();
+            notice(
+              "Business identity review recorded. Campaign permission remains separately controlled.",
+            );
+          })
+        }
+      >
+        Record business identity approval
+      </button>
+      <div className="section-rule" />
+      <label className="check-label">
+        <input
+          type="checkbox"
+          checked={policy.approved}
+          onChange={(e) => setPolicy({ ...policy, approved: e.target.checked })}
+        />
+        Campaign approved for live use
+      </label>
+      <label className="check-label">
+        <input
+          type="checkbox"
+          checked={policy.registry_required}
+          onChange={(e) =>
+            setPolicy({ ...policy, registry_required: e.target.checked })
+          }
+        />
+        Require current national registry coverage
+      </label>
+      <label className="check-label">
+        <input
+          type="checkbox"
+          checked={policy.state_registry_required}
+          onChange={(e) =>
+            setPolicy({
+              ...policy,
+              state_registry_required: e.target.checked,
+            })
+          }
+        />
+        Require applicable state registry data
+      </label>
+      <div className="three-fields">
+        <label>
+          Local start hour
+          <input
+            type="number"
+            min="0"
+            max="23"
+            value={policy.local_start_hour}
+            onChange={(e) =>
+              setPolicy({
+                ...policy,
+                local_start_hour: Number(e.target.value),
+              })
+            }
+          />
+        </label>
+        <label>
+          Local end hour
+          <input
+            type="number"
+            min="1"
+            max="24"
+            value={policy.local_end_hour}
+            onChange={(e) =>
+              setPolicy({
+                ...policy,
+                local_end_hour: Number(e.target.value),
+              })
+            }
+          />
+        </label>
+        <label>
+          Attempt limit
+          <input
+            type="number"
+            min="1"
+            max="20"
+            value={policy.max_attempts}
+            onChange={(e) =>
+              setPolicy({
+                ...policy,
+                max_attempts: Number(e.target.value),
+              })
+            }
+          />
+        </label>
+      </div>
+      <h3>Separate treatment permissions</h3>
+      {["live", "transcription", "prerecorded"].map((permission) => (
+        <label className="check-label" key={permission}>
+          <input
+            type="checkbox"
+            checked={policy.permissions.includes(permission)}
+            onChange={(e) =>
+              setPolicy({
+                ...policy,
+                permissions: e.target.checked
+                  ? [...policy.permissions, permission]
+                  : policy.permissions.filter((p) => p !== permission),
+              })
+            }
+          />
+          {label(permission)}
+        </label>
+      ))}
+      <h3>Approved voicemail assets</h3>
+      <label className="check-label">
+        <input
+          type="checkbox"
+          checked={policy.voicemail_enabled}
+          onChange={(e) =>
+            setPolicy({ ...policy, voicemail_enabled: e.target.checked })
+          }
+        />
+        Enable permissioned voicemail
+      </label>
+      <label className="check-label">
+        <input
+          type="checkbox"
+          checked={policy.voicemail_optout_supported}
+          onChange={(e) =>
+            setPolicy({
+              ...policy,
+              voicemail_optout_supported: e.target.checked,
+            })
+          }
+        />
+        Reviewed message explains the digit 9 opt-out
+      </label>
+      <label>
+        Approved Telnyx media names
+        <input
+          value={policy.approved_assets.join(", ")}
+          onChange={(e) =>
+            setPolicy({
+              ...policy,
+              approved_assets: e.target.value
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean),
+            })
+          }
+        />
+      </label>
+      <label className="check-label">
+        <input
+          type="checkbox"
+          checked={policy.detached_topology_verified}
+          onChange={(e) =>
+            setPolicy({
+              ...policy,
+              detached_topology_verified: e.target.checked,
+            })
+          }
+        />
+        Detached topology verified on the actual account
+      </label>
+      <label>
+        Topology test reference
+        <input
+          value={policy.topology_test_reference}
+          onChange={(e) =>
+            setPolicy({
+              ...policy,
+              topology_test_reference: e.target.value,
+            })
+          }
+        />
+      </label>
+      <label>
+        Late human recovery destination
+        <input
+          value={policy.late_human_recovery_destination}
+          onChange={(e) =>
+            setPolicy({
+              ...policy,
+              late_human_recovery_destination: e.target.value,
+            })
+          }
+        />
+      </label>
+      <label>
+        Reviewed policy reference
+        <input
+          value={policy.review_reference}
+          onChange={(e) =>
+            setPolicy({ ...policy, review_reference: e.target.value })
+          }
+        />
+      </label>
+      <label>
+        Publication reason
+        <input
+          value={policy.reason}
+          onChange={(e) => setPolicy({ ...policy, reason: e.target.value })}
+        />
+      </label>
+      <button
+        className="primary"
+        disabled={!policy.reason}
+        onClick={() =>
+          void run(async () => {
+            await api(
+              `/v1/admin/policies/${w.policy.id}/publish`,
+              "POST",
+              policy,
+            );
+            await refresh();
+            notice(
+              "New policy version published. Queued calls will recheck it.",
+            );
+          })
+        }
+      >
+        Publish policy version
+        <ShieldCheck size={15} />
+      </button>
+    </section>
+  );
+}
+function RegistrySettings() {
+  const { snapshot: w, api, run, refresh, notice } = useWorkspace();
+  const history = useHistory("registries", w.registries);
+  const [registry, setRegistry] = useState({
+    numbers: "",
+    npas: "",
+    reference: "",
+    refreshed_at: new Date().toISOString().slice(0, 10),
+    kind: "national",
+    jurisdiction: "",
+    mode: "full",
+    base_snapshot_id: "",
+    authorization_expires_at: "",
+    add: "",
+    remove: "",
+  });
+  const [registryBusy, setRegistryBusy] = useState(false);
+  return (
+    <section className="card padded">
+      <span className="eyebrow">AUTHORITATIVE DATA</span>
+      <h2>Registry snapshots</h2>
+      {history.items.map((r) => (
+        <div className="registry-row" key={r.id}>
+          <strong>
+            {label(r.kind)}{" "}
+            {r.synthetic && <span className="pill subtle">Synthetic</span>}
+          </strong>
+          <small>
+            Updated {date(r.refreshed_at)} · {r.npas.join(", ")}
+          </small>
+          <small>SHA-256 {r.checksum.slice(0, 18)}…</small>
         </div>
+      ))}
+      <HistoryMore history={history} label="Load older registry snapshots" />
+      <p className="muted small">
+        Import seller-authorized data only. Missing or stale coverage blocks
+        calling. Registry membership never enters scheduling features.
+      </p>
+      <label>
+        Dataset import mode
+        <select
+          value={registry.mode}
+          onChange={(e) => setRegistry({ ...registry, mode: e.target.value })}
+          disabled={registryBusy}
+        >
+          <option value="full">Complete authorized snapshot</option>
+          <option value="changes">Changes to a published snapshot</option>
+        </select>
+      </label>
+      {registry.mode === "changes" && (
+        <label>
+          Base publication
+          <select
+            value={registry.base_snapshot_id}
+            disabled={registryBusy}
+            onChange={(e) => {
+              const base = history.items.find((r) => r.id === e.target.value);
+              setRegistry({
+                ...registry,
+                base_snapshot_id: e.target.value,
+                ...(base
+                  ? {
+                      kind: base.kind,
+                      jurisdiction: base.jurisdiction || "",
+                      npas: base.npas.join(", "),
+                      reference:
+                        base.subscription_reference ||
+                        base.subscription_id ||
+                        "",
+                      authorization_expires_at:
+                        base.authorization_expires_at?.slice(0, 16) || "",
+                    }
+                  : {}),
+              });
+            }}
+          >
+            <option value="">Choose the current source</option>
+            {history.items
+              .filter((r) => r.published)
+              .map((r) => (
+                <option key={r.id} value={r.id}>
+                  {label(r.kind)} · {r.npas.join(", ")} · version {r.version}
+                </option>
+              ))}
+          </select>
+        </label>
       )}
-      {section === "Operations" && (
-        <>
-          <RubricSettings />
-          <BillingReconciliation />
-          <div className="two-column">
-            <section className="card padded">
-              <span className="eyebrow">ACCOUNTABLE LIMITS</span>
-              <h2>Budgets &amp; usage</h2>
-              <label>
-                Daily optional-work limit (USD)
-                <input
-                  type="number"
-                  min="0"
-                  value={budget.daily_limit_usd}
-                  onChange={(e) =>
-                    setBudget({
-                      ...budget,
-                      daily_limit_usd: Number(e.target.value),
-                    })
-                  }
-                />
-              </label>
-              <label>
-                Monthly limit (USD)
-                <input
-                  type="number"
-                  min="0"
-                  value={budget.monthly_limit_usd}
-                  onChange={(e) =>
-                    setBudget({
-                      ...budget,
-                      monthly_limit_usd: Number(e.target.value),
-                    })
-                  }
-                />
-              </label>
-              <label>
-                Approved number-procurement ceiling (USD)
-                <input
-                  type="number"
-                  min="0"
-                  value={budget.number_purchase_limit_usd}
-                  onChange={(e) =>
-                    setBudget({
-                      ...budget,
-                      number_purchase_limit_usd: Number(e.target.value),
-                    })
-                  }
-                />
-              </label>
-              <button
-                className="primary"
-                onClick={() =>
-                  void run(async () => {
-                    await api("/v1/admin/budget", "PUT", budget);
-                    notice("Budget limits saved");
-                    await refresh();
-                  })
+      <fieldset disabled={registryBusy} style={{ border: 0, padding: 0 }}>
+        <label>
+          Dataset type
+          <select
+            value={registry.kind}
+            onChange={(e) => setRegistry({ ...registry, kind: e.target.value })}
+          >
+            <option value="national">National</option>
+            <option value="state">State</option>
+          </select>
+        </label>
+        {registry.kind === "state" && (
+          <label>
+            State jurisdiction
+            <input
+              value={registry.jurisdiction}
+              onChange={(e) =>
+                setRegistry({ ...registry, jurisdiction: e.target.value })
+              }
+            />
+          </label>
+        )}
+        <label>
+          Authorized area codes (comma separated)
+          <input
+            value={registry.npas}
+            onChange={(e) => setRegistry({ ...registry, npas: e.target.value })}
+          />
+        </label>
+        <label>
+          Subscription / authorization reference
+          <input
+            value={registry.reference}
+            onChange={(e) =>
+              setRegistry({ ...registry, reference: e.target.value })
+            }
+          />
+        </label>
+        <label>
+          Dataset refreshed on
+          <input
+            type="date"
+            value={registry.refreshed_at}
+            onChange={(e) =>
+              setRegistry({ ...registry, refreshed_at: e.target.value })
+            }
+          />
+        </label>
+        <label>
+          Source access expires at
+          <input
+            type="datetime-local"
+            value={registry.authorization_expires_at}
+            onChange={(e) =>
+              setRegistry({
+                ...registry,
+                authorization_expires_at: e.target.value,
+              })
+            }
+          />
+        </label>
+        <p className="fine">
+          Source access time is UTC. An earlier access expiry always shortens
+          the screening lifetime.
+        </p>
+        {registry.mode === "full" ? (
+          <label>
+            Listed E.164 numbers (one per line)
+            <textarea
+              rows={4}
+              value={registry.numbers}
+              onChange={(e) =>
+                setRegistry({ ...registry, numbers: e.target.value })
+              }
+            />
+          </label>
+        ) : (
+          <>
+            <label>
+              Added listed E.164 numbers
+              <textarea
+                value={registry.add}
+                onChange={(e) =>
+                  setRegistry({ ...registry, add: e.target.value })
                 }
-              >
-                Save budget limits
-              </button>
-              <div className="section-rule" />
-              <p>
-                Reserved usage: $
-                {w.metrics.reserved_cost_usd == null
-                  ? "Unknown"
-                  : w.metrics.reserved_cost_usd.toFixed(2)}
-              </p>
-              <p>
-                Verified provider billing:{" "}
-                {w.metrics.billing_verified
-                  ? "Reconciled"
-                  : "Not yet reconciled"}
-              </p>
-              <p className="fine">
-                Reserved amounts are internal controls. Provider receipts
-                establish actual billed costs.
-              </p>
-            </section>
-            <section className="card padded">
-              <span className="eyebrow">RECOVERABLE BY DESIGN</span>
-              <h2>Encrypted backups</h2>
-              <p className="muted small">
-                Restore recovers missing records and keeps current records and
-                live obligations. It reconciles denial journals and pauses
-                outbound work for review. Backups contain business records,
-                never unencrypted provider credentials.
-              </p>
-              <button
-                className="primary"
-                onClick={() =>
-                  void run(async () => {
-                    const r = await api<{ backup_id: string }>(
-                      "/v1/admin/backup",
-                      "POST",
-                    );
-                    setBackupId(r.backup_id);
-                    notice("Encrypted backup created");
-                  })
+              />
+            </label>
+            <label>
+              Removed listed E.164 numbers
+              <textarea
+                value={registry.remove}
+                onChange={(e) =>
+                  setRegistry({ ...registry, remove: e.target.value })
                 }
-              >
-                <Database size={15} />
-                Create encrypted backup
-              </button>
-              {backupId && <p className="mono small">Backup ID: {backupId}</p>}
-              <label>
-                Backup ID to restore
-                <input
-                  value={restoreId}
-                  onChange={(e) => setRestoreId(e.target.value)}
-                />
-              </label>
-              <button
-                className="secondary"
-                disabled={!restoreId}
-                onClick={() =>
-                  void run(async () => {
-                    const restored = await api<{ recovered_records: number }>(
-                      "/v1/admin/restore",
-                      "POST",
-                      {
-                        backup_id: restoreId,
-                      },
-                    );
-                    await refresh();
-                    notice(
-                      `Recovered ${restored.recovered_records} missing records. Current records were kept. Outbound calling is paused.`,
-                    );
-                  })
+              />
+            </label>
+          </>
+        )}
+        <button
+          className="secondary"
+          disabled={
+            registryBusy ||
+            !registry.npas ||
+            !registry.reference ||
+            (registry.mode === "changes" && !registry.base_snapshot_id)
+          }
+          onClick={() =>
+            void run(async () => {
+              setRegistryBusy(true);
+              try {
+                const base = history.items.find(
+                  (r) => r.id === registry.base_snapshot_id,
+                );
+                const body = {
+                  kind: registry.kind,
+                  jurisdiction: registry.jurisdiction,
+                  npas: registry.npas.split(",").map((s) => s.trim()),
+                  subscription_reference: registry.reference,
+                  refreshed_at: new Date(
+                    registry.refreshed_at + "T00:00:00Z",
+                  ).toISOString(),
+                  ...(registry.authorization_expires_at
+                    ? {
+                        authorization_expires_at: new Date(
+                          registry.authorization_expires_at + "Z",
+                        ).toISOString(),
+                      }
+                    : {}),
+                  ...(registry.mode === "full"
+                    ? {
+                        numbers: registry.numbers.split(/\s+/).filter(Boolean),
+                      }
+                    : {
+                        base_snapshot_id: base?.id,
+                        expected_version: base?.version,
+                        add: registry.add.split(/\s+/).filter(Boolean),
+                        remove: registry.remove.split(/\s+/).filter(Boolean),
+                      }),
+                };
+                const digest = Array.from(
+                  new Uint8Array(
+                    await crypto.subtle.digest(
+                      "SHA-256",
+                      new TextEncoder().encode(JSON.stringify(body)),
+                    ),
+                  ),
+                )
+                  .map((b) => b.toString(16).padStart(2, "0"))
+                  .join("");
+                const key = "opendialer.registry-import." + w.seller.id;
+                let previous: { digest?: string; request_id?: string } = {};
+                try {
+                  previous = JSON.parse(sessionStorage.getItem(key) || "{}");
+                } catch {
+                  /* Invalid metadata cannot authorize anything. */
                 }
-              >
-                Restore selected backup
-              </button>
-              <div className="section-rule" />
-              <button
-                className="secondary"
-                onClick={() =>
-                  void run(async () => {
-                    await api("/v1/admin/recovery", "POST");
-                    await refresh();
-                    notice("Recovery sweep completed");
-                  })
-                }
-              >
-                <RefreshCw size={15} />
-                Run recovery sweep
-              </button>
-            </section>
-          </div>
-          <section className="card padded">
-            <h2>Workspace connection</h2>
-            <p className="muted">
-              Current authority:{" "}
-              {w.mode === "connected"
-                ? "Authenticated shared server"
-                : "Private authority on this computer"}
-              .
-            </p>
-            <button className="secondary" onClick={onDisconnect}>
-              <Wifi size={15} />
-              Switch workspace or server
-            </button>
-          </section>
-          <AccessAndRecovery />
-          <RecoveryPanel />
-        </>
-      )}
-      {section === "App updates" && (
-        <section className="card padded update-card">
-          <span className="eyebrow">SAME APP. SAME DATA.</span>
-          <h2>Updates without starting over</h2>
-          <p className="muted">
-            OpenDialer verifies signed update artifacts before replacing the
-            installed app. Your workspace database and protected credentials
-            stay in the application's data directory.
+                const request_id =
+                  previous.digest === digest && previous.request_id
+                    ? previous.request_id
+                    : crypto.randomUUID();
+                // Retain only the request fingerprint, never registry membership, across reload.
+                sessionStorage.setItem(
+                  key,
+                  JSON.stringify({ digest, request_id }),
+                );
+                const result = await api<{ published: boolean }>(
+                  "/v1/admin/registry/import",
+                  "POST",
+                  { ...body, request_id },
+                );
+                await refresh();
+                notice(
+                  result.published
+                    ? "Validated registry snapshot published atomically."
+                    : "Original import recovered; a newer publication is current.",
+                );
+              } finally {
+                setRegistryBusy(false);
+              }
+            })
+          }
+        >
+          Validate &amp; publish dataset
+        </button>
+      </fieldset>
+      <p className="fine">
+        If interrupted, resubmit the same source and fields to resume the
+        original import. The current source remains active until all chunks
+        validate. No source download or purchase runs here.
+      </p>
+    </section>
+  );
+}
+function OperationsSettings({ onDisconnect }: { onDisconnect: () => void }) {
+  const { snapshot: w, api, run, refresh, notice } = useWorkspace();
+  const [budget, setBudget] = useState<BudgetData | null>(null);
+  const [backupId, setBackupId] = useState("");
+  const [restoreId, setRestoreId] = useState("");
+  useEffect(() => {
+    void run(async () =>
+      setBudget((await api<SettingsData>("/v1/admin/settings")).budget),
+    );
+  }, []);
+  if (!budget) return <p role="status">Loading saved settings…</p>;
+  return (
+    <>
+      <WorkTime />
+      <PreparationSettings />
+      <CallbackRouting />
+      <RubricSettings />
+      <BillingReconciliation />
+      <div className="two-column">
+        <section className="card padded">
+          <span className="eyebrow">ACCOUNTABLE LIMITS</span>
+          <h2>Budgets &amp; usage</h2>
+          <label>
+            Daily optional-work limit (USD)
+            <input
+              type="number"
+              min="0"
+              value={budget.daily_limit_usd}
+              onChange={(e) =>
+                setBudget({
+                  ...budget,
+                  daily_limit_usd: Number(e.target.value),
+                })
+              }
+            />
+          </label>
+          <label>
+            Monthly limit (USD)
+            <input
+              type="number"
+              min="0"
+              value={budget.monthly_limit_usd}
+              onChange={(e) =>
+                setBudget({
+                  ...budget,
+                  monthly_limit_usd: Number(e.target.value),
+                })
+              }
+            />
+          </label>
+          <p className="fine">
+            New number rentals are blocked by the no-subscription policy.
           </p>
-          <div className="update-version">
-            <span className="brand-symbol">
-              <Download size={22} />
-            </span>
-            <div>
-              <strong>OpenDialer {w.readiness.version}</strong>
-              <small>
-                {native()
-                  ? "Native desktop application"
-                  : "Browser development session"}
-              </small>
-            </div>
-          </div>
           <button
             className="primary"
-            disabled={updateBusy || !native()}
             onClick={() =>
               void run(async () => {
+                await api("/v1/admin/budget", "PUT", budget);
+                notice("Budget limits saved");
+                await refresh();
+              })
+            }
+          >
+            Save budget limits
+          </button>
+          <div className="section-rule" />
+          <p>
+            Reserved usage: $
+            {w.metrics.reserved_cost_usd == null
+              ? "Unknown"
+              : w.metrics.reserved_cost_usd.toFixed(2)}
+          </p>
+          <p>
+            Verified provider billing:{" "}
+            {w.metrics.billing_verified ? "Reconciled" : "Not yet reconciled"}
+          </p>
+          <p className="fine">
+            Reserved amounts are internal controls. Provider receipts establish
+            actual billed costs.
+          </p>
+        </section>
+        <section className="card padded">
+          <span className="eyebrow">RECOVERABLE BY DESIGN</span>
+          <h2>Encrypted backups</h2>
+          <p className="muted small">
+            Restore recovers missing records and keeps current records and live
+            obligations. It reconciles denial journals and pauses outbound work
+            for review. Backups contain business records, never unencrypted
+            provider credentials.
+          </p>
+          <button
+            className="primary"
+            onClick={() =>
+              void run(async () => {
+                const r = await api<{ backup_id: string }>(
+                  "/v1/admin/backup",
+                  "POST",
+                );
+                setBackupId(r.backup_id);
+                notice("Encrypted backup created");
+              })
+            }
+          >
+            <Database size={15} />
+            Create encrypted backup
+          </button>
+          {backupId && <p className="mono small">Backup ID: {backupId}</p>}
+          <label>
+            Backup ID to restore
+            <input
+              value={restoreId}
+              onChange={(e) => setRestoreId(e.target.value)}
+            />
+          </label>
+          <button
+            className="secondary"
+            disabled={!restoreId}
+            onClick={() =>
+              void run(async () => {
+                const restored = await api<{ recovered_records: number }>(
+                  "/v1/admin/restore",
+                  "POST",
+                  {
+                    backup_id: restoreId,
+                  },
+                );
+                await refresh();
+                notice(
+                  `Recovered ${restored.recovered_records} missing records. Current records were kept. Outbound calling is paused.`,
+                );
+              })
+            }
+          >
+            Restore selected backup
+          </button>
+          <div className="section-rule" />
+          <button
+            className="secondary"
+            onClick={() =>
+              void run(async () => {
+                await api("/v1/admin/recovery", "POST");
+                await refresh();
+                notice("Recovery sweep completed");
+              })
+            }
+          >
+            <RefreshCw size={15} />
+            Run recovery sweep
+          </button>
+        </section>
+      </div>
+      <section className="card padded">
+        <h2>Workspace connection</h2>
+        <p className="muted">
+          Current authority:{" "}
+          {w.mode === "connected"
+            ? "Authenticated shared server"
+            : "Private authority on this computer"}
+          .
+        </p>
+        <button
+          className="secondary"
+          disabled={w.quiescence?.can_disconnect === false}
+          onClick={onDisconnect}
+        >
+          <Wifi size={15} />
+          Switch workspace or server
+        </button>
+      </section>
+      <AccessAndRecovery />
+      <RecoveryPanel />
+    </>
+  );
+}
+function UpdateSettings() {
+  const { snapshot: w, api, run, notice } = useWorkspace();
+  const [updateInfo, setUpdateInfo] = useState<{
+    version: string;
+    body: string;
+  } | null>(null);
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const update = useRef<Update | null>(null);
+  return (
+    <section className="card padded update-card">
+      <span className="eyebrow">SAME APP. SAME DATA.</span>
+      <h2>Updates without starting over</h2>
+      <p className="muted">
+        OpenDialer verifies signed update artifacts before replacing the
+        installed app. Your workspace database and protected credentials stay in
+        the application's data directory.
+      </p>
+      <div className="update-version">
+        <span className="brand-symbol">
+          <Download size={22} />
+        </span>
+        <div>
+          <strong>OpenDialer {w.readiness.version}</strong>
+          <small>
+            {native()
+              ? "Native desktop application"
+              : "Browser development session"}
+          </small>
+        </div>
+      </div>
+      <button
+        className="primary"
+        disabled={updateBusy || !native()}
+        onClick={() =>
+          void run(async () => {
+            setUpdateBusy(true);
+            try {
+              const { check } = await import("@tauri-apps/plugin-updater");
+              update.current = await check();
+              if (update.current)
+                setUpdateInfo({
+                  version: update.current.version,
+                  body:
+                    update.current.body ||
+                    "A signed OpenDialer update is available.",
+                });
+              else notice("You are running the current release.");
+            } finally {
+              setUpdateBusy(false);
+            }
+          })
+        }
+      >
+        {updateBusy ? (
+          <LoaderCircle className="spin" size={16} />
+        ) : (
+          <RefreshCw size={16} />
+        )}
+        Check for updates
+      </button>
+      {updateInfo && (
+        <div className="info-note">
+          <h3>Version {updateInfo.version}</h3>
+          <p>{updateInfo.body}</p>
+          <button
+            className="primary"
+            disabled={updateBusy}
+            onClick={() =>
+              void run(async () => {
+                const status = await api<{
+                  can_disconnect: boolean;
+                  reasons: string[];
+                }>("/v1/auth/quiescence");
+                if (!status.can_disconnect)
+                  throw new Error(
+                    `Finish pending work before updating: ${status.reasons.join(", ")}`,
+                  );
                 setUpdateBusy(true);
                 try {
-                  const { check } = await import("@tauri-apps/plugin-updater");
-                  update.current = await check();
-                  if (update.current)
-                    setUpdateInfo({
-                      version: update.current.version,
-                      body:
-                        update.current.body ||
-                        "A signed OpenDialer update is available.",
-                    });
-                  else notice("You are running the current release.");
+                  await update.current?.downloadAndInstall();
+                  notice(
+                    "Update installed. Quit and reopen OpenDialer to use the new version.",
+                  );
                 } finally {
                   setUpdateBusy(false);
                 }
               })
             }
           >
-            {updateBusy ? (
-              <LoaderCircle className="spin" size={16} />
-            ) : (
-              <RefreshCw size={16} />
-            )}
-            Check for updates
+            <ArrowDownToLine size={16} />
+            Install signed update
           </button>
-          {updateInfo && (
-            <div className="info-note">
-              <h3>Version {updateInfo.version}</h3>
-              <p>{updateInfo.body}</p>
-              <button
-                className="primary"
-                disabled={updateBusy}
-                onClick={() =>
-                  void run(async () => {
-                    if (
-                      w.calls.some(
-                        (c) => !["ENDED", "FINALIZED"].includes(c.state),
-                      )
-                    )
-                      throw new Error(
-                        "Finish the current call before installing an update.",
-                      );
-                    setUpdateBusy(true);
-                    try {
-                      await update.current?.downloadAndInstall();
-                      notice(
-                        "Update installed. Quit and reopen OpenDialer to use the new version.",
-                      );
-                    } finally {
-                      setUpdateBusy(false);
-                    }
-                  })
-                }
-              >
-                <ArrowDownToLine size={16} />
-                Install signed update
-              </button>
-            </div>
-          )}
-          <p className="fine">
-            Local builds are validated on this Mac. Distribution signing,
-            notarization, and other operating-system audio certification have
-            separate release gates.
-          </p>
-        </section>
+        </div>
       )}
-    </>
+      <p className="fine">
+        Local builds are validated on this Mac. Distribution signing,
+        notarization, and other operating-system audio certification have
+        separate release gates.
+      </p>
+    </section>
   );
 }

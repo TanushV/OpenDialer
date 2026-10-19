@@ -21,6 +21,10 @@ uuid = { version = "1", features = ["v4"] }
 url = "2"
 aes-gcm = "0.10"
 sha2 = "0.10"
+# Already locked through the updater. Native credential submission must never
+# pass provider secrets through the renderer or spawn another Python authority.
+reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "json", "rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", features = ["apple-native"] }
 [target.'cfg(target_os = "windows")'.dependencies]

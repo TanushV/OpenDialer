@@ -1,5 +1,132 @@
 import { expect, test, type Page } from "@playwright/test";
 
+test("setup shows capability evidence and uses protected native credential entry", async ({
+  page,
+}) => {
+  await enter(page, false);
+  const requests: string[] = [];
+  page.on("request", (r) => {
+    if (r.method() === "PUT" && r.url().endsWith("/admin/settings"))
+      requests.push(r.postData() || "");
+  });
+  await page.evaluate(() => {
+    const state = window as unknown as {
+      __TAURI_INTERNALS__: {
+        invoke: (name: string, args: unknown) => Promise<unknown>;
+      };
+      protectedCalls: unknown[];
+    };
+    state.protectedCalls = [];
+    state.__TAURI_INTERNALS__ = {
+      invoke: async (name, args) => {
+        state.protectedCalls.push({ name, args });
+        if (name === "webhook_tunnel_status")
+          return {
+            config: { enabled: false, host: "", user: "", remote_port: 18765 },
+            state: "disabled",
+          };
+        if (name === "protected_provider_input")
+          return { version: 1, configured: { openrouter_api_key: true } };
+        return null;
+      },
+    };
+  });
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Run preflight", exact: true })
+    .click();
+  await expect(page.getByTestId("capability-offline_callback")).toContainText(
+    "Unavailable",
+  );
+  await expect(page.getByTestId("capability-live_helper")).toContainText(
+    "Software verified",
+  );
+  await expect(page.locator('input[type="password"]')).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "OpenRouter API key", exact: true })
+    .click();
+  await expect(page.getByTestId("credential-openrouter_api_key")).toContainText(
+    "Configured",
+  );
+  const calls = await page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          protectedCalls: { name: string; args: unknown }[];
+        }
+      ).protectedCalls,
+  );
+  const call = calls.find((x) => x.name === "protected_provider_input")!;
+  expect(call.args).toEqual({
+    field: "openrouter_api_key",
+    expectedVersion: 0,
+  });
+  expect(requests).toEqual([]);
+  await page.evaluate(() => {
+    delete (window as unknown as { __TAURI_INTERNALS__?: unknown })
+      .__TAURI_INTERNALS__;
+  });
+});
+
+test("settings preserve saved budgets and expose only supported treatments", async ({
+  page,
+}) => {
+  await enter(page, false);
+  await page.route("**/v1/admin/settings", async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    await route.fulfill({
+      response,
+      json: {
+        ...data,
+        budget: {
+          daily_limit_usd: 23,
+          monthly_limit_usd: 321,
+          number_purchase_limit_usd: 0,
+        },
+      },
+    });
+  });
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Operations", exact: true }).click();
+  await expect(page.getByLabel("Daily optional-work limit (USD)")).toHaveValue(
+    "23",
+  );
+  await expect(page.getByLabel("Monthly limit (USD)")).toHaveValue("321");
+  await page.getByRole("button", { name: "Policy & DNC", exact: true }).click();
+  await expect(
+    page.getByRole("checkbox", { name: "Recording", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("checkbox", { name: "Messaging", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("checkbox", { name: "Transcription", exact: true }),
+  ).toBeVisible();
+});
+
+test("selected prepared lead survives navigation before dialing", async ({
+  page,
+}) => {
+  await enter(page, false);
+  if (await page.getByRole("button", { name: "Go ready" }).isVisible())
+    await page.getByRole("button", { name: "Go ready" }).click();
+  await page
+    .getByRole("button", { name: "Get next lead", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Start call", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Review", exact: true }).click();
+  await page.getByRole("button", { name: "Dialer", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Start call", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Pause dialing", exact: true })
+    .click();
+});
+
 async function enter(page: Page, connected: boolean) {
   await page.goto("/");
   await expect(page.getByText("Opening your workspace…")).toBeHidden();

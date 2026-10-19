@@ -1,6 +1,7 @@
 import { createContext, useContext } from "react";
 import type { Session, Workspace } from "./types";
 import type { LiveEvent } from "./api/live";
+import type { ProviderCredential } from "./api/client";
 export interface WorkspaceContext {
   snapshot: Workspace;
   session: Session;
@@ -10,6 +11,10 @@ export interface WorkspaceContext {
   run: (work: () => Promise<void>) => Promise<void>;
   subscribe: (handler: (events: LiveEvent[]) => void) => () => void;
   liveStatus: string;
+  configureCredential: (
+    field: ProviderCredential,
+    version: number,
+  ) => Promise<{ version: number; configured: Record<string, boolean> }>;
 }
 export const Context = createContext<WorkspaceContext | null>(null);
 export function useWorkspace() {

@@ -50,6 +50,59 @@ export function canUseOfflineCache(error: unknown) {
   );
 }
 export const native = () => "__TAURI_INTERNALS__" in window;
+export type ProviderCredential =
+  | "telnyx_api_key"
+  | "openrouter_api_key"
+  | "openai_api_key"
+  | "dnc_api_key";
+export async function bindAuthority(
+  runtime: Runtime,
+  session: Session,
+  local: boolean,
+) {
+  if (native())
+    await invoke("bind_authority", {
+      binding: {
+        url: runtime.url,
+        token: session.access_token,
+        tenant_id: session.tenant_id,
+        local,
+        simulation: runtime.simulation,
+      },
+    });
+}
+export async function protectedProviderInput(
+  field: ProviderCredential,
+  version: number,
+) {
+  if (!native())
+    throw new Error(
+      "Enter provider credentials in the installed desktop's protected dialog.",
+    );
+  return await invoke<{ version: number; configured: Record<string, boolean> }>(
+    "protected_provider_input",
+    { field, expectedVersion: version },
+  );
+}
+export async function disconnectNativeAuthority() {
+  await invoke("disconnect_authority");
+}
+export interface TunnelConfig {
+  enabled: boolean;
+  host: string;
+  user: string;
+  remote_port: number;
+}
+export interface TunnelStatus {
+  config: TunnelConfig;
+  state: string;
+}
+export async function tunnelStatus(): Promise<TunnelStatus> {
+  return await invoke("webhook_tunnel_status");
+}
+export async function saveTunnel(config: TunnelConfig) {
+  await invoke("webhook_tunnel_set", { config });
+}
 export async function localRuntime(simulation: boolean): Promise<Runtime> {
   if (native()) return await invoke("backend_config", { simulation });
   if (!import.meta.env.DEV)

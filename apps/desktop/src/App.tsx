@@ -34,6 +34,9 @@ import {
   validateServer,
   waitForRuntime,
   writeCache,
+  bindAuthority,
+  protectedProviderInput,
+  disconnectNativeAuthority,
 } from "./api/client";
 import { DialerPage } from "./components/DialerPage";
 import { LiveConnection, type LiveEvent } from "./api/live";
@@ -274,6 +277,7 @@ export function App() {
   }, []);
   useEffect(() => {
     if (!session || !runtime) return;
+    void run(() => bindAuthority(runtime, session, connection === "local"));
     void run(refresh);
     let connected = false;
     let pending: ReturnType<typeof setTimeout> | null = null;
@@ -409,15 +413,27 @@ export function App() {
     setWorking(false);
   }
   async function disconnect() {
-    if (runtime && session)
+    if (!runtime || !session) return;
+    const pending = native()
+      ? await readCache(`optouts-${session.tenant_id}`, runtime.simulation)
+      : localStorage.getItem(`opendialer.optouts.${session.tenant_id}`);
+    if (pending && JSON.parse(pending).length)
+      throw new Error(
+        "Synchronize pending opt-outs before changing workspace.",
+      );
+    if (native()) {
+      await bindAuthority(runtime, session, connection === "local");
+      await disconnectNativeAuthority();
+    } else
       await request(
         runtime.url,
         session.access_token,
         "/v1/auth/logout",
         "POST",
-      ).catch(() => {});
+      );
     await clearSession();
     setSession(null);
+    setRuntime(null);
     setSnapshot(null);
     setWelcomeMode("choose");
     setToast(null);
@@ -653,6 +669,11 @@ export function App() {
         run,
         subscribe,
         liveStatus,
+        configureCredential: async (field, version) => {
+          if (!runtime) throw new Error("Choose a workspace first.");
+          await bindAuthority(runtime, session, connection === "local");
+          return await protectedProviderInput(field, version);
+        },
       }}
     >
       <div className="app-shell">
@@ -703,7 +724,8 @@ export function App() {
             </div>
             <button
               className="profile"
-              onClick={() => void disconnect()}
+              onClick={() => void run(disconnect)}
+              disabled={snapshot.quiescence?.can_disconnect === false}
               title="Sign out"
             >
               <span className="avatar small-avatar">
@@ -766,9 +788,10 @@ export function App() {
                 reconnect.
               </div>
             )}
-            {view === "Dialer" ? (
+            <div hidden={view !== "Dialer"}>
               <DialerPage />
-            ) : view === "Leads" ? (
+            </div>
+            {view === "Dialer" ? null : view === "Leads" ? (
               <LeadsPage />
             ) : view === "Review" ? (
               <ReviewPage />
@@ -777,7 +800,7 @@ export function App() {
             ) : view === "Intelligence" ? (
               <IntelligencePage />
             ) : (
-              <SettingsPage onDisconnect={() => void disconnect()} />
+              <SettingsPage onDisconnect={() => void run(disconnect)} />
             )}
           </div>
         </main>

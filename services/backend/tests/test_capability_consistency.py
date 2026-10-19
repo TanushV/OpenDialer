@@ -6,13 +6,19 @@ from uuid import uuid4
 
 def test_versioned_provider_edit_replays_without_overwriting_newer_config(workspace):
     c, h = workspace["client"], workspace["headers"]
-    first = {"request_id": str(uuid4()), "expected_version": 0,
-             "openrouter_api_key": "synthetic-first-secret"}
+    first = {
+        "request_id": str(uuid4()),
+        "expected_version": 0,
+        "openrouter_api_key": "synthetic-first-secret",
+    }
     saved = c.put("/v1/admin/settings", headers=h, json=first)
     assert saved.status_code == 200, saved.text
     assert saved.json()["version"] == 1 and "synthetic-first-secret" not in saved.text
-    second = c.put("/v1/admin/settings", headers=h, json={
-        "request_id": str(uuid4()), "expected_version": 1, "coach_provider": "static"})
+    second = c.put(
+        "/v1/admin/settings",
+        headers=h,
+        json={"request_id": str(uuid4()), "expected_version": 1, "coach_provider": "static"},
+    )
     assert second.status_code == 200
     replay = c.put("/v1/admin/settings", headers=h, json=first)
     assert replay.status_code == 200 and replay.json()["version"] == 2
@@ -47,6 +53,14 @@ def test_settings_serialize_domain_defaults_and_never_secret_values(workspace):
         "operating": OperatingPolicy().model_dump(mode="json"),
         "preparation": PreparationPolicy().model_dump(mode="json"),
     }
+
+
+def test_settings_load_the_saved_budget_instead_of_replacing_it_with_ui_defaults(workspace):
+    c, h = workspace["client"], workspace["headers"]
+    budget = {"daily_limit_usd": 7, "monthly_limit_usd": 33, "number_purchase_limit_usd": 0}
+    assert c.put("/v1/admin/budget", headers=h, json=budget).status_code == 200
+    settings = c.get("/v1/admin/settings", headers=h).json()
+    assert settings.get("budget") == budget
 
 
 def test_lightweight_readiness_reuses_saved_no_charge_capabilities(workspace, app):

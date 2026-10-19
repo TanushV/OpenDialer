@@ -50,9 +50,19 @@ class WorkspaceReads:
         reasons = []
         for table, condition, reason in (
             ("call_attempts", MODELS["call_attempts"].op_status.not_in(TERMINAL), "ACTIVE_CALL"),
-            ("call_legs", MODELS["call_legs"].op_status.not_in([*TERMINAL, "ended", "failed", "cancelled"]), "ACTIVE_LEG"),
+            (
+                "call_legs",
+                MODELS["call_legs"].op_status.not_in([*TERMINAL, "ended", "failed", "cancelled"]),
+                "ACTIVE_LEG",
+            ),
             ("followup_tasks", MODELS["followup_tasks"].op_active.is_(True), "ACTIVE_INBOUND"),
-            ("command_outbox", MODELS["command_outbox"].op_status.in_(["sending", "uncertain", "reconciling", "review_required"]), "EXTERNAL_OPERATION_UNRESOLVED"),
+            (
+                "command_outbox",
+                MODELS["command_outbox"].op_status.in_(
+                    ["sending", "uncertain", "reconciling", "review_required"]
+                ),
+                "EXTERNAL_OPERATION_UNRESOLVED",
+            ),
         ):
             model = MODELS[table]
             query = select(model.id).where(model.tenant_id == p["tenant_id"], condition)
@@ -270,6 +280,7 @@ class WorkspaceReads:
                     "role": user.data["role"],
                     "presence": user.data.get("presence", {}),
                 },
+                "quiescence": self.quiescence_in(s, p),
                 **{section: value["items"] for section, value in pages.items()},
                 "active_playbook": doc(book) if (book := self.approved_playbook(s, p)) else None,
                 "pages": {

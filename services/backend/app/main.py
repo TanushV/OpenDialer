@@ -732,10 +732,16 @@ def create_app(settings=None, *, clock=None, carrier=None):
         config = service.vault.read(p["tenant_id"])
         own_profile = service.vault.read("plan-" + p["user_id"])
         config["chatgpt_access_token"] = own_profile.get("access_token", "")
+        with db.transaction(False) as s:
+            budget = service.scoped(s, "budgets", p)[0]
+            budget_values = Budget.model_validate(
+                {key: budget.data[key] for key in Budget.model_fields}
+            ).model_dump()
         return {
             **{k: v for k, v in config.items() if k not in SECRET_FIELDS and not k.startswith("_")},
             "configured": {k: bool(config.get(k)) for k in SECRET_FIELDS},
             "version": config.get("version", 0),
+            "budget": budget_values,
             "defaults": {
                 "runtime": settings.runtime_limits.model_dump(mode="json"),
                 "operating": OperatingPolicy().model_dump(mode="json"),
@@ -776,9 +782,15 @@ def create_app(settings=None, *, clock=None, carrier=None):
             db.authorize_stream(s, p)
             service._restore_operator(s, p)
             if "chatgpt_access_token" in values:
-                service.vault.write("plan-" + p["user_id"], {"access_token": values.pop("chatgpt_access_token")})
-            service.vault.write(p["tenant_id"], values, advance_version=True,
-                                edit=(str(request_id), expected_version) if request_id else None)
+                service.vault.write(
+                    "plan-" + p["user_id"], {"access_token": values.pop("chatgpt_access_token")}
+                )
+            service.vault.write(
+                p["tenant_id"],
+                values,
+                advance_version=True,
+                edit=(str(request_id), expected_version) if request_id else None,
+            )
             service.capability_cache.clear()
             audit(
                 s,

@@ -1,3 +1,4 @@
+import { native } from "../api/client";
 import { useEffect, useState } from "react";
 import { label, useWorkspace } from "../context";
 import { DncScreeningPanel } from "./DncScreeningPanel";
@@ -50,9 +51,13 @@ type Policy = {
   };
 };
 export function OperatingPolicySettings() {
-  const { api, run, notice } = useWorkspace();
+  const { api, run, notice, configureCredential } = useWorkspace();
   const [policy, setPolicy] = useState<Policy | null>(null);
-  const [key, setKey] = useState("");
+  const [credential, setCredential] = useState<{
+    version: number;
+    configured: Record<string, boolean>;
+  } | null>(null);
+  const [keyBusy, setKeyBusy] = useState(false);
   const [rateComponent, setRateComponent] = useState("dnc");
   const [rateDraft, setRateDraft] = useState<Policy["account_rates"][string]>({
     values: {},
@@ -79,6 +84,8 @@ export function OperatingPolicySettings() {
     void run(async () => {
       setPolicy(await api<Policy>("/v1/admin/operating-policy"));
       const settings = await api<{
+        version: number;
+        configured: Record<string, boolean>;
         dnc_seller_authorization?: {
           reference: string;
           npas: string[];
@@ -87,6 +94,7 @@ export function OperatingPolicySettings() {
           source_access_verified: boolean;
         };
       }>("/v1/admin/settings");
+      setCredential(settings);
       const auth = settings.dnc_seller_authorization;
       if (auth)
         setAuthorization({
@@ -524,31 +532,38 @@ export function OperatingPolicySettings() {
         every US call. Missing, stale or uncovered data blocks dialing. A
         prepaid API does not replace seller authorization for registry access.
       </p>
-      <label>
-        Prepaid DNC API key
-        <input
-          type="password"
-          autoComplete="off"
-          value={key}
-          onChange={(e) => setKey(e.target.value)}
-          placeholder="Enter to securely replace the key"
-        />
-      </label>
-      <button
-        className="secondary"
-        disabled={!key}
-        onClick={() =>
-          void run(async () => {
-            await api("/v1/admin/settings", "PUT", { dnc_api_key: key });
-            setKey("");
-            notice(
-              "DNC key stored securely; source authorization is still required",
-            );
-          })
-        }
-      >
-        Save DNC key
-      </button>
+      <div data-testid="credential-dnc_api_key">
+        <button
+          className="secondary"
+          aria-label="Prepaid DNC API key"
+          disabled={!native() || !credential || keyBusy}
+          onClick={() =>
+            void run(async () => {
+              if (!credential) return;
+              setKeyBusy(true);
+              try {
+                setCredential(
+                  await configureCredential("dnc_api_key", credential.version),
+                );
+                notice(
+                  "DNC key saved; seller authorization is still required.",
+                );
+              } finally {
+                setKeyBusy(false);
+              }
+            })
+          }
+        >
+          Prepaid DNC API key
+        </button>
+        <p className="fine">
+          {credential?.configured.dnc_api_key ? "Configured" : "Not configured"}{" "}
+          ·{" "}
+          {native()
+            ? "Protected system dialog"
+            : "Use the installed desktop to enter keys"}
+        </p>
+      </div>
       <details>
         <summary>Seller authorization and source freshness</summary>
         <label>

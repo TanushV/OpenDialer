@@ -290,7 +290,25 @@ export interface Reservation {
   lead: Lead;
   number: NumberRecord;
 }
+export interface CapabilityStatus {
+  id: string;
+  state:
+    | "unconfigured"
+    | "configured"
+    | "software_verified"
+    | "live_verified"
+    | "degraded"
+    | "unavailable";
+  blocks: string;
+  reason_codes: string[];
+  evidence_at: string | null;
+  remedy: string;
+  source_version: string;
+}
 export interface Readiness {
+  capabilities?: CapabilityStatus[];
+  capabilities_as_of?: string;
+  capabilities_stale?: boolean;
   integrity_ok: boolean | null;
   checks_scope?: string;
   ready_to_call: boolean | null;
@@ -355,6 +373,7 @@ export interface HistoryPage<T> {
   filter?: string;
 }
 export interface Workspace {
+  quiescence?: { can_disconnect: boolean; reasons: string[] };
   active_playbook?: Playbook | null;
   pages?: Record<string, Omit<HistoryPage<never>, "items">>;
   mode: string;
