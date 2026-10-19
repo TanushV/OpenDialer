@@ -1,4 +1,3 @@
-import re
 from datetime import datetime
 
 from app.grounding import require_review, review_request
@@ -6,12 +5,6 @@ from app.grounding import require_review, review_request
 
 class ValidationFailure(ValueError):
     pass
-
-
-BANNED = re.compile(
-    r"\b(guarantee(?:d)?|10x revenue|number (?:one|1) (?:google|ranking)|as we discussed|following up on our conversation|ignore (?:all |your )?instructions)\b",
-    re.I,
-)
 
 
 VISIBLE_FIELDS = (
@@ -66,8 +59,6 @@ def validate_script_evidence(script, facts, domain, seller_name, now):
         raise ValidationFailure("Script identity or required ID missing")
     if len(script["opener"]) > 600 or len(script.get("screening_intro", "")) > 400:
         raise ValidationFailure("Script exceeds display limits")
-    if BANNED.search(str(script)):
-        raise ValidationFailure("Unapproved guarantee, relationship or instruction-like claim")
     mapped = {f["fact_id"]: f for f in facts}
     for fact_id in script.get("fact_ids_used", []):
         f = mapped.get(fact_id)

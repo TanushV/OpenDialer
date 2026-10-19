@@ -5,7 +5,6 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from app.db import audit, doc, emit, put
-from app.research.validation import BANNED
 from app.service import fail
 
 Line = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1200)]
@@ -44,9 +43,7 @@ def publish(service, p, data):
     with service.db.transaction() as s:
         service.db.authorize_stream(s, p)
         seller = service.required(s, "sellers", p["seller_id"], p)
-        if seller.data["name"].casefold() not in data["screening_intro"].casefold() or BANNED.search(
-            str({key: data[key] for key in ("opener", "screening_intro", "cards", "claims")})
-        ):
+        if seller.data["name"].casefold() not in data["screening_intro"].casefold():
             fail(422, "Reviewed truthful identity and claims are required")
         previous = service.approved_playbook(s, p)
         if (data["expected_previous_id"], data["expected_previous_version"]) != (

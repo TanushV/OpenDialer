@@ -3,7 +3,7 @@
   "written_at": "2026-10-18",
   "baseline_commit": "63f4d4242f60672777f596177fe98fe57f715bf9",
   "baseline_product_test_commit": "6611d3c2fb486b0aac65df2bb42e20663457552a",
-  "status": "implementation-authorized; E01 software boundary accepted; E02 in progress",
+  "status": "implementation-authorized; E00-E03 software boundaries accepted; E04 in progress",
   "requirements_source": "docs/REMEDIATION_PLAN.md",
   "implementation_source": "docs/EXECUTION_SPEC.md",
   "next_step": "E04",
@@ -274,7 +274,7 @@
         },
         {
           "id": "E04.acceptance",
-          "status": "open",
+          "status": "in-progress",
           "work": "Complete focused suites on both databases, browser surfaces, throughput/query bounds, deletions and final step receipt"
         }
       ]

@@ -172,3 +172,12 @@ def test_legacy_unreviewed_personalization_is_not_republished(workspace, app):
     packet = service.packet(p(workspace), lead_id)
     assert packet["script"]["fallback"] is True
     assert packet["preparation"]["status"] == "stale"
+
+
+@pytest.mark.parametrize(
+    "text", ["Results are not guaranteed.", "Never say as we discussed unless it is true."]
+)
+def test_approved_script_qualifications_are_not_rejected_by_keyword(text, clock):
+    approved = baseline()
+    approved["proof"] = text
+    assert validate_script(approved, [], "example.test", "Seller", clock.now, approved=approved)

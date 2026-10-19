@@ -122,6 +122,18 @@ def render(template, *, lead, seller, rep, slots=None):
     }
 
 
+def approved_template(candidate, template, *, lead, seller, rep, facts):
+    """Only unchanged seller text and whole reviewed facts qualify for the cheap path."""
+    mapped = {fact["fact_id"]: fact["statement"].strip() for fact in facts}
+    slots = {
+        key: slot["text"]
+        if slot["text"].strip() in {mapped[i] for i in slot["fact_ids"] if i in mapped}
+        else ""
+        for key, slot in candidate["slots"].items()
+    }
+    return render(template, lead=lead, seller=seller, rep=rep, slots=slots)
+
+
 def fill(candidate, template, *, lead, seller, rep, facts):
     if set(candidate) != {"lead_id", "slots"} or candidate["lead_id"] != lead["id"]:
         raise ValidationFailure("A template response must identify the lead and only fill allowed slots")
@@ -137,10 +149,8 @@ def fill(candidate, template, *, lead, seller, rep, facts):
         if slot["text"]:
             if not ids or not set(ids).issubset(mapped):
                 raise ValidationFailure("Every inserted factual slot requires supported facts")
-            # Use an already verified statement as the slot. Novel factual paraphrases need
-            # semantic review; a model-supplied claims list cannot exempt visible text.
-            if slot["text"].strip() not in {mapped[i]["statement"].strip() for i in ids}:
-                raise ValidationFailure("Inserted text is not supported by the cited fact statements")
+            # This checks structure and source identity only. The caller must pass
+            # the rendered fields through validate_script with approved_template.
         text[key] = slot["text"]
         used.update(ids)
     return {

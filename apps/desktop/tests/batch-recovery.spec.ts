@@ -193,3 +193,47 @@ test("partial deferred preparation retries only unfinished objects", async ({
   );
   expect(calls).toEqual([{ lead_ids: ["needs-one", "needs-two"] }]);
 });
+
+test("a confirmed completed batch permits a new preparation identity", async ({
+  page,
+}) => {
+  const keys: string[] = [];
+  await page.route("**/v1/admin/batches", (route) =>
+    route.fulfill({ json: { batches: [], limited: false } }),
+  );
+  await page.route("**/v1/admin/batches/scripts", (route) => {
+    keys.push(route.request().postDataJSON().idempotency_key);
+    return route.fulfill({
+      json: {
+        id: `complete-${keys.length}`,
+        status: "completed",
+        published: [],
+        retry_lead_ids: [],
+      },
+    });
+  });
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  const submit = page.getByRole("button", {
+    name: "Submit deferred scripts",
+    exact: true,
+  });
+  await submit.click();
+  await expect.poll(() => keys.length).toBe(1);
+  await expect(submit).toBeEnabled();
+  await submit.click();
+  await expect.poll(() => keys.length).toBe(2);
+  expect(keys[0]).not.toBe(keys[1]);
+  await expect(
+    page.getByLabel("Scripts needed by", { exact: true }),
+  ).toBeEnabled();
+});

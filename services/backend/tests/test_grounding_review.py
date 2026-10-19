@@ -170,9 +170,16 @@ def test_every_visible_analysis_field_is_reviewed_including_omitted_assertions(w
 def test_template_cannot_drop_negation_by_copying_a_substring(slot_text, clock):
     from app.research.validation import validate_script
 
-    facts = [{"fact_id": "f", "statement": "We are not certified.", "status": "supported",
-              "source_id": "source", "entity_domain": "example.test",
-              "expires_at": (clock.now + timedelta(days=1)).isoformat()}]
+    facts = [
+        {
+            "fact_id": "f",
+            "statement": "We are not certified.",
+            "status": "supported",
+            "source_id": "source",
+            "entity_domain": "example.test",
+            "expires_at": (clock.now + timedelta(days=1)).isoformat(),
+        }
+    ]
     candidate = {
         "lead_id": "lead",
         "slots": {"relevance": {"text": slot_text, "fact_ids": ["f"]}, "proof": {"text": "", "fact_ids": []}},

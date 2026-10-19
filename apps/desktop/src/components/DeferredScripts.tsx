@@ -125,13 +125,14 @@ export function DeferredScripts() {
               ready_at: new Date(deadline).toISOString(),
             };
           const intent = submission.current;
-          void perform(() =>
-            api("/v1/admin/batches/scripts", "POST", {
+          void perform(async () => {
+            await api("/v1/admin/batches/scripts", "POST", {
               lead_ids: intent.leads,
               idempotency_key: intent.key,
               ready_at: intent.ready_at,
-            }),
-          );
+            });
+            submission.current = null;
+          });
         }}
       >
         Submit deferred scripts

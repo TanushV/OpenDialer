@@ -507,6 +507,8 @@ async def test_concurrent_preparation_pays_for_one_generation(workspace, app, mo
 
 @pytest.mark.asyncio
 async def test_rejected_slots_never_leak_through_the_generic_fallback(workspace, app, monkeypatch):
+    from test_grounding_review import review_response
+
     configure(workspace)
     service, lead_id = app.state.service, workspace["lead_ids"][0]
     await service.prepare(p(workspace), [lead_id])
@@ -517,16 +519,20 @@ async def test_rejected_slots_never_leak_through_the_generic_fallback(workspace,
             for f in service.scoped(s, "research_facts", p(workspace))
             if f.data["domain"] == lead.data["domain"]
         )
-        update(fact, statement="We guarantee 10x revenue.")
+        update(fact, statement="We do not guarantee any revenue increase.")
 
     class Provider:
         async def complete(self, prompt, context, schema):
+            if "fingerprint" in context:
+                return InferenceResult(
+                    review_response(context, verdict="CONTRADICTED"), {"cost": 0.001}, "rejected-slot-review"
+                )
             fact = context["facts"][0]
             return InferenceResult(
                 {
                     "lead_id": lead_id,
                     "slots": {
-                        "relevance": {"text": fact["statement"], "fact_ids": [fact["fact_id"]]},
+                        "relevance": {"text": "We guarantee 10x revenue.", "fact_ids": [fact["fact_id"]]},
                         "proof": {"text": "", "fact_ids": []},
                     },
                 },

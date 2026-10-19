@@ -37,7 +37,12 @@
     "E04-reference-authority-red.txt": "769ad46448d1c9b141a01fa250a619f18e903f5319c000db28cfb058aff85e3d",
     "E04-deferred-red.txt": "d27e4cc6409b76b5e03805f50910b7406475cdff7093ee5be202eee553daa379",
     "E04-deferred-ui-red.txt": "03c7f2ef300af71e83674949b19eb2afe377987533d757f592777b8602fcfe40",
-    "E04-reference-ui-red.txt": "053cdcc0d0a9086cdebe7989cbd4541b71968d0528973d32dd7eefd13728200f"
+    "E04-reference-ui-red.txt": "053cdcc0d0a9086cdebe7989cbd4541b71968d0528973d32dd7eefd13728200f",
+    "E04-novel-slots-red.txt": "3ec304b389fb924c27f66285e8ea3900269eae5f3267400ea5fa55f0bd553c95",
+    "E04-final-boundaries-corrected-red.txt": "e19bb936d46251f300589e194721dc0d6518ac385981447140a4f766447d651e",
+    "E04-next-batch-red.txt": "987fa82f49511ed60710c796c318eeea98383a5c34918906dcaa8c0fe6abe524",
+    "E04-script-meaning-red.txt": "6b7582755601367ab875b98327b38aaab12677ed38b11a48ba32ac7fa13705f8",
+    "E04-knowledge-qualification-red.txt": "65deaaffb8456f4062b21676cd537a71f28ba0d4ef4c37a3d4775bbcd317a1eb"
   },
   "known_limitations": [
     "Scoped baseline counterexamples; E04 overall acceptance still open.",

@@ -515,7 +515,9 @@ async def test_conflicting_company_facts_are_not_reused_or_recharged(workspace, 
         async def complete(self, prompt, context, schema):
             requests.append(context)
             if "fingerprint" in context:
-                return InferenceResult(review_response(context), {"cost": 0.001}, f"conflict-review-{len(requests)}")
+                return InferenceResult(
+                    review_response(context), {"cost": 0.001}, f"conflict-review-{len(requests)}"
+                )
             return InferenceResult(
                 {
                     "facts": [

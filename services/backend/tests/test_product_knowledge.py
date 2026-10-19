@@ -218,3 +218,14 @@ def test_knowledge_migration_is_additive_and_repeatable(tmp_path):
             == before
         )
     engine.dispose()
+
+
+def test_seller_can_approve_qualified_claims_without_keyword_bans(workspace, app):
+    data = body(workspace, app)
+    data["claims"] = [
+        "Results are not guaranteed.",
+        "A customer may request the approved money-back guarantee.",
+    ]
+    response = publish(workspace, data)
+    assert response.status_code == 200, response.text
+    assert response.json()["claims"] == data["claims"]
