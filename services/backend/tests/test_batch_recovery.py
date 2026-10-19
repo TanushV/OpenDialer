@@ -30,6 +30,7 @@ def batch(workspace, app, monkeypatch):
     monkeypatch.setattr(OpenAIBatch, "retrieve", retrieve)
     state["retrieve"] = retrieve
     state["service"], state["p"] = service, principal
+    state["ready_at"] = (service.clock() + timedelta(days=2)).isoformat()
     state["lead"] = (
         workspace["client"].get("/v1/workspace", headers=workspace["headers"]).json()["leads"][0]["id"]
     )
@@ -43,6 +44,7 @@ def submit(w, b, key="original-submission"):
         json={
             "lead_ids": [b["lead"]],
             "idempotency_key": key,
+            "ready_at": b["ready_at"],
         },
     )
 
@@ -178,7 +180,11 @@ def test_cancelled_submission_retains_liability_and_recovery_state(workspace, ba
             await c.post(
                 "/v1/admin/batches/scripts",
                 headers=workspace["headers"],
-                json={"lead_ids": [batch["lead"]], "idempotency_key": "cancelled"},
+                json={
+                    "lead_ids": [batch["lead"]],
+                    "idempotency_key": "cancelled",
+                    "ready_at": batch["ready_at"],
+                },
             )
 
     # Starlette's HTTP middleware can translate an internally cancelled handler

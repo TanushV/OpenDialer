@@ -1,6 +1,7 @@
 """Deferred output needs the same meaning check, without repeated paid reviews."""
 
 import json
+from datetime import timedelta
 
 import pytest
 from app.providers.batch import OpenAIBatch
@@ -10,7 +11,8 @@ from test_remediation_rep_workflow import p
 
 
 @pytest.mark.parametrize("verdict", ["NON_FACTUAL", "UNSUPPORTED", "timeout"])
-def test_batch_review_is_complete_cached_and_budgeted(workspace, app, monkeypatch, verdict):
+@pytest.mark.asyncio
+async def test_batch_review_is_complete_cached_and_budgeted(workspace, app, monkeypatch, verdict):
     c, h = workspace["client"], workspace["headers"]
     service = app.state.service
     lead = c.get("/v1/workspace", headers=h).json()["leads"][0]
@@ -59,12 +61,23 @@ def test_batch_review_is_complete_cached_and_budgeted(workspace, app, monkeypatc
     intent = c.post(
         "/v1/admin/batches/scripts",
         headers=h,
-        json={"lead_ids": [lead["id"]], "idempotency_key": "review-batch"},
+        json={
+            "lead_ids": [lead["id"]],
+            "idempotency_key": "review-batch",
+            "ready_at": (service.clock() + timedelta(days=2)).isoformat(),
+        },
     ).json()
     for _ in range(2):
         response = c.post(f"/v1/admin/batches/{intent['id']}/reconcile", headers=h)
         assert response.status_code == 200, response.text
-        assert response.json()["published"] == ([lead["id"]] if verdict == "NON_FACTUAL" else [])
+        assert response.json()["published"] == []
+        assert response.json()["pending_review_lead_ids"] == [lead["id"]]
+    assert not reviews, "Reconciliation queues reviews; it cannot charge or monopolize the request"
+    await service.run_jobs(p(workspace)["tenant_id"], ["scripts"])
+    response = c.post(f"/v1/admin/batches/{intent['id']}/reconcile", headers=h)
+    assert response.json()["published"] == ([lead["id"]] if verdict == "NON_FACTUAL" else [])
+    assert response.json()["pending_review_lead_ids"] == []
+    await service.run_jobs(p(workspace)["tenant_id"], ["scripts"])
     assert len(reviews) == 1
     with service.db.transaction(False) as s:
         usage = [
@@ -74,3 +87,28 @@ def test_batch_review_is_complete_cached_and_budgeted(workspace, app, monkeypatc
         ]
     assert len(usage) == 1
     assert usage[0]["status"] == ("uncertain" if verdict == "timeout" else "settled")
+
+
+@pytest.mark.parametrize("hours", [None, 23, 24])
+def test_deferred_requires_adequate_explicit_deadline_before_spending(workspace, app, monkeypatch, hours):
+    service, sent = app.state.service, []
+    service.vault.write(p(workspace)["tenant_id"], {"inference_mode": "api", "openai_api_key": "fixture"})
+
+    async def submit(provider, requests):
+        sent.append(requests)
+        return {"id": "deadline-batch", "status": "in_progress"}
+
+    monkeypatch.setattr(OpenAIBatch, "submit", submit)
+    lead = workspace["client"].get("/v1/workspace", headers=workspace["headers"]).json()["leads"][0]
+    body = {"lead_ids": [lead["id"]], "idempotency_key": "deadline"}
+    if hours is not None:
+        body["ready_at"] = (service.clock() + timedelta(hours=hours)).isoformat()
+    response = workspace["client"].post("/v1/admin/batches/scripts", headers=workspace["headers"], json=body)
+    assert response.status_code == (200 if hours == 24 else 409 if hours is None else 422), response.text
+    assert len(sent) == (1 if hours == 24 else 0)
+    if hours == 24:
+        body["ready_at"] = (service.clock() + timedelta(hours=48)).isoformat()
+        conflict = workspace["client"].post(
+            "/v1/admin/batches/scripts", headers=workspace["headers"], json=body
+        )
+        assert conflict.status_code == 409 and len(sent) == 1

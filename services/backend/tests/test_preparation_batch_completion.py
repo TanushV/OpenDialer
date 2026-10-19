@@ -91,7 +91,11 @@ def deferred(workspace, app, monkeypatch, clock):
     response = client.post(
         "/v1/admin/batches/scripts",
         headers=headers,
-        json={"lead_ids": [lead_id], "idempotency_key": "fixed-template"},
+        json={
+            "lead_ids": [lead_id],
+            "idempotency_key": "fixed-template",
+            "ready_at": (clock.now + timedelta(days=2)).isoformat(),
+        },
     )
     assert response.status_code == 200, response.text
     state["intent"] = response.json()
@@ -195,7 +199,11 @@ async def test_batch_preparation_reads_do_not_block_control_event_loop(deferred,
             client.post(
                 "/v1/admin/batches/scripts",
                 headers=workspace["headers"],
-                json={"lead_ids": [deferred["lead_id"]], "idempotency_key": "slow-build"},
+                json={
+                    "lead_ids": [deferred["lead_id"]],
+                    "idempotency_key": "slow-build",
+                    "ready_at": (service.clock() + timedelta(days=2)).isoformat(),
+                },
             ),
             heartbeat(),
         )
@@ -278,6 +286,7 @@ def test_batch_creation_failure_cannot_leave_an_orphan_budget_hold(workspace, ap
             json={
                 "lead_ids": workspace["lead_ids"][:1],
                 "idempotency_key": "no-orphan-hold",
+                "ready_at": (service.clock() + timedelta(days=2)).isoformat(),
             },
         )
     with service.db.transaction(False) as s:

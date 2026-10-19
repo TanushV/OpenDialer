@@ -1,3 +1,6 @@
+import asyncio
+from datetime import timedelta
+
 from app.providers.batch import OpenAIBatch
 
 
@@ -73,12 +76,19 @@ def test_deferred_batch_publishes_independent_validated_results_and_reports_miss
     r = c.post(
         "/v1/admin/batches/scripts",
         headers=h,
-        json={"lead_ids": [lead["id"] for lead in leads], "idempotency_key": "deferred-one"},
+        json={
+            "lead_ids": [lead["id"] for lead in leads],
+            "idempotency_key": "deferred-one",
+            "ready_at": (c.app.state.service.clock() + timedelta(days=2)).isoformat(),
+        },
     )
     assert r.status_code == 200, r.text
     assert all(x["url"] == "/v1/responses" and x["body"]["store"] is False for x in submitted)
     result = c.post(f"/v1/admin/batches/{r.json()['id']}/reconcile", headers=h)
     assert result.status_code == 200, result.text
+    assert result.json()["pending_review_lead_ids"] == [leads[0]["id"]]
+    asyncio.run(c.app.state.service.run_jobs(queues=["scripts"]))
+    result = c.post(f"/v1/admin/batches/{r.json()['id']}/reconcile", headers=h)
     assert result.json()["published"] == [leads[0]["id"]]
     assert result.json()["retry_lead_ids"] == [leads[1]["id"]]
     assert c.get(f"/v1/leads/{leads[0]['id']}/packet", headers=h).json()["script"]["fallback"] is False
