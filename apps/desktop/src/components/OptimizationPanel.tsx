@@ -39,10 +39,14 @@ interface GoalPreview {
 interface OptimizationReport {
   settings: OptimizationSettings;
   forecast: {
-    capacity_shortfall: number;
+    capacity_shortfall: number | null;
     staffing_shortfall: number | null;
     number_shortfall: number | null;
     planning_limited?: boolean;
+    projection?: {
+      status: "pending" | "stale" | "ready";
+      as_of: string | null;
+    };
     regions: {
       region: string;
       forecast_attempts: number;
@@ -630,6 +634,17 @@ export function OptimizationPanel({
             time. New rentals are blocked; proposed additions are
             shared-capacity scenarios, not one number per area code.
           </p>
+          {report.forecast.projection?.status === "pending" && (
+            <p className="notice">
+              Capacity estimate pending. Refresh learning and capacity to
+              prepare it.
+            </p>
+          )}
+          {report.forecast.projection?.status === "stale" && (
+            <p className="notice">
+              Capacity estimate is out of date. Refresh before acting on it.
+            </p>
+          )}
           <div className="optimization-table">
             <table>
               <thead>
@@ -664,6 +679,7 @@ export function OptimizationPanel({
               established.
             </p>
           ) : (
+            report.forecast.capacity_shortfall !== null &&
             report.forecast.capacity_shortfall > 0 && (
               <p className="fine">
                 {report.forecast.staffing_shortfall} attempts exceed declared

@@ -744,6 +744,104 @@ class OptimizationWorkflows(ComparisonWorkflows):
             "input_fingerprint": result["input_fingerprint"],
         }
 
+    def report_details(self, s, p):
+        """Bounded saved decisions/plans; no horizon computation or historical dataset."""
+        reservations = MODELS["reservations"]
+        query = select(reservations).where(
+            reservations.tenant_id == p["tenant_id"], reservations.seller_id == p["seller_id"]
+        )
+        if p["role"] == "rep":
+            query = query.where(reservations.op_owner_id == p["user_id"])
+        recent = list(s.scalars(query.order_by(reservations.op_at.desc(), reservations.id.desc()).limit(31)))
+        ids = [
+            r.data["policy_decision_id"] for r in reversed(recent[:30]) if r.data.get("policy_decision_id")
+        ]
+        model = MODELS["policy_decisions"]
+        records = (
+            {
+                r.id: doc(r)
+                for r in s.scalars(
+                    select(model).where(
+                        model.tenant_id == p["tenant_id"],
+                        model.seller_id == p["seller_id"],
+                        model.id.in_(ids),
+                    )
+                )
+            }
+            if ids
+            else {}
+        )
+        decisions = [
+            records[i]
+            for i in ids
+            if i in records and (p["role"] != "rep" or records[i].get("rep_id") == p["user_id"])
+        ]
+        model, leads = MODELS["scheduling_plans"], MODELS["leads"]
+        planned = list(
+            s.execute(
+                select(model, leads)
+                .join(
+                    leads,
+                    (model.op_lead_id == leads.id)
+                    & (model.tenant_id == leads.tenant_id)
+                    & (model.seller_id == leads.seller_id),
+                )
+                .where(
+                    model.tenant_id == p["tenant_id"],
+                    model.seller_id == p["seller_id"],
+                    model.external_key == "current:" + leads.id,
+                )
+                .order_by(model.op_at.desc(), model.id.desc())
+                .limit(101)
+            )
+        )
+        futures = []
+        for record, lead in planned[:100]:
+            plan = record.data
+            if (
+                plan.get("selected")
+                and lead.data.get("status") == "eligible"
+                and not lead.data.get("outreach_hold")
+                and not lead.data.get("goal_completed")
+                and plan.get("source_lead_version") == lead.version
+                and (timestamp(plan.get("expires_at")) or self.clock()) > self.clock()
+            ):
+                futures.append({**plan["selected"], "name": lead.data["name"]})
+        return {
+            "decisions": decisions,
+            "plans": [doc(r) for r, _ in planned[:100]],
+            "future_slots": futures,
+            "detail_coverage": {
+                "decisions_inspected": min(len(recent), 30),
+                "decisions_limited": len(recent) > 30,
+                "plans_inspected": min(len(planned), 100),
+                "plans_limited": len(planned) > 100,
+            },
+        }
+
+    def saved_forecast(self, s, p):
+        campaign = self.scoped(s, "campaigns", p)[0]
+        row = self._by_key(s, p, "report_projections", f"planning:{campaign.id}:configured")
+        saved = row.data if row else {}
+        current = self.report_revision(s, p)
+        fresh = (
+            saved.get("source_revision") == current
+            and (timestamp(saved.get("expires_at")) or self.clock()) > self.clock()
+        )
+        return {
+            "regions": [],
+            "capacity_shortfall": None,
+            "staffing_shortfall": None,
+            "number_shortfall": None,
+            **saved.get("report", {}),
+            "projection": {
+                "status": "ready" if fresh else "stale" if saved else "pending",
+                "as_of": saved.get("as_of"),
+                "source_revision": saved.get("source_revision"),
+                "current_revision": current,
+            },
+        }
+
     def optimization_report(self, p, epoch=None):
         from app.optimization.projections import (
             read_coaching_metrics,
@@ -755,48 +853,14 @@ class OptimizationWorkflows(ComparisonWorkflows):
 
         with self.db.transaction(False) as s:
             s.info["row_cache"] = {}
-            config = self.optimization_config(s, p)
-            data = self.operational_dataset(s, p, config)
-            leads = self.scoped(s, "leads", p)
             trial = read_trial_metrics(self, p, epoch=epoch)
             cohort_history = trial.pop("cohort_history")
-            decision_rows = self.scoped(s, "policy_decisions", p)
-            decisions = [
-                doc(r) for r in decision_rows if p["role"] != "rep" or r.data.get("rep_id") == p["user_id"]
-            ]
-            plans = sorted(
-                self.scoped(s, "scheduling_plans", p),
-                key=lambda r: (
-                    r.external_key == "current:" + r.data["lead_id"],
-                    r.created_at,
-                    r.id,
-                ),
-            )
-            model_drift = read_drift_metrics(self, p)
-            latest_plans = {}
-            for record in plans:
-                plan = record.data
-                latest_plans[plan["lead_id"]] = plan
-            futures = [
-                {**latest_plans[lead.id]["selected"], "name": lead.data["name"]}
-                for lead in leads
-                if lead.id in latest_plans
-                and latest_plans[lead.id].get("selected")
-                and lead.data.get("status") == "eligible"
-                and not lead.data.get("outreach_hold")
-                and not lead.data.get("goal_completed")
-                and latest_plans[lead.id].get("source_lead_version", lead.version) == lead.version
-                and (
-                    timestamp(latest_plans[lead.id].get("expires_at")) or self.clock() + timedelta(seconds=1)
-                )
-                > self.clock()
-            ]
             measured = self.metrics(p)
             return {
-                "settings": config,
+                "settings": self.optimization_config(s, p),
                 "comparisons": read_comparison_metrics(self, p),
                 "cohort_history": cohort_history,
-                "forecast": self.forecast(s, p),
+                "forecast": self.saved_forecast(s, p),
                 "numbers": self.inventory_evidence(s, p),
                 "metrics": {
                     **measured,
@@ -805,13 +869,10 @@ class OptimizationWorkflows(ComparisonWorkflows):
                     "suppressed_now": measured["suppressed"],
                     "human_answers": measured["human_pickups"],
                     "unique_right_party": measured["right_party_unique"],
-                    "observed_cost_usd": sum(r.get("observed_cost_usd") or 0 for r in data),
                 },
                 "dataset": read_dataset_metrics(self, p),
-                "decisions": decisions[-30:],
-                "future_slots": futures[:100],
-                "plans": [doc(row) for row in plans[-100:]],
-                "drift": model_drift,
+                **self.report_details(s, p),
+                "drift": read_drift_metrics(self, p),
                 "trial": trial,
                 "coaching": read_coaching_metrics(self, p),
                 "simulation": self.settings.simulation,
@@ -1179,6 +1240,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 update(campaign, conversation_report=conversation_report)
             emit(s, p["tenant_id"], "optimization.updated", campaign, self.clock())
         planning = self.refresh_schedule_plans(p, campaign_id, dataset["id"])
+        self.build_forecast(p, campaign_id)
         training = self.train_operational(p) if config["auto_train"] else {"status": "disabled"}
         self.rebuild_optimization_report(p)
         return {
