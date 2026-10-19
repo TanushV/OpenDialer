@@ -1363,9 +1363,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                             {**p, "role": job["payload"].get("role", "rep")},
                             job["payload"].get("epoch"),
                         )
-                        if receipt["status"] == "superseded":
-                            raise RuntimeError("Report source changed during calculation")
-                        if receipt["status"] == "pending":
+                        if receipt["status"] in {"superseded", "pending"}:
                             await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
                             return 0
                     elif job["payload"].get("kind") == "optimization_refresh":
