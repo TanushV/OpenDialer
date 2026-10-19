@@ -1339,6 +1339,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                         "expires_at": (inputs["now"] + timedelta(minutes=10)).isoformat(),
                         "schedule_fingerprint": forecast["input_fingerprint"],
                         "planning_limited": forecast["planning_limited"],
+                        "priority_rebalance_pending": forecast.get("rebalance_required", False),
                     }
                     if lead.id in existing:
                         update(existing[lead.id], **value)
@@ -1355,6 +1356,28 @@ class OptimizationWorkflows(ComparisonWorkflows):
                     saved += 1
                 s.flush()
                 generation = self.report_revision(s, p)
+        rebalance_job = None
+        if not superseded and forecast.get("rebalance_required"):
+            with self.db.transaction() as s:
+                if self.report_revision(s, p, lock=True) != generation:
+                    return {"status": "superseded"}
+                self.jobs.require_owned_in(s, lease)
+                rebalance_job = self.jobs.enqueue_in(
+                    s,
+                    "ml",
+                    {
+                        "kind": "retry_plan_refresh",
+                        "seller_id": p["seller_id"],
+                        "user_id": p.get("user_id"),
+                        "campaign_id": campaign_id,
+                        "internal": True,
+                        "input_fingerprint": forecast["input_fingerprint"],
+                    },
+                    f"planning-rebalance:{campaign_id}",
+                    tenant_id=p["tenant_id"],
+                    priority=16,
+                    latest=True,
+                )
         return {
             "status": "superseded" if superseded else "ready",
             "source_revision": generation,
@@ -1362,6 +1385,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
             "superseded": superseded,
             "unchanged": unchanged,
             "omitted_schedule_rows": forecast["schedule_rows_omitted"],
+            "rebalance_job_id": rebalance_job["id"] if rebalance_job else None,
         }
 
     def refresh_observed_health(self, p, *, lease=None):

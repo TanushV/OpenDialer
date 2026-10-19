@@ -1140,6 +1140,9 @@ def plan_changed(
     slots, owners, limited = staffed_slots(windows, now, end, grid, rep_busy_until)
     assignment = Assignment(work, slots, now, policy, grid, len(work), owners, work_budget=rep_minutes * 60)
     chosen, exact = assignment.solve(inventory, fixed_schedule=fixed_schedule)
+    assigned = {row["lead_id"] for row in chosen}
+    lowest_fixed_priority = max((row.get("priority_class", 3) for row in fixed_schedule), default=-1)
+    rebalance = any(w.lead_id not in assigned and w.priority_class < lowest_fixed_priority for w in work)
     fingerprint = hashlib.sha256(
         json.dumps(
             [leads, inventory, now, policy, windows, fixed_schedule, rep_busy_until],
@@ -1155,6 +1158,7 @@ def plan_changed(
         "search_operations": assignment.steps,
         "proven_on_declared_grid": exact and not limited,
         "constraint_scope": "saved_allocations_and_changed_page",
+        "rebalance_required": rebalance,
     }
 
 
