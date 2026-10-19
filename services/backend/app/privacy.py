@@ -682,8 +682,9 @@ class SpeechPrivacy:
                                     r.data["segment_id"]: r.data["revision"]
                                     for r in self.transcript_metadata(s, p, call.id)
                                 }
-                                if note.data.get("notes", {}).get("transcript_version")
-                                == call.data["transcript_version"]
+                                if call.data.get("transcript_version") is not None
+                                and note.data.get("notes", {}).get("transcript_version")
+                                == call.data.get("transcript_version")
                                 else {}
                             )
                             card = self._by_key(s, p, "scorecards", call.id)

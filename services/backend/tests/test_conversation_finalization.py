@@ -762,6 +762,46 @@ def test_legacy_notes_without_live_state_migrate_without_losing_derived_or_human
         assert summary["review_receipt_id"] is None
 
 
+def test_legacy_call_without_transcript_version_migrates_as_unknown_provenance(workspace, app):
+    from app.db import put
+    from conftest import start
+    from test_remediation_privacy import principal
+
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    with service.db.transaction() as s:
+        record = service.required(s, "call_attempts", call["id"], p)
+        record.data = {k: v for k, v in record.data.items() if k != "transcript_version"}
+        note = put(
+            s,
+            "notes",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "privacy_contract": 1,
+                "call_id": call["id"],
+                "human_text": "Preserve the rep's decision.",
+                "notes": {
+                    "summary": "Approval requires further discussion.",
+                    "summary_evidence": ["unknown"],
+                },
+            },
+            key=call["id"],
+            now=service.clock(),
+        )
+        note_id = note.id
+    service.migrate_conversation_states()
+    service.migrate_conversation_states()
+    with service.db.transaction(False) as s:
+        note = service.required(s, "notes", note_id, p)
+        assert note.data["human_text"] == "Preserve the rep's decision."
+        state = service._by_key(s, p, "conversation_states", call["id"]).data
+        summary = next(i for i in state["observations"] if i["kind"] == "rundown")
+        assert summary["epistemic_status"] == "model_interpreted"
+        assert summary["review_receipt_id"] is None
+        assert not any(ref.get("version") for ref in summary["sources"] if ref["kind"] == "segment")
+
+
 def test_retained_source_correction_invalidates_every_dependent_observation():
     from app.coaching.context import invalidate_state, lineage_metadata, merge_semantic_state
 
