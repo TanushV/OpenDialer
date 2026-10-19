@@ -12,7 +12,6 @@ from app.optimization.learning import (
     distribution_from_counts,
     outcome_at,
     trial_from_counts,
-    trial_values,
 )
 from app.optimization.numbering import timestamp
 
@@ -281,74 +280,6 @@ def comparison_from_counts(study, values, grouped, *, now):
     return result
 
 
-def comparison_report(
-    study,
-    assignments,
-    calls,
-    events,
-    feedback,
-    *,
-    now,
-    goal,
-    window_days,
-    exposures=(),
-    seed_rewards=(),
-    observations=(),
-):
-    """Bounded offline adapter. Operational publication reads persisted contributions."""
-    events = events + call_goal_events(calls, goal, now=now)
-    selected = {}
-    for row in sorted(assignments, key=lambda r: (r["assigned_at"], r.get("id", ""))):
-        if row.get("comparison_id") == study["id"]:
-            selected.setdefault(row["lead_id"], row)
-    values, grouped = {}, {}
-
-    def add(target, vector):
-        for key, value in vector.items():
-            target[key] = target.get(key, 0) + value
-
-    for lead_id, item in selected.items():
-        attempts = [
-            r
-            for r in calls
-            if r["lead_id"] == lead_id
-            and r.get("submitted_at")
-            and timestamp(item["assigned_at"]) <= timestamp(r["started_at"]) <= now
-        ]
-        due = timestamp(item.get("coverage_due_at"))
-        enriched = {
-            **item,
-            "covered": any(not due or timestamp(r["started_at"]) <= due for r in attempts),
-            "policy_unknown": sum(r.get("submission_allowed") is None for r in attempts),
-            "policy_violations": sum(r.get("submission_allowed") is False for r in attempts),
-        }
-        vector = trial_values(enriched, events, now=now, goal=goal, window_days=window_days)
-        add(values, vector)
-        field = "cluster" if study["family"] == "number_allocation" else "rep_id"
-        add(grouped.setdefault(item.get(field, "unknown"), {}), vector)
-    arm_by_call = {r["id"]: selected[r["lead_id"]]["arm"] for r in calls if r["lead_id"] in selected}
-    for row in feedback:
-        arm = arm_by_call.get(row["call_id"])
-        if arm is None:
-            continue
-        vector = {f"quality:{arm}:reviewed_cards": 1}
-        for key in ("useful", "grounded", "timely", "distracting"):
-            vector[f"quality:{arm}:{key}_count"] = int(isinstance(row.get(key), bool))
-            vector[f"quality:{arm}:{key}_true"] = int(row.get(key) is True)
-        add(values, vector)
-    unique = {}
-    for reward in [*seed_rewards, *strategy_rewards(study, list(selected.values()), events, now=now)]:
-        unique.setdefault(reward["lead_id"], reward)
-    for reward in unique.values():
-        add(values, reward_values(reward))
-    for row in exposures:
-        if row.get("strategy_exposure", {}).get("comparison_id") == study["id"]:
-            add(values, {"exposure:" + k: v for k, v in exposure_values(row, observations, now=now).items()})
-    return comparison_from_counts(
-        {**study, "goal": goal, "window_days": window_days}, values, grouped, now=now
-    )
-
-
 class ComparisonWorkflows:
     def strategy_exposures_in(self, s, p, state):
         from sqlalchemy import select
@@ -560,63 +491,3 @@ class ComparisonWorkflows:
             now=self.clock(),
         )
         return doc(result)
-
-    def comparison_reports(self, s, p, campaign, calls, events, feedback, exposures=()):
-        from sqlalchemy import select
-
-        from app.db import MODELS
-
-        assignments = [r.data for r in self.scoped(s, "experiment_assignments", p)]
-        decisions = {r.id: r.data for r in self.scoped(s, "compliance_decisions", p)}
-        observed_calls = [
-            {
-                **doc(c),
-                "submission_allowed": decisions.get(c.data.get("submission_decision_id"), {}).get("allowed"),
-            }
-            for c in calls
-        ]
-        studies = campaign.data.get("controlled_comparisons", [])
-        # Content-free lineage survives context trimming and raw expiry. Revisions
-        # are folded by identity so a correction removes the prior speech match.
-        latest = {}
-        call_ids = {r["call_id"] for r in exposures if r.get("strategy_exposure", {}).get("comparison_id")}
-        if call_ids:
-            model = MODELS["outcomes"]
-            for row in s.scalars(
-                select(model).where(
-                    model.tenant_id == p["tenant_id"],
-                    model.seller_id == p["seller_id"],
-                    model.ctx_status == "conversation_lineage",
-                    model.ctx_key.in_(call_ids),
-                )
-            ):
-                value = row.data
-                key = (value["call_id"], value["id"])
-                if value["version"] >= latest.get(key, {}).get("version", 0):
-                    latest[key] = value
-        return [
-            comparison_report(
-                study,
-                assignments,
-                observed_calls,
-                events,
-                feedback,
-                now=self.clock(),
-                goal=study["goal"],
-                window_days=study["window_days"],
-                exposures=exposures,
-                observations=list(latest.values()),
-                seed_rewards=[
-                    r
-                    for prior in studies
-                    if prior["id"] == study.get("evidence_comparison_id")
-                    for r in strategy_rewards(
-                        prior,
-                        assignments,
-                        events + call_goal_events(observed_calls, prior["goal"], now=self.clock()),
-                        now=self.clock(),
-                    )
-                ],
-            )
-            for study in studies
-        ]
