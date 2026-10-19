@@ -470,3 +470,71 @@ def test_work_index_backfill_preserves_payload_versions_and_resumes(workspace, a
             assert bool(row.op_at) == bool(row.data.get("started_at"))
         marker = get(session, "sellers", p["seller_id"]).data["completion_contracts"]["work_index_v1"]
         assert marker["completed_at"] and marker["last_id"] == max(before)
+
+
+def test_shared_metrics_read_only_saved_vectors_after_sources_are_projected(workspace, app, monkeypatch):
+    from test_projection_replay import project_pending
+
+    service, p = app.state.service, principal(workspace)
+    project_pending(service, p)
+    original = service.scoped
+
+    def no_history(session, kind, scope):
+        assert kind not in {
+            "leads",
+            "call_attempts",
+            "conversion_events",
+            "suppressions",
+            "usage_ledger",
+            "work_intervals",
+        }, f"Historical read in shared metrics: {kind}"
+        return original(session, kind, scope)
+
+    monkeypatch.setattr(service, "scoped", no_history)
+    result = service.metrics(p)
+    assert result["original_cohort"] == 3
+    assert result["original_eligible_denominator"] == 3
+    assert result["unique_conversions"] == 0
+    assert result["rep_work_seconds"] is None
+    assert result["billing_verified"] is False
+    assert result["definition_version"]
+
+
+def test_metrics_http_uses_saved_snapshot_and_exposes_pending_freshness(workspace, app, monkeypatch):
+    from conftest import completed_home_metrics
+
+    completed_home_metrics(workspace)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("A metrics GET cannot compute/replay historical totals")
+
+    monkeypatch.setattr(app.state.service, "metrics", forbidden)
+    result = workspace["client"].get("/v1/metrics", headers=workspace["headers"])
+    assert result.status_code == 200
+    assert result.json()["projection"]["status"] == "ready"
+    assert result.json()["original_cohort"] == 3
+
+
+def test_call_vector_moves_health_windows_without_a_history_scan(clock):
+    from app.optimization.projections import call_values
+
+    config = {"conversion_goal": "meeting_held", "window_days": 14}
+    start = clock.now
+    call = {
+        "id": "health",
+        "lead_id": "lead",
+        "started_at": start.isoformat(),
+        "submitted_at": start.isoformat(),
+        "outcome": "right_party",
+        "outcome_available_at": start.isoformat(),
+    }
+    recent = call_values(call, config=config, now=start + timedelta(hours=23))
+    assert recent["connect_recent_n"] == recent["connect_recent_s"] == 1
+    assert recent["connect_reference_n"] == 0
+    older = call_values(call, config=config, now=start + timedelta(days=1, microseconds=1))
+    assert older["connect_recent_n"] == 0
+    assert older["connect_reference_n"] == older["connect_reference_s"] == 1
+    expired = call_values(call, config=config, now=start + timedelta(days=28, microseconds=1))
+    assert expired["connect_reference_n"] == expired["connect_recent_n"] == 0
+    unknown = call_values({**call, "outcome": None}, config=config, now=start)
+    assert unknown["connect_recent_unknown"] == 1 and unknown["connect_recent_n"] == 0
