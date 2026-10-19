@@ -45,8 +45,12 @@ async def test_first_view_is_explicitly_pending_and_coalesces_background_work(wo
             assert result.get("metrics") is None
     with service.db.transaction(False) as s:
         jobs = list(s.scalars(select(Job).where(Job.queue == "ml")))
-    assert len(jobs) == 1
-    assert jobs[0].payload["kind"] == "report_refresh"
+    reports = [j for j in jobs if j.payload["kind"] == "report_refresh"]
+    sources = [j for j in jobs if j.payload["kind"] == "metric_refresh"]
+    assert len(reports) == 1
+    assert len(sources) == len({j.payload["source_id"] for j in sources}) == 3
+    assert all(j.payload["source_kind"] == "lead" for j in sources)
+    assert len(jobs) == len(reports) + len(sources)
     await service.run_jobs(queues=["ml"])
     result = read(workspace)
     assert result["projection"]["status"] == "ready"
