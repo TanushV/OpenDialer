@@ -4167,7 +4167,8 @@
         "services/backend/tests/test_live_claim_review.py::test_changed_sources_during_review_cannot_publish_but_both_requests_are_settled",
         "services/backend/tests/test_live_claim_review.py::test_early_factual_stream_is_not_displayed_before_meaning_review",
         "services/backend/tests/test_live_claim_review.py::test_cancelled_review_retains_its_uncertain_cost_and_generation_receipt",
-        "services/backend/tests/test_live_claim_review.py::test_complete_field_audit"
+        "services/backend/tests/test_live_claim_review.py::test_complete_field_audit",
+        "services/backend/tests/test_live_claim_review.py::test_audit_identity_and_complete_visible_coverage_are_required"
       ]
     },
     {
@@ -4191,7 +4192,8 @@
         "services/backend/tests/test_coach_admission.py::test_breaker_is_scoped_to_the_affected_seller_route",
         "services/backend/tests/test_coach_admission.py::test_cancel_resistant_work_still_counts_against_capacity",
         "services/backend/tests/test_coach_admission.py::test_one_rep_cannot_fill_the_shared_queue_with_practice_requests",
-        "services/backend/tests/test_coach_admission.py::test_optional_review_holds_the_original_live_capacity_slot"
+        "services/backend/tests/test_coach_admission.py::test_optional_review_holds_the_original_live_capacity_slot",
+        "services/backend/tests/test_coach_admission.py::test_many_final_chunks_keep_only_one_latest_pending_context"
       ]
     },
     {
@@ -4250,7 +4252,8 @@
         "services/backend/tests/test_openrouter_coach.py::test_wrong_provider_truncation_refusal_and_invalid_json_are_failures",
         "services/backend/tests/test_openrouter_coach.py::test_rate_limit_does_not_retry_or_switch_provider",
         "services/backend/tests/test_openrouter_coach.py::test_model_and_provider_settings_are_secure_and_do_not_erase_other_provider_keys",
-        "services/backend/tests/test_openrouter_coach.py::test_reused_adapter_does_not_attribute_the_previous_receipt_to_a_failed_attempt"
+        "services/backend/tests/test_openrouter_coach.py::test_reused_adapter_does_not_attribute_the_previous_receipt_to_a_failed_attempt",
+        "services/backend/tests/test_openrouter_coach.py::test_live_transport_requests_one_typed_turn_contract"
       ]
     },
     {

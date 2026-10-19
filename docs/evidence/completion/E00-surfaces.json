@@ -45,7 +45,7 @@
     "missing_symbols": [
       "WebhookTunnelConfig",
       "webhook_ssh_args",
-      "webhook_retry_delay",
+      "tunnel_retry_delay",
       "OwnedWebhookTunnel"
     ],
     "diagnostics": 9,

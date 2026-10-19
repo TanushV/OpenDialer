@@ -52,6 +52,34 @@ def test_a_novel_nonassertive_question_keeps_the_single_request_path():
     assert ground_guidance(card, context())
 
 
+@pytest.mark.parametrize(
+    "change", ["missing_field", "duplicate", "unknown_source", "stale_context", "premise"]
+)
+def test_audit_identity_and_complete_visible_coverage_are_required(change):
+    card = {
+        **advice(1, text="What would make evaluation worthwhile?"),
+        "evidence_segment_ids": [],
+        "reason": "Invite their priorities.",
+        "context_fingerprint": "fixture-context",
+        "field_audit": [
+            {"field": f, "classification": "nonassertive", "sources": [], "implied_premises": []}
+            for f in ("say_or_ask", "reason")
+        ],
+    }
+    if change == "missing_field":
+        card["field_audit"].pop()
+    elif change == "duplicate":
+        card["field_audit"].append(dict(card["field_audit"][0]))
+    elif change == "unknown_source":
+        card["field_audit"][0]["sources"] = [{"kind": "fact", "id": "foreign", "version": 1}]
+    elif change == "stale_context":
+        card["context_fingerprint"] = "earlier-context"
+    else:
+        card["field_audit"][0]["implied_premises"] = ["The product works offline."]
+    with pytest.raises(CardRejected):
+        ground_guidance(card, context())
+
+
 def review_fixture(
     workspace,
     app,

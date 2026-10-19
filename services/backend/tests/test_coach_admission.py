@@ -10,6 +10,19 @@ from test_live_memory import setup, turn
 FALLBACK = {"action": "NO_ACTION"}
 
 
+def test_many_final_chunks_keep_only_one_latest_pending_context(workspace, app, monkeypatch):
+    from app.db import Job
+    from sqlalchemy import select
+
+    call, p, _, _ = setup(workspace, app, monkeypatch)
+    for i in range(40):
+        turn(app.state.service, p, call, f"coalesced-{i}")
+    with app.state.db.transaction(False) as session:
+        jobs = list(session.scalars(select(Job).where(Job.queue == "live_coach", Job.status == "queued")))
+        assert len(jobs) == 1
+        assert jobs[0].payload["state_version"] == 40
+
+
 @pytest.mark.asyncio
 async def test_optional_review_holds_the_original_live_capacity_slot():
     engine, reviewing, finish = CoachEngine(), asyncio.Event(), asyncio.Event()

@@ -61,6 +61,27 @@ def completion(provider="Cerebras", content=None, **overrides):
 
 
 @pytest.mark.asyncio
+async def test_live_transport_requests_one_typed_turn_contract():
+    captured = []
+
+    def handler(request):
+        captured.append(json.loads(request.content))
+        return httpx.Response(200, json=completion())
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        await OpenRouterCoach("fixture", http=http).suggest({"state_version": 1})
+    schema = captured[0]["response_format"]["json_schema"]["schema"]
+    assert set(schema["required"]) == {
+        "guidance",
+        "state_delta",
+        "field_audit",
+        "state_version",
+        "context_fingerprint",
+    }
+    assert schema["additionalProperties"] is False
+
+
+@pytest.mark.asyncio
 async def test_openrouter_pins_cerebras_requires_schema_and_retains_actual_receipt():
     captured = []
 
