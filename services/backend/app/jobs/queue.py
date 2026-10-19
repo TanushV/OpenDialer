@@ -56,7 +56,17 @@ class JobQueue:
         s.flush()
         return jobdoc(job)
 
-    def claim(self, queue, worker, lease_seconds=60, tenant_id=None, *, capacity=None, shared_queues=()):
+    def claim(
+        self,
+        queue,
+        worker,
+        lease_seconds=60,
+        tenant_id=None,
+        *,
+        capacity=None,
+        shared_queues=(),
+        key_prefix=None,
+    ):
         with self.db.transaction() as s:
             # This fence covers only admission to one execution pool, never the
             # job's work or other writers. It also covers independent runners.
@@ -84,6 +94,8 @@ class JobQueue:
             )
             if tenant_id:
                 query = query.where(Job.tenant_id == tenant_id)
+            if key_prefix is not None:
+                query = query.where(Job.key.startswith(key_prefix, autoescape=True))
             if not self.db.sqlite:
                 query = query.with_for_update(skip_locked=True)
             candidates = list(s.scalars(query))

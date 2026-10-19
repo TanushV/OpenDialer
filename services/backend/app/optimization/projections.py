@@ -327,6 +327,15 @@ def _unit_snapshot(service, p, payload):
         namespaces = [pointer.get("active_namespace", "initial")]
         if pointer.get("building_namespace"):
             namespaces.append(pointer["building_namespace"])
+        if payload.get("target_namespace"):
+            namespaces = [ns for ns in namespaces if ns == payload["target_namespace"]]
+        targets = {}
+        for ns in namespaces:
+            prefix = "building" if ns == pointer.get("building_namespace") else "active"
+            targets[ns] = {
+                "config": pointer.get(prefix + "_config", config),
+                "definition": pointer.get(prefix + "_definition", definition),
+            }
         table = {
             "lead": "leads",
             "call": "call_attempts",
@@ -386,7 +395,9 @@ def _unit_snapshot(service, p, payload):
                 record = service._by_key(session, p, "coaching_feedback", identity + ":" + rep)
                 feedback = doc(record) if record else None
         previous = {
-            ns: service._by_key(session, p, "metric_contributions", unit_key(definition, ns, kind, identity))
+            ns: service._by_key(
+                session, p, "metric_contributions", unit_key(targets[ns]["definition"], ns, kind, identity)
+            )
             for ns in namespaces
         }
         previous = {ns: {"version": r.version, **dict(r.data)} if r else None for ns, r in previous.items()}
@@ -409,16 +420,18 @@ def _unit_snapshot(service, p, payload):
         "config": config,
         "definition": definition,
         "namespaces": namespaces,
+        "targets": targets,
         "previous": previous,
         "generation": generation,
         "pointer": dict(pointer),
         "input_version_fingerprint": hashlib.sha256(
             json.dumps(
                 [
-                    [
+                    sorted(
                         (r.get("id"), r.get("version"))
                         for r in [row, *calls, *events, *intervals, feedback or {}]
-                    ],
+                        if r.get("id")
+                    ),
                     definition,
                     suppressed,
                 ],
@@ -528,9 +541,17 @@ def refresh_unit(service, p, payload):
     if payload["source_kind"] in {"endpoint-leads", "lead-calls"}:
         return expand_dependents(service, p, payload)
     snapshot = _unit_snapshot(service, p, payload)
-    values, due = _calculate_unit(snapshot, service.clock())
+    if not snapshot["namespaces"]:
+        return {"status": "superseded"}
+    calculated = {
+        ns: _calculate_unit({**snapshot, **target}, service.clock())
+        for ns, target in snapshot["targets"].items()
+    }
     kind, identity = snapshot["kind"], snapshot["identity"]
     with service.db.transaction() as session:
+        # Match originating writes' short revision -> job -> data lock order.
+        # This is the existing seller watermark row, never an advisory/global lock.
+        service.report_revision(session, p, lock=True)
         job = session.scalar(
             select(Job)
             .where(
@@ -553,7 +574,9 @@ def refresh_unit(service, p, payload):
         if job and job.payload["desired_generation"] != snapshot["generation"]:
             return {"status": "superseded"}
         campaign = session.scalar(
-            _scoped_query(p, "campaigns").where(MODELS["campaigns"].id == snapshot["campaign_id"])
+            _scoped_query(p, "campaigns")
+            .where(MODELS["campaigns"].id == snapshot["campaign_id"])
+            .with_for_update()
         )
         if not campaign or campaign.data.get("metric_projection", {}) != snapshot["pointer"]:
             return {"status": "superseded"}
@@ -565,7 +588,7 @@ def refresh_unit(service, p, payload):
             return {"status": "superseded"}
         current = {}
         for namespace in snapshot["namespaces"]:
-            key = unit_key(snapshot["definition"], namespace, kind, identity)
+            key = unit_key(snapshot["targets"][namespace]["definition"], namespace, kind, identity)
             model = MODELS["metric_contributions"]
             previous = session.scalar(
                 _scoped_query(p, "metric_contributions").where(model.external_key == key).with_for_update()
@@ -576,9 +599,11 @@ def refresh_unit(service, p, payload):
             current[namespace] = previous
         changed = False
         for namespace, previous in current.items():
-            key = unit_key(snapshot["definition"], namespace, kind, identity)
+            target = snapshot["targets"][namespace]
+            values, due = calculated[namespace]
+            key = unit_key(target["definition"], namespace, kind, identity)
             saved = previous.data if previous else {}
-            groups = _groups(snapshot, namespace) if values else []
+            groups = _groups({**snapshot, **target}, namespace) if values else []
             fingerprint = hashlib.sha256(
                 json.dumps(
                     [values, groups, due, snapshot["generation"], snapshot["input_version_fingerprint"]],
@@ -604,7 +629,11 @@ def refresh_unit(service, p, payload):
                     .with_for_update()
                 )
                 old_values = bucket.data.get("values", {}) if bucket else {}
-                total = {**old_values, **{k: old_values.get(k, 0) + v for k, v in delta.items()}}
+                total = {
+                    **dict.fromkeys(values, 0),
+                    **old_values,
+                    **{k: old_values.get(k, 0) + v for k, v in delta.items()},
+                }
                 value = {
                     **(new_groups.get(group_key) or old_groups[group_key]),
                     "group": new_groups.get(group_key) or old_groups[group_key],
@@ -628,7 +657,7 @@ def refresh_unit(service, p, payload):
                 "source_id": identity,
                 "source_version": snapshot["row"].get("version", snapshot["generation"]),
                 "campaign_id": snapshot["campaign_id"],
-                "definition_version": snapshot["definition"],
+                "definition_version": target["definition"],
                 "namespace": namespace,
                 "input_fingerprint": fingerprint,
                 "input_version_fingerprint": snapshot["input_version_fingerprint"],
@@ -651,6 +680,15 @@ def refresh_unit(service, p, payload):
                     now=service.clock(),
                 )
             changed = True
+        if not snapshot["pointer"]:
+            campaign.data = {
+                **campaign.data,
+                "metric_projection": {
+                    "active_namespace": "initial",
+                    "active_definition": snapshot["definition"],
+                    "active_config": snapshot["config"],
+                },
+            }
         return {"status": "ready" if changed else "unchanged"}
 
 
@@ -748,3 +786,247 @@ def expand_dependents(service, p, payload):
             "completed_generation": generation if len(ids) < 100 else None,
         }
     return {"status": "ready" if len(ids) < 100 else "pending", "processed": len(ids)}
+
+
+# Rebuild is explicit recovery work. Normal corrections use only dirty units.
+_REBUILD_SOURCES = (
+    ("leads", "lead"),
+    ("call_attempts", "call"),
+    ("usage_ledger", "usage"),
+    ("coach_events", "help"),
+    ("work_intervals", "rep-day"),
+    ("call_attempts", "rep-day"),
+)
+
+
+def _rebuild_control(service, p, *, start):
+    with service.db.transaction() as session:
+        watermark = service.report_revision(session, p, lock=True)
+        campaign = session.scalar(
+            _scoped_query(p, "campaigns").order_by(MODELS["campaigns"].created_at).limit(1).with_for_update()
+        )
+        config = service.optimization_config(session, p, campaign.id)
+        epoch = campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
+        definition = definition_version(config, epoch)
+        key = f"metric-rebuild:{p['seller_id']}:{campaign.id}"
+        job = session.scalar(
+            select(Job).where(Job.tenant_id == p["tenant_id"], Job.key == key).with_for_update()
+        )
+        state = dict(job.payload) if job else {}
+        pointer = dict(campaign.data.get("metric_projection", {}))
+        if start and (not state or state.get("state") != "building" or state["definition"] != definition):
+            namespace = uid()
+            state = {
+                "kind": "metric_rebuild",
+                "seller_id": p["seller_id"],
+                "campaign_id": campaign.id,
+                "user_id": p.get("user_id"),
+                "role": p.get("role"),
+                "namespace": namespace,
+                "definition": definition,
+                "epoch": epoch,
+                "config": config,
+                "state": "building",
+                "cursor": {"phase": 0, "after_id": "", "after_at": None, "day": None},
+                "source_watermark": watermark,
+                "processed": 0,
+            }
+            pointer = {
+                **pointer,
+                "active_namespace": pointer.get("active_namespace", "initial"),
+                "active_definition": pointer.get("active_definition", definition),
+                "active_config": pointer.get("active_config", config),
+                "building_namespace": namespace,
+                "building_definition": definition,
+                "building_config": config,
+            }
+            campaign.data = {**campaign.data, "metric_projection": pointer}
+            if job:
+                job.payload = state
+                if job.status != "running":
+                    job.status, job.attempts, job.error = "queued", 0, None
+                job.available_at = service.clock()
+            else:
+                job = Job(
+                    id=uid(),
+                    tenant_id=p["tenant_id"],
+                    seller_id=p["seller_id"],
+                    queue="ml",
+                    key=key,
+                    payload=state,
+                    priority=5,
+                    attempts=0,
+                    max_attempts=3,
+                    status="queued",
+                    available_at=service.clock(),
+                )
+                session.add(job)
+        return state, definition
+
+
+def _rebuild_source_page(service, p, state):
+    """At most500 indexed source identities; work spans resume within a row."""
+    from sqlalchemy import and_, or_
+
+    cursor = dict(state["cursor"])
+    table, kind = _REBUILD_SOURCES[cursor["phase"]]
+    model = MODELS[table]
+    with service.db.transaction(False) as session:
+        fields = [model.id, model.created_at]
+        if kind == "rep-day":
+            end = model.op_due_at if table == "work_intervals" else model.op_work_end_at
+            fields.extend([model.op_owner_id, model.op_at, end])
+        query = select(*fields).where(model.tenant_id == p["tenant_id"], model.seller_id == p["seller_id"])
+        if cursor["after_at"]:
+            at = timestamp(cursor["after_at"])
+            query = query.where(
+                or_(model.created_at > at, and_(model.created_at == at, model.id > cursor["after_id"]))
+            )
+        rows = list(session.execute(query.order_by(model.created_at, model.id).limit(500)))
+    processed = 0
+    for row in rows:
+        if kind == "rep-day":
+            rep, begin, end = row[2:]
+            day = timestamp(cursor["day"]).date() if cursor.get("day") else begin.date() if begin else None
+            while rep and day and end and day <= end.date():
+                if processed == 500:
+                    cursor["day"] = day.isoformat()
+                    return cursor, processed
+                result = refresh_unit(
+                    service,
+                    p,
+                    {
+                        "source_kind": "rep-day",
+                        "source_id": rep + ":" + day.isoformat(),
+                        "target_namespace": state["namespace"],
+                    },
+                )
+                if result["status"] not in {"ready", "unchanged"}:
+                    return state["cursor"], processed
+                processed += 1
+                day += timedelta(days=1)
+        else:
+            result = refresh_unit(
+                service, p, {"source_kind": kind, "source_id": row.id, "target_namespace": state["namespace"]}
+            )
+            if result["status"] not in {"ready", "unchanged"}:
+                return state["cursor"], processed
+            processed += 1
+        cursor.update(after_id=row.id, after_at=row.created_at.isoformat(), day=None)
+        if processed == 500:
+            return cursor, processed
+    if len(rows) < 500:
+        cursor = {"phase": cursor["phase"] + 1, "after_id": "", "after_at": None, "day": None}
+    return cursor, processed
+
+
+def _rebuild_catchup(service, p):
+    """Use existing leases and completion, never run arbitrary ML/paid jobs."""
+    worker = "projection-replay-" + uid()
+    processed = 0
+    for _ in range(100):
+        job = service.jobs.claim(
+            "ml", worker, tenant_id=p["tenant_id"], key_prefix=f"projection:{p['seller_id']}:"
+        )
+        if not job:
+            break
+        try:
+            result = refresh_unit(service, p, {**job["payload"], "job_id": job["id"], "lease_owner": worker})
+            if result["status"] == "lost_lease":
+                break
+            if result["status"] in {"pending", "superseded"}:
+                service.jobs.coalesce_refresh(job["id"], worker)
+            else:
+                service.jobs.complete(job["id"], worker)
+            processed += 1
+        except Exception as exc:
+            service.jobs.fail(job["id"], worker, type(exc).__name__)
+            raise
+    return processed
+
+
+def rebuild_page(service, p, *, start=False):
+    """Resume one inactive page, then drain original dirty jobs before activation."""
+    state, definition = _rebuild_control(service, p, start=start)
+    empty = {
+        "processed": 0,
+        "published": False,
+        "cursor": state.get("cursor"),
+        "source_watermark": state.get("source_watermark"),
+    }
+    if not state:
+        return {**empty, "status": "not_started"}
+    if state["definition"] != definition:
+        return {**empty, "status": "superseded"}
+    if state["state"] == "ready":
+        return {**empty, "published": True, "status": "ready"}
+    cursor = state["cursor"]
+    scanning = cursor["phase"] < len(_REBUILD_SOURCES)
+    if scanning:
+        next_cursor, processed = _rebuild_source_page(service, p, state)
+    else:
+        next_cursor, processed = cursor, _rebuild_catchup(service, p)
+    result = {**empty, "processed": processed, "cursor": next_cursor, "status": "pending"}
+    with service.db.transaction() as session:
+        watermark = service.report_revision(session, p, lock=True)
+        job = session.scalar(
+            select(Job)
+            .where(
+                Job.tenant_id == p["tenant_id"],
+                Job.key == f"metric-rebuild:{p['seller_id']}:{state['campaign_id']}",
+            )
+            .with_for_update()
+        )
+        campaign = session.scalar(
+            _scoped_query(p, "campaigns")
+            .where(MODELS["campaigns"].id == state["campaign_id"])
+            .with_for_update()
+        )
+        pointer = dict(campaign.data.get("metric_projection", {}))
+        current = definition_version(
+            service.optimization_config(session, p, campaign.id),
+            campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2"),
+        )
+        if (
+            not job
+            or job.payload.get("namespace") != state["namespace"]
+            or job.payload["cursor"] != cursor
+            or pointer.get("building_namespace") != state["namespace"]
+            or current != definition
+        ):
+            return {**result, "status": "superseded"}
+        state = {**state, "cursor": next_cursor, "processed": state["processed"] + processed}
+        if not scanning:
+            pending = session.scalar(
+                select(Job.status)
+                .where(
+                    Job.tenant_id == p["tenant_id"],
+                    Job.key.startswith(f"projection:{p['seller_id']}:", autoescape=True),
+                    Job.status.in_(["queued", "running", "dead"]),
+                )
+                .order_by(Job.status)
+                .limit(1)
+            )
+            if pending:
+                job.payload = state
+                return {**result, "status": "blocked" if pending == "dead" else "pending"}
+            retired = list(pointer.get("retired", []))
+            retired.append(
+                {"namespace": pointer["active_namespace"], "definition": pointer["active_definition"]}
+            )
+            pointer = {k: v for k, v in pointer.items() if not k.startswith("building_")}
+            pointer.update(
+                active_namespace=state["namespace"],
+                active_definition=definition,
+                active_config=state["config"],
+                source_watermark=watermark,
+                as_of=service.clock().isoformat(),
+                retired=retired,
+            )
+            campaign.data = {**campaign.data, "metric_projection": pointer}
+            state.update(state="ready", source_watermark=watermark)
+            if job.status != "running":
+                job.status = "completed"
+            result.update(published=True, status="ready", source_watermark=watermark)
+        job.payload = state
+    return result
