@@ -271,6 +271,8 @@ def sync_columns(row, lookup_key=None):
         )
         row.op_index_version = 3
     if row.__tablename__ == "followup_tasks":
+        if data.get("status") == "snoozed":
+            row.op_due_at = as_time(data.get("snoozed_until") or data.get("due_at"))
         # Human task completion does not terminate a carrier leg.
         row.op_active = bool(data.get("inbound") and data.get("inbound_state") != "ended")
         row.op_control_due_at = (

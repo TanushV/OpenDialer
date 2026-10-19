@@ -20,7 +20,13 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { native, openSource, readCache, writeCache } from "../api/client";
+import {
+  localEdit,
+  native,
+  openSource,
+  readCache,
+  writeCache,
+} from "../api/client";
 import { label, useWorkspace } from "../context";
 import { MemoryStorage, OptOutJournal, type OptOut } from "../state/optouts";
 import { Telephony } from "../telephony/client";
@@ -49,6 +55,8 @@ export function DialerPage() {
   const [transcript, setTranscript] = useState("");
   const [outcome, setOutcome] = useState("right_party");
   const [callbackAt, setCallbackAt] = useState("");
+  const [wrapNote, setWrapNote] = useState("");
+  const [contactRole, setContactRole] = useState("unknown");
   const [pauseAfter, setPauseAfter] = useState(false);
   const [keypad, setKeypad] = useState(false);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
@@ -297,6 +305,10 @@ export function DialerPage() {
     setReservation(next);
     setPacket(await api(`/v1/leads/${next.lead.id}/packet`));
     setCall(null);
+    setWrapNote("");
+    setContactRole("unknown");
+    setCallbackAt("");
+    setOutcome("right_party");
     setMute(false);
   }
   async function startCall() {
@@ -886,15 +898,45 @@ export function DialerPage() {
               />
             </label>
           )}
+          <label>
+            Who did you speak with?
+            <select
+              value={contactRole}
+              onChange={(event) => setContactRole(event.target.value)}
+            >
+              <option value="unknown">Not confirmed</option>
+              <option value="right_party">Target contact</option>
+              <option value="gatekeeper">Gatekeeper</option>
+              <option value="wrong_party">Wrong person</option>
+            </select>
+          </label>
+          <label>
+            Wrap-up note
+            <textarea
+              value={wrapNote}
+              maxLength={1000}
+              onChange={(event) => setWrapNote(event.target.value)}
+            />
+          </label>
+          {call.rundown_status && (
+            <p role="status">
+              Rundown: {label(call.rundown_status)}. You can continue eligible
+              calling while analysis finishes.
+            </p>
+          )}
           <button
             className="primary"
             onClick={() =>
               void run(async () => {
-                const result = await api<Call>(
+                const result = await localEdit<Call>(
+                  api,
                   `/v1/calls/${call.id}/disposition`,
                   "POST",
                   {
+                    request_id: crypto.randomUUID(),
                     outcome,
+                    contact_role: contactRole,
+                    callback_note: wrapNote,
                     expected_version: call.version,
                     callback_at:
                       outcome === "callback_requested" && callbackAt

@@ -9,6 +9,39 @@ export class ApiError extends Error {
     super(message);
   }
 }
+// Only local, versioned business edits may replay after an uncertain transport result.
+// Telephony and charged provider actions retain their operation-specific recovery.
+export async function localEdit<T>(
+  api: <R>(path: string, method?: string, body?: unknown) => Promise<R>,
+  path: string,
+  method: string,
+  body: {
+    request_id: string;
+    expected_version: number;
+    [key: string]: unknown;
+  },
+): Promise<T> {
+  const allowed =
+    (method === "PATCH" && /^\/v1\/tasks\/[^/]+$/.test(path)) ||
+    (method === "POST" && /^\/v1\/calls\/[^/]+\/disposition$/.test(path)) ||
+    (method === "POST" && /^\/v1\/leads\/[^/]+\/meeting$/.test(path)) ||
+    (method === "PATCH" && /^\/v1\/leads\/[^/]+\/outreach$/.test(path));
+  if (!allowed) throw new Error("This route is not an identified local edit");
+  const original = structuredClone(body);
+  try {
+    return await api<T>(path, method, original);
+  } catch (error) {
+    if (
+      !(
+        error instanceof TypeError ||
+        error instanceof SyntaxError ||
+        (error instanceof ApiError && error.status >= 500)
+      )
+    )
+      throw error;
+    return await api<T>(path, method, original);
+  }
+}
 export function canUseOfflineCache(error: unknown) {
   return (
     error instanceof TypeError ||

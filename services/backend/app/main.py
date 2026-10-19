@@ -138,6 +138,8 @@ class NoteEdit(Strict):
 
 
 class Disposition(Strict):
+    request_id: UUID | None = None
+    contact_role: Literal["right_party", "gatekeeper", "wrong_party", "unknown"] = "unknown"
     outcome: Literal[
         "right_party",
         "gatekeeper",
@@ -158,7 +160,7 @@ class Disposition(Strict):
         "sale_won",
     ]
     callback_at: AwareDatetime | None = None
-    expected_version: int | None = Field(default=None, ge=1)
+    expected_version: int | None = Field(default=None, ge=1, strict=True)
     callback_note: str = Field(default="", max_length=1000)
 
 
@@ -259,6 +261,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
     service = Dialer(db, settings, clock, carrier)
     service.privacy_cutover()
     service.migrate_conversation_states()
+    service.migrate_followthrough()
     try:
         from app.compliance.suppressions import replay as replay_suppressions
 
@@ -476,7 +479,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/leads/{lead_id}/meeting")
     def report_meeting(lead_id: str, data: MeetingEdit, p=Depends(principal)):
-        return service.report_meeting(p, lead_id, data.model_dump(exclude_unset=True))
+        return service.report_meeting(p, lead_id, data.model_dump(mode="json", exclude_unset=True))
 
     @app.post("/v1/suppressions")
     def suppress(data: Suppress, p=Depends(principal)):
@@ -1191,11 +1194,11 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.patch("/v1/tasks/{task_id}")
     def task_status(task_id: str, data: TaskEdit, p=Depends(principal)):
-        return service.edit_task(p, task_id, data.model_dump(exclude_unset=True))
+        return service.edit_task(p, task_id, data.model_dump(mode="json", exclude_unset=True))
 
     @app.patch("/v1/leads/{lead_id}/outreach")
     def review_outreach(lead_id: str, data: OutreachEdit, p=Depends(principal)):
-        return service.resolve_goal_review(p, lead_id, data.model_dump(exclude_unset=True))
+        return service.resolve_goal_review(p, lead_id, data.model_dump(mode="json", exclude_unset=True))
 
     @app.post("/v1/calls/{call_id}/dtmf")
     async def dtmf(call_id: str, data: KeypadRequest, p=Depends(principal)):

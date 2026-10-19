@@ -2,6 +2,7 @@ import { useState } from "react";
 import { date, label, useWorkspace } from "../context";
 import type { Packet } from "../types";
 import { localDateInput } from "./FollowupTasks";
+import { localEdit } from "../api/client";
 
 export function ProspectBrief({
   packet,
@@ -14,7 +15,7 @@ export function ProspectBrief({
   const brief = packet.prospect_brief;
   const stats = packet.statistical_guidance;
   const [status, setStatus] = useState(brief?.meeting?.status || "booked");
-  const [next, setNext] = useState("keep_hold");
+  const [next, setNext] = useState("");
   const [when, setWhen] = useState(localDateInput(brief?.meeting?.due_at));
   const [callback, setCallback] = useState("");
   const [reviewAction, setReviewAction] = useState("resume");
@@ -61,6 +62,21 @@ export function ProspectBrief({
           </p>
         )}
         <p>{brief?.summary || "No previous interpreted conversation."}</p>
+        {brief?.freshness && <p>Preparation: {label(brief.freshness.state)}</p>}
+        {brief?.interpretation_gaps?.map((gap) => (
+          <p key={gap.call_id} role="status">
+            Earlier rundown: {label(gap.status)}.{" "}
+            {gap.reason
+              ? label(gap.reason)
+              : "Some conversation context is unavailable."}
+          </p>
+        ))}
+        {brief?.prior_answers?.map((answer, index) => (
+          <p key={`answer-${index}`}>Previously answered: {answer.text}</p>
+        ))}
+        {brief?.unanswered_questions?.map((question, index) => (
+          <p key={`question-${index}`}>Open question: {question.text}</p>
+        ))}
         {brief?.last_outcome && (
           <p>Last outcome: {label(brief.last_outcome)}</p>
         )}
@@ -137,18 +153,24 @@ export function ProspectBrief({
               onClick={() =>
                 void run(async () => {
                   try {
-                    await api(`/v1/leads/${packet.lead.id}/outreach`, "PATCH", {
-                      expected_version: packet.lead.version,
-                      expected_review_token: packet.review_token,
-                      next_action: reviewAction,
-                      reason: reviewReason,
-                      due_at:
-                        reviewAction === "callback"
-                          ? new Date(reviewTime).toISOString()
-                          : null,
-                      timezone:
-                        Intl.DateTimeFormat().resolvedOptions().timeZone,
-                    });
+                    await localEdit(
+                      api,
+                      `/v1/leads/${packet.lead.id}/outreach`,
+                      "PATCH",
+                      {
+                        request_id: crypto.randomUUID(),
+                        expected_version: packet.lead.version,
+                        expected_review_token: packet.review_token,
+                        next_action: reviewAction,
+                        reason: reviewReason,
+                        due_at:
+                          reviewAction === "callback"
+                            ? new Date(reviewTime).toISOString()
+                            : null,
+                        timezone:
+                          Intl.DateTimeFormat().resolvedOptions().timeZone,
+                      },
+                    );
                     notice("Next outreach action saved");
                   } finally {
                     onChange(
@@ -200,6 +222,7 @@ export function ProspectBrief({
           <label>
             Next outreach action
             <select value={next} onChange={(e) => setNext(e.target.value)}>
+              <option value="">Choose next action</option>
               <option value="keep_hold">Keep outreach paused</option>
               <option value="resume">Resume when policy allows</option>
               <option value="callback">Confirmed callback</option>
@@ -217,22 +240,32 @@ export function ProspectBrief({
           )}
           <button
             className="small secondary"
-            disabled={next === "callback" && !callback}
+            disabled={
+              (next === "callback" && !callback) ||
+              (["no_show", "cancelled"].includes(status) && !next)
+            }
             onClick={() =>
               void run(async () => {
                 try {
-                  await api(`/v1/leads/${packet.lead.id}/meeting`, "POST", {
-                    status,
-                    expected_version: packet.lead.version,
-                    expected_review_token: packet.review_token,
-                    due_at: when ? new Date(when).toISOString() : null,
-                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                    next_action: next,
-                    callback_at:
-                      next === "callback"
-                        ? new Date(callback).toISOString()
-                        : null,
-                  });
+                  await localEdit(
+                    api,
+                    `/v1/leads/${packet.lead.id}/meeting`,
+                    "POST",
+                    {
+                      request_id: crypto.randomUUID(),
+                      status,
+                      expected_version: packet.lead.version,
+                      expected_review_token: packet.review_token,
+                      due_at: when ? new Date(when).toISOString() : null,
+                      timezone:
+                        Intl.DateTimeFormat().resolvedOptions().timeZone,
+                      ...(next ? { next_action: next } : {}),
+                      callback_at:
+                        next === "callback"
+                          ? new Date(callback).toISOString()
+                          : null,
+                    },
+                  );
                   notice("Meeting recorded as rep-reported.");
                 } finally {
                   onChange(

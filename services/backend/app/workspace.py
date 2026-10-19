@@ -60,8 +60,10 @@ class WorkspaceReads:
                 return self._job_page(s, p, cursor, limit)
             model = MODELS[PAGE_TABLES[section]]
             query = scoped_query(model, p)
-            if section == "calls" and p["role"] == "rep":
+            if section in {"calls", "tasks"} and p["role"] == "rep":
                 query = query.where(model.op_owner_id == p["user_id"])
+            if section == "tasks":
+                query = query.where(or_(model.op_status != "aliased", model.op_status.is_(None)))
             if section == "registries":
                 query = query.where(model.ctx_key.in_(["national", "state"]))
             if section == "tasks" and filter != "all":
@@ -193,7 +195,10 @@ class WorkspaceReads:
             )
             task_model = MODELS["followup_tasks"]
             open_tasks = scoped_query(task_model, p).where(
-                or_(task_model.op_status.not_in(["completed", "cancelled"]), task_model.op_status.is_(None))
+                or_(
+                    task_model.op_status.not_in(["completed", "cancelled", "aliased"]),
+                    task_model.op_status.is_(None),
+                )
             )
             if p["role"] == "rep":
                 open_tasks = open_tasks.where(task_model.op_owner_id == p["user_id"])

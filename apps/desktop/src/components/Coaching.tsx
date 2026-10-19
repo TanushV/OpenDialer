@@ -11,6 +11,13 @@ type Overview = {
   inspected_calls: number;
   history_limit: number;
   recent_tips: { call_id: string; at: string; tips: { text: string }[] }[];
+  improvement_groups: {
+    id: string;
+    concept: string;
+    approach: string | null;
+    count: number;
+    examples: { call_id: string; observation_id: string; text: string }[];
+  }[];
   examples: {
     id: string;
     version: number;
@@ -198,6 +205,30 @@ export function Coaching({
           </p>
           <details>
             <summary>Recent coaching opportunities</summary>
+            <p>
+              Up to 20 reviewed opportunities, grouped within comparable
+              campaign and call-purpose context. These counts do not measure
+              conversion lift.
+            </p>
+            {overview.improvement_groups?.map((group) => (
+              <article key={group.id}>
+                <strong>
+                  {group.concept} · {group.count} reviewed opportunities
+                </strong>
+                {group.approach && <p>{group.approach}</p>}
+                {group.examples.map((example) => (
+                  <p key={example.observation_id}>
+                    {example.text}{" "}
+                    <button
+                      className="text-button"
+                      onClick={() => void run(() => onReview(example.call_id))}
+                    >
+                      Review example
+                    </button>
+                  </p>
+                ))}
+              </article>
+            ))}
             <p className="small muted">
               Your latest {overview.inspected_calls} calls, up to{" "}
               {overview.history_limit}. Tips are interpretations; review the

@@ -67,6 +67,7 @@ def publish(service, s, p, call, items, *, retracted_observations=()):
             "timezone": item["timezone"],
             "time_window": item["time_window"],
             "status": "open" if item["due_at"] and item["owner"] == "rep" else "needs_confirmation",
+            "confirmation_state": "confirmed" if item["due_at"] and item["owner"] == "rep" else "suggested",
             "source": "inferred",
             "evidence": item["evidence"],
             "source_version": call.data["transcript_version"],
@@ -87,7 +88,13 @@ def publish(service, s, p, call, items, *, retracted_observations=()):
             )
             tasks.append(task)
         elif task.data.get("human_edited") or task.data.get("source") == "rep_reported":
-            update(task, commitment_id=record.id, suggested_update=task_values, review_required=True)
+            update(
+                task,
+                commitment_id=record.id,
+                suggested_update=task_values,
+                review_required=True,
+                confirmation_state="needs_review",
+            )
         elif task.data["status"] in ACTIVE:
             update(task, **task_values)
         update(record, task_id=task.id, task_status=task.data["status"])
@@ -102,7 +109,11 @@ def publish(service, s, p, call, items, *, retracted_observations=()):
         for task in tasks:
             if task.data.get("commitment_id") != record.id:
                 continue
-            changes = {"source_retracted": True, "review_required": True}
+            changes = {
+                "source_retracted": True,
+                "review_required": True,
+                "confirmation_state": "needs_review",
+            }
             if (
                 not task.data.get("human_edited")
                 and task.data.get("source") == "inferred"
@@ -131,7 +142,7 @@ def invalidate(service, s, p, call, segment_id=None, *, observation_ids=()):
     for task in service.lead_records(s, p, "followup_tasks", lead.id):
         if task.data.get("commitment_id") not in affected:
             continue
-        changes = {"source_stale": True, "review_required": True}
+        changes = {"source_stale": True, "review_required": True, "confirmation_state": "needs_review"}
         if (
             not task.data.get("human_edited")
             and task.data.get("source") == "inferred"

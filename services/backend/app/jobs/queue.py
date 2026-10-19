@@ -71,18 +71,19 @@ class JobQueue:
             if not job:
                 return None
             job.status, job.lease_owner = "running", worker
-            if job.queue in {"live_coach", "postcall"} and "desired_generation" in job.payload:
+            if "desired_generation" in job.payload:
                 job.payload = {**job.payload, "claimed_generation": job.payload["desired_generation"]}
             job.lease_expires_at = self.clock() + timedelta(seconds=lease_seconds)
             job.attempts += 1
             return jobdoc(job)
 
     def coalesce_live_in(self, s, queue, payload, key, *, tenant_id, priority, available_at):
-        """One latest pending context per call; changing context never steals its live lease."""
-        if queue != "live_coach" and not (
-            queue == "postcall" and payload.get("kind") == "conversation_review"
-        ):
-            raise ValueError("Only current conversation work uses this coalescing contract")
+        """One latest context/packet; changed inputs never steal the running owner's lease."""
+        if queue != "live_coach" and (queue, payload.get("kind")) not in {
+            ("postcall", "conversation_review"),
+            ("scripts", "packet_refresh"),
+        }:
+            raise ValueError("Only current conversation or packet work can be coalesced")
         job = s.scalar(select(Job).where(Job.tenant_id == tenant_id, Job.key == key).with_for_update())
         if not job:
             return self.enqueue_in(
@@ -94,9 +95,12 @@ class JobQueue:
                 priority=priority,
                 available_at=available_at,
             )
-        if job.status == "queued" or (
-            job.status == "running"
-            and job.payload.get("desired_generation", 0) > job.payload.get("claimed_generation", 0)
+        if "pending_deadline" in payload and (
+            job.status == "queued"
+            or (
+                job.status == "running"
+                and job.payload.get("desired_generation", 0) > job.payload.get("claimed_generation", 0)
+            )
         ):
             payload = {
                 **payload,
@@ -139,13 +143,14 @@ class JobQueue:
                 if job.queue != "ml" or job.payload.get("kind") != "home_refresh":
                     raise ValueError("Only read-only workspace refresh can be coalesced")
                 job.attempts = max(0, job.attempts - 1)
-            if job.queue in {"live_coach", "postcall"} and job.payload.get(
-                "desired_generation", 0
-            ) > job.payload.get("claimed_generation", 0):
+            if job.payload.get("desired_generation", 0) > job.payload.get("claimed_generation", 0):
                 # A newer context arrived while the original owner was running.
                 # Its due time was set by the enqueueing transaction, not by completion.
                 job.status, job.error = "queued", error[:500] if error else None
-                job.attempts = max(0, job.attempts - 1)
+                if not error:
+                    job.attempts = max(0, job.attempts - 1)
+                elif job.attempts >= job.max_attempts:
+                    job.status = "dead"
                 job.lease_owner, job.lease_expires_at = None, None
                 return
             job.error = error[:500] if error else None

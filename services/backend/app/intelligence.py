@@ -216,6 +216,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             history = {}
             for kind in ("commitments", "followup_tasks"):
                 model = MODELS[kind]
+                visible = (model.op_status != "aliased") | model.op_status.is_(None)
                 history[kind] = [
                     doc(r)
                     for r in s.scalars(
@@ -224,6 +225,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                             model.tenant_id == p["tenant_id"],
                             model.seller_id == p["seller_id"],
                             model.op_lead_id == lead.id,
+                            visible,
                         )
                         .order_by(
                             case((model.op_status.in_(["completed", "cancelled", "retracted"]), 1), else_=0),
@@ -244,6 +246,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                         model.tenant_id == p["tenant_id"],
                         model.seller_id == p["seller_id"],
                         model.op_lead_id == lead.id,
+                        (model.op_status != "aliased") | model.op_status.is_(None),
                     )
                 )
             return {
@@ -718,9 +721,10 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
         memory = self._by_key(s, p, "conversation_states", call.id)
         if not memory or memory.data.get("schema_version") != 2:
             return doc(note)
-        _, generated = self.conversation_view_in(s, p, call, memory)
+        derived, generated = self.conversation_view_in(s, p, call, memory)
         return {
             **doc(note),
+            "call_memory": derived,
             **{k: generated[k] for k in ("notes", "observations", "semantic_trackers", "grounding_status")},
         }
 
@@ -864,10 +868,15 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
     def edit_notes(self, p, call_id, expected_version, text):
         self.analysis(p, call_id)
         with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
+            call = self.required(s, "call_attempts", call_id, p)
+            if not self._coach_authority(s, p, call):
+                fail(403, "Current account or session cannot edit these notes")
             note = self._by_key(s, p, "notes", call_id)
             if note.version != expected_version:
                 fail(409, {"code": "NOTES_VERSION_CONFLICT", "current_version": note.version})
             update(note, human_text=text, status="human_confirmed", editor_id=p["user_id"])
+            self.refresh_packet_in(s, p, self.required(s, "leads", call.data["lead_id"], p))
             audit(s, p["tenant_id"], p["seller_id"], p["user_id"], "notes.edited", note.id, self.clock())
             return {"notes_version": note.version, "human_notes": text}
 

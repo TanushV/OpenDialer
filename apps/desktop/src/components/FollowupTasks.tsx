@@ -3,6 +3,7 @@ import { useHistory } from "../state/useHistory";
 import { HistoryMore } from "./HistoryMore";
 import { date, label, useWorkspace } from "../context";
 import type { FollowupTask } from "../types";
+import { localEdit } from "../api/client";
 
 export function localDateInput(value?: string | null) {
   if (!value) return "";
@@ -24,6 +25,8 @@ function Task({
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
   const [when, setWhen] = useState(localDateInput(task.due_at));
   const [owner, setOwner] = useState(task.owner_id || "");
+  const [reminder, setReminder] = useState(localDateInput(task.snoozed_until));
+  const [reason, setReason] = useState("");
   const routing = task.inbound && task.inbound_state !== "ended";
   const closed = ["completed", "cancelled"].includes(task.status) || routing;
   const name =
@@ -33,10 +36,16 @@ function Task({
   function change(edits: Record<string, unknown>) {
     return run(async () => {
       try {
-        const saved = await api<FollowupTask>(`/v1/tasks/${task.id}`, "PATCH", {
-          expected_version: task.version,
-          ...edits,
-        });
+        const saved = await localEdit<FollowupTask>(
+          api,
+          `/v1/tasks/${task.id}`,
+          "PATCH",
+          {
+            request_id: crypto.randomUUID(),
+            expected_version: task.version,
+            ...edits,
+          },
+        );
         onSaved(saved);
         notice("Follow-up saved.");
       } finally {
@@ -53,6 +62,21 @@ function Task({
         <span>{label(task.status)}</span> · {date(task.due_at)}{" "}
         {task.timezone ? `(${task.timezone})` : ""}
       </p>
+      {task.snoozed_until && (
+        <p>
+          Reminder snoozed until {date(task.snoozed_until)}. The promised
+          callback time is unchanged.
+        </p>
+      )}
+      {task.source_conflicts?.length ? (
+        <p role="status">
+          Conflicting follow-ups need a decision. Review both records before
+          confirming or cancelling.
+        </p>
+      ) : null}
+      {task.retained_notes?.map((note) => (
+        <p key={note.task_id}>Retained rep note: {note.text}</p>
+      ))}
       {task.inbound && (
         <p>
           Return call: {label(task.inbound_state || "unknown")} ·{" "}
@@ -89,12 +113,30 @@ function Task({
           action.
         </p>
       )}
+      {task.review_required && (
+        <label>
+          Confirmation reason
+          <input
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+          />
+        </label>
+      )}
       <label>
         Callback time (your device timezone)
         <input
           type="datetime-local"
           value={when}
           onChange={(e) => setWhen(e.target.value)}
+          disabled={closed}
+        />
+      </label>
+      <label>
+        Reminder until (your device timezone)
+        <input
+          type="datetime-local"
+          value={reminder}
+          onChange={(event) => setReminder(event.target.value)}
           disabled={closed}
         />
       </label>
@@ -116,10 +158,17 @@ function Task({
       <div className="button-row">
         <button
           className="small secondary"
-          disabled={closed || !when || !owner}
+          disabled={
+            closed ||
+            !when ||
+            !owner ||
+            (!!task.review_required && reason.trim().length < 3)
+          }
           onClick={() =>
             void change({
               status: "open",
+              confirmation_state: "confirmed",
+              ...(task.review_required ? { confirmation_reason: reason } : {}),
               due_at: new Date(when).toISOString(),
               owner_id: owner,
               timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -130,28 +179,41 @@ function Task({
         </button>
         <button
           className="small secondary"
-          disabled={closed || !when}
+          disabled={closed || !task.due_at || !reminder}
           onClick={() =>
             void change({
               status: "snoozed",
-              due_at: new Date(when).toISOString(),
-              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+              snoozed_until: new Date(reminder).toISOString(),
             })
           }
         >
-          Snooze to this time
+          Snooze reminder
         </button>
         <button
           className="small text-button"
-          disabled={closed}
-          onClick={() => void change({ status: "completed" })}
+          disabled={
+            closed || (!!task.review_required && reason.trim().length < 3)
+          }
+          onClick={() =>
+            void change({
+              status: "completed",
+              ...(task.review_required ? { confirmation_reason: reason } : {}),
+            })
+          }
         >
           Complete
         </button>
         <button
           className="small text-button"
-          disabled={closed}
-          onClick={() => void change({ status: "cancelled" })}
+          disabled={
+            closed || (!!task.review_required && reason.trim().length < 3)
+          }
+          onClick={() =>
+            void change({
+              status: "cancelled",
+              ...(task.review_required ? { confirmation_reason: reason } : {}),
+            })
+          }
         >
           Cancel
         </button>

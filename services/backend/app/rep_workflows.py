@@ -1,7 +1,11 @@
 """Local commitments and rep-reported outcomes. No external scheduling effects."""
 
+import hashlib
+import hmac
+import json
 from datetime import UTC, datetime
 from typing import Literal
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -26,7 +30,8 @@ def zoned_time(value):
 
 class DatedEdit(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    expected_version: int = Field(ge=1)
+    request_id: UUID | None = None
+    expected_version: int | None = Field(default=None, ge=1, strict=True)
     due_at: str | None = None
     timezone: str | None = None
 
@@ -51,6 +56,15 @@ class TaskEdit(DatedEdit):
     status: Literal["open", "snoozed", "needs_confirmation", "completed", "cancelled"] | None = None
     owner_id: str | None = None
     note: str | None = Field(default=None, max_length=1000)
+    confirmation_state: Literal["suggested", "confirmed", "needs_review"] | None = None
+    confirmation_reason: str | None = Field(default=None, min_length=3, max_length=500)
+    snoozed_until: str | None = None
+    window_end: str | None = None
+
+    @field_validator("snoozed_until", "window_end")
+    @classmethod
+    def validate_reminder(cls, value):
+        return zoned_time(value)
 
     @field_validator("status")
     @classmethod
@@ -63,7 +77,7 @@ class TaskEdit(DatedEdit):
 class MeetingEdit(DatedEdit):
     expected_review_token: str | None = Field(default=None, min_length=64, max_length=64)
     status: Literal["booked", "held", "no_show", "cancelled", "rescheduled"]
-    next_action: Literal["keep_hold", "resume", "callback"] = "keep_hold"
+    next_action: Literal["keep_hold", "resume", "callback"] | None = None
     callback_at: str | None = None
     reference: str = Field(default="", max_length=300)
 
@@ -80,6 +94,209 @@ class OutreachEdit(DatedEdit):
 
 
 class RepWorkflows:
+    def migrate_followthrough(self):
+        """Resume legacy reconciliation in 500-row pages; aliases retain human text and IDs."""
+        with self.db.transaction(False) as s:
+            scopes = [(r.tenant_id, r.id) for r in s.scalars(select(MODELS["sellers"]))]
+        model = MODELS["followup_tasks"]
+        for tenant, seller_id in scopes:
+            p = {"tenant_id": tenant, "seller_id": seller_id}
+            while True:
+                with self.db.transaction() as s:
+                    seller = self.required(s, "sellers", seller_id, p)
+                    marker = seller.data.get("completion_contracts", {}).get("followthrough", {})
+                    if marker.get("completed_at"):
+                        break
+                    batch = list(
+                        s.scalars(
+                            select(model)
+                            .where(
+                                model.tenant_id == tenant,
+                                model.seller_id == seller_id,
+                                model.id > marker.get("last_id", ""),
+                            )
+                            .order_by(model.id)
+                            .limit(500)
+                        )
+                    )
+                    handled = set()
+                    for row in batch:
+                        if row.data.get("alias_of"):
+                            continue
+                        if "confirmation_state" not in row.data:
+                            update(
+                                row,
+                                confirmation_state=(
+                                    "needs_review"
+                                    if row.data.get("review_required")
+                                    else "suggested"
+                                    if row.data.get("status") == "needs_confirmation"
+                                    else "confirmed"
+                                ),
+                            )
+                        group = (row.data.get("lead_id"), row.data.get("call_id"), row.data.get("kind"))
+                        if not all(group) or group in handled:
+                            continue
+                        handled.add(group)
+                        related = self.lead_records(s, p, "followup_tasks", group[0], limit=501)
+                        if len(related) > 500:
+                            update(
+                                row,
+                                review_required=True,
+                                source_conflicts=["Legacy task group exceeds automatic reconciliation limit"],
+                            )
+                            continue
+                        candidates = [
+                            t for t in related if (t.data.get("call_id"), t.data.get("kind")) == group[1:]
+                        ]
+                        if len(candidates) < 2:
+                            continue
+                        sources = {
+                            (t.data.get("commitment_id"), tuple(sorted(t.data.get("evidence", []))))
+                            for t in candidates
+                        }
+                        # A manual wrap-up can share an explicit source-linked task. Different
+                        # nonempty source identities are separate promises, never fuzzy matches.
+                        linked = {v for v in sources if v != (None, ())}
+                        if len(linked) > 1:
+                            continue
+                        decisions = {
+                            (
+                                t.data.get("owner_id"),
+                                t.data.get("due_at"),
+                                json.dumps(t.data.get("time_window"), sort_keys=True),
+                                t.data.get("window_end"),
+                                t.data.get("status"),
+                            )
+                            for t in candidates
+                        }
+                        if (
+                            len(decisions) > 1
+                            or sum(bool(t.data.get("human_edited")) for t in candidates) > 1
+                        ):
+                            ids = sorted(t.id for t in candidates)
+                            for task in candidates:
+                                update(
+                                    task,
+                                    source_conflicts=[i for i in ids if i != task.id],
+                                    review_required=True,
+                                    confirmation_state="needs_review",
+                                )
+                            continue
+                        candidates.sort(
+                            key=lambda t: (
+                                t.created_at,
+                                not (t.external_key or "").startswith(("commitment:", "wrapup-callback:")),
+                                t.id,
+                            )
+                        )
+                        survivor, aliases = candidates[0], candidates[1:]
+                        update(
+                            survivor,
+                            alias_ids=sorted(
+                                set(survivor.data.get("alias_ids", [])) | {t.id for t in aliases}
+                            ),
+                            confirmation_state=survivor.data.get("confirmation_state", "confirmed"),
+                            human_edited=any(t.data.get("human_edited") for t in candidates),
+                            retained_notes=[
+                                *survivor.data.get("retained_notes", []),
+                                *[
+                                    {"task_id": t.id, "text": t.data["note"]}
+                                    for t in aliases
+                                    if t.data.get("note")
+                                ],
+                            ],
+                        )
+                        for alias in aliases:
+                            update(alias, status="aliased", alias_of=survivor.id)
+                            if alias.data.get("commitment_id"):
+                                commitment = self.required(s, "commitments", alias.data["commitment_id"], p)
+                                update(commitment, task_id=survivor.id)
+                    contracts = dict(seller.data.get("completion_contracts", {}))
+                    contracts["followthrough"] = {
+                        "schema_version": 1,
+                        "phase": "tasks",
+                        "last_table": "followup_tasks",
+                        "last_id": batch[-1].id if batch else marker.get("last_id", ""),
+                        "completed_at": self.clock().isoformat() if len(batch) < 500 else None,
+                    }
+                    seller.data = {**seller.data, "completion_contracts": contracts}
+
+    def local_edit_in(self, s, p, kind, requested_id, row, data, owner_field):
+        """Authorize before replay; the receipt is metadata, never a historical object view."""
+        self.db.authorize_stream(s, p)
+        s.refresh(row)
+        owner_id = row.data.get(owner_field)
+        if not self._coach_authority(s, p):
+            fail(403, "Current account or session cannot edit this record")
+        user = self.required(s, "users", p["user_id"], p)
+        if "rep" in {p["role"], user.data["role"]} and owner_id not in (None, p["user_id"]):
+            fail(403, "This record belongs to another rep")
+        if data.get("request_id") is None or data.get("expected_version") is None:
+            fail(
+                409,
+                {
+                    "code": "client_upgrade_required",
+                    "message": "Update the client to save identified, versioned edits",
+                },
+            )
+        try:
+            request_id = str(UUID(str(data["request_id"])))
+        except (ValueError, TypeError, AttributeError):
+            fail(422, "request_id must be a UUID")
+        if type(data["expected_version"]) is not int or data["expected_version"] < 1:
+            fail(422, "expected_version must be a positive integer")
+        key = f"edit:{kind}:{request_id}"
+        digest = hmac.new(
+            self.db.identity_key,
+            json.dumps(
+                [requested_id, p["user_id"], data], sort_keys=True, separators=(",", ":"), default=str
+            ).encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        receipt = self._by_key(s, p, "outcomes", key)
+        if receipt:
+            if receipt.data["digest"] != digest or receipt.data["object_id"] != row.id:
+                fail(409, "Request identity was already used for a different edit")
+            return key, digest, receipt.data["receipt"]
+        return key, digest, None
+
+    def local_edit_receipt(self, s, p, identity, row):
+        key, digest, _ = identity
+        receipt = {
+            "request_id": key.rsplit(":", 1)[1],
+            "object_id": row.id,
+            "version": row.version,
+            "at": self.clock().isoformat(),
+        }
+        put(
+            s,
+            "outcomes",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "kind": "edit_receipt",
+                "object_id": row.id,
+                "digest": digest,
+                "actor_id": p["user_id"],
+                "receipt": receipt,
+            },
+            key=key,
+            now=self.clock(),
+        )
+        return receipt
+
+    def check_edit_version(self, row, data):
+        if row.version != data["expected_version"]:
+            fail(
+                409,
+                {
+                    "code": "version_conflict",
+                    "current_version": row.version,
+                    "message": "Record changed; reload before saving",
+                },
+            )
+
     def check_prospect_review(self, s, p, lead, data):
         token = data.get("expected_review_token")
         if token:
@@ -92,8 +309,10 @@ class RepWorkflows:
 
     def resolve_goal_review(self, p, lead_id, data):
         with self.db.transaction() as s:
-            self.db.authorize_stream(s, p)
             lead = self.required(s, "leads", lead_id, p)
+            identity = self.local_edit_in(s, p, "outreach", lead_id, lead, data, "rep_id")
+            if identity[2]:
+                return {**doc(lead), "edit_receipt": identity[2]}
             self.check_prospect_review(s, p, lead, data)
             if lead.data.get("outreach_hold") != "goal_changed":
                 fail(409, "Refresh the prospect; only a goal-change review can be resolved here")
@@ -129,7 +348,7 @@ class RepWorkflows:
                 {"next_action": data["next_action"], "reason": data["reason"]},
             )
             emit(s, p["tenant_id"], "lead.goal_updated", lead, self.clock())
-            return doc(lead)
+            return {**doc(lead), "edit_receipt": self.local_edit_receipt(s, p, identity, lead)}
 
     def prospect_context_in(self, s, p, lead, calls, commitments, tasks):
         from app.optimization.conversations import active_observations
@@ -165,6 +384,21 @@ class RepWorkflows:
         )
         note_views = [self.note_view_in(s, p, n) for n in notes]
         current = next((n["notes"] for n in note_views if not n.get("stale")), {})
+        memories = [(n["call_id"], n["call_memory"]) for n in note_views if n.get("call_memory")]
+        answers = [i for _, m in memories for i in m.get("answered_questions", [])][:12]
+        questions = [
+            i
+            for _, m in memories
+            for i in m.get("open_questions", [])
+            if i.get("status") not in {"resolved", "retracted", "stale"}
+        ][:12]
+        gaps = [
+            {"call_id": identity, **m.get("finalization", {}), "coverage": m.get("coverage", {})}
+            for identity, m in memories
+            if m.get("finalization", {}).get("status") != "ready"
+            or m.get("coverage", {}).get("unavailable_segments")
+        ]
+        preparation = self.preparation_state(s, p, lead)
         if lead.data.get("outreach_hold"):
             why = "Outreach paused: " + lead.data["outreach_hold"].replace("_", " ")
         elif lead.data.get("callback_due_at"):
@@ -186,6 +420,21 @@ class RepWorkflows:
                 "needs": current.get("problems", []),
                 "unresolved": current.get("objections", []),
                 "unknowns": current.get("unknowns", []),
+                "prior_answers": answers,
+                "unanswered_questions": questions,
+                "interpretation_gaps": gaps,
+                "source_versions": [
+                    {
+                        "call_id": identity,
+                        "version": m["version"],
+                        "transcript_version": m.get("transcript_version"),
+                    }
+                    for identity, m in memories
+                ],
+                "freshness": {
+                    "state": preparation["status"],
+                    "preparation_revision": lead.data.get("preparation_revision", 0),
+                },
                 "observations": active_observations(
                     [item for note in note_views for item in note.get("observations", [])], self.clock()
                 )[:12],
@@ -196,9 +445,12 @@ class RepWorkflows:
                     if n.data.get("human_text")
                 ],
                 "last_outcome": lead.data.get("last_outcome"),
+                "last_outcome_at": lead.data.get("last_outcome_at"),
                 "meeting": lead.data.get("meeting"),
                 "next_question": "Confirm the agreed next step."
                 if any(t.get("status") in ACTIVE_TASKS for t in tasks)
+                else questions[0]["text"]
+                if questions
                 else "What would make this conversation useful for you?",
                 "raw_evidence": "Only current five-minute chunks are available; this brief retains derived notes.",
             },
@@ -220,6 +472,10 @@ class RepWorkflows:
 
     def lead_records(self, s, p, kind, lead_id, *conditions, limit=None, newest=False):
         model = MODELS[kind]
+        if kind == "followup_tasks":
+            from sqlalchemy import or_
+
+            conditions = (*conditions, or_(model.op_status != "aliased", model.op_status.is_(None)))
         return list(
             s.scalars(
                 select(model)
@@ -238,18 +494,22 @@ class RepWorkflows:
 
     def refresh_packet_in(self, s, p, lead):
         update(lead, preparation_revision=lead.data.get("preparation_revision", 0) + 1)
-        self.jobs.enqueue_in(
+        self.jobs.coalesce_live_in(
             s,
-            "research",
+            "scripts",
             {
+                "kind": "packet_refresh",
                 "lead_ids": [lead.id],
+                "preparation_revision": lead.data["preparation_revision"],
                 "seller_id": p["seller_id"],
                 "user_id": p["user_id"],
             },
-            f"continuity:{lead.id}:{lead.version}",
+            f"continuity:{p['seller_id']}:{lead.id}",
             tenant_id=p["tenant_id"],
             priority=5,
+            available_at=self.clock(),
         )
+        emit(s, p["tenant_id"], "packet.stale", lead, self.clock())
 
     def _sync_callback(self, s, p, lead):
         active = [
@@ -303,7 +563,7 @@ class RepWorkflows:
             ]
             if len(inferred) == 1:
                 task = inferred[0]
-                task.external_key = key
+                update(task, wrapup_key=key)
         values = {
             "lead_id": lead.id,
             "call_id": call_id,
@@ -314,6 +574,7 @@ class RepWorkflows:
             "timezone": timezone or lead.data.get("timezone"),
             "note": note,
             "status": "open" if due_at else "needs_confirmation",
+            "confirmation_state": "confirmed" if due_at else "suggested",
             "source": source,
         }
         if task:
@@ -330,15 +591,16 @@ class RepWorkflows:
 
     def edit_task(self, p, task_id, data):
         with self.db.transaction() as s:
-            self.db.authorize_stream(s, p)
             task = self.required(s, "followup_tasks", task_id, p)
-            if p["role"] == "rep" and task.data.get("owner_id") != p["user_id"]:
-                fail(403, "Task belongs to another rep")
-            if task.version != data["expected_version"]:
-                fail(409, "Task changed; refresh before editing")
+            if task.data.get("alias_of"):
+                task = self.required(s, "followup_tasks", task.data["alias_of"], p)
+            identity = self.local_edit_in(s, p, "task", task_id, task, data, "owner_id")
+            if identity[2]:
+                return {**doc(task), "edit_receipt": identity[2]}
+            self.check_edit_version(task, data)
             if task.data.get("inbound") and task.data.get("inbound_state") not in {None, "ended"}:
                 fail(409, "This return call is still active; finish call routing before editing the task")
-            edits = {k: v for k, v in data.items() if k != "expected_version"}
+            edits = {k: v for k, v in data.items() if k not in {"expected_version", "request_id"}}
             if "owner_id" in edits:
                 owner = self.required(s, "users", edits["owner_id"] or "", p)
                 if owner.data.get("disabled"):
@@ -346,14 +608,37 @@ class RepWorkflows:
             candidate = {**task.data, **edits}
             if candidate["status"] in {"open", "snoozed"} and not candidate.get("due_at"):
                 fail(422, "Confirm a dated time before opening or snoozing this task")
+            if candidate.get("window_end") and (
+                not candidate.get("due_at") or dt(candidate["window_end"]) <= dt(candidate["due_at"])
+            ):
+                fail(422, "Callback window must end after its start")
+            if candidate["status"] == "snoozed" and (
+                not candidate.get("snoozed_until") or dt(candidate["snoozed_until"]) <= self.clock()
+            ):
+                fail(422, "Choose a future reminder time without changing the promised callback")
             if edits.get("due_at") and task.data["status"] == "needs_confirmation" and "status" not in edits:
                 edits["status"] = "open"
+            resolving = edits.get("confirmation_state") == "confirmed" or edits.get("status") in {
+                "completed",
+                "cancelled",
+            }
+            conflict = task.data.get("review_required", False)
+            if conflict and resolving and not edits.get("confirmation_reason"):
+                fail(422, "Provide confirmation_reason to resolve changed source evidence")
+            if not conflict or resolving:
+                edits["confirmation_state"] = (
+                    "suggested"
+                    if edits.get("status", task.data["status"]) == "needs_confirmation"
+                    else "confirmed"
+                )
+                edits["review_required"] = False
+                edits["reviewed_source_version"] = task.data.get("source_version")
+            if edits.get("status") in {"open", "completed", "cancelled"}:
+                edits["snoozed_until"] = None
             update(
                 task,
                 **edits,
                 human_edited=True,
-                review_required=False,
-                reviewed_source_version=task.data.get("source_version"),
                 edited_at=self.clock().isoformat(),
                 edited_by=p["user_id"],
             )
@@ -375,7 +660,7 @@ class RepWorkflows:
                 {"fields": sorted(edits)},
             )
             emit(s, p["tenant_id"], "task.updated", task, self.clock())
-            return doc(task)
+            return {**doc(task), "edit_receipt": self.local_edit_receipt(s, p, identity, task)}
 
     def _meeting_in(
         self,
@@ -474,41 +759,48 @@ class RepWorkflows:
 
     def report_meeting(self, p, lead_id, data):
         with self.db.transaction() as s:
-            self.db.authorize_stream(s, p)
             lead = self.required(s, "leads", lead_id, p)
-            self.check_prospect_review(s, p, lead, data)
-            self._meeting_in(
-                s,
-                p,
-                lead,
-                data["status"],
-                **{
-                    k: data[k]
-                    for k in ("due_at", "timezone", "reference", "next_action", "callback_at")
-                    if k in data
-                },
-            )
-            self.refresh_packet_in(s, p, lead)
-            audit(
-                s,
-                p["tenant_id"],
-                p["seller_id"],
-                p["user_id"],
-                "meeting.reported",
-                lead.id,
-                self.clock(),
-                {"status": data["status"], "next_action": data.get("next_action", "keep_hold")},
-            )
-            return doc(lead)
+            identity = self.local_edit_in(s, p, "meeting", lead_id, lead, data, "rep_id")
+            if not identity[2]:
+                self.check_prospect_review(s, p, lead, data)
+                if data["status"] in {"no_show", "cancelled"} and not data.get("next_action"):
+                    fail(422, "Choose next_action: keep_hold, callback or resume")
+                self._meeting_in(
+                    s,
+                    p,
+                    lead,
+                    data["status"],
+                    **{
+                        k: data[k]
+                        for k in ("due_at", "timezone", "reference", "next_action", "callback_at")
+                        if data.get(k) is not None
+                    },
+                )
+                self.refresh_packet_in(s, p, lead)
+                audit(
+                    s,
+                    p["tenant_id"],
+                    p["seller_id"],
+                    p["user_id"],
+                    "meeting.reported",
+                    lead.id,
+                    self.clock(),
+                    {"status": data["status"], "next_action": data.get("next_action", "keep_hold")},
+                )
+            event = self._by_key(s, p, "conversion_events", "rep-meeting:" + lead.id)
+            return {
+                **doc(lead),
+                "edit_receipt": identity[2] or self.local_edit_receipt(s, p, identity, lead),
+                "outcome_id": event.id if event else None,
+                "packet_version": lead.data.get("preparation_revision", 0),
+            }
 
     def save_disposition(self, p, call_id, data):
         outcome = data["outcome"]
         due = zoned_time(data.get("callback_at"))
         with self.db.transaction() as s:
-            self.db.authorize_stream(s, p)
             call = self.required(s, "call_attempts", call_id, p)
-            if p["role"] == "rep" and call.data["rep_id"] != p["user_id"]:
-                fail(403, "Call belongs to another rep")
+            identity = self.local_edit_in(s, p, "disposition", call_id, call, data, "rep_id")
             if call.data["state"] not in TERMINAL:
                 fail(409, "End the call before wrap-up")
             lead = self.required(s, "leads", call.data["lead_id"], p)
@@ -516,11 +808,43 @@ class RepWorkflows:
                 "outcome": outcome,
                 "callback_at": due,
                 "callback_note": data.get("callback_note", ""),
+                "contact_role": data.get("contact_role", "unknown"),
             }
             duplicate = call.data.get("disposition_input") == canonical
-            if not duplicate:
-                if data.get("expected_version") is not None and call.version != data["expected_version"]:
-                    fail(409, "Call outcome changed; refresh before editing")
+            if not identity[2]:
+                self.check_edit_version(call, data)
+            if not identity[2] and not duplicate:
+                if canonical["callback_note"] and canonical["callback_note"] != call.data.get(
+                    "disposition_input", {}
+                ).get("callback_note"):
+                    note = self._by_key(s, p, "notes", call_id)
+                    previous = note.data.get("human_text") if note else None
+                    text = (previous + "\n\nWrap-up: " if previous else "") + canonical["callback_note"]
+                    if len(text) > 20000:
+                        fail(422, "The human note is full; review it before adding another wrap-up note")
+                    values = {"human_text": text, "status": "human_confirmed", "editor_id": p["user_id"]}
+                    if note:
+                        update(note, **values)
+                    else:
+                        put(
+                            s,
+                            "notes",
+                            p["tenant_id"],
+                            p["seller_id"],
+                            {
+                                **values,
+                                "call_id": call_id,
+                                "privacy_contract": 1,
+                                "notes": {
+                                    "call_id": call_id,
+                                    "transcript_version": call.data["transcript_version"],
+                                    "outcome": outcome,
+                                },
+                                "derived_state_revision": 0,
+                            },
+                            key=call_id,
+                            now=self.clock(),
+                        )
                 update(
                     call,
                     outcome=outcome,
@@ -529,6 +853,7 @@ class RepWorkflows:
                     disposition_input=canonical,
                     outcome_available_at=self.clock().isoformat(),
                     outcome_source="rep_reported",
+                    contact_role=canonical["contact_role"],
                     outcome_history=[
                         *call.data.get("outcome_history", []),
                         *(
@@ -589,6 +914,7 @@ class RepWorkflows:
                     "at": self.clock().isoformat(),
                     "window_status": "pending",
                     "source": "rep_reported",
+                    "contact_role": canonical["contact_role"],
                 }
                 if record:
                     audit(
@@ -625,7 +951,25 @@ class RepWorkflows:
                     tenant_id=p["tenant_id"],
                 )
                 emit(s, p["tenant_id"], "call.updated", call, self.clock())
-            result, phone = doc(call), lead.data["phone"]
+            receipt = identity[2] or self.local_edit_receipt(s, p, identity, call)
+            task = next(
+                (
+                    t
+                    for t in self.lead_records(s, p, "followup_tasks", lead.id)
+                    if t.data.get("call_id") == call.id and t.data.get("kind") == "callback"
+                ),
+                None,
+            )
+            memory = self._by_key(s, p, "conversation_states", call.id)
+            result = {
+                **doc(call),
+                "edit_receipt": receipt,
+                "canonical_task_id": task.id if task else None,
+                "rundown_status": (
+                    memory.data.get("finalization", {}).get("status", "pending") if memory else "pending"
+                ),
+            }
+            phone = lead.data["phone"]
         if outcome in {"wrong_party", "invalid_endpoint", "opt_out"}:
             self.suppress(p, phone, outcome, event_id=f"disposition:{call_id}:{outcome}")
         return result

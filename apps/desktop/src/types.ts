@@ -50,6 +50,10 @@ export interface FollowupTask {
   source?: string;
   source_stale?: boolean;
   source_retracted?: boolean;
+  confirmation_state?: "suggested" | "confirmed" | "needs_review";
+  snoozed_until?: string | null;
+  source_conflicts?: string[];
+  retained_notes?: { task_id: string; text: string }[];
   review_required?: boolean;
   time_window?: {
     date: string;
@@ -107,6 +111,7 @@ export interface Coach {
   evidence_segment_ids: string[];
 }
 export interface Call {
+  rundown_status?: "pending" | "partial" | "ready" | "unavailable";
   lead_name?: string;
   lead_company?: string;
   rubric_snapshot?: { call_type: string; rubric_version: string };
@@ -172,6 +177,14 @@ export interface Packet {
   preparation?: { status: string; as_of?: string };
   tasks?: FollowupTask[];
   prospect_brief?: {
+    prior_answers?: EvidenceItem[];
+    unanswered_questions?: EvidenceItem[];
+    interpretation_gaps?: {
+      call_id: string;
+      status: string;
+      reason?: string;
+    }[];
+    freshness?: { state: string; preparation_revision: number };
     version: number;
     evidence_status: string;
     summary: string;

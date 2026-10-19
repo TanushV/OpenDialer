@@ -108,6 +108,8 @@ def context_examples(service, s, p, query):
 
 
 def overview(service, p):
+    from app.optimization.conversations import aliases_for, normalized
+
     with service.db.transaction(False) as s:
         user = service.required(s, "users", p["user_id"], p)
         model = MODELS["call_attempts"]
@@ -147,7 +149,70 @@ def overview(service, p):
                 )
             )
         }
+        opportunities = []
+        for call in calls:
+            for item in reversed(states.get(call.id, {}).get("observations", [])):
+                if (
+                    item.get("kind") != "approach"
+                    or item.get("state") in {"stale", "retracted"}
+                    or item.get("epistemic_status") not in {"human_confirmed", "model_reviewed"}
+                    or not item.get("observed_at")
+                ):
+                    continue
+                opportunities.append(
+                    {
+                        "id": item["id"],
+                        "call_id": call.id,
+                        "campaign_id": call.data.get("campaign_id"),
+                        "at": item["observed_at"],
+                        "concept": item["text"],
+                        "approach": item.get("approach"),
+                        "review_status": item["epistemic_status"],
+                        "purpose": states[call.id].get("purpose", {}).get("id"),
+                    }
+                )
+        opportunities = sorted(opportunities, key=lambda i: (i["at"], i["call_id"], i["id"]), reverse=True)[
+            :20
+        ]
+        vocabularies, groups = {}, {}
+        for item in opportunities:
+            campaign_id = item["campaign_id"]
+            if campaign_id not in vocabularies:
+                campaign = None
+                # Campaign IDs are primary identities, not external keys.
+                if campaign_id:
+                    campaign = service.required(s, "campaigns", campaign_id, p)
+                vocabularies[campaign_id] = aliases_for(
+                    campaign.data.get("conversation_vocabulary", {}) if campaign else {}
+                )
+            aliases = vocabularies[campaign_id]
+            concept = aliases.get(("concept", normalized(item["concept"])), normalized(item["concept"]))
+            approach = aliases.get(("approach", normalized(item["approach"])), normalized(item["approach"]))
+            key = (campaign_id, item["purpose"], concept, approach)
+            group = groups.setdefault(
+                key,
+                {
+                    "id": hashlib.sha256(json.dumps(key).encode()).hexdigest(),
+                    "concept": item["concept"],
+                    "approach": item["approach"],
+                    "campaign_id": campaign_id,
+                    "purpose": item["purpose"],
+                    "count": 0,
+                    "examples": [],
+                },
+            )
+            group["count"] += 1
+            if len(group["examples"]) < 2:
+                group["examples"].append(
+                    {
+                        "call_id": item["call_id"],
+                        "observation_id": item["id"],
+                        "text": item["approach"] or item["concept"],
+                    }
+                )
         return {
+            "reviewed_opportunities": opportunities,
+            "improvement_groups": sorted(groups.values(), key=lambda g: (-g["count"], g["id"])),
             "goals_version": user.data.get("coaching_goals_version", 0),
             "goals": user.data.get("coaching_goals", []),
             "recent_tips": [
