@@ -291,6 +291,8 @@ def dirty_source_units(changed, session):
         }.get(table)
         if kind:
             units[(*scope, kind, row.id)] = deleted
+        if table == "followup_tasks" and (row.data.get("inbound") or (previous or {}).get("inbound")):
+            units[(*scope, "call", "callback:" + row.id)] = deleted
         if table == "campaigns" and any(
             row.data.get(key) != (previous or {}).get(key)
             for key in ("optimization_trial", "controlled_comparisons")
@@ -422,10 +424,11 @@ def definition_version(config, epoch):
     return hashlib.sha256(
         json.dumps(
             {
-                "metrics": "cohort-work-v9",
+                "metrics": "cohort-work-v10",
                 "epoch": epoch,
                 "goal": config["conversion_goal"],
                 "window_days": config["window_days"],
+                "health_policy": config.get("health_policy", {}),
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -467,10 +470,21 @@ def _unit_snapshot(service, p, payload):
             "usage": "usage_ledger",
             "help": "coach_events",
         }.get(kind)
+        callback_source = kind == "call" and identity.startswith("callback:")
+        if callback_source:
+            table = "followup_tasks"
         source = (
-            session.scalar(_scoped_query(p, table).where(MODELS[table].id == identity)) if table else None
+            session.scalar(
+                _scoped_query(p, table).where(
+                    MODELS[table].id == (identity[9:] if callback_source else identity)
+                )
+            )
+            if table
+            else None
         )
         row = doc(source) if source else {}
+        if callback_source and not row.get("inbound"):
+            row = {}
         calls, events, intervals, feedback, suppressed, feature = [], [], [], None, False, None
         assignments, features, decisions, studies, observations = [], [], [], {}, []
         comparisons = [
@@ -539,7 +553,7 @@ def _unit_snapshot(service, p, payload):
                 key = hmac.new(service.db.identity_key, phone.encode(), hashlib.sha256).hexdigest()
                 denial = service._by_key(session, p, "suppressions", key)
                 suppressed = bool(denial and denial.data.get("active", True))
-        elif kind == "call" and row:
+        elif kind == "call" and row and not callback_source:
             record = session.scalar(
                 _scoped_query(p, "feature_snapshots").where(
                     MODELS["feature_snapshots"].id == row.get("feature_snapshot_id")
@@ -692,7 +706,7 @@ def _calculate_unit(snapshot, now):
                 boundary = at + timedelta(days=assignment.get("outcome_window_days", config["window_days"]))
                 if boundary > now:
                     refresh.append(boundary)
-    elif kind == "call" and row:
+    elif kind == "call" and row and not row.get("inbound"):
         values = call_values(row, config=config, now=now)
         values.update(training_values(row, snapshot["feature"], snapshot["events"], config=config, now=now))
         if at := timestamp(row.get("started_at")):
@@ -746,6 +760,14 @@ def _calculate_unit(snapshot, now):
                 refresh.append(min(end, start_at if start_at > now else now + timedelta(seconds=60), end_at))
     else:
         values = {}
+    if kind == "call" and row:
+        at = timestamp(row.get("occurred_at") or row.get("started_at") or row.get("created_at"))
+        if at:
+            refresh.extend(
+                t
+                for t in (at, at + timedelta(days=config["health_policy"]["window_days"], microseconds=1))
+                if t > now
+            )
     for evidence in [row, *snapshot["calls"], *snapshot["events"]]:
         for field in (
             "outcome_available_at",
@@ -982,6 +1004,53 @@ def _comparison_groups(snapshot, now, namespace):
     return groups
 
 
+def _health_groups(snapshot, now, namespace):
+    from app.optimization.numbering import health_stratum, health_values
+
+    row, policy = snapshot["row"], snapshot["config"]["health_policy"]
+    if not row.get("number_id"):
+        return []
+    if row.get("inbound"):
+        at = timestamp(row.get("occurred_at") or row.get("created_at"))
+        values = {"callbacks": 1} if at and now - timedelta(days=policy["window_days"]) <= at <= now else {}
+    else:
+        known = outcome_at(row, now)
+        if not known and row.get("end_reason") not in {"provider_failure", "route_failure"}:
+            return []
+        feature = snapshot["feature"] or {}
+        observation = {
+            **feature.get("features", {}),
+            **row,
+            **(known or {"outcome": None}),
+            "feature_schema_version": feature.get(
+                "feature_schema_version", feature.get("features", {}).get("feature_schema_version")
+            ),
+            "prediction_at": feature.get("as_of"),
+            "expected_human": feature.get("predictions", {}).get("p_human"),
+            "delivery_failed": row.get("end_reason") in {"provider_failure", "route_failure"},
+        }
+        values = health_values(observation, now=now, policy=policy)
+    if not values:
+        return []
+    group = {
+        "bucket_kind": "number_health",
+        "bucket_day": None,
+        "number_id": row["number_id"],
+        "campaign_id": snapshot["campaign_id"],
+        "definition_version": snapshot["definition"],
+        "namespace": namespace,
+    }
+    result = [(group, values)]
+    if values.get("comparable_samples"):
+        result.append(
+            (
+                {**group, "bucket_kind": "number_health_stratum", "stratum": health_stratum(observation)},
+                {"samples": 1},
+            )
+        )
+    return result
+
+
 def _detail_groups(snapshot, now, namespace):
     """Per-call statistics grouped independently of the workspace totals."""
     if snapshot["kind"] == "lead" and snapshot["row"]:
@@ -990,7 +1059,10 @@ def _detail_groups(snapshot, now, namespace):
         return _comparison_groups(snapshot, now, namespace)
     if snapshot["kind"] != "call" or not snapshot["row"]:
         return []
+    groups = _health_groups(snapshot, now, namespace)
     config, row = snapshot["config"], snapshot["row"]
+    if row.get("inbound"):
+        return groups
     data = training_rows(
         [row],
         [snapshot["feature"]] if snapshot["feature"] else [],
@@ -1000,9 +1072,9 @@ def _detail_groups(snapshot, now, namespace):
         window_days=config["window_days"],
     )
     if not data or not now - timedelta(days=28) <= timestamp(data[0]["at"]) <= now:
-        return []
+        return groups
     observed = data[0]
-    return [
+    return groups + [
         (
             {
                 "bucket_kind": "drift",
@@ -1145,7 +1217,10 @@ def refresh_unit(service, p, payload):
                         value["bucket_kind"] == "trial"
                         and total.get("control:leads", 0) + total.get("candidate:leads", 0) == 0
                     )
-                    or (value["bucket_kind"] == "comparison" and not any(total.values()))
+                    or (
+                        value["bucket_kind"] in {"comparison", "number_health", "number_health_stratum"}
+                        and not any(total.values())
+                    )
                 )
                 if empty_detail:
                     if bucket:
@@ -1322,6 +1397,7 @@ _REBUILD_SOURCES = (
     ("coach_events", "help"),
     ("work_intervals", "rep-day"),
     ("call_attempts", "rep-day"),
+    ("followup_tasks", "call"),
 )
 
 
@@ -1465,7 +1541,7 @@ def _rebuild_source_page(service, p, state, lease=None):
                 p,
                 {
                     "source_kind": kind,
-                    "source_id": row.id,
+                    "source_id": "callback:" + row.id if table == "followup_tasks" else row.id,
                     "target_namespace": state["namespace"],
                     "rebuild_lease": lease,
                 },
@@ -1720,6 +1796,57 @@ def read_drift_metrics(service, p, *, limit=1000):
         "complete": True,
         "as_of": service.clock().isoformat(),
         "windows": "Latest 7 days versus preceding 21 days",
+    }
+
+
+def read_number_health_metrics(service, p):
+    from app.optimization.numbering import health_from_counts
+
+    with service.db.transaction(False) as session:
+        config, group, _ = _total_in(service, session, p)
+        prefix = f"v{group['definition_version']}:{group['namespace']}:"
+        model = MODELS["metric_buckets"]
+        query = _scoped_query(p, "metric_buckets").where(
+            model.external_key >= prefix, model.external_key < prefix + "~"
+        )
+        totals = [
+            dict(r.data)
+            for r in session.scalars(
+                query.where(model.bucket_kind == "number_health").order_by(model.external_key).limit(1001)
+            )
+        ]
+        strata = [
+            dict(r.data)
+            for r in session.scalars(
+                query.where(model.bucket_kind == "number_health_stratum")
+                .order_by(model.external_key)
+                .limit(1001)
+            )
+        ]
+        contributions = MODELS["metric_contributions"]
+        expiry = session.scalar(
+            select(func.min(contributions.next_refresh_at)).where(
+                contributions.tenant_id == p["tenant_id"],
+                contributions.seller_id == p["seller_id"],
+                contributions.external_key >= prefix,
+                contributions.external_key < prefix + "~",
+            )
+        )
+    if len(totals) > 1000:
+        raise ValueError("Number inventory exceeds the bounded health report; no partial inventory published")
+    distinct = {}
+    for row in strata:
+        identity = row["group"]["number_id"]
+        distinct[identity] = distinct.get(identity, 0) + 1
+    return {
+        row["group"]["number_id"]: health_from_counts(
+            row["values"],
+            now=service.clock(),
+            policy=config["health_policy"],
+            comparison_strata=distinct.get(row["group"]["number_id"], 0) if len(strata) <= 1000 else None,
+            next_expiry_at=timestamp(expiry).isoformat() if expiry else None,
+        )
+        for row in totals
     }
 
 

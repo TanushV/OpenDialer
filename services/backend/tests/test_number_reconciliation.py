@@ -557,7 +557,7 @@ def test_selection_cannot_overwrite_a_newly_approved_binding(workspace, app):
 
 
 def test_actual_decision_keeps_health_comparison_inputs(workspace, app):
-    from conftest import disposition_body, start
+    from conftest import completed_report, disposition_body, start
 
     service, p = app.state.service, principal(workspace)
     call = start(workspace)
@@ -571,6 +571,7 @@ def test_actual_decision_keeps_health_comparison_inputs(workspace, app):
         ).status_code
         == 200
     )
+    completed_report(workspace)
     with service.db.transaction(False) as s:
         result = next(n for n in service.inventory_evidence(s, p) if n["id"] == call["number_id"])
     assert result["health"]["comparable_samples"] == 1

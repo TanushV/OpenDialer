@@ -266,76 +266,11 @@ class OptimizationWorkflows(ComparisonWorkflows):
         return config
 
     def inventory_evidence(self, s, p, fast=False):
-        if fast:
-            return self.inventory_capacity(s, p)
-        config = self.optimization_config(s, p)
-        calls = [doc(c) for c in self.scoped(s, "call_attempts", p)]
-        snapshots = {r.id: r.data for r in self.scoped(s, "feature_snapshots", p)}
-        attempts = []
-        for call in calls:
-            if not call.get("outcome") and call.get("end_reason") not in {
-                "provider_failure",
-                "route_failure",
-            }:
-                continue
-            at, ended = timestamp(call.get("started_at")), timestamp(call.get("ended_at"))
-            snapshot = snapshots.get(call.get("feature_snapshot_id"), {})
-            predicted = snapshot.get("predictions", {})
-            attempts.append(
-                {
-                    **snapshot.get("features", {}),
-                    **call,
-                    "feature_schema_version": snapshot.get(
-                        "feature_schema_version", snapshot.get("features", {}).get("feature_schema_version")
-                    ),
-                    "prediction_at": snapshot.get("as_of"),
-                    "duration_seconds": max(0, (ended - at).total_seconds()) if at and ended else 0,
-                    "connected_seconds": call.get("connected_seconds"),
-                    "delivery_failed": call.get("end_reason") in {"provider_failure", "route_failure"},
-                    "expected_human": predicted.get("p_human"),
-                }
-            )
-        claims = list(
-            s.scalars(
-                select(ActiveClaim).where(
-                    ActiveClaim.tenant_id == p["tenant_id"],
-                    ActiveClaim.seller_id == p["seller_id"],
-                    or_(ActiveClaim.call_id.is_not(None), ActiveClaim.expires_at > self.clock()),
-                )
-            )
-        )
-        leases = [lease.data for lease in self.scoped(s, "number_leases", p) if lease.data.get("active")]
-        callbacks = [r.data for r in self.scoped(s, "followup_tasks", p) if r.data.get("inbound")]
-        inventory = []
-        for number in self.scoped(s, "number_inventory", p):
-            readiness = self.number_readiness_in(s, p, number)
-            health = number_health(
-                [a for a in attempts if a.get("number_id") == number.id],
-                pooled_attempts=attempts,
-                now=self.clock(),
-                external=number.data.get("external_reputation"),
-                policy=config["health_policy"],
-                configuration_errors=readiness["configuration_errors"],
-            )
-            health["callbacks"] = sum(c.get("number_id") == number.id for c in callbacks)
-            used = sum(
-                c.get("number_id") == number.id and timestamp(c["started_at"]).date() == self.clock().date()
-                for c in calls
-            )
-            inventory.append(
-                {
-                    **doc(number),
-                    **readiness,
-                    "health": health,
-                    "used_today": used,
-                    "reserved_attempts": sum(c.number_id == number.id and not c.call_id for c in claims),
-                    "active_obligations": sum(c.number_id == number.id for c in claims)
-                    + sum(lease["number_id"] == number.id for lease in leases),
-                }
-            )
-        return inventory
+        from app.optimization.projections import read_number_health_metrics
 
-    def inventory_capacity(self, s, p):
+        return self.inventory_capacity(s, p, health=None if fast else read_number_health_metrics(self, p))
+
+    def inventory_capacity(self, s, p, *, health=None):
         """Current capacity is authoritative; health reads the last derived observation."""
         claims = list(
             s.scalars(
@@ -361,7 +296,8 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 .group_by(attempt.op_number_id)
             ).all()
         )
-        health = {r.data["number_id"]: dict(r.data) for r in self.scoped(s, "number_health", p)}
+        if health is None:
+            health = {r.data["number_id"]: dict(r.data) for r in self.scoped(s, "number_health", p)}
         config = self.optimization_config(s, p)
         leases = [r.data for r in self.scoped(s, "number_leases", p) if r.data.get("active")]
         return [

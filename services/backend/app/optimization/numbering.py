@@ -15,112 +15,150 @@ def timestamp(value):
     return result.replace(tzinfo=UTC) if result.tzinfo is None else result
 
 
-def _observed_health(observed, now, policy):
-    since = now - timedelta(days=policy["window_days"])
-    rows = [r for r in observed if not r.get("started_at") or since <= timestamp(r["started_at"]) <= now]
-    labels = [(r, *contact_labels(r)) for r in rows]
-    human = [y for _, y, _ in labels if y is not None]
-    right = [y for _, _, y in labels if y is not None]
-    delivery = [
-        not (r.get("delivery_failed") or r.get("outcome") in {"temporary_failure", "route_failure"})
-        for r, y, _ in labels
-        if y is not None
-        or r.get("delivery_failed") is not None
-        or r.get("outcome") in {"temporary_failure", "route_failure"}
-    ]
-    expected, residuals, strata = 0.0, [], set()
-    for r, y, _ in labels:
-        prediction, prediction_at, started_at = (
-            r.get("expected_human"),
-            timestamp(r.get("prediction_at")),
-            timestamp(r.get("started_at")),
-        )
-        if (
-            y is None
-            or type(prediction) not in (int, float)
-            or not math.isfinite(prediction)
-            or not 0 <= prediction <= 1
-            or r.get("feature_schema_version") != 2
-            or not prediction_at
-            or not started_at
-            or prediction_at > started_at
-        ):
-            continue
-        expected += prediction
-        residuals.append(y - prediction)
-        strata.add(
-            tuple(
-                str(r.get(k, "unknown"))
-                for k in ("campaign_id", "segment", "local_hour", "source", "attempt_count")
-            )
-        )
-    z = statistics.NormalDist().inv_cdf((1 + policy["confidence"]) / 2)
-    mean, interval = statistics.mean(residuals) if residuals else None, None
-    if len(residuals) >= policy["min_comparable"]:
-        margin = z * statistics.stdev(residuals) / math.sqrt(len(residuals))
-        interval = [max(-1, mean - margin), min(1, mean + margin)]
-    delivered = sum(delivery)
-    low, high = wilson(delivered, len(delivery), z=z)
-    durations = [
-        float(r["connected_seconds"])
-        for r, y, _ in labels
-        if y is not None
-        and r.get("connected_leg_kind") in {None, "prospect"}
-        and type(r.get("connected_seconds")) in (int, float)
-        and math.isfinite(r["connected_seconds"])
-        and r["connected_seconds"] >= 0
-    ]
-    short = sum(v <= 6 for v in durations)
-    legacy_expected = sum(
-        r["expected_human"]
-        for r, y, _ in labels
-        if y is not None
-        and type(r.get("expected_human")) in (int, float)
-        and math.isfinite(r["expected_human"])
-        and 0 <= r["expected_human"] <= 1
+def health_values(row, *, now, policy):
+    """One observation's replaceable sufficient statistics, never text or a score."""
+    start = timestamp(row.get("started_at"))
+    if start and not now - timedelta(days=policy["window_days"]) <= start <= now:
+        return {}
+    human, right = contact_labels(row)
+    prediction = row.get("expected_human")
+    valid_prediction = type(prediction) in (int, float) and math.isfinite(prediction) and 0 <= prediction <= 1
+    known_at = timestamp(row.get("prediction_at"))
+    comparable = bool(
+        human is not None
+        and valid_prediction
+        and row.get("feature_schema_version") == 2
+        and known_at
+        and start
+        and known_at <= start
     )
-    expiry = min(
-        (
-            timestamp(r["started_at"]) + timedelta(days=policy["window_days"])
-            for r in rows
-            if r.get("started_at")
-        ),
-        default=None,
+    failed = bool(row.get("delivery_failed") or row.get("outcome") in {"temporary_failure", "route_failure"})
+    delivery = human is not None or row.get("delivery_failed") is not None or failed
+    duration = row.get("connected_seconds")
+    measured = bool(
+        human is not None
+        and row.get("connected_leg_kind") in {None, "prospect"}
+        and type(duration) in (int, float)
+        and math.isfinite(duration)
+        and duration >= 0
     )
+    residual = int(human) - prediction if comparable else 0
     return {
-        "samples": len(rows),
-        "human_classified_samples": len(human),
-        "human_unknown_samples": len(rows) - len(human),
-        "human_answers": sum(human),
-        "right_party_samples": len(right),
-        "right_party_answers": sum(right),
-        "delivery_samples": len(delivery),
-        "delivery_failures": len(delivery) - delivered,
-        "delivery_success_rate": delivered / len(delivery) if delivery else None,
-        "pickup_rate": sum(human) / len(human) if human else None,
-        "pickup_interval": list(wilson(sum(human), len(human), z=z)),
-        "delivery_failure_interval": list(wilson(len(delivery) - delivered, len(delivery), z=z)),
-        "right_party_rate": sum(right) / len(right) if right else None,
-        "adjusted_pickup_ratio": (sum(human) + 5) / (legacy_expected + 5),
-        "expected_human_answers": expected,
-        "comparable_samples": len(residuals),
-        "excluded_comparison_samples": len(rows) - len(residuals),
-        "comparison_strata": len(strata),
+        "samples": 1,
+        "human_classified_samples": int(human is not None),
+        "human_answers": int(human is True),
+        "right_party_samples": int(right is not None),
+        "right_party_answers": int(right is True),
+        "delivery_samples": int(delivery),
+        "delivery_failures": int(delivery and failed),
+        "comparable_samples": int(comparable),
+        "expected_human_answers": prediction if comparable else 0,
+        "residual_sum": residual,
+        "residual_squared_sum": residual * residual,
+        "legacy_expected_human": prediction if human is not None and valid_prediction else 0,
+        "short_connected_calls": int(measured and duration <= 6),
+        "connected_duration_samples": int(measured),
+        "callbacks": int(bool(row.get("inbound_callback"))),
+        "opt_outs": int(row.get("outcome") == "opt_out"),
+        "hard_provider_errors": int(bool(row.get("hard_provider_error"))),
+    }
+
+
+def health_stratum(row):
+    return tuple(
+        str(row.get(k, "unknown"))
+        for k in ("campaign_id", "segment", "local_hour", "source", "attempt_count")
+    )
+
+
+def health_from_counts(counts, *, now, policy, comparison_strata, next_expiry_at=None):
+    """The same descriptive intervals for incremental and explicit offline reads."""
+    from app.optimization.api import HealthPolicy
+
+    policy = HealthPolicy.model_validate(policy or {}).model_dump(exclude={"callback_proof_days"})
+    fields = (
+        "samples",
+        "human_classified_samples",
+        "human_answers",
+        "right_party_samples",
+        "right_party_answers",
+        "delivery_samples",
+        "delivery_failures",
+        "expected_human_answers",
+        "comparable_samples",
+        "short_connected_calls",
+        "connected_duration_samples",
+        "callbacks",
+        "opt_outs",
+    )
+    values = {key: counts.get(key, 0) for key in fields}
+    n, human_n, human_s = (
+        values["comparable_samples"],
+        values["human_classified_samples"],
+        values["human_answers"],
+    )
+    delivered = values["delivery_samples"] - values["delivery_failures"]
+    z = statistics.NormalDist().inv_cdf((1 + policy["confidence"]) / 2)
+    mean = counts.get("residual_sum", 0) / n if n else None
+    interval = None
+    if n >= policy["min_comparable"]:
+        variance = max(0, (counts.get("residual_squared_sum", 0) - n * mean * mean) / (n - 1))
+        margin = z * math.sqrt(variance / n)
+        interval = [max(-1, mean - margin), min(1, mean + margin)]
+    low, high = wilson(delivered, values["delivery_samples"], z=z)
+    return {
+        **values,
+        "human_unknown_samples": values["samples"] - human_n,
+        "delivery_success_rate": delivered / values["delivery_samples"]
+        if values["delivery_samples"]
+        else None,
+        "pickup_rate": human_s / human_n if human_n else None,
+        "pickup_interval": list(wilson(human_s, human_n, z=z)),
+        "delivery_failure_interval": list(
+            wilson(values["delivery_failures"], values["delivery_samples"], z=z)
+        ),
+        "right_party_rate": values["right_party_answers"] / values["right_party_samples"]
+        if values["right_party_samples"]
+        else None,
+        "adjusted_pickup_ratio": (human_s + 5) / (counts.get("legacy_expected_human", 0) + 5),
+        "excluded_comparison_samples": values["samples"] - n,
+        "comparison_strata": comparison_strata,
         "case_mix_residual_mean": mean,
         "case_mix_interval": interval,
         "comparison_method": "frozen_pre_call_residual_approximate_normal_interval",
         "confidence_low": low,
         "confidence_high": high,
         "confidence_measure": "observed_delivery_success",
-        "short_connected_calls": short,
-        "connected_duration_samples": len(durations),
-        "short_connected_rate": short / len(durations) if durations else None,
-        "callbacks": sum(bool(r.get("inbound_callback")) for r in rows),
-        "opt_outs": sum(r.get("outcome") == "opt_out" for r in rows),
-        "hard_provider_error": any(r.get("hard_provider_error") for r in rows),
+        "short_connected_rate": values["short_connected_calls"] / values["connected_duration_samples"]
+        if values["connected_duration_samples"]
+        else None,
+        "hard_provider_error": counts.get("hard_provider_errors", 0) > 0,
         "as_of": now.isoformat(),
-        "next_expiry_at": expiry.isoformat() if expiry else None,
+        "next_expiry_at": next_expiry_at,
+        "assessment_schema": 1,
+        "policy_version": hashlib.sha256(json.dumps(policy, sort_keys=True).encode()).hexdigest()[:16],
     }
+
+
+def _observed_health(observed, now, policy):
+    counts, strata, expiry = {}, set(), []
+    for row in observed:
+        vector = health_values(row, now=now, policy=policy)
+        if not vector:
+            continue
+        for key, value in vector.items():
+            counts[key] = counts.get(key, 0) + value
+        if vector["comparable_samples"]:
+            strata.add(health_stratum(row))
+        if row.get("started_at"):
+            expiry.append(timestamp(row["started_at"]) + timedelta(days=policy["window_days"]))
+    return health_from_counts(
+        counts,
+        now=now,
+        policy=policy,
+        comparison_strata=len(strata),
+        next_expiry_at=min(expiry).isoformat() if expiry else None,
+    )
 
 
 def assess_number_health(observed, baseline, external, policy):
