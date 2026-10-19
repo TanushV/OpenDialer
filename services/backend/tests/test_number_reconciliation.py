@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import timedelta
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -217,3 +218,304 @@ async def test_simulated_owned_configuration_preserves_phone_and_cannot_buy(carr
     assert receipt["connection_id"] == "route"
     assert (await carrier.get_number("owned"))["phone_number"] == "+14155550198"
     assert not carrier.purchases
+
+
+def number_edit(workspace, number_id, **changes):
+    service, p = workspace["client"].app.state.service, principal(workspace)
+    with service.db.transaction(False) as s:
+        version = service.required(s, "number_inventory", number_id, p).version
+    return {"request_id": str(uuid4()), "expected_version": version, **changes}
+
+
+def connected_callback(workspace, carrier, *, before_bridge=None):
+    from test_inbound_completion import configure, incoming, dispatch, target_payload, webhook, saved
+
+    configure(workspace, destination="sip:reception@example.test")
+    task = incoming(workspace)
+    dispatch(workspace)
+    if before_bridge:
+        before_bridge()
+    webhook(workspace, "call.bridged", target_payload(carrier), "callback-bridge")
+    return saved(workspace, "followup_tasks", task["id"])
+
+
+def test_callback_operator_note_cannot_promote_identity(workspace, app):
+    service, p, identifier = configure_fixture(workspace, app)
+    with service.db.transaction() as s:
+        update(
+            service.required(s, "number_inventory", identifier, p),
+            lifecycle="identity_configured",
+            configuration_status="confirmed",
+            identity_configured=True,
+            callback_tested=False,
+        )
+    response = workspace["client"].patch(
+        f"/v1/admin/numbers/{identifier}",
+        headers=workspace["headers"],
+        json={
+            "lifecycle": "callback_tested",
+            "callback_tested": True,
+            "callback_test_reference": "I think it works",
+        },
+    )
+    assert response.status_code == 409
+
+
+def test_callback_proof_is_current_scoped_identified_and_simulated(workspace, app, carrier, clock):
+    task = connected_callback(workspace, carrier)
+    assert task.get("callback_evidence"), "A matched bridge must retain its route and receipt identity"
+    proof = task["callback_evidence"]
+    assert proof["number_id"] == task["number_id"]
+    assert proof["bridge_event_id"] == "callback-bridge"
+    assert proof["inbound_event_id"] == "incoming-1"
+    assert proof["destination"] == "sip:reception@example.test" and proof["simulated"] is True
+    c, h, identifier = workspace["client"], workspace["headers"], task["number_id"]
+    body = number_edit(workspace, identifier, callback_task_id=task["id"])
+    first = c.patch(f"/v1/admin/numbers/{identifier}", headers=h, json=body)
+    assert first.status_code == 200, first.text
+    assert first.json()["callback_proof"]["bridge_event_id"] == "callback-bridge"
+    assert (
+        c.patch(f"/v1/admin/numbers/{identifier}", headers=h, json=body).json()["receipt"]
+        == first.json()["receipt"]
+    )
+    assert (
+        c.patch(
+            f"/v1/admin/numbers/{identifier}", headers=h, json={**body, "reason": "different"}
+        ).status_code
+        == 409
+    )
+    clock.now += timedelta(days=31)
+    response = c.post(
+        f"/v1/admin/numbers/{identifier}/review",
+        headers=h,
+        json=number_edit(
+            workspace, identifier, decision="resume", review_reference="old evidence", daily_limit=5
+        ),
+    )
+    assert response.status_code == 409 and "callback" in response.text.lower()
+
+
+def test_route_change_during_callback_cannot_certify_new_route(workspace, carrier):
+    from test_inbound_completion import configure
+
+    task = connected_callback(
+        workspace, carrier, before_bridge=lambda: configure(workspace, destination="sip:other@example.test")
+    )
+    c, h = workspace["client"], workspace["headers"]
+    response = c.patch(
+        f"/v1/admin/numbers/{task['number_id']}",
+        headers=h,
+        json=number_edit(workspace, task["number_id"], callback_task_id=task["id"]),
+    )
+    assert response.status_code == 409, response.text
+    assert "route" in response.text.lower()
+
+
+def test_other_number_cannot_reuse_callback_and_get_does_not_call_provider(workspace, carrier):
+    task = connected_callback(workspace, carrier)
+    c, h = workspace["client"], workspace["headers"]
+    other = next(
+        n for n in c.get("/v1/workspace", headers=h).json()["numbers"] if n["id"] != task["number_id"]
+    )
+    response = c.patch(
+        f"/v1/admin/numbers/{other['id']}",
+        headers=h,
+        json=number_edit(workspace, other["id"], callback_task_id=task["id"]),
+    )
+    assert response.status_code == 409, response.text
+    before = (list(carrier.actions), list(carrier.purchases))
+    result = c.get(f"/v1/admin/numbers/{task['number_id']}/review", headers=h)
+    assert result.status_code == 200, result.text
+    assert result.json()["callback_candidates"][0]["id"] == task["id"]
+    assert (carrier.actions, carrier.purchases) == before
+
+
+def test_imported_health_preserves_unknown_provenance_and_fences_edits(workspace, app, clock):
+    _, _, identifier = configure_fixture(workspace, app)
+    c, h = workspace["client"], workspace["headers"]
+    evidence = {
+        "source": "authorized carrier report",
+        "ownership_reference": "account-owned",
+        "observed_at": clock.now.isoformat(),
+        "expires_at": (clock.now + timedelta(days=1)).isoformat(),
+        "spam_label": None,
+    }
+    body = number_edit(workspace, identifier, external_reputation=evidence)
+    result = c.patch(f"/v1/admin/numbers/{identifier}", headers=h, json=body)
+    assert result.status_code == 200, result.text
+    assert result.json()["external_reputation"] == evidence
+    assert c.patch(f"/v1/admin/numbers/{identifier}", headers=h, json=body).status_code == 200
+    stale = c.patch(f"/v1/admin/numbers/{identifier}", headers=h, json={**body, "request_id": str(uuid4())})
+    assert stale.status_code == 409
+    invalid = c.patch(
+        f"/v1/admin/numbers/{identifier}",
+        headers=h,
+        json=number_edit(workspace, identifier, external_reputation={**evidence, "ownership_reference": ""}),
+    )
+    assert invalid.status_code == 422
+
+
+def test_existing_number_recording_unknown_cannot_keep_ready(workspace, app, monkeypatch):
+    service, p, identifier = configure_fixture(workspace, app)
+    monkeypatch.setattr(service.settings, "simulation", False)
+    with service.db.transaction(False) as s:
+        phone = service.required(s, "number_inventory", identifier, p).data["phone"]
+    service._merge_inventory(
+        p, [{"id": "owned", "phone_number": phone, "connection_id": "old", "status": "active"}]
+    )
+    with service.db.transaction(False) as s:
+        value = service.required(s, "number_inventory", identifier, p).data
+        assert not value["identity_configured"] and not value["callback_tested"]
+        assert value["lifecycle"] == "investigating"
+
+
+@pytest.mark.asyncio
+async def test_configure_disables_recording_before_connection_and_reads_exact_result():
+    requests = []
+
+    def response(request):
+        import json
+
+        requests.append(
+            (request.method, request.url.path, json.loads(request.content) if request.content else None)
+        )
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "id": "owned",
+                    "phone_number": "+14155550100",
+                    "connection_id": "route",
+                    "call_recording_enabled": False,
+                    "status": "active",
+                }
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(response)) as http:
+        await TelnyxCarrier("fixture", "route", http=http).configure_number("owned", "route")
+    assert requests == [
+        (
+            "PATCH",
+            "/v2/phone_numbers/owned/voice",
+            {"call_recording": {"inbound_call_recording_enabled": False}},
+        ),
+        ("PATCH", "/v2/phone_numbers/owned", {"connection_id": "route"}),
+        ("GET", "/v2/phone_numbers/owned", None),
+    ]
+
+
+def test_reassignment_records_original_identity_and_requires_current_binding(workspace, app):
+    from app.db import put
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        lead = service.scoped(s, "leads", p)[0]
+        numbers = service.scoped(s, "number_inventory", p)
+        old, new = numbers[0], numbers[1]
+        binding = put(
+            s,
+            "lead_number_bindings",
+            p["tenant_id"],
+            p["seller_id"],
+            {"lead_id": lead.id, "number_id": old.id},
+            key=lead.id,
+            now=service.clock(),
+        )
+        lead_id, old_id, new_id, version = lead.id, old.id, new.id, binding.version
+    c, h = workspace["client"], workspace["headers"]
+    body = {
+        "request_id": str(uuid4()),
+        "expected_version": version,
+        "reassignment": {"lead_id": lead_id, "old_number_id": old_id, "reason": "Reviewed route incident"},
+    }
+    path = f"/v1/admin/numbers/{new_id}"
+    result = c.patch(path, headers=h, json=body)
+    assert result.status_code == 200, result.text
+    assert result.json()["reassignment"]["old_number_id"] == old_id
+    assert result.json()["reassignment"]["new_number_id"] == new_id
+    assert result.json()["reassignment"]["effective_at"] == service.clock().isoformat()
+    assert c.patch(path, headers=h, json=body).json()["receipt"] == result.json()["receipt"]
+    with service.db.transaction(False) as s:
+        assert service.required(s, "lead_number_bindings", binding.id, p).data["number_id"] == new_id
+        assert service.required(s, "number_inventory", old_id, p).data["inbound_retained"] is True
+    stale = c.patch(path, headers=h, json={**body, "request_id": str(uuid4())})
+    assert stale.status_code == 409
+
+
+def test_review_supports_sparse_initial_use_without_five_call_milestone(workspace, carrier, app):
+    task = connected_callback(workspace, carrier)
+    c, h, identifier = workspace["client"], workspace["headers"], task["number_id"]
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        update(service.required(s, "number_inventory", identifier, p), daily_limit=5)
+    verified = c.patch(
+        f"/v1/admin/numbers/{identifier}",
+        headers=h,
+        json=number_edit(workspace, identifier, callback_task_id=task["id"]),
+    )
+    assert verified.status_code == 200, verified.text
+    body = number_edit(
+        workspace,
+        identifier,
+        decision="increase",
+        review_reference="Reviewed initial workload and staffing",
+        daily_limit=10,
+    )
+    result = c.post(f"/v1/admin/numbers/{identifier}/review", headers=h, json=body)
+    assert result.status_code == 200, result.text
+    assert result.json()["daily_limit"] == 10
+    assert result.json()["workload_review"]["health_samples"] == 0
+    assert result.json()["workload_review"]["previous_limit"] == 5
+    assert (
+        c.post(f"/v1/admin/numbers/{identifier}/review", headers=h, json=body).json()["receipt"]
+        == result.json()["receipt"]
+    )
+    over = c.post(
+        f"/v1/admin/numbers/{identifier}/review",
+        headers=h,
+        json=number_edit(
+            workspace,
+            identifier,
+            decision="increase",
+            review_reference="Beyond reviewed ceiling",
+            daily_limit=41,
+        ),
+    )
+    assert over.status_code == 409
+
+
+def test_expired_callback_proof_blocks_final_authorization(workspace, app, carrier, clock):
+    task = connected_callback(workspace, carrier)
+    c, h, identifier = workspace["client"], workspace["headers"], task["number_id"]
+    result = c.patch(
+        f"/v1/admin/numbers/{identifier}",
+        headers=h,
+        json=number_edit(workspace, identifier, callback_task_id=task["id"]),
+    )
+    assert result.status_code == 200, result.text
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        number = service.required(s, "number_inventory", identifier, p)
+        proof = dict(number.data["callback_proof"], expires_at=clock.now.isoformat())
+        update(number, lifecycle="limited_real_use", callback_proof=proof)
+        lead = service.scoped(s, "leads", p)[0]
+        assert service.context(s, p, lead, number).number_healthy is False
+
+
+def test_health_policy_is_validated_and_exposed_from_one_owner(workspace):
+    c, h = workspace["client"], workspace["headers"]
+    changed = {
+        "min_comparable": 40,
+        "material_drop": 0.15,
+        "confidence": 0.95,
+        "window_days": 60,
+        "callback_proof_days": 30,
+    }
+    response = c.put("/v1/admin/optimization", headers=h, json={"health_policy": changed})
+    assert response.status_code == 200, response.text
+    assert response.json()["health_policy"] == changed
+    assert (
+        c.put("/v1/admin/optimization", headers=h, json={"health_policy": {"min_comparable": 0}}).status_code
+        == 422
+    )

@@ -1,0 +1,12 @@
+{
+  "step_id": "E07",
+  "source_commit": "750bb3f",
+  "result": "behavioral red plus missing assessment contract",
+  "logs": {
+    "E07-contracts-red-sqlite.txt": "b360890d14afb6e1738cdf9be795eb6abfb8fefe7414fb527b3d4ffda9a9665b",
+    "E07-evidence-ui-red.txt": "83270f30913a513d955128a9fdcfb8bd3411fb56259c4dc464851ef50c940524",
+    "E07-contracts-red-postgres.txt": "5f9349bc1812afa5ec01e12a8df9087ad6a12bf330b641a8ad9fa3e4f6afee29"
+  },
+  "external_calls": false,
+  "installed_app_changed": false
+}

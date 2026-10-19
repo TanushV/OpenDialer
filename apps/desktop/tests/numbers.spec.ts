@@ -1,5 +1,41 @@
 import { expect, test } from "@playwright/test";
 
+test("number review distinguishes operational evidence from unknown external reputation", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await page.getByRole("button", { name: "Numbers", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Review number evidence" })
+    .first()
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Number evidence and workload" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("External label unknown", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Comparable classified attempts", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Reviewed daily limit")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Advance stage", exact: true }),
+  ).toBeHidden();
+  await expect(
+    page.getByText("A note alone cannot verify a callback.", { exact: true }),
+  ).toBeVisible();
+});
+
 for (const connected of [false, true]) {
   test(`${connected ? "connected" : "local"} planning shows pending work then the saved result and explicit simple staffing`, async ({
     page,

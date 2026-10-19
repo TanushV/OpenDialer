@@ -211,3 +211,88 @@ def test_health_support_and_case_mix(clock, count, expected, outcome, prediction
     if count >= 30:
         assert health.get("case_mix_residual_mean") == pytest.approx(-prediction)
         assert health.get("comparable_samples") == count
+
+
+def observed_attempt(clock, **changes):
+    return {
+        "started_at": clock.now.isoformat(),
+        "outcome": "no_answer",
+        "expected_human": 0.8,
+        "feature_schema_version": 2,
+        "campaign_id": "campaign",
+        "segment": "same",
+        "local_hour": 10,
+        "attempt_count": 0,
+        **changes,
+    }
+
+
+def test_health_zero_prediction_unknown_labels_and_wrong_leg_do_not_invent_support(clock):
+    rows = [observed_attempt(clock, expected_human=0) for _ in range(40)]
+    rows += [observed_attempt(clock, outcome="unclassified", connected_seconds=2) for _ in range(40)]
+    rows += [observed_attempt(clock, outcome="right_party", connected_seconds=2, connected_leg_kind="agent")]
+    health = number_health(rows, pooled_attempts=rows, now=clock.now)
+    assert health["human_classified_samples"] == 41
+    assert health["human_unknown_samples"] == 40
+    assert health["comparable_samples"] == 41
+    assert health["expected_human_answers"] == pytest.approx(0.8)
+    assert health["short_connected_calls"] == 0
+    assert health["status"] == "observed"
+
+
+def test_health_missing_or_future_predictions_are_excluded_not_reconstructed(clock):
+    rows = [observed_attempt(clock, expected_human=None) for _ in range(30)]
+    rows += [observed_attempt(clock, prediction_at=(clock.now + timedelta(seconds=1)).isoformat())]
+    health = number_health(rows, pooled_attempts=rows, now=clock.now)
+    assert health["comparable_samples"] == 0
+    assert health["excluded_comparison_samples"] == 31
+    assert health["case_mix_residual_mean"] is None
+    assert health["status"] == "unknown"
+
+
+def test_health_residual_interval_accounts_for_variance_and_policy_version(clock):
+    import statistics
+    from app.optimization import numbering
+
+    assess = getattr(numbering, "assess_number_health", None)
+    assert callable(assess), "One pure assessment must own health decisions"
+    rows = [observed_attempt(clock, outcome="right_party" if i < 15 else "no_answer") for i in range(40)]
+    policy = {"min_comparable": 30, "material_drop": 0.2, "confidence": 0.95, "window_days": 90}
+    result = assess(rows, {"as_of": clock.now.isoformat(), "attempts": rows}, None, policy)
+    residuals = [0.2] * 15 + [-0.8] * 25
+    mean = statistics.mean(residuals)
+    margin = 1.96 * statistics.stdev(residuals) / (40**0.5)
+    assert result["case_mix_interval"] == pytest.approx([mean - margin, mean + margin], abs=1e-5)
+    assert result["status"] == "investigating"
+    assert result["policy_version"] and result["policy"] == policy
+    relaxed = assess(
+        rows, {"as_of": clock.now.isoformat(), "attempts": rows}, None, {**policy, "material_drop": 0.6}
+    )
+    assert relaxed["status"] == "observed" and relaxed["policy_version"] != result["policy_version"]
+
+
+def test_health_external_unknown_is_not_clean_and_configuration_can_block_without_samples(clock):
+    from app.optimization import numbering
+
+    assess = getattr(numbering, "assess_number_health", None)
+    assert callable(assess), "Health must combine independent evidence without inventing labels"
+    external = {
+        "source": "authorized file",
+        "observed_at": clock.now.isoformat(),
+        "ownership_reference": "owned",
+        "spam_label": None,
+    }
+    result = assess(
+        [], {"as_of": clock.now.isoformat(), "configuration_errors": ["recording_not_disabled"]}, external, {}
+    )
+    assert result["status"] == "blocked" and result["score"] is None
+    assert result["external"]["spam_label"] is None
+    assert result["spam_label_confirmed"] is False
+    assert "recording_not_disabled" in result["reason_codes"]
+
+
+def test_bound_identity_never_changes_without_explicit_reassignment():
+    for inventory in [[number("bound", lifecycle="paused_for_outbound"), number("other")], [number("other")]]:
+        selected = select_number({"id": "lead", "region": "415"}, inventory, bound_id="bound")
+        assert selected["number_id"] is None
+        assert selected["reason_code"] == "reassignment_required"

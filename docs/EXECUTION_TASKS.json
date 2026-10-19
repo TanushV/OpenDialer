@@ -443,7 +443,9 @@
         "apps/desktop/tests/numbers.spec.ts",
         "services/backend/tests/test_scheduling_and_numbers.py"
       ],
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E07-contracts-red.json"
+      ],
       "planned_case_ids": [
         "C026",
         "C027",
@@ -462,7 +464,7 @@
       "implementation_todos": [
         {
           "id": "E07.contracts",
-          "status": "open",
+          "status": "in-progress",
           "work": "Retain E00 health reds; add callback-proof, configuration, reassignment and imported-health regressions"
         },
         {
