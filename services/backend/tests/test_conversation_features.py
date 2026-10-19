@@ -106,6 +106,7 @@ def test_persisted_decision_owns_its_sources_goal_and_allowed_actions(workspace,
         frozen = next(r.data for r in rows(s, "feature_snapshots") if r.id == call["feature_snapshot_id"])
     assert frozen["decision_at"] == frozen["as_of"]
     assert frozen["source_versions"]["lead"]["id"] == call["lead_id"]
+    assert frozen.get("company_id"), "Evaluation must group the company known at the decision"
     assert frozen["goal"] == "meeting_held" and frozen["outcome_window_days"] == 14
     assert frozen["chosen_action"] in frozen["allowed_actions"]
     assert frozen["action_distribution"][frozen["chosen_action"]] == frozen["propensity"]

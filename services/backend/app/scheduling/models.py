@@ -82,6 +82,15 @@ def prediction_key(features):
     )
 
 
+def company_group(lead):
+    """Conservative evaluation grouping from supplied identity, never a model input."""
+    for field in ("company_id", "domain", "company"):
+        value = " ".join(str(lead.get(field) or "").casefold().split())
+        if value and value != "unknown":
+            return field + ":" + hashlib.sha256(value.encode()).hexdigest()
+    return None
+
+
 def saved_prediction(profile, features, config):
     """A stale configuration never silently supplies a differently defined prior."""
     policy = EstimatePolicy.model_validate(config.get("estimate_policy", {}))

@@ -217,6 +217,8 @@ async def test_replay_evaluates_expected_card_and_grounding_not_just_show_card_a
     }
 
     class Provider:
+        seller_approved = True  # This fixture selects unchanged approved text.
+
         async def suggest(self, request, deadline_ms):
             return {
                 "action": "SHOW_CARD",
@@ -262,7 +264,7 @@ def test_no_operational_model_trial_can_start_without_a_verified_owned_artifact(
     assert result.status_code == 409
 
 
-def test_partial_coach_feedback_does_not_manufacture_unreviewed_quality_dimensions(workspace):
+def test_partial_coach_feedback_does_not_manufacture_unreviewed_quality_dimensions(workspace, clock):
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
     c.post(
@@ -276,6 +278,8 @@ def test_partial_coach_feedback_does_not_manufacture_unreviewed_quality_dimensio
             "is_final": True,
         },
     )
+    clock.now += timedelta(milliseconds=301)
+    assert c.post("/v1/admin/jobs/run", headers=h).status_code == 200
     card = c.get(f"/v1/calls/{call['id']}", headers=h).json()["coach"]
     result = c.post(
         f"/v1/calls/{call['id']}/coach/feedback",
@@ -329,28 +333,47 @@ def test_control_and_candidate_get_explicit_capacity_and_callbacks_remain_first(
     assert urgent["lead_id"] == "candidate" and urgent["lead_selection_probability"] == 1
 
 
+@pytest.mark.parametrize(
+    "reviewable,changed_baseline", [(None, False), (False, False), (True, False), (True, True)]
+)
 def test_reviewed_owned_candidate_can_run_a_bounded_pilot_and_expire_without_full_activation(
-    workspace, app, clock
+    workspace, app, clock, reviewable, changed_baseline
 ):
     import hashlib
 
     import joblib
-    from app.db import put
+    from app.db import put, update
     from app.ml.training import FEATURE_ORDER
+    from app.scheduling.models import EstimatePolicy
     from sklearn.dummy import DummyClassifier
 
     root = app.state.settings.data_dir / "models" / "fixture"
     root.mkdir(parents=True)
     artifact = root / "candidate.joblib"
     estimator = DummyClassifier(strategy="prior").fit([[0] * len(FEATURE_ORDER)] * 4, [0, 1, 0, 1])
-    joblib.dump({"human": estimator}, artifact)
+    joblib.dump(
+        {"human": estimator}
+        if reviewable is None
+        else {
+            "feature_schema_version": 2,
+            "stages": {
+                "human": {
+                    "estimator": estimator,
+                    "feature_order": ["local_hour"],
+                    "vocabulary": {"segments": [], "concepts": []},
+                }
+            },
+        },
+        artifact,
+    )
+    baseline = {"estimate_policy": EstimatePolicy().model_dump(mode="json"), "handling_seconds": 120}
     with app.state.db.transaction() as s:
         dataset = put(
             s,
             "learning_datasets",
             workspace["tenant_id"],
             workspace["seller_id"],
-            {"goal": "meeting_held", "rows": [], "as_of": clock.now.isoformat()},
+            {"goal": "meeting_held", "rows": [], "as_of": clock.now.isoformat(), "baseline": baseline},
             now=clock.now,
         )
         model = put(
@@ -365,17 +388,26 @@ def test_reviewed_owned_candidate_can_run_a_bounded_pilot_and_expire_without_ful
                 "artifact": str(artifact),
                 "checksum": hashlib.sha256(artifact.read_bytes()).hexdigest(),
                 "feature_order": FEATURE_ORDER,
+                **({"feature_schema_version": 2, "reviewable": reviewable} if reviewable is not None else {}),
+                "baseline": baseline,
                 "metrics": {"brier": 0.1, "pooled_baseline_brier": 0.2},
             },
             now=clock.now,
         )
         model_id = model.id
+        if changed_baseline:
+            p = {k: workspace[k] for k in ("tenant_id", "seller_id", "user_id")} | {"role": "owner"}
+            campaign = app.state.service.required(s, "campaigns", workspace["campaign_id"], p)
+            update(campaign, optimization={**campaign.data.get("optimization", {}), "handling_seconds": 300})
     c, h = workspace["client"], workspace["headers"]
     response = c.post(
         f"/v1/admin/models/{model_id}/start-trial",
         headers=h,
         json={"review_reference": "Explicit synthetic pilot review", "max_leads": 100, "duration_days": 1},
     )
+    if reviewable is False or changed_baseline:
+        assert response.status_code == 409, response.text
+        return
     assert response.status_code == 200, response.text
     assert response.json()["trial_active"] and response.json()["active"] is False
     report = completed_report(workspace, headers=h).json()

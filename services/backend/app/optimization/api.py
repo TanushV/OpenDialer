@@ -552,7 +552,16 @@ def register_optimization(app, service, principal, administrator):
                 or not model.data.get("source_dataset_id")
                 or not source
                 or source.data.get("goal") != config["conversion_goal"]
-                or metrics.get("brier", 1) >= metrics.get("pooled_baseline_brier", 0)
+                or (
+                    (
+                        not model.data.get("reviewable")
+                        or model.data.get("baseline")
+                        != {k: config[k] for k in ("estimate_policy", "handling_seconds")}
+                        or model.data.get("baseline") != source.data.get("baseline")
+                    )
+                    if model.data.get("feature_schema_version", 1) == 2
+                    else metrics.get("brier", 1) >= metrics.get("pooled_baseline_brier", 0)
+                )
                 or not predict_funnel(model.data, {}, service.settings.data_dir / "models")
             ):
                 fail(409, "An owned verified candidate that beats the deployed pooled baseline is required")

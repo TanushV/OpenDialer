@@ -515,7 +515,8 @@
         "services/backend/tests/test_strategy_exposure.py"
       ],
       "receipts": [
-        "docs/evidence/completion/E08-contracts-red.json"
+        "docs/evidence/completion/E08-contracts-red.json",
+        "docs/evidence/completion/E08-progress.json"
       ],
       "planned_case_ids": [
         "C030",
@@ -547,7 +548,7 @@
         },
         {
           "id": "E08.evaluation",
-          "status": "open",
+          "status": "in-progress",
           "work": "Three as-of entity-grouped folds, stage fallback, ablation and paired bootstrap; v1 rollback"
         },
         {
@@ -565,7 +566,8 @@
           "status": "open",
           "work": "Dual-database and browser evidence, superseded paths removed and mapping updated"
         }
-      ]
+      ],
+      "checkpoint": "Prior-context slice at 277d336: 107 SQLite plus connected-only skip; 108 PostgreSQL. Rolling evaluation and owned v2 serving are implemented but still under focused verification; strategy/UI/full E08 acceptance remain open."
     },
     {
       "id": "E09",

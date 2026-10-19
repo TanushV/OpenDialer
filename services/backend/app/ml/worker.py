@@ -45,10 +45,12 @@ def child_environment():
     return result
 
 
-def encode(rows, output_dir):
+def encode(rows, output_dir, baseline=None):
     if not isinstance(rows, list) or len(rows) > 20000:
         raise ValueError("Training row bound exceeded")
-    encoded = json.dumps({"rows": rows, "output_dir": str(output_dir)}, allow_nan=False).encode()
+    encoded = json.dumps(
+        {"rows": rows, "output_dir": str(output_dir), "baseline": baseline}, allow_nan=False
+    ).encode()
     if len(encoded) > MAX_INPUT:
         raise ValueError("Training input byte bound exceeded")
     return encoded
@@ -124,9 +126,9 @@ def checked_result(contents, output_dir):
     return result
 
 
-async def train_isolated(rows, output_dir, *, timeout_seconds=MAX_SECONDS):
+async def train_isolated(rows, output_dir, *, timeout_seconds=MAX_SECONDS, baseline=None):
     output_dir = Path(output_dir).resolve()
-    request = await asyncio.to_thread(encode, rows, output_dir)
+    request = await asyncio.to_thread(encode, rows, output_dir, baseline)
     slot = training_slot(output_dir.parent)
     process, keep, created = None, False, False
     try:
@@ -188,7 +190,7 @@ def main():
             raise ValueError("Row bound exceeded")
         from app.ml.training import train_challenger
 
-        result = train_challenger(request["rows"], request["output_dir"])
+        result = train_challenger(request["rows"], request["output_dir"], baseline=request.get("baseline"))
         result["training_runtime"] = {"pid": os.getpid(), "native_threads": 1, "priority": "low"}
         response = json.dumps(result, allow_nan=False).encode()
         if len(response) > MAX_REPLY:

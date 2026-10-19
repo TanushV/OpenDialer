@@ -211,7 +211,7 @@ def test_challenger_persists_auditable_per_stage_cutoffs(tmp_path):
             continue
         assert report["train_labels_through"] < report["calibration_from"]
         assert report["calibration_labels_through"] < report["validation_from"]
-        assert report["partition_policy"] == "as-of-grouped-embargo-v1"
+        assert report["partition_policy"] == "as-of-grouped-embargo-v2"
 
 
 def outcome_fixture(clock):

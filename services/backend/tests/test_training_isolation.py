@@ -50,6 +50,62 @@ def source(service, p):
         return {"rows": data, "goal": "meeting_held", "source_dataset_id": dataset.id}
 
 
+def test_operational_training_admission_keeps_unclassified_outcomes_unknown(workspace, app, monkeypatch):
+    service, p = app.state.service, principal(workspace)
+    monkeypatch.setattr(
+        service,
+        "save_operational_dataset",
+        lambda p: {
+            "id": "unclassified-dataset",
+            "rows": [{"human": None}] * 120,
+        },
+    )
+    result = service.train_operational(p)
+    assert result["status"] == "insufficient_data" and result["rows"] == 120
+    assert result["classified_rows"] == 0
+
+
+@pytest.mark.asyncio
+async def test_training_freezes_and_uses_the_actual_configured_baseline(workspace, app):
+    from app.scheduling.models import EstimatePolicy
+
+    service, p = app.state.service, principal(workspace)
+    baseline = {
+        "estimate_policy": EstimatePolicy(human_prior=(8, 2)).model_dump(mode="json"),
+        "handling_seconds": 300,
+    }
+    with service.db.transaction() as s:
+        campaign = service.required(s, "campaigns", workspace["campaign_id"], p)
+        update(campaign, optimization={**service.optimization_config(s, p), **baseline})
+    snapshot = service.save_operational_dataset(p)
+    assert snapshot.get("baseline") == baseline
+    payload = source(service, p)
+    with service.db.transaction() as s:
+        update(get(s, "learning_datasets", payload["source_dataset_id"]), baseline=baseline)
+    payload["baseline"] = baseline
+    await service.train_model_job(p, payload)
+    with service.db.transaction(False) as s:
+        model = service._by_key(s, p, "model_versions", "training:" + payload["source_dataset_id"])
+        assert model.data.get("baseline") == baseline
+
+
+@pytest.mark.asyncio
+async def test_training_cannot_substitute_an_easier_baseline(workspace, app, monkeypatch):
+    from fastapi import HTTPException
+
+    service, p = app.state.service, principal(workspace)
+    payload = source(service, p)
+    payload["baseline"] = {"estimate_policy": {"human_prior": [0.01, 100]}, "handling_seconds": 120}
+
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("Changed baseline reached fitting")
+
+    monkeypatch.setattr("app.ml.worker.train_isolated", forbidden)
+    with pytest.raises(HTTPException) as failure:
+        await service.train_model_job(p, payload)
+    assert failure.value.status_code == 409
+
+
 @pytest.mark.asyncio
 async def test_training_uses_a_real_child_and_publishes_off_loop_without_inheriting_secrets(
     workspace, app, monkeypatch
@@ -357,7 +413,7 @@ async def test_cancelling_during_publication_does_not_delete_committed_artifact(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("changed", ["role", "goal", "source"])
+@pytest.mark.parametrize("changed", ["role", "goal", "source", "baseline"])
 async def test_changed_authority_or_dataset_cannot_publish_trained_candidate(
     workspace, app, monkeypatch, changed
 ):
@@ -365,6 +421,11 @@ async def test_changed_authority_or_dataset_cannot_publish_trained_candidate(
 
     service, p = app.state.service, principal(workspace)
     payload = source(service, p)
+    if changed == "baseline":
+        with service.db.transaction() as s:
+            config = service.optimization_config(s, p)
+            payload["baseline"] = {k: config[k] for k in ("estimate_policy", "handling_seconds")}
+            update(get(s, "learning_datasets", payload["source_dataset_id"]), baseline=payload["baseline"])
 
     async def fitted(rows, output_dir, **kwargs):
         output_dir.mkdir(parents=True)
@@ -375,6 +436,11 @@ async def test_changed_authority_or_dataset_cannot_publish_trained_candidate(
                 update(get(s, "users", p["user_id"]), disabled=True)
             elif changed == "source":
                 update(get(s, "learning_datasets", payload["source_dataset_id"]), rows=[])
+            elif changed == "baseline":
+                campaign = service.scoped(s, "campaigns", p)[0]
+                update(
+                    campaign, optimization={**campaign.data.get("optimization", {}), "handling_seconds": 300}
+                )
             else:
                 campaign = service.scoped(s, "campaigns", p)[0]
                 update(

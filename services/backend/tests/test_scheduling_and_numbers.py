@@ -64,10 +64,11 @@ def test_challenger_evaluates_chronologically_and_requires_approval(tmp_path):
             "lead_id": str(i),
             "endpoint_id": str(i),
             "at": f"2026-09-{1 + i // 10:02d}T12:00:00Z",
+            "outcome_available_at": f"2026-09-{1 + i // 10:02d}T12:01:00Z",
             "features": {"local_hour": 9 + i % 8, "attempt_count": i % 3, "number_health": 0.8},
             "human": i % 3 == 0,
         }
-        for i in range(120)
+        for i in range(300)
     ]
     result = train_challenger(rows, tmp_path)
     assert result["train_through"] < result["validation_from"]
@@ -168,10 +169,11 @@ def test_only_verified_local_model_artifact_can_influence_probability(tmp_path):
             "lead_id": str(i),
             "endpoint_id": str(i),
             "at": f"2026-09-{1 + i // 10:02d}",
+            "outcome_available_at": f"2026-09-{1 + i // 10:02d}T00:01:00Z",
             "features": {"local_hour": 10 + i % 4, "attempt_count": i % 3, "number_health": 0.8},
             "human": i % 3 == 0,
         }
-        for i in range(120)
+        for i in range(300)
     ]
     model = train_challenger(rows, directory)
     assert 0 <= predict_challenger(model, {"local_hour": 11}, directory) <= 1

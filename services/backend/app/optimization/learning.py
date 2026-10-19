@@ -180,7 +180,7 @@ def training_rows(calls, snapshots, events, *, now, goal, window_days):
                 "rep_work_seconds": attempt_work_seconds(call),
                 "duration_seconds": attempt_work_seconds(call),
                 "contact_role": outcome.get("contact_role"),
-                "company_id": call.get("company_id"),
+                "company_id": snapshot.get("company_id", call.get("company_id")),
                 "propensity": snapshot.get("propensity", 1.0),
                 "p_human": snapshot.get("predictions", {}).get("p_human"),
                 "experiment_arm": snapshot.get("experiment_arm", "baseline"),

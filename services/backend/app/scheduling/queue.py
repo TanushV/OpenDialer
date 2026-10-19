@@ -16,7 +16,7 @@ from app.optimization.learning import (
     stable_control,
 )
 from app.optimization.numbering import select_number, timestamp
-from app.scheduling.models import saved_prediction
+from app.scheduling.models import company_group, saved_prediction
 from app.scheduling.policy import queue_decision, rank_candidates
 
 
@@ -447,6 +447,8 @@ class ReservationPlanner:
                 {
                     "lead_id": lead.id,
                     "as_of": plan["features"]["decision_at"],
+                    "company_id": company_group(lead.data),
+                    "company_group_basis": "supplied_identity_not_verified_business_ownership",
                     "decision_at": plan["features"]["decision_at"],
                     "source_versions": {
                         "lead": {"id": lead.id, "version": plan["lead_version"]},

@@ -1069,11 +1069,13 @@ class OptimizationWorkflows(ComparisonWorkflows):
             data = self.operational_dataset(s, p, config)
             campaign = self.scoped(s, "campaigns", p)[0]
             revision = campaign.data.get("conversation_revision", 0)
+            baseline = {k: config[k] for k in ("estimate_policy", "handling_seconds")}
             # Bound training memory, retain the complete operational ledger as source of truth.
             data = data[-20000:]
             key = hashlib.sha256(
                 json.dumps(
-                    [config["conversion_goal"], config["window_days"], data, revision], sort_keys=True
+                    [config["conversion_goal"], config["window_days"], data, revision, baseline],
+                    sort_keys=True,
                 ).encode()
             ).hexdigest()
             previous = next(
@@ -1090,6 +1092,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                     "goal": config["conversion_goal"],
                     "conversation_revision": revision,
                     "window_days": config["window_days"],
+                    "baseline": baseline,
                     "as_of": self.clock().isoformat(),
                     "rows": data,
                     "checksum": key,
@@ -1106,11 +1109,13 @@ class OptimizationWorkflows(ComparisonWorkflows):
         data = dataset["rows"]
         with self.db.transaction(False) as s:
             minimum = self.optimization_config(s, p)["training_min_rows"]
-        positives = sum(r["human"] for r in data)
-        if len(data) < minimum or min(positives, len(data) - positives) < 10:
+        known = [r["human"] for r in data if r.get("human") in (0, 1)]
+        positives = sum(known)
+        if len(known) < minimum or min(positives, len(known) - positives) < 10:
             return {
                 "status": "insufficient_data",
                 "rows": len(data),
+                "classified_rows": len(known),
                 "required_rows": minimum,
                 "dataset_id": dataset["id"],
                 "reason": "Independent labeled outcomes and both answer classes are required",
@@ -1123,6 +1128,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 "user_id": p["user_id"],
                 "source_dataset_id": dataset["id"],
                 "goal": dataset["goal"],
+                "baseline": dataset["baseline"],
             },
             "operational-train:" + dataset["checksum"],
             tenant_id=p["tenant_id"],

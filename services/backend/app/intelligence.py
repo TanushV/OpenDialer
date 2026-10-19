@@ -1355,11 +1355,17 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
         if user.data.get("disabled") or user.data.get("role") not in {"owner", "admin"}:
             fail(403, "Current administrator authority is required for training")
         dataset = self.required(s, "learning_datasets", payload.get("source_dataset_id"), p)
+        config = self.optimization_config(s, p)
         if (
             dataset.data.get("source") != "immutable_operational_feature_snapshots"
             or dataset.data.get("rows") != payload["rows"]
             or dataset.data.get("goal") != payload.get("goal")
-            or self.optimization_config(s, p)["conversion_goal"] != payload.get("goal")
+            or dataset.data.get("baseline") != payload.get("baseline")
+            or config["conversion_goal"] != payload.get("goal")
+            or (
+                payload.get("baseline") is not None
+                and payload["baseline"] != {k: config[k] for k in ("estimate_policy", "handling_seconds")}
+            )
         ):
             fail(409, "Training source or goal changed; prepare the current owned dataset")
         prior = self._by_key(s, p, "model_versions", "training:" + dataset.id)
@@ -1404,7 +1410,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
         directory = self.settings.data_dir / "models" / uid()
         published = False
         try:
-            result = await train_isolated(payload["rows"], directory)
+            result = await train_isolated(payload["rows"], directory, baseline=payload.get("baseline"))
             publication = asyncio.create_task(
                 asyncio.to_thread(self._training_publish, p, payload, version, result)
             )
