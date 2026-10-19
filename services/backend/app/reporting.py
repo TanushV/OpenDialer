@@ -71,6 +71,7 @@ REPORT_FIELDS = {
     "feature_snapshots": None,
     "notes": {"observations", "human_notes", "corrected_at"},
     "usage_ledger": {
+        "kind",
         "at",
         "call_id",
         "object_id",

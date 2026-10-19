@@ -114,6 +114,12 @@ def saved_prediction(profile, features, config):
             local = (
                 sum_counts(cells[i]["counts"] for i in selected) if complete and level != "pooled" else total
             )
+            costs = statistics.get("costs")
+            if costs:
+                local = {
+                    **local,
+                    **{k: costs[k] for k in ("cost_usd", "cost_observations", "cost_unknown_observations")},
+                }
             return {
                 **prediction_from_counts(
                     total,
@@ -123,6 +129,7 @@ def saved_prediction(profile, features, config):
                     estimate_policy=policy,
                 ),
                 "cell_detail_limited": not complete,
+                **({"cost_support_level": costs["level"]} if costs else {}),
                 "as_of": profile.get("as_of"),
             }
         found = profile.get("predictions", {}).get(prediction_key(features)) or profile.get("pooled")

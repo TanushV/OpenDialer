@@ -291,14 +291,10 @@ def retry_statistics(rows, leads, *, now, max_attempts):
     ]
 
 
-def learn_distribution(actions, history, *, segment=None, exploration=0.1, control=False, urgent=False):
+def reward_counts(history, *, segment=None):
     counts = {}
     for row in history:
-        if (
-            row.get("window_status") != "matured"
-            or row.get("conversion") is None
-            or row.get("action") not in actions
-        ):
+        if row.get("window_status") != "matured" or row.get("conversion") is None or not row.get("action"):
             continue
         action = row["action"]
         weight = min(20.0, 1 / max(0.01, float(row.get("propensity") or 1)))
@@ -308,7 +304,17 @@ def learn_distribution(actions, history, *, segment=None, exploration=0.1, contr
         for key, value in vector.items():
             name = f"reward:{action}:{key}"
             counts[name] = counts.get(name, 0) + value
-    return distribution_from_counts(actions, counts, exploration=exploration, control=control, urgent=urgent)
+    return counts
+
+
+def learn_distribution(actions, history, *, segment=None, exploration=0.1, control=False, urgent=False):
+    return distribution_from_counts(
+        actions,
+        reward_counts((r for r in history if r.get("action") in actions), segment=segment),
+        exploration=exploration,
+        control=control,
+        urgent=urgent,
+    )
 
 
 def distribution_from_counts(actions, counts, *, exploration=0.1, control=False, urgent=False):

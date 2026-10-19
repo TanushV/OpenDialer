@@ -23,6 +23,7 @@ from app.optimization.learning import (
     drift_values,
     outcome_at,
     retry_statistics,
+    reward_counts,
     training_rows,
     trial_from_counts,
     trial_values,
@@ -137,6 +138,11 @@ def training_values(call, feature, events, *, config, now):
     row = data[0] if data and outcome_at(call, now) else {}
     return {
         **{"estimate:" + k: v for k, v in estimate_counts(data).items()},
+        **{
+            k: v
+            for k, v in reward_counts([row] if row else []).items()
+            if k.rsplit(":", 1)[-1].startswith("all_")
+        },
         "dataset_rows": int(bool(row)),
         "dataset_pending_rows": int(bool(row) and row["conversion"] is None),
         "dataset_matured_rows": int(bool(row) and row["window_closed"]),
@@ -475,7 +481,7 @@ def definition_version(config, epoch):
     return hashlib.sha256(
         json.dumps(
             {
-                "metrics": "cohort-work-v12",
+                "metrics": "cohort-work-v13",
                 "epoch": epoch,
                 "goal": config["conversion_goal"],
                 "window_days": config["window_days"],
@@ -1179,6 +1185,20 @@ def _detail_groups(snapshot, now, namespace):
             estimate_counts(data),
         )
     )
+    if rewards := reward_counts(data if outcome_at(row, now) else []):
+        groups.append(
+            (
+                {
+                    "bucket_kind": "treatment",
+                    "bucket_day": None,
+                    "campaign_id": snapshot["campaign_id"],
+                    "definition_version": snapshot["definition"],
+                    "namespace": namespace,
+                    "segment": observed.get("segment", "unknown"),
+                },
+                rewards,
+            )
+        )
     if not now - timedelta(days=28) <= timestamp(observed["at"]) <= now:
         return groups
     return groups + [
@@ -1211,7 +1231,16 @@ def _apply_bucket_delta(service, session, p, group, delta, fields=()):
         (kind == "drift" and total.get("rows", 0) == 0)
         or (kind == "trial" and total.get("control:leads", 0) + total.get("candidate:leads", 0) == 0)
         or (
-            kind in {"comparison", "number_health", "number_health_stratum", "call_cost", "estimate", "retry"}
+            kind
+            in {
+                "comparison",
+                "number_health",
+                "number_health_stratum",
+                "call_cost",
+                "estimate",
+                "retry",
+                "treatment",
+            }
             and not any(total.values())
         )
     )
@@ -1867,7 +1896,7 @@ def read_estimate_statistics(service, p):
         prefix = f"v{group['definition_version']}:{group['namespace']}:"
         model = MODELS["metric_buckets"]
         results = {}
-        for kind in ("estimate", "retry"):
+        for kind in ("estimate", "retry", "treatment"):
             results[kind] = [
                 dict(row.data)
                 for row in session.scalars(
@@ -1883,6 +1912,22 @@ def read_estimate_statistics(service, p):
             ]
     cells, retry = results["estimate"], results["retry"]
     return {
+        "costs": {
+            "cost_usd": values.get("observed_call_cost_microusd", 0) / 1_000_000,
+            "cost_observations": values.get("observed_cost_calls", 0),
+            "cost_unknown_observations": values.get("unknown_cost_calls", 0),
+            "level": "pooled_complete_calls",
+        },
+        "treatment_counts": {
+            row["group"]["segment"]: {
+                **row["values"],
+                **{k: v for k, v in values.items() if k.startswith("reward:")},
+            }
+            for row in results["treatment"]
+        }
+        if len(results["treatment"]) <= 1000
+        else {},
+        "treatments_complete": len(results["treatment"]) <= 1000,
         "total": {k.removeprefix("estimate:"): v for k, v in values.items() if k.startswith("estimate:")},
         "cells": [{"features": row["group"]["features"], "counts": row["values"]} for row in cells[:1000]],
         "cells_complete": len(cells) <= 1000,
