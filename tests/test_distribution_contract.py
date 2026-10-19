@@ -22,6 +22,8 @@ def test_version_identity_artifact_contract():
     lock = json.loads((ROOT / "apps/desktop/package-lock.json").read_text())
     cargo = tomllib.loads((ROOT / "apps/desktop/src-tauri/Cargo.toml").read_text())
     python = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    python_lock = tomllib.loads((ROOT / "uv.lock").read_text())
+    cargo_lock = tomllib.loads((ROOT / "apps/desktop/src-tauri/Cargo.lock").read_text())
     versions = [
         tauri["version"],
         package["version"],
@@ -30,6 +32,8 @@ def test_version_identity_artifact_contract():
         cargo["package"]["version"],
         python["project"]["version"],
         Settings().version,
+        next(p["version"] for p in python_lock["package"] if p["name"] == "opendialer"),
+        next(p["version"] for p in cargo_lock["package"] if p["name"] == "opendialer-desktop"),
     ]
     assert versions == ["0.3.0"] * len(versions)
     assert tauri["identifier"] == "com.opendialer.desktop"
