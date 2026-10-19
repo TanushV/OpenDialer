@@ -284,7 +284,7 @@ def test_another_seller_or_rep_cannot_settle_original_liability(workspace, app):
 
 
 def test_credit_is_used_consistently_by_metrics_and_operational_learning(workspace, app):
-    call, _ = call_hold(workspace, app)
+    call, hold = call_hold(workspace, app)
     c, h = workspace["client"], workspace["headers"]
     c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
     c.post(
@@ -309,6 +309,21 @@ def test_credit_is_used_consistently_by_metrics_and_operational_learning(workspa
     with app.state.db.transaction(False) as s:
         dataset = app.state.service.operational_dataset(s, p)
     assert len(dataset) == 1
+    assert dataset[0]["observed_cost_usd"] is None, "One CDR is not proof of complete call cost"
+    complete = resolve(
+        workspace,
+        saved(app, hold),
+        action="close_call",
+        provider="telnyx",
+        request_id=None,
+        receipt_id="complete-credit-statement",
+        cost_usd=0,
+        provider_record_ids=["cdr-original"],
+        confirm_complete=True,
+    )
+    assert complete.status_code == 200, complete.text
+    with app.state.db.transaction(False) as s:
+        dataset = app.state.service.operational_dataset(s, p)
     assert dataset[0]["observed_cost_usd"] == 0.01
 
 

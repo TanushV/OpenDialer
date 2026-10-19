@@ -204,3 +204,154 @@ def test_inplace_outcome_change_dirties_call_and_related_lead(workspace, app, cl
     for key in (call_key, lead_key):
         assert after[key]["payload"]["desired_generation"] > before[key]["payload"]["desired_generation"]
     assert any(j["payload"]["source_kind"] == "rep-day" for j in after.values())
+
+
+def project_pending(service, p):
+    from app.optimization.projections import refresh_unit
+
+    for job in dirty_jobs(service, p).values():
+        assert refresh_unit(service, p, job["payload"])["status"] in {"ready", "unchanged"}
+
+
+def vectors(service, p, table):
+    with service.db.transaction(False) as session:
+        return {r.external_key: (r.version, dict(r.data)) for r in service.scoped(session, table, p)}
+
+
+def test_source_replacement_duplicate_delete_and_atomic_rollback(workspace, app, clock, monkeypatch):
+    from app.db import get, put
+    from app.optimization import projections
+
+    service, p = app.state.service, principal(workspace)
+    project_pending(service, p)
+    initial = vectors(service, p, "metric_contributions")
+    assert sum(data["values"].get("original_cohort", 0) for _, data in initial.values()) == 3
+    project_pending(service, p)
+    assert vectors(service, p, "metric_contributions") == initial
+    with service.db.transaction() as session:
+        lead = service.scoped(session, "leads", p)[0]
+        identity = lead.id
+        put(
+            session,
+            "conversion_events",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "lead_id": identity,
+                "kind": "meeting_held",
+                "status": "confirmed",
+                "occurred_at": clock.now.isoformat(),
+                "label_available_at": clock.now.isoformat(),
+            },
+            now=clock.now,
+        )
+    project_pending(service, p)
+    changed = vectors(service, p, "metric_contributions")
+    assert sum(d["values"].get("unique_conversions", 0) for _, d in changed.values()) == 1
+    buckets = vectors(service, p, "metric_buckets")
+    with service.db.transaction() as session:
+        session.delete(get(session, "leads", identity))
+    original = projections.delta_values
+
+    def fail_after_delta(*args):
+        original(*args)
+        raise RuntimeError("synthetic failed bucket calculation")
+
+    monkeypatch.setattr(projections, "delta_values", fail_after_delta)
+    import pytest
+
+    with pytest.raises(RuntimeError):
+        project_pending(service, p)
+    assert vectors(service, p, "metric_buckets") == buckets
+    assert vectors(service, p, "metric_contributions") == changed
+    monkeypatch.setattr(projections, "delta_values", original)
+    project_pending(service, p)
+    remaining = vectors(service, p, "metric_contributions")
+    assert sum(d["values"].get("original_cohort", 0) for _, d in remaining.values()) == 2
+    assert sum(d["values"].get("unique_conversions", 0) for _, d in remaining.values()) == 0
+
+
+def test_dirty_generation_fences_change_during_calculation(workspace, app, monkeypatch):
+    from app.db import get
+    from app.optimization import projections
+
+    service, p = app.state.service, principal(workspace)
+    project_pending(service, p)
+    with service.db.transaction() as session:
+        lead = service.scoped(session, "leads", p)[0]
+        identity = lead.id
+        update(lead, status="needs_review")
+    original = projections.lead_values
+
+    def change_during_read(lead, *args, **kwargs):
+        result = original(lead, *args, **kwargs)
+        if lead["id"] == identity:
+            with service.db.transaction() as session:
+                update(get(session, "leads", identity), status="eligible")
+        return result
+
+    monkeypatch.setattr(projections, "lead_values", change_during_read)
+    payload = dirty_jobs(service, p)[f"projection:{p['seller_id']}:lead:{identity}"]["payload"]
+    before = vectors(service, p, "metric_contributions")
+    assert projections.refresh_unit(service, p, payload)["status"] == "superseded"
+    assert vectors(service, p, "metric_contributions") == before
+    monkeypatch.setattr(projections, "lead_values", original)
+    project_pending(service, p)
+    assert (
+        sum(
+            d["values"].get("eligible_now", 0)
+            for _, d in vectors(service, p, "metric_contributions").values()
+        )
+        == 3
+    )
+
+
+def test_due_maturity_and_cross_midnight_work_are_replaceable(workspace, app, clock):
+    from datetime import timedelta
+    from app.db import put
+    from app.optimization.projections import refresh_due
+
+    service, p = app.state.service, principal(workspace)
+    midnight = clock.now.replace(hour=0, minute=0, second=0)
+    with service.db.transaction() as session:
+        lead = service.scoped(session, "leads", p)[0]
+        put(
+            session,
+            "call_attempts",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "lead_id": lead.id,
+                "campaign_id": workspace["campaign_id"],
+                "rep_id": p["user_id"],
+                "started_at": (clock.now - timedelta(days=13)).isoformat(),
+                "submitted_at": (clock.now - timedelta(days=13)).isoformat(),
+                "ended_at": (clock.now - timedelta(days=13) + timedelta(minutes=1)).isoformat(),
+                "state": "ENDED",
+                "outcome": "no_answer",
+                "outcome_available_at": clock.now.isoformat(),
+            },
+            now=clock.now,
+        )
+        for _ in range(2):
+            put(
+                session,
+                "work_intervals",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    "rep_id": p["user_id"],
+                    "started_at": (midnight - timedelta(minutes=1)).isoformat(),
+                    "ended_at": (midnight + timedelta(minutes=2)).isoformat(),
+                },
+                now=clock.now,
+            )
+    project_pending(service, p)
+    values = [d["values"] for _, d in vectors(service, p, "metric_contributions").values()]
+    assert sum(v.get("rep_work_seconds", 0) for v in values) == 240
+    assert sum(v.get("pending_outcome_windows", 0) for v in values) == 1
+    clock.now += timedelta(days=2)
+    assert refresh_due(service, p, limit=100)["processed"] > 0
+    values = [d["values"] for _, d in vectors(service, p, "metric_contributions").values()]
+    assert sum(v.get("pending_outcome_windows", 0) for v in values) == 0
+    assert sum(v.get("rep_work_seconds", 0) for v in values) == 240

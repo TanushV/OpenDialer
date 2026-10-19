@@ -442,8 +442,11 @@ def test_work_index_backfill_preserves_payload_versions_and_resumes(workspace, a
         rows = [
             put(session, "work_intervals", p["tenant_id"], p["seller_id"], data, now=clock.now)
             for data in [
-                {"rep_id": p["user_id"], "started_at": clock.now.isoformat(),
-                 "lease_until": (clock.now + timedelta(seconds=90)).isoformat()},
+                {
+                    "rep_id": p["user_id"],
+                    "started_at": clock.now.isoformat(),
+                    "lease_until": (clock.now + timedelta(seconds=90)).isoformat(),
+                },
                 {"rep_id": p["user_id"], "started_at": None},
             ]
         ]
