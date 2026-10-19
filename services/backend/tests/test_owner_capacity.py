@@ -77,7 +77,7 @@ def test_offset_windows_cannot_double_book_the_same_did_between_grid_points():
     )
     times = sorted(r["at"] for r in result["existing_schedule"])
     assert times == [NOW.isoformat(), (NOW + timedelta(minutes=2)).isoformat()]
-    assert result["assumptions"]["staffing_grid_seconds"] == 120
+    assert result["assumptions"]["staffing_grid_seconds"] == 30
 
 
 def test_adjacent_periods_for_one_owner_are_continuous_availability():

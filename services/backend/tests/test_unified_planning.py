@@ -218,6 +218,7 @@ def test_priority_classes_and_shuffled_input_are_stable():
 
 def test_immutable_planning_contract_and_canonical_fingerprint():
     import dataclasses
+
     import app.optimization.capacity as capacity
 
     for name in ("PlanningInput", "Availability", "AttemptWork", "NumberCapacity", "PlanningResult"):
@@ -252,7 +253,12 @@ def test_retry_forecast_uses_only_matured_conditioned_support(success, total):
             "matured": True,
         }
     ] * 50
-    result = plan(rows, [number()], retry_observations=history)
+    result = plan(
+        rows,
+        [number()],
+        retry_observations=history,
+        policy={"max_attempts": 3, "min_retry_seconds": 3600, "local_start_hour": 9, "local_end_hour": 20},
+    )
     retry = result["contingent_retry_low_mean_high"]
     assert 0 <= retry["low"] <= retry["mean"] <= retry["high"] <= 2
     assert retry["support"] == total

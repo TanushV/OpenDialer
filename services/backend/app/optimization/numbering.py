@@ -1,6 +1,5 @@
 import math
 from datetime import UTC, datetime, timedelta
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.scheduling.models import HUMAN
 
@@ -156,6 +155,7 @@ def capacity_forecast(
     staffed_windows=None,
     additional_ready_after_hours=0,
     rep_busy_until=None,
+    retry_observations=(),
 ):
     if (
         daily_capacity_per_number < 1
@@ -165,181 +165,19 @@ def capacity_forecast(
     ):
         raise ValueError("Positive bounded horizon/capacity and nonnegative available rep time required")
     policy = policy or {}
-    if staffed_windows:
-        from app.optimization.capacity import time_forecast
+    from app.optimization.capacity import time_forecast
 
-        return time_forecast(
-            leads,
-            inventory,
-            now=now,
-            horizon_hours=horizon_hours,
-            rep_minutes=rep_minutes,
-            handling_seconds=handling_seconds,
-            daily_capacity_per_number=daily_capacity_per_number,
-            policy=policy,
-            staffed_windows=staffed_windows,
-            additional_ready_after_hours=additional_ready_after_hours,
-            rep_busy_until=rep_busy_until,
-        )
-    end, demand = now + timedelta(hours=horizon_hours), {}
-    callback_demand, eligible_counts = {}, {}
-    unknown_windows = 0
-    for lead in leads:
-        if (
-            lead.get("status", "eligible") != "eligible"
-            or lead.get("suppressed")
-            or lead.get("calling_permission") == "denied"
-            or lead.get("outreach_hold")
-            or lead.get("goal_completed")
-        ):
-            continue
-        remaining = max(0, policy.get("max_attempts", 4) - lead.get("attempt_count", 0))
-        due = max(now, timestamp(lead.get("callback_due_at") or lead.get("next_attempt_at")) or now)
-        retry = max(3600, policy.get("min_retry_seconds", 3600))
-        count = 0
-        try:
-            if not lead.get("timezone"):
-                raise ZoneInfoNotFoundError("unknown")
-            zone = ZoneInfo(lead["timezone"])
-        except ZoneInfoNotFoundError:
-            unknown_windows += 1
-            continue
-        while due < end and count < remaining:
-            local = due.astimezone(zone)
-            if policy.get("local_start_hour", 9) <= local.hour < policy.get("local_end_hour", 20):
-                count += 1
-                due += timedelta(seconds=retry)
-            else:
-                due += timedelta(hours=1)
-        if count:
-            region = lead.get("region") or "general"
-            demand[region] = demand.get(region, 0) + count
-            eligible_counts[region] = eligible_counts.get(region, 0) + 1
-            callback_demand[region] = callback_demand.get(region, 0) + bool(lead.get("callback_due_at"))
-    available_attempts = int(rep_minutes * 60 / handling_seconds)
-    days = max(1, math.ceil(horizon_hours / 24))
-    added_capacity = daily_capacity_per_number * days
-    waiting_states = {
-        "purchased",
-        "identity_configured",
-        "callback_tested",
-        "investigating",
-        "paused_for_outbound",
-    }
-    order = sorted(demand, key=lambda r: (-callback_demand.get(r, 0), -demand[r], r))
-    regional, general, waiting, general_waiting, owned_counts = {}, 0, {}, 0, {}
-    for number in inventory:
-        region = number.get("region", "general")
-        state = number.get("lifecycle")
-        if number_ready(number):
-            capacity = max(
-                0,
-                number.get("daily_limit", 0) * days
-                - number.get("used_today", 0)
-                - number.get("reserved_attempts", 0),
-            )
-            if region == "general":
-                general += capacity
-            else:
-                regional[region] = regional.get(region, 0) + capacity
-            owned_counts[region] = owned_counts.get(region, 0) + 1
-        elif state in waiting_states or state in {"healthy", "limited_real_use"}:
-            capacity = max(daily_capacity_per_number, number.get("daily_limit", 0)) * days
-            if region == "general":
-                general_waiting += capacity
-            else:
-                waiting[region] = waiting.get(region, 0) + capacity
-    allocated = {r: min(demand[r], regional.get(r, 0)) for r in order}
-    shared = {}
-    # A general pool is debited once, even when the lead's region is also "general".
-    for region in order:
-        shared[region] = min(general, demand[region] - allocated[region])
-        general -= shared[region]
-    planned = {r: 0 for r in order}
-    remaining_rep = available_attempts
-    # Protect callbacks, then use existing inventory before proposing additions for unstaffed work.
-    for region in order:
-        planned[region] = min(callback_demand.get(region, 0), remaining_rep)
-        remaining_rep -= planned[region]
-    for region in order:
-        extra = min(remaining_rep, max(0, allocated[region] + shared[region] - planned[region]))
-        planned[region] += extra
-        remaining_rep -= extra
-    for region in order:
-        extra = min(remaining_rep, demand[region] - planned[region])
-        planned[region] += extra
-        remaining_rep -= extra
-    regions, spare_new_capacity, proposed = [], 0, 0
-    for region in order:
-        usable = min(allocated[region], planned[region])
-        shared_used = min(shared[region], planned[region] - usable)
-        deficit = planned[region] - usable - shared_used
-        owned_waiting = min(deficit, waiting.get(region, 0))
-        shared_waiting = min(general_waiting, deficit - owned_waiting)
-        general_waiting -= shared_waiting
-        awaiting_review = owned_waiting + shared_waiting
-        unmet = deficit - awaiting_review
-        reuse_new = min(unmet, spare_new_capacity)
-        spare_new_capacity -= reuse_new
-        add = math.ceil((unmet - reuse_new) / added_capacity)
-        spare_new_capacity += add * added_capacity - (unmet - reuse_new)
-        proposed += add
-        regions.append(
-            {
-                "region": region,
-                "forecast_attempts": demand[region],
-                "planned_attempts": planned[region],
-                "eligible_leads": eligible_counts[region],
-                "healthy_existing": owned_counts.get(region, 0),
-                "usable_existing_capacity": usable,
-                "general_fallback_capacity": shared_used,
-                "capacity_waiting_for_review": awaiting_review,
-                "outbound_capacity_shortfall": deficit,
-                "callback_demand": callback_demand.get(region, 0),
-                "required": math.ceil(planned[region] / added_capacity),
-                "proposed_additional": add,
-                "proposed_pool": "general",
-                "incremental_capacity_used": unmet,
-                "reason": "Reuse owned capacity; shared additions cover sparse regions. Resolve waiting inventory first.",
-            }
-        )
-    existing = sum(r["usable_existing_capacity"] + r["general_fallback_capacity"] for r in regions)
-    demand_total = sum(demand.values())
-    number_shortfall = min(demand_total, available_attempts) - existing
-    minimum = math.ceil(number_shortfall / added_capacity)
-    return {
-        "regions": regions,
-        "horizon_hours": horizon_hours,
-        "rep_capacity_attempts": available_attempts,
-        "forecast_attempts": demand_total,
-        "existing_only_capacity": existing,
-        "staffing_shortfall": max(0, demand_total - available_attempts),
-        "number_shortfall": number_shortfall,
-        "capacity_shortfall": max(0, demand_total - existing) + unknown_windows,
-        "window_unknown_leads": unknown_windows,
-        "minimum_additional_numbers": minimum,
-        "proposed_additional_numbers": proposed,
-        "lower_bound": minimum,
-        "optimality": "proven_small_case" if days == 1 else "aggregate_lower_bound",
-        "optimality_scope": "Homogeneous shared numbers and horizon workload; reviewed staffing and time buckets still govern execution",
-        "existing_plus_addition_capacity": min(
-            demand_total, available_attempts, existing + minimum * added_capacity
-        ),
-        "purchased": False,
-        "approval_required": True,
-        "purchase_allowed": False,
-        "purchase_blocker": "New rentals are recurring commitments",
-        "estimate_requires_provider_quote": True,
-        "monthly_rental_estimate_usd": proposed,
-        "estimate_note": "Illustrative rental units only; new rentals blocked by the no-subscription policy",
-        "cold_start": not any(n.get("health", {}).get("samples", 0) for n in inventory),
-        "expected_conversion_lift": None,
-        "assumptions": {
-            "daily_slots_per_added_number": daily_capacity_per_number,
-            "handling_seconds": handling_seconds,
-            "rep_minutes": rep_minutes,
-            "retry_demand": "Conservative upper bound within the allowed attempt budget",
-            "future_readiness": "Waiting inventory is not currently usable capacity",
-        },
-        "as_of": now.isoformat(),
-    }
+    return time_forecast(
+        leads,
+        inventory,
+        now=now,
+        horizon_hours=horizon_hours,
+        rep_minutes=rep_minutes,
+        handling_seconds=handling_seconds,
+        daily_capacity_per_number=daily_capacity_per_number,
+        policy=policy,
+        staffed_windows=staffed_windows,
+        additional_ready_after_hours=additional_ready_after_hours,
+        rep_busy_until=rep_busy_until,
+        retry_observations=retry_observations,
+    )

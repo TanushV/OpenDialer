@@ -370,7 +370,9 @@
         "services/backend/tests/test_scheduling_and_numbers.py",
         "services/backend/tests/test_unified_planning.py"
       ],
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E06-baseline.json"
+      ],
       "planned_case_ids": [
         "C022",
         "C023",
@@ -396,7 +398,7 @@
         },
         {
           "id": "E06.planner",
-          "status": "open",
+          "status": "in-progress",
           "work": "One normalized immutable input and bounded assignment/minimum search; delete aggregate branch"
         },
         {
@@ -419,7 +421,8 @@
           "status": "open",
           "work": "Independent oracles, dual databases, affected browsers and removal receipt"
         }
-      ]
+      ],
+      "checkpoint": "Core normalized planner passes 92 SQLite and 92 PostgreSQL cases. Continue scored choices, runtime snapshots/publication and UI; do not accept E06 yet."
     },
     {
       "id": "E07",
