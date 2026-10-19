@@ -113,6 +113,12 @@ test("seller can save a fixed script and an overnight preparation window", async
     .getByLabel("Gatekeeper template", { exact: true })
     .fill("Who handles {topic} for your team?");
   await page.getByLabel("Prepared-ahead target", { exact: true }).fill("6");
+  await expect(
+    page.getByLabel("Final-attempt voicemail reference", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByLabel("Workspace preparation cap", { exact: true })
+    .fill("30");
   await page
     .getByLabel("Preparation starts at hour", { exact: true })
     .fill("18");
@@ -127,6 +133,9 @@ test("seller can save a fixed script and an overnight preparation window", async
     "service scheduling",
   );
   await expect(
+    page.getByLabel("Workspace preparation cap", { exact: true }),
+  ).toHaveValue("30");
+  await expect(
     page.getByLabel("Preparation starts at hour", { exact: true }),
   ).toHaveValue("18");
   await page.getByRole("button", { name: "Leads", exact: true }).click();
@@ -135,6 +144,12 @@ test("seller can save a fixed script and an overnight preparation window", async
   );
   await expect(page.getByTestId("preparation-runway")).toContainText(
     "Outside preparation window",
+  );
+  await expect(page.getByTestId("preparation-runway")).toContainText(
+    "declared schedule",
+  );
+  await expect(page.getByTestId("preparation-runway")).toContainText(
+    "inspected",
   );
 });
 

@@ -9,10 +9,14 @@ type Template = {
   discovery_questions: string[];
   proof: string;
   closing_question: string;
+  final_voicemail_asset: string | null;
 };
 type PreparationPolicy = {
   enabled: boolean;
   ahead_count: number;
+  workspace_ahead_cap: number;
+  stable_fact_days: number;
+  time_sensitive_fact_hours: number;
   batch_size: number;
   off_hours_start: number;
   off_hours_end: number;
@@ -33,6 +37,10 @@ type Readiness = {
   target: number;
   runway_attempts: number;
   runway_note: string;
+  runway_minutes: number | null;
+  available_reps: number;
+  inspected_rows: number;
+  omitted_rows: number;
   within_schedule: boolean;
   enabled: boolean;
 };
@@ -71,6 +79,14 @@ export function PreparationRunway() {
             {status.ready} personalized · {status.fallback} generic ·{" "}
             {status.stale} stale · {status.failed} failed
           </p>
+          <p>
+            {status.runway_minutes === null
+              ? "No declared rep work"
+              : `${Math.round(status.runway_minutes)} minutes at the declared schedule`}{" "}
+            · {status.available_reps} rep(s). {status.inspected_rows} candidates
+            inspected · {status.omitted_rows} beyond this page. Time is an
+            estimate from declared availability and attempt work.
+          </p>
           <p className="fine">
             {status.enabled
               ? status.within_schedule
@@ -99,7 +115,7 @@ export function PreparationRunway() {
 }
 
 export function PreparationSettings() {
-  const { api, run, notice } = useWorkspace();
+  const { api, run, notice, snapshot: workspace } = useWorkspace();
   const [config, setConfig] = useState<Configuration | null>(null);
   const [template, setTemplate] = useState<Template | null>(null);
   useEffect(() => {
@@ -194,6 +210,31 @@ export function PreparationSettings() {
           />{" "}
           Prepare ahead automatically
         </label>
+        <label>
+          Final-attempt voicemail reference
+          <select
+            aria-label="Final-attempt voicemail reference"
+            value={template.final_voicemail_asset || ""}
+            onChange={(event) =>
+              setTemplate({
+                ...template,
+                final_voicemail_asset: event.target.value || null,
+              })
+            }
+          >
+            <option value="">No reference</option>
+            {workspace.policy.approved_assets?.map((asset) => (
+              <option key={asset} value={asset}>
+                {asset}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="fine">
+          Choose an already reviewed message. This reference grants no playback
+          permission; voicemail still requires the final permitted attempt and
+          the current call's authorization.
+        </p>
         <div className="two-column">
           <label>
             Prepared-ahead target
@@ -204,6 +245,42 @@ export function PreparationSettings() {
               value={config.preparation.ahead_count}
               onChange={(e) =>
                 setPolicy({ ahead_count: Number(e.target.value) })
+              }
+            />
+          </label>
+          <label>
+            Workspace preparation cap
+            <input
+              type="number"
+              min={1}
+              max={500}
+              value={config.preparation.workspace_ahead_cap}
+              onChange={(e) =>
+                setPolicy({ workspace_ahead_cap: Number(e.target.value) })
+              }
+            />
+          </label>
+          <label>
+            Stable fact cache (days)
+            <input
+              type="number"
+              min={1}
+              max={30}
+              value={config.preparation.stable_fact_days}
+              onChange={(e) =>
+                setPolicy({ stable_fact_days: Number(e.target.value) })
+              }
+            />
+          </label>
+          <label>
+            Time-sensitive fact cache (hours)
+            <input
+              type="number"
+              min={1}
+              max={24}
+              value={config.preparation.time_sensitive_fact_hours}
+              onChange={(e) =>
+                setPolicy({ time_sensitive_fact_hours: Number(e.target.value) })
               }
             />
           </label>

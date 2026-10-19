@@ -679,6 +679,13 @@ export function DialerPage() {
             </div>
           )}
           <div className="script-footer">
+            {packet?.script.final_voicemail_asset && (
+              <p className="fine">
+                A reviewed voicemail message is referenced for the final
+                permitted attempt. Use the call controls only when playback is
+                authorized.
+              </p>
+            )}
             <Layers3 size={13} />
             <span>
               Version{" "}

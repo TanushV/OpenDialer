@@ -55,6 +55,8 @@ def view(service, row):
         "lead_count": len(data.get("lead_ids", [])),
         "published": data.get("published", []),
         "retry_lead_ids": data.get("retry_lead_ids", []),
+        "pending_review_lead_ids": data.get("pending_review_lead_ids", []),
+        "ready_at": data.get("ready_at"),
         "can_reconcile": not active_lease(service, row),
         "reason": "Original submission may have been charged. Verify its provider receipt; do not submit it again."
         if status in {"uncertain", "review_required"}
@@ -96,7 +98,11 @@ def claim_recovery(service, p, identity, request):
         supplied = request.provider_batch_id if request else None
         if known and supplied and known != supplied:
             fail(409, "Provider identity differs from the original submission")
-        if row.data.get("status") in TERMINAL and "published" in row.data and "retry_lead_ids" in row.data:
+        if (
+            row.data.get("status") in TERMINAL | {"awaiting_reviews"}
+            and "published" in row.data
+            and "retry_lead_ids" in row.data
+        ):
             return {**doc(row), "publication_cached": True}
         if not (known or supplied):
             fail(409, "Provide the original provider batch ID to verify this uncertain submission")

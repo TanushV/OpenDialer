@@ -29,10 +29,19 @@
     "E04-fences-red.txt": "7bad3683533ae0747213ca210bba1ff663af445c669f738c57b4b7a6a219a9da",
     "E04-fact-review-red.txt": "77ad782e6c2769aa5ac3181b81e5476e9e22762cd32d68e77fac5b2b2828b901",
     "E04-postgres-red.txt": "6cfaa6f229553090faaa77f5594ed343a0d1baca02faf7dbcac132220d380ced",
-    "E04-heartbeat-red.txt": "3b500e2deb6e2fb6ae049aeaf7e4e47964ed73b94551105572fedc6070efffe2"
+    "E04-heartbeat-red.txt": "3b500e2deb6e2fb6ae049aeaf7e4e47964ed73b94551105572fedc6070efffe2",
+    "E04-runway-red.txt": "f7e7ca71aec5123ce40fa5d9d2604f6f26ac63a667d0930c84c14fb656420704",
+    "E04-expiry-red.txt": "a6cb48b86b02b882497640df724ef3e9af17d20b7401733aed19f941b0abf2da",
+    "E04-horizon-cache-red.txt": "8b94cf8c4014807d1982071bbb8211d71c754147931fab484057caba01df483b",
+    "E04-company-failure-red.txt": "464475b5d22001eea36e2fb3b3eb3871fd44886e9df887f04a051951a379e632",
+    "E04-reference-authority-red.txt": "769ad46448d1c9b141a01fa250a619f18e903f5319c000db28cfb058aff85e3d",
+    "E04-deferred-red.txt": "d27e4cc6409b76b5e03805f50910b7406475cdff7093ee5be202eee553daa379",
+    "E04-deferred-ui-red.txt": "03c7f2ef300af71e83674949b19eb2afe377987533d757f592777b8602fcfe40",
+    "E04-reference-ui-red.txt": "053cdcc0d0a9086cdebe7989cbd4541b71968d0528973d32dd7eefd13728200f"
   },
   "known_limitations": [
     "Scoped baseline counterexamples; E04 overall acceptance still open.",
-    "Meaning-review fixtures establish review routing and publication, not actual model judgment quality."
+    "Meaning-review fixtures establish review routing and publication, not actual model judgment quality.",
+    "Supplemental red receipts precede their repairs; current source verification and E04 completion are tracked separately in STATUS."
   ]
 }

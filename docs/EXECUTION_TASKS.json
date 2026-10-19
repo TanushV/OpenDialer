@@ -236,6 +236,47 @@
         "A29",
         "A30",
         "A45"
+      ],
+      "implementation_todos": [
+        {
+          "id": "E04.discovery",
+          "status": "accepted-software-slice",
+          "work": "Bounded official discovery, reviewed facts, shared capacities and active heartbeats",
+          "receipts": [
+            "E04-discovery-context.txt",
+            "E04-discovery-postgres.txt"
+          ]
+        },
+        {
+          "id": "E04.search",
+          "status": "accepted-software-slice",
+          "work": "Explicit optional metered search; official identity and page/request bounds",
+          "receipts": [
+            "E04-search-pages-green.txt",
+            "E04-search-postgres.txt",
+            "E04-search-ui-saved.txt"
+          ]
+        },
+        {
+          "id": "E04.runway",
+          "status": "in-progress",
+          "work": "Used-fact freshness, staffing cap, horizon, runway and empty-company cache; finish supplemental dual-database proof"
+        },
+        {
+          "id": "E04.deferred",
+          "status": "in-progress",
+          "work": "24-hour deadline, per-result bounded review jobs, original receipt and source/owner fences"
+        },
+        {
+          "id": "E04.template",
+          "status": "in-progress",
+          "work": "Seller expiry, conflict state and current approved final-attempt voicemail reference"
+        },
+        {
+          "id": "E04.acceptance",
+          "status": "open",
+          "work": "Complete focused suites on both databases, browser surfaces, throughput/query bounds, deletions and final step receipt"
+        }
       ]
     },
     {

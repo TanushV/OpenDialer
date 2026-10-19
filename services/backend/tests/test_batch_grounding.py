@@ -10,7 +10,7 @@ from test_grounding_review import review_response
 from test_remediation_rep_workflow import p
 
 
-@pytest.mark.parametrize("verdict", ["NON_FACTUAL", "UNSUPPORTED", "timeout"])
+@pytest.mark.parametrize("verdict", ["NON_FACTUAL", "UNSUPPORTED", "timeout", "changed_lead"])
 @pytest.mark.asyncio
 async def test_batch_review_is_complete_cached_and_budgeted(workspace, app, monkeypatch, verdict):
     c, h = workspace["client"], workspace["headers"]
@@ -52,7 +52,16 @@ async def test_batch_review_is_complete_cached_and_budgeted(workspace, app, monk
             reviews.append(context)
             if verdict == "timeout":
                 raise TimeoutError("Unknown paid effect")
-            return InferenceResult(review_response(context, verdict=verdict), {"cost": 0.002}, "batch-review")
+            if verdict == "changed_lead":
+                from app.db import update
+
+                with service.db.transaction() as s:
+                    update(service.required(s, "leads", lead["id"], p(workspace)), preparation_revision=100)
+            return InferenceResult(
+                review_response(context, verdict="NON_FACTUAL" if verdict == "changed_lead" else verdict),
+                {"cost": 0.002},
+                "batch-review",
+            )
 
     monkeypatch.setattr(OpenAIBatch, "submit", submit)
     monkeypatch.setattr(OpenAIBatch, "retrieve", retrieve)

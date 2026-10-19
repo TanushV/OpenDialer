@@ -1,5 +1,49 @@
 import { expect, test } from "@playwright/test";
 
+test("deferred deadline is explicit and a lost response keeps the same request", async ({
+  page,
+}) => {
+  const requests: { ready_at: string; idempotency_key: string }[] = [];
+  await page.route("**/v1/admin/batches", (route) =>
+    route.fulfill({ json: { batches: [], limited: false } }),
+  );
+  await page.route("**/v1/admin/batches/scripts", async (route) => {
+    requests.push(route.request().postDataJSON());
+    await route.fulfill({
+      status: 503,
+      json: { detail: "Original submission uncertain" },
+    });
+  });
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  const deadline = page.getByLabel("Scripts needed by", { exact: true });
+  await expect(deadline).toBeVisible();
+  const submit = page.getByRole("button", {
+    name: "Submit deferred scripts",
+    exact: true,
+  });
+  await submit.click();
+  await expect(
+    page.getByText("Original submission uncertain", { exact: true }),
+  ).toBeVisible();
+  await expect(deadline).toBeDisabled();
+  await submit.click();
+  await expect.poll(() => requests.length).toBe(2);
+  expect(requests[0]).toEqual(requests[1]);
+  expect(Date.parse(requests[0].ready_at)).toBeGreaterThan(
+    Date.now() + 24 * 3600000,
+  );
+});
+
 test("deferred preparation recovers an original receipt after reload without resubmitting", async ({
   page,
 }) => {

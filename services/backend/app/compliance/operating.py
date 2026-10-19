@@ -247,6 +247,15 @@ def bind_operating_api(app, service, administrator):
             if merged.transcription_privacy_verified and not merged.transcription_privacy_reference.strip():
                 fail(422, "Provider/account retention evidence is required")
             values = merged.model_dump()
+            asset = (values.get("script_template") or {}).get("final_voicemail_asset")
+            if asset and not any(
+                asset
+                in service.required(s, "policy_versions", campaign.data["policy_id"], p).data.get(
+                    "approved_assets", []
+                )
+                for campaign in service.scoped(s, "campaigns", p)
+            ):
+                fail(422, "Choose a voicemail asset already approved for this seller's campaign")
             update(seller, operating_policy=values)
             audit(
                 s,

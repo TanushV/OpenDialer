@@ -149,6 +149,7 @@ export interface Call {
   } | null;
 }
 export interface Script {
+  final_voicemail_asset?: string | null;
   opener: string;
   gatekeeper?: string;
   proof?: string;

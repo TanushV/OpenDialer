@@ -1,8 +1,10 @@
 """Advance template preparation acceptance, written before the implementation."""
 
 import asyncio
+import time
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import pytest
 from app.db import Job, put, update
 from app.providers.inference import InferenceResult
@@ -622,3 +624,213 @@ async def test_published_script_reverts_when_supported_fact_content_changes(work
     packet = service.packet(p(workspace), lead_id)
     assert packet["script"]["fallback"] is True
     assert packet["preparation"]["status"] == "stale"
+
+
+@pytest.mark.asyncio
+async def test_runway_detects_changed_used_fact_and_queues_only_affected_lead(workspace, app, monkeypatch):
+    configure(workspace, preparation={"ahead_count": 3})
+    service, principal = app.state.service, p(workspace)
+
+    class Provider:
+        async def complete(self, instructions, context, schema):
+            fact = context["facts"][0]
+            return InferenceResult(
+                {
+                    "lead_id": context["lead_id"],
+                    "slots": {
+                        "relevance": {"text": fact["statement"], "fact_ids": [fact["fact_id"]]},
+                        "proof": {"text": "", "fact_ids": []},
+                    },
+                },
+                {"cost": 0.001},
+                "runway-" + context["lead_id"],
+            )
+
+    monkeypatch.setattr(service, "inference", lambda *args: Provider())
+    await service.prepare(principal, workspace["lead_ids"])
+    lead_id = workspace["lead_ids"][0]
+    packet = service.packet(principal, lead_id)
+    with service.db.transaction() as s:
+        fact = service.required(s, "research_facts", packet["script"]["fact_ids_used"][0], principal)
+        update(fact, statement="Corrected company information.")
+    status = service.preparation_status(principal)
+    assert status["stale"] == 1 and status["ready"] == 2, status
+    result = service.prepare_ahead(principal)
+    assert result["queued"] == 1
+    with service.db.transaction(False) as s:
+        jobs = list(s.scalars(select(Job).where(Job.queue == "research", Job.status == "queued")))
+        assert [identity for job in jobs for identity in job.payload["lead_ids"]] == [lead_id]
+    assert service.prepare_ahead(principal)["queued"] == 0
+
+
+def test_runway_target_uses_declared_staff_and_workspace_cap(workspace, app, clock):
+    configure(workspace, preparation={"ahead_count": 20, "workspace_ahead_cap": 30})
+    service, principal = app.state.service, p(workspace)
+    with service.db.transaction() as s:
+        campaign = service.required(s, "campaigns", workspace["campaign_id"], principal)
+        update(
+            campaign,
+            optimization={
+                "horizon_hours": 24,
+                "handling_seconds": 120,
+                "staffed_windows": [
+                    {
+                        "start_at": (clock.now + timedelta(hours=10)).isoformat(),
+                        "end_at": (clock.now + timedelta(hours=18)).isoformat(),
+                        "reps": 2,
+                    }
+                ],
+            },
+        )
+    status = service.preparation_status(principal)
+    assert status["target"] == 30 and status["available_reps"] == 2, status
+    assert status["declared_rep_work_rate"] == 40  # 16 rep-hours / 24 wall-hours, seconds per minute
+    assert status["runway_minutes"] == 0
+    assert status["horizon_end"] == (clock.now + timedelta(hours=24)).isoformat()
+
+
+@pytest.mark.asyncio
+async def test_runway_time_and_no_staffing_are_explicit(workspace, app):
+    configure(workspace, preparation={"ahead_count": 20})
+    service, principal = app.state.service, p(workspace)
+    await service.prepare(principal, workspace["lead_ids"])
+    status = service.preparation_status(principal)
+    assert status["runway_minutes"] == 18  # three 120-second attempts, eight hours / 24 declared
+    assert "single_rep_default" in status["assumptions"]
+    with service.db.transaction() as s:
+        campaign = service.required(s, "campaigns", workspace["campaign_id"], principal)
+        update(campaign, optimization={"rep_minutes": 0})
+    status = service.preparation_status(principal)
+    assert status["target"] == 0 and status["runway_minutes"] is None
+    assert "no_declared_rep_work" in status["assumptions"]
+
+
+def test_preparation_horizon_excludes_far_future_work_and_keeps_free_fallback(workspace, app, clock):
+    configure(workspace, preparation={"ahead_count": 20})
+    service, principal = app.state.service, p(workspace)
+    with service.db.transaction() as s:
+        lead = service.required(s, "leads", workspace["lead_ids"][0], principal)
+        update(lead, next_attempt_at=(clock.now + timedelta(days=4)).isoformat())
+        for budget in service.scoped(s, "budgets", principal):
+            update(budget, daily_limit_usd=0, monthly_limit_usd=0)
+    assert service.preparation_status(principal)["inspected_leads"] == 2
+    assert service.prepare_ahead(principal)["queued"] == 2, "Approved generic work is free"
+
+
+@pytest.mark.asyncio
+async def test_template_retains_only_current_approved_final_voicemail_reference(workspace, app):
+    service, principal = app.state.service, p(workspace)
+    asset = "https://assets.example.test/approved-message.wav"
+    response = workspace["client"].put(
+        "/v1/admin/operating-policy",
+        headers=workspace["headers"],
+        json={"script_template": {**TEMPLATE, "final_voicemail_asset": asset}},
+    )
+    assert response.status_code == 422
+    with service.db.transaction() as s:
+        campaign = service.required(s, "campaigns", workspace["campaign_id"], principal)
+        policy = service.required(s, "policy_versions", campaign.data["policy_id"], principal)
+        update(policy, approved_assets=[asset], voicemail_enabled=True)
+    configure(workspace, script_template={**TEMPLATE, "final_voicemail_asset": asset})
+    lead_id = workspace["lead_ids"][0]
+    await service.prepare(principal, [lead_id])
+    assert service.packet(principal, lead_id)["script"]["final_voicemail_asset"] == asset
+    with service.db.transaction() as s:
+        campaign = service.required(s, "campaigns", workspace["campaign_id"], principal)
+        policy = service.required(s, "policy_versions", campaign.data["policy_id"], principal)
+        update(policy, approved_assets=[])
+    assert service.packet(principal, lead_id)["script"]["final_voicemail_asset"] is None
+
+
+@pytest.mark.asyncio
+async def test_disabled_requester_cannot_publish_immediate_preparation(workspace, app, monkeypatch):
+    configure(workspace)
+    service, principal = app.state.service, p(workspace)
+
+    class Provider:
+        async def complete(self, instructions, context, schema):
+            with service.db.transaction() as s:
+                update(service.required(s, "users", principal["user_id"], principal), disabled=True)
+            return InferenceResult(
+                {
+                    "lead_id": context["lead_id"],
+                    "slots": {
+                        "relevance": {"text": "", "fact_ids": []},
+                        "proof": {"text": "", "fact_ids": []},
+                    },
+                },
+                {"cost": 0.001},
+                "revoked-preparation",
+            )
+
+    monkeypatch.setattr(service, "inference", lambda *args: Provider())
+    with pytest.raises(RuntimeError):
+        await service.prepare(principal, workspace["lead_ids"][:1])
+    with service.db.transaction(False) as s:
+        assert not service.scoped(s, "script_versions", principal)
+
+
+@pytest.mark.asyncio
+async def test_hundred_lead_preparation_keeps_health_responsive(workspace, app, monkeypatch, record_property):
+    configure(workspace)
+    service, principal = app.state.service, p(workspace)
+    with service.db.transaction() as s:
+        original = service.scoped(s, "leads", principal)[0]
+        ids = [
+            put(
+                s,
+                "leads",
+                original.tenant_id,
+                original.seller_id,
+                {**original.data, "domain": "throughput.example.test"},
+                key=f"throughput-{i}",
+            ).id
+            for i in range(100)
+        ]
+    active, peak = 0, 0
+
+    class Provider:
+        async def complete(self, instructions, context, schema):
+            nonlocal active, peak
+            active += 1
+            peak = max(peak, active)
+            try:
+                await asyncio.sleep(0.03)
+                return InferenceResult(
+                    {
+                        "lead_id": context["lead_id"],
+                        "slots": {
+                            "relevance": {"text": "", "fact_ids": []},
+                            "proof": {"text": "", "fact_ids": []},
+                        },
+                    },
+                    {"cost": 0},
+                    "throughput-" + context["lead_id"],
+                )
+            finally:
+                active -= 1
+
+    monkeypatch.setattr(service, "inference", lambda *args: Provider())
+    started = time.monotonic()
+    task = asyncio.gather(*(service.prepare(principal, ids[i : i + 20]) for i in range(0, 100, 20)))
+    delays = []
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
+    ) as client:
+        while not task.done():
+            before = time.monotonic()
+            assert (await client.get("/health")).status_code == 200
+            delays.append(time.monotonic() - before)
+            await asyncio.sleep(0.03)
+    await task
+    elapsed = time.monotonic() - started
+    p95 = sorted(delays)[int((len(delays) - 1) * 0.95)]
+    record_property("preparation_100_seconds", elapsed)
+    record_property("health_p95_seconds", p95)
+    record_property("health_samples", len(delays))
+    assert peak <= 2 and p95 < 0.1, (peak, p95)
+    with service.db.transaction(False) as s:
+        assert all(
+            service.required(s, "leads", identity, principal).data["preparation"]["status"] == "ready"
+            for identity in ids
+        )

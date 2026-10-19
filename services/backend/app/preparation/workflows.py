@@ -3,13 +3,15 @@
 import asyncio
 import contextlib
 import hashlib
+import hmac
 import json
 from contextlib import asynccontextmanager
 from datetime import timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.db import MODELS, Job, doc, uid, update
+from app.operational_schema import context_key
 from app.preparation.templates import PreparationPolicy, in_window, policy_values, render, template_version
 from app.service import dt
 
@@ -18,6 +20,39 @@ LEASE_HEARTBEAT_SECONDS = 20
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+def preparation_runway(config, now, prepared, ready_reps):
+    """A declared work-rate estimate, without another attempt scheduler."""
+    end = now + timedelta(hours=config["horizon_hours"])
+    windows = [
+        (max(now, dt(w["start_at"])), min(end, dt(w["end_at"])), w)
+        for w in config["staffed_windows"]
+        if dt(w["end_at"]) > now and dt(w["start_at"]) < end
+    ]
+    points = sorted({t for start, stop, _ in windows for t in (start, stop)})
+    seconds, peak, assumptions = 0.0, 0, []
+    for start, stop in zip(points, points[1:], strict=False):
+        active = [w for a, b, w in windows if a <= start < b]
+        named = {rep for w in active for rep in (w.get("rep_ids") or [])}
+        capacity = len(named) + sum(w["reps"] for w in active if not w.get("rep_ids"))
+        seconds += (stop - start).total_seconds() * capacity
+        peak = max(peak, capacity)
+    if not config["staffed_windows"]:
+        peak = max(1, ready_reps) if config["rep_minutes"] else 0
+        seconds = min(config["rep_minutes"] * 60, (end - now).total_seconds() * peak)
+        assumptions.append("single_rep_default" if ready_reps == 0 else "current_ready_roster")
+    if not seconds:
+        assumptions.append("no_declared_rep_work")
+    rate = seconds / (end - now).total_seconds() * 60
+    return {
+        "available_reps": peak,
+        "declared_rep_work_rate": rate,
+        "predicted_work_seconds": config["handling_seconds"],
+        "runway_minutes": prepared * config["handling_seconds"] / rate if rate else None,
+        "horizon_end": end.isoformat(),
+        "assumptions": [*assumptions, "configured_attempt_work", "calling_permission_checked_separately"],
+    }
 
 
 class Preparation:
@@ -136,6 +171,8 @@ class Preparation:
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             lead = self.required(s, "leads", lead_id, p)
+            if not self._coach_authority(s, p):
+                return None
             previous = lead.data.get("preparation_lease") or {}
             if previous.get("expires_at") and dt(previous["expires_at"]) > self.clock():
                 return None
@@ -248,9 +285,16 @@ class Preparation:
                     opener=variant.data["opener"].replace("{rep}", rep.data["name"]),
                     treatment_variant_id=variant.id,
                 )
+        if script.get("final_voicemail_asset"):
+            campaign = self.required(s, "campaigns", lead.data["campaign_id"], p)
+            policy = self.required(s, "policy_versions", campaign.data["policy_id"], p).data
+            if not policy.get("voicemail_enabled") or script["final_voicemail_asset"] not in policy.get(
+                "approved_assets", []
+            ):
+                script["final_voicemail_asset"] = None
         return script, state
 
-    def preparation_candidates(self, s, p):
+    def preparation_candidates(self, s, p, horizon_end):
         model = MODELS["leads"]
         # Only the next bounded work horizon is inspected; readiness does not
         # decrypt the entire list or historical script versions on a dashboard GET.
@@ -261,6 +305,7 @@ class Preparation:
                     model.tenant_id == p["tenant_id"],
                     model.seller_id == p["seller_id"],
                     model.op_status.not_in(["converted", "suppressed", "wrong_party", "invalid"]),
+                    (model.op_due_at.is_(None) | (model.op_due_at <= horizon_end)),
                 )
                 .order_by(
                     model.op_priority.desc(),
@@ -271,9 +316,23 @@ class Preparation:
                 .limit(500)
             )
         )
-        suppressed = {
-            r.data["phone"] for r in self.scoped(s, "suppressions", p) if r.data.get("active", True)
+        suppression = MODELS["suppressions"]
+        keys = {
+            hmac.new(self.db.identity_key, lead.data["phone"].encode(), hashlib.sha256).hexdigest()
+            for lead in leads
         }
+        suppressed = {
+            row.data["phone"]
+            for row in s.scalars(
+                select(suppression).where(
+                    suppression.tenant_id == p["tenant_id"],
+                    suppression.seller_id == p["seller_id"],
+                    suppression.external_key.in_(keys),
+                )
+            )
+            if row.data.get("active", True)
+        }
+        s.info["preparation_inspected"] = len(leads)
         return [
             lead
             for lead in leads
@@ -281,7 +340,9 @@ class Preparation:
         ]
 
     def preparation_status_in(self, s, p):
-        leads = self.preparation_candidates(s, p)
+        optimization = self.optimization_config(s, p)
+        horizon_end = self.clock() + timedelta(hours=optimization["horizon_hours"])
+        leads = self.preparation_candidates(s, p, horizon_end)
         config = self.preparation_settings(s, p)["preparation"]
         active = list(
             s.scalars(
@@ -289,6 +350,7 @@ class Preparation:
                     Job.tenant_id == p["tenant_id"],
                     Job.queue.in_(["research", "scripts"]),
                     Job.status.in_(["queued", "running"]),
+                    ~Job.key.like("batch-review:%"),
                 )
             )
         )
@@ -299,20 +361,113 @@ class Preparation:
             and (job.queue == "research" or job.payload.get("kind") == "packet_refresh")
             for lead_id in job.payload.get("lead_ids", [])
         }
+        pending.update(
+            key.split(":")[2]
+            for key in s.scalars(
+                select(Job.key).where(
+                    Job.tenant_id == p["tenant_id"],
+                    Job.queue == "scripts",
+                    Job.status.in_(["queued", "running"]),
+                    Job.key.like("batch-review:%"),
+                )
+            )
+            if len(key.split(":")) == 5
+        )
         states = {lead.id: self.preparation_state(s, p, lead) for lead in leads}
+        # Compare the actual used facts in two bounded bulk reads. Reading readiness
+        # must not decrypt historical versions or make one query per lead.
+        script_model, fact_model = MODELS["script_versions"], MODELS["research_facts"]
+        scripts = {
+            row.id: row.data
+            for row in s.scalars(
+                select(script_model).where(
+                    script_model.tenant_id == p["tenant_id"],
+                    script_model.seller_id == p["seller_id"],
+                    script_model.id.in_({state.get("script_id") for state in states.values()} - {None}),
+                )
+            )
+        }
+        fact_ids = {
+            identity for script in scripts.values() for identity in script.get("fact_ids_used", [])[:32]
+        }
+        facts = {
+            row.id: row
+            for row in s.execute(
+                select(
+                    fact_model.id,
+                    fact_model.version,
+                    fact_model.ctx_key,
+                    fact_model.ctx_status,
+                    fact_model.ctx_expires_at,
+                ).where(
+                    fact_model.tenant_id == p["tenant_id"],
+                    fact_model.seller_id == p["seller_id"],
+                    fact_model.id.in_(fact_ids),
+                    fact_model.ctx_status == "supported",
+                    fact_model.ctx_expires_at > self.clock(),
+                )
+            )
+        }
+        for lead in leads:
+            state = states[lead.id]
+            if state["status"] not in {"ready", "fallback"}:
+                continue
+            script = scripts.get(state.get("script_id"))
+            stale = not script or script.get("lead_id") != lead.id
+            if script and not script.get("fallback"):
+                stale |= script.get("grounding", {}).get("status") not in {
+                    "approved_template",
+                    "model_reviewed",
+                }
+            for identity in script.get("fact_ids_used", []) if script else []:
+                fact = facts.get(identity)
+                stale |= bool(
+                    not fact
+                    or fact.ctx_key
+                    != context_key("research_facts", lead.data.get("domain"), self.db.identity_key)
+                    or fact.ctx_status != "supported"
+                    or fact.version != script.get("evidence_versions", {}).get(identity)
+                )
+            if stale:
+                state["status"] = "stale"
         counts = {
             status: sum(v["status"] == status for v in states.values())
             for status in ("ready", "fallback", "stale", "failed", "missing")
         }
         prepared = counts["ready"] + counts["fallback"]
+        ready_reps = sum(
+            not row.data.get("disabled")
+            and row.data.get("role") in {"owner", "admin", "rep"}
+            and row.data.get("presence", {}).get("status") == "ready"
+            and row.data["presence"].get("at") is not None
+            and dt(row.data["presence"]["at"]) > self.clock() - timedelta(seconds=120)
+            for row in self.scoped(s, "users", p)
+        )
+        runway = preparation_runway(optimization, self.clock(), prepared, ready_reps)
+        model = MODELS["leads"]
+        total = s.scalar(
+            select(func.count())
+            .select_from(model)
+            .where(
+                model.tenant_id == p["tenant_id"],
+                model.seller_id == p["seller_id"],
+                model.op_status.not_in(["converted", "suppressed", "wrong_party", "invalid"]),
+                (model.op_due_at.is_(None) | (model.op_due_at <= horizon_end)),
+            )
+        )
         return (
             {
                 **counts,
                 "prepared": prepared,
-                "target": config["ahead_count"],
+                "target": min(
+                    config["workspace_ahead_cap"], config["ahead_count"] * runway["available_reps"]
+                ),
+                **runway,
                 "queued": len(pending & set(states)),
                 "as_of": self.clock().isoformat(),
                 "inspected_leads": len(leads),
+                "inspected_rows": s.info["preparation_inspected"],
+                "omitted_rows": max(0, total - s.info["preparation_inspected"]),
                 "scan_limit": 500,
                 "runway_attempts": prepared,
                 "runway_note": "Prepared attempts in the next 500 candidates; calling permission is checked separately.",
@@ -332,10 +487,10 @@ class Preparation:
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             config = self.preparation_settings(s, p)["preparation"]
-            if not config["enabled"] or not in_window(self.clock(), config) or not self.budget_ok(s, p, 0.05):
+            if not config["enabled"] or not in_window(self.clock(), config):
                 return {"queued": 0}
             status, leads, states, pending = self.preparation_status_in(s, p)
-            needed = max(0, config["ahead_count"] - status["prepared"] - status["queued"])
+            needed = max(0, status["target"] - status["prepared"] - status["queued"])
             selected = [
                 lead
                 for lead in leads

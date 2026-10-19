@@ -30,6 +30,7 @@ class ScriptTemplate(BaseModel):
     topic: str = Field(default="your current process", min_length=1, max_length=150)
     proof: str = Field(default="{proof}", max_length=600)
     closing_question: str = Field(default="Would a further conversation be useful?", max_length=400)
+    final_voicemail_asset: str | None = Field(default=None, min_length=1, max_length=2000)
 
     @model_validator(mode="after")
     def placeholders(self):
@@ -52,6 +53,9 @@ class PreparationPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool = True
     ahead_count: int = Field(default=20, ge=1, le=100)
+    workspace_ahead_cap: int = Field(default=100, ge=1, le=500)
+    stable_fact_days: int = Field(default=30, ge=1, le=30)
+    time_sensitive_fact_hours: int = Field(default=24, ge=1, le=24)
     batch_size: int = Field(default=20, ge=1, le=20)
     off_hours_start: int = Field(default=0, ge=0, le=23)
     off_hours_end: int = Field(default=24, ge=0, le=24)
@@ -108,10 +112,13 @@ def render(template, *, lead, seller, rep, slots=None):
         **(slots or {}),
     }
     return {
-        field: [text.format_map(values).strip() for text in template[field]]
-        if isinstance(template[field], list)
-        else template[field].format_map(values).strip()
-        for field in FIELDS
+        "final_voicemail_asset": template.get("final_voicemail_asset"),
+        **{
+            field: [text.format_map(values).strip() for text in template[field]]
+            if isinstance(template[field], list)
+            else template[field].format_map(values).strip()
+            for field in FIELDS
+        },
     }
 
 

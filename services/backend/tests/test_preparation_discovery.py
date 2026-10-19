@@ -12,6 +12,51 @@ from test_remediation_privacy import principal
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("stability,hours", [("stable", 168), ("time_sensitive", 6), ("unknown", 6)])
+async def test_research_fact_expiry_uses_seller_policy(workspace, app, monkeypatch, clock, stability, hours):
+    service, p = app.state.service, principal(workspace)
+    response = workspace["client"].put(
+        "/v1/admin/operating-policy",
+        headers=workspace["headers"],
+        json={"preparation": {"stable_fact_days": 7, "time_sensitive_fact_hours": 6}},
+    )
+    assert response.status_code == 200, response.text
+    monkeypatch.setattr(service.settings, "simulation", False)
+    statement, domain = "Service plans are available for this business.", "freshness.example.test"
+
+    async def fetch(fetcher, url):
+        return {"url": url, "title": "Official", "text": statement, "links": []}
+
+    class Provider:
+        async def complete(self, instructions, context, schema):
+            if "fingerprint" in context:
+                return InferenceResult(review_response(context), {"cost": 0.001}, "expiry-review")
+            return InferenceResult(
+                {
+                    "facts": [
+                        {
+                            "statement": statement,
+                            "quote": statement,
+                            "source_id": context["sources"][0]["id"],
+                            "stability": stability,
+                            "conflicts": [],
+                        }
+                    ]
+                },
+                {"cost": 0.001},
+                "expiry-extract",
+            )
+
+    monkeypatch.setattr(SafeFetcher, "fetch", fetch)
+    monkeypatch.setattr(service, "inference", lambda *args: Provider())
+    await service.research_company(p, domain, {"company": "Freshness", "domain": domain})
+    with service.db.transaction(False) as s:
+        fact = service.scoped(s, "research_facts", p)[0].data
+        assert fact["expires_at"] == (clock.now + timedelta(hours=hours)).isoformat()
+        assert fact["stability"] == stability and fact["conflicts"] == []
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("link_variant", ["services", "duplicates", "foreign"])
 async def test_official_discovery_bounds(workspace, app, monkeypatch, link_variant):
     service, p = app.state.service, principal(workspace)
@@ -84,6 +129,49 @@ async def test_missing_search_capability_keeps_truthful_generic_script(workspace
     assert packet["script"]["fallback"] is True
     assert not packet["research"]["facts"]
     assert not seen
+
+
+@pytest.mark.asyncio
+async def test_completed_empty_research_is_cached_for_other_company_leads(workspace, app, monkeypatch):
+    service, p = app.state.service, principal(workspace)
+    monkeypatch.setattr(service.settings, "simulation", False)
+    requests = []
+
+    async def fetch(fetcher, url):
+        return {"url": url, "title": "Official", "text": "No useful public context", "links": []}
+
+    class Provider:
+        async def complete(self, instructions, context, schema):
+            requests.append(context)
+            return InferenceResult({"facts": [], "unknowns": []}, {"cost": 0.001}, f"empty-{len(requests)}")
+
+    monkeypatch.setattr(SafeFetcher, "fetch", fetch)
+    monkeypatch.setattr(service, "inference", lambda *args: Provider())
+    for _ in range(3):
+        await service.research_company(
+            p, "empty.example.test", {"company": "Empty", "domain": "empty.example.test"}
+        )
+    assert len(requests) == 1, "A completed empty result must not be billed again for every lead"
+
+
+@pytest.mark.asyncio
+async def test_company_followers_receive_failed_work_not_false_success(workspace, app, monkeypatch):
+    service, p = app.state.service, principal(workspace)
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def failed(*args):
+        entered.set()
+        await release.wait()
+        raise RuntimeError("Company attempt failed")
+
+    monkeypatch.setattr(service, "_research_company", failed)
+    first = asyncio.create_task(service.research_company(p, "failed.example.test", {}))
+    await entered.wait()
+    second = asyncio.create_task(service.research_company(p, "failed.example.test", {}))
+    await asyncio.sleep(0)
+    release.set()
+    results = await asyncio.gather(first, second, return_exceptions=True)
+    assert all(isinstance(result, RuntimeError) for result in results), results
 
 
 @pytest.mark.asyncio

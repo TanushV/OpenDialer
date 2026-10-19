@@ -9,6 +9,8 @@ interface DeferredBatch {
   lead_count: number;
   published: string[];
   retry_lead_ids: string[];
+  pending_review_lead_ids?: string[];
+  ready_at?: string | null;
   can_reconcile: boolean;
   reason: string;
 }
@@ -22,7 +24,17 @@ export function DeferredScripts() {
   const [error, setError] = useState("");
   const [accepted, setAccepted] = useState<Record<string, boolean>>({});
   const [queued, setQueued] = useState<Record<string, boolean>>({});
-  const submission = useRef<{ key: string; leads: string[] } | null>(null);
+  const [deadline, setDeadline] = useState(() => {
+    const date = new Date(Date.now() + 48 * 3600000);
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+  });
+  const submission = useRef<{
+    key: string;
+    leads: string[];
+    ready_at: string;
+  } | null>(null);
   const read = () => api<BatchList>("/v1/admin/batches");
   useEffect(() => {
     let current = true;
@@ -68,11 +80,26 @@ export function DeferredScripts() {
       <span className="eyebrow">PREPARE AHEAD OF THE SHIFT</span>
       <h2>Deferred script preparation</h2>
       <p className="muted small">
-        Prepare researched packets through the metered OpenAI route when work
-        can wait up to 24 hours. Live call content is never submitted here.
-        Opening this view only reads local records. Publishing novel script text
-        may use a budgeted meaning review; uncertain reviews are never silently
-        repeated.
+        Prepare researched packets through the metered OpenAI route when work is
+        needed at least 24 hours from now. Live call content is never submitted
+        here. Opening this view only reads local records. Publishing novel
+        script text may use a budgeted meaning review; uncertain reviews are
+        never silently repeated.
+      </p>
+      <label>
+        Scripts needed by
+        <input
+          aria-label="Scripts needed by"
+          type="datetime-local"
+          value={deadline}
+          disabled={busy || Boolean(submission.current)}
+          onChange={(event) => setDeadline(event.target.value)}
+        />
+      </label>
+      <p className="fine">
+        Uses this computer's timezone. Immediate preparation is available in
+        Leads. A submitted deadline and request identity stay fixed through
+        uncertain retries.
       </p>
       {error && (
         <p role="status" className="notice">
@@ -81,18 +108,28 @@ export function DeferredScripts() {
       )}
       <button
         className="secondary"
-        disabled={busy || !data || unfinished || !leads.length}
+        disabled={
+          busy ||
+          !data ||
+          unfinished ||
+          !leads.length ||
+          (!submission.current &&
+            (!Number.isFinite(Date.parse(deadline)) ||
+              Date.parse(deadline) < Date.now() + 24 * 3600000))
+        }
         onClick={() => {
-          if (
-            !submission.current ||
-            JSON.stringify(submission.current.leads) !== JSON.stringify(leads)
-          )
-            submission.current = { key: crypto.randomUUID(), leads };
+          if (!submission.current)
+            submission.current = {
+              key: crypto.randomUUID(),
+              leads,
+              ready_at: new Date(deadline).toISOString(),
+            };
           const intent = submission.current;
           void perform(() =>
             api("/v1/admin/batches/scripts", "POST", {
               lead_ids: intent.leads,
               idempotency_key: intent.key,
+              ready_at: intent.ready_at,
             }),
           );
         }}
@@ -132,8 +169,14 @@ export function DeferredScripts() {
           {item.reason && <p>{item.reason}</p>}
           <p>
             {item.published.length} published, {item.retry_lead_ids.length} need
-            new preparation.
+            new preparation, {item.pending_review_lead_ids?.length || 0}{" "}
+            awaiting background review.
           </p>
+          {item.ready_at && (
+            <p className="fine">
+              Needed by {new Date(item.ready_at).toLocaleString()}
+            </p>
+          )}
           {queued[item.id] ? (
             <p>Unfinished leads queued for new preparation.</p>
           ) : (

@@ -6,11 +6,12 @@ import math
 from datetime import timedelta
 
 from fastapi import Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
-from app.db import audit, doc, emit, get, put, uid, update
+from app.db import Job, audit, doc, emit, get, put, uid, update
 from app.grounding import ReviewReceipt, review_generated
 from app.intelligence import SCRIPT_SCHEMA
+from app.jobs.queue import aware
 from app.preparation.batch_recovery import (
     TERMINAL,
     BatchRecovery,
@@ -32,7 +33,7 @@ from app.preparation.templates import SLOT_SCHEMA, fill
 from app.providers.batch import OpenAIBatch, join_batch_results
 from app.providers.inference import InferenceResult
 from app.research.validation import script_review_request, validate_script, validate_script_evidence
-from app.service import fail
+from app.service import dt, fail
 
 HEARTBEAT_SECONDS = 20
 
@@ -41,6 +42,7 @@ class BatchInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     lead_ids: list[str] = Field(min_length=1, max_length=500)
     idempotency_key: str = Field(min_length=1, max_length=128)
+    ready_at: AwareDatetime | None = None
 
 
 def build_requests(service, p, lead_ids, conf):
@@ -121,17 +123,17 @@ def register_batches(app, service, administrator):
             )
             return {"batches": [view(service, r) for r in pending + recent], "limited": len(pending) == 100}
 
-    def existing(s, p, key, lead_ids):
+    def existing(s, p, key, lead_ids, ready_at):
         prior = service._by_key(s, p, "command_outbox", key)
-        if prior and prior.data["lead_ids"] != lead_ids:
+        if prior and (prior.data["lead_ids"] != lead_ids or prior.data.get("ready_at") != ready_at):
             fail(409, "Idempotency key belongs to another batch")
         return prior
 
-    def create_intent(p, key, lead_ids, contexts, requests):
+    def create_intent(p, key, lead_ids, contexts, requests, ready_at):
         with db.transaction() as s:
             db.authorize_stream(s, p)
             admin(service, s, p)
-            prior = existing(s, p, key, lead_ids)
+            prior = existing(s, p, key, lead_ids, ready_at)
             if prior:
                 return None, view(service, prior)
             pending_conflict(service, s, p, lead_ids)
@@ -149,6 +151,7 @@ def register_batches(app, service, administrator):
                     "kind": "script_batch",
                     "status": "sending",
                     "lead_ids": lead_ids,
+                    "ready_at": ready_at,
                     "contexts": contexts,
                     "submitted_at": clock().isoformat(),
                     "model": requests[0]["body"]["model"],
@@ -218,17 +221,22 @@ def register_batches(app, service, administrator):
         if not conf.get("openai_api_key"):
             fail(503, "Configure a project API key before submitting deferred work")
         lead_ids, key = sorted(set(data.lead_ids)), "script-batch:" + data.idempotency_key
+        ready_at = data.ready_at.isoformat() if data.ready_at else None
 
         def prior_submission():
             with db.transaction(False) as s:
-                prior = existing(s, p, key, lead_ids)
+                prior = existing(s, p, key, lead_ids, ready_at)
                 return view(service, prior) if prior else None
 
         prior = await asyncio.to_thread(prior_submission)
         if prior:
             return prior
+        if data.ready_at is None:
+            fail(409, "client_upgrade_required: specify the deferred preparation ready deadline")
+        if data.ready_at < clock() + timedelta(hours=24):
+            fail(422, "Deferred preparation needs at least 24 hours; use immediate preparation")
         contexts, requests = await asyncio.to_thread(build_requests, service, p, lead_ids, conf)
-        intent, prior = await asyncio.to_thread(create_intent, p, key, lead_ids, contexts, requests)
+        intent, prior = await asyncio.to_thread(create_intent, p, key, lead_ids, contexts, requests, ready_at)
         if prior:
             return prior
         provider = OpenAIBatch(
@@ -253,7 +261,7 @@ def register_batches(app, service, administrator):
         conf = service.vault.read(p["tenant_id"])
         value = await asyncio.to_thread(claim_recovery, service, p, intent_id, data)
         if value.get("publication_cached"):
-            return {key: value[key] for key in ("status", "published", "retry_lead_ids")}
+            return publication_status(value)
         provider = OpenAIBatch(conf.get("openai_api_key", ""), http=getattr(service, "background_http", None))
 
         async def heartbeat():
@@ -347,8 +355,7 @@ async def reconcile_completed(service, p, intent_id, value, result):
         request_key=value["request_key"],
         reserved=0,
     )
-    reviews = await review_results(service, p, intent_id, value, joined)
-    return await asyncio.to_thread(publish_results, service, p, intent_id, value, result, joined, reviews)
+    return await asyncio.to_thread(publish_results, service, p, intent_id, value, result, joined)
 
 
 def current_candidate(service, s, p, context, output):
@@ -364,7 +371,10 @@ def current_candidate(service, s, p, context, output):
     pieces = [c for item in output.get("output", []) for c in item.get("content", [])]
     if any(c.get("type") == "refusal" for c in pieces):
         raise ValueError("Refused result")
-    raw = json.loads("".join(c.get("text", "") for c in pieces if c.get("type") == "output_text"))
+    text = "".join(c.get("text", "") for c in pieces if c.get("type") == "output_text")
+    if len(text.encode()) > 65536:
+        raise ValueError("Deferred script result exceeds its bounded context")
+    raw = json.loads(text)
     candidate = (
         fill(
             raw,
@@ -398,149 +408,289 @@ def current_candidate(service, s, p, context, output):
     return lead, raw, candidate, current_facts
 
 
-async def review_results(service, p, intent_id, value, joined):
-    """Only novel legacy text needs review; locked-template batches stay inexpensive."""
-    accepted = {}
+def publication_status(value):
+    return {
+        key: value.get(key, [])
+        for key in ("status", "published", "retry_lead_ids", "pending_review_lead_ids")
+    }
+
+
+def update_publication(row, **changes):
+    data = {**row.data, **changes}
+    pending = [
+        data["contexts"][key]["lead_id"]
+        for key, review in data.get("grounding_reviews", {}).items()
+        if review["status"] in {"queued", "sending", "model_reviewed"}
+    ]
+    status = (
+        ("awaiting_reviews" if pending else data["provider_status"])
+        if data.get("publication_saved")
+        else "awaiting_publication"
+    )
+    update(row, **{**changes, "status": status, "pending_review_lead_ids": sorted(set(pending))})
+    return publication_status(row.data)
+
+
+def publish_script(service, s, p, context, output, custom_id, value, review=None):
+    prior = service._by_key(s, p, "script_versions", "batch:" + custom_id)
+    if prior:
+        return
+    lead, raw, candidate, facts = current_candidate(service, s, p, context, output)
+    validate_script(
+        candidate,
+        facts,
+        context["domain"],
+        context["seller"],
+        service.clock(),
+        approved=candidate if context.get("template") else context["baseline"],
+        review=review,
+    )
+    version = uid()
+    script = put(
+        s,
+        "script_versions",
+        p["tenant_id"],
+        p["seller_id"],
+        {
+            **context["baseline"],
+            **candidate,
+            **(
+                {"filled_slots": {k: v["text"] for k, v in raw["slots"].items()}}
+                if context.get("template")
+                else {}
+            ),
+            "script_version": version,
+            "fallback": False,
+            "created_at": service.clock().isoformat(),
+            "model": value["model"],
+            "evidence_versions": {f["fact_id"]: f["version"] for f in facts},
+            "grounding": review.metadata() if review else {"status": "approved_template"},
+            "provider_batch_id": value["provider_batch_id"],
+            "prompt_version": "batch-template-v1",
+            "previous_version": context.get("previous_script_id"),
+            "diff": {"previous_opener": context["baseline"]["opener"], "opener": candidate["opener"]},
+        },
+        object_id=version,
+        key="batch:" + custom_id,
+        now=service.clock(),
+    )
+    update(
+        lead,
+        preparation={
+            "status": "ready",
+            "key": context["source_key"],
+            "script_id": version,
+            "as_of": service.clock().isoformat(),
+            "expires_at": min(
+                (f["expires_at"] for f in facts), default=(service.clock() + timedelta(days=1)).isoformat()
+            ),
+        },
+    )
+    emit(s, p["tenant_id"], "lead.packet_ready", script, service.clock(), {"lead_id": lead.id})
+
+
+def publish_results(service, p, intent_id, value, result, joined):
+    """Publish approved slots; persist novel results as individual bounded script jobs."""
     for custom_id, context in value["contexts"].items():
-        if context.get("template") or custom_id not in joined["completed"]:
-            continue
-        owner = await asyncio.to_thread(service.claim_preparation, p, context["lead_id"])
-        if not owner:
-            continue
-        try:
-
-            def prepare_review(custom_id=custom_id, context=context):
-                with service.db.transaction() as s:
-                    service.db.authorize_stream(s, p)
-                    if service._by_key(s, p, "script_versions", "batch:" + custom_id):
-                        return None, None
-                    _, _, candidate, facts = current_candidate(
-                        service, s, p, context, joined["completed"][custom_id]
-                    )
-                    request = script_review_request(
-                        candidate, facts, context["domain"], context["seller"], approved=context["baseline"]
-                    )
-                    if not request:
-                        return None, None
-                    row = require_owner(service, s, p, value)
-                    cache = dict(row.data.get("grounding_reviews") or {})
-                    prior = cache.get(custom_id)
-                    if prior and prior["fingerprint"] == request["fingerprint"]:
-                        return request, prior
-                    # A crash after submission cannot silently spend again on reload.
-                    cache[custom_id] = {"fingerprint": request["fingerprint"], "status": "sending"}
-                    update(row, grounding_reviews=cache)
-                    return request, None
-
-            request, prior = await asyncio.to_thread(prepare_review)
-            if not request:
-                continue
-            if prior:
-                if prior["status"] == "model_reviewed":
-                    accepted[custom_id] = ReviewReceipt(
-                        prior["fingerprint"], prior["request_id"], tuple(prior["reviewed_fields"])
-                    )
-                continue
-            try:
-                receipt = await review_generated(
-                    service, p, request, object_id=context["lead_id"], role="script_write"
-                )
-                metadata = receipt.metadata()
-                accepted[custom_id] = receipt
-            except Exception:
-                metadata = {"fingerprint": request["fingerprint"], "status": "review_required"}
-
-            def save_review(custom_id=custom_id, metadata=metadata):
-                with service.db.transaction() as s:
-                    service.db.authorize_stream(s, p)
-                    row = require_owner(service, s, p, value)
-                    cache = dict(row.data.get("grounding_reviews") or {})
-                    cache[custom_id] = metadata
-                    update(row, grounding_reviews=cache)
-
-            await asyncio.to_thread(save_review)
-        except (ValueError, KeyError, TypeError):
-            pass  # Publication returns the exact object for retry; no partial text leaks.
-        finally:
-            await asyncio.to_thread(service.release_preparation, p, context["lead_id"], owner)
-    return accepted
-
-
-def publish_results(service, p, intent_id, value, result, joined, reviews=None):
-    db, clock = service.db, service.clock
-    published, retry = [], []
-    for custom_id, context in value["contexts"].items():
-        with db.transaction() as s:
+        with service.db.transaction() as s:
             service.db.authorize_stream(s, p)
-            require_owner(service, s, p, value)
-            prior = service._by_key(s, p, "script_versions", "batch:" + custom_id)
-            if prior:
-                published.append(context["lead_id"])
-                continue
+            row = require_owner(service, s, p, value)
+            reviews = dict(row.data.get("grounding_reviews") or {})
+            published = set(row.data.get("published", []))
+            retry = set(row.data.get("retry_lead_ids", []))
             output = joined["completed"].get(custom_id)
             try:
-                lead, raw, candidate, current_facts = current_candidate(service, s, p, context, output)
-                template = context.get("template")
-                validate_script(
-                    candidate,
-                    current_facts,
-                    context["domain"],
-                    context["seller"],
-                    clock(),
-                    approved=candidate if template else context["baseline"],
-                    review=(reviews or {}).get(custom_id),
-                )
+                if service._by_key(s, p, "script_versions", "batch:" + custom_id):
+                    published.add(context["lead_id"])
+                elif custom_id not in reviews:
+                    _, raw, candidate, facts = current_candidate(service, s, p, context, output)
+                    request = (
+                        None
+                        if context.get("template")
+                        else script_review_request(
+                            candidate,
+                            facts,
+                            context["domain"],
+                            context["seller"],
+                            approved=context["baseline"],
+                        )
+                    )
+                    if request:
+                        # Only generated public-source script data, no transcript or provider envelope.
+                        output = {"output": [{"content": [{"type": "output_text", "text": json.dumps(raw)}]}]}
+                        digest = fingerprint(output)
+                        reviews[custom_id] = {
+                            "status": "queued",
+                            "fingerprint": request["fingerprint"],
+                            "result_fingerprint": digest,
+                        }
+                        service.jobs.enqueue_in(
+                            s,
+                            "scripts",
+                            {
+                                "kind": "batch_review",
+                                "intent_id": intent_id,
+                                "custom_id": custom_id,
+                                "result_fingerprint": digest,
+                                "output": output,
+                                "seller_id": p["seller_id"],
+                                "user_id": p["user_id"],
+                            },
+                            f"batch-review:{intent_id}:{custom_id}:{digest}",
+                            tenant_id=p["tenant_id"],
+                        )
+                    else:
+                        publish_script(service, s, p, context, output, custom_id, value)
+                        published.add(context["lead_id"])
             except (ValueError, KeyError, TypeError):
-                retry.append(context["lead_id"])
-                continue
-            version = uid()
-            script = put(
-                s,
-                "script_versions",
-                p["tenant_id"],
-                p["seller_id"],
-                {
-                    **context["baseline"],
-                    **candidate,
-                    **({"filled_slots": {k: v["text"] for k, v in raw["slots"].items()}} if template else {}),
-                    "script_version": version,
-                    "fallback": False,
-                    "created_at": clock().isoformat(),
-                    "model": value["model"],
-                    "evidence_versions": {fact["fact_id"]: fact["version"] for fact in current_facts},
-                    "grounding": reviews[custom_id].metadata()
-                    if reviews and custom_id in reviews
-                    else {"status": "approved_template"},
-                    "provider_batch_id": value["provider_batch_id"],
-                    "prompt_version": "batch-template-v1",
-                    "previous_version": context.get("previous_script_id"),
-                    "diff": {"previous_opener": context["baseline"]["opener"], "opener": candidate["opener"]},
-                },
-                object_id=version,
-                key="batch:" + custom_id,
-                now=clock(),
+                retry.add(context["lead_id"])
+            update_publication(
+                row,
+                provider_status=result["status"],
+                published=sorted(published),
+                retry_lead_ids=sorted(retry),
+                grounding_reviews=reviews,
             )
-            update(
-                lead,
-                preparation={
-                    "status": "ready",
-                    "key": context["source_key"],
-                    "script_id": version,
-                    "as_of": clock().isoformat(),
-                    "expires_at": min(
-                        (f["expires_at"] for f in current_facts),
-                        default=(clock() + timedelta(days=1)).isoformat(),
-                    ),
-                },
-            )
-            emit(s, p["tenant_id"], "lead.packet_ready", script, clock(), {"lead_id": lead.id})
-            published.append(lead.id)
-    with db.transaction() as s:
+    with service.db.transaction() as s:
         service.db.authorize_stream(s, p)
-        update(
-            require_owner(service, s, p, value),
-            status=result["status"],
-            published=published,
-            retry_lead_ids=retry,
+        row = require_owner(service, s, p, value)
+        return update_publication(
+            row,
+            provider_status=result["status"],
+            publication_saved=True,
+            published=row.data.get("published", []),
+            retry_lead_ids=row.data.get("retry_lead_ids", []),
         )
-    return {"status": result["status"], "published": published, "retry_lead_ids": retry}
+
+
+async def review_batch_result(service, p, job, worker):
+    """One result per existing job; an uncertain review is never automatically charged again."""
+    from app.coaching.engine import finish_shielded
+
+    payload = job["payload"]
+    custom_id, intent_id = payload["custom_id"], payload["intent_id"]
+
+    def current(s):
+        admin(service, s, p)
+        record = s.get(Job, job["id"])
+        if (
+            not record
+            or record.tenant_id != p["tenant_id"]
+            or record.status != "running"
+            or record.lease_owner != worker
+            or aware(record.lease_expires_at) <= service.clock()
+        ):
+            fail(409, "Deferred result job owner changed")
+        row = service.required(s, "command_outbox", intent_id, p)
+        if not row.data.get("publication_saved"):
+            raise RuntimeError("Deferred output reconciliation is still in progress")
+        entry = row.data.get("grounding_reviews", {}).get(custom_id)
+        if not entry or entry.get("result_fingerprint") != fingerprint(payload["output"]):
+            fail(409, "Deferred result identity changed")
+        return row, entry, row.data["contexts"][custom_id]
+
+    def identity():
+        with service.db.transaction(False) as s:
+            row, entry, context = current(s)
+            return context["lead_id"]
+
+    async with service.script_capacity:
+        lead_id = await asyncio.to_thread(identity)
+        owner = await asyncio.to_thread(service.claim_preparation, p, lead_id)
+        if not owner:
+            raise RuntimeError("Lead preparation is already active")
+        try:
+            async with service.preparation_heartbeat(p, "leads", lead_id, owner):
+
+                def start():
+                    with service.db.transaction() as s:
+                        service.db.authorize_stream(s, p)
+                        row, entry, context = current(s)
+                        if entry["status"] in {"published", "review_required"}:
+                            return None, None
+                        _, _, candidate, facts = current_candidate(service, s, p, context, payload["output"])
+                        request = script_review_request(
+                            candidate,
+                            facts,
+                            context["domain"],
+                            context["seller"],
+                            approved=context["baseline"],
+                        )
+                        if not request or request["fingerprint"] != entry["fingerprint"]:
+                            raise ValueError("Deferred review sources changed")
+                        if entry["status"] == "sending":
+                            raise ValueError(
+                                "Prior review may have been charged; explicit new preparation required"
+                            )
+                        if entry["status"] == "model_reviewed":
+                            return request, ReviewReceipt(
+                                entry["fingerprint"], entry["request_id"], tuple(entry["reviewed_fields"])
+                            )
+                        update_publication(
+                            row,
+                            grounding_reviews={
+                                **row.data["grounding_reviews"],
+                                custom_id: {**entry, "status": "sending"},
+                            },
+                        )
+                        return request, None
+
+                def finish(receipt=None):
+                    with service.db.transaction() as s:
+                        service.db.authorize_stream(s, p)
+                        row, entry, context = current(s)
+                        lead = service.required(s, "leads", lead_id, p)
+                        lease = lead.data.get("preparation_lease") or {}
+                        if (
+                            lease.get("owner") != owner
+                            or not lease.get("expires_at")
+                            or service.clock() >= dt(lease["expires_at"])
+                        ):
+                            fail(409, "Deferred lead preparation owner changed")
+                        published, retry = (
+                            set(row.data.get("published", [])),
+                            set(row.data.get("retry_lead_ids", [])),
+                        )
+                        status = "review_required"
+                        if receipt:
+                            try:
+                                publish_script(
+                                    service, s, p, context, payload["output"], custom_id, row.data, receipt
+                                )
+                                published.add(lead_id)
+                                retry.discard(lead_id)
+                                status = "published"
+                            except (ValueError, KeyError, TypeError):
+                                retry.add(lead_id)
+                        else:
+                            retry.add(lead_id)
+                        update_publication(
+                            row,
+                            published=sorted(published),
+                            retry_lead_ids=sorted(retry),
+                            grounding_reviews={
+                                **row.data["grounding_reviews"],
+                                custom_id: {
+                                    **entry,
+                                    **(receipt.metadata() if receipt else {}),
+                                    "status": status,
+                                },
+                            },
+                        )
+
+                try:
+                    request, receipt = await asyncio.to_thread(start)
+                    if request is None:
+                        return
+                    if receipt is None:
+                        try:
+                            receipt = await review_generated(
+                                service, p, request, object_id=lead_id, role="script_write"
+                            )
+                        except Exception:
+                            receipt = None  # Ledger retains uncertainty; never automatically pay again.
+                    await finish_shielded(asyncio.to_thread(finish, receipt))
+                except (ValueError, KeyError, TypeError):
+                    await finish_shielded(asyncio.to_thread(finish))
+        finally:
+            await finish_shielded(asyncio.to_thread(service.release_preparation, p, lead_id, owner))
