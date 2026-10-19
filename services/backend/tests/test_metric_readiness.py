@@ -29,6 +29,20 @@ def test_missing_disposable_totals_restart_rebuild_even_with_old_pointer(workspa
     assert active_total(service, p)[1]["original_cohort"] == 3
 
 
+def test_restore_during_partial_rebuild_cannot_reuse_a_cursor_without_its_rows(workspace, app):
+    from app.optimization.projections import rebuild_page
+
+    service, p = app.state.service, principal(workspace)
+    initialized(service, p)
+    backup = service.backup(p)
+    page = rebuild_page(service, p, start=True)
+    assert page["processed"] == 3 and page["cursor"]["phase"] == 1 and not page["published"]
+    service.restore(p, backup["backup_id"])
+    assert not service.prepare_metric_read(p)
+    finish_rebuild(service, p)
+    assert active_total(service, p)[1]["original_cohort"] == 3
+
+
 def test_empty_workspace_has_a_ready_zero_total_without_endless_rebuild(workspace, app):
     service, p = app.state.service, principal(workspace)
     with service.db.transaction() as session:
