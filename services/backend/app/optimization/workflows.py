@@ -1269,8 +1269,8 @@ class OptimizationWorkflows(ComparisonWorkflows):
             with self.db.transaction() as s:
                 self.report_revision(s, p, lock=True)
                 if lease:
-                    from app.optimization.projections import _rebuild_owned
                     from app.db import Job
+                    from app.optimization.projections import _rebuild_owned
 
                     if not _rebuild_owned(s.get(Job, lease[0], with_for_update=True), lease, self.clock()):
                         return {"status": "lost_lease", "saved": saved}

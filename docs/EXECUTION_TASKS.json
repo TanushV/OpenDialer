@@ -593,7 +593,8 @@
         "services/backend/tests/test_metric_readiness.py",
         "services/backend/tests/test_incremental_reports.py",
         "services/backend/tests/test_incremental_estimates.py",
-        "services/backend/tests/test_incremental_planning.py"
+        "services/backend/tests/test_incremental_planning.py",
+        "services/backend/tests/test_projection_source_edges.py"
       ],
       "receipts": [
         "docs/evidence/completion/E09-contracts-red.json",
@@ -624,7 +625,7 @@
         "A50",
         "A51"
       ],
-      "checkpoint": "acd1412 estimate/learning serving: 96 scoped SQLite + final14 estimate contracts;97 PostgreSQL. c5989b6 bounded changed-lead planning and shared full forecast passes75 SQLite; broader maintenance verification running. Next: source/namespace edge cases and final E09 acceptance.",
+      "checkpoint": "eefc765 changed planning batches <=100, priority before reports, expired-owner and learning-role publication fences. 42 SQLite publication cases and four coalescing checks pass; broad SQLite/PG maintenance revalidation next. E09 remains open.",
       "implementation_todos": [
         {
           "id": "E09.admission",
