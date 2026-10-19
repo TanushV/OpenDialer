@@ -276,3 +276,25 @@ def test_stale_saved_estimate_does_not_claim_historical_as_of_time(workspace, ap
     brief = service.packet(p, lead.id)["statistical_guidance"]
     assert brief["prior_only"]
     assert brief["as_of"] is None
+
+
+def test_reserved_packet_uses_only_current_owned_decision(workspace, app, clock):
+    from app.db import get, update
+    from conftest import reserve
+    from test_remediation_privacy import principal
+
+    service, p = app.state.service, principal(workspace)
+    result = reserve(workspace)
+    assert result.status_code == 200, result.text
+    selected = result.json()
+    with service.db.transaction() as s:
+        reservation = get(s, "reservations", selected["reservation_id"])
+        snapshot = get(s, "feature_snapshots", reservation.data["feature_snapshot_id"])
+        update(snapshot, predictions={**snapshot.data["predictions"], "p_human": 0.73})
+    stats = service.packet(p, selected["lead"]["id"])["statistical_guidance"]
+    assert stats["human_probability"] == 0.73
+    assert stats["source"] == "frozen_reservation_decision"
+    clock.now += timedelta(minutes=3)
+    expired = service.packet(p, selected["lead"]["id"])["statistical_guidance"]
+    assert expired["source"] == "current_pooled_estimate"
+    assert expired["human_probability"] != 0.73
