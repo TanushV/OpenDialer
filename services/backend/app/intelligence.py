@@ -1300,7 +1300,25 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 elif lane == "live_coach":
                     await self.coach_turn(p, job["payload"]["call_id"])
                 elif lane == "ml":
-                    if job["payload"].get("kind") == "forecast_refresh":
+                    if job["payload"].get("kind") == "metric_refresh":
+                        from app.optimization.projections import refresh_unit
+
+                        receipt = await asyncio.to_thread(
+                            refresh_unit,
+                            self,
+                            p,
+                            {
+                                **job["payload"],
+                                "job_id": job["id"],
+                                "lease_owner": worker_id,
+                            },
+                        )
+                        if receipt["status"] == "lost_lease":
+                            return 0
+                        if receipt["status"] == "superseded":
+                            await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
+                            return 0
+                    elif job["payload"].get("kind") == "forecast_refresh":
                         receipt = await asyncio.to_thread(
                             self.build_forecast,
                             p,

@@ -10,57 +10,112 @@ from app.db import MODELS, Job, ReportRevision, emit, put, update
 from app.jobs.queue import jobdoc
 from app.service import dt, fail
 
-# Raw speech, ephemeral help, UI reads and the projections themselves are not inputs.
-REPORT_INPUTS = {
-    "campaigns",
-    "policy_versions",
-    "leads",
-    "call_attempts",
-    "conversion_events",
-    "feature_snapshots",
-    "notes",
-    "usage_ledger",
-    "coaching_feedback",
-    "coach_events",
-    "experiment_assignments",
-    "compliance_decisions",
-    "policy_decisions",
-    "scheduling_plans",
-    "learning_datasets",
-    "model_versions",
-    "number_inventory",
-    "number_health",
-    "number_leases",
-    "followup_tasks",
-    "suppressions",
-    "lead_number_bindings",
-    "work_intervals",
-    "command_outbox",
-    "active_claims",
+# Only changes affecting a displayed metric, plan or authority invalidate it.
+# None means the entire small configuration/receipt is an input, not every table.
+REPORT_FIELDS = {
+    "campaigns": {"optimization", "optimization_epoch", "optimization_trial", "policy_id", "staffing"},
+    "policy_versions": None,
+    "leads": {
+        "campaign_id",
+        "phone",
+        "endpoint_id",
+        "originally_eligible",
+        "status",
+        "outreach_hold",
+        "goal_completed",
+        "coverage_due_at",
+        "attempt_count",
+        "next_attempt_at",
+        "callback_due_at",
+        "requested_contact",
+        "timezone",
+        "region",
+        "segment",
+    },
+    "call_attempts": {
+        "lead_id",
+        "campaign_id",
+        "rep_id",
+        "number_id",
+        "started_at",
+        "submitted_at",
+        "provider_id",
+        "ended_at",
+        "rep_released_at",
+        "detached",
+        "state",
+        "max_call_seconds",
+        "outcome",
+        "outcome_history",
+        "outcome_available_at",
+        "outcome_source",
+        "contact_role",
+        "feature_snapshot_id",
+        "submission_decision_id",
+        "answered_at",
+        "bridged_at",
+    },
+    "conversion_events": None,
+    "feature_snapshots": None,
+    "notes": {"observations", "human_notes", "corrected_at"},
+    "usage_ledger": {
+        "at",
+        "call_id",
+        "object_id",
+        "status",
+        "reserved_usd",
+        "cost_usd",
+        "credited_usd",
+        "billing_verified",
+        "reconciled_to_provider_records",
+    },
+    "coaching_feedback": None,
+    "coach_events": {"call_id", "rep_id", "action", "latency", "strategy_exposure"},
+    "work_intervals": {"rep_id", "started_at", "ended_at", "lease_until"},
+    "experiment_assignments": None,
+    "compliance_decisions": None,
+    "policy_decisions": None,
+    "scheduling_plans": None,
+    "learning_datasets": None,
+    "model_versions": None,
+    "number_inventory": None,
+    "number_health": None,
+    "number_leases": None,
+    "followup_tasks": {"status", "confirmation_state", "due_at", "snoozed_until", "owner_id", "lead_id"},
+    "suppressions": None,
+    "lead_number_bindings": None,
+    "command_outbox": {"status", "kind"},
+    "users": {"disabled", "role"},
 }
 REPORT_TTL_SECONDS = 600
 
 
 def invalidate_reports(session):
-    scopes = {
-        (row.tenant_id, row.seller_id)
-        for row in session.new | session.dirty | session.deleted
-        if getattr(row, "__tablename__", None) in REPORT_INPUTS
-        and (row in session.new or row in session.deleted or session.is_modified(row))
-        and row.tenant_id
-        and row.seller_id
-    }
+    changed = []
     for row in session.new | session.dirty | session.deleted:
-        if getattr(row, "__tablename__", None) != "users":
+        table = getattr(row, "__tablename__", None)
+        if table not in REPORT_FIELDS or not row.tenant_id or not row.seller_id:
             continue
         history = inspect(row).attrs.data.history
-        previous = history.deleted[0] if history.deleted else row.data
+        if row not in session.new and row not in session.deleted and not history.has_changes():
+            continue
+        previous = history.deleted[0] if history.deleted else None
+        if previous is None and row not in session.new:
+            # MutableDict in-place edits do not retain their former value in
+            # attribute history. Read this one source, not its surrounding history.
+            model = type(row)
+            previous = session.scalar(select(model.data).where(model.id == row.id))
+        fields = REPORT_FIELDS[table]
         if (
-            row in session.new
-            or row in session.deleted
-            or any(previous.get(field) != row.data.get(field) for field in ("disabled", "role"))
+            row not in session.new
+            and row not in session.deleted
+            and previous is not None
+            and fields is not None
+            and all(previous.get(k) == row.data.get(k) for k in fields)
         ):
-            scopes.add((row.tenant_id, row.seller_id))
+            continue
+        changed.append((row, previous))
+    scopes = {(row.tenant_id, row.seller_id) for row, _ in changed}
     if not scopes:
         return
     transaction = session.get_nested_transaction() or session.get_transaction()
@@ -81,6 +136,10 @@ def invalidate_reports(session):
             )
         )
         seen.add((tenant_id, seller_id))
+
+    from app.optimization.projections import dirty_source_units, enqueue_units
+
+    enqueue_units(session, dirty_source_units(changed, session))
 
 
 class ReportProjections:
