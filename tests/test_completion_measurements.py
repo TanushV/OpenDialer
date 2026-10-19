@@ -200,12 +200,12 @@ def test_normal_load_runs_real_maintenance_and_retains_its_failure(monkeypatch, 
         ticks.append(True)
         if failed:
             raise TimeoutError("synthetic maintenance failure")
-        return {"reconciled": 1}
+        return {"status": "passed", "errors": [], "reconciled": 1}
 
     service = SimpleNamespace(
         db=SimpleNamespace(transaction=lambda: nullcontext(None)),
         scoped=lambda *args: [],
-        run_jobs=lambda **kwargs: 0,
+        run_jobs=lambda **kwargs: {"processed": 0, "errors": []},
         maintenance_tick=maintenance,
     )
     client = SimpleNamespace(
@@ -213,6 +213,7 @@ def test_normal_load_runs_real_maintenance_and_retains_its_failure(monkeypatch, 
         portal=SimpleNamespace(call=lambda fn: fn()),
     )
     monkeypatch.setattr(m, "call_cycle", lambda *args: {"ok": True})
+    monkeypatch.setattr(m, "queue_state", lambda *args: {"due": 0, "running": 0, "retry": 0, "dead": 0})
     monkeypatch.setattr(m, "run_for", lambda seconds, cycle: cycle(0))
     result = m.run_load(client, {}, "campaign", None, 1, lambda _: None, p={}, reps=1)
     assert ticks == [True], "Normal load must include maintenance contention, not only drain queued jobs"
@@ -240,6 +241,17 @@ def reference_manifest():
             "Config": {"Labels": {"opendialer.task": "completion-E13"}},
             "HostConfig": {"NanoCpus": 500000000, "Memory": 1024**3, "MemorySwap": 1024**3},
         },
+        "runtime": {
+            "hostname": "a" * 12,
+            "network_namespace": "net:[123]",
+            "cgroup_namespace": "cgroup:[456]",
+        },
+        "database_runtime": {"network_namespace": "net:[123]"},
+        "postgres": {
+            "system_identifier": "123456789",
+            "port": 55439,
+            "database": "opendialer_completion_performance",
+        },
     }
 
 
@@ -256,8 +268,53 @@ def test_reference_requires_inspected_caps_and_matching_actual_runtime(changed):
     elif changed == "wrong_namespace":
         data["api"]["HostConfig"]["NetworkMode"] = "bridge"
     result = m.validate_reference(
-        data, "max 100000" if changed == "runtime_mismatch" else "150000 100000", str(3 * 1024**3)
+        data,
+        "max 100000" if changed == "runtime_mismatch" else "150000 100000",
+        str(3 * 1024**3),
+        runtime=data["runtime"],
+        postgres=data["postgres"],
     )
     assert result["status"] == ("passed" if changed == "none" else "failed")
     if changed == "none":
         assert result["cpu_limit"] == 2 and result["memory_limit_mib"] == 4096
+
+
+@pytest.mark.parametrize(
+    "changed", ["hostname", "network_namespace", "cgroup_namespace", "system_identifier", "port", "database"]
+)
+def test_matching_caps_with_another_container_or_database_never_certify_reference(changed):
+    m = measurement()
+    data = reference_manifest()
+    runtime, postgres = dict(data["runtime"]), dict(data["postgres"])
+    if changed in runtime:
+        runtime[changed] = "different-runtime"
+    else:
+        postgres[changed] = 5432 if changed == "port" else "different-database"
+    result = m.validate_reference(data, "150000 100000", str(3 * 1024**3), runtime=runtime, postgres=postgres)
+    assert result["status"] == "failed", "Matching quotas do not bind the measured database or process"
+
+
+def test_stale_reference_manifest_is_rejected_at_the_running_entrypoint(monkeypatch, tmp_path):
+    import json
+
+    m = measurement()
+    data = reference_manifest()
+    path = tmp_path / "reference.json"
+    path.write_text(json.dumps(data))
+    monkeypatch.setenv("OPENDIALER_REFERENCE_MANIFEST", str(path))
+    original_read = Path.read_text
+
+    def cgroups(path, *args, **kwargs):
+        if str(path) == "/sys/fs/cgroup/cpu.max":
+            return "150000 100000"
+        if str(path) == "/sys/fs/cgroup/memory.max":
+            return str(3 * 1024**3)
+        return original_read(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", cgroups)
+    monkeypatch.setattr(
+        m, "runtime_identity", lambda: {**data["runtime"], "hostname": "different"}, raising=False
+    )
+    monkeypatch.setattr(m, "postgres_identity", lambda: data["postgres"], raising=False)
+    with pytest.raises(ValueError, match="reference|Reference"):
+        m.shared_reference()

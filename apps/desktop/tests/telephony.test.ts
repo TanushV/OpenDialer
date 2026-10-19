@@ -264,3 +264,44 @@ test("a delayed idle-agent hangup cannot disconnect a replacement registration",
   phone.mute();
   expect(next.toggleAudioMute).toHaveBeenCalledTimes(1);
 });
+
+test("a captured audio identity never resolves to a replacement leg", async () => {
+  const { phone, client } = await connected();
+  phone.expectAgentLeg("original");
+  const original = call("original", "active");
+  client.emit(original);
+  const identity = phone.activeIdentity;
+  expect(identity).toBe("original");
+  client.emit({ ...original, state: "destroy" });
+  phone.expectAgentLeg("replacement");
+  const replacement = call("replacement", "active");
+  client.emit(replacement);
+  await phone.emergencyHangup(identity!);
+  expect(replacement.hangup).not.toHaveBeenCalled();
+  expect(phone.activeIdentity).toBe("replacement");
+});
+
+test("a delayed local audio stop cannot announce the replacement disconnected", async () => {
+  const { phone, client } = await connected();
+  phone.expectAgentLeg("original");
+  const original = call("original", "active");
+  client.emit(original);
+  let release!: () => void;
+  original.hangup.mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const stopping = phone.emergencyHangup("original");
+  phone.expectAgentLeg("replacement");
+  const replacement = call("replacement", "active");
+  client.emit(replacement);
+  const status = vi.fn();
+  phone.onStatus = status;
+  release();
+  await stopping;
+  expect(status).not.toHaveBeenCalled();
+  phone.mute();
+  expect(replacement.toggleAudioMute).toHaveBeenCalledTimes(1);
+});

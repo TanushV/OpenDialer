@@ -1264,6 +1264,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
         if (queues is None or "ml" in queues) and self.settings.worker_enabled:
             await self.periodic_optimization(tenant_id)
         worker_id = "worker-" + uid()
+        errors = []
 
         async def execute(lane, job):
             p = {
@@ -1414,6 +1415,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             except LostJobLease:
                 return 0
             except Exception as exc:
+                errors.append(
+                    {"kind": "job", "job_id": job["id"], "queue": lane, "error_type": type(exc).__name__}
+                )
                 with contextlib.suppress(LostJobLease):
                     await asyncio.to_thread(self.jobs.fail, job["id"], worker_id, type(exc).__name__)
                 return 0
@@ -1478,7 +1482,8 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             for kind in (("maintenance", "training") if lane == "ml" else (None,))
         ]
         try:
-            return {"processed": sum(await asyncio.gather(*tasks))}
+            processed = sum(await asyncio.gather(*tasks))
+            return {"processed": processed, "status": "failed" if errors else "passed", "errors": errors}
         finally:
             for task in tasks:
                 if not task.done():
@@ -1587,6 +1592,8 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             self._next_preparation = time.monotonic() + 60
         prepared_sellers = set()
         screened_sellers = set()
+        errors = []
+        completed = 0
 
         def users():
             with self.db.transaction(False) as session:
@@ -1613,12 +1620,17 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     await asyncio.to_thread(self.prepare_ahead, p)
                 await self.recover(p)
                 await self.dispatch_controls(p)
+                completed += 1
             except Exception as exc:
                 import logging
 
                 logging.getLogger(__name__).warning(
                     "Maintenance reconciliation deferred: %s", type(exc).__name__
                 )
+                errors.append(
+                    {"kind": "maintenance", "user_id": p["user_id"], "error_type": type(exc).__name__}
+                )
+        return {"status": "failed" if errors else "passed", "completed": completed, "errors": errors}
 
     def tracker_matches(self, s, p, segments):
         matches = []

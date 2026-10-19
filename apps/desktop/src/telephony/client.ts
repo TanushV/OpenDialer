@@ -227,6 +227,9 @@ export class Telephony {
       );
     return this.returnCall || this.agent;
   }
+  get activeIdentity() {
+    return providerId(this.selected()) || null;
+  }
   mute(id?: string) {
     this.selected(id)?.toggleAudioMute();
   }
@@ -257,10 +260,12 @@ export class Telephony {
     if (!ended(call)) await call.hangup();
     const identity = providerId(call)!;
     const wasAgent = identity === this.expectedAgent;
+    const wasReturn = identity === this.expectedReturn;
     this.closeIdentity(identity);
-    if (this.agent?.remoteStream && this.audio)
+    if (wasReturn && this.agent?.remoteStream && this.audio)
       this.audio.srcObject = this.agent.remoteStream;
-    this.report(wasAgent ? "agent-disconnected" : "return-ended");
+    if (wasAgent) this.report("agent-disconnected");
+    else if (wasReturn) this.report("return-ended");
   }
   async releaseIdleAgent() {
     if (this.hasIncoming) return;

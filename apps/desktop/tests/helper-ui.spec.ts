@@ -230,3 +230,250 @@ test("settings display the authority cost register, including changed rates", as
     page.getByText("Reference prices checked 2026-11-02", { exact: false }),
   ).toBeVisible();
 });
+
+test("duplicate hangup responses cannot replace or stop a newer conversation", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await prepareSimulationCall(page, "Delayed hangup fixture", "+14155550883");
+  await page
+    .getByRole("button", { name: "Get next lead", exact: true })
+    .click();
+  const started = page.waitForResponse((r) =>
+    r.url().endsWith("/v1/calls/start"),
+  );
+  await page.getByRole("button", { name: "Start call", exact: true }).click();
+  const original = await (await started).json();
+  await page.evaluate(async () => {
+    const path = "/src/telephony/client.ts";
+    const { Telephony } = await import(path);
+    const state = {
+      id: "original-sdk-leg",
+      stopped: [] as (string | undefined)[],
+    };
+    (window as any).audioBoundary = state;
+    Object.defineProperty(Telephony.prototype, "activeIdentity", {
+      configurable: true,
+      get: () => state.id,
+    });
+    Telephony.prototype.emergencyHangup = async (id?: string) => {
+      state.stopped.push(id);
+    };
+  });
+  let firstArrived!: () => void,
+    secondArrived!: () => void,
+    sent!: () => void,
+    captured!: () => void,
+    release!: () => void;
+  const first = new Promise<void>((resolve) => {
+    firstArrived = resolve;
+  });
+  const second = new Promise<void>((resolve) => {
+    secondArrived = resolve;
+  });
+  const send = new Promise<void>((resolve) => {
+    sent = resolve;
+  });
+  const gotResponse = new Promise<void>((resolve) => {
+    captured = resolve;
+  });
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let count = 0;
+  await page.route(`**/v1/calls/${original.id}/hangup`, async (route) => {
+    count++;
+    if (count === 1) {
+      firstArrived();
+      await send;
+      const response = await route.fetch();
+      captured();
+      await held;
+      await route.fulfill({ response });
+    } else {
+      secondArrived();
+      await gotResponse;
+      await route.continue();
+    }
+  });
+  try {
+    await page.getByRole("button", { name: "Hang up", exact: true }).click();
+    await first;
+    await page.keyboard.press("F4");
+    await second;
+    sent();
+    await expect
+      .poll(() =>
+        page.evaluate(() => (window as any).audioBoundary.stopped.length),
+      )
+      .toBe(1);
+    await page.getByLabel("Disposition").selectOption("no_answer");
+    await page
+      .getByRole("button", { name: "Save outcome", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Get next lead", exact: true })
+      .click();
+    await page.evaluate(() => {
+      (window as any).audioBoundary.id = "new-sdk-leg";
+    });
+    const nextStarted = page.waitForResponse((r) =>
+      r.url().endsWith("/v1/calls/start"),
+    );
+    await page.getByRole("button", { name: "Start call", exact: true }).click();
+    const current = await (await nextStarted).json();
+    release();
+    await page.unrouteAll({ behavior: "wait" });
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    await expect(
+      page.getByRole("button", { name: "Hang up", exact: true }),
+    ).toBeVisible();
+    expect(
+      await page.evaluate(() => (window as any).audioBoundary.stopped),
+    ).toEqual(["original-sdk-leg"]);
+    const finalHangup = page.waitForRequest((r) =>
+      r.url().endsWith(`/v1/calls/${current.id}/hangup`),
+    );
+    await page.getByRole("button", { name: "Hang up", exact: true }).click();
+    await finalHangup;
+    await page.getByLabel("Disposition").selectOption("no_answer");
+    await page
+      .getByRole("button", { name: "Save outcome", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Pause dialing", exact: true })
+      .click();
+  } finally {
+    sent();
+    captured();
+    release();
+    await page.unrouteAll({ behavior: "wait" });
+  }
+});
+
+test("a same-version stale help read cannot restore withdrawn guidance", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await prepareSimulationCall(page, "Withdrawn help fixture", "+14155550884");
+  await page
+    .getByRole("button", { name: "Get next lead", exact: true })
+    .click();
+  const started = page.waitForResponse((r) =>
+    r.url().endsWith("/v1/calls/start"),
+  );
+  await page.getByRole("button", { name: "Start call", exact: true }).click();
+  const original = await (await started).json();
+  let release!: () => void, received!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const arrived = new Promise<void>((resolve) => {
+    received = resolve;
+  });
+  let count = 0;
+  let capturedVersion: number, capturedTranscript: number;
+  await page.route(`**/v1/calls/${original.id}`, async (route) => {
+    const sequence = ++count;
+    const response = await route.fetch();
+    const body = await response.json();
+    if (sequence === 1) {
+      capturedVersion = body.version;
+      capturedTranscript = body.transcript_version;
+    }
+    body.version = capturedVersion;
+    body.transcript_version = capturedTranscript;
+    body.coach =
+      sequence === 1
+        ? {
+            id: "withdrawn-guidance",
+            action: "SUGGEST",
+            kind: "question",
+            say_or_ask: "OBSOLETE ADVICE SHOULD NOT REAPPEAR",
+            reason: "Synthetic earlier context",
+            provider: "openrouter",
+            remaining_ms: 60000,
+            state_version: 1,
+            evidence_segment_ids: [],
+            meaning_review: { status: "model_suggestion" },
+          }
+        : null;
+    if (sequence === 1) {
+      received();
+      await held;
+    }
+    await route.fulfill({ response, json: body });
+  });
+  try {
+    await page.keyboard.press("F1");
+    await arrived;
+    await page.getByRole("button", { name: "Mute tips", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Enable tips", exact: true }),
+    ).toBeVisible();
+    await page.evaluate(() => {
+      (window as any).sawObsolete = false;
+      const observer = new MutationObserver(() => {
+        if (
+          document.body.textContent?.includes(
+            "OBSOLETE ADVICE SHOULD NOT REAPPEAR",
+          )
+        )
+          (window as any).sawObsolete = true;
+      });
+      observer.observe(document.body, {
+        subtree: true,
+        childList: true,
+        characterData: true,
+      });
+      (window as any).obsoleteObserver = observer;
+    });
+    release();
+    await page.unrouteAll({ behavior: "wait" });
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    expect(await page.evaluate(() => (window as any).sawObsolete)).toBe(false);
+    await expect(
+      page.getByText("OBSOLETE ADVICE SHOULD NOT REAPPEAR", { exact: true }),
+    ).toHaveCount(0);
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: "wait" });
+    await page.evaluate(() => (window as any).obsoleteObserver?.disconnect());
+    await page.getByRole("button", { name: "Hang up", exact: true }).click();
+    await page.getByLabel("Disposition").selectOption("no_answer");
+    await page
+      .getByRole("button", { name: "Save outcome", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Pause dialing", exact: true })
+      .click();
+  }
+});

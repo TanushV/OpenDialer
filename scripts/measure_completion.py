@@ -179,8 +179,8 @@ def resource_gates(receipt):
     }
 
 
-def validate_reference(manifest, cpu_max, memory_max):
-    """Compare Docker's two-container limits with the executing cgroup, not a declared flag."""
+def validate_reference(manifest, cpu_max, memory_max, *, runtime, postgres):
+    """Bind inspected limits to this process, network and actual PostgreSQL server."""
     try:
         api, database = manifest["api"], manifest["database"]
         quota, period = map(int, cpu_max.split())
@@ -206,6 +206,14 @@ def validate_reference(manifest, cpu_max, memory_max):
             or period <= 0
             or quota / period != limits[0]["NanoCpus"] / 1e9
             or runtime_memory != limits[0]["Memory"]
+            or runtime != manifest["runtime"]
+            or runtime["hostname"] != api["Id"][:12]
+            or runtime["network_namespace"] != manifest["database_runtime"]["network_namespace"]
+            or not runtime["cgroup_namespace"].startswith("cgroup:[")
+            or postgres != manifest["postgres"]
+            or postgres["port"] != 55439
+            or postgres["database"] != "opendialer_completion_performance"
+            or not str(postgres["system_identifier"]).isdigit()
         ):
             raise ValueError("Reference limits or executing namespace differ")
         return {
@@ -214,11 +222,42 @@ def validate_reference(manifest, cpu_max, memory_max):
             "memory_limit_mib": memory / 1024**2,
             "runtime_cpu_max": cpu_max.strip(),
             "runtime_memory_max": runtime_memory,
+            "runtime_identity": runtime,
+            "postgres_identity": postgres,
             "containers": manifest,
             "boundary": "Linux container CPU/memory limits on the recorded host; provider and native resources separate",
         }
     except (KeyError, TypeError, ValueError, ZeroDivisionError) as exc:
         return {"status": "failed", "error_type": type(exc).__name__}
+
+
+def runtime_identity():
+    import socket
+
+    return {
+        "hostname": socket.gethostname(),
+        "network_namespace": os.readlink("/proc/self/ns/net"),
+        "cgroup_namespace": os.readlink("/proc/self/ns/cgroup"),
+    }
+
+
+def postgres_identity():
+    from sqlalchemy import create_engine, text
+
+    from scripts.disposable_database import validate_database_url
+
+    url = validate_database_url(os.environ["OPENDIALER_PERFORMANCE_DATABASE_URL"], purpose="performance")
+    engine = create_engine(url)
+    try:
+        with engine.connect() as connection:
+            system, port, database = connection.execute(
+                text(
+                    "SELECT system_identifier::text, inet_server_port(), current_database() FROM pg_control_system()"
+                )
+            ).one()
+        return {"system_identifier": system, "port": port, "database": database}
+    finally:
+        engine.dispose()
 
 
 def shared_reference():
@@ -229,6 +268,8 @@ def shared_reference():
         json.loads(Path(source).read_text()),
         Path("/sys/fs/cgroup/cpu.max").read_text(),
         Path("/sys/fs/cgroup/memory.max").read_text(),
+        runtime=runtime_identity(),
+        postgres=postgres_identity(),
     )
     if result["status"] != "passed":
         raise ValueError("Inspected reference limits do not match the executing container")
@@ -859,10 +900,59 @@ def run_control_paths(client, headers, campaign, measured, checkpoint):
     }
 
 
-def run_load(client, headers, campaign, measured, seconds, checkpoint, *, p, reps):
-    service = client.app.state.service
+def queue_state(service):
+    from app.db import Job
+    from sqlalchemy import func, select
+
+    with service.db.transaction(False) as s:
+        states = dict(s.execute(select(Job.status, func.count()).group_by(Job.status)).all())
+        due = s.scalar(
+            select(func.count())
+            .select_from(Job)
+            .where(
+                Job.status.in_(["queued", "retry"]),
+                Job.available_at <= service.clock(),
+            )
+        )
+    return {
+        "due": due,
+        "running": states.get("running", 0),
+        "dead": states.get("dead", 0),
+        "retry": states.get("retry", 0),
+        "total": sum(states.values()),
+    }
+
+
+def maintain_and_drain(client, service, *, waves=1):
+    """Keep every inner failure even when a later retry empties the queue."""
     from functools import partial
 
+    maintenance = client.portal.call(service.maintenance_tick)
+    errors = list(maintenance["errors"])
+    samples = [queue_state(service)]
+    drained = 0
+    for _ in range(waves):
+        if not (samples[-1]["due"] or samples[-1]["running"]):
+            break
+        receipt = client.portal.call(
+            partial(
+                service.run_jobs, queues=["webhook", "live_coach", "postcall", "research", "scripts", "ml"]
+            )
+        )
+        errors.extend(receipt["errors"])
+        drained += receipt["processed"]
+        samples.append(queue_state(service))
+    return {
+        "status": "failed" if errors or samples[-1]["dead"] else "passed",
+        "errors": errors,
+        "maintenance": maintenance,
+        "drained": drained,
+        "queue_samples": samples,
+    }
+
+
+def run_load(client, headers, campaign, measured, seconds, checkpoint, *, p, reps):
+    service = client.app.state.service
     from app.security import issue_session
 
     rep_headers = [headers]
@@ -873,20 +963,11 @@ def run_load(client, headers, campaign, measured, seconds, checkpoint, *, p, rep
                 rep_headers.append({"Authorization": "Bearer " + token})
     assert len(rep_headers) == reps
 
-    def maintain_and_drain():
-        maintenance = client.portal.call(service.maintenance_tick)
-        drained = client.portal.call(
-            partial(
-                service.run_jobs, queues=["webhook", "live_coach", "postcall", "research", "scripts", "ml"]
-            )
-        )
-        return {"maintenance": maintenance, "drained": drained}
-
     def cycle(index):
         # Preparation, interpretation, recovery and projections share the real
         # worker admission. Unconfigured inference retains the declared fallback.
         with ThreadPoolExecutor(max_workers=reps + 1) as pool:
-            background = pool.submit(maintain_and_drain)
+            background = pool.submit(maintain_and_drain, client, service)
             calls = [
                 pool.submit(call_cycle, client, h, campaign, measured, f"load-{index}-{rep}")
                 for rep, h in enumerate(rep_headers)
@@ -895,26 +976,32 @@ def run_load(client, headers, campaign, measured, seconds, checkpoint, *, p, rep
             result = {"ok": all(r["ok"] for r in results), "reps": results}
             try:
                 result["background"] = background.result(timeout=30)
+                result["ok"] = result["ok"] and result["background"]["status"] == "passed"
             except Exception as exc:
                 result.update(ok=False, background_error=type(exc).__name__)
         checkpoint({"load_cycles": index + 1, "latest_ok": result["ok"]})
         return result
 
-    return run_for(seconds, cycle)
+    result = run_for(seconds, cycle)
+    if "samples" in result:
+        recovered = maintain_and_drain(client, service, waves=200)
+        result["queue_recovery"] = recovered
+        remaining = recovered["queue_samples"][-1]
+        if recovered["status"] != "passed" or any(remaining[k] for k in ("due", "running", "retry", "dead")):
+            result["status"] = "failed"
+    return result
 
 
 def run_shift(settings, clock, headers, campaign, hours, checkpoint):
     """Eight virtual hours; real persisted HTTP journeys and four authority lifetimes."""
-    from functools import partial
-
-    from app.db import MODELS, ActiveClaim, Job
+    from app.db import MODELS, ActiveClaim
     from app.main import create_app
     from app.providers.simulated import SimulatedCarrier
     from fastapi.testclient import TestClient
     from sqlalchemy import func, select
 
     began, wall, rows, restarts = clock.now, time.perf_counter(), [], []
-    maintenance, queue_samples = [], []
+    maintenance, queue_samples, errors = [], [], []
     carrier, task_ids = SimulatedCarrier(), set()
     count = int(hours * 3600 / 720)
     for page in range(0, count, 10):
@@ -923,36 +1010,13 @@ def run_shift(settings, clock, headers, campaign, hours, checkpoint):
             service = app.state.service
             measured = Measurements(service)
 
-            def queue_state(service=service):
-                with service.db.transaction(False) as s:
-                    states = dict(s.execute(select(Job.status, func.count()).group_by(Job.status)).all())
-                    due = s.scalar(
-                        select(func.count())
-                        .select_from(Job)
-                        .where(Job.status.in_(["queued", "retry"]), Job.available_at <= clock())
-                    )
-                result = {
-                    "due": due,
-                    "running": states.get("running", 0),
-                    "dead": states.get("dead", 0),
-                    "total": sum(states.values()),
-                }
-                queue_samples.append(result)
-                return result
-
             def maintain(service=service, measured=measured):
-                row, _ = measured.sample(lambda: client.portal.call(service.maintenance_tick))
+                row, receipt = measured.sample(lambda: maintain_and_drain(client, service, waves=200))
+                if receipt:
+                    row["ok"] = row["ok"] and receipt["status"] == "passed"
+                    errors.extend(receipt["errors"])
+                    queue_samples.extend(receipt["queue_samples"])
                 maintenance.append(row)
-                for _ in range(200):
-                    state = queue_state()
-                    if not (state["due"] or state["running"]):
-                        break
-                    client.portal.call(
-                        partial(
-                            service.run_jobs,
-                            queues=["webhook", "live_coach", "postcall", "research", "scripts", "ml"],
-                        )
-                    )
 
             with measured.instrument():
                 maintain()
@@ -1009,7 +1073,8 @@ def run_shift(settings, clock, headers, campaign, hours, checkpoint):
         )
         and all(row["ok"] for row in maintenance)
         and bool(queue_samples)
-        and not any(queue_samples[-1][key] for key in ("due", "running", "dead"))
+        and not errors
+        and not any(queue_samples[-1][key] for key in ("due", "running", "retry", "dead"))
     )
     return {
         "status": "passed" if passed else "failed",
@@ -1017,6 +1082,7 @@ def run_shift(settings, clock, headers, campaign, hours, checkpoint):
         "wall_seconds": time.perf_counter() - wall,
         "samples": rows,
         "restarts": restarts,
+        "errors": errors,
         "maintenance": {
             "ticks": len(maintenance),
             "status": "passed" if maintenance and all(row["ok"] for row in maintenance) else "failed",
@@ -1024,7 +1090,9 @@ def run_shift(settings, clock, headers, campaign, hours, checkpoint):
         },
         "queue_recovery": {
             "status": "passed"
-            if queue_samples and not any(queue_samples[-1][k] for k in ("due", "running", "dead"))
+            if queue_samples
+            and not errors
+            and not any(queue_samples[-1][k] for k in ("due", "running", "retry", "dead"))
             else "failed",
             "due_remaining": queue_samples[-1]["due"] if queue_samples else None,
             "running_remaining": queue_samples[-1]["running"] if queue_samples else None,

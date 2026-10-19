@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 
+import pytest
 from app.db import MODELS
 from sqlalchemy import func, select
 from test_control_completion import principal
@@ -187,3 +188,70 @@ def test_shift_runs_maintenance_and_drains_due_work_before_certifying_restart(wo
     assert result["queue_recovery"]["running_remaining"] == 0
     assert result["queue_recovery"]["dead_remaining"] == 0
     assert len(result["queue_recovery"]["samples"]) >= 2
+
+
+@pytest.mark.parametrize("failure", ["maintenance", "job"])
+def test_load_retains_errors_caught_inside_actual_maintenance_or_job_runner(
+    workspace, app, monkeypatch, failure
+):
+    service, p = app.state.service, principal(workspace)
+
+    def broken_preparation(*args):
+        raise TimeoutError("synthetic inner maintenance failure")
+
+    async def broken_job(*args):
+        raise TimeoutError("synthetic inner job failure")
+
+    service._next_preparation = 0
+    if failure == "maintenance":
+        monkeypatch.setattr(service, "prepare_ahead", broken_preparation)
+    else:
+        monkeypatch.setattr(service, "prepare_ahead", lambda *args: None)
+        monkeypatch.setattr(service, "prepare", broken_job)
+        service.jobs.enqueue(
+            "scripts",
+            {"seller_id": p["seller_id"], "user_id": p["user_id"], "lead_ids": []},
+            "measurement-inner-failure",
+            tenant_id=p["tenant_id"],
+        )
+    monkeypatch.setattr(measure, "run_for", lambda seconds, cycle: cycle(0))
+    monkeypatch.setattr(measure, "call_cycle", lambda *args: {"ok": True})
+    measured = measure.Measurements(service)
+    with measured.instrument():
+        result = measure.run_load(
+            workspace["client"],
+            workspace["headers"],
+            workspace["campaign_id"],
+            measured,
+            1,
+            lambda _: None,
+            p=p,
+            reps=1,
+        )
+    assert result["ok"] is False, "Caught internal failures must not certify a healthy load cycle"
+    assert result["background"]["status"] == "failed"
+    errors = result["background"]["errors"]
+    assert any(error["kind"] == failure and error["error_type"] == "TimeoutError" for error in errors)
+
+
+def test_shift_cannot_erase_an_inner_error_when_later_maintenance_recovers(
+    workspace, app, clock, monkeypatch
+):
+    owner = type(app.state.service)
+    original, attempts = owner.prepare_ahead, []
+
+    def first_failure(self, *args, **kwargs):
+        attempts.append(True)
+        if len(attempts) == 1:
+            raise TimeoutError("synthetic recovered maintenance failure")
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(owner, "prepare_ahead", first_failure)
+    result = measure.run_shift(
+        app.state.service.settings, clock, workspace["headers"], workspace["campaign_id"], 0.2, lambda _: None
+    )
+    assert result["status"] == "failed"
+    assert result["maintenance"]["samples"][0]["ok"] is False
+    assert result["maintenance"]["samples"][-1]["ok"] is True
+    assert any(error["error_type"] == "TimeoutError" for error in result["errors"])
+    assert result["restarts"][0]["claims"] == 0

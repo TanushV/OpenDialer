@@ -40,6 +40,10 @@ export function DialerPage() {
   const [reservation, setReservation] = useState<Reservation | null>(null);
   const [packet, setPacket] = useState<Packet | null>(null);
   const [call, setCall] = useState<Call | null>(null);
+  const currentCall = useRef(call);
+  currentCall.current = call;
+  const callReadGeneration = useRef(0);
+  const hangupGeneration = useRef(0);
   useSpeechExpiry(call, setCall);
   const [dialing, setDialing] = useState(false);
   const [transcript, setTranscript] = useState("");
@@ -94,7 +98,9 @@ export function DialerPage() {
     );
   }
   async function reloadCall(id: string) {
-    applyCallUpdate(await api<Call>(`/v1/calls/${id}`));
+    const generation = ++callReadGeneration.current;
+    const value = await api<Call>(`/v1/calls/${id}`);
+    if (generation === callReadGeneration.current) applyCallUpdate(value);
   }
   useEffect(() => {
     const owned = w.calls.filter((c) => c.rep_id === w.user.id);
@@ -115,6 +121,7 @@ export function DialerPage() {
     let dirty = false;
     const load = () => {
       if (disposed) return;
+      const generation = ++callReadGeneration.current;
       if (pending) {
         dirty = true;
         return;
@@ -122,13 +129,13 @@ export function DialerPage() {
       pending = true;
       void api<Call>("/v1/calls/" + call.id)
         .then((value) => {
-          if (!disposed) {
+          if (!disposed && generation === callReadGeneration.current) {
             responseReceived.current = performance.now();
             applyCallUpdate(value);
           }
         })
         .catch(() => {
-          if (!disposed)
+          if (!disposed && generation === callReadGeneration.current)
             setAudioStatus("Authority unavailable; calling is paused.");
         })
         .finally(() => {
@@ -152,6 +159,7 @@ export function DialerPage() {
     });
     return () => {
       disposed = true;
+      ++callReadGeneration.current;
       unsubscribe();
     };
   }, [call?.id, api, subscribe]);
@@ -327,13 +335,24 @@ export function DialerPage() {
   }
   async function hangup(pauseAfter = false) {
     if (!call) return;
+    const id = call.id;
+    const controller = telephony.current;
+    const audioIdentity = controller.activeIdentity;
+    const generation = ++hangupGeneration.current;
+    const current = () =>
+      currentCall.current?.id === id && generation === hangupGeneration.current;
     try {
-      setCall(await api(`/v1/calls/${call.id}/hangup`, "POST"));
-      await telephony.current.emergencyHangup();
+      const result = await api<Call>(`/v1/calls/${id}/hangup`, "POST");
+      if (!current()) return;
+      ++callReadGeneration.current;
+      applyCallUpdate(result);
+      if (audioIdentity) await controller.emergencyHangup(audioIdentity);
     } catch (e) {
-      await telephony.current.emergencyHangup();
+      if (!current()) return;
+      if (audioIdentity) await controller.emergencyHangup(audioIdentity);
       throw e;
     }
+    if (!current()) return;
     if (pauseAfter) await pause();
     await refresh();
   }
