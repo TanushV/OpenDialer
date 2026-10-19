@@ -1266,7 +1266,11 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     if receipt["status"] in {"processing", "retry", "unmatched"}:
                         raise RuntimeError("Webhook processing is incomplete")
                 elif lane in {"research", "scripts"}:
-                    if job["payload"].get("kind") == "batch_review":
+                    if job["payload"].get("kind") == "dnc_refresh":
+                        from app.compliance.screening import refresh_screening
+
+                        await refresh_screening(self, p, job, worker_id)
+                    elif job["payload"].get("kind") == "batch_review":
                         from app.preparation.batches import review_batch_result
 
                         await review_batch_result(self, p, job, worker_id)
@@ -1421,17 +1425,28 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
         if prepare_due:
             self._next_preparation = time.monotonic() + 60
         prepared_sellers = set()
+        screened_sellers = set()
 
         def users():
             with self.db.transaction(False) as session:
                 return [
-                    {"tenant_id": r.tenant_id, "seller_id": r.seller_id, "user_id": r.id, "role": "admin"}
+                    {
+                        "tenant_id": r.tenant_id,
+                        "seller_id": r.seller_id,
+                        "user_id": r.id,
+                        "role": r.data["role"],
+                    }
                     for r in rows(session, "users")
                     if not r.data.get("disabled")
                 ]
 
         for p in await asyncio.to_thread(users):
             try:
+                if p["role"] in {"owner", "admin"} and p["seller_id"] not in screened_sellers:
+                    from app.compliance.screening import schedule_refresh
+
+                    screened_sellers.add(p["seller_id"])
+                    await asyncio.to_thread(schedule_refresh, self, p)
                 if prepare_due and p["seller_id"] not in prepared_sellers:
                     prepared_sellers.add(p["seller_id"])
                     await asyncio.to_thread(self.prepare_ahead, p)

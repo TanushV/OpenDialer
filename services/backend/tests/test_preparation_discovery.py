@@ -7,6 +7,7 @@ import pytest
 from app.db import update
 from app.providers.inference import InferenceResult
 from app.research.fetch import SafeFetcher
+from conftest import save_operating_policy
 from test_grounding_review import review_response
 from test_remediation_privacy import principal
 
@@ -15,7 +16,8 @@ from test_remediation_privacy import principal
 @pytest.mark.parametrize("stability,hours", [("stable", 168), ("time_sensitive", 6), ("unknown", 6)])
 async def test_research_fact_expiry_uses_seller_policy(workspace, app, monkeypatch, clock, stability, hours):
     service, p = app.state.service, principal(workspace)
-    response = workspace["client"].put(
+    response = save_operating_policy(
+        workspace["client"],
         "/v1/admin/operating-policy",
         headers=workspace["headers"],
         json={"preparation": {"stable_fact_days": 7, "time_sensitive_fact_hours": 6}},

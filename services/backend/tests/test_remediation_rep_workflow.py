@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 from app.db import update
-from conftest import disposition_body, start
+from conftest import disposition_body, save_operating_policy, start
 
 
 def p(w):
@@ -113,7 +113,8 @@ def test_packet_contains_sparse_statistical_context_and_retained_brief(workspace
 def test_template_has_gatekeeper_and_iphone_screening_and_is_filled_ahead(workspace):
     c, h = workspace["client"], workspace["headers"]
     lead = c.get("/v1/workspace", headers=h).json()["leads"][0]
-    response = c.put(
+    response = save_operating_policy(
+        c,
         "/v1/admin/operating-policy",
         headers=h,
         json={

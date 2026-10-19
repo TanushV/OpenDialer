@@ -7,7 +7,7 @@ from datetime import timedelta
 import pytest
 from app.db import doc, update
 from app.research.validation import ValidationFailure, validate_script
-from conftest import start
+from conftest import save_operating_policy, start
 
 
 def principal(w):
@@ -123,7 +123,7 @@ def test_configuration_rejects_silent_paid_or_non_zdr_fallback(workspace):
         {"recording_enabled": True},
         {"inference_data_collection": "allow"},
     ]:
-        response = c.put("/v1/admin/operating-policy", headers=h, json=body)
+        response = save_operating_policy(c, "/v1/admin/operating-policy", headers=h, json=body)
         assert response.status_code == 422, response.text
 
 

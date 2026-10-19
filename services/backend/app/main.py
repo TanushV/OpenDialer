@@ -1,5 +1,4 @@
 import asyncio
-import base64
 import hashlib
 import json
 import re
@@ -32,7 +31,7 @@ from app.providers.telnyx import verify_webhook
 from app.rep_workflows import MeetingEdit, OutreachEdit, TaskEdit
 from app.scheduling.models import ContactRole, OutcomeCode
 from app.security import DUMMY_HASH, PASSWORDS, admin, decode_session, issue_session
-from app.service import dt, fail
+from app.service import fail
 from app.telephony.callbacks import CallbackRoutingEdit
 
 
@@ -242,6 +241,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
         raise ValueError("A persistent OPENDIALER_SECRET_KEY is required; use the desktop or CLI bootstrap")
     clock = clock or (lambda: datetime.now(UTC))
     db = Database(settings.database_url, encryption_key=settings.secret_key)
+    db.registry_lru_bytes = settings.runtime_limits.registry_lru_bytes
     service = Dialer(db, settings, clock, carrier)
     service.privacy_cutover()
     service.migrate_conversation_states()
@@ -1043,77 +1043,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/admin/registry/import")
     def registry_import(data: dict, p=Depends(administrator)):
-        from app.compliance.registry import RegistryBitmap, published_snapshots
+        from app.compliance.registry import publish_registry
 
-        npas = data.get("npas", [])
-        if (
-            data.get("kind") not in {"national", "state"}
-            or not data.get("subscription_reference")
-            or not npas
-            or any(not isinstance(n, str) or len(n) != 3 or not n.isdigit() for n in npas)
-        ):
-            fail(422, "Seller-authorized subscription, dataset type and area-code coverage required")
-        try:
-            refreshed = dt(data["refreshed_at"])
-            if not refreshed.tzinfo or refreshed > clock():
-                fail(422, "Registry timestamp must be a known past UTC instant")
-            bitmap = RegistryBitmap.build(data.get("numbers", []))
-            if any(n[2:5] not in npas for n in data.get("numbers", [])):
-                fail(422, "Registry includes an unauthorized area code")
-            if data.get("checksum") and data["checksum"] != bitmap.checksum:
-                fail(422, "Registry checksum mismatch")
-        except (ValueError, KeyError, TypeError) as exc:
-            fail(422, f"Invalid registry snapshot: {type(exc).__name__}")
-        with db.transaction() as session:
-            db.authorize_stream(session, p)
-            for previous in published_snapshots(session, p):
-                if previous.data["kind"] == data["kind"] and previous.data.get(
-                    "jurisdiction", ""
-                ) == data.get("jurisdiction", ""):
-                    update(previous, published=False)
-            subscription = put(
-                session,
-                "registry_subscriptions",
-                p["tenant_id"],
-                p["seller_id"],
-                {"reference": data["subscription_reference"], "npas": npas, "kind": data["kind"]},
-                now=clock(),
-            )
-            snapshot = put(
-                session,
-                "registry_snapshots",
-                p["tenant_id"],
-                p["seller_id"],
-                {
-                    "kind": data["kind"],
-                    "jurisdiction": data.get("jurisdiction", ""),
-                    "npas": npas,
-                    "subscription_id": subscription.id,
-                    "refreshed_at": refreshed.isoformat(),
-                    "published": True,
-                    "checksum": bitmap.checksum,
-                    "count": len(set(data.get("numbers", []))),
-                    "bitmap": base64.b64encode(bitmap.dump()).decode(),
-                    "synthetic": settings.simulation,
-                },
-                now=clock(),
-            )
-            audit(
-                session,
-                p["tenant_id"],
-                p["seller_id"],
-                p["user_id"],
-                "registry.published",
-                snapshot.id,
-                clock(),
-                {"checksum": bitmap.checksum, "count": snapshot.data["count"]},
-            )
-            return {
-                "id": snapshot.id,
-                "published": True,
-                "checksum": bitmap.checksum,
-                "count": snapshot.data["count"],
-            }
+        return publish_registry(service, p, data)
 
     @app.patch("/v1/leads/{lead_id}/endpoint")
     def correct_endpoint(lead_id: str, data: dict, p=Depends(administrator)):

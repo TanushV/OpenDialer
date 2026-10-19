@@ -9,6 +9,7 @@ import pytest
 from app.compliance.operating import cached_screen
 from app.db import doc, get, update
 from app.providers.dnc import DNCError, PrepaidDNC
+from conftest import save_operating_policy
 from test_remediation_privacy import principal
 
 PHONE = "+14155550101"
@@ -48,6 +49,50 @@ def screening(workspace, app, clock, monkeypatch):
 
 def screen(w):
     return w["client"].post("/v1/admin/dnc/screen", headers=w["headers"], json={"phones": [PHONE]})
+
+
+def test_lookup_uses_saved_account_rate_without_repricing_old_liability(workspace, screening):  # noqa: F811
+    service, p, calls, _, _ = screening
+    result = save_operating_policy(
+        workspace["client"],
+        "/v1/admin/operating-policy",
+        headers=workspace["headers"],
+        json={
+            "account_rates": {
+                "dnc": {
+                    "values": {"estimated_per_query_usd": "0.004"},
+                    "source_reference": "Own prepaid invoice",
+                    "checked_at": "2026-10-14",
+                }
+            }
+        },
+    )
+    assert result.status_code == 200, result.text
+    assert screen(workspace).status_code == 200
+    with service.db.transaction(False) as s:
+        ledger = [r for r in service.scoped(s, "usage_ledger", p) if r.data.get("work_kind") == "dnc_screen"]
+        assert len(ledger) == 1
+        assert ledger[0].data["reserved_usd"] == 0.004
+        identity, before = ledger[0].id, dict(ledger[0].data)
+    assert (
+        save_operating_policy(
+            workspace["client"],
+            "/v1/admin/operating-policy",
+            headers=workspace["headers"],
+            json={
+                "account_rates": {
+                    "dnc": {
+                        "values": {"estimated_per_query_usd": "0.005"},
+                        "source_reference": "Later invoice",
+                        "checked_at": "2026-10-14",
+                    }
+                }
+            },
+        ).status_code
+        == 200
+    )
+    with service.db.transaction(False) as s:
+        assert get(s, "usage_ledger", identity).data == before
 
 
 def snapshot(service, p):
@@ -233,8 +278,11 @@ def test_live_screen_lease_prevents_paid_overlap(workspace, screening, monkeypat
 
 def test_cache_lifetime_uses_source_refresh_and_shorter_admin_policy(workspace, screening, clock):
     service, p, calls, _, config = screening
-    workspace["client"].put(
-        "/v1/admin/operating-policy", headers=workspace["headers"], json={"dnc_source_max_age_days": 2}
+    save_operating_policy(
+        workspace["client"],
+        "/v1/admin/operating-policy",
+        headers=workspace["headers"],
+        json={"dnc_source_max_age_days": 2},
     )
     service.vault.write(
         p["tenant_id"],

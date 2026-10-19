@@ -65,7 +65,7 @@ class WorkspaceReads:
             if section == "tasks":
                 query = query.where(or_(model.op_status != "aliased", model.op_status.is_(None)))
             if section == "registries":
-                query = query.where(model.ctx_key.in_(["national", "state"]))
+                query = query.where(model.ctx_key.in_(["national", "state"]), model.ctx_status != "staging")
             if section == "tasks" and filter != "all":
                 closed = model.op_status.in_(["completed", "cancelled"])
                 query = query.where(closed if filter == "closed" else or_(~closed, model.op_status.is_(None)))

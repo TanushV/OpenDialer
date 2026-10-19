@@ -317,22 +317,22 @@
       "implementation_todos": [
         {
           "id": "E05.capability",
-          "status": "open",
+          "status": "in-progress",
           "work": "Shared endpoint/preflight freshness, authorization and no-charge coverage"
         },
         {
           "id": "E05.edits",
-          "status": "open",
+          "status": "in-progress",
           "work": "Versioned policy edits and explicit refresh budgets"
         },
         {
           "id": "E05.refresh",
-          "status": "open",
+          "status": "in-progress",
           "work": "One daily resumable prepaid cursor and charged uncertainty control"
         },
         {
           "id": "E05.chunks",
-          "status": "open",
+          "status": "in-progress",
           "work": "Per-NPA atomic publication and bounded scoped LRU"
         },
         {
@@ -342,7 +342,7 @@
         },
         {
           "id": "E05.ui",
-          "status": "open",
+          "status": "in-progress",
           "work": "Actionable screening/funding/readiness surfaces"
         },
         {

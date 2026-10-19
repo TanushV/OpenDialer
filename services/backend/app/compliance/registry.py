@@ -1,11 +1,12 @@
 import base64
 import hashlib
+import hmac
 import json
 import zlib
 
 from sqlalchemy import select
 
-from app.db import MODELS
+from app.db import MODELS, audit, doc, get, put, uid, update
 
 
 def published_snapshots(s, p):
@@ -30,7 +31,51 @@ def published_snapshots(s, p):
 
 
 def registry_contains(s, snapshot, phone):
-    """Reuse exact membership only within this decision; new authorization reloads it."""
+    """Chunks are immutable and only a current scoped publication can refer to them."""
+    if len(phone) != 12 or not phone.startswith("+1") or not phone[1:].isascii() or not phone[1:].isdigit():
+        return False
+    if "chunks" in snapshot.data:
+        part = snapshot.data["chunks"].get(phone[2:5])
+        if part is None:
+            return False  # An explicit covered NPA may contain zero listed endpoints.
+        db = s.info["database"]
+        key = (
+            snapshot.tenant_id,
+            snapshot.seller_id,
+            snapshot.id,
+            snapshot.version,
+            phone[2:5],
+            part["id"],
+            part["checksum"],
+        )
+        with db.registry_lru_lock:
+            if key in db.registry_lru:
+                membership = db.registry_lru.pop(key)
+                db.registry_lru[key] = membership
+                return membership.contains(phone)
+        child = get(s, "registry_snapshots", part["id"])
+        if not child or (
+            child.tenant_id,
+            child.seller_id,
+            child.data.get("publication_id"),
+            child.data.get("npa"),
+            child.data.get("checksum"),
+        ) != (snapshot.tenant_id, snapshot.seller_id, snapshot.id, phone[2:5], part["checksum"]):
+            raise RegistryError("Invalid registry chunk identity")
+        membership = RegistryBitmap.load(
+            base64.b64decode(child.data["bitmap"], validate=True), part["checksum"]
+        )
+        if set(membership.regions) != {phone[2:5]}:
+            raise RegistryError("Invalid registry chunk coverage")
+        with db.registry_lru_lock:
+            db.registry_lru[key] = membership
+            while (
+                sum(sum(len(v) for v in item.regions.values()) for item in db.registry_lru.values())
+                > db.registry_lru_bytes
+            ):
+                db.registry_lru.popitem(last=False)
+        return membership.contains(phone)
+    # Read compatibility for installed publications until the chunk backfill completes.
     cache = s.info.setdefault("registry_membership", {})
     key = (snapshot.id, snapshot.version, snapshot.data.get("checksum"))
     if key not in cache:
@@ -45,6 +90,259 @@ def registry_contains(s, snapshot, phone):
 
 class RegistryError(ValueError):
     pass
+
+
+def publish_registry(service, p, data):
+    """Stage one immutable NPA at a time; replace the published pointer only at the end.
+
+    A lost response resumes with the same request and supplied file. No country bitmap
+    is assembled in RAM, and failed staging cannot retire the currently usable source.
+    """
+    from uuid import UUID
+
+    from app.compliance.screening import active_admin
+    from app.service import dt, fail
+
+    npas = sorted(set(data.get("npas", [])))
+    kind, jurisdiction = data.get("kind"), data.get("jurisdiction", "")
+    try:
+        request_id = str(UUID(data["request_id"])) if data.get("request_id") else uid()
+        refreshed = dt(data["refreshed_at"])
+        if (
+            kind not in {"national", "state"}
+            or not data.get("subscription_reference")
+            or not npas
+            or any(
+                not isinstance(n, str)
+                or len(n) != 3
+                or not n.isascii()
+                or not n.isdigit()
+                or n[0] not in "23456789"
+                for n in npas
+            )
+            or not refreshed
+            or not refreshed.tzinfo
+            or refreshed > service.clock()
+        ):
+            raise ValueError("Source authorization/coverage/timestamp required")
+        grouped = {name: {} for name in ("numbers", "add", "remove")}
+        for name in grouped:
+            for number in data.get(name, []):
+                if (
+                    not isinstance(number, str)
+                    or len(number) != 12
+                    or not number.startswith("+1")
+                    or not number[1:].isascii()
+                    or not number[1:].isdigit()
+                    or number[2:5] not in npas
+                ):
+                    raise ValueError("Invalid or uncovered endpoint")
+                grouped[name].setdefault(number[2:5], set()).add(number)
+        if any(grouped["add"].get(n, set()) & grouped["remove"].get(n, set()) for n in npas):
+            raise ValueError("A change cannot both add and remove the same endpoint")
+        if data.get("base_snapshot_id") and (
+            not data.get("request_id") or type(data.get("expected_version")) is not int or "numbers" in data
+        ):
+            raise ValueError("A change list needs an identified original version")
+        if not data.get("base_snapshot_id") and (data.get("add") or data.get("remove")):
+            raise ValueError("Change list requires the original snapshot")
+    except (ValueError, TypeError, KeyError):
+        fail(422, "Valid authorized source, area codes, normalized endpoints and timestamp required")
+
+    digest = hmac.new(service.db.identity_key, digestmod=hashlib.sha256)
+    for piece in json.JSONEncoder(sort_keys=True, separators=(",", ":")).iterencode(data):
+        digest.update(piece.encode())
+    key = "registry-import:" + request_id
+    with service.db.transaction() as s:
+        service.db.authorize_stream(s, p)
+        if not active_admin(service, s, p) or not service._coach_authority(s, p):
+            fail(403, "Current administrator authority is required")
+        stage = service._by_key(s, p, "registry_snapshots", key)
+        if stage and stage.data.get("input_digest") != digest.hexdigest():
+            fail(409, "Registry request identity already belongs to a different file")
+        if stage and stage.data.get("status") == "published":
+            return {
+                "id": stage.id,
+                "version": stage.data["published_version"],
+                "published": True,
+                "checksum": stage.data["checksum"],
+                "count": stage.data["count"],
+            }
+        previous = [
+            r
+            for r in published_snapshots(s, p)
+            if r.data["kind"] == kind and r.data.get("jurisdiction", "") == jurisdiction
+        ]
+        expected = [[r.id, r.version] for r in previous]
+        base = (
+            service.required(s, "registry_snapshots", data["base_snapshot_id"], p)
+            if data.get("base_snapshot_id")
+            else None
+        )
+        if base and (
+            base.id not in {r.id for r in previous}
+            or base.version != data["expected_version"]
+            or base.data.get("npas") != npas
+        ):
+            fail(409, "Change source changed or coverage differs; reload the current publication")
+        if not stage:
+            stage = put(
+                s,
+                "registry_snapshots",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    "kind": kind,
+                    "jurisdiction": jurisdiction,
+                    "npas": npas,
+                    "subscription_reference": data["subscription_reference"],
+                    "refreshed_at": refreshed.isoformat(),
+                    "published": False,
+                    "status": "staging",
+                    "input_digest": digest.hexdigest(),
+                    "expected_publications": expected,
+                    "chunks": {},
+                    "synthetic": service.settings.simulation,
+                },
+                key=key,
+                now=service.clock(),
+            )
+        stage_id, base_data = stage.id, doc(base) if base else None
+
+    # The legacy checksum hashes the canonical compressed full-file envelope. Stream it
+    # while storing independent chunks, so existing supplied checksums remain compatible.
+    compressor, checksum = zlib.compressobj(9), hashlib.sha256()
+    checksum.update(compressor.compress(b"{"))
+    first, count = True, 0
+    for npa in npas:
+        bits = None
+        if base_data:
+            with service.db.transaction(False) as s:
+                part = base_data.get("chunks", {}).get(npa)
+                if part:
+                    child = service.required(s, "registry_snapshots", part["id"], p)
+                    if child.data.get("publication_id") != base_data["id"] or child.data.get("npa") != npa:
+                        raise RegistryError("Changed source chunk identity")
+                    bits = RegistryBitmap.load(
+                        base64.b64decode(child.data["bitmap"]), part["checksum"]
+                    ).regions[npa]
+                elif base_data.get("bitmap"):
+                    bits = RegistryBitmap.load(
+                        base64.b64decode(base_data["bitmap"]), base_data["checksum"]
+                    ).regions.get(npa)
+                elif base_data.get("listed_numbers"):
+                    bits = RegistryBitmap.build(
+                        [v for v in base_data["listed_numbers"] if v[2:5] == npa]
+                    ).regions.get(npa)
+        added = grouped["add" if base_data else "numbers"].get(npa, set())
+        removed = grouped["remove"].get(npa, set())
+        if bits is None and not added:
+            continue
+        bits = bytearray(bits) if bits is not None else bytearray(1_250_000)
+        for number in added:
+            suffix = int(number[5:])
+            bits[suffix >> 3] |= 1 << (suffix & 7)
+        for number in removed:
+            suffix = int(number[5:])
+            bits[suffix >> 3] &= ~(1 << (suffix & 7))
+        chunk = RegistryBitmap({npa: bits})
+        encoded = json.dumps(npa).encode() + b": " + json.dumps(bytes(bits).hex()).encode()
+        checksum.update(compressor.compress((b"" if first else b", ") + encoded))
+        first = False
+        payload = chunk.dump()
+        part_hash = hashlib.sha256(payload).hexdigest()
+        part_count = sum(value.bit_count() for value in bits)
+        count += part_count
+        with service.db.transaction() as s:
+            service.db.authorize_stream(s, p)
+            if not active_admin(service, s, p) or not service._coach_authority(s, p):
+                fail(403, "Current administrator authority is required")
+            stage = service.required(s, "registry_snapshots", stage_id, p)
+            if stage.data.get("status") == "published":
+                return {
+                    "id": stage.id,
+                    "version": stage.data["published_version"],
+                    "published": stage.data["published"],
+                    "checksum": stage.data["checksum"],
+                    "count": stage.data["count"],
+                }
+            child = service._by_key(s, p, "registry_snapshots", f"{stage_id}:{npa}")
+            if not child:
+                child = put(
+                    s,
+                    "registry_snapshots",
+                    p["tenant_id"],
+                    p["seller_id"],
+                    {
+                        "kind": kind + "_chunk",
+                        "publication_id": stage_id,
+                        "npa": npa,
+                        "bitmap": base64.b64encode(payload).decode(),
+                        "checksum": part_hash,
+                    },
+                    key=f"{stage_id}:{npa}",
+                    now=service.clock(),
+                )
+            if child.data["checksum"] != part_hash:
+                fail(409, "Staged registry chunk changed; publication withheld")
+            chunks = {
+                **stage.data["chunks"],
+                npa: {"id": child.id, "checksum": part_hash, "count": part_count},
+            }
+            update(stage, chunks=chunks, cursor=npa)
+    checksum.update(compressor.compress(b"}"))
+    checksum.update(compressor.flush())
+    if data.get("checksum") and data["checksum"] != checksum.hexdigest():
+        fail(422, "Registry checksum mismatch; prior publication retained")
+    if data.get("count") is not None and data["count"] != count:
+        fail(422, "Registry count mismatch; prior publication retained")
+    with service.db.transaction() as s:
+        service.db.authorize_stream(s, p)
+        if not active_admin(service, s, p) or not service._coach_authority(s, p):
+            fail(403, "Current administrator authority is required")
+        stage = service.required(s, "registry_snapshots", stage_id, p)
+        if stage.data.get("status") == "published":
+            return {
+                "id": stage.id,
+                "version": stage.data["published_version"],
+                "published": True,
+                "checksum": stage.data["checksum"],
+                "count": stage.data["count"],
+            }
+        current = [
+            r
+            for r in published_snapshots(s, p)
+            if r.data["kind"] == kind and r.data.get("jurisdiction", "") == jurisdiction
+        ]
+        if sorted([[r.id, r.version] for r in current]) != sorted(stage.data["expected_publications"]):
+            fail(409, "Published source changed while staging; review the new source")
+        for row in current:
+            update(row, published=False)
+        update(
+            stage,
+            published=True,
+            status="published",
+            published_version=stage.version + 1,
+            checksum=checksum.hexdigest(),
+            count=count,
+        )
+        audit(
+            s,
+            p["tenant_id"],
+            p["seller_id"],
+            p["user_id"],
+            "registry.published",
+            stage.id,
+            service.clock(),
+            {"checksum": checksum.hexdigest(), "count": count},
+        )
+        return {
+            "id": stage.id,
+            "version": stage.version,
+            "published": True,
+            "checksum": checksum.hexdigest(),
+            "count": count,
+        }
 
 
 class RegistryBitmap:
@@ -84,11 +382,15 @@ class RegistryBitmap:
     def load(cls, payload, checksum):
         if hashlib.sha256(payload).hexdigest() != checksum:
             raise RegistryError("Registry checksum mismatch")
+        inflater = zlib.decompressobj()
+        decoded = inflater.decompress(payload, 50_000_001)
+        if len(decoded) > 50_000_000 or not inflater.eof or inflater.unused_data:
+            raise RegistryError("Registry decompression limit or framing exceeded")
         try:
-            raw = json.loads(zlib.decompress(payload, max_length=50_000_000))
-        except TypeError:
-            raw = json.loads(zlib.decompress(payload))
-        result = {k: bytearray.fromhex(v) for k, v in raw.items()}
+            raw = json.loads(decoded)
+            result = {k: bytearray.fromhex(v) for k, v in raw.items()}
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise RegistryError("Invalid registry bitmap") from exc
         if any(len(v) != 1_250_000 or not k.isdigit() or len(k) != 3 for k, v in result.items()):
             raise RegistryError("Invalid bitmap snapshot")
         return cls(result)

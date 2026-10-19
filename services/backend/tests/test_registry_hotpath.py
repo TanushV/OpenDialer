@@ -4,7 +4,7 @@ import base64
 from datetime import timedelta
 
 import pytest
-from app.compliance.operating import screening_key
+from app.compliance.operating import authority_stamp, screening_key
 from app.compliance.policy import authorize
 from app.compliance.registry import RegistryBitmap
 from app.db import get, put, update
@@ -210,6 +210,7 @@ def test_bounded_prefetch_keeps_the_exact_current_prepaid_result(workspace, app,
                 "listed": listed,
                 "checked_at": clock.now.isoformat(),
                 "authorization_reference": "seller-source",
+                "authority_stamp": authority_stamp(service.vault.read(p["tenant_id"])),
                 "expires_at": (clock.now + timedelta(hours=1)).isoformat(),
             },
             key=screening_key(service, phone),
@@ -368,3 +369,168 @@ def test_registry_replacement_does_not_rewrite_retired_source_history(workspace,
             for identifier, version, data in history
             for row in [get(s, "registry_snapshots", identifier)]
         )
+
+
+def test_registry_import_chunks_and_change_list_publish_atomically(workspace, app, clock):
+    from uuid import uuid4
+
+    from app.compliance.registry import registry_contains
+
+    c, h = workspace["client"], workspace["headers"]
+    service = app.state.service
+    body = {
+        "request_id": str(uuid4()),
+        "kind": "national",
+        "npas": ["415", "212"],
+        "subscription_reference": "own-source",
+        "refreshed_at": clock.now.isoformat(),
+        "numbers": ["+14155550101", "+12125550102"],
+    }
+    first = c.post("/v1/admin/registry/import", headers=h, json=body)
+    assert first.status_code == 200, first.text
+    saved = first.json()
+    with service.db.transaction(False) as s:
+        parent = get(s, "registry_snapshots", saved["id"])
+        assert not parent.data.get("bitmap") and set(parent.data["chunks"]) == {"415", "212"}
+        assert registry_contains(s, parent, "+14155550101")
+    assert c.post("/v1/admin/registry/import", headers=h, json=body).json()["id"] == saved["id"]
+    change = {k: v for k, v in body.items() if k != "numbers"}
+    change.update(
+        request_id=str(uuid4()),
+        base_snapshot_id=saved["id"],
+        expected_version=saved["version"],
+        add=["+14155550103"],
+        remove=["+14155550101"],
+    )
+    bad = c.post(
+        "/v1/admin/registry/import",
+        headers=h,
+        json={**change, "request_id": str(uuid4()), "checksum": "wrong"},
+    )
+    assert bad.status_code == 422
+    with service.db.transaction(False) as s:
+        assert get(s, "registry_snapshots", saved["id"]).data["published"]
+    second = c.post("/v1/admin/registry/import", headers=h, json=change)
+    assert second.status_code == 200, second.text
+    with service.db.transaction(False) as s:
+        parent = get(s, "registry_snapshots", second.json()["id"])
+        assert not registry_contains(s, parent, "+14155550101")
+        assert registry_contains(s, parent, "+14155550103")
+        assert registry_contains(s, parent, "+12125550102")
+        assert parent.data["count"] == 2
+        assert not get(s, "registry_snapshots", saved["id"]).data["published"]
+    assert (
+        c.post(
+            "/v1/admin/registry/import", headers=h, json={**change, "request_id": str(uuid4())}
+        ).status_code
+        == 409
+    )
+
+
+def test_legacy_prepaid_result_without_authorization_fingerprint_is_not_clear(workspace, app, clock):
+    from app.compliance.operating import cached_screen
+
+    service, p = app.state.service, principal(workspace)
+    auth = {
+        "reference": "source",
+        "seller_id": p["seller_id"],
+        "npas": ["415"],
+        "source_access_verified": True,
+        "source_refreshed_at": clock.now.isoformat(),
+        "expires_at": (clock.now + timedelta(days=1)).isoformat(),
+    }
+    service.vault.write(p["tenant_id"], {"dnc_seller_authorization": auth})
+    with service.db.transaction() as s:
+        put(
+            s,
+            "registry_snapshots",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "kind": "prepaid",
+                "status": "completed",
+                "phone": "+14155550101",
+                "listed": False,
+                "checked_at": clock.now.isoformat(),
+                "authorization_reference": "source",
+            },
+            key=screening_key(service, "+14155550101"),
+            now=clock.now,
+        )
+    with service.db.transaction(False) as s:
+        assert cached_screen(service, s, p, "+14155550101") is None
+
+
+def test_staged_publication_rechecks_admin_role_before_replacing_source(workspace, app, clock, monkeypatch):
+    from uuid import uuid4
+
+    import app.compliance.registry as registry
+
+    service, p = app.state.service, principal(workspace)
+    old_put = registry.put
+
+    def revoke(s, kind, *args, **kwargs):
+        row = old_put(s, kind, *args, **kwargs)
+        if row.data.get("kind") == "national_chunk":
+            update(service.required(s, "users", p["user_id"], p), role="rep")
+        return row
+
+    monkeypatch.setattr(registry, "put", revoke)
+    with service.db.transaction(False) as s:
+        original = service.scoped(s, "registry_snapshots", p)[0].id
+    result = workspace["client"].post(
+        "/v1/admin/registry/import",
+        headers=workspace["headers"],
+        json={
+            "request_id": str(uuid4()),
+            "kind": "national",
+            "npas": ["415"],
+            "subscription_reference": "own-source",
+            "refreshed_at": clock.now.isoformat(),
+            "numbers": ["+14155550101"],
+        },
+    )
+    assert result.status_code == 403, result.text
+    with service.db.transaction(False) as s:
+        assert get(s, "registry_snapshots", original).data["published"]
+
+
+def test_interrupted_staging_resumes_original_identity_without_partial_publication(
+    workspace, app, clock, monkeypatch
+):
+    from uuid import uuid4
+
+    import app.compliance.registry as registry
+
+    service, p = app.state.service, principal(workspace)
+    old_put, written = registry.put, []
+
+    def interrupt(s, kind, *args, **kwargs):
+        value = args[2]
+        if value.get("kind") == "national_chunk":
+            written.append(value["npa"])
+            if len(written) == 2:
+                raise OSError("Synthetic disk failure")
+        return old_put(s, kind, *args, **kwargs)
+
+    body = {
+        "request_id": str(uuid4()),
+        "kind": "national",
+        "npas": ["212", "415"],
+        "subscription_reference": "own-source",
+        "refreshed_at": clock.now.isoformat(),
+        "numbers": ["+12125550102", "+14155550101"],
+    }
+    with service.db.transaction(False) as s:
+        original = service.scoped(s, "registry_snapshots", p)[0].id
+    monkeypatch.setattr(registry, "put", interrupt)
+    with pytest.raises(OSError):
+        registry.publish_registry(service, p, body)
+    with service.db.transaction(False) as s:
+        assert get(s, "registry_snapshots", original).data["published"]
+        stage = service._by_key(s, p, "registry_snapshots", "registry-import:" + body["request_id"])
+        identity = stage.id
+        assert len(stage.data["chunks"]) == 1 and not stage.data["published"]
+    monkeypatch.setattr(registry, "put", old_put)
+    result = registry.publish_registry(service, p, body)
+    assert result["id"] == identity and result["published"]

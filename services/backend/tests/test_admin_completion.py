@@ -61,9 +61,14 @@ def test_playbook_publication_preserves_versions_and_validates_identity(workspac
     assert r.status_code == 200, r.text
     versions = c.get("/v1/workspace", headers=h).json()["playbooks"]
     assert len(versions) == 2
+    # Validate screening identity against the current version. Approved seller wording
+    # is not subject to the removed guarantee-keyword ban.
+    data.update(expected_previous_id=r.json()["id"], expected_previous_version=r.json()["version"])
     assert (
         c.post(
-            "/v1/admin/playbooks", headers=h, json={**data, "opener": "We guarantee 10x revenue"}
+            "/v1/admin/playbooks",
+            headers=h,
+            json={**data, "screening_intro": "Calling without seller identity"},
         ).status_code
         == 422
     )

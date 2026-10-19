@@ -261,12 +261,12 @@ class RepWorkflows:
             return key, digest, receipt.data["receipt"]
         return key, digest, None
 
-    def local_edit_receipt(self, s, p, identity, row):
+    def local_edit_receipt(self, s, p, identity, row, *, object_version=None):
         key, digest, _ = identity
         receipt = {
             "request_id": key.rsplit(":", 1)[1],
             "object_id": row.id,
-            "version": row.version,
+            "version": row.version if object_version is None else object_version,
             "at": self.clock().isoformat(),
         }
         put(

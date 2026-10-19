@@ -3,6 +3,8 @@ import contextvars
 import hashlib
 import hmac
 import json
+import threading
+from collections import OrderedDict
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -286,6 +288,9 @@ class Database:
         )
         self.identity_key = hashlib.sha256((encryption_key + ":lookup:v1").encode()).digest()
         self.url = url
+        self.registry_lru = OrderedDict()
+        self.registry_lru_lock = threading.Lock()
+        self.registry_lru_bytes = 0
         self.sqlite = url.startswith("sqlite")
         self.engine = create_engine(
             url,
@@ -413,6 +418,7 @@ class Database:
             context_token = _DATABASE_CIPHER.set(self.cipher)
             lookup_token = _DATABASE_LOOKUP_KEY.set(self.identity_key)
             session.info["write"] = write
+            session.info["database"] = self
             try:
                 if write and self.sqlite:
                     session.execute(text("BEGIN IMMEDIATE"))

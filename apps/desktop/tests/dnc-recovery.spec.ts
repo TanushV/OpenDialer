@@ -1,5 +1,51 @@
 import { expect, test } from "@playwright/test";
 
+test("scheduled prepaid screening requires explicit budgets and saves without charged reads", async ({
+  page,
+}) => {
+  let charges = 0;
+  await page.route("**/v1/admin/dnc/screen", (route) => {
+    charges++;
+    return route.fulfill({ json: { results: [] } });
+  });
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const enabled = page.getByLabel("Authorize scheduled prepaid DNC checks");
+  await expect(enabled).not.toBeChecked();
+  await enabled.check();
+  await page.getByLabel("DNC maximum per run (USD)").fill("0.05");
+  await page.getByLabel("DNC maximum per day (USD)").fill("0.10");
+  await page
+    .getByRole("button", { name: "Save privacy and usage policy" })
+    .click();
+  await expect(
+    page.getByText("Privacy and usage policy saved", { exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(enabled).toBeChecked();
+  await expect(page.getByLabel("DNC maximum per run (USD)")).toHaveValue(
+    "0.05",
+  );
+  expect(charges).toBe(0);
+  await enabled.uncheck();
+  await page
+    .getByRole("button", { name: "Save privacy and usage policy" })
+    .click();
+  await expect(
+    page.getByText("Privacy and usage policy saved", { exact: true }),
+  ).toBeVisible();
+});
+
 test("prepaid screening recovery needs a charge choice and preserves retry identity", async ({
   page,
 }) => {

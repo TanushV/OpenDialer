@@ -25,6 +25,7 @@ export async function localEdit<T>(
     (method === "PATCH" && /^\/v1\/tasks\/[^/]+$/.test(path)) ||
     (method === "POST" && /^\/v1\/calls\/[^/]+\/disposition$/.test(path)) ||
     (method === "POST" && /^\/v1\/leads\/[^/]+\/meeting$/.test(path)) ||
+    (method === "PUT" && path === "/v1/admin/operating-policy") ||
     (method === "PATCH" && /^\/v1\/leads\/[^/]+\/outreach$/.test(path));
   if (!allowed) throw new Error("This route is not an identified local edit");
   const original = structuredClone(body);

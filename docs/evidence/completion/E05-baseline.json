@@ -13,5 +13,13 @@
     "E05-readiness-baseline.txt": "bfb633a1686917799d21e08363aae4d5c183bd950229b9026a8113bf9707b009",
     "E05-contract-red.txt": "df5ce49ba1451e14ca30886c9c2513e15bd974d75ecd7ee1308b3edbeeb722f1"
   },
-  "boundary": "Before E05 production edits. Earlier E00 contract receipts retained. Corrected refresh fixture to authorize its two non-suppressed NPAs; no production change. New edit cases expose absent version/identity contract; they are not three independently observed paid effects."
+  "boundary": "Before E05 production edits. Earlier E00 contract receipts retained. Corrected refresh fixture to authorize its two non-suppressed NPAs; no production change. New edit cases expose absent version/identity contract; they are not three independently observed paid effects.",
+  "supplements": {
+    "E05-publication-red.txt": "57607aa4e9c1b1ada68279e99e5dea0391f8b1094d3ab58aa90d438cfed65b6a",
+    "E05-publication-authority-red.txt": "a06a5884cceb035d0d5a38a7ca6732990363af599e5c0a16a2f544cd33a1aca8",
+    "E05-refresh-ready-red.txt": "8828e28ea4479b60c52495872b599c5894355cac1120eb2d31d86daa5c0de742",
+    "E05-policy-ui-unit-red.txt": "0673dbf00ec5e7c38b6b03e6eeb1b635ccb3e46d7f11857ab577b97a8a10fa57",
+    "E05-policy-ui-red.txt": "c666a277f1e2a0536ff5996ea95869d881b9d44daba0067e2cb23ad0fc90504d",
+    "E05-rates-red.txt": "9681e5b0577e1e7d2898c8d510736d98e30b3cd99bd46f2978baab1fe38729e4"
+  }
 }

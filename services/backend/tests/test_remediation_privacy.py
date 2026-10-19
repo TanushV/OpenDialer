@@ -5,7 +5,7 @@ from datetime import timedelta
 
 import pytest
 from app.db import MODELS, Event, Job, put, update
-from conftest import disposition_body, start
+from conftest import disposition_body, save_operating_policy, start
 from sqlalchemy import select
 
 RAW = "Private raw utterance ALPHA-ZULU-EPHEMERAL: our internal project is called Granite."
@@ -193,7 +193,7 @@ def test_retention_cannot_be_disabled_or_extended_by_settings(workspace):
         {"recording_enabled": True},
         {"subscriptions_allowed": True},
     ]:
-        response = c.put("/v1/admin/operating-policy", headers=h, json=changes)
+        response = save_operating_policy(c, "/v1/admin/operating-policy", headers=h, json=changes)
         assert response.status_code == 422, response.text
 
 

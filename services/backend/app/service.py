@@ -49,6 +49,7 @@ class Service(ReservationPlanner):
         self.preparation_capacity = asyncio.Semaphore(settings.runtime_limits.company_units)
         self.research_capacity = asyncio.Semaphore(settings.runtime_limits.company_units)
         self.script_capacity = asyncio.Semaphore(settings.runtime_limits.script_generations)
+        self.screening_capacity = asyncio.Semaphore(2)
         self.research_flights = {}
 
     def required(self, s, kind, object_id, p):
@@ -514,8 +515,6 @@ class Service(ReservationPlanner):
 
         internal_suppressed = self.suppressed(s, p, lead.data["phone"])
         snapshots = [] if internal_suppressed else published_snapshots(s, p)
-        national = [r for r in snapshots if r.data.get("kind") == "national"]
-        registry = max(national, key=lambda r: r.data["refreshed_at"], default=None)
         state = [
             r
             for r in snapshots
@@ -533,21 +532,18 @@ class Service(ReservationPlanner):
         from app.compliance.consent import permission_state
 
         granted, revoked = permission_state(self, s, p, endpoint.id, permission)
-        registry_valid = bool(registry and (self.settings.simulation or not registry.data.get("synthetic")))
-        listed = registry_contains(s, registry, lead.data["phone"]) if registry_valid else False
         healthy = number and number.data["lifecycle"] in {"healthy", "limited_real_use"}
         authorized_number = bool(
             number
             and number.seller_id == p["seller_id"]
             and (self.settings.simulation or not number.data.get("synthetic"))
         )
-        from app.compliance.operating import cached_screen
+        from app.compliance.operating import screening_capability, screening_snapshot
 
-        prepaid = None if internal_suppressed else cached_screen(self, s, p, lead.data["phone"])
-        national_at = dt(registry.data["refreshed_at"]) if registry_valid else None
-        if prepaid:
-            national_at = max(filter(None, [national_at, dt(prepaid["checked_at"])]))
-            listed = listed or prepaid["listed"]
+        national = screening_capability(
+            screening_snapshot(self, s, p, lead.data["phone"], internal_suppressed=internal_suppressed),
+            lead.data["phone"],
+        )
         return CallContext(
             now=self.clock(),
             seller_approved=seller.data.get("approved", False),
@@ -568,10 +564,10 @@ class Service(ReservationPlanner):
             timezone=lead.data.get("timezone"),
             timezone_confidence=lead.data.get("timezone_confidence", "unknown"),
             registry_required=True,
-            registry_checked_at=national_at,
-            registry_covered=bool(prepaid)
-            or (registry_valid and lead.data["phone"][2:5] in registry.data["npas"]),
-            registry_listed=listed,
+            registry_decision=national,
+            registry_checked_at=max((dt(x["checked_at"]) for x in national["sources"]), default=None),
+            registry_covered=national["covered"],
+            registry_listed=national["decision"] == "listed",
             state_registry_required=config.get("state_registry_required", False),
             state_registry_current=state_current,
             state_registry_listed=any(registry_contains(s, r, lead.data["phone"]) for r in state),

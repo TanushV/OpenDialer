@@ -1,6 +1,7 @@
 """Configuration is one source of truth and invalid authority data cannot be saved."""
 
 import pytest
+from conftest import save_operating_policy
 
 
 def test_runtime_limits_have_one_validated_nested_configuration(monkeypatch):
@@ -73,19 +74,22 @@ def test_dnc_settings_validate_source_shape_before_saving(workspace, change):
 def test_partial_privacy_update_uses_existing_evidence(workspace):
     c, h = workspace["client"], workspace["headers"]
     assert (
-        c.put(
+        save_operating_policy(
+            c,
             "/v1/admin/operating-policy",
             headers=h,
             json={"transcription_privacy_reference": "account-reviewed-terms"},
         ).status_code
         == 200
     )
-    r = c.put("/v1/admin/operating-policy", headers=h, json={"transcription_privacy_verified": True})
+    r = save_operating_policy(
+        c, "/v1/admin/operating-policy", headers=h, json={"transcription_privacy_verified": True}
+    )
     assert r.status_code == 200, r.text
     assert r.json()["transcription_privacy_reference"] == "account-reviewed-terms"
     assert (
-        c.put(
-            "/v1/admin/operating-policy", headers=h, json={"transcription_privacy_reference": ""}
+        save_operating_policy(
+            c, "/v1/admin/operating-policy", headers=h, json={"transcription_privacy_reference": ""}
         ).status_code
         == 422
     )
@@ -97,6 +101,56 @@ def test_legacy_operating_coach_setting_cannot_override_the_actual_provider(work
     # Provider settings are the sole authority: a second live switch is misleading.
     assert c.get("/v1/admin/operating-policy", headers=h).json()["coach_provider"] == "static"
     assert (
-        c.put("/v1/admin/operating-policy", headers=h, json={"coach_provider": "openrouter"}).status_code
+        save_operating_policy(
+            c, "/v1/admin/operating-policy", headers=h, json={"coach_provider": "openrouter"}
+        ).status_code
         == 422
     )
+
+
+def test_account_rate_override_has_provenance_and_does_not_rewrite_reference(workspace):
+    c, h = workspace["client"], workspace["headers"]
+    body = {
+        "account_rates": {
+            "dnc": {
+                "values": {"estimated_per_query_usd": "0.002"},
+                "source_reference": "Own prepaid invoice",
+                "checked_at": "2026-10-14",
+            }
+        }
+    }
+    result = save_operating_policy(c, "/v1/admin/operating-policy", headers=h, json=body)
+    assert result.status_code == 200, result.text
+    rate = result.json()["costs"]["dnc"]
+    assert rate["estimated_per_query_usd"] == 100 / 60000
+    assert rate["account_rate_override"]["values"]["estimated_per_query_usd"] == "0.002"
+    assert rate["account_rate_override"]["source_reference"] == "Own prepaid invoice"
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {"source_reference": ""},
+        {"checked_at": "2030-01-01"},
+        {"values": {"made_up_unit": "1"}},
+        {"values": {"estimated_per_query_usd": "NaN"}},
+        {"values": {"estimated_per_query_usd": "-1"}},
+    ],
+)
+def test_invalid_account_rates_are_not_saved(workspace, patch):
+    result = save_operating_policy(
+        workspace["client"],
+        "/v1/admin/operating-policy",
+        headers=workspace["headers"],
+        json={
+            "account_rates": {
+                "dnc": {
+                    "values": {"estimated_per_query_usd": "0.002"},
+                    "source_reference": "Own rate",
+                    "checked_at": "2026-10-14",
+                    **patch,
+                }
+            }
+        },
+    )
+    assert result.status_code == 422

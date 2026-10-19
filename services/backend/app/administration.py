@@ -5,7 +5,7 @@ import json
 import os
 import re
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, func, or_, select
 
 from app.db import MODELS, audit, doc, emit, get, put, rows, uid, update
 from app.intelligence import Application
@@ -100,21 +100,49 @@ class Dialer(
                 p["seller_id"],
             ) in self.__dict__.get("_journal_faults", set()):
                 blockers.append("JOURNAL_RECOVERY_REQUIRED")
-            if not any(
-                n.data["lifecycle"] in {"healthy", "limited_real_use"}
-                for n in self.scoped(s, "number_inventory", p)
-            ):
+            numbers = self.scoped(s, "number_inventory", p)
+            healthy = next(
+                (n for n in numbers if n.data["lifecycle"] in {"healthy", "limited_real_use"}), None
+            )
+            if not healthy:
                 blockers.append("NO_HEALTHY_NUMBERS")
-            if policy.data.get("registry_required", True):
-                registries = [
-                    r
-                    for r in self.scoped(s, "registry_snapshots", p)
-                    if r.data.get("published") and r.data["kind"] == "national"
-                ]
-                if not registries:
-                    blockers.append("REGISTRY_MISSING")
-                elif all((self.clock() - dt(r.data["refreshed_at"])).days > 31 for r in registries):
-                    blockers.append("REGISTRY_STALE")
+            from app.compliance.operating import screening_capability, screening_snapshot
+            from app.compliance.policy import authorize
+
+            screening = screening_capability(screening_snapshot(self, s, p))
+            lead_model = MODELS["leads"]
+            scope = (lead_model.tenant_id == p["tenant_id"], lead_model.seller_id == p["seller_id"])
+            total = s.scalar(select(func.count()).select_from(lead_model).where(*scope))
+            leads = list(s.scalars(select(lead_model).where(*scope).order_by(lead_model.id).limit(500)))
+            counts = {"cleared_count": 0, "pending_count": 0, "blocked_count": 0, "dialable_queue_count": 0}
+            reasons = set()
+            for lead in leads:
+                context = self.context(s, p, lead, healthy)
+                national = context.registry_decision
+                key = (
+                    "cleared_count"
+                    if national["decision"] == "clear"
+                    else "blocked_count"
+                    if national["decision"] in {"blocked", "listed"}
+                    else "pending_count"
+                )
+                counts[key] += 1
+                reasons.update(national["reason_codes"])
+                counts["dialable_queue_count"] += int(authorize(context).allowed)
+                if context.state_registry_required and not context.state_registry_current:
+                    reasons.add("STATE_REGISTRY_MISSING")
+            screening.update(
+                **counts,
+                inspected_count=len(leads),
+                total_count=total,
+                omitted_count=max(0, total - len(leads)),
+                counts_complete=total <= len(leads),
+                reason_codes=sorted(reasons or screening["reason_codes"]),
+            )
+            if not counts["cleared_count"]:
+                blockers.extend(screening["reason_codes"] or ["SCREENING_PENDING"])
+            if "STATE_REGISTRY_MISSING" in reasons:
+                warnings.append("Some leads require a current authorized state registry source")
             if not self.budget_ok(s, p):
                 blockers.append("BUDGET_EXHAUSTED")
             pending = sum(
@@ -157,6 +185,7 @@ class Dialer(
             "mode": self.settings.mode,
             "simulation": self.settings.simulation,
             "version": self.settings.version,
+            "screening": screening,
             "provider_validation": "simulated"
             if self.settings.simulation
             else "requires live account validation",

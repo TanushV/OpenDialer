@@ -5,6 +5,7 @@ from datetime import timedelta
 
 import pytest
 from app.db import Job, update
+from conftest import save_operating_policy
 from sqlalchemy import select
 from test_dnc_recovery import PHONE, screening  # noqa: F401 - pytest fixture
 
@@ -18,7 +19,8 @@ async def test_bounded_paid_refresh(workspace, app, clock, screening):  # noqa: 
     )
     c, h = workspace["client"], workspace["headers"]
     c.post("/v1/suppressions", headers=h, json={"phone": PHONE, "reason": "opt_out"})
-    enabled = c.put(
+    enabled = save_operating_policy(
+        c,
         "/v1/admin/operating-policy",
         headers=h,
         json={
@@ -65,8 +67,11 @@ async def test_bounded_paid_refresh(workspace, app, clock, screening):  # noqa: 
     ],
 )
 def test_screening_refresh_requires_bounded_explicit_funding(workspace, settings):
-    result = workspace["client"].put(
-        "/v1/admin/operating-policy", headers=workspace["headers"], json={"dnc_refresh": settings}
+    result = save_operating_policy(
+        workspace["client"],
+        "/v1/admin/operating-policy",
+        headers=workspace["headers"],
+        json={"dnc_refresh": settings},
     )
     assert result.status_code == 422
 
@@ -75,6 +80,48 @@ def test_screening_refresh_disabled_default_is_visible(workspace):
     policy = workspace["client"].get("/v1/admin/operating-policy", headers=workspace["headers"]).json()
     values = policy.get("policy", policy)
     assert values.get("dnc_refresh", {}).get("enabled") is False
+
+
+@pytest.mark.asyncio
+async def test_refresh_budget_is_atomic_and_uncertain_query_is_not_automatically_recharged(
+    workspace, screening, clock, monkeypatch
+):  # noqa: F811
+    from app.providers.dnc import DNCError, PrepaidDNC
+
+    service, p, calls, _, config = screening
+    service.vault.write(
+        p["tenant_id"],
+        {"dnc_seller_authorization": {**config["dnc_seller_authorization"], "npas": ["415", "212", "512"]}},
+    )
+    with service.db.transaction() as s:
+        for row in service.scoped(s, "registry_snapshots", p):
+            if row.data.get("kind") == "national":
+                update(row, published=False)
+    policy = save_operating_policy(
+        workspace["client"],
+        "/v1/admin/operating-policy",
+        headers=workspace["headers"],
+        json={"dnc_refresh": {"enabled": True, "max_run_usd": "0.001667", "max_day_usd": "0.001667"}},
+    )
+    assert policy.status_code == 200, policy.text
+
+    async def lost(provider, phone):
+        calls.append(phone)
+        await asyncio.sleep(0.01)
+        raise DNCError("uncertain")
+
+    monkeypatch.setattr(PrepaidDNC, "check", lost)
+    await asyncio.gather(service.maintenance_tick(), service.maintenance_tick())
+    await asyncio.gather(
+        service.run_jobs(p["tenant_id"], ["research"]), service.run_jobs(p["tenant_id"], ["research"])
+    )
+    assert len(calls) == 1
+    first = calls[0]
+    clock.now += timedelta(days=1)
+    await service.maintenance_tick()
+    await service.run_jobs(p["tenant_id"], ["research"])
+    assert calls.count(first) == 1
+    assert len(calls) <= 2
 
 
 @pytest.mark.asyncio
@@ -112,7 +159,8 @@ async def test_whole_list_refresh_resumes_after_one_500_endpoint_page(
         },
     )
     assert imported.status_code == 200
-    enabled = c.put(
+    enabled = save_operating_policy(
+        c,
         "/v1/admin/operating-policy",
         headers=h,
         json={"dnc_refresh": {"enabled": True, "batch_size": 500, "max_run_usd": 1, "max_day_usd": 2}},

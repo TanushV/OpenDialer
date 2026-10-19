@@ -8,7 +8,7 @@ import httpx
 import pytest
 from app.db import Job, put, update
 from app.providers.inference import InferenceResult
-from conftest import start
+from conftest import save_operating_policy, start
 from sqlalchemy import event, select
 from test_remediation_rep_workflow import p
 
@@ -211,7 +211,8 @@ def configure(workspace, **changes):
         lead["id"]
         for lead in workspace["client"].get("/v1/workspace", headers=workspace["headers"]).json()["leads"]
     ]
-    response = workspace["client"].put(
+    response = save_operating_policy(
+        workspace["client"],
         "/v1/admin/operating-policy",
         headers=workspace["headers"],
         json={
@@ -240,16 +241,22 @@ def configure(workspace, **changes):
     ],
 )
 def test_template_rejects_unsafe_or_incomplete_placeholders(workspace, template):
-    response = workspace["client"].put(
-        "/v1/admin/operating-policy", headers=workspace["headers"], json={"script_template": template}
+    response = save_operating_policy(
+        workspace["client"],
+        "/v1/admin/operating-policy",
+        headers=workspace["headers"],
+        json={"script_template": template},
     )
     assert response.status_code == 422
 
 
 def test_nested_preparation_patch_preserves_schedule_and_template_version(workspace):
     original = configure(workspace)
-    response = workspace["client"].put(
-        "/v1/admin/operating-policy", headers=workspace["headers"], json={"preparation": {"ahead_count": 3}}
+    response = save_operating_policy(
+        workspace["client"],
+        "/v1/admin/operating-policy",
+        headers=workspace["headers"],
+        json={"preparation": {"ahead_count": 3}},
     )
     assert response.status_code == 200
     result = response.json()
@@ -727,7 +734,8 @@ def test_preparation_horizon_excludes_far_future_work_and_keeps_free_fallback(wo
 async def test_template_retains_only_current_approved_final_voicemail_reference(workspace, app):
     service, principal = app.state.service, p(workspace)
     asset = "https://assets.example.test/approved-message.wav"
-    response = workspace["client"].put(
+    response = save_operating_policy(
+        workspace["client"],
         "/v1/admin/operating-policy",
         headers=workspace["headers"],
         json={"script_template": {**TEMPLATE, "final_voicemail_asset": asset}},

@@ -1,8 +1,18 @@
 import { useEffect, useState } from "react";
 import { useWorkspace } from "../context";
 import { DncScreeningPanel } from "./DncScreeningPanel";
+import { localEdit } from "../api/client";
 
 type Policy = {
+  version: number;
+  dnc_source_max_age_days: number;
+  dnc_refresh: {
+    enabled: boolean;
+    interval_hours: number;
+    batch_size: number;
+    max_run_usd: string;
+    max_day_usd: string;
+  };
   auto_coach_interval_seconds: number;
   transcription_privacy_verified: boolean;
   transcription_privacy_reference: string;
@@ -70,20 +80,32 @@ export function OperatingPolicySettings() {
           onSubmit={(e) => {
             e.preventDefault();
             void run(async () => {
-              await api("/v1/admin/operating-policy", "PUT", {
-                auto_coach_interval_seconds: policy.auto_coach_interval_seconds,
-                transcription_privacy_verified:
-                  policy.transcription_privacy_verified,
-                transcription_privacy_reference:
-                  policy.transcription_privacy_reference,
-              });
-              notice("Privacy and helper pacing saved");
+              setPolicy(
+                await localEdit<Policy>(
+                  api,
+                  "/v1/admin/operating-policy",
+                  "PUT",
+                  {
+                    request_id: crypto.randomUUID(),
+                    expected_version: policy.version,
+                    auto_coach_interval_seconds:
+                      policy.auto_coach_interval_seconds,
+                    transcription_privacy_verified:
+                      policy.transcription_privacy_verified,
+                    transcription_privacy_reference:
+                      policy.transcription_privacy_reference,
+                    dnc_source_max_age_days: policy.dnc_source_max_age_days,
+                    dnc_refresh: policy.dnc_refresh,
+                  },
+                ),
+              );
+              notice("Privacy and usage policy saved");
             });
           }}
         >
           <div className="two-column">
             <label>
-              Minimum seconds between automatic helper requests
+              Seconds between rep-only context refreshes
               <input
                 type="number"
                 min={3}
@@ -129,8 +151,124 @@ export function OperatingPolicySettings() {
             deletion cannot certify upstream deletion. Cerebras uses ZDR with
             data collection denied and no alternate-provider fallback.
           </p>
+          <h3>Scheduled prepaid screening</h3>
+          <p className="fine">
+            Uses only existing authorized credits. Each run checks local
+            opt-outs and current cache first. Unknown charges require review;
+            they are never automatically retried. No account is funded by this
+            setting.
+          </p>
+          <label className="check-label">
+            <input
+              type="checkbox"
+              checked={policy.dnc_refresh.enabled}
+              onChange={(e) =>
+                setPolicy({
+                  ...policy,
+                  dnc_refresh: {
+                    ...policy.dnc_refresh,
+                    enabled: e.target.checked,
+                  },
+                })
+              }
+            />
+            Authorize scheduled prepaid DNC checks
+          </label>
+          <div className="two-column">
+            {(
+              [
+                ["max_run_usd", "DNC maximum per run (USD)"],
+                ["max_day_usd", "DNC maximum per day (USD)"],
+              ] as const
+            ).map(([field, title]) => (
+              <label key={field}>
+                {title}
+                <input
+                  type="number"
+                  min={policy.dnc_refresh.enabled ? "0.000001" : "0"}
+                  step="0.000001"
+                  required
+                  value={policy.dnc_refresh[field]}
+                  onChange={(e) =>
+                    setPolicy({
+                      ...policy,
+                      dnc_refresh: {
+                        ...policy.dnc_refresh,
+                        [field]: e.target.value,
+                      },
+                    })
+                  }
+                />
+              </label>
+            ))}
+            <label>
+              Screening interval (hours)
+              <input
+                type="number"
+                min={24}
+                max={168}
+                required
+                value={policy.dnc_refresh.interval_hours}
+                onChange={(e) =>
+                  setPolicy({
+                    ...policy,
+                    dnc_refresh: {
+                      ...policy.dnc_refresh,
+                      interval_hours: Number(e.target.value),
+                    },
+                  })
+                }
+              />
+            </label>
+            <label>
+              Endpoints per screening page
+              <input
+                type="number"
+                min={1}
+                max={500}
+                required
+                value={policy.dnc_refresh.batch_size}
+                onChange={(e) =>
+                  setPolicy({
+                    ...policy,
+                    dnc_refresh: {
+                      ...policy.dnc_refresh,
+                      batch_size: Number(e.target.value),
+                    },
+                  })
+                }
+              />
+            </label>
+            <label>
+              Maximum national source age (days)
+              <input
+                type="number"
+                min={1}
+                max={31}
+                required
+                value={policy.dnc_source_max_age_days}
+                onChange={(e) =>
+                  setPolicy({
+                    ...policy,
+                    dnc_source_max_age_days: Number(e.target.value),
+                  })
+                }
+              />
+            </label>
+          </div>
           <button className="secondary" type="submit">
-            Save privacy and pacing
+            Save privacy and usage policy
+          </button>
+          <button
+            type="button"
+            className="text-button"
+            onClick={() =>
+              void run(async () =>
+                setPolicy(await api<Policy>("/v1/admin/operating-policy")),
+              )
+            }
+          >
+            Reload privacy and usage policy
           </button>
         </form>
       )}

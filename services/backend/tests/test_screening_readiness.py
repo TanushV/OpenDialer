@@ -3,7 +3,7 @@
 import pytest
 from app.compliance.policy import authorize
 from app.db import update
-from conftest import ready
+from conftest import ready, save_operating_policy
 from test_dnc_recovery import PHONE, screen, screening  # noqa: F401 - shared fixture
 
 
@@ -51,8 +51,11 @@ def test_national_snapshot_uses_the_sellers_shorter_freshness_policy(workspace, 
 
     service, p = app.state.service, principal(workspace)
     ready(workspace)
-    response = workspace["client"].put(
-        "/v1/admin/operating-policy", headers=workspace["headers"], json={"dnc_source_max_age_days": 1}
+    response = save_operating_policy(
+        workspace["client"],
+        "/v1/admin/operating-policy",
+        headers=workspace["headers"],
+        json={"dnc_source_max_age_days": 1},
     )
     assert response.status_code == 200
     with service.db.transaction() as s:

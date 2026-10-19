@@ -148,3 +148,13 @@ def completed_home_metrics(workspace):
             return metrics
         client.portal.call(partial(client.app.state.service.run_jobs, queues=["ml"]))
     pytest.fail("Background workspace totals did not finish")
+
+
+def save_operating_policy(client, path, *, headers, json):
+    """Explicit modern-client fixture, never an application or transport monkeypatch."""
+    from uuid import uuid4
+
+    version = client.get(path, headers=headers).json()["version"]
+    return client.put(
+        path, headers=headers, json={"request_id": str(uuid4()), "expected_version": version, **json}
+    )

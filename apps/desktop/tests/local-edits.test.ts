@@ -2,6 +2,19 @@ import { describe, expect, it, vi } from "vitest";
 import { ApiError, localEdit } from "../src/api/client";
 
 describe("local edit receipts", () => {
+  it("replays a versioned policy save without authorizing another provider effect", async () => {
+    const api = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("Lost save"))
+      .mockResolvedValueOnce({ version: 3 });
+    await localEdit(api, "/v1/admin/operating-policy", "PUT", {
+      request_id: crypto.randomUUID(),
+      expected_version: 2,
+      dnc_refresh: { enabled: true, max_run_usd: 1, max_day_usd: 2 },
+    });
+    expect(api).toHaveBeenCalledTimes(2);
+    expect(api.mock.calls[1]).toEqual(api.mock.calls[0]);
+  });
   it("replays one lost response with an immutable original identity and version", async () => {
     const values = {
       request_id: "ebae11e5-fdc6-43dc-8df1-0fd513204df3",

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useWorkspace } from "../context";
+import { localEdit } from "../api/client";
 
 type Template = {
   topic: string;
@@ -23,6 +24,7 @@ type PreparationPolicy = {
   timezone: string;
 };
 type Configuration = {
+  version: number;
   script_template: Template | null;
   template_defaults: Template;
   template_version: string;
@@ -140,16 +142,37 @@ export function PreparationSettings() {
         onSubmit={(event) => {
           event.preventDefault();
           void run(async () => {
-            const saved = await api<Configuration>(
+            const saved = await localEdit<Configuration>(
+              api,
               "/v1/admin/operating-policy",
               "PUT",
-              { script_template: template, preparation: config.preparation },
+              {
+                request_id: crypto.randomUUID(),
+                expected_version: config.version,
+                script_template: template,
+                preparation: config.preparation,
+              },
             );
             setConfig(saved);
             notice("Script and preparation saved");
           });
         }}
       >
+        <button
+          type="button"
+          className="text-button"
+          onClick={() =>
+            void run(async () => {
+              const current = await api<Configuration>(
+                "/v1/admin/operating-policy",
+              );
+              setConfig(current);
+              setTemplate(current.script_template || current.template_defaults);
+            })
+          }
+        >
+          Reload preparation settings
+        </button>
         <label>
           Script topic
           <input

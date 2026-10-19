@@ -20,6 +20,7 @@ class CallContext:
     registry_checked_at: datetime | None = None
     registry_covered: bool = False
     registry_listed: bool = False
+    registry_decision: dict | None = None
     state_registry_required: bool = False
     state_registry_current: bool = False
     state_registry_listed: bool = False
@@ -67,11 +68,15 @@ def authorize(c: CallContext) -> Decision:
     require(c.ownership != "wrong_party", "WRONG_PARTY")
     require(not c.internal_suppressed, "INTERNAL_SUPPRESSION")
     if c.registry_required:
-        require(c.registry_checked_at is not None, "REGISTRY_MISSING")
-        if c.registry_checked_at:
-            require(0 <= (c.now - c.registry_checked_at).total_seconds() <= 31 * 86400, "REGISTRY_STALE")
-        require(c.registry_covered, "REGISTRY_COVERAGE_MISSING")
-        require(not c.registry_listed, "REGISTRY_LISTED")
+        if c.registry_decision is not None:
+            if c.registry_decision["decision"] != "clear":
+                reasons.extend(r for r in c.registry_decision["reason_codes"] if r not in reasons)
+        else:  # Legacy pure-policy callers; runtime always supplies the shared national decision.
+            require(c.registry_checked_at is not None, "REGISTRY_MISSING")
+            if c.registry_checked_at:
+                require(0 <= (c.now - c.registry_checked_at).total_seconds() <= 31 * 86400, "REGISTRY_STALE")
+            require(c.registry_covered, "REGISTRY_COVERAGE_MISSING")
+            require(not c.registry_listed, "REGISTRY_LISTED")
     require(not c.state_registry_required or c.state_registry_current, "STATE_REGISTRY_MISSING")
     require(not c.state_registry_required or not c.state_registry_listed, "STATE_REGISTRY_LISTED")
     require(not c.consent_required or c.consent_valid, "CONSENT_MISSING")
