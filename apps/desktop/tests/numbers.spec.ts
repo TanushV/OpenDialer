@@ -14,6 +14,17 @@ test("number review distinguishes operational evidence from unknown external rep
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
   await page.getByRole("button", { name: "Numbers", exact: true }).click();
+  for (const state of [
+    "Ready",
+    "Pending setup",
+    "Limited use",
+    "Paused outbound",
+  ])
+    await expect(
+      page
+        .getByRole("region", { name: "Displayed inventory status" })
+        .getByText(state, { exact: true }),
+    ).toBeVisible();
   await page
     .getByRole("button", { name: "Review number evidence" })
     .first()
@@ -35,6 +46,110 @@ test("number review distinguishes operational evidence from unknown external rep
     page.getByText("A note alone cannot verify a callback.", { exact: true }),
   ).toBeVisible();
 });
+
+for (const connected of [false, true]) {
+  test(`${connected ? "connected" : "local"} number review recovers a stale edit and saves evidence policy`, async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await expect(page.getByText("Opening your workspace…")).toBeHidden();
+    if (connected) {
+      if (await page.getByTitle("Sign out").isVisible())
+        await page.getByTitle("Sign out").click();
+      await page.getByRole("button", { name: "Connect to a server" }).click();
+      await page.getByLabel("Server URL").fill("http://127.0.0.1:8766");
+      await page.getByLabel("Email").fill("team@example.test");
+      await page
+        .getByLabel("Password", { exact: true })
+        .fill("Connected-test-password-123");
+      await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    } else if (
+      await page
+        .getByRole("button", { name: "Try a simulated workspace" })
+        .isVisible()
+    ) {
+      await page
+        .getByRole("button", { name: "Try a simulated workspace" })
+        .click();
+    }
+    await page.getByRole("button", { name: "Numbers", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Review number evidence" })
+      .first()
+      .click();
+    const original = Number(
+      await page.getByLabel("Reviewed daily limit").inputValue(),
+    );
+    await page.getByLabel("Number review decision").selectOption("reduce");
+    await page.getByLabel("Reviewed daily limit").fill(String(original - 1));
+    await page
+      .getByLabel("Number review reference")
+      .fill("Operator reviewed available workload");
+    let blocked = true;
+    await page.route("**/v1/admin/numbers/*/review", async (route) => {
+      if (blocked && route.request().method() === "POST") {
+        blocked = false;
+        return route.fulfill({
+          status: 409,
+          json: { detail: "Number changed; reload evidence" },
+        });
+      }
+      return route.continue();
+    });
+    await page.getByRole("button", { name: "Apply number review" }).click();
+    await expect(page.getByRole("alert")).toContainText(
+      "Number changed; reload evidence",
+    );
+    await expect(
+      page.getByRole("button", { name: "Apply number review" }),
+    ).toBeEnabled();
+    await page.getByRole("button", { name: "Reload evidence" }).click();
+    await expect(page.getByLabel("Reviewed daily limit")).toHaveValue(
+      String(original),
+    );
+    await page.getByLabel("Reviewed daily limit").fill(String(original - 1));
+    const saved = page.waitForResponse(
+      (r) => r.url().endsWith("/review") && r.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: "Apply number review" }).click();
+    expect((await saved).ok()).toBeTruthy();
+    await page.reload();
+    await page.getByRole("button", { name: "Numbers", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Review number evidence" })
+      .first()
+      .click();
+    await expect(page.getByLabel("Reviewed daily limit")).toHaveValue(
+      String(original - 1),
+    );
+    await page
+      .getByRole("button", { name: "Intelligence", exact: true })
+      .click();
+    await page
+      .getByText("Advanced number evidence policy", { exact: true })
+      .click();
+    await page.getByLabel("Callback proof lifetime (days)").fill("17");
+    const policy = page.waitForResponse(
+      (r) =>
+        r.url().endsWith("/v1/admin/optimization") &&
+        r.request().method() === "PUT",
+    );
+    await page
+      .getByRole("button", { name: "Save optimization settings" })
+      .click();
+    expect((await policy).ok()).toBeTruthy();
+    await page.reload();
+    await page
+      .getByRole("button", { name: "Intelligence", exact: true })
+      .click();
+    await page
+      .getByText("Advanced number evidence policy", { exact: true })
+      .click();
+    await expect(page.getByLabel("Callback proof lifetime (days)")).toHaveValue(
+      "17",
+    );
+  });
+}
 
 for (const connected of [false, true]) {
   test(`${connected ? "connected" : "local"} planning shows pending work then the saved result and explicit simple staffing`, async ({

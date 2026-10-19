@@ -16,6 +16,13 @@ interface OptimizationSettings extends SimpleStaffing {
   training_min_rows: number;
   staffed_windows: StaffedWindow[];
   additional_ready_after_hours: number;
+  health_policy?: {
+    min_comparable: number;
+    material_drop: number;
+    confidence: number;
+    window_days: number;
+    callback_proof_days: number;
+  };
 }
 interface GoalPreview {
   campaign_version: number;
@@ -393,6 +400,45 @@ export function OptimizationPanel({
                 />
                 Automatic training from call history
               </label>
+              {settings.health_policy && (
+                <details>
+                  <summary>Advanced number evidence policy</summary>
+                  <p className="fine">
+                    These are review assumptions. A statistical warning is not
+                    proof of a carrier spam label. Changes require fresh health
+                    evaluation; calling identity is preserved.
+                  </p>
+                  <div className="optimization-fields">
+                    {(
+                      [
+                        ["min_comparable", "Minimum comparable attempts"],
+                        ["material_drop", "Material pickup drop (fraction)"],
+                        ["confidence", "Health interval confidence (fraction)"],
+                        ["window_days", "Health observation window (days)"],
+                        [
+                          "callback_proof_days",
+                          "Callback proof lifetime (days)",
+                        ],
+                      ] as const
+                    ).map(([key, title]) => (
+                      <label key={key}>
+                        {title}
+                        <input
+                          type="number"
+                          step="any"
+                          value={settings.health_policy![key]}
+                          onChange={(e) =>
+                            change("health_policy", {
+                              ...settings.health_policy!,
+                              [key]: Number(e.target.value),
+                            })
+                          }
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </details>
+              )}
               <div className="button-row">
                 <button
                   className="secondary"
@@ -553,7 +599,7 @@ export function OptimizationPanel({
                 <tr>
                   <th>Number</th>
                   <th>State</th>
-                  <th>Observed health</th>
+                  <th>Observed delivery success</th>
                   <th>Samples</th>
                   <th>Active obligations</th>
                   <th>Daily limit</th>

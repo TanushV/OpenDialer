@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { isolatedSimulationWorkspace } from "./simulation";
 
 test("callback fallback settings survive reload and explain offline routing", async ({
   page,
@@ -18,15 +19,17 @@ test("callback fallback settings survive reload and explain offline routing", as
     name: "Inbound callbacks",
     exact: true,
   });
+  await expect(panel).toContainText(
+    "Carrier-side fallback is required while this computer is offline",
+  );
+  await isolatedSimulationWorkspace(page, "callback-routing-fixture");
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await panel
     .getByLabel("Business fallback destination")
     .fill("sip:reception@example.test");
   await panel.getByRole("button", { name: "Save callback routing" }).click();
   await expect(panel).toContainText("Callback routing saved");
   await expect(panel).toContainText("$0.10 per transfer");
-  await expect(panel).toContainText(
-    "Carrier-side fallback is required while this computer is offline",
-  );
   await page.reload();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(panel.getByLabel("Business fallback destination")).toHaveValue(
@@ -35,6 +38,16 @@ test("callback fallback settings survive reload and explain offline routing", as
   await panel.getByLabel("Business fallback destination").fill("");
   await panel.getByRole("button", { name: "Save callback routing" }).click();
   await expect(panel).toContainText("Callback routing saved");
+  await page.getByRole("button", { name: "Numbers", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Review number evidence" })
+    .first()
+    .click();
+  await expect(
+    page.getByText("Outbound setup or evidence needs attention", {
+      exact: false,
+    }),
+  ).toBeVisible();
 });
 
 test("a routed inbound call has visible controls and blocks the outbound next button", async ({

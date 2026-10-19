@@ -472,6 +472,62 @@ export function NumbersPage() {
           <p>Prospect-to-number assignments</p>
         </div>
       </div>
+      <section className="card padded" aria-label="Displayed inventory status">
+        <dl className="capacity-summary">
+          <div>
+            <dt>Ready</dt>
+            <dd>{history.items.filter((n) => n.outbound_ready).length}</dd>
+          </div>
+          <div>
+            <dt>Pending setup</dt>
+            <dd>
+              {
+                history.items.filter((n) =>
+                  [
+                    "purchased",
+                    "identity_configured",
+                    "callback_tested",
+                  ].includes(n.lifecycle),
+                ).length
+              }
+            </dd>
+          </div>
+          <div>
+            <dt>Limited use</dt>
+            <dd>
+              {
+                history.items.filter((n) => n.lifecycle === "limited_real_use")
+                  .length
+              }
+            </dd>
+          </div>
+          <div>
+            <dt>Paused outbound</dt>
+            <dd>
+              {
+                history.items.filter((n) =>
+                  ["paused_for_outbound", "retired_callback_only"].includes(
+                    n.lifecycle,
+                  ),
+                ).length
+              }
+            </dd>
+          </div>
+          <div>
+            <dt>Under investigation</dt>
+            <dd>
+              {
+                history.items.filter((n) => n.lifecycle === "investigating")
+                  .length
+              }
+            </dd>
+          </div>
+        </dl>
+        <p className="fine">
+          Counts cover displayed inventory. Ready may include reviewed limited
+          use. Pending orders appear below; inbound identities remain retained.
+        </p>
+      </section>
       <section className="card table-card">
         <div className="table-toolbar">
           <h3>Your number inventory</h3>
@@ -1201,9 +1257,10 @@ function NumberRow({
                 </div>
                 <p className="fine">
                   Available staffed capacity and approved ceiling permit at most{" "}
-                  {view.workload.maximum_reviewed_limit} attempts per day.
-                  Sparse evidence is unknown; it does not require a fixed number
-                  of warmup calls.
+                  {view.workload.maximum_reviewed_limit} attempts per day.{" "}
+                  Suggested limit for explicit review:{" "}
+                  {view.workload.recommended_limit}. Sparse evidence is unknown;
+                  it does not require a fixed number of warmup calls.
                 </p>
                 <button
                   disabled={!reference.trim()}

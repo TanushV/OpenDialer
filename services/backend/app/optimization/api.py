@@ -739,7 +739,7 @@ def register_optimization(app, service, principal, administrator):
                     fail(409, "Requested limit exceeds reviewed ceiling or available staff capacity")
                 if body.decision == "increase" and limit <= number.data["daily_limit"]:
                     fail(422, "Increase must raise the existing limit")
-                lifecycle = "limited_real_use"
+                lifecycle = "healthy" if view["health"]["status"] == "observed" else "limited_real_use"
             elif body.decision == "pause":
                 lifecycle = "paused_for_outbound"
             else:

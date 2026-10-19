@@ -202,6 +202,7 @@ def test_health_support_and_case_mix(clock, count, expected, outcome, prediction
             "started_at": clock.now.isoformat(),
             "outcome": outcome,
             "expected_human": prediction,
+            "prediction_at": clock.now.isoformat(),
             "feature_schema_version": 2,
             "campaign_id": "campaign",
             "segment": "same",
@@ -221,6 +222,7 @@ def test_health_support_and_case_mix(clock, count, expected, outcome, prediction
 def observed_attempt(clock, **changes):
     return {
         "started_at": clock.now.isoformat(),
+        "prediction_at": clock.now.isoformat(),
         "outcome": "no_answer",
         "expected_human": 0.8,
         "feature_schema_version": 2,
@@ -230,6 +232,13 @@ def observed_attempt(clock, **changes):
         "attempt_count": 0,
         **changes,
     }
+
+
+def test_health_without_prediction_time_cannot_claim_pre_call_comparison(clock):
+    rows = [observed_attempt(clock, prediction_at=None) for _ in range(40)]
+    health = number_health(rows, pooled_attempts=rows, now=clock.now)
+    assert health["comparable_samples"] == 0
+    assert health["status"] == "unknown"
 
 
 def test_health_zero_prediction_unknown_labels_and_wrong_leg_do_not_invent_support(clock):

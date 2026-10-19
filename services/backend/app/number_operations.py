@@ -24,7 +24,7 @@ class ExternalReputation(BaseModel):
 
     @model_validator(mode="after")
     def ordered(self):
-        if self.expires_at <= self.observed_at or (self.expires_at - self.observed_at).days > 90:
+        if not timedelta(0) < self.expires_at - self.observed_at <= timedelta(days=90):
             raise ValueError("Imported evidence needs a positive expiry within 90 days")
         return self
 
@@ -91,7 +91,12 @@ class NumberOperations:
                 "workload": {
                     "current_limit": number.data["daily_limit"],
                     "maximum_reviewed_limit": ceiling,
-                    "recommended_limit": min(number.data["daily_limit"], ceiling),
+                    "recommended_limit": min(
+                        ceiling,
+                        max(number.data["daily_limit"], view["health"]["delivery_samples"])
+                        if view["health"]["status"] == "observed"
+                        else number.data["daily_limit"],
+                    ),
                     "reason": view["health"]["recommended_action"],
                 },
                 "policy": config["health_policy"],
@@ -573,8 +578,13 @@ class NumberOperations:
 
     async def configure_owned_number(self, p, number_id, body=None):
         body = body or {}
-        if set(body) - {"expected_version", "retry_after_verification"} or (
-            "retry_after_verification" in body and type(body["retry_after_verification"]) is not bool
+        if (
+            set(body) - {"expected_version", "retry_after_verification"}
+            or ("retry_after_verification" in body and type(body["retry_after_verification"]) is not bool)
+            or (
+                "expected_version" in body
+                and (type(body["expected_version"]) is not int or body["expected_version"] < 1)
+            )
         ):
             fail(422, "Invalid configuration operation")
         retry = body.get("retry_after_verification", False)

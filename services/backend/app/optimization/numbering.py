@@ -50,7 +50,9 @@ def _observed_health(observed, now, policy):
             or not math.isfinite(prediction)
             or not 0 <= prediction <= 1
             or r.get("feature_schema_version") != 2
-            or (prediction_at and (not started_at or prediction_at > started_at))
+            or not prediction_at
+            or not started_at
+            or prediction_at > started_at
         ):
             continue
         expected += prediction

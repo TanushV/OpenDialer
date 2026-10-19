@@ -741,3 +741,83 @@ def test_live_callback_requires_two_signed_processed_events(workspace, app, carr
         json=number_edit(workspace, identifier, callback_task_id=proof["id"]),
     )
     assert denied.status_code == 409
+
+
+def test_external_evidence_max_age_is_exact_not_rounded(workspace, app, clock):
+    _, _, identifier = configure_fixture(workspace, app)
+    evidence = {
+        "source": "authorized report",
+        "ownership_reference": "owned",
+        "observed_at": clock.now.isoformat(),
+        "expires_at": (clock.now + timedelta(days=90, seconds=1)).isoformat(),
+        "spam_label": None,
+    }
+    c, h = workspace["client"], workspace["headers"]
+    response = c.patch(
+        f"/v1/admin/numbers/{identifier}",
+        headers=h,
+        json=number_edit(workspace, identifier, external_reputation=evidence),
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "body", [{"expected_version": True}, {"expected_version": "1"}, {"retry_after_verification": "false"}]
+)
+def test_configuration_rejects_coerced_edit_fields(workspace, app, carrier, body):
+    _, _, identifier = configure_fixture(workspace, app)
+    response = workspace["client"].post(
+        f"/v1/admin/numbers/{identifier}/configure", headers=workspace["headers"], json=body
+    )
+    assert response.status_code == 422
+    assert not carrier.actions and not carrier.purchases
+
+
+def test_reviewed_supported_health_can_progress_within_staffed_ceiling(workspace, app, clock):
+    from app.db import put
+    from app.optimization.numbering import number_health
+
+    service, p, identifier = configure_fixture(workspace, app)
+    observations = [
+        {
+            "outcome": "no_answer",
+            "expected_human": 0.05,
+            "started_at": clock.now.isoformat(),
+            "prediction_at": clock.now.isoformat(),
+            "feature_schema_version": 2,
+        }
+        for _ in range(40)
+    ]
+    health = number_health(observations, pooled_attempts=observations, now=clock.now)
+    with service.db.transaction() as s:
+        update(
+            service.required(s, "number_inventory", identifier, p),
+            lifecycle="limited_real_use",
+            daily_limit=5,
+        )
+        put(
+            s,
+            "number_health",
+            p["tenant_id"],
+            p["seller_id"],
+            {**health, "number_id": identifier},
+            key=identifier,
+            now=clock.now,
+        )
+    c, h = workspace["client"], workspace["headers"]
+    view = c.get(f"/v1/admin/numbers/{identifier}/review", headers=h).json()
+    assert view["workload"]["recommended_limit"] == view["workload"]["maximum_reviewed_limit"]
+    response = c.post(
+        f"/v1/admin/numbers/{identifier}/review",
+        headers=h,
+        json=number_edit(
+            workspace,
+            identifier,
+            decision="increase",
+            daily_limit=10,
+            review_reference="Observed delivery and current callback reviewed",
+        ),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["lifecycle"] == "healthy"
+    assert response.json()["workload_review"]["health_samples"] == 40
