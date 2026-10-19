@@ -9,6 +9,123 @@ from test_optimization_workflows import finish
 from test_remediation_privacy import principal
 
 
+def test_observed_call_cost_uses_only_complete_attributed_receipts(workspace, app, clock):
+    from app.optimization import projections
+    from test_projection_replay import project_pending
+
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    finish(workspace, call)
+
+    def measured():
+        project_pending(service, p)
+        return projections.read_metrics(service, p)
+
+    pending = measured()
+    assert pending.get("observed_cost_usd") is None
+    assert pending.get("observed_cost_calls") == 0
+    assert pending.get("unknown_cost_calls") == 1
+    with service.db.transaction() as s:
+        hold = service._by_key(s, p, "usage_ledger", "call:" + call["id"])
+        hold_id = hold.id
+        update(hold, status="settled", cost_usd=0, reserved_usd=0, billing_verified=True)
+        voice = put(
+            s,
+            "usage_ledger",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "call_id": call["id"],
+                "kind": "voice",
+                "status": "settled",
+                "cost_usd": 0.20,
+                "credited_usd": 0.05,
+                "billing_verified": True,
+            },
+            now=clock.now,
+        )
+        voice_id = voice.id
+        # A workspace charge without this call's identity must not inflate its observed cost.
+        put(
+            s,
+            "usage_ledger",
+            p["tenant_id"],
+            p["seller_id"],
+            {"kind": "research", "status": "settled", "cost_usd": 9, "billing_verified": True},
+            now=clock.now,
+        )
+    complete = measured()
+    assert complete["observed_cost_usd"] == pytest.approx(0.15)
+    assert complete["observed_cost_calls"] == 1 and complete["unknown_cost_calls"] == 0
+    with service.db.transaction() as s:
+        uncertainty = put(
+            s,
+            "usage_ledger",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "object_id": call["id"],
+                "kind": "live_coach",
+                "status": "uncertain",
+                "cost_usd": None,
+                "reserved_usd": 0.03,
+            },
+            now=clock.now,
+        )
+        uncertain_id = uncertainty.id
+    assert measured()["observed_cost_usd"] is None
+    with service.db.transaction() as s:
+        update(get(s, "usage_ledger", uncertain_id), status="released", reserved_usd=0)
+        update(get(s, "usage_ledger", voice_id), credited_usd=0.10)
+    assert measured()["observed_cost_usd"] == pytest.approx(0.10)
+    # Losing the checked complete-set receipt makes cost unknown, never verified zero.
+    with service.db.transaction() as s:
+        s.delete(get(s, "usage_ledger", hold_id))
+    assert measured()["unknown_cost_calls"] == 1
+    with service.db.transaction() as s:
+        # Remove training eligibility; usage remains real workspace spend.
+        update(get(s, "call_attempts", call["id"]), feature_snapshot_id=None)
+    result = measured()
+    assert result["observed_cost_calls"] == result["unknown_cost_calls"] == 0
+    assert result["gross_cost_usd"] >= 9.2
+
+
+def test_call_cost_contributions_rollback_and_replay(workspace, app, clock, monkeypatch):
+    from app.optimization import projections
+    from test_projection_replay import project_pending, vectors
+
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    finish(workspace, call)
+    with service.db.transaction() as s:
+        row = service._by_key(s, p, "usage_ledger", "call:" + call["id"])
+        usage_id = row.id
+        update(row, status="settled", cost_usd=0.25, reserved_usd=0, billing_verified=True)
+    project_pending(service, p)
+    assert projections.read_metrics(service, p).get("observed_cost_usd") == 0.25
+    before = vectors(service, p, "metric_buckets")
+    with service.db.transaction() as s:
+        update(get(s, "usage_ledger", usage_id), credited_usd=0.05)
+    original = projections.update
+
+    def crash(row, **values):
+        if row.__tablename__ == "metric_contributions":
+            raise RuntimeError("Synthetic interruption after bucket replacement")
+        return original(row, **values)
+
+    monkeypatch.setattr(projections, "update", crash)
+    payload = {"source_kind": "usage", "source_id": usage_id}
+    with pytest.raises(RuntimeError, match="Synthetic interruption"):
+        projections.refresh_unit(service, p, payload)
+    assert vectors(service, p, "metric_buckets") == before
+    monkeypatch.setattr(projections, "update", original)
+    project_pending(service, p)
+    assert projections.read_metrics(service, p)["observed_cost_usd"] == 0.20
+    again = vectors(service, p, "metric_buckets")
+    projections.refresh_unit(service, p, payload)
+    assert vectors(service, p, "metric_buckets") == again
+
+
 def test_comparison_report_after_goal_change_preserves_original_trial_definition(workspace, app, clock):
     """The UI's save-goal / refresh / start-comparison sequence stays publishable."""
     from uuid import uuid4
