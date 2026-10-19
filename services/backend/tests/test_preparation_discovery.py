@@ -275,3 +275,132 @@ async def test_company_fact_requires_whole_field_meaning_review(workspace, app, 
             if r.data.get("request_id") in {"fact-extraction", "fact-review"}
         ]
         assert len(charges) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("useful", [True, False])
+async def test_optional_metered_search_fills_only_missing_official_context(
+    workspace, app, monkeypatch, useful
+):
+    service, p = app.state.service, principal(workspace)
+    monkeypatch.setattr(service.settings, "simulation", False)
+    domain = "searchable.example.test"
+    visits, searches = [], []
+    fact = "The company provides commercial cooling maintenance."
+
+    async def fetch(fetcher, url):
+        assert url.startswith(f"https://{domain}"), "Search results never authorize foreign sources"
+        visits.append(url)
+        return {
+            "url": url,
+            "title": "Company",
+            "text": fact if url.endswith("/services") else "Home",
+            "links": [],
+        }
+
+    class Provider:
+        search_enabled = True
+
+        async def search(self, company, company_domain, query):
+            assert company_domain == domain
+            searches.append(query)
+            return InferenceResult(
+                {
+                    "urls": [
+                        "https://foreign.example.test/services",
+                        f"https://{domain}/services" if useful else f"https://{domain}",
+                    ]
+                },
+                {"cost": 0.002, "web_search_calls": 1},
+                f"lookup-{len(searches)}",
+            )
+
+        async def complete(self, prompt, context, schema):
+            if "fingerprint" in context:
+                return InferenceResult(review_response(context), {"cost": 0.001}, "searched-fact-review")
+            sources = [v for v in context["sources"] if v["url"].endswith("/services")]
+            return InferenceResult(
+                {
+                    "facts": [{"statement": fact, "quote": fact, "source_id": v["id"]} for v in sources],
+                    "unknowns": [],
+                },
+                {"cost": 0.001},
+                f"extract-{len(visits)}",
+            )
+
+    monkeypatch.setattr(SafeFetcher, "fetch", fetch)
+    monkeypatch.setattr(service, "inference", lambda *args: Provider())
+    await service.research_company(p, domain, {"company": "Company", "domain": domain})
+    assert len(searches) == (1 if useful else 2)
+    assert len(visits) <= 3 and len(visits) == len(set(visits))
+    with service.db.transaction(False) as s:
+        facts = [r for r in service.scoped(s, "research_facts", p) if r.data.get("domain") == domain]
+        assert bool(facts) == useful
+        lookups = [
+            r.data
+            for r in service.scoped(s, "usage_ledger", p)
+            if r.data.get("work_kind") == "research_search"
+        ]
+        assert len(lookups) == len(searches) and all(v["status"] == "settled" for v in lookups)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("home_useful", [True, False])
+async def test_failed_pages_preserve_good_sources_and_stay_within_total_fetch_cap(
+    workspace, app, monkeypatch, home_useful
+):
+    import httpx
+
+    service, p = app.state.service, principal(workspace)
+    monkeypatch.setattr(service.settings, "simulation", False)
+    domain = "partial.example.test"
+    visits = []
+    fact = "The company repairs commercial roofs."
+
+    async def fetch(fetcher, url):
+        visits.append(url)
+        if url != f"https://{domain}":
+            raise httpx.HTTPStatusError(
+                "Synthetic unavailable page", request=httpx.Request("GET", url), response=httpx.Response(404)
+            )
+        return {
+            "url": url,
+            "title": "Company",
+            "text": fact,
+            "links": [{"url": f"https://{domain}/{part}", "text": part} for part in ["services", "about"]]
+            if home_useful
+            else [],
+        }
+
+    class Provider:
+        search_enabled = True
+
+        async def search(self, *args):
+            return InferenceResult(
+                {"urls": [f"https://{domain}/page-{i}" for i in range(10)]},
+                {"cost": 0.001},
+                f"failed-page-search-{len(visits)}",
+            )
+
+        async def complete(self, instructions, context, schema):
+            if "fingerprint" in context:
+                return InferenceResult(review_response(context), {"cost": 0.001}, "partial-review")
+            return InferenceResult(
+                {
+                    "facts": [{"statement": fact, "quote": fact, "source_id": context["sources"][0]["id"]}]
+                    if home_useful
+                    else []
+                },
+                {"cost": 0.001},
+                "partial-extract",
+            )
+
+    monkeypatch.setattr(SafeFetcher, "fetch", fetch)
+    monkeypatch.setattr(service, "inference", lambda *args: Provider())
+    await service.research_company(p, domain, {"company": "Company", "domain": domain})
+    assert len(visits) <= 3, "Failed fetches still consume the company work budget"
+    with service.db.transaction(False) as s:
+        assert (
+            bool([r for r in service.scoped(s, "research_facts", p) if r.data.get("domain") == domain])
+            == home_useful
+        )

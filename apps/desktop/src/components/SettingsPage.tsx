@@ -30,6 +30,7 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
   const history = useHistory("registries", w.registries);
   const [config, setConfig] = useState<Record<string, string>>({});
+  const [configLoading, setConfigLoading] = useState(true);
   const [configured, setConfigured] = useState<Record<string, boolean>>({});
   const [preflight, setPreflight] = useState<Readiness | null>(null);
   const [section, setSection] = useState("Providers");
@@ -74,8 +75,10 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
   const [updateBusy, setUpdateBusy] = useState(false);
   const update = useRef<Update | null>(null);
   useEffect(() => {
+    let current = true;
     void run(async () => {
       const settings = await api<SettingsData>("/v1/admin/settings");
+      if (!current) return;
       setConfigured(settings.configured as Record<string, boolean>);
       setConfig(
         Object.fromEntries(
@@ -84,7 +87,11 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
           ),
         ) as Record<string, string>,
       );
+      setConfigLoading(false);
     });
+    return () => {
+      current = false;
+    };
   }, []);
   const field = (
     key: string,
@@ -95,6 +102,7 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
     <label key={key}>
       {title}
       <input
+        disabled={configLoading}
         type={secret ? "password" : "text"}
         autoComplete="off"
         spellCheck={false}
@@ -290,6 +298,33 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
                   </>
                 )}
                 {field("model", "Default evaluated model", false, "gpt-6-luna")}
+                <label>
+                  Optional research search
+                  <select
+                    aria-label="Optional research search"
+                    disabled={configLoading}
+                    value={config.research_search || "disabled"}
+                    onChange={(event) =>
+                      setConfig({
+                        ...config,
+                        research_search: event.target.value,
+                      })
+                    }
+                  >
+                    <option value="disabled">Disabled</option>
+                    <option value="openai_web_search">
+                      Metered OpenAI web search
+                    </option>
+                  </select>
+                </label>
+                <p className="fine">
+                  At most two metered searches per company, within the
+                  preparation budget, when official pages lack useful context.
+                  Requires the official API route and a search-capable evaluated
+                  model. Saving this choice makes no paid request. LiteLLM and
+                  plan routes retain generic preparation when official discovery
+                  is insufficient.
+                </p>
                 {field(
                   "script_write_model",
                   "Script-writing model",
@@ -349,6 +384,7 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
             </span>
             <button
               className="primary"
+              disabled={configLoading}
               onClick={() =>
                 void run(async () => {
                   const data = Object.fromEntries(

@@ -157,3 +157,56 @@ async def test_groq_strict_tiny_nonstreaming_json():
     assert captured[0]["stream"] is False
     assert captured[0]["response_format"]["json_schema"]["strict"] is True
     assert "tools" not in captured[0]
+
+
+@pytest.mark.asyncio
+async def test_research_search_is_explicit_official_bounded_and_identity_filtered():
+    captured = []
+
+    def reply(request):
+        captured.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "id": "search-receipt",
+                "status": "completed",
+                "usage": {"cost": 0.002},
+                "output": [
+                    {
+                        "type": "web_search_call",
+                        "status": "completed",
+                        "action": {
+                            "type": "search",
+                            "sources": [
+                                {"url": "https://example.test/services"},
+                                {"url": "https://foreign.test/services"},
+                                {"url": "https://example.test/services#duplicate"},
+                                {"url": "http://127.0.0.1/private"},
+                            ],
+                        },
+                    }
+                ],
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(reply)) as http:
+        client = InferenceClient("api", "fixture", "configured-model", http=http, search_enabled=True)
+        result = await client.search("Example", "example.test", "services")
+        assert result.data == {"urls": ["https://example.test/services"]}
+        assert result.usage["web_search_calls"] == 1 and result.request_id == "search-receipt"
+        body = captured[0]
+        assert body["model"] == "configured-model" and body["store"] is False
+        assert body["max_tool_calls"] == 1
+        assert body["tools"][0]["filters"] == {"allowed_domains": ["example.test"]}
+        assert body["include"] == ["web_search_call.action.sources"]
+        for mode, enabled, base in [
+            ("api", False, None),
+            ("litellm", True, "https://proxy.example/v1"),
+            ("chatgpt_plan", True, None),
+        ]:
+            other = InferenceClient(
+                mode, "fixture", "configured-model", http=http, base_url=base, search_enabled=enabled
+            )
+            with pytest.raises(InferenceError, match="search"):
+                await other.search("Example", "example.test", "services")
+        assert len(captured) == 1, "Unsupported/unapproved capabilities cannot submit a paid tool request"

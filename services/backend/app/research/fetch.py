@@ -40,6 +40,7 @@ class SafeFetcher:
         self.max_bytes, self.max_redirects = max_bytes, max_redirects
         self.allowed_domains = set(allowed_domains or [])
         self.http = http
+        self.decoded_bytes_total = 0
 
     async def fetch(self, url):
         if self.http is not None:
@@ -74,11 +75,14 @@ class SafeFetcher:
                 if content_type not in {"text/html", "text/plain", "application/xhtml+xml"}:
                     raise UnsafeURL("Unsupported source content type")
                 body = bytearray()
-                async for chunk in response.aiter_bytes():
-                    body.extend(chunk)
-                    if len(body) > self.max_bytes:
+                async for chunk in response.aiter_bytes(chunk_size=min(65536, self.max_bytes + 1)):
+                    self.decoded_bytes_total += len(chunk)
+                    if len(body) + len(chunk) > self.max_bytes:
                         raise UnsafeURL("Source is too large")
+                    body.extend(chunk)
                 text = body.decode("utf-8", errors="replace")
+                if len(text.encode()) > self.max_bytes:
+                    raise UnsafeURL("Decoded source is too large")
                 soup = BeautifulSoup(text, "html.parser")
                 for tag in soup(["script", "style", "noscript"]):
                     tag.decompose()

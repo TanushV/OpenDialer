@@ -213,6 +213,7 @@ class ProviderSettings(Strict):
     inference_base_url: str | None = None
     model: str | None = None
     research_extract_model: str | None = None
+    research_search: Literal["disabled", "openai_web_search"] | None = None
     script_write_model: str | None = None
     postcall_extract_model: str | None = None
     scorecard_review_model: str | None = None

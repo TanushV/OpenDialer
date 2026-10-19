@@ -137,3 +137,29 @@ test("seller can save a fixed script and an overnight preparation window", async
     "Outside preparation window",
   );
 });
+
+test("optional metered research search is an explicit saved choice", async ({
+  page,
+}) => {
+  await enter(page);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const search = page.getByLabel("Optional research search", { exact: true });
+  await expect(search).toHaveValue("disabled");
+  await search.selectOption("openai_web_search");
+  await page
+    .getByRole("button", { name: "Save provider settings", exact: true })
+    .click();
+  await expect(
+    page.getByText("Provider configuration saved securely."),
+  ).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(search).toHaveValue("openai_web_search");
+  await expect(
+    page.getByText(/At most two metered searches per company/),
+  ).toBeVisible();
+  await search.selectOption("disabled");
+  await page
+    .getByRole("button", { name: "Save provider settings", exact: true })
+    .click();
+});
