@@ -1389,7 +1389,12 @@ class OptimizationWorkflows(ComparisonWorkflows):
         }
 
     def refresh_observed_health(self, p, *, lease=None):
+        from app.service import fail
+
         with self.db.transaction(False) as s:
+            user, _, _, _ = self.report_scope(s, p)
+            if user["role"] != "admin":
+                fail(403, "Administrator access required for health refresh")
             numbers = self.inventory_evidence(s, p)
             generation = self.report_revision(s, p)
         updated = 0
@@ -1398,6 +1403,9 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 if self.report_revision(s, p, lock=True) != generation:
                     return {"status": "superseded", "updated": updated}
                 self.jobs.require_owned_in(s, lease)
+                user, _, _, _ = self.report_scope(s, p)
+                if user["role"] != "admin":
+                    fail(403, "Health owner no longer has administrator access")
                 for number in numbers[offset : offset + 100]:
                     existing = self._by_key(s, p, "number_health", number["id"])
                     value = {**number["health"], "number_id": number["id"]}
