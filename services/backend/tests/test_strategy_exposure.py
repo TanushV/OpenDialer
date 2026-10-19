@@ -718,3 +718,127 @@ def test_speech_reviewer_receives_the_reviewed_approach_meaning_not_only_an_id(w
         assert exposures[0].get("approach") == LESSON, "An opaque ID cannot support a meaning review"
         update(get(s, "snippets", body["strategy_ids"][1]), approved=False)
         assert service.strategy_exposures_in(s, p, state)[0]["approach"] is None
+
+
+@pytest.mark.parametrize("correction", ["future", "current", "provisional", "unknown_time"])
+def test_strategy_report_uses_disposition_known_at_report_time(clock, correction):
+    from datetime import timedelta
+
+    from app.optimization.experiments import comparison_report
+
+    start = clock() - timedelta(days=30)
+    known = (start + timedelta(days=1)).isoformat()
+    study = {
+        "id": "study",
+        "family": "coaching",
+        "population": ["lead"],
+        "goal": "meeting_held",
+        "window_days": 14,
+        "strategy_ids": ["control", "approach"],
+        "strategy_policy": "two_arm",
+        "candidate_probability": 0.5,
+        "ends_at": known,
+    }
+    assignment = {
+        "id": "a",
+        "comparison_id": "study",
+        "lead_id": "lead",
+        "strategy_id": "approach",
+        "propensity": 0.5,
+        "arm": "candidate",
+        "rep_id": "rep",
+        "assigned_at": start.isoformat(),
+    }
+    original = {"outcome": "meeting_held", "outcome_source": "rep", "outcome_available_at": known}
+    call = {
+        "id": "call",
+        "lead_id": "lead",
+        "started_at": start.isoformat(),
+        "ended_at": known,
+        "submitted_at": start.isoformat(),
+        **original,
+    }
+    if correction in {"future", "current"}:
+        call.update(
+            outcome="not_interested",
+            outcome_history=[original],
+            outcome_available_at=(clock() + timedelta(days=1 if correction == "future" else -1)).isoformat(),
+        )
+    elif correction == "provisional":
+        call["outcome_source"] = "llm_provisional"
+    else:
+        call["outcome_available_at"] = None
+    report = comparison_report(
+        study, [assignment], [call], [], [], now=clock(), goal="meeting_held", window_days=14
+    )
+    assert report["arms"]["candidate"]["matured_conversions"] == int(correction == "future")
+
+
+def test_adaptive_seed_includes_confirmed_call_only_goal_evidence(workspace, app, clock):
+    from datetime import timedelta
+
+    from app.db import get, put, update
+    from test_remediation_privacy import principal
+
+    service, p = app.state.service, principal(workspace)
+    start = clock() - timedelta(days=30)
+    known = (start + timedelta(days=1)).isoformat()
+    with service.db.transaction() as s:
+        lead = service.scoped(s, "leads", p)[0]
+        base = {
+            "id": "source-study",
+            "family": "coaching",
+            "population": [lead.id],
+            "goal": "meeting_held",
+            "window_days": 14,
+            "strategy_ids": ["control", "approach"],
+            "strategy_policy": "two_arm",
+            "candidate_probability": 0.5,
+            "ends_at": known,
+        }
+        adaptive = {
+            **base,
+            "id": "adaptive-study",
+            "strategy_policy": "adaptive",
+            "evidence_comparison_id": base["id"],
+        }
+        campaign = get(s, "campaigns", workspace["campaign_id"])
+        update(campaign, controlled_comparisons=[base, adaptive])
+        put(
+            s,
+            "experiment_assignments",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "comparison_id": base["id"],
+                "lead_id": lead.id,
+                "strategy_id": "approach",
+                "propensity": 0.5,
+                "arm": "candidate",
+                "rep_id": p["user_id"],
+                "assigned_at": start.isoformat(),
+            },
+            now=clock(),
+        )
+        call = put(
+            s,
+            "call_attempts",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "lead_id": lead.id,
+                "started_at": start.isoformat(),
+                "ended_at": known,
+                "submitted_at": start.isoformat(),
+                "outcome": "meeting_held",
+                "outcome_source": "rep",
+                "outcome_available_at": known,
+            },
+            now=clock(),
+        )
+        reports = service.comparison_reports(s, p, campaign, [call], [], [])
+    prior, ongoing = [r["strategy_policy_snapshot"] for r in reports]
+    assert prior["observations"]["approach"] == ongoing["observations"]["approach"] == 1
+    assert ongoing["estimates"]["approach"] == prior["estimates"]["approach"], (
+        "The same frozen goal evidence must inform the original trial and the approved adaptive seed"
+    )

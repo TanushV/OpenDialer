@@ -220,3 +220,59 @@ def test_brief_exposes_conditional_support_and_actual_prior_policy(workspace, ap
     assert brief["work_assumption_seconds"] == config["handling_seconds"]
     assert brief["stage_support"]["right_party"]["cell_known"] == 0
     assert brief["stage_support"]["conversion"]["observed_interval"] == [0, 1]
+
+
+def test_active_packet_uses_frozen_selection_prediction_and_policy(workspace, app, clock):
+    from app.db import get, update
+    from conftest import start
+    from test_remediation_privacy import principal
+
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    with service.db.transaction() as s:
+        snapshot = get(s, "feature_snapshots", call["feature_snapshot_id"])
+        prediction = {
+            **snapshot.data["predictions"],
+            "p_human": 0.87,
+            "model_version": "owned-reviewed-model",
+        }
+        policy = service.optimization_config(s, p)["estimate_policy"]
+        update(snapshot, predictions=prediction)
+        assert snapshot.data.get("estimate_policy") == policy, "Freeze the actual estimation assumptions too"
+        campaign = get(s, "campaigns", workspace["campaign_id"])
+        config = service.optimization_config(s, p)
+        update(campaign, optimization={**config, "conversion_goal": "sale_won", "handling_seconds": 600})
+    clock.now += timedelta(minutes=3)
+    brief = service.packet(p, call["lead_id"])["statistical_guidance"]
+    assert brief["human_probability"] == 0.87
+    assert brief["model_version"] == "owned-reviewed-model"
+    assert brief["estimate_policy"] == policy
+    assert brief["conversion_goal"] == "meeting_held"
+    assert brief["work_assumption_seconds"] == 120
+    assert brief["source"] == "frozen_call_decision"
+    assert brief["decision_id"] == call["feature_snapshot_id"]
+    workspace["client"].post(f"/v1/calls/{call['id']}/hangup", headers=workspace["headers"])
+    next_brief = service.packet(p, call["lead_id"])["statistical_guidance"]
+    assert next_brief["source"] == "current_pooled_estimate"
+    assert next_brief["conversion_goal"] == "sale_won"
+
+
+def test_stale_saved_estimate_does_not_claim_historical_as_of_time(workspace, app):
+    from app.db import get, update
+    from test_remediation_privacy import principal
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        lead = service.scoped(s, "leads", p)[0]
+        campaign = get(s, "campaigns", workspace["campaign_id"])
+        update(
+            campaign,
+            selection_profile={
+                "goal": "meeting_held",
+                "as_of": "2020-01-01T00:00:00Z",
+                "estimate_policy_version": "retired",
+            },
+        )
+    brief = service.packet(p, lead.id)["statistical_guidance"]
+    assert brief["prior_only"]
+    assert brief["as_of"] is None

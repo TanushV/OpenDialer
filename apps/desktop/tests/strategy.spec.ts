@@ -96,7 +96,7 @@ for (const connected of [false, true]) {
       .getByRole("button", { name: "Save optimization settings", exact: true })
       .click();
     await page
-      .getByLabel("Pilot candidate", { exact: true })
+      .getByRole("combobox", { name: "Pilot candidate", exact: true })
       .selectOption("review-fixture");
     await expect(
       page.getByText("Predictive evidence: not reviewable", { exact: true }),
