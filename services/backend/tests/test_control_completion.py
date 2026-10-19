@@ -28,6 +28,48 @@ def command_for(service, p, call_id, kind="dial"):
         )
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["control", "hangup", "reconcile"])
+async def test_effect_publication_requires_unexpired_ownership(
+    workspace, app, clock, carrier, monkeypatch, operation
+):
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    if operation == "hangup":
+        original = carrier.hangup
+
+        async def delayed(*args, **kwargs):
+            result = await original(*args, **kwargs)
+            clock.now += timedelta(seconds=31)
+            return result
+
+        monkeypatch.setattr(carrier, "hangup", delayed)
+        await service.hangup(p, call["id"])
+        row = command_for(service, p, call["id"], "hangup")
+    else:
+        with service.db.transaction() as s:
+            identity = service.control_intent(s, p, call["id"], "answer", {}).id
+        claimed = service._claim_control(p, identity)
+        if operation == "reconcile":
+            clock.now += timedelta(seconds=31)
+            original = carrier.reconcile
+
+            async def delayed(*args, **kwargs):
+                result = await original(*args, **kwargs)
+                clock.now += timedelta(seconds=31)
+                return result
+
+            monkeypatch.setattr(carrier, "reconcile", delayed)
+            await service.reconcile_command(p, identity)
+        else:
+            clock.now += timedelta(seconds=31)
+            service._control_completed(p, claimed)
+        with service.db.transaction(False) as s:
+            row = doc(get(s, "command_outbox", identity))
+    assert row["status"] == ("reconciling" if operation == "reconcile" else "sending")
+    assert row["lease_owner"], "Expired completion cannot clear the durable recovery obligation"
+
+
 @pytest.mark.parametrize(
     "event,state",
     [
