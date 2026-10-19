@@ -157,7 +157,7 @@ def test_model_trial_exposure_report_preserves_uncalled_population(workspace, ap
             "max_leads": 100,
         }
         update(campaign, optimization_trial=study)
-    report = service.optimization_report(p)
+    report = completed_report(workspace).json()
     assert report["trial"]["model_exposure"]["candidate_tested_model_attempts"] == 0
     assert not report["trial"]["sufficient_evidence"]
     assert (
@@ -332,6 +332,8 @@ def test_comparison_keeps_its_declared_goal_when_the_campaign_goal_later_changes
             "started_at": assigned_at,
             "ended_at": ended_at,
             "outcome": "meeting_held",
+            "outcome_available_at": ended_at,
+            "outcome_source": "rep_reported",
             "submitted_at": assigned_at,
             "submission_allowed": True,
         }

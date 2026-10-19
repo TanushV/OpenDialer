@@ -65,6 +65,19 @@ def test_refresh_http_request_only_queues_work(workspace, app, monkeypatch):
     assert response.json()["job_id"]
 
 
+def test_changed_comparison_definition_invalidates_saved_report(workspace, app):
+    from conftest import completed_report
+
+    service, p = app.state.service, principal(workspace)
+    before = completed_report(workspace).json()
+    with service.db.transaction() as s:
+        campaign = service.required(s, "campaigns", workspace["campaign_id"], p)
+        update(campaign, controlled_comparisons=[{"id": "new-definition", "status": "stopped"}])
+    after = read(workspace)
+    assert after["projection"]["status"] == "stale"
+    assert after["projection"]["current_revision"] > before["projection"]["current_revision"]
+
+
 @pytest.mark.asyncio
 async def test_source_change_marks_previous_report_stale_until_worker_publishes(workspace, app, clock):
     service, p = app.state.service, principal(workspace)
