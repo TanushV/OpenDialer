@@ -119,3 +119,97 @@ def test_incremental_dataset_corrects_attribution_and_pending_window(workspace, 
     report = completed_report(workspace, headers=headers).json()["dataset"]
     assert report["matured_rows"] == 1 and report["pending_rows"] == 0
     assert report["positive_conversions"] == 0
+
+
+def test_call_projection_keeps_training_counts_without_retaining_training_rows(workspace, app):
+    from test_projection_replay import project_pending, vectors
+
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    finish(workspace, call)
+    project_pending(service, p)
+    contribution = next(
+        value
+        for _, value in vectors(service, p, "metric_contributions").values()
+        if value["source_kind"] == "call" and value["source_id"] == call["id"]
+    )
+    values = contribution["values"]
+    assert values.get("dataset_rows") == 1
+    assert values.get("dataset_pending_rows") == 1
+    assert values.get("dataset_positive_conversions") == 0
+    assert values.get("dataset_missing_snapshot_calls") == 0
+    assert all(type(v) in (int, float) for v in values.values())
+    assert not {"training_rows", "transcript", "observations", "features"} & contribution.keys()
+
+
+def test_help_totals_correct_timing_and_quality_without_history(workspace, app, clock):
+    from app.optimization import projections
+    from test_projection_replay import project_pending
+
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    with service.db.transaction() as session:
+        event = put(
+            session,
+            "coach_events",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "call_id": call["id"],
+                "rep_id": p["user_id"],
+                "action": "SHOW_CARD",
+                "latency": {"inference_ms": 700, "state_ms": 20, "retrieval_ms": 5},
+            },
+            now=clock.now,
+        )
+        feedback = put(
+            session,
+            "coaching_feedback",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "call_id": call["id"],
+                "coach_event_id": event.id,
+                "rep_id": p["user_id"],
+                "render_ms": 12,
+                "event_to_render_ms": 80,
+            },
+            key=event.id + ":" + p["user_id"],
+            now=clock.now,
+        )
+        feedback_id = feedback.id
+    project_pending(service, p)
+    actual = projections.read_coaching_metrics(service, p)
+    assert actual["reviewed_cards"] == 0 and actual["useful_fraction"] is None
+    assert actual["p95_render_ms"] == 12 and actual["p95_event_to_render_ms"] == 80
+    assert 700 <= actual["p95_inference_ms"] <= 770
+    assert actual["latency_support"]["inference_ms"] == 1
+    assert actual["latency_quantization"]["upper_bounds"] is True
+    with service.db.transaction() as session:
+        update(get(session, "coaching_feedback", feedback_id), useful=False, render_ms=25)
+    project_pending(service, p)
+    actual = projections.read_coaching_metrics(service, p)
+    assert actual["p95_render_ms"] == 25 and actual["latency_support"]["render_ms"] == 1
+    assert actual["reviewed_cards"] == 1 and actual["useful_fraction"] == 0
+    with service.db.transaction() as session:
+        session.delete(get(session, "coaching_feedback", feedback_id))
+    project_pending(service, p)
+    actual = projections.read_coaching_metrics(service, p)
+    assert actual["p95_render_ms"] is None and actual["reviewed_cards"] == 0
+
+
+def test_help_quantiles_use_bounded_counts_include_unknown_and_overflow(clock):
+    from app.optimization import projections
+
+    total = {}
+    for i in range(10000):
+        event = {"action": "NO_ACTION", "latency": {"inference_ms": i + 0.5}}
+        for key, value in projections.help_values(event, None, now=clock.now).items():
+            total[key] = total.get(key, 0) + value
+    report = projections.coaching_from_counts(total)
+    assert len(total) < 250, "Latency distribution must not grow one key per unique duration"
+    assert report["latency_support"]["inference_ms"] == 10000
+    assert 9500 <= report["p95_inference_ms"] <= 10450
+    assert report["p95_stt_ms"] is None and report["latency_support"]["stt_ms"] == 0
+    overflow = projections.help_values({"latency": {"inference_ms": 1e9}}, None, now=clock.now)
+    assert projections.coaching_from_counts(overflow)["p95_inference_ms"] is None
