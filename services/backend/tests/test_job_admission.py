@@ -9,6 +9,83 @@ from sqlalchemy import select
 from test_remediation_privacy import principal
 
 
+@pytest.mark.parametrize("action", ["complete", "heartbeat", "coalesce_refresh"])
+def test_job_owner_expires_at_the_deadline(workspace, app, clock, action):
+    from datetime import timedelta
+
+    service, p = app.state.service, principal(workspace)
+    job = service.jobs.enqueue(
+        "ml",
+        {"kind": "report_refresh", "seller_id": p["seller_id"]},
+        "expiry-boundary:" + action,
+        tenant_id=p["tenant_id"],
+    )
+    service.jobs.claim("ml", "boundary-owner", lease_seconds=30, key_prefix=job["key"])
+    clock.now += timedelta(seconds=30)
+    with pytest.raises(ValueError, match="[Ll]ease"):
+        getattr(service.jobs, action)(job["id"], "boundary-owner")
+
+
+def test_completion_cannot_lose_a_concurrent_new_generation(workspace, app, clock, monkeypatch):
+    """Force the finish/enqueue race on real PostgreSQL, not a mock lock assertion."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from sqlalchemy import text
+    from sqlalchemy.exc import OperationalError
+    from sqlalchemy.orm import Session
+
+    service, p = app.state.service, principal(workspace)
+    if service.db.sqlite:
+        pytest.skip("SQLite has one serialized writer; row-lock interleaving requires PostgreSQL")
+    payload = {"kind": "packet_refresh", "seller_id": p["seller_id"], "lead_ids": [], "desired_generation": 1}
+    job = service.jobs.enqueue("scripts", payload, "finish-generation-race", tenant_id=p["tenant_id"])
+    service.jobs.claim("scripts", "finishing-owner", key_prefix=job["key"])
+    loaded, release = threading.Event(), threading.Event()
+    original = Session.get
+
+    def held_get(session, entity, identity, **kwargs):
+        result = original(session, entity, identity, **kwargs)
+        if entity is Job and identity == job["id"] and threading.current_thread().name.startswith("finisher"):
+            loaded.set()
+            assert release.wait(5), "Test failed to release completing owner"
+        return result
+
+    monkeypatch.setattr(Session, "get", held_get)
+
+    def next_generation():
+        with service.db.transaction() as s:
+            s.execute(text("SET LOCAL lock_timeout = '200ms'"))
+            service.jobs.coalesce_live_in(
+                s,
+                "scripts",
+                payload,
+                job["key"],
+                tenant_id=p["tenant_id"],
+                priority=1,
+                available_at=clock.now,
+            )
+
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="finisher") as pool:
+        future = pool.submit(service.jobs.complete, job["id"], "finishing-owner")
+        blocked = False
+        try:
+            assert loaded.wait(5)
+            try:
+                next_generation()
+            except OperationalError as error:
+                assert "lock timeout" in str(error)
+                blocked = True
+        finally:
+            release.set()
+        future.result(timeout=5)
+    if blocked:
+        next_generation()
+    current = service.jobs.get(job["id"])
+    assert current["payload"]["desired_generation"] == 2
+    assert current["status"] == "queued", "Finishing an older snapshot lost the new packet generation"
+    assert current["lease_owner"] is None
+
+
 @pytest.mark.asyncio
 async def test_claim_only_running_capacity(workspace, app, monkeypatch):
     service, p = app.state.service, principal(workspace)
