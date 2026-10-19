@@ -6,7 +6,7 @@
   "status": "implementation-authorized; E00-E06 scoped software steps accepted; E07 in progress",
   "requirements_source": "docs/REMEDIATION_PLAN.md",
   "implementation_source": "docs/EXECUTION_SPEC.md",
-  "next_step": "E07",
+  "next_step": "E08",
   "receipt_rule": "No inherited checkbox or planned node is a current passing receipt. Update by actual source-bound evidence.",
   "steps": [
     {
@@ -429,7 +429,7 @@
     {
       "id": "E07",
       "title": "Existing-number onboarding and useful health",
-      "status": "in-progress",
+      "status": "accepted-software",
       "depends_on": [
         "E06"
       ],
@@ -444,7 +444,8 @@
         "services/backend/tests/test_scheduling_and_numbers.py"
       ],
       "receipts": [
-        "docs/evidence/completion/E07-contracts-red.json"
+        "docs/evidence/completion/E07-contracts-red.json",
+        "docs/evidence/completion/E07.json"
       ],
       "planned_case_ids": [
         "C026",
@@ -464,32 +465,32 @@
       "implementation_todos": [
         {
           "id": "E07.contracts",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Retain E00 health reds; add callback-proof, configuration, reassignment and imported-health regressions"
         },
         {
           "id": "E07.health",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "One pure versioned assessment with comparable support and explicit unknowns"
         },
         {
           "id": "E07.onboarding",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Owned inventory/configuration and current signed callback proof"
         },
         {
           "id": "E07.identity",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Explicit source-fenced reassignment retaining inbound identity"
         },
         {
           "id": "E07.ui",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Combined ready/health/capacity status and actionable reviewed workload"
         },
         {
           "id": "E07.acceptance",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Dual database, affected browser, API contract and deletion receipts"
         }
       ]
@@ -497,7 +498,7 @@
     {
       "id": "E08",
       "title": "Sparse learning and the observation to guidance loop",
-      "status": "open",
+      "status": "in-progress",
       "depends_on": [
         "E07"
       ],
@@ -530,6 +531,38 @@
         "A47",
         "A50",
         "A56"
+      ],
+      "implementation_todos": [
+        {
+          "id": "E08.labels",
+          "status": "in-progress",
+          "work": "Canonical nullable labels, one configurable leave-cell-out sparse baseline, work and cost support"
+        },
+        {
+          "id": "E08.features",
+          "status": "open",
+          "work": "Decision-time prior reviewed concepts and missingness; bounded training-only vocabularies"
+        },
+        {
+          "id": "E08.evaluation",
+          "status": "open",
+          "work": "Three as-of entity-grouped folds, stage fallback, ablation and paired bootstrap; v1 rollback"
+        },
+        {
+          "id": "E08.strategy",
+          "status": "open",
+          "work": "Finite reviewed approaches, real display/use exposures and exact trial/adaptive assignment"
+        },
+        {
+          "id": "E08.integration",
+          "status": "open",
+          "work": "Shared scheduling/brief/report estimates, drift, manual model controls and scoped UI"
+        },
+        {
+          "id": "E08.acceptance",
+          "status": "open",
+          "work": "Dual-database and browser evidence, superseded paths removed and mapping updated"
+        }
       ]
     },
     {
@@ -1731,11 +1764,13 @@
       "id": "M4.01",
       "requirement": "Reconcile all owned inventory, existing configuration, pending/partial orders and actual usable capacity.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "accepted-software",
       "primary_step": "E07",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E07.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1819,14 +1854,15 @@
       "id": "M4.04",
       "requirement": "Support no-history cold start, sparse geography, changing lists, progressive ramp and persistent-shortfall expansion.",
       "baseline_checked": false,
-      "execution_status": "in-progress",
+      "execution_status": "accepted-software",
       "primary_step": "E06",
       "supporting_steps": [
         "E07"
       ],
       "acceptance_gate": "software",
       "receipts": [
-        "docs/evidence/completion/E06.json"
+        "docs/evidence/completion/E06.json",
+        "docs/evidence/completion/E07.json"
       ],
       "verification_steps": [
         "E13"
@@ -1836,13 +1872,15 @@
       "id": "M4.05",
       "requirement": "Implement location-aware initial assignment, load distribution, stable retries and explicit health reassignment.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "accepted-software",
       "primary_step": "E07",
       "supporting_steps": [
         "E06"
       ],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E07.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1851,13 +1889,15 @@
       "id": "M4.06",
       "requirement": "Finish approved purchase \u2192 configuration \u2192 callback verification \u2192 limited-use onboarding/recovery.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "in-progress",
       "primary_step": "E07",
       "supporting_steps": [
         "E10"
       ],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E07.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1866,14 +1906,15 @@
       "id": "M4.07",
       "requirement": "Disable subscription activation and expose observed-health / external-label capability states honestly.",
       "baseline_checked": false,
-      "execution_status": "in-progress",
+      "execution_status": "accepted-software",
       "primary_step": "E05",
       "supporting_steps": [
         "E07"
       ],
       "acceptance_gate": "software",
       "receipts": [
-        "docs/evidence/completion/E05.json"
+        "docs/evidence/completion/E05.json",
+        "docs/evidence/completion/E07.json"
       ],
       "verification_steps": [
         "E13"
@@ -1883,11 +1924,13 @@
       "id": "M4.08",
       "requirement": "Add observed and imported PAYG health evidence with provenance/null/freshness and budget-aware refresh.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "accepted-software",
       "primary_step": "E07",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E07.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1896,11 +1939,13 @@
       "id": "M4.09",
       "requirement": "Present investigation/remediation guidance with evidence and no paid enrollment; preserve any prior uncertain effects for reconciliation.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "accepted-software",
       "primary_step": "E07",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E07.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1909,11 +1954,13 @@
       "id": "M4.10",
       "requirement": "Combine external and first-party evidence into explainable workload/hold recommendations; no automatic enforcement evasion.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "accepted-software",
       "primary_step": "E07",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E07.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1930,7 +1977,8 @@
       ],
       "acceptance_gate": "software",
       "receipts": [
-        "docs/evidence/completion/E06.json"
+        "docs/evidence/completion/E06.json",
+        "docs/evidence/completion/E07.json"
       ],
       "verification_steps": [
         "E13"
@@ -2354,14 +2402,15 @@
       "id": "M6.09",
       "requirement": "Enforce no subscription/new rental commitments, disclose existing obligations, and document PAYG prices/minimums/limits.",
       "baseline_checked": false,
-      "execution_status": "in-progress",
+      "execution_status": "accepted-software",
       "primary_step": "E05",
       "supporting_steps": [
         "E07"
       ],
       "acceptance_gate": "software",
       "receipts": [
-        "docs/evidence/completion/E05.json"
+        "docs/evidence/completion/E05.json",
+        "docs/evidence/completion/E07.json"
       ],
       "verification_steps": [
         "E13"
@@ -5434,24 +5483,90 @@
       "step": "E07",
       "planned_node": "services/backend/tests/test_number_reconciliation.py::test_inventory_and_route_proof",
       "expected": "Incomplete pagination never deletes ownership; changed configuration invalidates callback evidence; partial order stays pending.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E07.json"
+      ],
       "actual_nodes": [
-        "services/backend/tests/test_number_reconciliation.py::test_inventory_pages_are_complete_or_explicitly_rejected",
-        "services/backend/tests/test_number_reconciliation.py::test_lost_configuration_response_reconciles_before_another_patch",
-        "services/backend/tests/test_number_reconciliation.py::test_inventory_routing_change_invalidates_callback_evidence_and_keeps_identity",
         "services/backend/tests/test_number_reconciliation.py::test_absent_number_is_flagged_without_releasing_the_callback_identity",
-        "services/backend/tests/test_number_reconciliation.py::test_edit_number_rejects_invalid_workload_limits",
-        "services/backend/tests/test_number_reconciliation.py::test_production_identity_promotion_requires_confirmed_carrier_route",
-        "services/backend/tests/test_number_reconciliation.py::test_inventory_does_not_treat_incomplete_pagination_as_complete",
+        "services/backend/tests/test_number_reconciliation.py::test_actual_decision_keeps_health_comparison_inputs",
+        "services/backend/tests/test_number_reconciliation.py::test_callback_operator_note_cannot_promote_identity",
+        "services/backend/tests/test_number_reconciliation.py::test_callback_proof_is_current_scoped_identified_and_simulated",
+        "services/backend/tests/test_number_reconciliation.py::test_configuration_rejects_coerced_edit_fields[body0]",
+        "services/backend/tests/test_number_reconciliation.py::test_configuration_rejects_coerced_edit_fields[body1]",
+        "services/backend/tests/test_number_reconciliation.py::test_configuration_rejects_coerced_edit_fields[body2]",
+        "services/backend/tests/test_number_reconciliation.py::test_configure_disables_recording_before_connection_and_reads_exact_result",
+        "services/backend/tests/test_number_reconciliation.py::test_edit_number_rejects_invalid_workload_limits[change0]",
+        "services/backend/tests/test_number_reconciliation.py::test_edit_number_rejects_invalid_workload_limits[change1]",
+        "services/backend/tests/test_number_reconciliation.py::test_edit_number_rejects_invalid_workload_limits[change2]",
+        "services/backend/tests/test_number_reconciliation.py::test_edit_number_rejects_invalid_workload_limits[change3]",
+        "services/backend/tests/test_number_reconciliation.py::test_existing_number_recording_unknown_cannot_keep_ready",
+        "services/backend/tests/test_number_reconciliation.py::test_expired_callback_proof_blocks_final_authorization",
+        "services/backend/tests/test_number_reconciliation.py::test_external_evidence_max_age_is_exact_not_rounded",
+        "services/backend/tests/test_number_reconciliation.py::test_health_policy_is_validated_and_exposed_from_one_owner",
+        "services/backend/tests/test_number_reconciliation.py::test_imported_health_preserves_unknown_provenance_and_fences_edits",
+        "services/backend/tests/test_number_reconciliation.py::test_inventory_does_not_treat_incomplete_pagination_as_complete[None]",
+        "services/backend/tests/test_number_reconciliation.py::test_inventory_does_not_treat_incomplete_pagination_as_complete[meta1]",
+        "services/backend/tests/test_number_reconciliation.py::test_inventory_does_not_treat_incomplete_pagination_as_complete[meta2]",
+        "services/backend/tests/test_number_reconciliation.py::test_inventory_does_not_treat_incomplete_pagination_as_complete[meta3]",
+        "services/backend/tests/test_number_reconciliation.py::test_inventory_pages_are_complete_or_explicitly_rejected",
+        "services/backend/tests/test_number_reconciliation.py::test_inventory_routing_change_invalidates_callback_evidence_and_keeps_identity",
+        "services/backend/tests/test_number_reconciliation.py::test_legacy_saved_health_remains_readable_but_not_a_current_certificate",
+        "services/backend/tests/test_number_reconciliation.py::test_live_callback_requires_two_signed_processed_events",
+        "services/backend/tests/test_number_reconciliation.py::test_lost_configuration_response_reconciles_before_another_patch",
+        "services/backend/tests/test_number_reconciliation.py::test_new_external_flag_is_current_on_read_without_paid_refresh",
         "services/backend/tests/test_number_reconciliation.py::test_number_configuration_has_one_owner_and_fences_inventory_changes",
+        "services/backend/tests/test_number_reconciliation.py::test_other_number_cannot_reuse_callback_and_get_does_not_call_provider",
+        "services/backend/tests/test_number_reconciliation.py::test_partial_configuration_requires_verified_explicit_retry",
+        "services/backend/tests/test_number_reconciliation.py::test_production_identity_promotion_requires_confirmed_carrier_route",
+        "services/backend/tests/test_number_reconciliation.py::test_reassignment_records_original_identity_and_requires_current_binding",
+        "services/backend/tests/test_number_reconciliation.py::test_review_supports_sparse_initial_use_without_five_call_milestone",
+        "services/backend/tests/test_number_reconciliation.py::test_reviewed_supported_health_can_progress_within_staffed_ceiling",
+        "services/backend/tests/test_number_reconciliation.py::test_route_change_during_callback_cannot_certify_new_route",
+        "services/backend/tests/test_number_reconciliation.py::test_selection_cannot_overwrite_a_newly_approved_binding",
+        "services/backend/tests/test_number_reconciliation.py::test_simulated_owned_configuration_preserves_phone_and_cannot_buy",
         "services/backend/tests/test_number_reconciliation.py::test_unconfirmed_route_is_never_promoted_or_resent",
-        "services/backend/tests/test_number_reconciliation.py::test_simulated_owned_configuration_preserves_phone_and_cannot_buy"
+        "services/backend/tests/test_operation_recovery.py::test_call_recovery_refuses_noncall_effects[cancel_unsent-future_unknown]",
+        "services/backend/tests/test_operation_recovery.py::test_call_recovery_refuses_noncall_effects[cancel_unsent-purchase]",
+        "services/backend/tests/test_operation_recovery.py::test_call_recovery_refuses_noncall_effects[cancel_unsent-script_batch]",
+        "services/backend/tests/test_operation_recovery.py::test_call_recovery_refuses_noncall_effects[end_call-future_unknown]",
+        "services/backend/tests/test_operation_recovery.py::test_call_recovery_refuses_noncall_effects[end_call-purchase]",
+        "services/backend/tests/test_operation_recovery.py::test_call_recovery_refuses_noncall_effects[end_call-script_batch]",
+        "services/backend/tests/test_operation_recovery.py::test_call_recovery_refuses_noncall_effects[reconcile-future_unknown]",
+        "services/backend/tests/test_operation_recovery.py::test_call_recovery_refuses_noncall_effects[reconcile-purchase]",
+        "services/backend/tests/test_operation_recovery.py::test_call_recovery_refuses_noncall_effects[reconcile-script_batch]",
+        "services/backend/tests/test_operation_recovery.py::test_configuration_reconciles_original_route_after_settings_change",
+        "services/backend/tests/test_operation_recovery.py::test_configuration_recovery_confirms_identity_but_never_a_callback",
+        "services/backend/tests/test_operation_recovery.py::test_configuration_recovery_does_not_reopen_terminal_or_unsent_work[cancelled]",
+        "services/backend/tests/test_operation_recovery.py::test_configuration_recovery_does_not_reopen_terminal_or_unsent_work[failed]",
+        "services/backend/tests/test_operation_recovery.py::test_configuration_recovery_does_not_reopen_terminal_or_unsent_work[pending]",
+        "services/backend/tests/test_operation_recovery.py::test_configuration_recovery_rejects_changed_version_and_reference",
+        "services/backend/tests/test_operation_recovery.py::test_interrupted_number_check_resumes_after_lease_without_resending",
+        "services/backend/tests/test_operation_recovery.py::test_noncall_history_cannot_starve_call_recovery",
+        "services/backend/tests/test_operation_recovery.py::test_noncall_outbox_items_do_not_crash_recovery_or_expose_call_actions",
+        "services/backend/tests/test_operation_recovery.py::test_number_configuration_cannot_be_treated_as_a_call[cancel_unsent]",
+        "services/backend/tests/test_operation_recovery.py::test_number_configuration_cannot_be_treated_as_a_call[end_call]",
+        "services/backend/tests/test_operation_recovery.py::test_number_reconciliation_blocks_competing_configuration",
+        "services/backend/tests/test_operation_recovery.py::test_number_reconciliation_fences_late_receipts[action]",
+        "services/backend/tests/test_operation_recovery.py::test_number_reconciliation_fences_late_receipts[inventory]",
+        "services/backend/tests/test_operation_recovery.py::test_number_reconciliation_fences_late_receipts[lease]",
+        "services/backend/tests/test_operation_recovery.py::test_number_reconciliation_fences_late_receipts[owner]",
+        "services/backend/tests/test_operation_recovery.py::test_number_reconciliation_fences_late_receipts[role]",
+        "services/backend/tests/test_operation_recovery.py::test_operation_kind_is_indexed_and_old_rows_backfill_without_identity_changes",
+        "services/backend/tests/test_operation_recovery.py::test_recovery_maintenance_isolates_operations_from_call_reconciliation",
+        "services/backend/tests/test_operation_recovery.py::test_recovery_operation_never_crosses_seller",
+        "services/backend/tests/test_operation_recovery.py::test_unconfirmed_or_unsafe_number_receipt_stays_reviewable[change0]",
+        "services/backend/tests/test_operation_recovery.py::test_unconfirmed_or_unsafe_number_receipt_stays_reviewable[change1]",
+        "services/backend/tests/test_operation_recovery.py::test_unconfirmed_or_unsafe_number_receipt_stays_reviewable[change2]",
+        "services/backend/tests/test_operation_recovery.py::test_unconfirmed_or_unsafe_number_receipt_stays_reviewable[change3]",
+        "services/backend/tests/test_operation_recovery.py::test_unconfirmed_or_unsafe_number_receipt_stays_reviewable[change4]",
+        "services/backend/tests/test_operation_recovery.py::test_unconfirmed_or_unsafe_number_receipt_stays_reviewable[change5]",
+        "services/backend/tests/test_operation_recovery.py::test_unconfirmed_or_unsafe_number_receipt_stays_reviewable[change6]"
       ]
     },
     {
@@ -5459,26 +5574,37 @@
       "step": "E07",
       "planned_node": "services/backend/tests/test_optimization_numbers.py::test_health_support_and_case_mix",
       "expected": "Sparse observations stay unknown; mix shifts do not imply spam; sustained comparable residual/drop triggers supported investigation.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E07.json"
+      ],
       "actual_nodes": [
-        "services/backend/tests/test_optimization_numbers.py::test_number_health_unknown_is_not_a_fabricated_half",
-        "services/backend/tests/test_optimization_numbers.py::test_number_health_separates_delivery_from_pickup_and_carries_uncertainty",
-        "services/backend/tests/test_optimization_numbers.py::test_case_mix_adjustment_does_not_blame_harder_leads",
-        "services/backend/tests/test_optimization_numbers.py::test_repeated_delivery_errors_trigger_investigation_not_spam_certification",
-        "services/backend/tests/test_optimization_numbers.py::test_forecast_subtracts_existing_used_reserved_and_warmup_capacity",
-        "services/backend/tests/test_optimization_numbers.py::test_forecast_does_not_buy_capacity_for_unavailable_reps_or_suppressed_leads",
-        "services/backend/tests/test_optimization_numbers.py::test_allocation_retains_binding_and_explains_health_reassignment",
         "services/backend/tests/test_optimization_numbers.py::test_allocation_never_falls_back_to_an_unrelated_region_and_honors_detached_lease",
-        "services/backend/tests/test_optimization_numbers.py::test_forecast_accounts_for_due_callbacks_and_future_horizon",
-        "services/backend/tests/test_optimization_numbers.py::test_invalid_capacity_is_rejected",
+        "services/backend/tests/test_optimization_numbers.py::test_allocation_retains_binding_and_explains_health_reassignment",
+        "services/backend/tests/test_optimization_numbers.py::test_bound_identity_never_changes_without_explicit_reassignment",
+        "services/backend/tests/test_optimization_numbers.py::test_case_mix_adjustment_does_not_blame_harder_leads",
         "services/backend/tests/test_optimization_numbers.py::test_existing_inventory_waiting_for_setup_or_review_does_not_trigger_identity_churn",
-        "services/backend/tests/test_optimization_numbers.py::test_health_support_and_case_mix"
+        "services/backend/tests/test_optimization_numbers.py::test_forecast_accounts_for_due_callbacks_and_future_horizon",
+        "services/backend/tests/test_optimization_numbers.py::test_forecast_does_not_buy_capacity_for_unavailable_reps_or_suppressed_leads",
+        "services/backend/tests/test_optimization_numbers.py::test_forecast_subtracts_existing_used_reserved_and_warmup_capacity",
+        "services/backend/tests/test_optimization_numbers.py::test_health_external_unknown_is_not_clean_and_configuration_can_block_without_samples",
+        "services/backend/tests/test_optimization_numbers.py::test_health_missing_or_future_predictions_are_excluded_not_reconstructed",
+        "services/backend/tests/test_optimization_numbers.py::test_health_residual_interval_accounts_for_variance_and_policy_version",
+        "services/backend/tests/test_optimization_numbers.py::test_health_support_and_case_mix[2-unknown-no_answer-0.8]",
+        "services/backend/tests/test_optimization_numbers.py::test_health_support_and_case_mix[29-unknown-no_answer-0.8]",
+        "services/backend/tests/test_optimization_numbers.py::test_health_support_and_case_mix[40-investigating-no_answer-0.8]",
+        "services/backend/tests/test_optimization_numbers.py::test_health_support_and_case_mix[40-observed-no_answer-0.05]",
+        "services/backend/tests/test_optimization_numbers.py::test_health_without_prediction_time_cannot_claim_pre_call_comparison",
+        "services/backend/tests/test_optimization_numbers.py::test_health_zero_prediction_unknown_labels_and_wrong_leg_do_not_invent_support",
+        "services/backend/tests/test_optimization_numbers.py::test_invalid_capacity_is_rejected",
+        "services/backend/tests/test_optimization_numbers.py::test_number_health_separates_delivery_from_pickup_and_carries_uncertainty",
+        "services/backend/tests/test_optimization_numbers.py::test_number_health_unknown_is_not_a_fabricated_half",
+        "services/backend/tests/test_optimization_numbers.py::test_repeated_delivery_errors_trigger_investigation_not_spam_certification"
       ]
     },
     {
@@ -5486,43 +5612,28 @@
       "step": "E07",
       "planned_node": "services/backend/tests/test_number_orders.py::test_no_new_rental_or_reputation",
       "expected": "Purchase/enrollment denied before provider call; old order retains original reconciliation identity.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E07.json",
+        "docs/evidence/completion/E05.json"
+      ],
       "actual_nodes": [
-        "services/backend/tests/test_number_orders.py::test_lost_order_without_reference_survives_reload_with_actionable_state",
-        "services/backend/tests/test_number_orders.py::test_partial_order_reconciles_one_identity_and_preserves_waiting_numbers",
-        "services/backend/tests/test_number_orders.py::test_order_receipt_must_match_the_owned_intent",
-        "services/backend/tests/test_number_orders.py::test_order_reconciliation_fences_stale_version_and_other_seller",
-        "services/backend/tests/test_number_orders.py::test_failed_order_retains_liability_until_billing_reconciles",
-        "services/backend/tests/test_number_orders.py::test_pending_order_capacity_is_waiting_and_not_bought_again",
         "services/backend/tests/test_number_orders.py::test_expired_order_lease_can_be_reconciled_and_unknown_receipt_keeps_same_intent",
-        "services/backend/tests/test_remediation_dnc_costs.py::test_prepaid_adapter_uses_header_and_verifies_exact_result",
-        "services/backend/tests/test_remediation_dnc_costs.py::test_prepaid_malformed_or_mismatched_response_never_clears",
-        "services/backend/tests/test_remediation_dnc_costs.py::test_prepaid_denial_exhausted_credits_and_outage_do_not_retry_spend",
-        "services/backend/tests/test_remediation_dnc_costs.py::test_new_number_purchase_rejects_recurring_commitment",
-        "services/backend/tests/test_remediation_dnc_costs.py::test_no_subscription_capabilities_are_visible_and_not_false_ready",
-        "services/backend/tests/test_remediation_dnc_costs.py::test_national_screening_cannot_be_disabled_by_ordinary_policy_toggle",
-        "services/backend/tests/test_remediation_dnc_costs.py::test_dnc_expiry_between_reservation_and_dial_blocks_carrier",
-        "services/backend/tests/test_remediation_dnc_costs.py::test_local_optout_still_blocks_even_with_a_fresh_clear_national_check",
-        "services/backend/tests/test_remediation_dnc_costs.py::test_prepaid_screening_does_not_substitute_for_seller_authorization",
-        "services/backend/tests/test_remediation_dnc_costs.py::test_dnc_api_key_is_protected_and_not_in_settings_response",
-        "services/backend/tests/test_remediation_dnc_costs.py::test_covered_seller_prepaid_screen_is_cached_and_keeps_local_suppression",
-        "services/backend/tests/test_remediation_dnc_costs.py::test_overlapping_prepaid_requests_submit_only_once_and_uncertainty_survives_reload",
-        "services/backend/tests/test_scheduling_and_numbers.py::test_callback_and_coverage_beat_propensity",
-        "services/backend/tests/test_scheduling_and_numbers.py::test_exploration_logs_actual_propensity_and_never_invents_actions",
-        "services/backend/tests/test_scheduling_and_numbers.py::test_pre_call_features_strip_protected_future_and_registry_data",
-        "services/backend/tests/test_scheduling_and_numbers.py::test_pending_outcome_window_is_censored",
-        "services/backend/tests/test_scheduling_and_numbers.py::test_challenger_evaluates_chronologically_and_requires_approval",
-        "services/backend/tests/test_scheduling_and_numbers.py::test_number_selection_stability_health_and_regional_demand",
+        "services/backend/tests/test_number_orders.py::test_failed_order_retains_liability_until_billing_reconciles",
+        "services/backend/tests/test_number_orders.py::test_lost_order_without_reference_survives_reload_with_actionable_state",
+        "services/backend/tests/test_number_orders.py::test_order_receipt_must_match_the_owned_intent[receipt0]",
+        "services/backend/tests/test_number_orders.py::test_order_receipt_must_match_the_owned_intent[receipt1]",
+        "services/backend/tests/test_number_orders.py::test_order_receipt_must_match_the_owned_intent[receipt2]",
+        "services/backend/tests/test_number_orders.py::test_order_reconciliation_fences_stale_version_and_other_seller",
+        "services/backend/tests/test_number_orders.py::test_partial_order_reconciles_one_identity_and_preserves_waiting_numbers",
+        "services/backend/tests/test_number_orders.py::test_pending_order_capacity_is_waiting_and_not_bought_again",
         "services/backend/tests/test_scheduling_and_numbers.py::test_purchase_cannot_exceed_operator_approved_budget",
-        "services/backend/tests/test_scheduling_and_numbers.py::test_warmup_requires_identity_and_callback_evidence",
-        "services/backend/tests/test_scheduling_and_numbers.py::test_metrics_keep_original_cohort_denominator",
-        "services/backend/tests/test_scheduling_and_numbers.py::test_only_verified_local_model_artifact_can_influence_probability"
+        "services/backend/tests/test_remediation_dnc_costs.py::test_new_number_purchase_rejects_recurring_commitment"
       ]
     },
     {
@@ -5530,24 +5641,22 @@
       "step": "E07",
       "planned_node": "services/backend/tests/test_scheduling_and_numbers.py::test_stable_identity_and_reassignment",
       "expected": "Healthy retries retain identity; approved health change retains inbound old number and invalidates capacity proposal.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E07.json"
+      ],
       "actual_nodes": [
-        "services/backend/tests/test_scheduling_and_numbers.py::test_callback_and_coverage_beat_propensity",
-        "services/backend/tests/test_scheduling_and_numbers.py::test_exploration_logs_actual_propensity_and_never_invents_actions",
-        "services/backend/tests/test_scheduling_and_numbers.py::test_pre_call_features_strip_protected_future_and_registry_data",
-        "services/backend/tests/test_scheduling_and_numbers.py::test_pending_outcome_window_is_censored",
-        "services/backend/tests/test_scheduling_and_numbers.py::test_challenger_evaluates_chronologically_and_requires_approval",
-        "services/backend/tests/test_scheduling_and_numbers.py::test_number_selection_stability_health_and_regional_demand",
-        "services/backend/tests/test_scheduling_and_numbers.py::test_purchase_cannot_exceed_operator_approved_budget",
-        "services/backend/tests/test_scheduling_and_numbers.py::test_warmup_requires_identity_and_callback_evidence",
-        "services/backend/tests/test_scheduling_and_numbers.py::test_metrics_keep_original_cohort_denominator",
-        "services/backend/tests/test_scheduling_and_numbers.py::test_only_verified_local_model_artifact_can_influence_probability"
+        "services/backend/tests/test_inbound_completion.py::test_live_callback_cannot_be_reassigned_by_task_editor",
+        "services/backend/tests/test_number_reconciliation.py::test_reassignment_records_original_identity_and_requires_current_binding",
+        "services/backend/tests/test_number_reconciliation.py::test_selection_cannot_overwrite_a_newly_approved_binding",
+        "services/backend/tests/test_optimization_numbers.py::test_allocation_retains_binding_and_explains_health_reassignment",
+        "services/backend/tests/test_optimization_numbers.py::test_bound_identity_never_changes_without_explicit_reassignment",
+        "services/backend/tests/test_scheduling_and_numbers.py::test_number_selection_stability_health_and_regional_demand"
       ]
     },
     {
