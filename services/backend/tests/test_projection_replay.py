@@ -585,3 +585,48 @@ def test_late_conversion_dirties_related_attempt_units(workspace, app, clock):
         for k, j in changed.items()
         if j["payload"]["source_kind"] == "call"
     )
+
+
+def test_dependent_expansion_locks_parent_and_children_in_source_order(workspace, app, clock):
+    import pytest
+    from app.db import put
+    from app.optimization.projections import expand_dependents
+    from sqlalchemy import event
+
+    service, p = app.state.service, principal(workspace)
+    if service.db.sqlite:
+        pytest.skip("SQLite owns the writer; PostgreSQL requires ordered row locks")
+    with service.db.transaction() as session:
+        lead = service.scoped(session, "leads", p)[0]
+        call = put(
+            session, "call_attempts", p["tenant_id"], p["seller_id"], {"lead_id": lead.id}, now=clock.now
+        )
+        put(
+            session,
+            "conversion_events",
+            p["tenant_id"],
+            p["seller_id"],
+            {"lead_id": lead.id, "kind": "meeting_held"},
+            now=clock.now,
+        )
+    parent = f"projection:{p['seller_id']}:lead-calls:{lead.id}"
+    child = f"projection:{p['seller_id']}:call:{call.id}"
+    reads = []
+
+    def record(connection, cursor, statement, parameters, context, executemany):
+        if (
+            statement.lstrip().upper().startswith("SELECT")
+            and "jobs" in statement
+            and "FOR UPDATE" in statement
+        ):
+            reads.append((statement, parameters))
+
+    event.listen(service.db.engine, "before_cursor_execute", record)
+    try:
+        assert expand_dependents(service, p, dirty_jobs(service, p)[parent]["payload"])["processed"] == 1
+    finally:
+        event.remove(service.db.engine, "before_cursor_execute", record)
+    assert parent in str(reads[0][1]) and child in str(reads[0][1]), (
+        "Expansion cannot lock its parent before a lower-sorted child; source writers acquire the opposite order"
+    )
+    assert "ORDER BY jobs.key" in reads[0][0]
