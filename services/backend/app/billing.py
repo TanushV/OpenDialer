@@ -120,8 +120,8 @@ def prior_proof(service, s, p, provider, identity, digest):
     return row.data["detail"]["result"] if row else None
 
 
-def store_proof(service, s, p, provider, identity, digest, target, action, source, result):
-    put(
+def store_proof(service, s, p, provider, identity, digest, target, action, source, result, records=()):
+    proof = put(
         s,
         "audit_events",
         p["tenant_id"],
@@ -140,6 +140,17 @@ def store_proof(service, s, p, provider, identity, digest, target, action, sourc
         },
         key=proof_key(service, provider, identity),
         now=service.clock(),
+    )
+    service.journal_effect_in(
+        s,
+        p,
+        "billing." + action,
+        proof.external_key,
+        "receipt",
+        (proof, *records),
+        provider_id=identity,
+        source={"digest": digest},
+        emergency=True,
     )
 
 
@@ -240,6 +251,7 @@ def reconcile_entry(service, p, identity, data):
             data.action,
             data.source_reference,
             result,
+            (row,),
         )
         return result
 
@@ -327,6 +339,7 @@ def import_records(service, p, data):
                     )
                 matched += 1
                 duration += record.duration_seconds
+            call_budget = None
             if record.call_id:
                 call_budget = by_key(s, "usage_ledger", p, "call:" + call_id)
                 if call_budget:
@@ -356,6 +369,7 @@ def import_records(service, p, data):
                 "carrier_import",
                 data.source_reference,
                 {"entry_id": existing.id},
+                (existing, call_budget),
             )
     return {
         "matched": matched,

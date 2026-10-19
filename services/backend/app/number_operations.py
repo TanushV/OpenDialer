@@ -363,6 +363,17 @@ class NumberOperations:
                     )
                     emit(s, p["tenant_id"], "number.updated", number, self.clock())
             update(row, **values)
+            if receipt is not None:
+                self.journal_effect_in(
+                    s,
+                    p,
+                    "purchase",
+                    row.external_key,
+                    "receipt",
+                    (row,),
+                    provider_id=receipt["id"],
+                    emergency=True,
+                )
             audit(
                 s,
                 p["tenant_id"],

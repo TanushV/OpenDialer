@@ -13,6 +13,45 @@ from sqlalchemy import inspect, text
 from test_remediation_privacy import RAW, persisted_content, principal
 
 
+def test_sanitation_commits_bounded_pages_and_resumes(workspace, app, monkeypatch):
+    import app.privacy as privacy
+    from app.db import MODELS
+    from sqlalchemy import select
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        for i in range(603):
+            put(
+                s,
+                "transcript_segments",
+                p["tenant_id"],
+                p["seller_id"],
+                {"segment_id": str(i), "text": RAW},
+                object_id=f"legacy-{i:04}",
+            )
+    original = privacy.persistent_document
+    seen = []
+
+    def crash(kind, data, **kw):
+        if kind == "transcript_segments":
+            seen.append(data.get("segment_id"))
+            if len(seen) == 501:
+                raise OSError("Synthetic interrupted migration")
+        return original(kind, data, **kw)
+
+    monkeypatch.setattr(privacy, "persistent_document", crash)
+    with pytest.raises(OSError):
+        service.purge_legacy_raw_content()
+    with service.db.transaction(False) as s:
+        records = list(s.scalars(select(MODELS["transcript_segments"])))
+        assert sum("text" not in r.data for r in records) == 500
+    seen.clear()
+    monkeypatch.setattr(privacy, "persistent_document", original)
+    service.privacy_cutover()
+    with service.db.transaction(False) as s:
+        assert all("text" not in r.data for r in s.scalars(select(MODELS["transcript_segments"])))
+
+
 def test_legacy_copy_allowlist_continuity(workspace, app):
     service, p = app.state.service, principal(workspace)
     call = start(workspace)

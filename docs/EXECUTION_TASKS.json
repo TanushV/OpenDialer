@@ -827,11 +827,11 @@
         "A53",
         "A54"
       ],
-      "checkpoint": "Chained segment/denial scope60 SQLite passes; initial17 effect tests green, four new target/repair/configuration/screening regressions red. Journal integration, installed copy and fullE11 still active.",
+      "checkpoint": "Journal segment/denial scope60 passes in each database; checkpoint/order scope30 SQLite passes; effect/billing/order scope66 SQLite passes. Three new raw-metadata/resumable-sanitation regressions fail before implementation. Installed-copy migration and full E11 remain open.",
       "implementation_todos": [
         {
           "id": "E11.segments",
-          "status": "implemented-awaiting-postgresql",
+          "status": "implemented-focused-verified",
           "work": "Chained encrypted8MiB journal segments, bounded append, checkpoint and loss/corruption tests"
         },
         {
@@ -841,17 +841,17 @@
         },
         {
           "id": "E11.restore",
-          "status": "open",
+          "status": "in-progress",
           "work": "Missing-store effect/accounting recovery and protected backup checkpoints without replacing current state"
         },
         {
           "id": "E11.migration",
-          "status": "open",
+          "status": "in-progress",
           "work": "Resumable500-row raw sanitation and actual installed0.2.1 copy with allowed-data continuity"
         },
         {
           "id": "E11.privacy",
-          "status": "open",
+          "status": "in-progress",
           "work": "All raw boundaries, provider capability and frontend expiry/restart tests"
         },
         {

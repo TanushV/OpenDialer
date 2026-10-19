@@ -20,7 +20,7 @@ EFFECT_FIELDS = {
     ),
     "call_legs": frozenset("kind rep_id call_id provider_id state command_id started_at ended_at".split()),
     "command_outbox": frozenset(
-        "kind action call_id rep_id number_id provider_id target inbound inbound_attempt status command_id submitted_at sent_at expires_at started_at connection_id phone lead_ids ready_at model request_digest provider_batch_id provider_order_id".split()
+        "kind action call_id rep_id number_id provider_id target inbound inbound_attempt status command_id submitted_at sent_at expires_at started_at connection_id phone lead_ids ready_at model request_digest provider_batch_id provider_order_id numbers committed_usd approved_budget_usd fulfilled_numbers failed_numbers waiting_numbers billing_status".split()
     ),
     "usage_ledger": frozenset(
         "kind work_kind provider object_id call_id callback_id user_id request_key request_id provider_record_id provider_record_ids receipt_id at received_at submitted_at reserved_usd estimate_usd cost_usd credited_usd credit_received_at billing_verified status synthetic reconciled_to_provider_records duration_seconds leg_id".split()
@@ -31,6 +31,7 @@ EFFECT_FIELDS = {
     "followup_tasks": frozenset(
         "kind lead_id endpoint_id number_id owner_id provider_id caller_provider_id inbound_state inbound_deadline status created_at due_at".split()
     ),
+    "audit_events": frozenset({"actor_id", "action", "target_id", "detail"}),
 }
 
 
@@ -41,6 +42,21 @@ def effect_entity(row):
         data["command_id"] = row.data.get("payload", {}).get("command_id") or row.external_key
     if kind == "usage_ledger" and data.get("call_id") and not data.get("object_id"):
         data["object_id"] = data["call_id"]
+    if kind == "audit_events":
+        detail = data.get("detail", {})
+        result = detail.get("result", {})
+        data["detail"] = {k: detail[k] for k in ("provider", "receipt_id", "digest") if k in detail}
+        data["detail"]["result"] = {
+            k: result[k] for k in ("entry_id", "evidence", "invoice_verified") if k in result
+        }
+        if "entry" in result:
+            data["detail"]["result"]["entry"] = {
+                k: v
+                for k, v in result["entry"].items()
+                if k
+                in EFFECT_FIELDS["usage_ledger"]
+                | {"id", "version", "net_cost_usd", "can_settle", "can_credit", "can_close_call"}
+            }
     return {
         "table": kind,
         "id": row.id,
@@ -197,7 +213,7 @@ class RequestAccounting:
                 data["status"] = "uncertain"
             elif kind == "registry_snapshots":
                 data.update(status="review_required", published=False, listed=None)
-            put(
+            restored = put(
                 s,
                 kind,
                 tenant,
@@ -207,6 +223,7 @@ class RequestAccounting:
                 key=entity["external_key"],
                 now=datetime.fromisoformat(entity["created_at"]),
             )
+            restored.version = entity["version"]
             update(seller, restore_hold=True)
             recovered += 1
         return recovered

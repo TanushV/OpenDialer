@@ -11,6 +11,62 @@ from sqlalchemy import select
 RAW = "Private raw utterance ALPHA-ZULU-EPHEMERAL: our internal project is called Granite."
 
 
+def test_unknown_provider_fields_and_opaque_context_are_never_durable(workspace, app):
+    import base64
+
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    payload = {
+        "call_control_id": call["provider_id"],
+        "occurred_at": service.clock().isoformat(),
+        "vendor_extension": {"captured_words": RAW},
+        "client_state": base64.b64encode(
+            json.dumps({"call_id": call["id"], "unrecognized": RAW}).encode()
+        ).decode(),
+    }
+    service._receive_webhook(
+        p["tenant_id"],
+        {"id": "privacy-extension", "event_type": "call.answered", "payload": payload},
+        "synthetic-hash",
+    )
+    service.event(p, "privacy-extension-local", "call.answered", call["id"], payload)
+    with service.db.transaction(False) as s:
+        for kind in ("provider_events", "webhook_inbox"):
+            for row in s.scalars(select(MODELS[kind]).where(MODELS[kind].tenant_id == p["tenant_id"])):
+                assert RAW not in json.dumps(row.data)
+                retained = row.data["payload"]
+                assert retained["call_control_id"] == call["provider_id"]
+                assert "unrecognized" not in base64.b64decode(retained["client_state"]).decode()
+
+
+def test_event_and_job_metadata_drop_unknown_content(workspace, app):
+    from app.db import emit, get
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        lead = (
+            get(s, "leads", workspace["lead_ids"][0])
+            if workspace.get("lead_ids")
+            else service.scoped(s, "leads", p)[0]
+        )
+        emit(
+            s,
+            p["tenant_id"],
+            "lead.updated",
+            lead,
+            service.clock(),
+            {"state": "ready", "extension": RAW, "_raw": RAW},
+        )
+        service.jobs.enqueue_in(
+            s,
+            "scripts",
+            {"lead_id": lead.id, "seller_id": p["seller_id"], "user_id": p["user_id"], "extension": RAW},
+            "privacy-extra",
+            tenant_id=p["tenant_id"],
+        )
+    assert RAW not in persisted_content(service, p)
+
+
 def principal(w):
     return {k: w[k] for k in ("tenant_id", "seller_id", "user_id")} | {"role": "owner"}
 
