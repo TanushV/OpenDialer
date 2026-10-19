@@ -121,11 +121,16 @@ export function PreparationSettings() {
   const [config, setConfig] = useState<Configuration | null>(null);
   const [template, setTemplate] = useState<Template | null>(null);
   useEffect(() => {
+    let current = true;
     void run(async () => {
       const result = await api<Configuration>("/v1/admin/operating-policy");
+      if (!current) return;
       setConfig(result);
       setTemplate(result.script_template || result.template_defaults);
     });
+    return () => {
+      current = false;
+    };
   }, []);
   if (!config || !template) return null;
   const setPolicy = (patch: Partial<PreparationPolicy>) =>

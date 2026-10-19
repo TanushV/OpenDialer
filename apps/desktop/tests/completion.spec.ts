@@ -4,6 +4,38 @@ test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: "wait" });
 });
 
+test("late superseded settings load cannot replace a rep's template edits", async ({
+  page,
+}) => {
+  await enter(page, false);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let loads = 0;
+  let delivered = false;
+  await page.route("**/v1/admin/operating-policy", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    const index = ++loads;
+    const response = await route.fetch();
+    if (index === 1) await held;
+    await route.fulfill({ response });
+    if (index === 1) delivered = true;
+  });
+  try {
+    await page.getByRole("button", { name: "Operations", exact: true }).click();
+    const topic = page.getByLabel("Script topic", { exact: true });
+    await expect(topic).toBeVisible();
+    await topic.fill("Reviewed approval process");
+    release();
+    await expect.poll(() => delivered).toBeTruthy();
+    await expect(topic).toHaveValue("Reviewed approval process");
+  } finally {
+    release();
+  }
+});
+
 test("setup shows capability evidence and uses protected native credential entry", async ({
   page,
 }) => {
