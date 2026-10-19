@@ -4,6 +4,8 @@ A Tauri desktop calling workspace with two authority modes: a private local back
 
 **Development status, October 18:** the [completion and simplification plan](docs/REMEDIATION_PLAN.md) is being implemented with tests first; unfinished work and evidence are recorded there and in [STATUS.md](docs/STATUS.md). Current scope uses existing numbers and observed health, contextual Cerebras help, local follow-up and rep-booked meeting outcomes. It permits no new subscriptions/rentals or CRM/calendar synchronization. Raw speech/private AI content has a five-minute lifetime. These changes are not yet packaged in the 0.2.1 release below; earlier release checks do not certify the current work.
 
+The remaining work now has an [exact execution specification](docs/EXECUTION_SPEC.md): E00–E15, chosen algorithms/contracts, file owners, tests, deletions and Mac/Windows update procedure. The [requirement crosswalk](docs/EXECUTION_TASKS.json) and [planned assertions](docs/ACCEPTANCE_MATRIX.md#october-18-execution-assertion-groups) preserve all outstanding scope. Writing that specification does not complete the implementation.
+
 **Current release: [0.2.1 developer preview](https://github.com/TanushV/OpenDialer/releases/tag/v0.2.1).** The Mac Apple Silicon and Windows x64 apps include their Python backend; users do not need Python, Node, Rust, Docker or API keys to try isolated simulation. Live calling needs a configured Telnyx account and reviewed permissions. Provider contracts and simulation are tested; live carrier behavior, model quality, hardware audio and trusted OS publisher signing are separate acceptance gates. See [validation](docs/VALIDATION.md).
 
 ## Install and try

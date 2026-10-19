@@ -1,0 +1,4674 @@
+{
+  "schema_version": 1,
+  "written_at": "2026-10-18",
+  "baseline_commit": "63f4d4242f60672777f596177fe98fe57f715bf9",
+  "baseline_product_test_commit": "6611d3c2fb486b0aac65df2bb42e20663457552a",
+  "status": "planning-complete-implementation-not-performed",
+  "requirements_source": "docs/REMEDIATION_PLAN.md",
+  "implementation_source": "docs/EXECUTION_SPEC.md",
+  "next_step": "E00",
+  "receipt_rule": "No inherited checkbox or planned node is a current passing receipt. Update by actual source-bound evidence.",
+  "steps": [
+    {
+      "id": "E00",
+      "title": "Write and record every missing contract first",
+      "status": "open",
+      "depends_on": [],
+      "spec_anchor": "4-e00-write-and-record-every-missing-contract-first",
+      "planned_test_files": [
+        "services/backend/tests/test_completion_journeys.py",
+        "services/backend/tests/test_completion_contracts.py",
+        "apps/desktop/tests/completion.spec.ts"
+      ],
+      "receipts": [],
+      "planned_case_ids": [],
+      "acceptance_families": [
+        "A01",
+        "A02",
+        "A03",
+        "A04",
+        "A05",
+        "A06",
+        "A07",
+        "A08",
+        "A09",
+        "A10",
+        "A11",
+        "A12",
+        "A13",
+        "A14",
+        "A15",
+        "A16",
+        "A17",
+        "A18",
+        "A19",
+        "A20",
+        "A21",
+        "A22",
+        "A23",
+        "A24",
+        "A25",
+        "A26",
+        "A27",
+        "A28",
+        "A29",
+        "A30",
+        "A31",
+        "A32",
+        "A33",
+        "A34",
+        "A35",
+        "A36",
+        "A37",
+        "A38",
+        "A39",
+        "A40",
+        "A41",
+        "A42",
+        "A43",
+        "A44",
+        "A45",
+        "A46",
+        "A47",
+        "A48",
+        "A49",
+        "A50",
+        "A51",
+        "A52",
+        "A53",
+        "A54",
+        "A55",
+        "A56"
+      ]
+    },
+    {
+      "id": "E01",
+      "title": "Freeform live guidance without lexical truth rules",
+      "status": "open",
+      "depends_on": [
+        "E00"
+      ],
+      "spec_anchor": "5-e01-freeform-live-guidance-without-lexical-truth-rules",
+      "planned_test_files": [
+        "services/backend/tests/test_live_claim_review.py",
+        "services/backend/tests/test_helper_progress.py",
+        "services/backend/tests/test_coach_stream.py",
+        "services/backend/tests/test_coach_lifecycle.py",
+        "services/backend/tests/test_coach_admission.py",
+        "services/backend/tests/test_openrouter_coach.py",
+        "apps/desktop/tests/helper-ui.spec.ts"
+      ],
+      "receipts": [],
+      "planned_case_ids": [
+        "C001",
+        "C002",
+        "C003",
+        "C004"
+      ],
+      "acceptance_families": [
+        "A22",
+        "A23",
+        "A24",
+        "A25",
+        "A26",
+        "A44",
+        "A49"
+      ]
+    },
+    {
+      "id": "E02",
+      "title": "One conversation state through long calls and finalization",
+      "status": "open",
+      "depends_on": [
+        "E01"
+      ],
+      "spec_anchor": "6-e02-one-conversation-state-through-long-calls-and-finalization",
+      "planned_test_files": [
+        "services/backend/tests/test_live_memory.py",
+        "services/backend/tests/test_postcall_completion.py",
+        "services/backend/tests/test_grounding_review.py",
+        "services/backend/tests/test_call_rubrics.py",
+        "services/backend/tests/test_tracker_publication.py",
+        "services/backend/tests/test_remediation_privacy.py",
+        "services/backend/tests/test_conversation_finalization.py"
+      ],
+      "receipts": [],
+      "planned_case_ids": [
+        "C005",
+        "C006",
+        "C007",
+        "C008"
+      ],
+      "acceptance_families": [
+        "A07",
+        "A24",
+        "A27",
+        "A34",
+        "A36",
+        "A39",
+        "A41"
+      ]
+    },
+    {
+      "id": "E03",
+      "title": "Complete the rep journey and next-call continuity",
+      "status": "open",
+      "depends_on": [
+        "E02"
+      ],
+      "spec_anchor": "7-e03-complete-the-rep-journey-and-next-call-continuity",
+      "planned_test_files": [
+        "services/backend/tests/test_local_followthrough.py",
+        "services/backend/tests/test_postcall_completion.py",
+        "services/backend/tests/test_score_reviews.py",
+        "services/backend/tests/test_goal_reconciliation.py",
+        "services/backend/tests/test_coaching_library.py",
+        "services/backend/tests/test_completion_journeys.py",
+        "apps/desktop/tests/completion.spec.ts",
+        "apps/desktop/tests/followthrough.spec.ts",
+        "apps/desktop/tests/coaching.spec.ts",
+        "apps/desktop/tests/grounding.spec.ts",
+        "apps/desktop/tests/rubrics.spec.ts"
+      ],
+      "receipts": [],
+      "planned_case_ids": [
+        "C009",
+        "C010",
+        "C011",
+        "C012",
+        "C013"
+      ],
+      "acceptance_families": [
+        "A23",
+        "A28",
+        "A30",
+        "A35",
+        "A36",
+        "A37",
+        "A38",
+        "A39",
+        "A43",
+        "A45",
+        "A46",
+        "A47"
+      ]
+    },
+    {
+      "id": "E04",
+      "title": "Bounded useful research and advance preparation",
+      "status": "open",
+      "depends_on": [
+        "E03"
+      ],
+      "spec_anchor": "8-e04-bounded-useful-research-and-advance-preparation",
+      "planned_test_files": [
+        "services/backend/tests/test_preparation_completion.py",
+        "services/backend/tests/test_research_and_jobs.py",
+        "services/backend/tests/test_fetch_boundaries.py",
+        "services/backend/tests/test_script_grounding.py",
+        "services/backend/tests/test_batch_grounding.py",
+        "services/backend/tests/test_preparation_batch_completion.py",
+        "services/backend/tests/test_batch_recovery.py",
+        "services/backend/tests/test_preparation_discovery.py"
+      ],
+      "receipts": [],
+      "planned_case_ids": [
+        "C014",
+        "C015",
+        "C016",
+        "C017"
+      ],
+      "acceptance_families": [
+        "A24",
+        "A29",
+        "A30",
+        "A45"
+      ]
+    },
+    {
+      "id": "E05",
+      "title": "National DNC, costs and honest readiness",
+      "status": "open",
+      "depends_on": [
+        "E04"
+      ],
+      "spec_anchor": "9-e05-national-dnc-costs-and-honest-readiness",
+      "planned_test_files": [
+        "services/backend/tests/test_screening_readiness.py",
+        "services/backend/tests/test_screening_refresh.py",
+        "services/backend/tests/test_registry_hotpath.py",
+        "services/backend/tests/test_remediation_dnc_costs.py",
+        "services/backend/tests/test_dnc_recovery.py",
+        "services/backend/tests/test_policy.py",
+        "services/backend/tests/test_operating_validation.py"
+      ],
+      "receipts": [],
+      "planned_case_ids": [
+        "C018",
+        "C019",
+        "C020",
+        "C021"
+      ],
+      "acceptance_families": [
+        "A02",
+        "A20",
+        "A21",
+        "A40",
+        "A45",
+        "A49"
+      ]
+    },
+    {
+      "id": "E06",
+      "title": "One lightweight scheduler and number-capacity calculation",
+      "status": "open",
+      "depends_on": [
+        "E05"
+      ],
+      "spec_anchor": "10-e06-one-lightweight-scheduler-and-number-capacity-calculation",
+      "planned_test_files": [
+        "services/backend/tests/test_capacity_conservation.py",
+        "services/backend/tests/test_time_capacity.py",
+        "services/backend/tests/test_owner_capacity.py",
+        "services/backend/tests/test_optimization_numbers.py",
+        "services/backend/tests/test_scheduling_and_numbers.py",
+        "services/backend/tests/test_unified_planning.py"
+      ],
+      "receipts": [],
+      "planned_case_ids": [
+        "C022",
+        "C023",
+        "C024",
+        "C025"
+      ],
+      "acceptance_families": [
+        "A08",
+        "A12",
+        "A14",
+        "A15",
+        "A16",
+        "A17",
+        "A18",
+        "A35",
+        "A50"
+      ]
+    },
+    {
+      "id": "E07",
+      "title": "Existing-number onboarding and useful health",
+      "status": "open",
+      "depends_on": [
+        "E06"
+      ],
+      "spec_anchor": "11-e07-existing-number-onboarding-and-useful-health",
+      "planned_test_files": [
+        "services/backend/tests/test_number_reconciliation.py",
+        "services/backend/tests/test_number_orders.py",
+        "services/backend/tests/test_optimization_numbers.py",
+        "services/backend/tests/test_operation_recovery.py",
+        "services/backend/tests/test_optimization_workflows.py",
+        "apps/desktop/tests/numbers.spec.ts",
+        "services/backend/tests/test_scheduling_and_numbers.py"
+      ],
+      "receipts": [],
+      "planned_case_ids": [
+        "C026",
+        "C027",
+        "C028",
+        "C029"
+      ],
+      "acceptance_families": [
+        "A12",
+        "A13",
+        "A15",
+        "A18",
+        "A19",
+        "A20",
+        "A47"
+      ]
+    },
+    {
+      "id": "E08",
+      "title": "Sparse learning and the observation to guidance loop",
+      "status": "open",
+      "depends_on": [
+        "E07"
+      ],
+      "spec_anchor": "12-e08-sparse-learning-and-the-observation-to-guidance-loop",
+      "planned_test_files": [
+        "services/backend/tests/test_learning_chronology.py",
+        "services/backend/tests/test_optimization_learning.py",
+        "services/backend/tests/test_remediation_learning.py",
+        "services/backend/tests/test_model_serving_bounds.py",
+        "services/backend/tests/test_conversation_learning.py",
+        "services/backend/tests/test_goal_reconciliation.py",
+        "services/backend/tests/test_training_isolation.py",
+        "services/backend/tests/test_conversation_features.py",
+        "services/backend/tests/test_strategy_exposure.py"
+      ],
+      "receipts": [],
+      "planned_case_ids": [
+        "C030",
+        "C031",
+        "C032",
+        "C033",
+        "C034"
+      ],
+      "acceptance_families": [
+        "A31",
+        "A32",
+        "A33",
+        "A34",
+        "A35",
+        "A47",
+        "A50",
+        "A56"
+      ]
+    },
+    {
+      "id": "E09",
+      "title": "Incremental reporting and small critical sections",
+      "status": "open",
+      "depends_on": [
+        "E08"
+      ],
+      "spec_anchor": "13-e09-incremental-reporting-and-small-critical-sections",
+      "planned_test_files": [
+        "services/backend/tests/test_incremental_metrics.py",
+        "services/backend/tests/test_projection_replay.py",
+        "services/backend/tests/test_job_admission.py",
+        "services/backend/tests/test_report_projections.py",
+        "services/backend/tests/test_report_scaling.py",
+        "services/backend/tests/test_learning_history_scaling.py",
+        "services/backend/tests/test_remediation_performance.py",
+        "services/backend/tests/test_background_event_loop.py",
+        "services/backend/tests/test_work_measurement.py",
+        "services/backend/tests/test_migrations.py"
+      ],
+      "receipts": [],
+      "planned_case_ids": [
+        "C035",
+        "C036",
+        "C037",
+        "C038"
+      ],
+      "acceptance_families": [
+        "A25",
+        "A47",
+        "A48",
+        "A49",
+        "A50",
+        "A51"
+      ]
+    },
+    {
+      "id": "E10",
+      "title": "Complete recovery, callbacks and accounting",
+      "status": "open",
+      "depends_on": [
+        "E09"
+      ],
+      "spec_anchor": "14-e10-complete-recovery-callbacks-and-accounting",
+      "planned_test_files": [
+        "services/backend/tests/test_control_completion.py",
+        "services/backend/tests/test_webhook_completion.py",
+        "services/backend/tests/test_remediation_recovery.py",
+        "services/backend/tests/test_keypad_recovery.py",
+        "services/backend/tests/test_recovery_actions.py",
+        "services/backend/tests/test_inbound_completion.py",
+        "services/backend/tests/test_final_attempt_voicemail.py",
+        "services/backend/tests/test_billing_resolution.py",
+        "services/backend/tests/test_request_accounting.py",
+        "services/backend/tests/test_restore_effects.py",
+        "services/backend/tests/test_effect_matrix.py"
+      ],
+      "receipts": [],
+      "planned_case_ids": [
+        "C039",
+        "C040",
+        "C041",
+        "C042"
+      ],
+      "acceptance_families": [
+        "A03",
+        "A04",
+        "A05",
+        "A06",
+        "A07",
+        "A08",
+        "A09",
+        "A10",
+        "A11",
+        "A13",
+        "A20",
+        "A26",
+        "A40",
+        "A46",
+        "A49",
+        "A54"
+      ]
+    },
+    {
+      "id": "E11",
+      "title": "Privacy-safe migration, backups and disaster recovery",
+      "status": "open",
+      "depends_on": [
+        "E10"
+      ],
+      "spec_anchor": "15-e11-privacy-safe-migration-backups-and-disaster-recovery",
+      "planned_test_files": [
+        "services/backend/tests/test_remediation_privacy.py",
+        "services/backend/tests/test_encrypted_storage.py",
+        "services/backend/tests/test_consent_journal.py",
+        "services/backend/tests/test_suppression_durability.py",
+        "services/backend/tests/test_restore_scope.py",
+        "services/backend/tests/test_restore_effects.py",
+        "services/backend/tests/test_restore_receipts.py",
+        "services/backend/tests/test_migrations.py",
+        "apps/desktop/tests/cache-boundary.test.ts",
+        "apps/desktop/tests/privacy.test.ts",
+        "services/backend/tests/test_effect_journal.py",
+        "services/backend/tests/test_installed_copy_migration.py"
+      ],
+      "receipts": [],
+      "planned_case_ids": [
+        "C043",
+        "C044",
+        "C045",
+        "C046"
+      ],
+      "acceptance_families": [
+        "A01",
+        "A04",
+        "A27",
+        "A41",
+        "A42",
+        "A43",
+        "A44",
+        "A53",
+        "A54"
+      ]
+    },
+    {
+      "id": "E12",
+      "title": "Finish setup, rep surfaces and deployment without more product machinery",
+      "status": "open",
+      "depends_on": [
+        "E11"
+      ],
+      "spec_anchor": "16-e12-finish-setup-rep-surfaces-and-deployment-without-more-product-machinery",
+      "planned_test_files": [
+        "services/backend/tests/test_admin_completion.py",
+        "services/backend/tests/test_connected_security.py",
+        "services/backend/tests/test_operating_validation.py",
+        "services/backend/tests/test_http_runtime.py",
+        "services/backend/tests/test_remediation_runtime.py",
+        "tests/test_distribution_contract.py",
+        "services/backend/tests/test_ingress_boundary.py",
+        "services/backend/tests/test_capability_consistency.py",
+        "apps/desktop/tests/completion.spec.ts",
+        "apps/desktop/tests/helper-ui.spec.ts",
+        "apps/desktop/tests/workspace-pages.spec.ts",
+        "apps/desktop/tests/knowledge.spec.ts",
+        "apps/desktop/tests/callback-routing.spec.ts",
+        "apps/desktop/src-tauri/src/lib.rs"
+      ],
+      "receipts": [],
+      "planned_case_ids": [
+        "C047",
+        "C048",
+        "C049",
+        "C050",
+        "C058"
+      ],
+      "acceptance_families": [
+        "A02",
+        "A03",
+        "A11",
+        "A23",
+        "A43",
+        "A45",
+        "A46",
+        "A51",
+        "A52",
+        "A55"
+      ]
+    },
+    {
+      "id": "E13",
+      "title": "Freeze and prove the whole software system",
+      "status": "open",
+      "depends_on": [
+        "E12"
+      ],
+      "spec_anchor": "17-e13-freeze-and-prove-the-whole-software-system",
+      "planned_test_files": [
+        "services/backend/tests/test_completion_contracts.py"
+      ],
+      "receipts": [],
+      "planned_case_ids": [
+        "C051",
+        "C052",
+        "C053"
+      ],
+      "acceptance_families": [
+        "A22",
+        "A24",
+        "A25",
+        "A28",
+        "A50",
+        "A56"
+      ]
+    },
+    {
+      "id": "E14",
+      "title": "Deliver Mac and Windows updates without reinstalling",
+      "status": "open",
+      "depends_on": [
+        "E13"
+      ],
+      "spec_anchor": "18-e14-deliver-mac-and-windows-updates-without-reinstalling",
+      "planned_test_files": [
+        "tests/test_distribution_contract.py",
+        "tests/test_native_update_wait.py",
+        "services/backend/tests/test_installed_copy_migration.py"
+      ],
+      "receipts": [],
+      "planned_case_ids": [
+        "C054",
+        "C055",
+        "C056"
+      ],
+      "acceptance_families": [
+        "A01",
+        "A09",
+        "A11",
+        "A42",
+        "A45",
+        "A46",
+        "A52",
+        "A53",
+        "A55"
+      ]
+    },
+    {
+      "id": "E15",
+      "title": "Final preflight and handoff",
+      "status": "open",
+      "depends_on": [
+        "E14"
+      ],
+      "spec_anchor": "19-e15-final-preflight-and-handoff",
+      "planned_test_files": [
+        "services/backend/tests/test_completion_contracts.py"
+      ],
+      "receipts": [],
+      "planned_case_ids": [
+        "C057"
+      ],
+      "acceptance_families": []
+    }
+  ],
+  "requirements": [
+    {
+      "id": "M0.01",
+      "requirement": "Record baseline Git, installed versions/data, existing uncommitted work and protected evidence; preserve user-owned changes.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E00",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E00"
+      ]
+    },
+    {
+      "id": "M0.02",
+      "requirement": "Import the 17-defect regression catalogue and saved performance fixtures into maintained test locations; retain original red receipts.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E00",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E00"
+      ]
+    },
+    {
+      "id": "M0.03",
+      "requirement": "Write the complete A01–A56 acceptance suite and test data contracts before production changes; identify tests needing actual accounts/devices.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E00",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E00"
+      ]
+    },
+    {
+      "id": "M0.04",
+      "requirement": "Run and record meaningful initial red results in both database modes without touching user databases.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E00",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E00"
+      ]
+    },
+    {
+      "id": "M0.05",
+      "requirement": "Freeze source/fixture versions and acceptance latency/load definitions; inventory current coverage exclusions and critical invariants.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E00",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E00"
+      ]
+    },
+    {
+      "id": "M0.06",
+      "requirement": "Record latest scope, no-subscription policy and DNC authority limitations; replace withdrawn connector tests with A40–A44 privacy/DNC contracts.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E00",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E00"
+      ]
+    },
+    {
+      "id": "M0.07",
+      "requirement": "Commit the tests and baseline receipts before implementation; reopen contradictory completion claims as specified here.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E00",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E00"
+      ]
+    },
+    {
+      "id": "M1.01",
+      "requirement": "Prompt durable receipt and bounded recovery; reducer, normalized metadata, follow-on work and completion commit atomically. Raw publication respects original expiry and revision order; lost unprocessed speech is visible in review. Dual-database crash/concurrency and browser evidence is in STATUS.md. Command recovery and exception actions remain M1.04/M1.08.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E10",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M1.02",
+      "requirement": "Normalize documented transcript-track variants and keep unknown side/finality honest.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E10",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M1.03",
+      "requirement": "Fence delayed HTTP success/timeout and recovery against newer signed call/agent events and lease owners; validate exact provider identities and typed status acknowledgements. Prospect legs close with terminal calls. Dual-database receipts are in STATUS.md.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E10",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M1.04",
+      "requirement": "Complete leased/fenced recovery for every control command, not only dial/hangup; wire heartbeats where needed.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E10",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M1.04a",
+      "requirement": "Dial, hangup, agent setup and call controls use owned leases and verified original-target reconciliation; unsafe starting effects require review outside the retry window, stops retain live obligations. Scoped uncertainty actions and duplicate/late-response tests pass. Configuration, screening and deferred-inference recovery remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E10",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M1.04b",
+      "requirement": "Route recovery by operation kind and verify uncertain number configuration against its original carrier identity/connection, with version, lease, ownership and role fences. Terminal/unsent effects cannot be revived, interrupted reads resume without another configuration request, and unrelated batch work cannot starve call recovery. Dual-database/browser receipts are in STATUS.md. Screening and deferred-inference recovery remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E10",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M1.04c",
+      "requirement": "Prepaid DNC results retain original attempt liabilities, leased/versioned publication and explicit charged retries; changed source/role/opt-out and old responses cannot publish clearance. Lost or cancelled results remain recoverable without automatic paid retries. See the October 18 DNC recovery receipts in STATUS.md; deferred inference and full accounting remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E10",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M1.04d",
+      "requirement": "Recover deferred preparation by original provider metadata or exact legacy input proof, with owned renewable leases, role/version/source fences and no repeated submission. Terminal publication stays final; conflicting receipts preserve both potential liabilities. Dual-database/provider/browser receipts are in STATUS.md. Deferred-review background throughput and billing resolution remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E10",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M1.04e",
+      "requirement": "Give each keypad gesture one durable identity, bounded send deadline and original-leg recovery. Reload/retry cannot create another effect; revoked/moved requesters, detached/ended calls and old menu presses are rejected. Explicit rep review permits a new gesture without claiming the old one failed. Dual-database and five browser checks are recorded in STATUS.md.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E10",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M1.05",
+      "requirement": "Persist purchase intent identity across UI retry/reload; reconcile uncertainty before any new order. New purchases are disabled; existing intents reconcile by verified carrier order ID (STATUS.md, October 18 order-recovery receipts).",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E10",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M1.06",
+      "requirement": "Repair usage-hold settlement and uncertain liability; deduplicate provider receipts.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E10",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M1.06a",
+      "requirement": "Make optional admission atomic per seller, bind request keys to work/amount, settle only matching receipts and index hashed provider identities without decrypting billing history. Batch intent/hold creation is atomic, legacy batch holds bind only to the original verified intent, and verified callback replay retains its original liability. Dual-database receipts are in STATUS.md; unresolved-charge review, provider credits and complete recovery accounting remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E10",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M1.06b",
+      "requirement": "Resolve uncertain charges against an explicitly checked original-request receipt, retaining gross charges and separately attributed credits. Receipt identity/version/scope fences must survive retries. Partial carrier records retain other-leg uncertainty; releasing the call estimate requires a terminal call and a confirmed complete receipt set. Paginated local review must never invoke paid provider work or decrypt unrelated history. Credits adjust only the original charge period, not today's spending allowance.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E10",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M1.07",
+      "requirement": "Verify opt-out/start ordering, active claims, detached obligations and orphan-call safeguards.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E10",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M1.07a",
+      "requirement": "Select and claim only due orphan checks, preserve the original call lifetime, debounce concurrent ticks and fence terminal receipts/watchdog dispatch against changed legs or deadlines. Status-read failures cannot disable an expired-call stop. Dual-database and migration receipts are in STATUS.md; full opt-out/detached interleavings remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E10",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M1.07b",
+      "requirement": "Replay durable opt-outs before startup/restore, preserve failed or rolled-back denials through explicit recovery holds, deduplicate exact request identities and stop affected live work without releasing uncertain claims. Exact endpoint reads replace history scans; retries cannot extend a damaged journal or weaken permanent denials. Dual-database/browser receipts are in STATUS.md. Full independent disaster recovery and mixed-load interleavings remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E11",
+      "supporting_steps": [
+        "E10"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M1.08",
+      "requirement": "Add actionable recovery/dead-letter status; no ordinary recovery requires editing database rows manually.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E10",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M1.08a",
+      "requirement": "Add scoped command/agent verification, stop-existing-leg, cancel-unsent and one-attempt failed-job retry actions with version fences, raw-expiry refusal and a tested recovery screen. Other operation-specific exceptions remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E10",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M1.08b",
+      "requirement": "Separate non-call operations in recovery and expose original-number-route verification without call-control buttons. Unknown/batch/purchase effects show their own review instructions; their complete workflows remain separately tracked.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E10",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M1.08c",
+      "requirement": "Add bounded DNC status/recovery, no-charge reads, explicit retry-cost acknowledgement and lost-response identity reuse. Freshness follows the shortest source/access/policy deadline; GET/reload cannot spend credits.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E05",
+      "supporting_steps": [
+        "E10"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M1.08d",
+      "requirement": "Show bounded saved deferred batches, verify the original receipt after reload and explicitly authorize preparation of only missing/failed leads. GET and completed publication do not trigger paid work.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E04",
+      "supporting_steps": [
+        "E10"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M2.01",
+      "requirement": "Add scoped indexed operational columns and lookup keys; backfill resumably while keeping sensitive content encrypted.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E09",
+      "supporting_steps": [
+        "E11"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M2.02",
+      "requirement": "Introduce only the bulk repository methods needed by hot paths; remove all-history/per-candidate reads there.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E09",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M2.02c",
+      "requirement": "Restrict authorization to published registries, exact prepaid/suppression identities and candidate consent; decode membership once per decision, check internal opt-outs first and recheck publication before claiming. Registry replacement preserves retired history. Dual-database and browser receipts are in STATUS.md; full-country dataset sizing/refresh and mixed-load gates remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E05",
+      "supporting_steps": [
+        "E09"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M2.02b",
+      "requirement": "Bound workspace refresh/history pages, keep active calls, wrap-up and old unresolved tasks reachable, search encrypted leads in resumable chunks, and reuse saved home metrics with visible freshness. Explicit preflight is retained; edited history keeps the returned version. Dual-database/browser and bounded-read measurements are in STATUS.md; incremental aggregates/full-load gates remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E09",
+      "supporting_steps": [
+        "E12"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M2.02a",
+      "requirement": "Index single-call/lead context and candidate consent reads; bound decrypted facts, speech, prior calls, commitments and tasks. Preserve required script evidence and human notes, prioritize unresolved work and disclose omitted history. Dual-database/browser and additive migration receipts are in STATUS.md. Workspace/report projections and full-load performance remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E02",
+      "supporting_steps": [
+        "E09"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M2.02d",
+      "requirement": "Select pending call controls and due voicemail/inbound obligations through operational indexes; completed human callback tasks retain live-leg recovery. Exact scoped call/event/action identities replace terminal-history scans. Additive 0012/backfill preserves payloads/versions, and the existing keyed reader is shared rather than duplicated. Dual-database/browser receipts are in STATUS.md; full ingress/recovery scaling remains open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E10",
+      "supporting_steps": [
+        "E09"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M2.02e",
+      "requirement": "Read notes, scorecards, comments and human ratings only for the selected call, without silently truncating its review history. Additive 0015 and authenticated backfill preserve human content, identities and versions. Dual-database/browser receipts are in STATUS.md; full long-call metadata and configured-tracker bounds remain separate work.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E02",
+      "supporting_steps": [
+        "E03"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M2.03",
+      "requirement": "Move ranking outside the atomic claim transaction and recheck authoritative policy before send.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E06",
+      "supporting_steps": [
+        "E09"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M2.04",
+      "requirement": "Remove the process-wide read/write mutex and unrelated shared advisory fence; retain resource-specific concurrency guarantees.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E09",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M2.05",
+      "requirement": "Batch model predictions, cache transaction-local serving pointers and bounded verified artifacts, and keep heavy imports off the baseline path. Trials are scoped to their exact reviewed model/cohort and expire; invalid artifacts/probabilities fall back to pooled estimates. Dual-database and migration evidence is in STATUS.md; full mixed-load/resource certification remains M2.09.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E08",
+      "supporting_steps": [
+        "E09"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M2.06",
+      "requirement": "Replace report-time planning with versioned incremental projections and explicit background refresh/replay.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E09",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M2.06a",
+      "requirement": "Persist scoped encrypted reports and refresh through the existing queue; GET reads bounded saved data with pending/stale/as-of states, transactional invalidation, coalesced work, source/role fences and historical cohort continuity. Restore rebuilds disposable reports and accepts installed-version backups. Dual-database/browser evidence is in STATUS.md. Incremental outcome aggregates, workspace scans and full-load performance remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E09",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M2.06b",
+      "requirement": "Join conversion events once by lead/original call for training and cohort calculations, preserving unassigned attribution, original enrollment, correction and time-window behavior. Counterexample, dual-database and isolated before/after timings are in STATUS.md. This removes Cartesian comparisons; persisted incremental aggregates and full-load certification remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E09",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M2.07",
+      "requirement": "Consolidate job runtime and priorities; schedule recovery/health/retry maintenance without optional training mode.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E09",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M2.08",
+      "requirement": "Reuse bounded HTTP clients; move synchronous DB/CPU work off live event-loop paths without proliferating services.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E09",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M2.08a",
+      "requirement": "Share one API/worker resource lifetime with separate bounded control/live/background HTTP pools, per-request authorization and no provider cookie persistence. Shutdown and failed startup close owned resources; OAuth refresh, ordinary inference, deferred preparation and DNC use the appropriate pool. Dual-database and real loopback saturation receipts are in STATUS.md. Synchronous control storage and CPU isolation remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E09",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M2.08b",
+      "requirement": "Move complete call-start, dial, hangup, action, agent, token, voicemail and signature-check transactions off the live event loop. Only plain snapshots cross the thread boundary; provider I/O remains asynchronous and existing permission/lease/event fences remain enforced. Dual-database and browser receipts are in STATUS.md. Preparation/restore storage and CPU isolation remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E09",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M2.08c",
+      "requirement": "Move immediate preparation, research and restore reconciliation storage off the live loop, bound preparation reads to the current company/lead and reuse the selected script pointer. Same-template return restores the existing packet without a stale pointer. Dual-database and preparation-browser receipts are in STATUS.md; CPU isolation and full mixed-load targets remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E09",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M2.08d",
+      "requirement": "Fit in one temporary low-priority child per authority directory, with cross-process admission, bounded input/output/time and cancellation cleanup. The child inherits no provider credentials; owned source and current authority are rechecked before off-loop publication, and repeated completed jobs reuse the candidate. Dual-database/process receipts are in STATUS.md. Frozen Mac/Windows execution and full CPU/RSS/mixed-load targets remain M8/M9.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E08",
+      "supporting_steps": [
+        "E14"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M2.09",
+      "requirement": "Measure 503-lead and growing-history profiles, query/decryption counts, locks, RSS/startup and mixed live/background load.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E13",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M2.10",
+      "requirement": "Remove superseded readers, duplicate config/metrics helpers and unused dependencies after compatibility gates.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E12",
+      "supporting_steps": [
+        "E09"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M3.01",
+      "requirement": "Build versioned seller/product/lead/history context and bounded incremental conversation memory.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E01",
+      "supporting_steps": [
+        "E02",
+        "E04"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M3.01a",
+      "requirement": "Preserve bounded source-versioned rundown, open questions and coaching tips through long calls; coalesce quiet turns, keep interpretation active when display is muted, drain bounded backlog and expose unprocessed speech. Corrections/expiry and both database modes pass the October 18 live-memory receipts in STATUS.md. Full context hot-path performance and long-call scoring remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E02",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M3.01b",
+      "requirement": "Fence live publication/display/private replay against changed seller/product knowledge, lead brief, used facts, reviewed examples, prior outcomes/notes and commitments. Late human notes and expired facts invalidate advice; irrelevant preparation bookkeeping does not. Reuse the same knowledge checks for practice and retain billed discarded requests. Dual-database receipts are in STATUS.md; knowledge authoring/indexing, full context load and semantic evaluation remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E02",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M3.01c",
+      "requirement": "Add versioned product/pricing/claim-limit authoring with conflict/lost-response recovery, indexed current knowledge and content-free live invalidation. Preserve active scripts and historical knowledge; both database modes, additive migration and 12 browser checks pass in STATUS.md. Full context load and semantic-quality acceptance remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E01",
+      "supporting_steps": [
+        "E04"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M3.02",
+      "requirement": "Remove exact sentence validation and fixed topic/regex semantic authority; retain factual/permission boundaries.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E01",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M3.03",
+      "requirement": "Implement generated contextual suggestions and private manual questions without requiring matching cards.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E01",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M3.04",
+      "requirement": "Support concise primary help, expandable analysis, evidence and unknown-fact responses; no arbitrary wording straitjacket.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E01",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M3.05",
+      "requirement": "Add bounded cross-call concurrency, per-call ordering, latest-state replacement, cancellation, fairness and backpressure.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E01",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M3.05a",
+      "requirement": "Verify bounded per-rep admission, thread-safe cancellation and current call/authority/source publication; settle submitted costs and release only proven-unsent holds.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E01",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M3.06a",
+      "requirement": "Complete private request identity, lost-response replay, cancel-before-delivery, visible Cancel/F1 and original-expiry handling without changing call-control versions; retain progressive-answer work under M3.06.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E01",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M3.06b",
+      "requirement": "Publish validated complete primary fields before the explanation finishes, update one receipt, and withdraw interrupted/corrected/cancelled results. Bound current display reads and give private answers precedence over older pinned tips. Separate first-answer/connect/full deadlines and reject conflicting stream receipts. Dual-database/browser evidence is in STATUS.md; funded endpoint quality/latency and broad concurrency remain separate gates.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E01",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M3.06",
+      "requirement": "Implement endpoint-capability-checked streaming/nonstreaming paths, meaningful deadlines and complete error handling.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E01",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M3.07",
+      "requirement": "Verify actual Cerebras routing, context/request/usage receipts and budget settlement in contract tests.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E01",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M3.08",
+      "requirement": "Add mute/pin/dismiss/help hotkey and feedback; manual help remains available when automatic tips are muted.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E01",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M3.09",
+      "requirement": "Wire reviewed snippet retrieval, before/after-call tips and lightweight practice with clear simulation boundaries.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E03",
+      "supporting_steps": [
+        "E08"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M3.09a",
+      "requirement": "Add bounded personal coaching history, versioned practice goals, human-reviewed paraphrased examples and private practice using current product knowledge. Source corrections/withdrawals, duplicate requests, access changes and original raw expiry pass dual-database/browser checks in STATUS.md. Cross-call opportunity analysis, live knowledge revalidation and semantic usefulness remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E03",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M3.10",
+      "requirement": "Build semantic replay/contradiction/novel-objection examples and display timing instrumentation.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E13",
+      "supporting_steps": [
+        "E01"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M3.10a",
+      "requirement": "Withhold review targets, reject malformed/oversized replay cases before inference, retain original content fingerprints, reject late output and settle each attempted request without blocking live storage. Display attempted/unattempted counts and explicit unreviewed semantic quality; extend synthetic novel-context review cases. Dual-database/browser receipts are in STATUS.md. Representative human usefulness, funded route latency and selective live assertion review remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E13",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M4.01",
+      "requirement": "Reconcile all owned inventory, existing configuration, pending/partial orders and actual usable capacity.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E07",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M4.02",
+      "requirement": "Implement shared region/time capacity accounting, rep workload and binding constraints without double counting.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E06",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M4.02a",
+      "requirement": "Assign next due attempts to declared staffed periods, conserving daily/shared capacity and stable identities; honor callback priority, calling windows, setup delays and pending-inventory separation. Bounded workspace/search, small-case oracle and dual-database/UI receipts are in STATUS.md. Owner-specific staffing, learned retry forecasts and projected refresh remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E06",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M4.02b",
+      "requirement": "Assign named staff without overlapping ownership, honor callback owners and existing live obligations, recheck current roster, and expose unavailable staffing in the editor/forecast. Dual-database, independent small-case, bounded-diagnosis and browser receipts are in STATUS.md. Learned retry demand and full-load acceptance remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E06",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M4.03",
+      "requirement": "Implement existing-only and minimum-addition proposals, bounds/uncertainty and a small-case optimality oracle.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E06",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M4.03a",
+      "requirement": "Compare existing and added-capacity schedules on the declared grid; exhaustive small cases or explicitly labelled best feasible results, shared pending capacity, truthful unknown costs/bottlenecks when computation is limited. This is a one-next-attempt forecast with declared handling time, not a certified joint outcome optimizer.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E06",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M4.04",
+      "requirement": "Support no-history cold start, sparse geography, changing lists, progressive ramp and persistent-shortfall expansion.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E06",
+      "supporting_steps": [
+        "E07"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M4.05",
+      "requirement": "Implement location-aware initial assignment, load distribution, stable retries and explicit health reassignment.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E07",
+      "supporting_steps": [
+        "E06"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M4.06",
+      "requirement": "Finish approved purchase → configuration → callback verification → limited-use onboarding/recovery.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E07",
+      "supporting_steps": [
+        "E10"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M4.07",
+      "requirement": "Disable subscription activation and expose observed-health / external-label capability states honestly.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E05",
+      "supporting_steps": [
+        "E07"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M4.08",
+      "requirement": "Add observed and imported PAYG health evidence with provenance/null/freshness and budget-aware refresh.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E07",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M4.09",
+      "requirement": "Present investigation/remediation guidance with evidence and no paid enrollment; preserve any prior uncertain effects for reconciliation.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E07",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M4.10",
+      "requirement": "Combine external and first-party evidence into explainable workload/hold recommendations; no automatic enforcement evasion.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E07",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M4.11",
+      "requirement": "Build capacity-versus-list, incremental benefit/cost and ready/pending/health UI; retain callbacks on paused/retiring numbers.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E06",
+      "supporting_steps": [
+        "E07",
+        "E12"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M5.01",
+      "requirement": "Complete evidence-backed preparation, company caching and every-field personalization validation.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E04",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M5.01a",
+      "requirement": "Configure fixed templates, advance/off-hours bounded work, ready-queue counts, cached partial retries and frozen active scripts (October 18 preparation receipts in STATUS.md). Deferred Batch, fuller discovery and legacy assertion validation remain M5.01.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E04",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M5.01b",
+      "requirement": "Apply template/source fencing and original-request usage settlement to delayed provider Batch; reject mismatched identities, isolate missing evidence and avoid blocking live control (October 18 deferred preparation receipts). Fuller discovery/grounding and uncertainty recovery UI remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E04",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M5.01c",
+      "requirement": "Require source-bound meaning review for every novel visible script field, including assumption-bearing questions; keep unchanged approved text and complete factual template slots on the inexpensive path. Recheck facts at publication and invalidate corrected/legacy unchecked prepared text. Immediate/deferred provider fixtures and both databases pass; broader discovery, deferred-review throughput and real semantic evaluation remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E04",
+      "supporting_steps": [
+        "E01"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M5.02",
+      "requirement": "Implement one structured post-call analysis with suggested outcome, evidence, commitments, actions and next-call brief.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E02",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M5.02a",
+      "requirement": "Bind complete meaning-review receipts to the actual post-call fields and source revisions; unsupported/unavailable review cannot publish a new task or score. Wire the review model role, preserve rep notes, expose review state and account for rejected/expired requests. Extraction/review deadlines respect remaining raw lifetime (October 18 grounding receipts). Long-call interpretation, call-type rubrics and real model quality remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E02",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M5.03",
+      "requirement": "Resolve precise dates and windows using call date/zone; keep uncertain dates for focused confirmation. Supported exact calendar expressions are verified against the proposed instant; unsupported/ambiguous expressions remain drafts (October 18 post-call date/task receipts in STATUS.md).",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E03",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M5.04a",
+      "requirement": "Manual wrap-up callback tasks retain identity, expected-version edits, owner, snooze, cancellation/completion and reload recovery (October 18 focused receipts in STATUS.md). Inferred commitment integration remains M5.04.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E03",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M5.04",
+      "requirement": "Build commitment-to-task identity and confirm/assign/reschedule/snooze/complete/cancel transitions.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E03",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M5.04b",
+      "requirement": "Publish source-linked inferred commitments/tasks atomically with notes; preserve task identity across rephrasing/manual wrap-up, protect rep edits/closed tasks, invalidate corrected sources and retain older expired-source commitments. Semantic assertion review and legacy identity reconciliation remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E03",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M5.05",
+      "requirement": "Separate contactability, engagement, goal state, booking and next action; enforce appropriate outreach holds.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E03",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M5.06",
+      "requirement": "Implement rep-reported booked/held/no-show/canceled/rescheduled outcomes and outreach holds, without invitations/calendar work.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E03",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M5.07",
+      "requirement": "Add source-version invalidation, human-edit conflicts, complete rubrics, selective stronger review and appeals.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E02",
+      "supporting_steps": [
+        "E03"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M5.07a",
+      "requirement": "Add editable campaign/call-purpose anchors, immutable per-call rubric snapshots, actual-purpose correction and operational/unknown unscored states. Consolidate semantic trackers into the existing reviewed interpretation, fence source/definition changes and expose original-evidence expiry. Focused dual-database/browser receipts are in STATUS.md; human rating overrides, long-call scoring and the full review workflow remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E02",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M5.07b",
+      "requirement": "Preserve AI assessments separately from versioned human ratings, scoped appeals and explicit resolutions. Lost-response retries return the same review, conflicting changes require reload, and changed transcript/rubric context suspends old ratings without deleting them. Dual-database/browser receipts are in STATUS.md; incremental long-call scoring and semantic-quality acceptance remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E03",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M5.08",
+      "requirement": "Automatically refresh next-call context and display prior needs/promises/reasons beside the dialer.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E03",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M5.09",
+      "requirement": "Finish actual inbound fallback and callback completion with ownership and local-offline behavior.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E10",
+      "supporting_steps": [
+        "E12"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M5.09a",
+      "requirement": "Durable caller/transfer-leg lifecycle, fresh rep selection and exclusive claims, bounded transfer/message fallback, terminal cleanup, PAYG holds/reconciliation and versioned routing settings. Dual-database and browser evidence is in STATUS.md. Carrier-side offline configuration and native callback controls remain explicit parts of M5.09.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E10",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M5.10",
+      "requirement": "Verify one complete local journey through restart, correction and the next call with no lost follow-up.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E03",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M6.01",
+      "requirement": "Implement bounded five-minute rolling in-memory transcript/model-content buffer with original receipt deadlines.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E11",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M6.02",
+      "requirement": "Remove raw content from permanent inbox/events/jobs/logs/notes/snippets/model datasets and browser caches.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E11",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M6.03",
+      "requirement": "Fold chunks into compact nonverbatim state before expiry; persist prospect briefs, counters and derived scorecards only.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E02",
+      "supporting_steps": [
+        "E11"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M6.04",
+      "requirement": "Disable call recording/archive/export paths; expose expiry honestly and preserve human-authored notes.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E11",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M6.05",
+      "requirement": "Migrate legacy raw content and verify sanitized backup/restore; no app reinstall/reset.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E11",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M6.06",
+      "requirement": "Enforce Cerebras ZDR/data-collection-deny and verified STT retention capability; no silent incompatible provider fallback.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E11",
+      "supporting_steps": [
+        "E01"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M6.07",
+      "requirement": "Implement documented prepaid DNC adapter plus authorized snapshot import, freshness/coverage and seller authorization.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E05",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M6.07a",
+      "requirement": "Complete prepaid screening publication, current-source cache validation and recoverable uncertainty; exact phone/timestamp checks, strict results, seller isolation, budget denial and original liabilities pass both databases. Snapshot/background refresh and actual source/account certification remain separately open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E05",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M6.08",
+      "requirement": "Recheck national and local DNC for every US submission; queue background refresh and fail closed on unavailable data.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E05",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M6.09",
+      "requirement": "Enforce no subscription/new rental commitments, disclose existing obligations, and document PAYG prices/minimums/limits.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E05",
+      "supporting_steps": [
+        "E07"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M6.10",
+      "requirement": "Verify both modes without CRM/calendar credentials; no integration buttons, writes, invitations or synchronization.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E12",
+      "supporting_steps": [
+        "E03"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M7.01",
+      "requirement": "Capture versioned as-of features, outcome occurrence/availability and corrections from actual workflow events.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E08",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M7.02",
+      "requirement": "Fix delayed-label temporal leakage, grouping, censorship and preprocessing/calibration boundaries.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E08",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M7.02a",
+      "requirement": "Partition each funnel stage by observed outcome/label availability, embargo delayed windows, retain correction/retraction history and keep timestamp ties/entities separate. Per-stage audit cutoffs and sparse conditional fallback pass focused dual-database tests. Vocabulary/preprocessing changes and broader rolling backtests remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E08",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M7.03",
+      "requirement": "Keep pooled cold-start baselines and batch challengers; support missing data, evaluation, reviewed promotion and rollback.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E08",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M7.04",
+      "requirement": "Add evidence-backed open-ended conversation observations, bounded normalization and supported incremental feature evaluation.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E08",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M7.04a",
+      "requirement": "Persist reviewed open-ended observations, source/reviewer corrections, versioned name normalization and background, temporally separated association reports; expose supported correlations to future coaching without altering dialing policy. Both databases and review/normalization UI pass the October 18 conversation-learning receipts in STATUS.md. Incremental prior-call predictor evaluation and finite-strategy experiments remain M7.04/M7.05.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E08",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M7.05",
+      "requirement": "Connect observed strategy/help exposure and corrected feedback to future recommendations without fabricated propensities.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E08",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M7.06",
+      "requirement": "Preserve callbacks/coverage in learned time/retry/number scheduling; monitor drift and avoid starving difficult leads.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E06",
+      "supporting_steps": [
+        "E08"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M7.07",
+      "requirement": "Add campaign-goal change preview/migration and frozen historical reporting definitions. Explicit rep review protects reopened relationships; stale meaningful context conflicts while background preparation does not (October 18 learning/goal receipts in STATUS.md).",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E08",
+      "supporting_steps": [
+        "E03"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M7.08",
+      "requirement": "Correct actual rep-time and connected-duration collection; reconcile dashboard/report/export definitions.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E09",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M7.08a",
+      "requirement": "Capture heartbeat-supported working intervals, per-rep/device union, explicit pause/idle/logout, bounded verified call occupancy and audited corrections; collect source answer-to-end timing separately from human classification. Home/optimization share goal/window/denominator definitions and show support-aware pickup warnings. Focused dual-database and browser evidence is in STATUS.md; projection/export/trial-window reconciliation remains open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E09",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M7.08b",
+      "requirement": "Compute observed conversation timing with one sorted timeline, union overlapping same-side segments, count cross-side overlap once and exclude invalid timestamps/system audio. Independent interval-oracle, dual-database compatibility and isolated performance receipts are in STATUS.md. Full long-call scoring and mixed-load acceptance remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E02",
+      "supporting_steps": [
+        "E09"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M7.09",
+      "requirement": "Produce uncertainty-aware cohort/treatment/number/help reports with real cost and sample support.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E09",
+      "supporting_steps": [
+        "E08"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M7.10",
+      "requirement": "Keep feature comparison, replay usefulness and controlled outcome-lift evidence separate.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E13",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M8.01",
+      "requirement": "Finish first-run/provider/integration diagnostics, tasks/timeline/exception UX and keyboard/small-window accessibility.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E12",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M8.02",
+      "requirement": "Remove misleading checked-complete docs, unused settings, duplicate modules and placeholder connector/health states.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E12",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M8.03",
+      "requirement": "Complete local HTTPS ingress recipe and connected default deployment with always-on maintenance.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E12",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M8.04",
+      "requirement": "Verify secrets, scopes, registry refresh/import, suppression restoration, safe fetch and artifact ownership boundaries.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E11",
+      "supporting_steps": [
+        "E05",
+        "E04"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M8.04a",
+      "requirement": "Scope backups/restores to one seller, retain newer denials/audits and current authentication state, preserve business creation times, and fence restore release against changed journals, operator authority and carrier identity. Dual-database receipts are in STATUS.md. Complete disaster-recovery journals, effect/accounting preservation and installed-copy verification remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E11",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M8.04b",
+      "requirement": "Journal scoped consent withdrawals before acknowledgement, replay before startup/restore, preserve missing-denial holds across rollback and require durable repair before release. Stop affected capture/calls through the existing outbox and discard revoked late speech at receipt/publication. Dual-database receipts are in STATUS.md; off-host recovery, legacy journal migration and all-effect accounting preservation remain open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E11",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M8.04c",
+      "requirement": "Recover missing records without overwriting current effects, liabilities, receipts, human corrections, configuration or live claims. Preserve denial evidence from both sources, reject identity conflicts atomically and check unjournaled/new live outbound obligations before releasing the restore hold. Dual-database/browser receipts are in STATUS.md; full lost-store/off-host effect journaling remains open.",
+      "baseline_checked": true,
+      "execution_status": "retained-needs-revalidation",
+      "primary_step": "E11",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M8.05",
+      "requirement": "Run resumable upgrade/backfill/restore tests from actual installed-version copies and produce before/after identity hashes.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E11",
+      "supporting_steps": [
+        "E14"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M8.06",
+      "requirement": "Meet the measured performance/resource profile; document any explicit supported-capacity limit and remaining provider latency.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E13",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M8.07",
+      "requirement": "Complete independent recovery/code/AST review; verify every A-family and original requirement has implementation/evidence.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E13",
+      "supporting_steps": [
+        "E12"
+      ],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M8.08",
+      "requirement": "Freeze the product source and run the complete SQLite/PostgreSQL/frontend/native/security/build checks once.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E13",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "M9.01",
+      "requirement": "Build version-matched Mac ARM64 and Windows x64 artifacts from the accepted source and verify checksums/signatures/tamper rejection.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E14",
+      "supporting_steps": [],
+      "acceptance_gate": "native",
+      "receipts": [],
+      "verification_steps": [
+        "E14",
+        "E15"
+      ]
+    },
+    {
+      "id": "M9.02",
+      "requirement": "Exercise fresh supported machines without developer tools and the supported installer formats.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E14",
+      "supporting_steps": [],
+      "acceptance_gate": "native",
+      "receipts": [],
+      "verification_steps": [
+        "E14",
+        "E15"
+      ]
+    },
+    {
+      "id": "M9.03",
+      "requirement": "Update the existing Mac through its updater, preserve all data and use the installed native UI through both modes.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E14",
+      "supporting_steps": [],
+      "acceptance_gate": "native",
+      "receipts": [],
+      "verification_steps": [
+        "E14",
+        "E15"
+      ]
+    },
+    {
+      "id": "M9.04",
+      "requirement": "Prove actual Windows signed upgrade, updater completion and exact accepted backend bytes with preserved data/session.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E14",
+      "supporting_steps": [],
+      "acceptance_gate": "native",
+      "receipts": [],
+      "verification_steps": [
+        "E14",
+        "E15"
+      ]
+    },
+    {
+      "id": "M9.05",
+      "requirement": "Complete public publisher signing/notarization when credentials are available; otherwise label the deliverable preview explicitly.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E14",
+      "supporting_steps": [],
+      "acceptance_gate": "external",
+      "receipts": [],
+      "verification_steps": [
+        "E14",
+        "E15"
+      ]
+    },
+    {
+      "id": "M9.06",
+      "requirement": "Publish truthful release notes, rep/admin runbooks, software acceptance and distinct unavailable live gates.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E15",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E14",
+        "E15"
+      ]
+    },
+    {
+      "id": "M9.07",
+      "requirement": "Perform scoped cleanup, integrity/preflight, secret/artifact audit and clean committed/pushed Git verification.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E15",
+      "supporting_steps": [],
+      "acceptance_gate": "software",
+      "receipts": [],
+      "verification_steps": [
+        "E14",
+        "E15"
+      ]
+    },
+    {
+      "id": "X01",
+      "requirement": "Telnyx approved traffic, real authorized caller ID, bridge/bypass prevention, inbound callback and billing receipts.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E10",
+      "supporting_steps": [
+        "E14"
+      ],
+      "acceptance_gate": "external",
+      "receipts": [],
+      "verification_steps": []
+    },
+    {
+      "id": "X02",
+      "requirement": "Actual selected STT engine attribution/revisions and complete utterance-to-help timing on permitted calls.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E01",
+      "supporting_steps": [
+        "E02",
+        "E13"
+      ],
+      "acceptance_gate": "external",
+      "receipts": [],
+      "verification_steps": []
+    },
+    {
+      "id": "X03",
+      "requirement": "Funded Cerebras/OpenRouter route, streaming/quality/latency and settled usage under the advertised concurrency.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E01",
+      "supporting_steps": [
+        "E13"
+      ],
+      "acceptance_gate": "external",
+      "receipts": [],
+      "verification_steps": []
+    },
+    {
+      "id": "X04",
+      "requirement": "Actual prepaid DNC source access/freshness/authority and lookup charge reconciliation; no subscription activation.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E05",
+      "supporting_steps": [],
+      "acceptance_gate": "external",
+      "receipts": [],
+      "verification_steps": []
+    },
+    {
+      "id": "X05",
+      "requirement": "Selected STT and inference account retention terms/controls independently verified; no claim of provider deletion from local tests.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E11",
+      "supporting_steps": [],
+      "acceptance_gate": "external",
+      "receipts": [],
+      "verification_steps": []
+    },
+    {
+      "id": "X06",
+      "requirement": "Mac/Windows headset/microphone/NAT/Bluetooth/sleep/long-call hardware acceptance.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E14",
+      "supporting_steps": [],
+      "acceptance_gate": "external",
+      "receipts": [],
+      "verification_steps": []
+    },
+    {
+      "id": "X07",
+      "requirement": "Current seller data/policy approval and production host/DNS/TLS/backup operational acceptance where applicable.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E05",
+      "supporting_steps": [
+        "E11",
+        "E12"
+      ],
+      "acceptance_gate": "external",
+      "receipts": [],
+      "verification_steps": []
+    },
+    {
+      "id": "X08",
+      "requirement": "Representative real conversation review and adequately supported controlled pickup/conversion comparison if superiority is claimed.",
+      "baseline_checked": false,
+      "execution_status": "open",
+      "primary_step": "E08",
+      "supporting_steps": [
+        "E13"
+      ],
+      "acceptance_gate": "external",
+      "receipts": [],
+      "verification_steps": []
+    }
+  ],
+  "acceptance_families": [
+    {
+      "id": "A01",
+      "required_cases": "Existing local workspace migrates without losing IDs, human notes, suppressions, keys or pending obligations; interrupted backfill resumes",
+      "steps": [
+        "E11",
+        "E14"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_bootstrap_migration.py",
+        "services/backend/tests/test_migrations.py",
+        "services/backend/tests/test_encrypted_storage.py",
+        "services/backend/tests/test_remediation_privacy.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13",
+        "E14"
+      ]
+    },
+    {
+      "id": "A02",
+      "required_cases": "Local setup with no OpenDialer account works; sample data isolated; missing Telnyx/LLM/DNC does not produce fake readiness",
+      "steps": [
+        "E12",
+        "E05"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_operations.py",
+        "services/backend/tests/test_remediation_boundaries.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13",
+        "E14"
+      ]
+    },
+    {
+      "id": "A03",
+      "required_cases": "Shared login, role changes, session expiry and seller isolation; no direct endpoint/caller-ID override from renderer",
+      "steps": [
+        "E12",
+        "E10"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_connected_security.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13",
+        "E14"
+      ]
+    },
+    {
+      "id": "A04",
+      "required_cases": "Webhook accepted then processing crashes; retry within TTL processes once; restart/expiry explicitly reports unavailable raw content rather than claiming successful analysis",
+      "steps": [
+        "E10",
+        "E11"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_audit.py",
+        "services/backend/tests/test_remediation_privacy.py",
+        "services/backend/tests/test_webhook_completion.py",
+        "apps/desktop/tests/grounding.spec.ts"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A05",
+      "required_cases": "Duplicate/out-of-order events, event-ID payload conflict, late answer after end and missing terminal webhook reconcile correctly",
+      "steps": [
+        "E10"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_carrier_and_recovery.py",
+        "services/backend/tests/test_remediation_audit.py",
+        "services/backend/tests/test_webhook_completion.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A06",
+      "required_cases": "Every external command state is crashed before send, after send, before receipt persistence and during recovery; no permanent sending state or blind duplicate",
+      "steps": [
+        "E10"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_boundaries.py",
+        "services/backend/tests/test_carrier_and_recovery.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A07",
+      "required_cases": "Actual documented transcript-track shapes, unknown side, interim/final revision and engine-specific timestamps; corrected derived state invalidates",
+      "steps": [
+        "E02",
+        "E10"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_audit.py",
+        "services/backend/tests/test_remediation_privacy.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A08",
+      "required_cases": "Two reps/same endpoint, multiple campaigns, expired claims, opt-out racing a start and active detached obligations preserve all invariants",
+      "steps": [
+        "E10",
+        "E06"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_operations.py",
+        "services/backend/tests/test_carrier_and_recovery.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A09",
+      "required_cases": "Control/AI/DB outage, disconnect, desktop/authority restart and wake; audio controls remain responsive and orphan legs reconcile",
+      "steps": [
+        "E10",
+        "E14"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_control_event_loop.py",
+        "services/backend/tests/test_http_runtime.py",
+        "services/backend/tests/test_carrier_and_recovery.py",
+        "services/backend/tests/test_remediation_coach.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13",
+        "E14"
+      ]
+    },
+    {
+      "id": "A10",
+      "required_cases": "Final permitted attempt only, no early drop despite model/UI suggestion; monitored/detached mailbox, opt-out, late-human and restart gates remain.",
+      "steps": [
+        "E10"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_telephony_workflows.py",
+        "services/backend/tests/test_remediation_rep_workflow.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A11",
+      "required_cases": "Callback owner unavailable, teammate available, everyone busy, offline local machine and ambiguous caller; actual fallback plus durable task",
+      "steps": [
+        "E10",
+        "E12",
+        "E14"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_telephony_workflows.py",
+        "services/backend/tests/test_remediation_rep_workflow.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13",
+        "E14"
+      ]
+    },
+    {
+      "id": "A12",
+      "required_cases": "Inventory pagination/existing configuration changes, pending/partial orders, stale quote and denied budget; correct usable vs waiting capacity",
+      "steps": [
+        "E07",
+        "E06"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_boundaries.py",
+        "services/backend/tests/test_admin_completion.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A13",
+      "required_cases": "Purchase timeout, UI reload/retry and crash reconcile one logical intent; no new order key for uncertain work",
+      "steps": [
+        "E10",
+        "E07"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_audit.py",
+        "services/backend/tests/test_remediation_dnc_costs.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A14",
+      "required_cases": "General DID 80 shared across regions remains 80; usage/reservations/leases do not double debit or count twice",
+      "steps": [
+        "E06"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_audit.py",
+        "services/backend/tests/test_optimization_numbers.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A15",
+      "required_cases": "No history/no numbers/sparse regions/adequate existing pool; minimum proposal and assumptions clear; no automatic one-DID-per-area-code behavior",
+      "steps": [
+        "E06",
+        "E07"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_performance.py",
+        "services/backend/tests/test_optimization_numbers.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A16",
+      "required_cases": "Rep-limited vs DID-limited vs window-limited list; worked 240/180/140 example; ramp delay and future capacity correct",
+      "steps": [
+        "E06"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_performance.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A17",
+      "required_cases": "Small exhaustive allocation cases match the optimum; large heuristic reports bound/gap; stable IDs and incremental demand changes preserved",
+      "steps": [
+        "E06"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_performance.py",
+        "services/backend/tests/test_optimization_numbers.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A18",
+      "required_cases": "Location-aware initial binding, retries, unhealthy reassignment, old-number inbound retention, wrong seller and unknown geography",
+      "steps": [
+        "E06",
+        "E07"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_optimization_numbers.py",
+        "services/backend/tests/test_scheduling_and_numbers.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A19",
+      "required_cases": "Observed health has support/uncertainty; optional imported external labels retain source/time/null; account/country/ownership denial never produces green health.",
+      "steps": [
+        "E07"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_optimization_numbers.py",
+        "services/backend/tests/test_remediation_dnc_costs.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A20",
+      "required_cases": "No subscription/rental activation; prepaid per-request budget, no charged dashboard GET, duplicate/cache/uncertain accounting and existing recurring disclosure.",
+      "steps": [
+        "E05",
+        "E07",
+        "E10"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_dnc_costs.py",
+        "services/backend/tests/test_remediation_learning.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A21",
+      "required_cases": "PAYG DNC adapter exact response/phone/time validation, denied/empty credits/timeouts/malformed response all fail closed; no billing retry loop.",
+      "steps": [
+        "E05"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_dnc_costs.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A22",
+      "required_cases": "Unknown objection, paraphrase, negation, sarcasm, previous answer and changed facts produce contextual freeform help without card match",
+      "steps": [
+        "E01",
+        "E13"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_coach.py",
+        "services/backend/tests/test_remediation_audit.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A23",
+      "required_cases": "Proactive help without typing; fixed top strip and main script visible at small sizes; manual help secondary and available with muted tips.",
+      "steps": [
+        "E01",
+        "E03",
+        "E12"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_coach.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13",
+        "E14"
+      ]
+    },
+    {
+      "id": "A24",
+      "required_cases": "Valid novel wording passes; unsupported claim, invented price/relationship, contradiction and omitted assertion coverage fail or qualify appropriately",
+      "steps": [
+        "E01",
+        "E02",
+        "E04",
+        "E13"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_coach.py",
+        "services/backend/tests/test_remediation_boundaries.py",
+        "services/backend/tests/test_remediation_audit.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A25",
+      "required_cases": "Concurrent six-call latency case, per-call ordering, latest-turn coalescing, fairness, overload and no post-hangup/stale output",
+      "steps": [
+        "E01",
+        "E09",
+        "E13"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_http_runtime.py",
+        "services/backend/tests/test_remediation_audit.py",
+        "services/backend/tests/test_remediation_coach.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A26",
+      "required_cases": "Cerebras pin, wrong provider, unsupported schema, SSE error, truncation, refusal, timeout/rate limit/cancellation and billed discarded response",
+      "steps": [
+        "E01",
+        "E10"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_openrouter_coach.py",
+        "services/backend/tests/test_remediation_coach.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A27",
+      "required_cases": "Five-minute context buffer expiry retains derived needs/commitments/latest brief; corrections invalidate, no cross-seller leakage or persisted raw cache.",
+      "steps": [
+        "E02",
+        "E11"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_privacy.py",
+        "services/backend/tests/test_contextual_coaching.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13",
+        "E14"
+      ]
+    },
+    {
+      "id": "A28",
+      "required_cases": "Tips mute/pin/dismiss/usefulness, before/during/after-call advice, practice isolation and replay usefulness/distraction review",
+      "steps": [
+        "E03",
+        "E13"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_boundaries.py",
+        "services/backend/tests/test_contextual_coaching.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A29",
+      "required_cases": "Research wrong company/stale source/SSRF/prompt injection, supported claims, all-field personalization and truthful fallback",
+      "steps": [
+        "E04"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_fetch_boundaries.py",
+        "services/backend/tests/test_research_and_jobs.py",
+        "services/backend/tests/test_remediation_boundaries.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A30",
+      "required_cases": "Advance/batched/off-hours template filling, gatekeeper/iPhone sections, readiness runway, wake catch-up, partial retry/cache/single-flight and post-call refresh.",
+      "steps": [
+        "E04",
+        "E03"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_batch_workflow.py",
+        "services/backend/tests/test_remediation_rep_workflow.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A31",
+      "required_cases": "No fabricated training history; cold priors with unknown health; provisional vs confirmed outcomes; wrong-party/screening/voicemail distinct",
+      "steps": [
+        "E08"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_optimization_learning.py",
+        "services/backend/tests/test_remediation_rep_workflow.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A32",
+      "required_cases": "Delayed label availability, censored windows, grouped chronological splits, fitted preprocessing and correction/retraction prevent leakage",
+      "steps": [
+        "E08"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_audit.py",
+        "services/backend/tests/test_optimization_learning.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A33",
+      "required_cases": "Sparse conditional classes, model rollback, corrupted/unowned artifacts, batched prediction and artifact hashing only on load",
+      "steps": [
+        "E08"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_model_serving_bounds.py",
+        "services/backend/tests/test_adaptive_model.py",
+        "services/backend/tests/test_remediation_learning.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A34",
+      "required_cases": "Conversation observation normalization, evidence/versioning, rare-pattern controls, feedback vs outcomes, true finite-strategy propensities",
+      "steps": [
+        "E08",
+        "E02"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_learning.py",
+        "services/backend/tests/test_optimization_learning.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A35",
+      "required_cases": "Coverage and promised callbacks win over ranking; hard leads retained; time zones/DST and goal-change migration preserve holds",
+      "steps": [
+        "E06",
+        "E08",
+        "E03"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_policy.py",
+        "services/backend/tests/test_remediation_learning.py",
+        "services/backend/tests/test_remediation_audit.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A36",
+      "required_cases": "Post-call finality/disposition races, quick vs final analysis, contradictory quotes and source-version invalidation",
+      "steps": [
+        "E02",
+        "E03"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_audit.py",
+        "services/backend/tests/test_remediation_privacy.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A37",
+      "required_cases": "Exact date retained, vague window preserved, missing zone/DST ambiguity asks clarification; confirm/reschedule/snooze/cancel one task",
+      "steps": [
+        "E03"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_rep_workflow.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A38",
+      "required_cases": "Rep-reported booked/held/no-show/canceled/rescheduled with holds; no calendar API or invitations, no inferred attendance.",
+      "steps": [
+        "E03"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_rep_workflow.py",
+        "services/backend/tests/test_remediation_learning.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A39",
+      "required_cases": "AI revision preserves human edits; all rubric dimensions validated; N/A/missing/duplicate dimensions and short irrelevant calls handled",
+      "steps": [
+        "E02",
+        "E03"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_rep_workflow.py",
+        "services/backend/tests/test_remediation_audit.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A40",
+      "required_cases": "Every US outbound attempt: internal DNC first, authoritative national snapshot or fresh authorized provider result, seller coverage/freshness; no unverified exemption or missing-data clearance.",
+      "steps": [
+        "E05",
+        "E10"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_registry_hotpath.py",
+        "services/backend/tests/test_remediation_dnc_costs.py",
+        "services/backend/tests/test_policy.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A41",
+      "required_cases": "Raw transcript/revision/webhook/model content expires within 300 seconds, including DB/events/jobs/logs/frontend/caches/backup/export; restart cannot extend TTL.",
+      "steps": [
+        "E11",
+        "E02"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_privacy.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13",
+        "E14"
+      ]
+    },
+    {
+      "id": "A42",
+      "required_cases": "Legacy update removes raw machine content/recording URLs while preserving IDs, human notes, suppressions and allowed derived state; backup contains no raw content.",
+      "steps": [
+        "E11",
+        "E14"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_privacy.py",
+        "services/backend/tests/test_migrations.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13",
+        "E14"
+      ]
+    },
+    {
+      "id": "A43",
+      "required_cases": "No recording-start command, no CRM/calendar write/sync/invitation, no raw transcript export/archive; local rep-confirmed meeting/follow-up works.",
+      "steps": [
+        "E11",
+        "E03",
+        "E12"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_privacy.py",
+        "services/backend/tests/test_remediation_rep_workflow.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13",
+        "E14"
+      ]
+    },
+    {
+      "id": "A44",
+      "required_cases": "Provider ZDR/Cerebras-only/data-collection-deny contract; unavailable privacy capability prevents raw inference; diagnostics preserve metadata only.",
+      "steps": [
+        "E01",
+        "E11"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_coach.py",
+        "services/backend/tests/test_remediation_boundaries.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13",
+        "E14"
+      ]
+    },
+    {
+      "id": "A45",
+      "required_cases": "Complete local journey: import → prepare → call/help → commitment → dated task → restart → next-call context → corrected outcome",
+      "steps": [
+        "E03",
+        "E04",
+        "E05",
+        "E12",
+        "E14"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_operations.py",
+        "services/backend/tests/test_remediation_rep_workflow.py",
+        "services/backend/tests/test_workspace_pages.py",
+        "apps/desktop/tests/workspace-pages.spec.ts"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13",
+        "E14"
+      ]
+    },
+    {
+      "id": "A46",
+      "required_cases": "Connected two-rep journey with local tasks/handoff/corrections/ephemeral speech and provider failures; no external CRM/calendar dependency.",
+      "steps": [
+        "E03",
+        "E10",
+        "E12",
+        "E14"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_connected_security.py",
+        "services/backend/tests/test_remediation_rep_workflow.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13",
+        "E14"
+      ]
+    },
+    {
+      "id": "A47",
+      "required_cases": "Dashboard/report/export definitions agree; support-aware connect-rate/health warnings and numeric/natural-language prospect brief update without invented score.",
+      "steps": [
+        "E09",
+        "E08",
+        "E03",
+        "E07"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_learning.py",
+        "services/backend/tests/test_remediation_rep_workflow.py",
+        "services/backend/tests/test_optimization_completion.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A48",
+      "required_cases": "Rep working interval union, breaks/idle/two devices, corrected intervals and missing data; connected duration excludes ringing",
+      "steps": [
+        "E09"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_learning.py",
+        "services/backend/tests/test_remediation_rep_workflow.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A49",
+      "required_cases": "Inference reservations/settlement/unknown charges/duplicates and multi-leg billing; optional budgets cannot block hangup/recovery",
+      "steps": [
+        "E10",
+        "E05",
+        "E01",
+        "E09"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_learning.py",
+        "services/backend/tests/test_remediation_audit.py",
+        "services/backend/tests/test_request_accounting.py",
+        "services/backend/tests/test_billing_resolution.py",
+        "apps/desktop/tests/billing-resolution.spec.ts"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A50",
+      "required_cases": "503-lead repeat plus scaling/load profiles; constant bounded query counts, no global fences, no full-history decryption on hot paths",
+      "steps": [
+        "E09",
+        "E06",
+        "E08",
+        "E13"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_control_history.py",
+        "services/backend/tests/test_registry_hotpath.py",
+        "services/backend/tests/test_model_serving_bounds.py",
+        "services/backend/tests/test_remediation_performance.py",
+        "services/backend/tests/test_remediation_boundaries.py",
+        "services/backend/tests/test_workspace_pages.py",
+        "apps/desktop/tests/workspace-pages.spec.ts"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A51",
+      "required_cases": "Reports read projections, freshness exposed, correction replay; default deployment runs maintenance without training profile",
+      "steps": [
+        "E09",
+        "E12"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_remediation_performance.py",
+        "services/backend/tests/test_remediation_boundaries.py",
+        "services/backend/tests/test_workspace_pages.py",
+        "apps/desktop/tests/workspace-pages.spec.ts"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    },
+    {
+      "id": "A52",
+      "required_cases": "Native Mac/Windows UI, keyboard/small-window/accessibility controls, hardware/reconnect/sleep tests where available",
+      "steps": [
+        "E12",
+        "E14"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_operations.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13",
+        "E14"
+      ]
+    },
+    {
+      "id": "A53",
+      "required_cases": "Signed real upgrade from installed baseline, exact backend hash, data/session continuity, tamper rejection and owned-process cleanup",
+      "steps": [
+        "E14",
+        "E11"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_migrations.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13",
+        "E14"
+      ]
+    },
+    {
+      "id": "A54",
+      "required_cases": "Backup/restore and journal reconciliation, wrong key, corrupt data, disk full, retention/export restrictions and secret-free diagnostics",
+      "steps": [
+        "E11",
+        "E10"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_encrypted_storage.py",
+        "services/backend/tests/test_remediation_privacy.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13",
+        "E14"
+      ]
+    },
+    {
+      "id": "A55",
+      "required_cases": "Fresh installer on supported OS without developer tools; provider setup, missing entitlement and revocation all actionable",
+      "steps": [
+        "E12",
+        "E14"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_admin_completion.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13",
+        "E14"
+      ]
+    },
+    {
+      "id": "A56",
+      "required_cases": "Frozen feature comparison and reviewed real-call evaluation; no synthetic lift/provider claim substituted for real evidence",
+      "steps": [
+        "E13",
+        "E08"
+      ],
+      "retained_test_files": [
+        "services/backend/tests/test_optimization_completion.py",
+        "services/backend/tests/test_coach_replay.py"
+      ],
+      "execution_status": "open",
+      "receipts": [],
+      "verification_steps": [
+        "E13"
+      ]
+    }
+  ],
+  "audit_findings": [
+    {
+      "id": "OD-01",
+      "finding": "transcript lost after failed processing",
+      "repair": "Separate durable receipt from processed state; atomic normalized output plus completion; retry unfinished receipt",
+      "existing_acceptance": "A04, A05, M1.01",
+      "source_locations": "`main.py` webhook path, event inbox and transcript reducer",
+      "steps": [
+        "E10",
+        "E11"
+      ],
+      "receipts": []
+    },
+    {
+      "id": "OD-02",
+      "finding": "control action stuck sending",
+      "repair": "Leases/fencing/recovery for all command types; reconcile ambiguous provider effects",
+      "existing_acceptance": "A06, A09, M1.04",
+      "source_locations": "`telephony/workflows.py`, command outbox/job runner",
+      "steps": [
+        "E10"
+      ],
+      "receipts": []
+    },
+    {
+      "id": "OD-03",
+      "finding": "documented speaker track ignored",
+      "repair": "Normalize `transcription_data.transcription_track` and engine variants, retain unknown attribution",
+      "existing_acceptance": "A07, M1.02, X02",
+      "source_locations": "`providers/telnyx.py`, transcript contracts",
+      "steps": [
+        "E10",
+        "E02"
+      ],
+      "receipts": []
+    },
+    {
+      "id": "OD-04",
+      "finding": "uncertain purchase resubmitted",
+      "repair": "Durable proposal/purchase intent shared by UI and backend; stable retry key and order reconciliation",
+      "existing_acceptance": "A12, A13, M1.05",
+      "source_locations": "purchase API/service, `Operations.tsx`, Telnyx orders",
+      "steps": [
+        "E10",
+        "E07"
+      ],
+      "receipts": []
+    },
+    {
+      "id": "OD-05",
+      "finding": "ended agent revived",
+      "repair": "Explicit monotonic terminal reducer with late-event receipts; never reacquire rep from stale answer",
+      "existing_acceptance": "A05, M1.03",
+      "source_locations": "call/agent reducers in `telephony/workflows.py`",
+      "steps": [
+        "E10"
+      ],
+      "receipts": []
+    },
+    {
+      "id": "OD-06",
+      "finding": "general DID counted twice",
+      "repair": "One shared inventory/time capacity ledger with assignments conserved across regions",
+      "existing_acceptance": "A14–A18, M4.02",
+      "source_locations": "`optimization/numbering.py`, forecast/proposal paths",
+      "steps": [
+        "E06"
+      ],
+      "receipts": []
+    },
+    {
+      "id": "OD-07",
+      "finding": "coach serial across calls",
+      "repair": "Bounded concurrent network tasks; per-call order; coalesce obsolete work and fair admission",
+      "existing_acceptance": "A25, M3.05",
+      "source_locations": "`intelligence.py:run_jobs`, live worker/queue",
+      "steps": [
+        "E01",
+        "E09"
+      ],
+      "receipts": []
+    },
+    {
+      "id": "OD-08",
+      "finding": "scans and broad locks",
+      "repair": "Indexed operational reads, batched context/model scoring, projected reports and short resource-scoped claims",
+      "existing_acceptance": "A50, A51, M2",
+      "source_locations": "`db.py`, `service.py:reserve`, `optimization/workflows.py`",
+      "steps": [
+        "E09",
+        "E06"
+      ],
+      "receipts": []
+    },
+    {
+      "id": "OD-09",
+      "finding": "negation treated as resolved",
+      "repair": "Remove regex as semantic truth; contextual model interpretation and quoted unresolved state",
+      "existing_acceptance": "A22, A24, M3.02",
+      "source_locations": "`coaching/context.py`, live prompts",
+      "steps": [
+        "E01",
+        "E02"
+      ],
+      "receipts": []
+    },
+    {
+      "id": "OD-10",
+      "finding": "delayed labels cross time boundary",
+      "repair": "Store label availability, as-of snapshots and purge/embargo; fit preprocessing/calibration only on proper periods",
+      "existing_acceptance": "A32, M7.02",
+      "source_locations": "`ml/training.py`, `optimization/learning.py`",
+      "steps": [
+        "E08"
+      ],
+      "receipts": []
+    },
+    {
+      "id": "OD-11",
+      "finding": "valid quote supports false summary",
+      "repair": "Assertion coverage and contradiction checks; uncertain output qualified; reviewed adversarial meaning tests",
+      "existing_acceptance": "A24, A36, M5.02",
+      "source_locations": "`postcall/inference.py`, analysis publication",
+      "steps": [
+        "E02",
+        "E01"
+      ],
+      "receipts": []
+    },
+    {
+      "id": "OD-12",
+      "finding": "personalization bypasses claims",
+      "repair": "Validate actual generated fields and all factual assertions, not only generator-supplied claims list",
+      "existing_acceptance": "A24, A29, M5.01",
+      "source_locations": "preparation/script validation in `intelligence.py`",
+      "steps": [
+        "E04"
+      ],
+      "receipts": []
+    },
+    {
+      "id": "OD-13",
+      "finding": "scores stale after correction",
+      "repair": "Version invalidation graph for scores/notes/trackers/features/pending actions, preserving human work",
+      "existing_acceptance": "A07, A36, A39, M5.07",
+      "source_locations": "transcript correction API, analysis/score publication",
+      "steps": [
+        "E02",
+        "E03",
+        "E08"
+      ],
+      "receipts": []
+    },
+    {
+      "id": "OD-14",
+      "finding": "incomplete rubric shows full coverage",
+      "repair": "Validate unique complete configured dimension set; explicit N/A/insufficient; correct coverage denominator",
+      "existing_acceptance": "A39, M5.07",
+      "source_locations": "`postcall/analysis.py`, inference schema, review UI",
+      "steps": [
+        "E02",
+        "E03"
+      ],
+      "receipts": []
+    },
+    {
+      "id": "OD-15",
+      "finding": "changed goal leaves old closure",
+      "repair": "Version goal policy, preview/migrate affected future eligibility; preserve past trial and stronger holds",
+      "existing_acceptance": "A35, A47, M7.07",
+      "source_locations": "`optimization/api.py`, goal reconciliation",
+      "steps": [
+        "E08",
+        "E03"
+      ],
+      "receipts": []
+    },
+    {
+      "id": "OD-16",
+      "finding": "actual usage leaves hold reserved",
+      "repair": "Link each attempt receipt to its hold and settle delta; retain only true uncertainty, handle duplicates/credits",
+      "existing_acceptance": "A49, M1.06",
+      "source_locations": "usage ledger, provider request boundary",
+      "steps": [
+        "E10",
+        "E01"
+      ],
+      "receipts": []
+    },
+    {
+      "id": "OD-17",
+      "finding": "rep-hour is attempt elapsed time",
+      "repair": "Record actual work interval union; separate per-attempt proxy; use connected timing for short-call health",
+      "existing_acceptance": "A48, M7.08",
+      "source_locations": "`administration.py`, metric projections, presence/call events",
+      "steps": [
+        "E09"
+      ],
+      "receipts": []
+    }
+  ],
+  "original_sections": [
+    {
+      "id": 1,
+      "title": "Executive decisions",
+      "accepted_scope": "Same desktop/control/media split and outcome objectives; local mode and simpler runtime in §§1–4; Cerebras replaces Groq",
+      "steps": [
+        "E12",
+        "E03"
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Technology boundaries",
+      "accepted_scope": "Real stat ML, evidence-linked intelligence, no emotion/personality claims, no borrowed proprietary data in §§7–9, 16–17",
+      "steps": [
+        "E08",
+        "E01"
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Hosting/budget",
+      "accepted_scope": "Small deployment, resource/load measurement, outage/backup recovery in §§3, 16, 18–19; refresh vendor prices before choosing hosting",
+      "steps": [
+        "E12",
+        "E13"
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Trust boundaries",
+      "accepted_scope": "Scoped credentials, backend authority, media bypass, seller separation and native gates in §§3, 5, 17, 19",
+      "steps": [
+        "E10",
+        "E11",
+        "E12"
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Desktop product",
+      "accepted_scope": "Full rep/review/admin surfaces, prior-call context and helpers in §§6–7, 12–15",
+      "steps": [
+        "E03",
+        "E12"
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Schema/invariants",
+      "accepted_scope": "IDs/time zones, durable events, claims, human corrections and encrypted/indexed data in §§4–5, 12–13",
+      "steps": [
+        "E02",
+        "E09",
+        "E10",
+        "E11"
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Endpoint/permission controls",
+      "accepted_scope": "Normalization, evidence states, registry freshness, suppressions, RND capability, separate permissions in §17",
+      "steps": [
+        "E05",
+        "E10",
+        "E12"
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Research/scripts",
+      "accepted_scope": "Bounded discovery, safe fetch, caching, provenance, complete claims validation, role adapters/Batch limitations in §§8, 12, 17",
+      "steps": [
+        "E04"
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Numbers/reputation/callbacks",
+      "accepted_scope": "Existing inventory, minimum viable procurement, legitimate ramp, Telnyx observed health and honest external-label availability and actual callback fallback in §§10–11, 14",
+      "steps": [
+        "E06",
+        "E07",
+        "E10",
+        "E12"
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Scheduling/ML",
+      "accepted_scope": "As-of features, pooled baseline, challenger, exploration, censored labels, coverage and trials in §§9–10, 16",
+      "steps": [
+        "E06",
+        "E08"
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Call control",
+      "accepted_scope": "Linked legs, ready rep, explicit identity, state ordering, policy rechecks, cost/traffic validation in §§5, 17, 19",
+      "steps": [
+        "E10"
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Voicemail",
+      "accepted_scope": "Permission, exact topology, mailbox readiness, independently tracked leg, recovery and valid outcome measurement in §5.4",
+      "steps": [
+        "E10"
+      ]
+    },
+    {
+      "id": 13,
+      "title": "Speech/state",
+      "accepted_scope": "Track/finality/revision normalization, uncertain attribution and compact versioned context in §§5–6",
+      "steps": [
+        "E01",
+        "E02",
+        "E11"
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Live coaching",
+      "accepted_scope": "Replaced by contextual freeform Cerebras helper, bounded concurrency, manual help and truthful grounding in §§6–7",
+      "steps": [
+        "E01",
+        "E03"
+      ]
+    },
+    {
+      "id": 15,
+      "title": "Post-call intelligence",
+      "accepted_scope": "Notes, evidence, metrics, trackers, rubrics, human edits and cross-call memory plus real task execution in §§7, 12–16",
+      "steps": [
+        "E02",
+        "E03",
+        "E08"
+      ]
+    },
+    {
+      "id": 16,
+      "title": "APIs/jobs/providers",
+      "accepted_scope": "Small typed contracts, leases, idempotency, scoped live events and capability-specific adapters in §§4–6, 12–13 and §23.3",
+      "steps": [
+        "E09",
+        "E10",
+        "E12"
+      ]
+    },
+    {
+      "id": 17,
+      "title": "Build/deploy",
+      "accepted_scope": "Existing stack, tested dependency pins, one local process, compact connected composition and simple onboarding in §§3, 18–19",
+      "steps": [
+        "E12",
+        "E14"
+      ]
+    },
+    {
+      "id": 18,
+      "title": "Security/privacy",
+      "accepted_scope": "Secrets/scopes, minimization, prompt injection, retention, audited overrides and signed updates in §§17, 19",
+      "steps": [
+        "E11",
+        "E12",
+        "E14"
+      ]
+    },
+    {
+      "id": 19,
+      "title": "Costs",
+      "accepted_scope": "Unified actual/estimated/uncertain accounting including excluded recurring costs and two-leg billing in §§4.4, 11.3, 16.3",
+      "steps": [
+        "E05",
+        "E10",
+        "E09"
+      ]
+    },
+    {
+      "id": 20,
+      "title": "Implementation gates",
+      "accepted_scope": "Test-first ordered milestones M0–M9 with separate provider/hardware gates in §§20–21",
+      "steps": [
+        "E00",
+        "E13",
+        "E14",
+        "E15"
+      ]
+    },
+    {
+      "id": 21,
+      "title": "Test matrix",
+      "accepted_scope": "All original cases retained and expanded to the A01–A56 catalogue, crash/property/native/load/semantic checks in §20",
+      "steps": [
+        "E00",
+        "E13"
+      ]
+    },
+    {
+      "id": 22,
+      "title": "Metrics/success",
+      "accepted_scope": "Unique whole-cohort reach, actual rep time, conversions, cost and customer experience in §16",
+      "steps": [
+        "E08",
+        "E09",
+        "E13"
+      ]
+    },
+    {
+      "id": 23,
+      "title": "Account validation",
+      "accepted_scope": "Real Telnyx/STT/LLM/DNC/hosting/policy/device receipts in X01–X08; no simulated substitution",
+      "steps": [
+        "E13",
+        "E14",
+        "E15"
+      ]
+    },
+    {
+      "id": 24,
+      "title": "Sources",
+      "accepted_scope": "Preserve historical source register; fresh relevant documentation and implementation evidence in §24",
+      "steps": [
+        "E15"
+      ]
+    }
+  ],
+  "architecture_followups": [
+    {
+      "id": "AR01",
+      "finding": "Shared inherited service coupling",
+      "step": "E12"
+    },
+    {
+      "id": "AR02",
+      "finding": "Recent-window-only post-call request omits earlier memory",
+      "step": "E02"
+    },
+    {
+      "id": "AR03",
+      "finding": "Aggregate and staffed forecasts have different demand meanings",
+      "step": "E06"
+    },
+    {
+      "id": "AR04",
+      "finding": "Background full-history computation and planning inside writes",
+      "step": "E09"
+    },
+    {
+      "id": "AR05",
+      "finding": "Lexical live-claim validation and missing review lifecycle",
+      "step": "E01"
+    },
+    {
+      "id": "AR06",
+      "finding": "Homepage-only research and incomplete prepared throughput",
+      "step": "E04"
+    },
+    {
+      "id": "AR07",
+      "finding": "Snapshot-only preflight conflicts with prepaid authorization",
+      "step": "E05"
+    },
+    {
+      "id": "AR08",
+      "finding": "Conversation observations not yet evaluated in predictor/strategy loop",
+      "step": "E08"
+    },
+    {
+      "id": "AR09",
+      "finding": "New Mac and Windows remediation updates not delivered",
+      "step": "E14"
+    },
+    {
+      "id": "AR10",
+      "finding": "Queue can claim leased work beyond active capacity",
+      "step": "E09"
+    },
+    {
+      "id": "AR11",
+      "finding": "Unconditional eight-second gate conflicts with guidance target",
+      "step": "E01"
+    },
+    {
+      "id": "AR12",
+      "finding": "Outcome label consolidation must avoid existing import cycle",
+      "step": "E08"
+    },
+    {
+      "id": "AR13",
+      "finding": "Installed local runtime port changes each launch; fixed-port webhook recipe cannot provide continuity",
+      "step": "E12"
+    },
+    {
+      "id": "AR14",
+      "finding": "Pinned installed updater requires public latest manifest before actual upgrade acceptance",
+      "step": "E14"
+    }
+  ],
+  "planned_case_groups": [
+    {
+      "id": "C001",
+      "step": "E01",
+      "planned_node": "services/backend/tests/test_live_claim_review.py::test_complete_field_audit",
+      "expected": "Suggestion, reason, alternative and implied premise each receive a current source-bound verdict; unsupported fields cannot stream.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C002",
+      "step": "E01",
+      "planned_node": "services/backend/tests/test_coach_admission.py::test_prospect_debounce_and_rate_limit",
+      "expected": "300-ms debounce admits latest prospect context without an eight-second wait; rep-only refresh remains paced; every limited opportunity counted.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C003",
+      "step": "E01",
+      "planned_node": "services/backend/tests/test_helper_progress.py::test_review_cost_cancellation",
+      "expected": "Generation/review have distinct ledger keys; source change or cancel withholds output and preserves submitted liability.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C004",
+      "step": "E01",
+      "planned_node": "services/backend/tests/test_coach_stream.py::test_reviewed_progress_identity",
+      "expected": "Complete reviewed primary field may display; partial factual field may not; conflicting receipt withdraws exactly one card.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C005",
+      "step": "E02",
+      "planned_node": "services/backend/tests/test_conversation_finalization.py::test_early_context_survives_ttl",
+      "expected": "Twelve-minute call keeps minute-one derived need/promise after raw expiry and finalizes without an OpenAI key.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C006",
+      "step": "E02",
+      "planned_node": "services/backend/tests/test_conversation_finalization.py::test_merge_correction_and_missing_source",
+      "expected": "Omitted item is not resolved; correction invalidates dependants; expired evidence yields partial rather than invented replacement.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C007",
+      "step": "E02",
+      "planned_node": "services/backend/tests/test_call_rubrics.py::test_complete_rubric_once_per_call",
+      "expected": "Each frozen dimension has scored/N-A/insufficient state; chunks are not independent calls; coverage denominator is exact.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C008",
+      "step": "E02",
+      "planned_node": "services/backend/tests/test_tracker_publication.py::test_reviewed_state_sources",
+      "expected": "Unknown speaker, foreign IDs, reference cycles and stale review cannot publish confirmed trackers or commitments.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C009",
+      "step": "E03",
+      "planned_node": "services/backend/tests/test_completion_journeys.py::test_full_rep_journey_both_authorities",
+      "expected": "Import through next call, early callback, correction, restart, booking hold and cancellation yields one preserved task in local and real PostgreSQL modes.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C010",
+      "step": "E03",
+      "planned_node": "services/backend/tests/test_local_followthrough.py::test_callback_identity_and_alias",
+      "expected": "Lost response and repeated wrap-up resolve one canonical task; conflicting human-edited legacy duplicates remain explicit exceptions.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C011",
+      "step": "E03",
+      "planned_node": "services/backend/tests/test_local_followthrough.py::test_callback_time_and_snooze",
+      "expected": "Exact zoned date schedules; vague/missing-zone/DST fold requires confirmation; snooze never rewrites promised window.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C012",
+      "step": "E03",
+      "planned_node": "services/backend/tests/test_goal_reconciliation.py::test_rep_meeting_hold_lifecycle",
+      "expected": "Booked/rescheduled holds; held evidence explicit; no-show/canceled require selected next action; no calendar/network write.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C013",
+      "step": "E03",
+      "planned_node": "services/backend/tests/test_coaching_library.py::test_practice_and_rep_opportunity_limits",
+      "expected": "At most 20 reviewed opportunities and three goals; practice has no call outcome, training label or durable raw content.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C014",
+      "step": "E04",
+      "planned_node": "services/backend/tests/test_preparation_discovery.py::test_official_discovery_bounds",
+      "expected": "Fact on services page succeeds; wrong-company/private redirect and injected instructions cannot; three pages/two optional searches/byte cap enforced.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C015",
+      "step": "E04",
+      "planned_node": "services/backend/tests/test_preparation_completion.py::test_bounded_parallel_preparation",
+      "expected": "Shared HTTP/company/script limits hold with 100 queued leads; two failures preserve other results; controls stay responsive.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C016",
+      "step": "E04",
+      "planned_node": "services/backend/tests/test_preparation_completion.py::test_runway_window_wake",
+      "expected": "Prepared count uses eligible inspected horizon; off-hours DST and one wake catch-up; no paid work when target satisfied.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C017",
+      "step": "E04",
+      "planned_node": "services/backend/tests/test_preparation_batch_completion.py::test_original_batch_partial_recovery",
+      "expected": "Same provider/custom IDs; only missing outputs requeued; each novel field reviewed once at its source version.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C018",
+      "step": "E05",
+      "planned_node": "services/backend/tests/test_screening_readiness.py::test_prepaid_preflight_authorization_agree",
+      "expected": "Authorized cached prepaid-only endpoint can be ready; configured key without source/coverage cannot; preflight and dial agree.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C019",
+      "step": "E05",
+      "planned_node": "services/backend/tests/test_screening_refresh.py::test_bounded_paid_refresh",
+      "expected": "Two workers yield one submission; 500-row cursor resumes; opt-outs excluded; unknown charge prevents automatic repeat.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C020",
+      "step": "E05",
+      "planned_node": "services/backend/tests/test_registry_hotpath.py::test_npa_chunk_country_bound",
+      "expected": "500 NPA chunks require only relevant membership decode within LRU; atomic publication/expiry fences survive replacement.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C021",
+      "step": "E05",
+      "planned_node": "services/backend/tests/test_operating_validation.py::test_literal_cost_privacy_constraints",
+      "expected": "Settings merge cannot enable subscription/recording or longer raw retention; rates differ from actual charges; no paid GET.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C022",
+      "step": "E06",
+      "planned_node": "services/backend/tests/test_unified_planning.py::test_same_availability_same_demand",
+      "expected": "Simple and named equivalent windows normalize identically; anonymous capacity cannot satisfy owned callback or double staff.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C023",
+      "step": "E06",
+      "planned_node": "services/backend/tests/test_unified_planning.py::test_conservation_known_and_contingent",
+      "expected": "80 general attempts remain 80 across regions; reservation-to-attempt replacement once; uncertain retries stay separate scenarios.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C024",
+      "step": "E06",
+      "planned_node": "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle",
+      "expected": "Independent exhaustive tiny fixtures match assignment/count; larger heuristic reports valid lower bound/gap and search budget.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C025",
+      "step": "E06",
+      "planned_node": "services/backend/tests/test_unified_planning.py::test_staffing_binding_and_time_constraints",
+      "expected": "240/180/140 fixture, unequal durations, DST, pending setup, detached legs and stable bound-at-limit explain distinct shortfalls.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C026",
+      "step": "E07",
+      "planned_node": "services/backend/tests/test_number_reconciliation.py::test_inventory_and_route_proof",
+      "expected": "Incomplete pagination never deletes ownership; changed configuration invalidates callback evidence; partial order stays pending.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C027",
+      "step": "E07",
+      "planned_node": "services/backend/tests/test_optimization_numbers.py::test_health_support_and_case_mix",
+      "expected": "Sparse observations stay unknown; mix shifts do not imply spam; sustained comparable residual/drop triggers supported investigation.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C028",
+      "step": "E07",
+      "planned_node": "services/backend/tests/test_number_orders.py::test_no_new_rental_or_reputation",
+      "expected": "Purchase/enrollment denied before provider call; old order retains original reconciliation identity.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C029",
+      "step": "E07",
+      "planned_node": "services/backend/tests/test_scheduling_and_numbers.py::test_stable_identity_and_reassignment",
+      "expected": "Healthy retries retain identity; approved health change retains inbound old number and invalidates capacity proposal.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C030",
+      "step": "E08",
+      "planned_node": "services/backend/tests/test_optimization_learning.py::test_nullable_labels_and_pooled_counts",
+      "expected": "Zero/few data use displayed priors; unknown role/failure excluded correctly; leave-cell-out pooling and circular hour formula match independent arithmetic.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C031",
+      "step": "E08",
+      "planned_node": "services/backend/tests/test_learning_chronology.py::test_rolling_asof_entity_embargo",
+      "expected": "Future/corrected labels, overlapping outcomes, timestamp ties and shared entity cannot leak across training/calibration/evaluation.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C032",
+      "step": "E08",
+      "planned_node": "services/backend/tests/test_conversation_features.py::test_prior_observation_features_only",
+      "expected": "Training-only bounded vocabulary; current/future call or unreviewed observation excluded; missing is not absent; ablation uses same rows.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C033",
+      "step": "E08",
+      "planned_node": "services/backend/tests/test_strategy_exposure.py::test_finite_strategy_assignment",
+      "expected": "Stable approved arms, actual allowed set/mixture probability, display-use distinction and matured reward; no invented sentence propensity.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C034",
+      "step": "E08",
+      "planned_node": "services/backend/tests/test_model_serving_bounds.py::test_v1_v2_model_compatibility",
+      "expected": "Owned checksummed artifacts retain original vectorizer; stages without support fall back; baseline imports no scientific stack.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C035",
+      "step": "E09",
+      "planned_node": "services/backend/tests/test_incremental_metrics.py::test_contribution_replay_oracle",
+      "expected": "Corrections/deletions/maturity/credits produce exact independent batch-oracle totals; unique leads and rep-day union not double counted.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C036",
+      "step": "E09",
+      "planned_node": "services/backend/tests/test_projection_replay.py::test_rebuild_churn_and_atomic_publish",
+      "expected": "Inactive namespace and cursor resume; concurrent dirty generations replay; same version no-op; old consistent snapshot remains available.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C037",
+      "step": "E09",
+      "planned_node": "services/backend/tests/test_job_admission.py::test_claim_only_running_capacity",
+      "expected": "More pending jobs than slots cannot expire while unstarted; heartbeat on actual claim; two workers do not execute one paid job twice.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C038",
+      "step": "E09",
+      "planned_node": "services/backend/tests/test_report_scaling.py::test_bounded_normal_reads_and_short_writes",
+      "expected": "GET/selection use scoped indexes and projections; no history-sized decryptions/global advisory lock/planning in writer.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C039",
+      "step": "E10",
+      "planned_node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases",
+      "expected": "Each E10 operation times each five crash boundaries has original identity, fenced owner, cost state and meaningful next action; no blind repeat.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C040",
+      "step": "E10",
+      "planned_node": "services/backend/tests/test_inbound_completion.py::test_online_callback_and_offline_capability",
+      "expected": "Owner, teammate, busy, ambiguous caller and external destination paths retain leg/task; offline local is unavailable without actual compatible proof.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C041",
+      "step": "E10",
+      "planned_node": "services/backend/tests/test_final_attempt_voicemail.py::test_permission_allowance_topology",
+      "expected": "Greatest declared allowance, actual submissions, late human, no beep, full mailbox, opt-out and detached restart preserve correct obligation.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C042",
+      "step": "E10",
+      "planned_node": "services/backend/tests/test_billing_resolution.py::test_every_effect_cost_and_credit",
+      "expected": "All actual legs/reviews/transfers and uncertain amounts reconcile once; credit period retained; optional budget cannot prevent stop.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C043",
+      "step": "E11",
+      "planned_node": "services/backend/tests/test_installed_copy_migration.py::test_legacy_copy_allowlist_continuity",
+      "expected": "Copied actual schema authenticates; raw canaries removed before retained backup; IDs, human notes, denials and effect identities unchanged.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C044",
+      "step": "E11",
+      "planned_node": "services/backend/tests/test_remediation_privacy.py::test_all_boundaries_original_ttl",
+      "expected": "299/300/301 seconds, retries/revisions/clock changes/wake/restart never extend raw life in any durable or transient boundary.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C045",
+      "step": "E11",
+      "planned_node": "services/backend/tests/test_effect_journal.py::test_lost_store_and_flush_failure",
+      "expected": "Replay typed encrypted effects/denials from independent journal; truncation, wrong key, fsync/disk-full and missing segments hold new effects.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C046",
+      "step": "E11",
+      "planned_node": "services/backend/tests/test_restore_effects.py::test_restore_preserves_newer_state",
+      "expected": "Current effects/liabilities/human edits/auth win; conflicting identity aborts; old backups cannot resurrect revoked access.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C047",
+      "step": "E12",
+      "planned_node": "services/backend/tests/test_ingress_boundary.py::test_exact_public_route_allowlist",
+      "expected": "Only signed webhook POST and active nonce GET pass; other methods/paths denied; arbitrary/private probe target refused.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C048",
+      "step": "E12",
+      "planned_node": "services/backend/tests/test_capability_consistency.py::test_configured_vs_verified_capabilities",
+      "expected": "All UI/API capabilities reflect same evidence/source versions; missing keys/privacy/coverage remain actionable; GET never charges.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C049",
+      "step": "E12",
+      "planned_node": "services/backend/tests/test_connected_security.py::test_authority_switch_scope",
+      "expected": "Switch held during active effects; no cross-authority cache/session or seller leakage; connected fixtures use real PostgreSQL.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C050",
+      "step": "E12",
+      "planned_node": "apps/desktop/tests/completion.spec.ts::small_window_keyboard_journey",
+      "expected": "1024x720 and1280x720 helper/script/hangup visible; F1/Escape/focus/opt-out work during AI failure and reconnect.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C051",
+      "step": "E13",
+      "planned_node": "services/backend/tests/test_completion_contracts.py::test_coverage_receipt_parser",
+      "expected": "Missing totals, branch floor alone, stale source and absent case receipts fail acceptance; docs-only digest equivalence explicit.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C052",
+      "step": "E13",
+      "planned_node": "services/backend/tests/test_completion_contracts.py::test_targeted_mutation_detection",
+      "expected": "Ten named mutations each fail their designated test; no mutated source enters production.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C053",
+      "step": "E13",
+      "planned_node": "services/backend/tests/test_completion_contracts.py::test_bounded_acceptance_tools",
+      "expected": "Performance/AST tools reject installed paths, raw fields and unexpected network; parsers inventory whole production source.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C054",
+      "step": "E14",
+      "planned_node": "tests/test_distribution_contract.py::test_version_identity_artifact_contract",
+      "expected": "0.3.0 versions agree; keys/data identity unchanged; wrong signature/hash/platform rejected; fresh executable works without dev PATH.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C055",
+      "step": "E14",
+      "planned_node": "tests/test_native_update_wait.py::test_installed_exact_backend_after_exit",
+      "expected": "Upgrader exited and installed backend SHA-256 equals accepted installer before native workflow; old GUI-only success insufficient.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C056",
+      "step": "E14",
+      "planned_node": "services/backend/tests/test_installed_copy_migration.py::test_actual_update_allowed_data",
+      "expected": "Mac/Windows installed update preserves actual allowed record IDs/note/denial/session and has no raw legacy data.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C057",
+      "step": "E15",
+      "planned_node": "services/backend/tests/test_completion_contracts.py::test_handoff_manifest_scope",
+      "expected": "Artifact/source/remote/evidence and cleanup allowlist agree; missing external receipt cannot become accepted-external.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    },
+    {
+      "id": "C058",
+      "step": "E12",
+      "planned_node": "apps/desktop/src-tauri/src/lib.rs::tests::webhook_tunnel_owned_runtime_lifecycle",
+      "expected": "Validated argument arrays target the managed random loopback port; reconnect, missing SSH, mode switch and updater stop only the owned child; no token persisted.",
+      "status": "planned",
+      "red_receipts": [],
+      "green_receipts": []
+    }
+  ],
+  "case_mapping_rule": "Resolve added cases and test files through acceptance_families.steps -> steps.planned_case_ids/planned_test_files; retained files are listed per family. Do not duplicate derived case arrays per family."
+}
