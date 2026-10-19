@@ -602,7 +602,8 @@
         "docs/evidence/completion/E09-dependents.json",
         "docs/evidence/completion/E09-core-readers.json",
         "docs/evidence/completion/E09-secondary-counts.json",
-        "docs/evidence/completion/E09-trial-counts.json"
+        "docs/evidence/completion/E09-trial-counts.json",
+        "docs/evidence/completion/E09-comparison-health.json"
       ],
       "planned_case_ids": [
         "C035",
@@ -618,7 +619,7 @@
         "A50",
         "A51"
       ],
-      "checkpoint": "9dc6466: basic trial aggregates, campaign metadata corrections and source-churn coalescing pass54 SQLite+one skip/55 PostgreSQL/two browser checks. Controlled comparison counts are being implemented; health, cost, plans and routine maintenance remain open.",
+      "checkpoint": "624d75c: comparison/strategy counts pass117 perDB; health passes95 PostgreSQL,94 SQLite plus corrected asynchronous fixture1pass. Finish attributed-cost, saved-plan/forecast readers then changed-unit maintenance; full E09 open.",
       "implementation_todos": [
         {
           "id": "E09.admission",
@@ -674,6 +675,11 @@
           "id": "E09.trial_counts",
           "status": "accepted-software",
           "work": "Basic optimization cohort contributions, frozen goal/window, metadata fanout, zero-bucket retirement and source-churn coalescing; E09-trial-counts receipt"
+        },
+        {
+          "id": "E09.comparison_health",
+          "status": "accepted-software",
+          "work": "Incremental controlled comparisons, strategy exposure/corrected speech and rolling number-health counters; scoped receipt E09-comparison-health"
         }
       ]
     },

@@ -1,0 +1,71 @@
+{
+  "step_id": "E09",
+  "stage": "comparison-and-health-aggregates",
+  "source_commit": "624d75cfee09f6d6e1edf56f434013d988436fe1",
+  "production_tree_digest": "b755290d5b2376f97494b701362f5111f1713114802082f39ba943a5011d8d11",
+  "test_tree_digest": "ba14fe175da214bd094034577d5d4c707f611ad59555681ccf3b354c518aeb0f",
+  "digest_method": "SHA256 git ls-tree -r of named roots",
+  "case_ids": [
+    "C035",
+    "C038"
+  ],
+  "mode": [
+    "sqlite",
+    "postgresql"
+  ],
+  "fixture_seed": 20261018,
+  "commands": [
+    "Comparison/strategy scoped pytest selection: exact command not retained; logs retain 117 passed and two deselected per database",
+    "pytest test_incremental_reports.py test_optimization_numbers.py test_number_reconciliation.py test_optimization_workflows.py test_metric_readiness.py -q --tb=short -k \"not report_publication_reads_bucket and not ordinary_refresh\""
+  ],
+  "environment": {
+    "python": "3.12.13",
+    "postgresql": "17 disposable loopback authority",
+    "installed_app_changed": false
+  },
+  "started_at": null,
+  "finished_at": "2026-10-19T17:45:04.069529+00:00",
+  "timestamp_note": "Start timestamps not retained; runner durations below",
+  "result_counts": {
+    "comparison_source_e4ca377": {
+      "sqlite_passed": 117,
+      "postgresql_passed": 117,
+      "deselected_each": 2,
+      "sqlite_seconds": 24.69,
+      "postgresql_seconds": 135.89
+    },
+    "health_sqlite": {
+      "passed": 94,
+      "failed": 1,
+      "deselected": 2,
+      "seconds": 36.78,
+      "failure": "Legacy fixture expected immediate synchronous health calculation; changed to completed report then its assertion passed alone (0.91s). No product change after run."
+    },
+    "health_postgres_final": {
+      "passed": 95,
+      "deselected": 2,
+      "seconds": 200.72
+    }
+  },
+  "failed_cases": [],
+  "raw_log_sha256": {
+    "E09-comparison-scope-red.txt": "16582fd2602fdead66018c06fab65ce4431c641a75050b64dfb7f63ed06ecf5e",
+    "E09-comparison-sqlite.txt": "442b7052da6176ef663a40e20d1c5b686a7e2036c3706772b81eed08ca000d88",
+    "E09-comparison-postgres.txt": "9b04cd1a2301760334d50f7c57d059d75691586762ba4e9207bf28384a1d86f2",
+    "E09-health-red.txt": "125bec308a239458e939dd27859fb01f643887c1c81abe630b734f0f79ce8cab",
+    "E09-health-sqlite.txt": "dde08e2479b51aa88f16ac909e24a35ecfb14407799e035bb84fb770cbe268d1",
+    "E09-health-async-fixture.txt": "109b012c98e0efc23003e8ac927189e0453be4c906e4dd2da4d19d3e9a06aedd",
+    "E09-health-postgres.txt": "6e5b610fa9694a257237fd834659b05b314bd7205a4bcef4f58da55b38e930b9"
+  },
+  "retired_paths": [
+    "Controlled comparison historical reader in normal optimization report",
+    "Historical call/feature/callback scan in inventory_evidence",
+    "Duplicate comparison and health calculation policy (shared count reducers retained)"
+  ],
+  "known_limitations": [
+    "Full E09 acceptance still open; remaining source scans for attributed cost, plan/forecast and ordinary refresh",
+    "Offline comparison adapter remains to retire from production after callers migrate",
+    "Native and live acceptance remain open"
+  ],
+  "external_calls": false
+}
