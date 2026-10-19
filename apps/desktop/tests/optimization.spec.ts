@@ -41,6 +41,10 @@ test("optimization goals, forecast, learning state and provider settings persist
   await expect(
     page.getByText("Reviewed model pilot", { exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByText(/Latency percentiles are upper estimates/),
+  ).toBeVisible();
+  await expect(page.getByText(/0 recorded inference timings/)).toBeVisible();
   await page
     .getByLabel("Comparison review reference")
     .fill("Synthetic protocol review");

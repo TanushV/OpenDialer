@@ -1,6 +1,7 @@
 """E09/C037: leased paid work must start, not sit behind a semaphore."""
 
 import asyncio
+import threading
 
 import pytest
 from app.db import Job
@@ -183,3 +184,59 @@ def test_rebuild_claim_prefix_cannot_run_training_or_another_seller(app, clock):
     claimed = queue.claim("ml", "rebuild-fixture", tenant_id="tenant", key_prefix="projection:seller:")
     assert claimed["id"] == expected["id"]
     assert queue.claim("ml", "rebuild-fixture", tenant_id="tenant", key_prefix="projection:seller:") is None
+
+
+@pytest.mark.asyncio
+async def test_training_and_projection_backlogs_make_independent_progress(workspace, app, monkeypatch):
+    from app.optimization import projections
+
+    service, p = app.state.service, principal(workspace)
+    other = type(service)(service.db, service.settings, service.clock)
+    training_started, projection_started, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    release_projection = threading.Event()
+    loop = asyncio.get_running_loop()
+    active, peak, seen = 0, 0, []
+
+    async def train(p, payload):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        seen.append(payload["fixture"])
+        training_started.set()
+        await release.wait()
+        active -= 1
+
+    def project(*args, **kwargs):
+        loop.call_soon_threadsafe(projection_started.set)
+        assert release_projection.wait(20), "The test must release its owned projection work"
+        return {"status": "ready"}
+
+    for runner in (service, other):
+        monkeypatch.setattr(runner, "train_model_job", train)
+    monkeypatch.setattr(projections, "refresh_unit", project)
+    for i in range(24):
+        service.jobs.enqueue(
+            "ml",
+            {"kind": "metric_refresh", "seller_id": p["seller_id"], "user_id": p["user_id"]},
+            f"projection:{p['seller_id']}:fixture:{i}",
+            tenant_id=p["tenant_id"],
+            priority=30,
+        )
+    for i in range(2):
+        service.jobs.enqueue(
+            "ml",
+            {"fixture": i, "seller_id": p["seller_id"], "user_id": p["user_id"]},
+            f"operational-train:independent-{i}",
+            tenant_id=p["tenant_id"],
+        )
+    tasks = [asyncio.create_task(r.run_jobs(p["tenant_id"], queues=["ml"])) for r in (service, other)]
+    try:
+        await asyncio.wait_for(training_started.wait(), 10)
+        await asyncio.wait_for(projection_started.wait(), 10)
+        assert peak == 1, "CPU admission is shared across independent runners"
+        assert len(seen) == 1, "A second fit remains queued while the first child runs"
+    finally:
+        release_projection.set()
+        release.set()
+        await asyncio.wait_for(asyncio.gather(*tasks), 20)
+    assert sorted(seen) == [0, 1]
