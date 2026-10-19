@@ -1,0 +1,55 @@
+{
+  "step_id": "E09",
+  "stage": "admission-only",
+  "source_commit": "21effd07333330cbc3c79c570e80ff78e6fc2c7c",
+  "production_tree_digest": "11178961998df65c9e8bfeef5a71c525b6cde36dcb4e14760c4d6177c0767b4e",
+  "test_tree_digest": "707d48d516da663c63b91f83f37eaea0464860432d693b297c0e910d936d8fdb",
+  "digest_method": "SHA256 git ls-tree -r for named source roots",
+  "case_ids": [
+    "C037"
+  ],
+  "mode": [
+    "sqlite",
+    "postgresql"
+  ],
+  "fixture_seed": 20261018,
+  "commands": [
+    ".venv/bin/python -m pytest services/backend/tests/test_job_admission.py services/backend/tests/test_remediation_coach.py services/backend/tests/test_research_and_jobs.py services/backend/tests/test_coach_admission.py services/backend/tests/test_coach_lifecycle.py services/backend/tests/test_remediation_runtime.py -q --tb=short (SQLite and guarded disposable PostgreSQL)"
+  ],
+  "environment": {
+    "python": "3.12.13",
+    "system": "macOS-26.5.1-arm64-arm-64bit"
+  },
+  "started_at": null,
+  "finished_at": "2026-10-19T15:22:26.396449+00:00",
+  "timestamp_note": "Exact start not captured; finish is log mtime; runner durations below.",
+  "result_counts": {
+    "sqlite": {
+      "passed": 64,
+      "failed": 0,
+      "seconds": 24.11
+    },
+    "postgres": {
+      "passed": 64,
+      "failed": 0,
+      "seconds": 105.6
+    }
+  },
+  "failed_cases": [],
+  "raw_log_sha256": {
+    "E09-admission-green-sqlite.txt": "a938dbbaf16ce02f53b9d9eeb4e09c5e00e0d565bd34a2b6ac2897bba713008f",
+    "E09-admission-green-postgres.txt": "cf68d226201e7a9196e1501d225231dd4d399710e829334dae72768cddb16d00",
+    "E09-admission-rate-red.txt": "52598f7bd479e42a0524a2dd8c791de81236e579bfc032f0a6ba3a2af096dd87"
+  },
+  "retired_paths": [
+    "Claiming20 jobs before waiting behind a per-tick semaphore",
+    "Executing obsolete live jobs merely to close their lease",
+    "Post-call rate-limit count lost through typed interpretation serialization"
+  ],
+  "known_limitations": [
+    "E09 source contributions/rebuild and reporting consolidation remain open",
+    "E13 full throughput/resources and E14 native acceptance remain open"
+  ],
+  "external_calls": false,
+  "installed_app_changed": false
+}

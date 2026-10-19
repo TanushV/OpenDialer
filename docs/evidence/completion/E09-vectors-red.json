@@ -1,0 +1,37 @@
+{
+  "step_id": "E09",
+  "stage": "contribution-contracts-red",
+  "source_commit": "21effd07333330cbc3c79c570e80ff78e6fc2c7c",
+  "case_ids": [
+    "C035",
+    "C036",
+    "C038"
+  ],
+  "result_counts": {
+    "vectors": {
+      "failed": 17,
+      "passed": 0,
+      "seconds": 1.82
+    },
+    "migration": {
+      "failed": 1,
+      "passed": 1,
+      "seconds": 1.31
+    },
+    "derived_backup": {
+      "failed": 1,
+      "passed": 0
+    }
+  },
+  "scope_note": "Pure vector imports and table assertions record missing contracts, not behavioral failures. Existing replay/history counterexamples remain in E09-contracts-red. Migration must move to0017 without source-record changes.",
+  "raw_log_sha256": {
+    "E09-vectors-red.txt": "51bd7885054d97ae8cfafae352d15ff463a649f4089e287dcd1fa7c1f8eb5e56",
+    "E09-migration-red.txt": "e8585c7a2658e2b5d1c70f45fc4dc985fa4ff682a1f49554b203cbb33897ddfe",
+    "E09-derived-backup-red.txt": "2c4444be05d05151f425634931dc8f5a2b4d4292d18f71beaa06464bf6d38cbc"
+  },
+  "test_files_sha256": {
+    "services/backend/tests/test_incremental_metrics.py": "f720fe6172e47b4a5b0eb7f6522c4b68cec6ba6221b89cdff6f70e8a82f5660a",
+    "services/backend/tests/test_migrations.py": "81a271a02dd323f8ae38140ecd19f606407d9e5418fbb83a3067cfe5b2b37d24"
+  },
+  "external_calls": false
+}

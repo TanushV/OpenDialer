@@ -592,7 +592,9 @@
         "services/backend/tests/test_migrations.py"
       ],
       "receipts": [
-        "docs/evidence/completion/E09-contracts-red.json"
+        "docs/evidence/completion/E09-contracts-red.json",
+        "docs/evidence/completion/E09-admission.json",
+        "docs/evidence/completion/E09-vectors-red.json"
       ],
       "planned_case_ids": [
         "C035",
@@ -608,16 +610,16 @@
         "A50",
         "A51"
       ],
-      "checkpoint": "Current red contracts: incremental tables/replay absent, broad invalidation/history rebuild and excess leased jobs. Start shared bounded admission, then contributions/rebuild/report consolidation.",
+      "checkpoint": "Shared admission accepted64 checks per database on21effd0. Continue contributions/schema, field-specific dirty sources, resumable replay and report-reader consolidation; E09 parent remains open.",
       "implementation_todos": [
         {
           "id": "E09.admission",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Authority-wide capacity-sized claim waves and queued-context coalescing"
         },
         {
           "id": "E09.contributions",
-          "status": "open",
+          "status": "in-progress",
           "work": "0017 encrypted source contributions and buckets; independent replay parity"
         },
         {
