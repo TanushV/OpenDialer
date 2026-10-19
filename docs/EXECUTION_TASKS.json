@@ -827,7 +827,7 @@
         "A53",
         "A54"
       ],
-      "checkpoint": "Journal segment/denial scope60 passes in each database; checkpoint/order scope30 SQLite passes; effect/billing/order scope66 SQLite passes. Three new raw-metadata/resumable-sanitation regressions fail before implementation. Installed-copy migration and full E11 remain open.",
+      "checkpoint": "Actual installed-copy migration and separate empty-business restore pass with original identities/human notes and current authentication. Final effect/restore SQLite47 pass,2 native-only skips; usage80 passes; frontend4 passes. Earlier broad run exposed a fixture field removed by the new privacy allowlist; corrected real-contract fixture passes. Final PostgreSQL delta and E11 exit pending.",
       "implementation_todos": [
         {
           "id": "E11.segments",
@@ -836,28 +836,33 @@
         },
         {
           "id": "E11.effects",
-          "status": "in-progress",
+          "status": "implemented-awaiting-final-verification",
           "work": "Typed intent/submission/receipt integration across all paid and customer-visible effects; safe stops retain access"
         },
         {
           "id": "E11.restore",
-          "status": "in-progress",
+          "status": "implemented-awaiting-final-verification",
           "work": "Missing-store effect/accounting recovery and protected backup checkpoints without replacing current state"
         },
         {
           "id": "E11.migration",
-          "status": "in-progress",
+          "status": "implemented-awaiting-final-verification",
           "work": "Resumable500-row raw sanitation and actual installed0.2.1 copy with allowed-data continuity"
         },
         {
           "id": "E11.privacy",
-          "status": "in-progress",
+          "status": "implemented-awaiting-final-verification",
           "work": "All raw boundaries, provider capability and frontend expiry/restart tests"
         },
         {
           "id": "E11.acceptance",
           "status": "open",
           "work": "Both database scopes, copied-store recovery, receipt/todo updates; native delivery remainsE14"
+        },
+        {
+          "id": "E11.copy",
+          "status": "implemented-awaiting-final-verification",
+          "work": "Optional operator-owned encrypted backup/journal archive with flushed hash receipt; retain all segments, no automatic pruning or off-host claim"
         }
       ]
     },
