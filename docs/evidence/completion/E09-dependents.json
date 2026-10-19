@@ -1,0 +1,57 @@
+{
+  "step_id": "E09",
+  "stage": "dependent-source-expansion-only",
+  "source_commit": "6fe32b99bb2f7714d8bd5a6ad17625f326cf9daf",
+  "production_tree_digest": "aecab4f2a4b08d4db89dccebaa06c1b66f293cf5561d621c632b156acd57db61",
+  "test_tree_digest": "fd81bc949ad39f865107f32c07fe1aa2b04f59aab96cc3d36dd14c379ce32336",
+  "digest_method": "SHA256 git ls-tree -r for named production/test roots",
+  "case_ids": [
+    "C035",
+    "C036",
+    "C038"
+  ],
+  "mode": [
+    "sqlite",
+    "postgresql"
+  ],
+  "fixture_seed": 20261018,
+  "commands": [
+    "pytest test_projection_replay.py test_incremental_metrics.py test_migrations.py -k 'not interrupted and not rebuild_churn and not rolled_back and not normal_correction and not contribution_replay_oracle' -q --tb=short"
+  ],
+  "environment": {
+    "python": "3.12.13",
+    "postgresql": "17",
+    "installed_app_changed": false
+  },
+  "started_at": null,
+  "finished_at": "2026-10-19T16:12:40.936919+00:00",
+  "timestamp_note": "Exact start not captured; runner durations retained.",
+  "result_counts": {
+    "sqlite": {
+      "passed": 35,
+      "skipped": 1,
+      "deselected": 5,
+      "seconds": 7.71
+    },
+    "postgresql": {
+      "passed": 36,
+      "deselected": 5,
+      "seconds": 38.53
+    }
+  },
+  "failed_cases": [],
+  "raw_log_sha256": {
+    "E09-dependent-units-red.txt": "db57a2edf11ccd42de4dbab3dedab359ad760b47c33eae8a438149d7ae1bd4e9",
+    "E09-dependent-order-red.txt": "2cf739aa1c3d317aa520e8d0fbb4b645fe83a3199ff7fe14754f650f3766206d",
+    "E09-dependents-sqlite.txt": "00f5e512082ebd66f0e493a54075a653209037a091c136d151b38822e6cb55c5",
+    "E09-dependents-postgres.txt": "4d4c710b3611590c1da71da80d07747dd3562ec63582ee5bff824c161c6acc76"
+  },
+  "retired_paths": [
+    "Unbounded dependent updates in an originating denial/conversion transaction are avoided by indexed 100-ID pages."
+  ],
+  "known_limitations": [
+    "E09 rebuild, complete report readers, incremental health/planning and training/maintenance isolation remain open.",
+    "Lock-order regression proves common SQL row ordering, not a reproduced real deadlock."
+  ],
+  "external_calls": false
+}
