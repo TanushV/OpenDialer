@@ -302,7 +302,10 @@ class Dialer(
             ingress=conf.get("ingress_evidence"),
         )
         cache = {"capabilities": capabilities, "capabilities_as_of": self.clock().isoformat()}
-        self.capability_cache[(p["tenant_id"], p["seller_id"])] = cache
+        with self.ingress_lock:
+            self.capability_cache[(p["tenant_id"], p["seller_id"])] = cache
+            while len(self.capability_cache) > 128:
+                self.capability_cache.pop(next(iter(self.capability_cache)))
         return {
             **cache,
             "capabilities_stale": False,
@@ -324,11 +327,15 @@ class Dialer(
         endpoint = conf.get("webhook_url", self.settings.webhook_public_url)
         if not endpoint:
             fail(409, "INGRESS_NOT_CONFIGURED: save the public webhook endpoint first")
-        parsed = urlsplit(endpoint)
+        try:
+            parsed = urlsplit(endpoint)
+            port = parsed.port
+        except ValueError:
+            fail(422, "Ingress requires a valid HTTPS host and port")
         if (
             parsed.scheme != "https"
             or not parsed.hostname
-            or parsed.port not in {None, 443}
+            or port not in {None, 443}
             or parsed.username
             or parsed.password
             or parsed.query
@@ -377,17 +384,21 @@ class Dialer(
                 for k, v in self.ingress_challenges.items()
                 if v["expires"] > self.clock() and v["monotonic_end"] > time.monotonic()
             }
-            if len(self.ingress_challenges) >= 128 or any(
+            rejected = len(self.ingress_challenges) >= 128 or any(
                 v["tenant_id"] == p["tenant_id"] for v in self.ingress_challenges.values()
-            ):
-                fail(409, "Another ingress check is active; wait for its deadline")
-            self.ingress_challenges[nonce] = challenge
+            )
+            if not rejected:
+                self.ingress_challenges[nonce] = challenge
+        if rejected:
+            self._ingress_failed(p, identity)
+            fail(409, "Another ingress check is active; wait for its deadline")
         return challenge
 
     def ingress_challenge(self, nonce):
         with self.ingress_lock:
-            item = self.ingress_challenges.pop(nonce, None)
-            if not item or item["expires"] <= self.clock() or item["monotonic_end"] <= time.monotonic():
+            item = self.ingress_challenges.get(nonce)
+            if (not item or item["consumed"] or item["expires"] <= self.clock()
+                    or item["monotonic_end"] <= time.monotonic()):
                 fail(404, "Not found")
             current = self.vault.read(item["tenant_id"])
             if (

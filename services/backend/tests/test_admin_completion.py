@@ -1,4 +1,37 @@
 from conftest import reserve, start
+import pytest
+
+
+@pytest.mark.parametrize("obligation", ["call", "inbound", "submitted_operation", "agent"])
+def test_authority_change_refuses_unresolved_obligations(workspace, app, obligation):
+    from app.db import put, update, get
+    from test_remediation_privacy import principal
+
+    c, h, p = workspace["client"], workspace["headers"], principal(workspace)
+    service = app.state.service
+    if obligation == "call":
+        call = start(workspace)
+        identity, table = call["id"], "call_attempts"
+    else:
+        table, payload = {
+            "inbound": ("followup_tasks", {"inbound": True, "inbound_state": "routing", "status": "open"}),
+            "submitted_operation": ("command_outbox", {"kind": "number_configure", "status": "uncertain"}),
+            "agent": ("call_legs", {"kind": "agent", "state": "answered"}),
+        }[obligation]
+        with service.db.transaction() as s:
+            identity = put(s, table, p["tenant_id"], p["seller_id"], {**payload, "rep_id": p["user_id"]}).id
+    check = c.get("/v1/auth/quiescence", headers=h)
+    assert check.status_code == 200, check.text
+    assert not check.json()["can_disconnect"] and check.json()["reasons"]
+    assert c.post("/v1/auth/logout", headers=h).status_code == 409
+    assert c.get("/v1/workspace", headers=h).status_code == 200, "Blocked switch retains the session"
+    if obligation == "call":
+        assert c.post(f"/v1/calls/{identity}/hangup", headers=h).status_code == 200
+    else:
+        with service.db.transaction() as s:
+            update(get(s, table, identity), state="ended", status="completed", inbound_state="ended")
+    assert c.get("/v1/auth/quiescence", headers=h).json()["can_disconnect"]
+    assert c.post("/v1/auth/logout", headers=h).status_code == 200
 
 
 def test_registry_import_validates_authorization_and_checksum_atomically(workspace):

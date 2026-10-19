@@ -1,6 +1,33 @@
 """E12/C048: configured is distinct from verified and every missing capability is actionable."""
 
 import pytest
+from uuid import uuid4
+
+
+def test_versioned_provider_edit_replays_without_overwriting_newer_config(workspace):
+    c, h = workspace["client"], workspace["headers"]
+    first = {"request_id": str(uuid4()), "expected_version": 0,
+             "openrouter_api_key": "synthetic-first-secret"}
+    saved = c.put("/v1/admin/settings", headers=h, json=first)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["version"] == 1 and "synthetic-first-secret" not in saved.text
+    second = c.put("/v1/admin/settings", headers=h, json={
+        "request_id": str(uuid4()), "expected_version": 1, "coach_provider": "static"})
+    assert second.status_code == 200
+    replay = c.put("/v1/admin/settings", headers=h, json=first)
+    assert replay.status_code == 200 and replay.json()["version"] == 2
+    assert replay.json()["coach_provider"] == "static"
+    assert "request_id" not in replay.text and "synthetic-first-secret" not in replay.text
+    conflict = c.put("/v1/admin/settings", headers=h, json={**first, "openrouter_api_key": "other-secret"})
+    assert conflict.status_code == 409
+    stale = c.put("/v1/admin/settings", headers=h, json={**first, "request_id": str(uuid4())})
+    assert stale.status_code == 409
+
+
+def test_provider_edit_requires_identity_and_version_together(workspace):
+    c, h = workspace["client"], workspace["headers"]
+    for body in [{"expected_version": 0}, {"request_id": str(uuid4())}]:
+        assert c.put("/v1/admin/settings", headers=h, json=body).status_code == 422
 
 
 def test_settings_serialize_domain_defaults_and_never_secret_values(workspace):

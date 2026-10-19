@@ -4,6 +4,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_native_minimum_window_supports_the_required_rep_journey():
+    config = json.loads((ROOT / "apps/desktop/src-tauri/tauri.conf.json").read_text())
+    assert config["app"]["windows"][0]["minWidth"] == 1024
+    assert config["app"]["windows"][0]["minHeight"] == 720
+
+
 def test_version_identity_artifact_contract():
     """C054: all release inputs agree while the installed updater identity stays stable."""
     import hashlib

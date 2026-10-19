@@ -742,7 +742,11 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
         for key in ("webhook_url", "inference_base_url"):
             if values.get(key):
-                parsed = urlsplit(values[key])
+                try:
+                    parsed = urlsplit(values[key])
+                    parsed.port
+                except ValueError:
+                    fail(422, "Endpoint requires a valid host and port")
                 if (
                     parsed.username
                     or parsed.password

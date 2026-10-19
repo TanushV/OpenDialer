@@ -3,7 +3,7 @@
   "written_at": "2026-10-18",
   "baseline_commit": "63f4d4242f60672777f596177fe98fe57f715bf9",
   "baseline_product_test_commit": "6611d3c2fb486b0aac65df2bb42e20663457552a",
-  "status": "implementation-authorized; E00-E09 scoped software accepted; E10 in progress",
+  "status": "implementation-authorized; E00-E11 scoped software accepted; E12 in progress",
   "requirements_source": "docs/REMEDIATION_PLAN.md",
   "implementation_source": "docs/EXECUTION_SPEC.md",
   "next_step": "E12",
@@ -913,7 +913,49 @@
         "A52",
         "A55"
       ],
-      "checkpoint": "Setup capability/default/ingress expanded baseline16 failures; corrected async fixture reveals public-host boundary and network-error gaps before repair. Backend implementation active; UI ownership/native ingress/protected input remain."
+      "checkpoint": "Shared capabilities/defaults and one-time ingress proof pass54 PostgreSQL checks; configuration fencing29 SQLite passes; new admission3 red cases repaired21 SQLite passes. Native/setup/UI/authority switching active.",
+      "todos": [
+        {
+          "id": "E12.1",
+          "task": "Shared capability/default and public ingress proof contracts",
+          "status": "implemented; final delta PostgreSQL pending"
+        },
+        {
+          "id": "E12.2",
+          "task": "Versioned provider saves and native protected credential input",
+          "status": "tests-first active"
+        },
+        {
+          "id": "E12.3",
+          "task": "Owned SSH supervisor, exact Caddy boundary and deployment runbook",
+          "status": "native contracts authored; implementation pending"
+        },
+        {
+          "id": "E12.4",
+          "task": "Quiescent authority switch, logout and native cleanup",
+          "status": "tests-first active"
+        },
+        {
+          "id": "E12.5",
+          "task": "CallControls and WrapUp ownership; focused settings sections",
+          "status": "open"
+        },
+        {
+          "id": "E12.6",
+          "task": "Setup UI, shared defaults, accessible1024 controls and degraded states",
+          "status": "open"
+        },
+        {
+          "id": "E12.7",
+          "task": "Dual-database, affected browser/native/type checks and deletion review",
+          "status": "open"
+        },
+        {
+          "id": "E12.8",
+          "task": "Source-bound receipt and E12 exit; advance E13",
+          "status": "open"
+        }
+      ]
     },
     {
       "id": "E13",
