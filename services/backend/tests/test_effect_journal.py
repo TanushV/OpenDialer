@@ -7,6 +7,83 @@ from test_dnc_recovery import screening  # noqa: F401 - pytest fixture
 from test_remediation_privacy import principal
 
 
+def test_backup_durably_copies_encrypted_checkpoint_to_configured_disk(workspace, app, tmp_path):
+    import hashlib
+    import json
+
+    service, p = app.state.service, principal(workspace)
+    start(workspace)
+    destination = tmp_path / "protected-secondary-disk"
+    destination.mkdir(mode=0o700)
+    service.settings = service.settings.model_copy(update={"backup_copy_dir": destination})
+    receipt = service.backup(p)
+    assert receipt.get("copy", {}).get("verified") is True
+    root = destination / receipt["backup_id"]
+    manifest = json.loads(service.vault.cipher.decrypt((root / "manifest.enc").read_bytes()))
+    assert manifest["backup_id"] == receipt["backup_id"]
+    assert "effects" in manifest["journal_checkpoints"]
+    for name, digest in manifest["files"].items():
+        assert hashlib.sha256((root / name).read_bytes()).hexdigest() == digest
+    assert "effects-journal.enc" in manifest["files"]
+    assert receipt["copy"]["off_host_verified"] is False
+    assert receipt["journal_retention"] == "retain_all_no_automatic_pruning"
+
+
+def test_backup_copy_failure_never_claims_a_completed_archive(workspace, app, tmp_path, monkeypatch):
+    import os
+
+    service, p = app.state.service, principal(workspace)
+    destination = tmp_path / "secondary"
+    destination.mkdir(mode=0o700)
+    service.settings = service.settings.model_copy(update={"backup_copy_dir": destination})
+    original = os.fsync
+    count = 0
+
+    def unavailable(fd):
+        nonlocal count
+        count += 1
+        # Journal heads and local backup may complete; no archive publication may succeed.
+        if count >= 9:
+            raise OSError("Synthetic archive disk full")
+        return original(fd)
+
+    monkeypatch.setattr(os, "fsync", unavailable)
+    with pytest.raises(OSError):
+        service.backup(p)
+    assert not list(destination.glob("*/manifest.enc"))
+
+
+@pytest.mark.parametrize("kind", ["agent", "inbound"])
+def test_restore_hold_cannot_clear_with_non_outbound_live_obligations(workspace, app, kind):
+    import asyncio
+
+    from app.db import put, update
+    from fastapi import HTTPException
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        update(service.required(s, "sellers", p["seller_id"], p), restore_hold=True)
+        put(
+            s,
+            "call_legs" if kind == "agent" else "followup_tasks",
+            p["tenant_id"],
+            p["seller_id"],
+            {"state": "uncertain", "rep_id": p["user_id"], "provider_id": "original-agent"}
+            if kind == "agent"
+            else {
+                "inbound": True,
+                "inbound_state": "ringing",
+                "provider_id": "original-inbound",
+                "status": "completed",
+            },
+        )
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(service.reconcile_restore(p, "Reviewed outbound calls only"))
+    assert error.value.status_code == 409
+    with service.db.transaction(False) as s:
+        assert service.required(s, "sellers", p["seller_id"], p).data["restore_hold"]
+
+
 @pytest.mark.parametrize("failure", ["none", "fsync", "partial", "disk_full"])
 def test_lost_store_and_flush_failure(workspace, app, carrier, monkeypatch, failure):
     service, p = app.state.service, principal(workspace)

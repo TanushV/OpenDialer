@@ -357,7 +357,7 @@ async def test_training_and_projection_backlogs_make_independent_progress(worksp
         nonlocal active, peak
         active += 1
         peak = max(peak, active)
-        seen.append(payload["fixture"])
+        seen.append(payload["campaign_id"])
         training_started.set()
         await release.wait()
         active -= 1
@@ -381,7 +381,7 @@ async def test_training_and_projection_backlogs_make_independent_progress(worksp
     for i in range(2):
         service.jobs.enqueue(
             "ml",
-            {"fixture": i, "seller_id": p["seller_id"], "user_id": p["user_id"]},
+            {"campaign_id": str(i), "seller_id": p["seller_id"], "user_id": p["user_id"]},
             f"operational-train:independent-{i}",
             tenant_id=p["tenant_id"],
         )
@@ -395,4 +395,4 @@ async def test_training_and_projection_backlogs_make_independent_progress(worksp
         release_projection.set()
         release.set()
         await asyncio.wait_for(asyncio.gather(*tasks), 20)
-    assert sorted(seen) == [0, 1]
+    assert sorted(seen) == ["0", "1"]
