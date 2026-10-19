@@ -25,10 +25,15 @@
     "local_edit_transport_contract": {
       "failed": 6,
       "reason": "localEdit interface is absent; paired browser reproduces the actual lost-response defect"
+    },
+    "postgres": {
+      "failed": 39,
+      "passed": 1,
+      "seconds": 117.54
     }
   },
   "known_limitations": [
-    "PostgreSQL red capture waits for the E02 runner to release the isolated unit store.",
+    "PostgreSQL baseline includes updated identified/versioned edit fixtures. Most downstream cases stop at the old API envelope rejection; rerun individually after the shared contract repair.",
     "Two alias cases name missing migration contract; remaining failures are behavioral/API assertions.",
     "The choice supplement rejects an accidental green caused by an unsupported request field.",
     "Browser local failure demonstrates no replay after a committed response is lost; paired authority expansion also fails with the same missing identity/retry behavior."
@@ -38,12 +43,32 @@
     "E03-choice-red.txt": "9d5b8d6433686f3b7c36163a33f5dcb225dcd547167ed99cc9caf74a6bb3f1f2",
     "E03-browser-red.txt": "f50fbf52b47b62179b63008e06472406a12fac3c3835a68b81cbe1116a1e0115",
     "E03-browser-paired-red.txt": "fac3bc7f444da852a78a629455d6d4037d9e80e19db8be628e7ee3915149cde4",
-    "E03-local-edits-unit-red.txt": "f863a26899b2b026f0bd9328796903711bcd1445c47ea475c335c93ef6d0d4fc"
+    "E03-local-edits-unit-red.txt": "f863a26899b2b026f0bd9328796903711bcd1445c47ea475c335c93ef6d0d4fc",
+    "E03-postgres-baseline.txt": "5bd409cf61674647276ef9876b26cd76ac1ad5aca3ffc70c07b86c11bd4324ce"
   },
   "tests": {
     "services/backend/tests/test_local_followthrough.py": "37a0e607345ea33f43f3de42110196d466f89badd1df5740cd5528419dcda7cc",
     "services/backend/tests/test_completion_journeys.py": "fb2dfd7597b6dc7a52b9dd2cddf4f5d537302785d6dd65d2933952e17b2c06fd",
     "services/backend/tests/test_coaching_library.py": "0d7a871c376028bf5a57c1c7aed598c1f1911ea7c3cd3f9c990b161d4772779e",
     "apps/desktop/tests/followthrough.spec.ts": "a01430a5f1e1ac46a1173e3bd03357d7b255d473c985763fc4084f8c26249e74"
-  }
+  },
+  "runs": [
+    {
+      "source_commit": "5501288de696bea9819dd006ea200d2e9b82219a",
+      "command": [
+        ".venv/bin/pytest",
+        "services/backend/tests/test_local_followthrough.py",
+        "services/backend/tests/test_completion_journeys.py",
+        "services/backend/tests/test_coaching_library.py::test_cross_call_improvement_uses_twenty_reviewed_opportunities_and_two_examples",
+        "-q",
+        "--tb=short",
+        "--junitxml=work/remediation/completion/E03-postgres-baseline.xml"
+      ],
+      "mode": "postgres",
+      "started_at": "2026-10-19T08:26:58.943602+00:00",
+      "external_calls": false,
+      "finished_at": "2026-10-19T08:29:04.504022+00:00",
+      "exit_code": 1
+    }
+  ]
 }
