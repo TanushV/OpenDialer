@@ -1,8 +1,8 @@
 """Provider-neutral conversation transport. Private text never belongs in receipts."""
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, create_model
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class StrictModel(BaseModel):
@@ -34,34 +34,102 @@ class Guidance(StrictModel):
     expires_in_ms: int = Field(ge=1, le=300000)
 
 
+ObservationKind = Literal[
+    "need",
+    "impact",
+    "objection",
+    "answer",
+    "signal",
+    "commitment",
+    "rundown",
+    "coaching",
+    "question",
+    "approach",
+]
+ObservationState = Literal["open", "resolved", "confirmed", "retracted", "stale"]
+ShortText = Annotated[str, Field(min_length=1, max_length=400)]
+
+
+class SourceRef(AuditSource):
+    occurred_at: str | None
+    available_at: str | None
+    content_hash: str | None
+    raw_expires_at: str | None
+
+
+class ProposedCommitment(StrictModel):
+    kind: Literal["callback", "followup"]
+    owner: Literal["rep", "prospect", "unknown"]
+    due_at: str | None
+    verbatim_time_expression: str = Field(max_length=400)
+    needs_time_confirmation: bool
+
+
 class ObservationDelta(StrictModel):
-    text: str = Field(max_length=400)
-    quote: str = Field(max_length=400)
-    evidence_segment_ids: list[str] = Field(max_length=32)
-    status: Literal["open", "resolved", "confirmed"]
+    kind: ObservationKind
+    text: ShortText
+    state: ObservationState
+    sources: list[AuditSource] = Field(min_length=1, max_length=32)
     replaces: list[str] = Field(max_length=12)
+    quote: str = Field(max_length=400)
+    commitment: ProposedCommitment | None
 
 
-# The array read view is retained for the installed client until the V2 migration.
-StateDelta = create_model(
-    "StateDelta",
-    __base__=StrictModel,
-    stage=(Literal["introduction", "discovery", "objection", "next_step", "declined"], ...),
-    **{
-        key: (list[ObservationDelta], Field(max_length=3))
-        for key in (
-            "needs",
-            "business_impact",
-            "objections",
-            "answered_questions",
-            "buying_signals",
-            "commitments",
-            "rundown_points",
-            "coaching_points",
-            "open_questions",
-        )
-    },
-)
+class RubricDelta(StrictModel):
+    dimension: str = Field(min_length=1, max_length=64)
+    status: Literal["unassessed", "insufficient", "not_applicable", "scored"]
+    score: int | None = Field(ge=0, le=2)
+    explanation: str = Field(max_length=400)
+    sources: list[AuditSource] = Field(max_length=32)
+
+
+class TrackerDelta(StrictModel):
+    tracker_id: str = Field(min_length=1, max_length=160)
+    definition_version: int = Field(ge=1)
+    sources: list[AuditSource] = Field(min_length=1, max_length=32)
+
+
+class StateDelta(StrictModel):
+    stage: Literal["introduction", "discovery", "objection", "next_step", "declined"]
+    observations: list[ObservationDelta] = Field(max_length=20)
+    rubric_items: list[RubricDelta] = Field(max_length=12)
+    tracker_matches: list[TrackerDelta] = Field(max_length=20)
+    interpreted_segments: list[AuditSource] = Field(max_length=32)
+
+
+class Observation(StrictModel):
+    id: str = Field(min_length=1, max_length=160)
+    version: int = Field(ge=1)
+    kind: ObservationKind
+    text: ShortText
+    state: ObservationState
+    sources: list[SourceRef] = Field(max_length=32)
+    replaces: list[str] = Field(max_length=12)
+    epistemic_status: Literal["model_interpreted", "model_reviewed", "human_confirmed"]
+    observed_at: str | None
+    available_at: str | None
+    invalidated_at: str | None
+    review_receipt_id: str | None
+    review_status: Literal["pending", "not_required", "reviewed", "unavailable", "rejected"]
+    lineage_depth: int = Field(ge=0, le=8)
+    commitment: dict | None = None
+
+
+class ConversationStateV2(StrictModel):
+    schema_version: Literal[2] = 2
+    call_id: str
+    version: int = Field(ge=0)
+    transcript_version: int = Field(ge=0)
+    context_fingerprint: str
+    stage: str
+    trigger: str
+    purpose: dict
+    observations: list[Observation] = Field(max_length=96)
+    rubric_items: list[dict] = Field(max_length=12)
+    tracker_matches: list[dict] = Field(max_length=20)
+    coverage: dict
+    finalization: dict
+    source_conflicts: list[dict] = Field(max_length=96)
 
 
 class TurnOutput(StrictModel):

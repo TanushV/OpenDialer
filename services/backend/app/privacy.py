@@ -433,34 +433,31 @@ class SpeechPrivacy:
                     update(call, coach_preferences={**preferences, "pinned": False, "pinned_event_id": None})
             # Corrections invalidate machine interpretations; human edits remain authoritative.
             for kind in ("conversation_states", "notes", "scorecards"):
-                for record in self.scoped(s, kind, p):
-                    if record.external_key == call_id:
-                        if kind == "conversation_states":
-                            from app.coaching.context import STATE_FIELDS
+                record = self._by_key(s, p, kind, call_id)
+                if record:
+                    if kind == "conversation_states":
+                        from app.coaching.context import invalidate_state
 
-                            update(
-                                record,
-                                **{
-                                    key: [
-                                        item
-                                        for item in record.data.get(key, [])
-                                        if segment["segment_id"] not in item.get("evidence_segment_ids", [])
-                                    ]
-                                    for key in STATE_FIELDS
-                                },
-                                observations=[],
-                                stale=True,
-                            )
-                        else:
-                            update(record, stale=True, source_version=version)
-                            if kind == "notes" and row:
-                                observations = [dict(i) for i in record.data.get("observations", [])]
-                                for observation in observations:
-                                    if segment["segment_id"] in observation.get("evidence", []):
-                                        observation.update(
-                                            status="invalidated", version=observation["version"] + 1
-                                        )
-                                update(record, observations=observations)
+                        state = invalidate_state(
+                            record.data,
+                            segment["segment_id"],
+                            segment["revision"],
+                            at=self.clock(),
+                            lineage=self._conversation_lineage(s, p, call_id),
+                        )
+                        state["transcript_version"] = version
+                        state["finalization"]["status"] = "pending"
+                        self._store_conversation(s, p, call, state, record)
+                    else:
+                        update(record, stale=True, source_version=version)
+                        if kind == "notes" and row:
+                            observations = [dict(i) for i in record.data.get("observations", [])]
+                            for observation in observations:
+                                if segment["segment_id"] in observation.get("evidence", []):
+                                    observation.update(
+                                        status="invalidated", version=observation["version"] + 1
+                                    )
+                            update(record, observations=observations)
             if row:
                 from app.optimization.conversations import invalidate_report
 
@@ -511,13 +508,24 @@ class SpeechPrivacy:
             )
         eligible = bool(segment.get("is_final") and not result["expired"])
         if eligible and queue_coach:
-            self._defer_help(
-                s,
-                p,
-                call,
-                self.clock() + timedelta(milliseconds=self.settings.runtime_limits.prospect_debounce_ms),
-                "final",
-            )
+            from app.telephony.reducer import TERMINAL
+
+            if call.data["state"] in TERMINAL | {"ENDING"}:
+                self.jobs.enqueue_in(
+                    s,
+                    "postcall",
+                    {"call_id": call_id, "seller_id": p["seller_id"], "user_id": p["user_id"]},
+                    f"conversation-finalize:{call_id}:{call.data['transcript_version']}",
+                    tenant_id=p["tenant_id"],
+                )
+            else:
+                self._defer_help(
+                    s,
+                    p,
+                    call,
+                    self.clock() + timedelta(milliseconds=self.settings.runtime_limits.prospect_debounce_ms),
+                    "final",
+                )
         model = MODELS["transcript_segments"]
         row = s.scalar(
             select(model).where(

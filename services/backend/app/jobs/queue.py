@@ -71,7 +71,7 @@ class JobQueue:
             if not job:
                 return None
             job.status, job.lease_owner = "running", worker
-            if job.queue == "live_coach" and "desired_generation" in job.payload:
+            if job.queue in {"live_coach", "postcall"} and "desired_generation" in job.payload:
                 job.payload = {**job.payload, "claimed_generation": job.payload["desired_generation"]}
             job.lease_expires_at = self.clock() + timedelta(seconds=lease_seconds)
             job.attempts += 1
@@ -79,8 +79,10 @@ class JobQueue:
 
     def coalesce_live_in(self, s, queue, payload, key, *, tenant_id, priority, available_at):
         """One latest pending context per call; changing context never steals its live lease."""
-        if queue != "live_coach":
-            raise ValueError("Only live context uses this coalescing contract")
+        if queue != "live_coach" and not (
+            queue == "postcall" and payload.get("kind") == "conversation_review"
+        ):
+            raise ValueError("Only current conversation work uses this coalescing contract")
         job = s.scalar(select(Job).where(Job.tenant_id == tenant_id, Job.key == key).with_for_update())
         if not job:
             return self.enqueue_in(
@@ -137,9 +139,9 @@ class JobQueue:
                 if job.queue != "ml" or job.payload.get("kind") != "home_refresh":
                     raise ValueError("Only read-only workspace refresh can be coalesced")
                 job.attempts = max(0, job.attempts - 1)
-            if job.queue == "live_coach" and job.payload.get("desired_generation", 0) > job.payload.get(
-                "claimed_generation", 0
-            ):
+            if job.queue in {"live_coach", "postcall"} and job.payload.get(
+                "desired_generation", 0
+            ) > job.payload.get("claimed_generation", 0):
                 # A newer context arrived while the original owner was running.
                 # Its due time was set by the enqueueing transaction, not by completion.
                 job.status, job.error = "queued", error[:500] if error else None

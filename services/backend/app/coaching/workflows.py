@@ -15,9 +15,12 @@ from app.coaching.context import (
     ground_guidance,
     guidance_review_request,
     guidance_sources,
+    lineage_key,
     merge_semantic_state,
     persistent_state,
     retrieve_cards,
+    state_view,
+    upgrade_state,
 )
 from app.coaching.contracts import card_view
 from app.coaching.engine import CardRejected, finish_shielded
@@ -30,6 +33,100 @@ from app.telephony.reducer import TERMINAL
 
 
 class LiveHelper:
+    def _conversation_lineage(self, s, p, call_id):
+        return {
+            lineage_key(r.data["id"], r.data["version"]): r.data
+            for r in self.context_rows(
+                s, p, "outcomes", call_id, MODELS["outcomes"].ctx_status == "conversation_lineage", limit=None
+            )
+        }
+
+    def _store_conversation(self, s, p, call, state, record=None):
+        record = record or self._by_key(s, p, "conversation_states", call.id)
+        for item in state.get("_lineage_updates", []):
+            key = f"observation:{call.id}:{item['id']}:{item['version']}"
+            prior = self._by_key(s, p, "outcomes", key)
+            values = {**item, "call_id": call.id, "kind": "conversation_lineage"}
+            if prior:
+                update(prior, **values)
+            else:
+                put(s, "outcomes", p["tenant_id"], p["seller_id"], values, key=key, now=self.clock())
+        data = persistent_state(state, limits=self.settings.runtime_limits)
+        preserved = {
+            k: v
+            for k, v in (record.data if record else {}).items()
+            if k
+            in {
+                "manual_help_requests",
+                "manual_help_current",
+                "coach_request_key",
+                "automatic_admissions",
+                "rate_limited_version",
+                "rate_limited_opportunities",
+                "last_request_at",
+                "latest_coach_event_id",
+                "review_work",
+            }
+        }
+        values = {
+            **preserved,
+            **data,
+            "privacy_contract": 1,
+            "updated_at": self.clock().isoformat(),
+            "stale": False,
+        }
+        if record:
+            record.data = values
+            record.version += 1
+        else:
+            record = put(
+                s,
+                "conversation_states",
+                p["tenant_id"],
+                p["seller_id"],
+                values,
+                key=call.id,
+                now=self.clock(),
+            )
+        return record
+
+    def _queue_conversation_review(self, s, p, call, state):
+        pending = [
+            item
+            for group in ("observations", "rubric_items", "tracker_matches")
+            for item in state.get(group, [])
+            if item.get("review_status") == "pending"
+        ]
+        if not pending:
+            return
+        due = self.clock() + timedelta(seconds=self.settings.runtime_limits.review_interval_seconds)
+        expiries = [
+            dt(ref["raw_expires_at"])
+            for item in pending
+            for ref in item.get("sources", [])
+            if ref.get("raw_expires_at")
+        ]
+        if expiries:
+            due = min(due, min(expiries) - timedelta(seconds=60))
+        if call.data["state"] in TERMINAL | {"ENDING"}:
+            due = self.clock()
+        self.jobs.coalesce_live_in(
+            s,
+            "postcall",
+            {
+                "kind": "conversation_review",
+                "call_id": call.id,
+                "seller_id": p["seller_id"],
+                "user_id": p["user_id"],
+                "debounce": True,
+                "pending_deadline": due.isoformat(),
+            },
+            f"conversation-review:{call.id}",
+            tenant_id=p["tenant_id"],
+            priority=2,
+            available_at=max(self.clock(), due),
+        )
+
     def _defer_help(self, s, p, call, due, marker):
         self.jobs.coalesce_live_in(
             s,
@@ -48,9 +145,11 @@ class LiveHelper:
             available_at=due,
         )
 
-    def _coach_authority(self, s, p):
+    def _coach_authority(self, s, p, call=None):
         user = self.required(s, "users", p["user_id"], p)
         if user.data.get("disabled") or user.data.get("role") not in {"owner", "admin", "rep"}:
+            return False
+        if call is not None and user.data.get("role") == "rep" and call.data["rep_id"] != p["user_id"]:
             return False
         if p.get("session_id"):
             session = self.required(s, "sessions", p["session_id"], p)
@@ -339,17 +438,19 @@ class LiveHelper:
             or call.data.get("transcription_disabled")
         )
 
-    def _help_context(self, p, call_id, urgent, question, identity=None):
+    def _help_context(self, p, call_id, urgent, question, identity=None, *, mode="live"):
         started = time.perf_counter()
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
             # Context/receipt writes for this call share one short lock. No provider
             # I/O occurs here, and unrelated calls remain independent.
             s.refresh(call, with_for_update=True)
-            if not self._help_allowed(s, p, call):
+            if mode == "live" and not self._help_allowed(s, p, call):
+                return None
+            if mode != "live" and not self._coach_authority(s, p, call):
                 return None
             lead = self.required(s, "leads", call.data["lead_id"], p)
-            if self.suppressed(s, p, lead.data["phone"]):
+            if mode == "live" and self.suppressed(s, p, lead.data["phone"]):
                 return None
             preferences = call.data.get("coach_preferences", {})
             stable = [
@@ -369,7 +470,19 @@ class LiveHelper:
             stable = [item for item in stable if item["segment_id"] in selected]
             version = call.data.get("transcript_version", 0)
             state_record = self._by_key(s, p, "conversation_states", call_id)
-            previous = state_record.data if state_record else {}
+            from app.postcall.rubrics import effective
+
+            previous = upgrade_state(
+                state_record.data if state_record else {}, call_id=call_id, rubric=effective(call.data)
+            )
+            previous["_lineage"] = self._conversation_lineage(s, p, call_id)
+            previous.update(
+                {
+                    k: v
+                    for k, v in (state_record.data if state_record else {}).items()
+                    if k in {"last_request_at", "manual_help_requests"}
+                }
+            )
             if (
                 not urgent
                 and state_record
@@ -413,24 +526,7 @@ class LiveHelper:
             )
             if urgent:
                 state["trigger"] = "manual_help"
-            values = {
-                "call_id": call_id,
-                **persistent_state(state),
-                "privacy_contract": 1,
-                "updated_at": self.clock().isoformat(),
-            }
-            if state_record:
-                update(state_record, **values)
-            else:
-                state_record = put(
-                    s,
-                    "conversation_states",
-                    p["tenant_id"],
-                    p["seller_id"],
-                    values,
-                    key=call_id,
-                    now=self.clock(),
-                )
+            state_record = self._store_conversation(s, p, call, state, state_record)
             # Observe every stable chunk; coalesce paid work within the configured quiet interval.
             if (
                 not urgent
@@ -492,10 +588,11 @@ class LiveHelper:
 
             request = {
                 "state_version": version,
-                "state": persistent_state(state),
+                "state": state_view(state),
+                "mode": mode,
                 "recent_dialogue": stable,
                 "automatic_tips_muted": bool(preferences.get("muted") and not urgent),
-                "manual_help": urgent,
+                "manual_help": urgent and mode == "live",
                 "private_question": question,
                 "approved_cards": all_cards[:32],
                 "reviewed_examples": library.context_examples(
@@ -557,6 +654,7 @@ class LiveHelper:
             request["context_fingerprint"] = sources.digest(
                 {
                     "state_version": version,
+                    "conversation_version": state["version"],
                     "sources": request["context_sources"],
                     "segments": [(r["segment_id"], r["revision"], r.get("side")) for r in stable],
                 }
@@ -571,7 +669,8 @@ class LiveHelper:
                 if pending_times
                 else 0,
             }
-            update(state_record, last_request_at=self.clock().isoformat())
+            if mode == "live":
+                update(state_record, last_request_at=self.clock().isoformat())
             deadline = min(
                 [dt(r["raw_expires_at"]) for r in stable] or [self.clock() + timedelta(seconds=300)]
             )
@@ -1010,20 +1109,24 @@ class LiveHelper:
                 and result.get("state_version") == request["state_version"]
             ):
                 state = merge_semantic_state(
-                    state_record.data, result["state_update"], request["recent_dialogue"]
+                    {**state_record.data, "_lineage": self._conversation_lineage(s, p, call_id)},
+                    result["state_update"],
+                    request["recent_dialogue"],
+                    request_id=key,
+                    at=self.clock(),
+                    secret=self.db.identity_key,
+                    limits=self.settings.runtime_limits,
+                    catalog=request.get("evidence_catalog", []),
+                    call_at=dt(call.data.get("started_at")),
+                    timezone=lead.data.get("timezone"),
                 )
-                state["version"] = call.data["transcript_version"]
-                update(
-                    state_record,
-                    **persistent_state(state),
-                    stale=False,
-                    privacy_contract=1,
-                    updated_at=self.clock().isoformat(),
-                )
-                for item in request["recent_dialogue"]:
-                    row = current[item["segment_id"]]
+                state["transcript_version"] = call.data["transcript_version"]
+                state_record = self._store_conversation(s, p, call, state, state_record)
+                self._queue_conversation_review(s, p, call, state)
+                for item in state.get("_interpreted_segments", []):
+                    row = current[item["id"]]
                     update(
-                        row, interpretation_revision=item["revision"], interpreted_at=self.clock().isoformat()
+                        row, interpretation_revision=item["version"], interpreted_at=self.clock().isoformat()
                     )
                 if call.data["state"] not in TERMINAL | {"ENDING"} and any(
                     item.get("interpretation_revision") != item["revision"]

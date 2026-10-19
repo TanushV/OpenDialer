@@ -57,6 +57,7 @@ HOT_TABLES = {
 
 # Only the relationship/expiry fields used to assemble a single call's context.
 CONTEXT_FIELDS = {
+    "outcomes": ("call_id", "kind", None),
     "reviews": ("scorecard_id", None, None),
     "comments": ("call_id", None, None),
     "playbooks": ("approval_state", None, None),
@@ -89,6 +90,12 @@ def context_columns(kind):
 
 
 def context_indexes(kind):
+    if kind == "outcomes":
+        return (
+            Index(
+                "ix_outcomes_context", "tenant_id", "seller_id", "ctx_key", "ctx_status", "created_at", "id"
+            ),
+        )
     if kind == "playbooks":
         return (
             Index("ix_playbooks_current", "tenant_id", "seller_id", "ctx_key", "version", "created_at", "id"),

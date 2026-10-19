@@ -2,8 +2,9 @@
 
 import hashlib
 import re
+from datetime import UTC, datetime
 
-from app.coaching.contracts import FieldAudit
+from app.coaching.contracts import ConversationStateV2, FieldAudit, ObservationDelta, StateDelta
 from app.coaching.engine import CardRejected, validate_card
 from app.grounding import require_review, review_request
 
@@ -74,28 +75,26 @@ def evidence(segment):
 def build_context(segments, *, version, facts, commitments, prior=None):
     stable = [s for s in segments if s.get("is_final") and not s.get("system_audio")]
     prior = prior or {}
-    sources = {s["segment_id"]: s for s in stable}
+    current = upgrade_state(prior)
+    current["transcript_version"] = version
+    for segment in stable:
+        current = invalidate_state(
+            current,
+            segment["segment_id"],
+            segment.get("revision", 1),
+            at=datetime.now(UTC),
+            lineage=prior.get("_lineage", {}),
+        )
     state = {
-        "version": version,
-        "stage": prior.get("stage", "introduction"),
+        **state_view(current, lineage=prior.get("_lineage", {})),
+        "_lineage": prior.get("_lineage", {}),
         "trigger": "NO_ACTION",
         "facts": facts[:8],
         "recent_dialogue": stable[-16:],
         "last_remote": None,
         "asked_questions": [],
         "previous_guidance": prior.get("previous_guidance", [])[-5:],
-        "memory_omitted_items": prior.get("memory_omitted_items", 0),
     }
-    for key in STATE_FIELDS:
-        # Expiry does not invalidate a paraphrase; a source correction does.
-        state[key] = [
-            {**i, "id": memory_id(key, i)}
-            for i in prior.get(key, [])
-            if not any(
-                identifier in sources and revision != sources[identifier].get("revision", 1)
-                for identifier, revision in i.get("evidence_revisions", {}).items()
-            )
-        ]
     # Authoritative tasks are supplied separately on each request. Copying them into
     # generated memory would keep a cancelled or changed promise indefinitely.
     for segment in stable:
@@ -299,88 +298,514 @@ def ground_guidance(card, request, *, review=None, cached=False, progressive=Fal
     return True
 
 
-def merge_semantic_state(state, update, segments):
-    if update is None:
-        return state
-    from app.privacy import paraphrased
+# The canonical record owns interpretation; former arrays are read-only serializers.
+KINDS = dict(
+    zip(
+        STATE_FIELDS,
+        ("need", "impact", "objection", "answer", "signal", "commitment", "rundown", "coaching", "question"),
+        strict=True,
+    )
+)
 
-    sources = {s["segment_id"]: s for s in segments if s.get("is_final") and not s.get("system_audio")}
-    if not isinstance(update, dict) or update.get("stage") not in (
-        "introduction",
-        "discovery",
-        "objection",
-        "next_step",
-        "declined",
-    ):
-        raise CardRejected("Unknown conversation stage")
-    merged = dict(state)
-    for key in STATE_FIELDS:
-        values = update.get(key, [])
-        if not isinstance(values, list) or len(values) > 12:
-            raise CardRejected("Unbounded conversation state")
-        previous = {memory_id(key, i): {**i, "id": memory_id(key, i)} for i in state.get(key, [])}
-        for item in values:
-            if not isinstance(item, dict):
-                raise CardRejected("Invalid observation")
-            ids, quote, text = (
-                item.get("evidence_segment_ids", []),
-                item.get("quote", ""),
-                item.get("text", ""),
+
+def upgrade_state(state, *, call_id=None, rubric=None):
+    from copy import deepcopy
+
+    if state.get("schema_version") == 2:
+        value = deepcopy({k: state[k] for k in ConversationStateV2.model_fields if k in state})
+    else:
+        observations = []
+        for field, kind in KINDS.items():
+            for item in state.get(field, []):
+                refs = [
+                    dict(
+                        kind="segment",
+                        id=i,
+                        version=v,
+                        occurred_at=None,
+                        available_at=None,
+                        content_hash=None,
+                        raw_expires_at=None,
+                    )
+                    for i, v in item.get("evidence_revisions", {}).items()
+                ][:32]
+                observations.append(
+                    dict(
+                        id=memory_id(field, item),
+                        version=1,
+                        kind=kind,
+                        text=item["text"][:400],
+                        state=item.get("status", "open"),
+                        sources=refs,
+                        replaces=[],
+                        epistemic_status="model_interpreted",
+                        observed_at=None,
+                        available_at=None,
+                        invalidated_at=None,
+                        review_receipt_id=None,
+                        review_status="pending" if kind == "commitment" else "not_required",
+                        lineage_depth=0,
+                        commitment=None,
+                    )
+                )
+        value = dict(
+            schema_version=2,
+            call_id=call_id or state.get("call_id", ""),
+            version=state.get("version", 0),
+            transcript_version=state.get("version", 0),
+            context_fingerprint="",
+            stage=state.get("stage", "introduction"),
+            trigger=state.get("trigger", "NO_ACTION"),
+            purpose={},
+            observations=observations,
+            rubric_items=[],
+            tracker_matches=[],
+            coverage={"omitted_items": state.get("memory_omitted_items", 0)},
+            finalization={"status": "pending", "source_version": None, "last_request_id": None},
+            source_conflicts=[],
+        )
+    if call_id:
+        value["call_id"] = call_id
+    if rubric and value["purpose"] != rubric:
+        value["purpose"] = deepcopy(rubric)
+        value["rubric_items"] = [
+            dict(
+                dimension=d["id"],
+                status="unassessed",
+                score=None,
+                explanation="No reviewed opportunity yet.",
+                sources=[],
+                epistemic_status="model_interpreted",
+                review_status="not_required",
+                review_receipt_id=None,
+                version=1,
             )
+            for d in rubric["dimensions"]
+        ]
+        value["finalization"]["status"] = "pending"
+    return value
+
+
+def lineage_key(identity, version):
+    return f"{identity}:{version}"
+
+
+def lineage_metadata(item):
+    return {
+        k: item.get(k)
+        for k in (
+            "id",
+            "version",
+            "sources",
+            "replaces",
+            "epistemic_status",
+            "review_status",
+            "review_receipt_id",
+            "invalidated_at",
+            "lineage_depth",
+        )
+    }
+
+
+def segment_revisions(item, lineage=None):
+    history, result, seen = lineage or {}, {}, set()
+
+    def visit(refs, depth):
+        if depth > 8:
+            return
+        for ref in refs:
+            if ref["kind"] == "segment":
+                result[ref["id"]] = ref["version"]
+            elif ref["kind"] == "observation":
+                key = lineage_key(ref["id"], ref["version"])
+                if key not in seen:
+                    seen.add(key)
+                    visit(history.get(key, {}).get("sources", []), depth + 1)
+
+    visit(item.get("sources", []), 0)
+    return result
+
+
+def state_view(state, *, lineage=None):
+    value = upgrade_state(state)
+    history = lineage or state.get("_lineage", {})
+    for key, kind in KINDS.items():
+        value[key] = []
+        for item in value["observations"]:
+            if item["kind"] != kind or item["state"] in {"stale", "retracted"}:
+                continue
+            revisions = segment_revisions(item, history)
+            value[key].append(
+                {
+                    **item,
+                    "status": item["state"],
+                    "evidence_segment_ids": list(revisions),
+                    "evidence_revisions": revisions,
+                }
+            )
+    value["memory_omitted_items"] = value["coverage"].get("omitted_items", 0)
+    return value
+
+
+def persistent_state(state, *, limits=None):
+    import json
+
+    from app.config import RuntimeLimits
+
+    limits = limits or RuntimeLimits()
+    value = upgrade_state(state)
+
+    def priority(item):
+        return (
+            item["state"] in {"stale", "retracted"},
+            item["epistemic_status"] != "human_confirmed",
+            item["kind"] not in {"commitment", "question"},
+            item["state"] != "open",
+        )
+
+    ranked = sorted(reversed(value["observations"]), key=priority)
+    selected, counts, omitted = [], {}, 0
+    for item in ranked:
+        if (
+            len(selected) >= limits.observation_count
+            or counts.get(item["kind"], 0) >= limits.observation_per_kind
+        ):
+            omitted += 1
+        else:
+            counts[item["kind"]] = counts.get(item["kind"], 0) + 1
+            selected.append(item)
+    chosen = {i["id"] for i in selected}
+    value["observations"] = [i for i in value["observations"] if i["id"] in chosen]
+    value["coverage"]["omitted_items"] = value["coverage"].get("omitted_items", 0) + omitted
+    while len(json.dumps(value, separators=(",", ":")).encode()) > limits.conversation_bytes and selected:
+        removed = selected.pop()
+        value["observations"] = [i for i in value["observations"] if i["id"] != removed["id"]]
+        value["coverage"]["omitted_items"] += 1
+    if len(json.dumps(value, separators=(",", ":")).encode()) > limits.conversation_bytes:
+        raise CardRejected("Conversation metadata exceeds its byte budget")
+    return ConversationStateV2.model_validate(value).model_dump()
+
+
+def interpretation_delta(update, segments):
+    """Only the new schema is generated; migrate old in-flight fixture/client responses once."""
+    if "observations" in update:
+        return StateDelta.model_validate(update).model_dump()
+    if set(update) - {"stage", *STATE_FIELDS}:
+        raise CardRejected("Unknown conversation fields")
+    source = {s["segment_id"]: s for s in segments if s.get("is_final") and not s.get("system_audio")}
+    observations = []
+    for field, kind in KINDS.items():
+        items = update.get(field, [])
+        if not isinstance(items, list) or len(items) > 12:
+            raise CardRejected("Unbounded conversation state")
+        for item in items:
+            if not isinstance(item, dict) or set(item) - {
+                "text",
+                "quote",
+                "evidence_segment_ids",
+                "status",
+                "replaces",
+            }:
+                raise CardRejected("Invalid observation or replacement reference")
+            ids = item.get("evidence_segment_ids", [])
             if (
                 not isinstance(ids, list)
-                or not 0 < len(ids) <= 128
-                or not all(isinstance(i, str) and i in sources for i in ids)
-                or not isinstance(quote, str)
-                or not 0 < len(quote) <= 400
-                or not isinstance(text, str)
-                or not 0 < len(text) <= 400
+                or not 0 < len(ids) <= 32
+                or not all(isinstance(i, str) and i in source for i in ids)
             ):
                 raise CardRejected("Missing semantic evidence")
-            replaces = item.get("replaces", [])
+            observations.append(
+                ObservationDelta.model_validate(
+                    dict(
+                        kind=kind,
+                        text=item.get("text"),
+                        quote=item.get("quote"),
+                        state=item.get("status", "open"),
+                        sources=[
+                            dict(kind="segment", id=i, version=source[i].get("revision", 1)) for i in ids
+                        ],
+                        replaces=item.get("replaces", []),
+                        commitment=None,
+                    )
+                ).model_dump()
+            )
+    return StateDelta.model_validate(
+        dict(
+            stage=update.get("stage"),
+            observations=observations,
+            rubric_items=[],
+            tracker_matches=[],
+            interpreted_segments=[
+                dict(kind="segment", id=i, version=s.get("revision", 1)) for i, s in source.items()
+            ],
+        )
+    ).model_dump()
+
+
+def merge_semantic_state(
+    state,
+    update,
+    segments,
+    *,
+    request_id=None,
+    at=None,
+    secret=None,
+    limits=None,
+    catalog=None,
+    call_at=None,
+    timezone=None,
+):
+    import hashlib
+    import hmac
+    from copy import deepcopy
+    from datetime import UTC, datetime
+    from uuid import NAMESPACE_URL, uuid5
+
+    from app.privacy import paraphrased
+
+    if update is None:
+        return state
+    try:
+        delta = interpretation_delta(update, segments)
+    except (ValueError, TypeError) as exc:
+        raise CardRejected("Invalid conversation interpretation") from exc
+    value = upgrade_state(state)
+    history = deepcopy(state.get("_lineage", {}))
+    prior = {i["id"]: i for i in value["observations"]}
+    for item in prior.values():
+        history[lineage_key(item["id"], item["version"])] = lineage_metadata(item)
+    now = (at or datetime.now(UTC)).isoformat()
+    live = {s["segment_id"]: s for s in segments if s.get("is_final") and not s.get("system_audio")}
+    allowed = {(s["kind"], s["id"], s["version"]): s for s in catalog or []}
+    for identity, item in prior.items():
+        allowed[("observation", identity, item["version"])] = item
+    for identity, item in live.items():
+        allowed[("segment", identity, item.get("revision", 1))] = item
+    request_id = (
+        request_id
+        or hashlib.sha256(repr([(i, s.get("revision", 1)) for i, s in live.items()]).encode()).hexdigest()
+    )
+    interpreted = []
+    for ref in delta["interpreted_segments"]:
+        if ref["kind"] != "segment" or (ref["kind"], ref["id"], ref["version"]) not in allowed:
+            raise CardRejected("Interpretation named an unavailable segment revision")
+        if ref not in interpreted:
+            interpreted.append(ref)
+
+    def references(refs):
+        result = []
+        for ref in refs:
+            source = allowed.get((ref["kind"], ref["id"], ref["version"]))
             if (
-                not isinstance(replaces, list)
-                or len(replaces) > 12
-                or not all(isinstance(i, str) and i in previous for i in replaces)
-                or len(set(replaces)) != len(replaces)
+                source is None
+                or source.get("state") in {"stale", "retracted"}
+                or source.get("invalidated_at")
             ):
-                raise CardRejected("Unknown memory replacement")
-            if item.get("status", "open") not in ("open", "resolved", "confirmed"):
-                raise CardRejected("Unknown observation state")
-            if quote.casefold() not in " ".join(sources[i]["text"] for i in ids).casefold():
-                raise CardRejected("State evidence is absent")
-            if not paraphrased(text, segments):
-                continue  # Never persist a transcript quotation as a supposed summary.
-            revisions = {
-                source_id: revision
-                for identity in replaces
-                for source_id, revision in previous[identity].get("evidence_revisions", {}).items()
-            }
-            revisions.update({i: sources[i].get("revision", 1) for i in ids})
-            if len(revisions) > 128:
-                raise CardRejected("Memory source lineage exceeds its bound")
-            for identity in replaces:
-                del previous[identity]
-            identity = memory_id(key, {"evidence_segment_ids": list(revisions)})
-            previous[identity] = {
-                "id": identity,
-                "text": text[:400],
-                "status": item.get("status", "open"),
-                "evidence_segment_ids": list(revisions),
-                "evidence_revisions": revisions,
-            }
-        merged[key] = list(previous.values())
-    merged["stage"] = update["stage"]
-    return merged
+                raise CardRejected("Unknown or stale conversation source reference")
+            raw = str(source.get("text", source.get("statement", "")))
+            result.append(
+                {
+                    **ref,
+                    "occurred_at": source.get("occurred_at") or source.get("server_received_at"),
+                    "available_at": source.get("available_at") or source.get("server_received_at"),
+                    "raw_expires_at": source.get("raw_expires_at"),
+                    "content_hash": hmac.new(secret, raw.encode(), hashlib.sha256).hexdigest()
+                    if secret
+                    else source.get("content_hash"),
+                }
+            )
+        if len({(r["kind"], r["id"], r["version"]) for r in result}) != len(result):
+            raise CardRejected("Duplicate source reference")
+        return result
 
+    changed, lineage_updates = False, []
+    for index, item in enumerate(delta["observations"]):
+        identity = str(uuid5(NAMESPACE_URL, value["call_id"] + ":" + request_id + ":" + str(index)))
+        if identity in prior:
+            continue
+        replacement = item["replaces"]
+        if len(set(replacement)) != len(replacement) or any(
+            i not in prior or i == identity for i in replacement
+        ):
+            raise CardRejected("Unknown memory replacement reference")
+        refs = references(item["sources"])
+        for old in replacement:
+            ref = {"kind": "observation", "id": old, "version": prior[old]["version"]}
+            if not any(all(r[k] == ref[k] for k in ref) for r in refs):
+                refs.extend(references([ref]))
+        if len(refs) > 32:
+            raise CardRejected("Observation source count exceeds its bound")
+        source_text = " ".join(live[r["id"]]["text"] for r in refs if r["kind"] == "segment")
+        if item["quote"] and item["quote"].casefold() not in source_text.casefold():
+            raise CardRejected("State evidence is absent")
+        if not paraphrased(item["text"], segments):
+            continue
+        depths = [prior[r["id"]]["lineage_depth"] for r in refs if r["kind"] == "observation"]
+        depth = 1 + max(depths, default=-1)
+        if depth > 8:
+            if any(
+                prior[r["id"]]["epistemic_status"] != "model_reviewed"
+                for r in refs
+                if r["kind"] == "observation"
+            ):
+                raise CardRejected("A reviewed checkpoint is required before extending source lineage")
+            depth = 1
+        material = (
+            item["kind"] in {"commitment", "approach"}
+            or item["state"] in {"resolved", "retracted"}
+            or depth == 8
+        )
+        status = item["state"]
+        if status == "confirmed" and any(
+            live[r["id"]].get("side") == "unknown" for r in refs if r["kind"] == "segment"
+        ):
+            status = "open"
+        commitment = None
+        if item["commitment"]:
+            from app.postcall.dates import resolve_time
 
-def persistent_state(state):
-    """Only derived observations survive. Raw context belongs to the TTL buffer."""
+            if item["kind"] != "commitment" or not source_text:
+                raise CardRejected("A commitment requires live evidence")
+            promise = item["commitment"]
+            if promise["verbatim_time_expression"].casefold() not in source_text.casefold():
+                raise CardRejected("Commitment time expression is absent")
+            normalized = resolve_time(promise, call_at=call_at, timezone=timezone)
+            commitment = {k: v for k, v in normalized.items() if k != "verbatim_time_expression"}
+        obs = dict(
+            id=identity,
+            version=1,
+            kind=item["kind"],
+            text=item["text"],
+            state=status,
+            sources=refs,
+            replaces=replacement,
+            epistemic_status="model_interpreted",
+            observed_at=now,
+            available_at=now,
+            invalidated_at=None,
+            review_receipt_id=None,
+            review_status="pending" if material else "not_required",
+            lineage_depth=depth,
+            commitment=commitment,
+        )
+        if not material:
+            for old in replacement:
+                prior.pop(old)
+        prior[identity] = obs
+        meta = lineage_metadata(obs)
+        history[lineage_key(identity, 1)] = meta
+        lineage_updates.append(meta)
+        changed = True
+    rubric = {i["dimension"]: i for i in value["rubric_items"]}
+    seen = set()
+    for item in delta["rubric_items"]:
+        if item["dimension"] not in rubric or item["dimension"] in seen:
+            raise CardRejected("Unknown or duplicate rubric dimension")
+        seen.add(item["dimension"])
+        if (
+            (item["status"] == "scored") != (item["score"] is not None)
+            or item["status"] != "unassessed"
+            and not item["sources"]
+        ):
+            raise CardRejected("A rating requires evidence and a consistent score")
+        if not paraphrased(item["explanation"], segments):
+            raise CardRejected("Rubric explanation must paraphrase")
+        rubric[item["dimension"]] = {
+            **item,
+            "sources": references(item["sources"]),
+            "epistemic_status": "model_interpreted",
+            "review_status": "pending",
+            "review_receipt_id": None,
+            "version": rubric[item["dimension"]].get("version", 0) + 1,
+        }
+        changed = True
+    trackers = {i["tracker_id"]: i for i in value["tracker_matches"]}
+    seen = set()
+    for item in delta["tracker_matches"]:
+        if item["tracker_id"] in seen:
+            raise CardRejected("Duplicate tracker match")
+        seen.add(item["tracker_id"])
+        trackers[item["tracker_id"]] = {
+            **item,
+            "sources": references(item["sources"]),
+            "epistemic_status": "model_interpreted",
+            "review_status": "pending",
+            "review_receipt_id": None,
+        }
+        changed = True
+    value.update(
+        stage=delta["stage"],
+        observations=list(prior.values()),
+        rubric_items=list(rubric.values()),
+        tracker_matches=list(trackers.values())[:20],
+    )
+    if changed:
+        value["version"] += 1
+        value["finalization"]["status"] = "pending"
+    value = persistent_state(value, limits=limits)
     return {
-        "version": state["version"],
-        "stage": state["stage"],
-        "trigger": state["trigger"],
-        **{key: bounded_memory(state.get(key, [])) for key in STATE_FIELDS},
-        "memory_omitted_items": state.get("memory_omitted_items", 0)
-        + sum(max(0, len(state.get(key, [])) - 12) for key in STATE_FIELDS),
+        **state_view(value, lineage=history),
+        "_lineage": history,
+        "_lineage_updates": lineage_updates,
+        "_interpreted_segments": interpreted,
     }
+
+
+def invalidate_state(state, source_id, revision, *, at, lineage=None):
+    value = upgrade_state(state)
+    history = dict(lineage or state.get("_lineage", {}))
+    for item in value["observations"]:
+        history[lineage_key(item["id"], item["version"])] = lineage_metadata(item)
+    invalid = {
+        k
+        for k, item in history.items()
+        if any(
+            r["kind"] == "segment" and r["id"] == source_id and r["version"] != revision
+            for r in item.get("sources", [])
+        )
+    }
+    while True:
+        found = {
+            k
+            for k, item in history.items()
+            if any(
+                r["kind"] == "observation" and lineage_key(r["id"], r["version"]) in invalid
+                for r in item.get("sources", [])
+            )
+        }
+        if found <= invalid:
+            break
+        invalid |= found
+
+    def affected(item):
+        return lineage_key(item.get("id", ""), item.get("version", 0)) in invalid or any(
+            r["kind"] == "segment"
+            and r["id"] == source_id
+            and r["version"] != revision
+            or r["kind"] == "observation"
+            and lineage_key(r["id"], r["version"]) in invalid
+            for r in item.get("sources", [])
+        )
+
+    conflicts = []
+    for item in [*value["observations"], *value["rubric_items"], *value["tracker_matches"]]:
+        if affected(item):
+            if "state" in item:
+                item["state"] = "stale"
+                item["invalidated_at"] = at.isoformat()
+            item["review_status"] = "unavailable"
+            if "score" in item:
+                item.update(score=None, status="unassessed")
+            conflicts.append(
+                {
+                    "id": item.get("id") or item.get("dimension") or item.get("tracker_id"),
+                    "source_id": source_id,
+                    "reason": "source_corrected",
+                    "at": at.isoformat(),
+                }
+            )
+    if conflicts:
+        value["source_conflicts"] = (value["source_conflicts"] + conflicts)[-96:]
+        value["version"] += 1
+        value["finalization"]["status"] = "pending"
+    return value

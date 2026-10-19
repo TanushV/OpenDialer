@@ -254,7 +254,13 @@ class OpenRouterCoach:
             "Update compact state_delta with changed paraphrases, exact transient quotes and source IDs. "
             "Preserve uncertainty and negation. Use existing memory IDs in replaces for corrections/resolutions. "
             "Maintain rundown, open questions and coaching observations even with null guidance. "
-            "Use empty lists for unchanged categories; a non-null state_delta confirms all supplied chunks were considered."
+            "Use empty lists for unchanged fields; omission never resolves or retracts an item. "
+            "List exactly the segment identities/revisions interpreted in interpreted_segments. "
+            "Use source kind/id/version references from the evidence catalog and existing observation IDs for replacements. "
+            "Commitments need agreed owner/action/time; numerical ratings need the supplied rubric opportunity and anchors. "
+            "In finalize mode, merge the older retained state with still-live unprocessed chunks into a short rundown; "
+            "never replace early context with the recent window or infer what missing speech said. "
+            "Keep unfamiliar concerns as open-ended text; do not infer a fixed topic taxonomy."
         )
         result = await self._complete(
             request,
