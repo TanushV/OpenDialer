@@ -53,6 +53,7 @@ def upgrade():
         for scope in ("tenant_id", "seller_id"):
             op.create_index(f"ix_{name}_{scope}", name, [scope])
     indexes = {
+        "leads": {"ix_leads_endpoint": ["tenant_id", "seller_id", "op_endpoint_id", "id"]},
         "work_intervals": {
             "ix_work_intervals_overlap": ["tenant_id", "seller_id", "op_owner_id", "op_due_at", "op_at"]
         },

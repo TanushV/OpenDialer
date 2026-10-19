@@ -192,6 +192,7 @@ class JobQueue:
                     "home_refresh",
                     "forecast_refresh",
                     "metric_refresh",
+                    "metric_dependents",
                 }:
                     raise ValueError("Only read-only workspace refresh can be coalesced")
                 job.attempts = max(0, job.attempts - 1)

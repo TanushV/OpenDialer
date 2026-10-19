@@ -218,6 +218,11 @@ def columns(kind):
 def indexes(name):
     return (
         *(
+            (Index("ix_leads_endpoint", "tenant_id", "seller_id", "op_endpoint_id", "id"),)
+            if name == "leads"
+            else ()
+        ),
+        *(
             (
                 Index(
                     "ix_call_attempts_work_overlap",

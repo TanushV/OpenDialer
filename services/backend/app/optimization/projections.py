@@ -199,6 +199,21 @@ def dirty_source_units(changed, session):
         for value in [row.data, *([previous] if previous else [])]:
             if table in {"call_attempts", "conversion_events"} and value.get("lead_id"):
                 units[(*scope, "lead", value["lead_id"])] = False
+            if table == "conversion_events" and value.get("lead_id"):
+                units[(*scope, "lead-calls", value["lead_id"])] = False
+            if table == "suppressions" and value.get("phone"):
+                database = session.info["database"]
+                key = hmac.new(database.identity_key, value["phone"].encode(), hashlib.sha256).hexdigest()
+                endpoints = MODELS["phone_endpoints"]
+                endpoint = session.scalar(
+                    select(endpoints.id).where(
+                        endpoints.tenant_id == scope[0],
+                        endpoints.seller_id == scope[1],
+                        endpoints.external_key == key,
+                    )
+                )
+                if endpoint:
+                    units[(*scope, "endpoint-leads", endpoint)] = False
             if table == "coaching_feedback" and value.get("coach_event_id"):
                 units[(*scope, "help", value["coach_event_id"])] = False
             if table not in {"work_intervals", "call_attempts"} or not value.get("rep_id"):
@@ -246,7 +261,7 @@ def enqueue_units(session, units):
         key = f"projection:{seller}:{kind}:{identity}"
         job = pending.get((tenant, key))
         payload = {
-            "kind": "metric_refresh",
+            "kind": "metric_dependents" if kind in {"endpoint-leads", "lead-calls"} else "metric_refresh",
             "seller_id": seller,
             "source_kind": kind,
             "source_id": identity,
@@ -510,6 +525,8 @@ def _group_key(service, group):
 
 def refresh_unit(service, p, payload):
     """Compute outside writes, then replace one source vector under a generation fence."""
+    if payload["source_kind"] in {"endpoint-leads", "lead-calls"}:
+        return expand_dependents(service, p, payload)
     snapshot = _unit_snapshot(service, p, payload)
     values, due = _calculate_unit(snapshot, service.clock())
     kind, identity = snapshot["kind"], snapshot["identity"]
@@ -657,3 +674,77 @@ def refresh_due(service, p, *, limit=100):
     for kind, identity in dict.fromkeys(sources):
         refresh_unit(service, p, {"source_kind": kind, "source_id": identity})
     return {"processed": len(sources)}
+
+
+def expand_dependents(service, p, payload):
+    """A saved100-ID page replaces unbounded work inside a denial/correction write."""
+    kind, identity = payload["source_kind"], payload["source_id"]
+    table, field, target_kind = {
+        "endpoint-leads": ("leads", "op_endpoint_id", "lead"),
+        "lead-calls": ("call_attempts", "op_lead_id", "call"),
+    }[kind]
+    key = f"projection:{p['seller_id']}:{kind}:{identity}"
+    with service.db.transaction(False) as session:
+        job = session.scalar(select(Job).where(Job.tenant_id == p["tenant_id"], Job.key == key))
+        if not job:
+            return {"status": "superseded", "processed": 0}
+        generation = job.payload["desired_generation"]
+        cursor = job.payload.get("cursor", "") if job.payload.get("cursor_generation") == generation else ""
+        if job.payload.get("completed_generation") == generation:
+            return {"status": "ready", "processed": 0}
+        model = MODELS[table]
+        ids = list(
+            session.scalars(
+                select(model.id)
+                .where(
+                    model.tenant_id == p["tenant_id"],
+                    model.seller_id == p["seller_id"],
+                    getattr(model, field) == identity,
+                    model.id > cursor,
+                )
+                .order_by(model.id)
+                .limit(100)
+            )
+        )
+    with service.db.transaction() as session:
+        # Source writers acquire these same keys in order. Parent-first would
+        # invert that order for lead-calls expansion and a concurrent correction.
+        locked = {
+            j.key: j
+            for j in session.scalars(
+                select(Job)
+                .where(
+                    Job.tenant_id == p["tenant_id"],
+                    Job.key.in_([key, *(f"projection:{p['seller_id']}:{target_kind}:{i}" for i in ids)]),
+                )
+                .order_by(Job.key)
+                .with_for_update()
+            )
+        }
+        job = locked.get(key)
+        if not job or job.payload["desired_generation"] != generation:
+            return {"status": "superseded", "processed": 0}
+        if payload.get("job_id"):
+            from app.jobs.queue import aware
+
+            if (
+                job.id != payload["job_id"]
+                or job.status != "running"
+                or job.lease_owner != payload.get("lease_owner")
+                or not job.lease_expires_at
+                or aware(job.lease_expires_at) <= service.clock()
+            ):
+                return {"status": "lost_lease", "processed": 0}
+        current_cursor = (
+            job.payload.get("cursor", "") if job.payload.get("cursor_generation") == generation else ""
+        )
+        if current_cursor != cursor:
+            return {"status": "superseded", "processed": 0}
+        enqueue_units(session, {(p["tenant_id"], p["seller_id"], target_kind, i): False for i in ids})
+        job.payload = {
+            **job.payload,
+            "cursor_generation": generation,
+            "cursor": ids[-1] if ids else cursor,
+            "completed_generation": generation if len(ids) < 100 else None,
+        }
+    return {"status": "ready" if len(ids) < 100 else "pending", "processed": len(ids)}
