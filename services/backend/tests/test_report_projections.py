@@ -222,7 +222,8 @@ async def test_superseded_worker_retries_instead_of_claiming_completion(workspac
     def changing(*args, **kwargs):
         result = original(*args, **kwargs)
         with service.db.transaction() as s:
-            update(service.scoped(s, "leads", p)[0], status="needs_review")
+            lead = service.scoped(s, "leads", p)[0]
+            update(lead, status="eligible" if lead.data["status"] == "needs_review" else "needs_review")
         return result
 
     with monkeypatch.context() as m:
@@ -230,7 +231,9 @@ async def test_superseded_worker_retries_instead_of_claiming_completion(workspac
         await service.run_jobs(queues=["ml"])
     job = service.jobs.get(first["projection"]["job_id"])
     assert job["status"] == "queued"
-    clock.now += timedelta(seconds=11)
+    assert job["error"] is None and job["attempts"] == 0, (
+        "A concurrent source correction is fresh work, not a failed attempt with ten-second backoff"
+    )
     await service.run_jobs(queues=["ml"])
     assert read(workspace)["projection"]["status"] == "ready"
 

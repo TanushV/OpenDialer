@@ -10,6 +10,41 @@ from test_optimization_workflows import finish
 from test_remediation_privacy import principal
 
 
+def test_comparison_report_after_goal_change_preserves_original_trial_definition(workspace, app, clock):
+    """The UI's save-goal / refresh / start-comparison sequence stays publishable."""
+    from uuid import uuid4
+
+    service, p = app.state.service, principal(workspace)
+    original = completed_report(workspace).json()
+    client, headers = workspace["client"], workspace["headers"]
+    changed = client.put(
+        "/v1/admin/optimization",
+        headers=headers,
+        json={"conversion_goal": "sale_won", "window_days": 30},
+    )
+    assert changed.status_code == 200, changed.text
+    service.refresh_optimization(p)
+    current = completed_report(workspace).json()
+    assert current["trial"]["epoch"] != original["trial"]["epoch"]
+    clock.now += timedelta(seconds=1)
+    started = client.post(
+        "/v1/admin/optimization/comparisons",
+        headers=headers,
+        json={
+            "family": "coaching",
+            "request_id": str(uuid4()),
+            "review_reference": "Synthetic protocol review",
+            "duration_days": 14,
+        },
+    )
+    assert started.status_code == 200, started.text
+    # A direct calculation exposes the exception instead of masking it as a queued retry.
+    report = service.optimization_report(p)
+    assert report["comparisons"][0]["id"] == started.json()["id"]
+    report = completed_report(workspace).json()
+    assert report["comparisons"][0]["id"] == started.json()["id"]
+
+
 def test_report_publication_reads_bucket_metrics_not_source_history(workspace, app, clock, monkeypatch):
     service, p = app.state.service, principal(workspace)
     call = start(workspace)
