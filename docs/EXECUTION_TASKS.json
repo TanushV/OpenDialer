@@ -6,7 +6,7 @@
   "status": "implementation-authorized; E01 software boundary accepted; E02 in progress",
   "requirements_source": "docs/REMEDIATION_PLAN.md",
   "implementation_source": "docs/EXECUTION_SPEC.md",
-  "next_step": "E02",
+  "next_step": "E03",
   "receipt_rule": "No inherited checkbox or planned node is a current passing receipt. Update by actual source-bound evidence.",
   "steps": [
     {
@@ -125,7 +125,7 @@
     {
       "id": "E02",
       "title": "One conversation state through long calls and finalization",
-      "status": "in-progress",
+      "status": "accepted-software",
       "depends_on": [
         "E01"
       ],
@@ -139,7 +139,9 @@
         "services/backend/tests/test_remediation_privacy.py",
         "services/backend/tests/test_conversation_finalization.py"
       ],
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E02.json"
+      ],
       "planned_case_ids": [
         "C005",
         "C006",
@@ -159,7 +161,7 @@
     {
       "id": "E03",
       "title": "Complete the rep journey and next-call continuity",
-      "status": "open",
+      "status": "in-progress",
       "depends_on": [
         "E02"
       ],
@@ -1049,13 +1051,15 @@
       "id": "M2.02a",
       "requirement": "Index single-call/lead context and candidate consent reads; bound decrypted facts, speech, prior calls, commitments and tasks. Preserve required script evidence and human notes, prioritize unresolved work and disclose omitted history. Dual-database/browser and additive migration receipts are in STATUS.md. Workspace/report projections and full-load performance remain open.",
       "baseline_checked": true,
-      "execution_status": "retained-needs-revalidation",
+      "execution_status": "in-progress",
       "primary_step": "E02",
       "supporting_steps": [
         "E09"
       ],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E02.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1079,13 +1083,15 @@
       "id": "M2.02e",
       "requirement": "Read notes, scorecards, comments and human ratings only for the selected call, without silently truncating its review history. Additive 0015 and authenticated backfill preserve human content, identities and versions. Dual-database/browser receipts are in STATUS.md; full long-call metadata and configured-tracker bounds remain separate work.",
       "baseline_checked": true,
-      "execution_status": "retained-needs-revalidation",
+      "execution_status": "in-progress",
       "primary_step": "E02",
       "supporting_steps": [
         "E03"
       ],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E02.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1292,7 +1298,8 @@
       ],
       "acceptance_gate": "software",
       "receipts": [
-        "docs/evidence/completion/E01.json"
+        "docs/evidence/completion/E01.json",
+        "docs/evidence/completion/E02.json"
       ],
       "verification_steps": [
         "E13"
@@ -1302,11 +1309,13 @@
       "id": "M3.01a",
       "requirement": "Preserve bounded source-versioned rundown, open questions and coaching tips through long calls; coalesce quiet turns, keep interpretation active when display is muted, drain bounded backlog and expose unprocessed speech. Corrections/expiry and both database modes pass the October 18 live-memory receipts in STATUS.md. Full context hot-path performance and long-call scoring remain open.",
       "baseline_checked": true,
-      "execution_status": "retained-needs-revalidation",
+      "execution_status": "in-progress",
       "primary_step": "E02",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E02.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1315,11 +1324,13 @@
       "id": "M3.01b",
       "requirement": "Fence live publication/display/private replay against changed seller/product knowledge, lead brief, used facts, reviewed examples, prior outcomes/notes and commitments. Late human notes and expired facts invalidate advice; irrelevant preparation bookkeeping does not. Reuse the same knowledge checks for practice and retain billed discarded requests. Dual-database receipts are in STATUS.md; knowledge authoring/indexing, full context load and semantic evaluation remain open.",
       "baseline_checked": true,
-      "execution_status": "retained-needs-revalidation",
+      "execution_status": "in-progress",
       "primary_step": "E02",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E02.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1798,11 +1809,13 @@
       "id": "M5.02",
       "requirement": "Implement one structured post-call analysis with suggested outcome, evidence, commitments, actions and next-call brief.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "in-progress",
       "primary_step": "E02",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E02.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1811,11 +1824,13 @@
       "id": "M5.02a",
       "requirement": "Bind complete meaning-review receipts to the actual post-call fields and source revisions; unsupported/unavailable review cannot publish a new task or score. Wire the review model role, preserve rep notes, expose review state and account for rejected/expired requests. Extraction/review deadlines respect remaining raw lifetime (October 18 grounding receipts). Long-call interpretation, call-type rubrics and real model quality remain open.",
       "baseline_checked": true,
-      "execution_status": "retained-needs-revalidation",
+      "execution_status": "in-progress",
       "primary_step": "E02",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E02.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1902,13 +1917,15 @@
       "id": "M5.07",
       "requirement": "Add source-version invalidation, human-edit conflicts, complete rubrics, selective stronger review and appeals.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "in-progress",
       "primary_step": "E02",
       "supporting_steps": [
         "E03"
       ],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E02.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1917,11 +1934,13 @@
       "id": "M5.07a",
       "requirement": "Add editable campaign/call-purpose anchors, immutable per-call rubric snapshots, actual-purpose correction and operational/unknown unscored states. Consolidate semantic trackers into the existing reviewed interpretation, fence source/definition changes and expose original-evidence expiry. Focused dual-database/browser receipts are in STATUS.md; human rating overrides, long-call scoring and the full review workflow remain open.",
       "baseline_checked": true,
-      "execution_status": "retained-needs-revalidation",
+      "execution_status": "in-progress",
       "primary_step": "E02",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E02.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -2023,13 +2042,15 @@
       "id": "M6.03",
       "requirement": "Fold chunks into compact nonverbatim state before expiry; persist prospect briefs, counters and derived scorecards only.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "in-progress",
       "primary_step": "E02",
       "supporting_steps": [
         "E11"
       ],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E02.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -2295,13 +2316,15 @@
       "id": "M7.08b",
       "requirement": "Compute observed conversation timing with one sorted timeline, union overlapping same-side segments, count cross-side overlap once and exclude invalid timestamps/system audio. Independent interval-oracle, dual-database compatibility and isolated performance receipts are in STATUS.md. Full long-call scoring and mixed-load acceptance remain open.",
       "baseline_checked": true,
-      "execution_status": "retained-needs-revalidation",
+      "execution_status": "in-progress",
       "primary_step": "E02",
       "supporting_steps": [
         "E09"
       ],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E02.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -2599,14 +2622,16 @@
       "id": "X02",
       "requirement": "Actual selected STT engine attribution/revisions and complete utterance-to-help timing on permitted calls.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "in-progress",
       "primary_step": "E01",
       "supporting_steps": [
         "E02",
         "E13"
       ],
       "acceptance_gate": "external",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E02.json"
+      ],
       "verification_steps": []
     },
     {
@@ -4314,14 +4339,16 @@
       "step": "E02",
       "planned_node": "services/backend/tests/test_conversation_finalization.py::test_early_context_survives_ttl",
       "expected": "Twelve-minute call keeps minute-one derived need/promise after raw expiry and finalizes without an OpenAI key.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-group1.json",
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E02.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_conversation_finalization.py::test_early_context_survives_ttl",
         "services/backend/tests/test_conversation_finalization.py::test_merge_correction_and_missing_source"
@@ -4332,14 +4359,16 @@
       "step": "E02",
       "planned_node": "services/backend/tests/test_conversation_finalization.py::test_merge_correction_and_missing_source",
       "expected": "Omitted item is not resolved; correction invalidates dependants; expired evidence yields partial rather than invented replacement.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-group1.json",
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E02.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_conversation_finalization.py::test_early_context_survives_ttl",
         "services/backend/tests/test_conversation_finalization.py::test_merge_correction_and_missing_source"
@@ -4350,13 +4379,15 @@
       "step": "E02",
       "planned_node": "services/backend/tests/test_call_rubrics.py::test_complete_rubric_once_per_call",
       "expected": "Each frozen dimension has scored/N-A/insufficient state; chunks are not independent calls; coverage denominator is exact.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E02.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_call_rubrics.py::test_complete_rubric_once_per_call",
         "services/backend/tests/test_call_rubrics.py::test_call_type_defaults_have_distinct_observable_anchors",
@@ -4373,13 +4404,15 @@
       "step": "E02",
       "planned_node": "services/backend/tests/test_tracker_publication.py::test_reviewed_state_sources",
       "expected": "Unknown speaker, foreign IDs, reference cycles and stale review cannot publish confirmed trackers or commitments.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E02.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_tracker_publication.py::test_reviewed_state_sources",
         "services/backend/tests/test_tracker_publication.py::test_tracker_shares_one_extraction_and_meaning_review_with_original_versions",

@@ -687,7 +687,7 @@ These boxes are deliberately open. This planning pass does not perform implement
 
 - [x] E00 All remaining cases authored, real baseline red/green captured, traceability committed before product changes. See E00 receipts in STATUS.md; baseline failures do not accept product behavior.
 - [x] E01 Freeform live help and selective whole-field review pass; lexical semantic gates deleted.
-- [ ] E02 Shared conversation state, long-call continuity and finalization pass; duplicate extraction removed.
+- [x] E02 Shared conversation state, long-call continuity and finalization pass; duplicate extraction removed.
 - [ ] E03 One complete local rep/task/meeting/next-call journey passes in both authorities.
 - [ ] E04 Bounded discovery, prepared queue, off-hours batches and partial recovery pass.
 - [ ] E05 Shared screening/cost readiness, authorized refresh and no-recurring policy pass.
@@ -702,4 +702,4 @@ These boxes are deliberately open. This planning pass does not perform implement
 - [ ] E14 Exact Mac/Windows artifacts accepted, existing installations updated and native use recorded.
 - [ ] E15 Accurate docs, remaining external gates, final preflight and scoped cleanup complete; source/artifact/remote match.
 
-**Next action on implementation resumption:** E02. E01 selective-review, timing, accounting and UI contracts pass in both authorities; receipts are in STATUS.md. Implement one bounded conversation state and finalizer, retaining all existing source/expiry/correction contracts. Do not start another general audit, rewrite the stack, add CRM/calendar scope or package a new release before the integrated workflow and acceptance gates close.
+**Next action on implementation resumption:** E03. E02 canonical conversation state, selective finalization, correction lineage and legacy migration pass at their recorded source (see STATUS/E02 receipt). Finish replay-safe local edits, task reconciliation, wrap-up and next-call continuity, then E04–E15. Preserve raw expiry and existing identities; do not package before whole-system acceptance.
