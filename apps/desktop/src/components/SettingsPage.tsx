@@ -39,6 +39,7 @@ type BudgetData = {
 };
 type SettingsData = {
   version: number;
+  effective: Record<string, string>;
   configured: Record<string, boolean>;
   budget: BudgetData;
   [key: string]: unknown;
@@ -203,8 +204,9 @@ function ProviderSettings() {
   const load = (settings: SettingsData) => {
     setVersion(settings.version);
     setConfigured(settings.configured);
-    setConfig(
-      Object.fromEntries(
+    setConfig({
+      ...settings.effective,
+      ...(Object.fromEntries(
         Object.entries(settings).filter(
           ([key, value]) =>
             typeof value === "string" &&
@@ -212,8 +214,8 @@ function ProviderSettings() {
             !key.endsWith("_api_key") &&
             key !== "chatgpt_access_token",
         ),
-      ) as Record<string, string>,
-    );
+      ) as Record<string, string>),
+    });
     setConfigLoading(false);
   };
   useEffect(() => {
@@ -313,7 +315,7 @@ function ProviderSettings() {
             <label>
               Inference route
               <select
-                value={config.inference_mode || "api"}
+                value={config.inference_mode || ""}
                 onChange={(e) =>
                   setConfig({ ...config, inference_mode: e.target.value })
                 }
@@ -368,7 +370,7 @@ function ProviderSettings() {
                 </p>
               </>
             )}
-            {field("model", "Default evaluated model", false, "gpt-6-luna")}
+            {field("model", "Default evaluated model")}
             <label>
               Optional research search
               <select
@@ -395,12 +397,7 @@ function ProviderSettings() {
               this choice makes no paid request. LiteLLM and plan routes retain
               generic preparation when official discovery is insufficient.
             </p>
-            {field(
-              "script_write_model",
-              "Script-writing model",
-              false,
-              "gpt-6.1-sol",
-            )}
+            {field("script_write_model", "Script-writing model")}
             {field("scorecard_review_model", "Optional stronger review model")}
           </details>
           <section className="card padded">
@@ -409,7 +406,7 @@ function ProviderSettings() {
             <label>
               Live coach provider
               <select
-                value={config.coach_provider || "openrouter"}
+                value={config.coach_provider || ""}
                 onChange={(e) =>
                   setConfig({ ...config, coach_provider: e.target.value })
                 }
@@ -418,15 +415,10 @@ function ProviderSettings() {
                 <option value="static">Approved static guidance</option>
               </select>
             </label>
-            {(config.coach_provider || "openrouter") === "openrouter" && (
+            {(config.coach_provider || "") === "openrouter" && (
               <>
                 {field("openrouter_api_key", "OpenRouter API key", true)}
-                {field(
-                  "coach_model",
-                  "Cerebras coach model",
-                  false,
-                  "openai/gpt-oss-120b",
-                )}
+                {field("coach_model", "Cerebras coach model")}
                 <p className="fine">
                   Cerebras only · other-provider fallbacks disabled · strict
                   structured responses. Endpoint support and live timing must

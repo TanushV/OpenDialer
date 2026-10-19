@@ -407,6 +407,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
             status = service.quiescence_in(s, p)
             if not status["can_disconnect"]:
                 fail(409, {"code": "AUTHORITY_HAS_OBLIGATIONS", "reasons": status["reasons"]})
+            service.release_unused_reservation_in(s, p)
             service.record_work_in(s, p, False)
             update(service.required(s, "sessions", p["session_id"], p), revoked=True)
         return {"logged_out": True}
@@ -727,6 +728,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.get("/v1/admin/settings")
     def read_settings(p=Depends(administrator)):
         from app.compliance.operating import OperatingPolicy
+        from app.config import PROVIDER_DEFAULTS, inference_model
         from app.preparation.templates import PreparationPolicy
 
         config = service.vault.read(p["tenant_id"])
@@ -742,7 +744,19 @@ def create_app(settings=None, *, clock=None, carrier=None):
             "configured": {k: bool(config.get(k)) for k in SECRET_FIELDS},
             "version": config.get("version", 0),
             "budget": budget_values,
+            "effective": {
+                **{
+                    key: config.get(key, getattr(PROVIDER_DEFAULTS, key))
+                    for key in ("inference_mode", "coach_provider", "coach_model", "research_search")
+                },
+                "model": inference_model(config),
+                **{
+                    role + "_model": inference_model(config, role)
+                    for role in ("research_extract", "script_write", "scorecard_review")
+                },
+            },
             "defaults": {
+                "providers": PROVIDER_DEFAULTS.model_dump(mode="json"),
                 "runtime": settings.runtime_limits.model_dump(mode="json"),
                 "operating": OperatingPolicy().model_dump(mode="json"),
                 "preparation": PreparationPolicy().model_dump(mode="json"),
@@ -766,7 +780,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
             if values.get(key):
                 try:
                     parsed = urlsplit(values[key])
-                    parsed.port
+                    _ = parsed.port
                 except ValueError:
                     fail(422, "Endpoint requires a valid host and port")
                 if (

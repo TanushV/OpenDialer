@@ -1,10 +1,10 @@
-from conftest import reserve, start
 import pytest
+from conftest import reserve, start
 
 
 @pytest.mark.parametrize("obligation", ["call", "inbound", "submitted_operation", "agent"])
 def test_authority_change_refuses_unresolved_obligations(workspace, app, obligation):
-    from app.db import put, update, get
+    from app.db import get, put, update
     from test_remediation_privacy import principal
 
     c, h, p = workspace["client"], workspace["headers"], principal(workspace)

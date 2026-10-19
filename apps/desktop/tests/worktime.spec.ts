@@ -38,6 +38,7 @@ test("work time is visible, supported by a heartbeat and correctable after pause
     .getByRole("button", { name: "Pause dialing", exact: true })
     .click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Operations", exact: true }).click();
   await page.getByText("Working time & corrections", { exact: true }).click();
   await expect(
     page.getByText(/Heartbeats expire after 90 seconds/),
@@ -65,6 +66,7 @@ test("work time is visible, supported by a heartbeat and correctable after pause
   ).toBeVisible();
   await page.reload();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Operations", exact: true }).click();
   await page.getByText("Working time & corrections", { exact: true }).click();
   await expect(
     page.getByText("Reviewed actual preparation time", { exact: true }),

@@ -189,6 +189,24 @@ export function App() {
   );
   const notice = useCallback((message: string) => setToast({ message }), []);
   useWorkHeartbeat(snapshot, api, refresh, notice);
+  const activeConversation =
+    !!snapshot &&
+    (snapshot.calls.some(
+      (c) =>
+        c.rep_id === snapshot.user.id &&
+        !["ENDED", "FINALIZED"].includes(c.state) &&
+        !c.detached,
+    ) ||
+      snapshot.tasks.some(
+        (t) =>
+          t.inbound &&
+          t.routed_rep_id === snapshot.user.id &&
+          t.inbound_state !== "ended",
+      ));
+  useEffect(() => {
+    if (activeConversation) setView("Dialer");
+  }, [activeConversation]);
+
   const run = useCallback(async (work: () => Promise<void>) => {
     try {
       await work();
@@ -698,6 +716,7 @@ export function App() {
                 key={title}
                 aria-label={title}
                 className={view === title ? "active" : ""}
+                disabled={title !== "Dialer" && activeConversation}
                 onClick={() => setView(title)}
               >
                 <Icon size={18} />

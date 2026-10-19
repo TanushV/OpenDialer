@@ -1,0 +1,27 @@
+{$OPENDIALER_INGRESS_DOMAIN} {
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+    }
+    request_body {
+        max_size 5MB
+    }
+    @carrier {
+        method POST
+        path /webhooks/telnyx
+    }
+    @challenge {
+        method GET
+        path_regexp ingress ^/webhooks/ingress-check/[a-f0-9]{32}$
+    }
+    handle @carrier {
+        reverse_proxy 127.0.0.1:{$OPENDIALER_FORWARD_PORT:18765}
+    }
+    handle @challenge {
+        reverse_proxy 127.0.0.1:{$OPENDIALER_FORWARD_PORT:18765}
+    }
+    handle {
+        respond "Not found" 404
+    }
+}

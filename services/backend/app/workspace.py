@@ -59,7 +59,17 @@ class WorkspaceReads:
             (
                 "command_outbox",
                 MODELS["command_outbox"].op_status.in_(
-                    ["sending", "uncertain", "reconciling", "review_required"]
+                    [
+                        "sending",
+                        "uncertain",
+                        "reconciling",
+                        "review_required",
+                        "validating",
+                        "in_progress",
+                        "finalizing",
+                        "cancelling",
+                        "awaiting_publication",
+                    ]
                 ),
                 "EXTERNAL_OPERATION_UNRESOLVED",
             ),

@@ -19,6 +19,7 @@ test("callback fallback settings survive reload and explain offline routing", as
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Operations", exact: true }).click();
   const panel = page.getByRole("region", {
     name: "Inbound callbacks",
     exact: true,
@@ -28,6 +29,7 @@ test("callback fallback settings survive reload and explain offline routing", as
   );
   await isolatedSimulationWorkspace(page, "callback-routing-fixture");
   await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Operations", exact: true }).click();
   await panel
     .getByLabel("Business fallback destination")
     .fill("sip:reception@example.test");
@@ -36,6 +38,7 @@ test("callback fallback settings survive reload and explain offline routing", as
   await expect(panel).toContainText("$0.10 per transfer");
   await page.reload();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Operations", exact: true }).click();
   await expect(panel.getByLabel("Business fallback destination")).toHaveValue(
     "sip:reception@example.test",
   );

@@ -7,6 +7,7 @@ import time
 import httpx
 
 from app.coaching.contracts import COACH_SCHEMA, card_view
+from app.config import PROVIDER_DEFAULTS
 from app.grounding import REVIEW_INSTRUCTIONS, ReviewOutput
 from app.providers.inference import InferenceError
 
@@ -54,7 +55,7 @@ def completed_fields(content):
 
 
 class OpenRouterCoach:
-    def __init__(self, api_key, model="openai/gpt-oss-120b", *, http=None):
+    def __init__(self, api_key, model=PROVIDER_DEFAULTS.coach_model, *, http=None):
         self.api_key, self.model, self.http = api_key, model, http
         self.last_usage, self.last_request_id, self.last_provider = {}, None, None
         self.last_model, self.last_latency_ms = model, 0.0

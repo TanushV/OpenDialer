@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 import httpx
 from sqlalchemy import delete, func, or_, select
 
-from app.config import CapabilityStatus
+from app.config import PROVIDER_DEFAULTS, CapabilityStatus
 from app.db import DERIVED_TABLES, MODELS, audit, doc, emit, get, put, rows, uid, update
 from app.intelligence import Application
 from app.measurement import Measurement
@@ -71,7 +71,9 @@ def capability_statuses(conf, policy, screening, *, simulation, source_version, 
         else ["STT_PRIVACY_OR_CARRIER_MISSING"],
         "Record selected STT engine/account retention evidence and configure Telnyx. Voice and manual notes remain separate.",
     )
-    helper = conf.get("coach_provider", "openrouter") == "openrouter" and bool(conf.get("openrouter_api_key"))
+    helper = conf.get("coach_provider", PROVIDER_DEFAULTS.coach_provider) == "openrouter" and bool(
+        conf.get("openrouter_api_key")
+    )
     add(
         "live_helper",
         "software_verified" if simulation else "configured" if helper else "unconfigured",
@@ -285,7 +287,7 @@ class Dialer(
             warnings.append("Simulated providers: no real calls, purchases, inference, or carrier billing")
         if not self.inference(p["tenant_id"], "research_extract", p["user_id"]):
             warnings.append("Research inference is unconfigured; approved fallback scripts remain available")
-        provider = conf.get("coach_provider", "openrouter")
+        provider = conf.get("coach_provider", PROVIDER_DEFAULTS.coach_provider)
         if provider == "openrouter" and not conf.get("openrouter_api_key"):
             warnings.append("OpenRouter/Cerebras is unconfigured; approved static coaching remains available")
         elif provider == "groq" and not conf.get("groq_api_key"):
@@ -397,8 +399,12 @@ class Dialer(
     def ingress_challenge(self, nonce):
         with self.ingress_lock:
             item = self.ingress_challenges.get(nonce)
-            if (not item or item["consumed"] or item["expires"] <= self.clock()
-                    or item["monotonic_end"] <= time.monotonic()):
+            if (
+                not item
+                or item["consumed"]
+                or item["expires"] <= self.clock()
+                or item["monotonic_end"] <= time.monotonic()
+            ):
                 fail(404, "Not found")
             current = self.vault.read(item["tenant_id"])
             if (

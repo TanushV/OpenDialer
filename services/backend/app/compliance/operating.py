@@ -11,6 +11,7 @@ from fastapi import Depends
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from sqlalchemy import select
 
+from app.config import PROVIDER_DEFAULTS
 from app.db import MODELS, audit, update
 from app.preparation.templates import PreparationPolicy, ScriptTemplate, policy_values, template_version
 from app.service import dt, fail
@@ -523,7 +524,9 @@ def bind_operating_api(app, service, administrator):
             "version": version,
             "template_version": template_version(policy["script_template"]),
             "template_defaults": ScriptTemplate().model_dump(),
-            "coach_provider": service.vault.read(p["tenant_id"]).get("coach_provider", "openrouter"),
+            "coach_provider": service.vault.read(p["tenant_id"]).get(
+                "coach_provider", PROVIDER_DEFAULTS.coach_provider
+            ),
             "external_reputation": {
                 "available": False,
                 "status": "subscription_excluded",

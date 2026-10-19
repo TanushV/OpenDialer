@@ -8,6 +8,7 @@ from datetime import timedelta
 from fastapi import Depends, HTTPException
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
+from app.config import PROVIDER_DEFAULTS, inference_model
 from app.db import Job, audit, doc, emit, get, put, uid, update
 from app.grounding import ReviewReceipt, review_generated
 from app.intelligence import SCRIPT_SCHEMA
@@ -76,7 +77,7 @@ def build_requests(service, p, lead_ids, conf):
                 "method": "POST",
                 "url": "/v1/responses",
                 "body": {
-                    "model": conf.get("script_write_model", conf.get("model", "gpt-6-luna")),
+                    "model": inference_model(conf, "script_write"),
                     "store": False,
                     "input": [
                         {
@@ -230,7 +231,7 @@ def register_batches(app, service, administrator):
     @app.post("/v1/admin/batches/scripts")
     async def submit(data: BatchInput, p=Depends(administrator)):
         conf = service.vault.read(p["tenant_id"])
-        if conf.get("inference_mode", "api") != "api":
+        if conf.get("inference_mode", PROVIDER_DEFAULTS.inference_mode) != "api":
             fail(409, "Deferred Batch requires the metered OpenAI API route")
         if not conf.get("openai_api_key"):
             fail(503, "Configure a project API key before submitting deferred work")

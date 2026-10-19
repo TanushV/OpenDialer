@@ -913,7 +913,7 @@
         "A52",
         "A55"
       ],
-      "checkpoint": "Protected native input14 checks; capability/admin SQLite50 passes; setup/browser six passes, three reservation failures; seven new backend red regressions; native binding contracts authored. E12 remains active.",
+      "checkpoint": "SQLite40 authority checks; native16; nine paired browser journeys; defaults22; actual Caddy2. Final affected UI/PostgreSQL running. Native audio pause and final E12 exit pending.",
       "todos": [
         {
           "id": "E12.1",
@@ -928,7 +928,7 @@
         {
           "id": "E12.3",
           "task": "Owned SSH supervisor, exact Caddy boundary and deployment runbook",
-          "status": "owned SSH tests pass; Caddy recipe/HTTP acceptance pending"
+          "status": "owned SSH and actual Caddy HTTP boundary passed; runbook written"
         },
         {
           "id": "E12.4",
@@ -948,7 +948,7 @@
         {
           "id": "E12.7",
           "task": "Dual-database, affected browser/native/type checks and deletion review",
-          "status": "open"
+          "status": "final affected dual-database/UI/native scope in progress"
         },
         {
           "id": "E12.8",

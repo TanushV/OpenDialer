@@ -41,6 +41,47 @@ struct ConfiguredProviderState {
     configured: std::collections::BTreeMap<String, bool>,
 }
 
+fn guard_local_mode(binding: Option<&AuthorityBinding>, simulation: bool) -> Result<(), String> {
+    if binding.is_some_and(|b| !b.local || b.simulation != simulation) {
+        return Err("Sign out after resolving obligations before changing local mode".into());
+    }
+    Ok(())
+}
+
+fn guard_forwarding(
+    binding: Option<&AuthorityBinding>,
+    runtime: Option<&BackendConfig>,
+) -> Result<(), String> {
+    match (binding, runtime) {
+        (Some(b), Some(r)) if b.local && !b.simulation && !r.simulation && b.url == r.url => Ok(()),
+        _ => Err("Select the actual managed local workspace before changing forwarding".into()),
+    }
+}
+
+fn verify_bound_admin(binding: &AuthorityBinding) -> Result<ConfiguredProviderState, String> {
+    let response = authority_client()?
+        .get(format!(
+            "{}/v1/admin/settings",
+            binding.url.trim_end_matches('/')
+        ))
+        .bearer_auth(&binding.token)
+        .send()
+        .map_err(|_| "Authority is unavailable")?;
+    serde_json::from_slice(&authority_response(response)?)
+        .map_err(|_| "Invalid authority state".into())
+}
+
+impl NativeAuthority {
+    fn clear(&self) {
+        if let Ok(mut state) = self.0.lock() {
+            if let Some(mut prompt) = state.prompt.take() {
+                let _ = prompt.stop();
+            }
+            state.binding = None;
+        }
+    }
+}
+
 fn provider_input_label(field: &str) -> Result<&'static str, String> {
     match field {
         "telnyx_api_key" => Ok("Telnyx API key"),
@@ -275,17 +316,7 @@ async fn protected_provider_input(
             .clone()
             .ok_or("Choose a workspace first")?;
         // Verify administrator access before presenting the protected entry dialog.
-        let response = authority_client()?
-            .get(format!(
-                "{}/v1/admin/settings",
-                binding.url.trim_end_matches('/')
-            ))
-            .bearer_auth(&binding.token)
-            .send()
-            .map_err(|_| "Authority is unavailable")?;
-        let before: ConfiguredProviderState =
-            serde_json::from_slice(&authority_response(response)?)
-                .map_err(|_| "Invalid authority state")?;
+        let before = verify_bound_admin(&binding)?;
         if before.version != expected_version {
             return Err("Provider configuration changed; reload before entering a key".into());
         }
@@ -747,16 +778,31 @@ async fn webhook_tunnel_set(
 ) -> Result<(), String> {
     secure_io(move || {
         validate_tunnel(&config)?;
+        let authority = app.state::<NativeAuthority>();
+        let binding = authority.0.lock().map_err(|_| "Workspace unavailable")?;
         let state = app.state::<LocalBackend>();
-        let runtime = state.0.lock().map_err(|_| "Local authority unavailable")?.as_ref().map(|b| b.config.clone());
-        if config.enabled && runtime.as_ref().is_none_or(|r| r.simulation) {
-            return Err("Enable forwarding from the actual local workspace, not simulation or connected mode".into());
-        }
-        save_tunnel_config(&app.path().app_data_dir().map_err(|_| "App data unavailable")?.join("webhook-forward.json"), &config)?;
+        let runtime = state
+            .0
+            .lock()
+            .map_err(|_| "Local authority unavailable")?
+            .as_ref()
+            .map(|b| b.config.clone());
+        guard_forwarding(binding.binding.as_ref(), runtime.as_ref())?;
+        verify_bound_admin(binding.binding.as_ref().ok_or("Choose a workspace first")?)?;
+        save_tunnel_config(
+            &app.path()
+                .app_data_dir()
+                .map_err(|_| "App data unavailable")?
+                .join("webhook-forward.json"),
+            &config,
+        )?;
         app.state::<WebhookTunnel>().stop()?;
-        if let Some(runtime) = runtime { sync_tunnel(&app, &runtime)?; }
+        if let Some(runtime) = runtime {
+            sync_tunnel(&app, &runtime)?;
+        }
         Ok(())
-    }).await
+    })
+    .await
 }
 
 #[cfg(test)]
@@ -1140,6 +1186,9 @@ async fn backend_config(
 ) -> Result<BackendConfig, String> {
     let backend = state.inner().clone();
     secure_io(move || {
+        let native = app.state::<NativeAuthority>();
+        let binding = native.0.lock().map_err(|_| "Workspace unavailable")?;
+        guard_local_mode(binding.binding.as_ref(), simulation)?;
         let runtime = start_backend(app.clone(), backend, simulation)?;
         sync_tunnel(&app, &runtime)?;
         Ok(runtime)
@@ -1440,12 +1489,7 @@ pub fn run() {
             let tunnel = app.state::<WebhookTunnel>().inner().clone();
             let authority = app.state::<NativeAuthority>().inner().clone();
             register_exit_cleanup(app.handle(), move || {
-                if let Ok(mut state) = authority.0.lock() {
-                    if let Some(mut prompt) = state.prompt.take() {
-                        let _ = prompt.stop();
-                    }
-                    state.binding = None;
-                }
+                authority.clear();
                 let _ = tunnel.stop();
                 if let Ok(mut state) = backend.0.lock() {
                     if let Some(backend) = state.take() {
@@ -1474,6 +1518,7 @@ pub fn run() {
         .expect("OpenDialer could not start");
     app.run(|handle, event| {
         if let tauri::RunEvent::Exit = event {
+            handle.state::<NativeAuthority>().clear();
             let _ = handle.state::<WebhookTunnel>().stop();
             if let Ok(mut state) = handle.state::<LocalBackend>().0.lock() {
                 if let Some(backend) = state.take() {

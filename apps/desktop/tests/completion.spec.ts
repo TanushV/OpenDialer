@@ -105,6 +105,39 @@ test("settings preserve saved budgets and expose only supported treatments", asy
   ).toBeVisible();
 });
 
+test("inbound arrival exposes call controls while an admin page is open", async ({
+  page,
+}) => {
+  await enter(page, false);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.route("**/v1/workspace", async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.tasks.push({
+      id: "incoming-from-settings",
+      version: 1,
+      inbound: true,
+      inbound_state: "connected",
+      routed_rep_id: data.user.id,
+      callback_phone: "+14155550111",
+      lead_id: null,
+      status: "open",
+      action: "Return call",
+      route: "responsible_rep",
+    });
+    await route.fulfill({ response, json: data });
+  });
+  await page
+    .getByRole("button", { name: "Save provider settings", exact: true })
+    .click();
+  await expect(
+    page.getByRole("region", { name: "Active return call", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "End return call", exact: true }),
+  ).toBeInViewport();
+});
+
 test("selected prepared lead survives navigation before dialing", async ({
   page,
 }) => {
@@ -184,6 +217,12 @@ for (const connected of [false, true]) {
         page.getByRole("button", { name: "Hang up", exact: true }),
       ).toBeEnabled();
       await expect(page.getByTitle("Sign out")).toBeDisabled();
+      await expect(
+        page.getByRole("button", { name: "Settings", exact: true }),
+      ).toBeDisabled();
+      await expect(
+        page.getByRole("button", { name: "Review", exact: true }),
+      ).toBeDisabled();
     } finally {
       await page.getByRole("button", { name: "Hang up", exact: true }).click();
       if (await page.getByLabel("Disposition").isVisible()) {

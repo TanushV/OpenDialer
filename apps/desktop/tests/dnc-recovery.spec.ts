@@ -123,6 +123,9 @@ for (const connected of [false, true]) {
         await page
           .getByRole("button", { name: "Settings", exact: true })
           .click();
+        await page
+          .getByRole("button", { name: "Policy & DNC", exact: true })
+          .click();
         await page.getByText("Account rate estimates", { exact: true }).click();
         await page.getByLabel("Rate component").selectOption("dnc");
         await page.getByLabel("Estimated per query usd").fill("0.003");
@@ -139,6 +142,9 @@ for (const connected of [false, true]) {
         await page.reload();
         await page
           .getByRole("button", { name: "Settings", exact: true })
+          .click();
+        await page
+          .getByRole("button", { name: "Policy & DNC", exact: true })
           .click();
         await page.getByText("Account rate estimates", { exact: true }).click();
         await expect(page.getByLabel("Estimated per query usd")).toHaveValue(
@@ -167,6 +173,9 @@ for (const connected of [false, true]) {
         await page
           .getByRole("button", { name: "Settings", exact: true })
           .click();
+        await page
+          .getByRole("button", { name: "Policy & DNC", exact: true })
+          .click();
         const enabled = page.getByLabel(
           "Authorize scheduled prepaid DNC checks",
         );
@@ -183,6 +192,9 @@ for (const connected of [false, true]) {
         await page.reload();
         await page
           .getByRole("button", { name: "Settings", exact: true })
+          .click();
+        await page
+          .getByRole("button", { name: "Policy & DNC", exact: true })
           .click();
         await expect(enabled).toBeChecked();
         await expect(page.getByLabel("DNC maximum per run (USD)")).toHaveValue(
@@ -246,6 +258,9 @@ for (const connected of [false, true]) {
         await page
           .getByRole("button", { name: "Settings", exact: true })
           .click();
+        await page
+          .getByRole("button", { name: "Policy & DNC", exact: true })
+          .click();
         const panel = page.getByRole("region", {
           name: "Prepaid screening results",
           exact: true,
@@ -271,6 +286,9 @@ for (const connected of [false, true]) {
         await page.reload();
         await page
           .getByRole("button", { name: "Settings", exact: true })
+          .click();
+        await page
+          .getByRole("button", { name: "Policy & DNC", exact: true })
           .click();
         await expect(panel).toContainText("Not listed in this national check");
         expect(posts).toHaveLength(2);

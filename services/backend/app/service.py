@@ -656,6 +656,21 @@ class Service(ReservationPlanner):
             fail(409, "Multiple agent identities need review before another setup")
         return next((row for row in candidates if row.data.get("kind") == "agent"), None)
 
+    def release_unused_reservation_in(self, s, p):
+        """Pause/logout releases only this rep's unsubmitted resource claim."""
+        claim = s.scalar(
+            select(ActiveClaim).where(
+                ActiveClaim.tenant_id == p["tenant_id"],
+                ActiveClaim.seller_id == p["seller_id"],
+                ActiveClaim.rep_id == p["user_id"],
+                ActiveClaim.call_id.is_(None),
+            )
+        )
+        if claim:
+            reservation = self.required(s, "reservations", claim.reservation_id, p)
+            update(reservation, status="cancelled")
+            s.delete(claim)
+
     def presence(self, p, data):
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
@@ -667,6 +682,7 @@ class Service(ReservationPlanner):
                 if not verified or verified.data.get("state") != "answered":
                     fail(403, "Agent leg must be established and verified by the server")
             if data.get("status") == "paused":
+                self.release_unused_reservation_in(s, p)
                 self.pause_work_in(s, p)
             else:
                 self.record_work_in(s, p, True)

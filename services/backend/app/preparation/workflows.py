@@ -10,6 +10,7 @@ from datetime import timedelta
 
 from sqlalchemy import func, select
 
+from app.config import PROVIDER_DEFAULTS, inference_model
 from app.db import MODELS, Job, doc, uid, update
 from app.operational_schema import context_key
 from app.preparation.templates import PreparationPolicy, in_window, policy_values, render, template_version
@@ -136,8 +137,8 @@ class Preparation:
                     seller.data["name"],
                     settings["script_template"],
                     [playbook.id, playbook.version] if playbook else None,
-                    config.get("inference_mode", "api"),
-                    config.get("script_write_model", config.get("model", "gpt-6-luna")),
+                    config.get("inference_mode", PROVIDER_DEFAULTS.inference_mode),
+                    inference_model(config, "script_write"),
                     bool(config.get("openai_api_key") or config.get("inference_base_url")),
                 ],
             )

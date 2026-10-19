@@ -10,6 +10,7 @@ from sqlalchemy import case, func, select
 
 from app.accounting import RequestAccounting
 from app.coaching.workflows import LiveHelper
+from app.config import PROVIDER_DEFAULTS, inference_model
 from app.db import MODELS, audit, doc, emit, get, put, rows, uid, update
 from app.postcall.analysis import build_analysis
 from app.preparation.templates import SLOT_SCHEMA, approved_template, fill, render, template_version
@@ -79,7 +80,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             and not conf.get("postcall_zdr_verified")
         ):
             return None
-        mode = conf.get("inference_mode", "api")
+        mode = conf.get("inference_mode", PROVIDER_DEFAULTS.inference_mode)
         if mode == "chatgpt_plan":
             from app.providers.oauth import RegisteredPlanClient
 
@@ -91,7 +92,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             return RegisteredPlanClient(
                 lambda: self.vault.read(key),
                 lambda value: self.vault.write(key, value),
-                conf.get(role + "_model", conf.get("model", "gpt-6.1-sol")),
+                inference_model(conf, role),
                 self.host_id(),
                 self.clock,
                 http=getattr(self, "background_http", None),
@@ -104,7 +105,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
         return InferenceClient(
             mode,
             token or "",
-            conf.get(role + "_model", conf.get("model", "gpt-6-luna")),
+            inference_model(conf, role),
             base_url=conf.get("inference_base_url") or None,
             http=getattr(self, "background_http", None),
             search_enabled=conf.get("research_search") == "openai_web_search",
@@ -372,8 +373,8 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     source_key,
                     packet["research"]["facts"],
                     script["playbook_version"],
-                    config.get("inference_mode", "api"),
-                    config.get("script_write_model", config.get("model", "gpt-6-luna")),
+                    config.get("inference_mode", PROVIDER_DEFAULTS.inference_mode),
+                    inference_model(config, "script_write"),
                     bool(provider),
                     packet["commitments"],
                     "template-slots-v1" if template else "script-v2",
@@ -651,9 +652,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 [
                     domain,
                     self.settings.simulation,
-                    provider_config.get("inference_mode", "api"),
+                    provider_config.get("inference_mode", PROVIDER_DEFAULTS.inference_mode),
                     provider_config.get("research_extract_model", provider_config.get("model")),
-                    provider_config.get("research_search", "disabled"),
+                    provider_config.get("research_search", PROVIDER_DEFAULTS.research_search),
                     provider_config.get("inference_base_url"),
                     bool(provider_config.get("openai_api_key")),
                     "reviewed-research-v2",
@@ -1060,11 +1061,11 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
 
     def configured_coach(self, p):
         conf = self.vault.read(p["tenant_id"])
-        provider = conf.get("coach_provider", "openrouter")
+        provider = conf.get("coach_provider", PROVIDER_DEFAULTS.coach_provider)
         if provider == "openrouter" and conf.get("openrouter_api_key"):
             return OpenRouterCoach(
                 conf["openrouter_api_key"],
-                conf.get("coach_model", "openai/gpt-oss-120b"),
+                conf.get("coach_model", PROVIDER_DEFAULTS.coach_model),
                 http=getattr(self, "coach_http", None),
             ), "openrouter"
         return None, "approved_static"

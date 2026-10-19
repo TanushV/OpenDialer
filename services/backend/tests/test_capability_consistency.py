@@ -1,7 +1,8 @@
 """E12/C048: configured is distinct from verified and every missing capability is actionable."""
 
-import pytest
 from uuid import uuid4
+
+import pytest
 
 
 def test_versioned_provider_edit_replays_without_overwriting_newer_config(workspace):
@@ -37,8 +38,8 @@ def test_provider_edit_requires_identity_and_version_together(workspace):
 
 
 def test_settings_serialize_domain_defaults_and_never_secret_values(workspace):
-    from app.config import RuntimeLimits
     from app.compliance.operating import OperatingPolicy
+    from app.config import PROVIDER_DEFAULTS, RuntimeLimits
     from app.preparation.templates import PreparationPolicy
 
     c, h = workspace["client"], workspace["headers"]
@@ -49,6 +50,7 @@ def test_settings_serialize_domain_defaults_and_never_secret_values(workspace):
     assert secret not in str(value)
     assert value.get("version") == 1
     assert value.get("defaults") == {
+        "providers": PROVIDER_DEFAULTS.model_dump(mode="json"),
         "runtime": RuntimeLimits().model_dump(mode="json"),
         "operating": OperatingPolicy().model_dump(mode="json"),
         "preparation": PreparationPolicy().model_dump(mode="json"),
@@ -119,3 +121,23 @@ def test_configured_vs_verified_capabilities(workspace, app, carrier, monkeypatc
         assert by_id["offline_callback"]["state"] == "unavailable"
     assert c.get("/v1/admin/preflight", headers=h).status_code == 200
     assert not carrier.dials and not carrier.actions and not carrier.purchases
+
+
+@pytest.mark.parametrize(
+    "mode,model", [("api", "gpt-6-luna"), ("litellm", "gpt-6-luna"), ("chatgpt_plan", "gpt-6.1-sol")]
+)
+def test_settings_expose_effective_provider_defaults_used_by_runtime(workspace, mode, model):
+    c, h = workspace["client"], workspace["headers"]
+    response = c.put("/v1/admin/settings", headers=h, json={"inference_mode": mode})
+    effective = response.json().get("effective", {})
+    assert effective.get("model") == model
+    assert effective.get("coach_model") == "openai/gpt-oss-120b"
+    assert effective.get("coach_provider") == "openrouter"
+    assert effective.get("research_search") == "disabled"
+    changed = c.put(
+        "/v1/admin/settings",
+        headers=h,
+        json={"model": "explicit-model", "script_write_model": "explicit-script"},
+    )
+    assert changed.json()["effective"]["model"] == "explicit-model"
+    assert changed.json()["effective"]["script_write_model"] == "explicit-script"

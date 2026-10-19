@@ -5,6 +5,28 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+class ProviderDefaults(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    inference_mode: Literal["api", "litellm", "chatgpt_plan"] = "api"
+    model: str = "gpt-6-luna"
+    plan_model: str = "gpt-6.1-sol"
+    coach_provider: Literal["openrouter", "static"] = "openrouter"
+    coach_model: str = "openai/gpt-oss-120b"
+    research_search: Literal["disabled", "openai_web_search"] = "disabled"
+
+
+PROVIDER_DEFAULTS = ProviderDefaults()
+
+
+def inference_model(config, role=None):
+    default = (
+        PROVIDER_DEFAULTS.plan_model
+        if config.get("inference_mode") == "chatgpt_plan"
+        else PROVIDER_DEFAULTS.model
+    )
+    return config.get(f"{role}_model") or config.get("model") or default
+
+
 class RuntimeLimits(BaseModel):
     """One immutable set of engineering bounds; domain policies remain seller owned."""
 
