@@ -35,6 +35,48 @@ def test_labels_keep_the_funnel_distinct(outcome, human, right, qualified):
     assert (result["human"], result["right_party"], result["qualified"]) == (human, right, qualified)
 
 
+@pytest.mark.parametrize(
+    "outcome,human,right",
+    [
+        (None, None, None),
+        ("temporary_failure", None, None),
+        ("invalid_endpoint", None, None),
+        ("callback_requested", True, None),
+        ("opt_out", True, None),
+        ("not_interested", True, None),
+        ("no_answer", False, None),
+        ("busy", False, None),
+        ("voicemail", False, None),
+        ("screening", False, None),
+        ("gatekeeper", True, False),
+        ("right_party", True, True),
+    ],
+)
+def test_nullable_labels_and_pooled_counts(outcome, human, right):
+    """C030: an unobserved conditional result is not a negative example."""
+    labels = derive_labels(outcome)
+    assert labels["human"] is human
+    assert labels["right_party"] is right
+
+
+def test_sparse_prior_excludes_cell_and_uses_circular_hour():
+    from app.scheduling.models import pooled_predictions
+
+    empty = pooled_predictions([], segment="a", hour=0)
+    assert empty["p_human"] == pytest.approx(0.2)
+    assert empty["expected_rep_seconds"] == 120
+    rows = [
+        {"outcome": "right_party", "segment": "a", "local_hour": 23, "duration_seconds": 80},
+        {"outcome": "no_answer", "segment": "b", "local_hour": 10, "duration_seconds": 40},
+        {"outcome": "temporary_failure", "segment": "a", "local_hour": 0},
+    ]
+    predicted = pooled_predictions(rows, segment="a", hour=0)
+    # Exclude the matching cell from the pooled prior: outside 0/1 -> (0+2)/(1+10).
+    assert predicted["p_human"] == pytest.approx((1 + 10 * (2 / 11)) / 11)
+    assert predicted["observations"] == 1
+    assert predicted["expected_rep_seconds"] == pytest.approx((80 + 5 * 120) / 6)
+
+
 def test_snapshot_only_has_information_known_before_the_call(clock):
     lead = {
         "segment": "roofing",

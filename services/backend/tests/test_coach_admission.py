@@ -1,11 +1,48 @@
 """A25: latest help, manual priority and bounded admission under slow providers."""
 
 import asyncio
+from datetime import timedelta
 
 import pytest
 from app.coaching.engine import CoachEngine
+from test_live_memory import setup, turn
 
 FALLBACK = {"action": "NO_ACTION"}
+
+
+@pytest.mark.asyncio
+async def test_prospect_debounce_and_rate_limit(workspace, app, clock, monkeypatch):
+    """C002: a final prospect turn must not wait behind the rep-only 8-second pace."""
+    call, p, requests, _ = setup(workspace, app, monkeypatch)
+    service = app.state.service
+    turn(service, p, call, "first")
+    await service.run_jobs(p["tenant_id"], queues=["live_coach"])
+    assert not requests, "Coalesce final chunks for the declared 300 ms before submission"
+    clock.now += timedelta(milliseconds=299)
+    turn(service, p, call, "latest")
+    await service.run_jobs(p["tenant_id"], queues=["live_coach"])
+    assert not requests
+    clock.now += timedelta(milliseconds=301)
+    await service.run_jobs(p["tenant_id"], queues=["live_coach"])
+    assert len(requests) == 1
+    assert requests[-1]["recent_dialogue"][-1]["segment_id"] == "latest"
+    clock.now += timedelta(seconds=1)
+    turn(service, p, call, "next-question")
+    clock.now += timedelta(milliseconds=301)
+    await service.run_jobs(p["tenant_id"], queues=["live_coach"])
+    assert len(requests) == 2, "A distinct prospect question must not inherit an 8-second delay"
+    # A duplicate final is not another opportunity and must not spend again.
+    turn(service, p, call, "next-question")
+    clock.now += timedelta(milliseconds=301)
+    await service.run_jobs(p["tenant_id"], queues=["live_coach"])
+    assert len(requests) == 2
+    for i in range(32):
+        turn(service, p, call, f"fast-{i}")
+        clock.now += timedelta(milliseconds=501)
+        await service.run_jobs(p["tenant_id"], queues=["live_coach"])
+    assert len(requests) == 30
+    coverage = service.analysis(p, call["id"])["interpretation_coverage"]
+    assert coverage.get("rate_limited_opportunities", 0) >= 4
 
 
 @pytest.mark.asyncio

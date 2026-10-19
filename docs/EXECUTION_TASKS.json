@@ -4152,8 +4152,10 @@
       "step": "E01",
       "planned_node": "services/backend/tests/test_live_claim_review.py::test_complete_field_audit",
       "expected": "Suggestion, reason, alternative and implied premise each receive a current source-bound verdict; unsupported fields cannot stream.",
-      "status": "planned",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-group1.json"
+      ],
       "green_receipts": []
     },
     {
@@ -4161,8 +4163,10 @@
       "step": "E01",
       "planned_node": "services/backend/tests/test_coach_admission.py::test_prospect_debounce_and_rate_limit",
       "expected": "300-ms debounce admits latest prospect context without an eight-second wait; rep-only refresh remains paced; every limited opportunity counted.",
-      "status": "planned",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-group1.json"
+      ],
       "green_receipts": []
     },
     {
@@ -4188,8 +4192,10 @@
       "step": "E02",
       "planned_node": "services/backend/tests/test_conversation_finalization.py::test_early_context_survives_ttl",
       "expected": "Twelve-minute call keeps minute-one derived need/promise after raw expiry and finalizes without an OpenAI key.",
-      "status": "planned",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-group1.json"
+      ],
       "green_receipts": []
     },
     {
@@ -4197,8 +4203,10 @@
       "step": "E02",
       "planned_node": "services/backend/tests/test_conversation_finalization.py::test_merge_correction_and_missing_source",
       "expected": "Omitted item is not resolved; correction invalidates dependants; expired evidence yields partial rather than invented replacement.",
-      "status": "planned",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-group1.json"
+      ],
       "green_receipts": []
     },
     {
@@ -4269,8 +4277,10 @@
       "step": "E04",
       "planned_node": "services/backend/tests/test_preparation_discovery.py::test_official_discovery_bounds",
       "expected": "Fact on services page succeeds; wrong-company/private redirect and injected instructions cannot; three pages/two optional searches/byte cap enforced.",
-      "status": "planned",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-group1.json"
+      ],
       "green_receipts": []
     },
     {
@@ -4305,8 +4315,10 @@
       "step": "E05",
       "planned_node": "services/backend/tests/test_screening_readiness.py::test_prepaid_preflight_authorization_agree",
       "expected": "Authorized cached prepaid-only endpoint can be ready; configured key without source/coverage cannot; preflight and dial agree.",
-      "status": "planned",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-group1.json"
+      ],
       "green_receipts": []
     },
     {
@@ -4341,8 +4353,10 @@
       "step": "E06",
       "planned_node": "services/backend/tests/test_unified_planning.py::test_same_availability_same_demand",
       "expected": "Simple and named equivalent windows normalize identically; anonymous capacity cannot satisfy owned callback or double staff.",
-      "status": "planned",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-group1.json"
+      ],
       "green_receipts": []
     },
     {
@@ -4350,8 +4364,10 @@
       "step": "E06",
       "planned_node": "services/backend/tests/test_unified_planning.py::test_conservation_known_and_contingent",
       "expected": "80 general attempts remain 80 across regions; reservation-to-attempt replacement once; uncertain retries stay separate scenarios.",
-      "status": "planned",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-group1.json"
+      ],
       "green_receipts": []
     },
     {
@@ -4359,8 +4375,10 @@
       "step": "E06",
       "planned_node": "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle",
       "expected": "Independent exhaustive tiny fixtures match assignment/count; larger heuristic reports valid lower bound/gap and search budget.",
-      "status": "planned",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-group1.json"
+      ],
       "green_receipts": []
     },
     {
@@ -4368,8 +4386,10 @@
       "step": "E06",
       "planned_node": "services/backend/tests/test_unified_planning.py::test_staffing_binding_and_time_constraints",
       "expected": "240/180/140 fixture, unequal durations, DST, pending setup, detached legs and stable bound-at-limit explain distinct shortfalls.",
-      "status": "planned",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-group1.json"
+      ],
       "green_receipts": []
     },
     {
@@ -4413,8 +4433,10 @@
       "step": "E08",
       "planned_node": "services/backend/tests/test_optimization_learning.py::test_nullable_labels_and_pooled_counts",
       "expected": "Zero/few data use displayed priors; unknown role/failure excluded correctly; leave-cell-out pooling and circular hour formula match independent arithmetic.",
-      "status": "planned",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-group1.json"
+      ],
       "green_receipts": []
     },
     {
@@ -4431,8 +4453,10 @@
       "step": "E08",
       "planned_node": "services/backend/tests/test_conversation_features.py::test_prior_observation_features_only",
       "expected": "Training-only bounded vocabulary; current/future call or unreviewed observation excluded; missing is not absent; ablation uses same rows.",
-      "status": "planned",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-group1.json"
+      ],
       "green_receipts": []
     },
     {

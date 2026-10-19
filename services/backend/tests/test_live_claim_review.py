@@ -71,6 +71,7 @@ def review_fixture(
             requests.append(("suggest", deepcopy(request)))
             self.last_usage, self.last_request_id = {"cost": 0.002}, "generation-receipt"
             result = {**advice(request["state_version"], "claim", text=text), "reason": reason}
+            result.update(options.get("result", {}))
             if options.get("progress"):
                 await self.on_progress(result)
                 options["progress"].set()
@@ -223,3 +224,33 @@ async def test_cancelled_review_retains_its_uncertain_cost_and_generation_receip
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.parametrize("visible_field", ["say_or_ask", "reason", "alternatives.0", "implied_premise"])
+@pytest.mark.asyncio
+async def test_complete_field_audit(workspace, app, monkeypatch, visible_field):
+    """C001: a generator cannot omit the field which contains the false premise."""
+    service, p, call, requests, options = review_fixture(workspace, app, monkeypatch, verdict="CONTRADICTED")
+    unsupported = "Our product works without an internet connection."
+    candidate = {
+        "say_or_ask": "What would make evaluation worthwhile?",
+        "reason": "Invite their priorities.",
+        "alternatives": [],
+        "field_audit": [],  # Deliberately incomplete: independent review is mandatory.
+        "claims": [],
+    }
+    if visible_field == "alternatives.0":
+        candidate["alternatives"] = [unsupported]
+    elif visible_field == "implied_premise":
+        candidate["say_or_ask"] = "How would our offline access help you?"
+    else:
+        candidate[visible_field] = unsupported
+    options["result"] = candidate
+    result = await service.coach_turn(p, call["id"], urgent=True, question="Help now")
+    assert [kind for kind, _ in requests] == ["suggest", "review"]
+    fields = {item["field"] for item in requests[-1][1]["fields"]}
+    assert {"say_or_ask", "reason"} <= fields
+    if candidate["alternatives"]:
+        assert "alternatives.0" in fields
+    assert result["action"] == "NO_ACTION"
+    assert len(usage(service, p)) == 2
