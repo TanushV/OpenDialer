@@ -30,6 +30,7 @@ def test_derived_refresh_source_changes_do_not_consume_failure_attempts(workspac
 @pytest.mark.parametrize("kind", ["forecast_refresh", "health_refresh", "learning_refresh", "report_refresh"])
 async def test_expired_derived_worker_cannot_publish(workspace, app, clock, monkeypatch, kind):
     from datetime import timedelta
+
     import app.optimization.conversations as conversations
     import app.optimization.workflows as workflows
     from test_projection_replay import project_pending

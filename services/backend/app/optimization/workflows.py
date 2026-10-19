@@ -710,7 +710,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
         inputs, metadata = self.forecast_input(s, p, campaign_id=campaign_id, capacity=capacity)
         return {**capacity_forecast(**inputs), **metadata}
 
-    def build_forecast(self, p, campaign_id, capacity=None):
+    def build_forecast(self, p, campaign_id, capacity=None, *, lease=None):
         """Snapshot/read, pure calculation, then a short source-checked publication."""
         from app.service import fail
 
@@ -728,7 +728,9 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 profile = {}
         result = {**capacity_forecast(**inputs, schedule_row_limit=None), **metadata}
         if capacity is None:
-            plans = self._publish_schedule_plans(p, campaign_id, inputs, result, config, profile, generation)
+            plans = self._publish_schedule_plans(
+                p, campaign_id, inputs, result, config, profile, generation, lease=lease
+            )
             if plans["status"] != "ready":
                 return {"status": "superseded"}
             generation = plans["source_revision"]
@@ -744,6 +746,8 @@ class OptimizationWorkflows(ComparisonWorkflows):
         result["schedule_rows_omitted"] = omitted
         result["omitted_rows"]["schedule"] = omitted
         with self.db.transaction() as s:
+            self.report_revision(s, p, lock=True)
+            self.jobs.require_owned_in(s, lease)
             user, _, _, _ = self.report_scope(s, p)
             if user["role"] != "admin" or self.report_revision(s, user, lock=True) != generation:
                 return {"status": "superseded"}
@@ -944,7 +948,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 "as_of": self.clock().isoformat(),
             }
 
-    def save_operational_dataset(self, p):
+    def save_operational_dataset(self, p, *, lease=None):
         with self.db.transaction(False) as s:
             user, _, _, _ = self.report_scope(s, p)
             if user["role"] != "admin":
@@ -965,6 +969,8 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 ).encode()
             ).hexdigest()
         with self.db.transaction() as s:
+            self.report_revision(s, p, lock=True)
+            self.jobs.require_owned_in(s, lease)
             campaign = self.required(s, "campaigns", campaign_id, p)
             user, _, _, _ = self.report_scope(s, p)
             if user["role"] != "admin":
@@ -1260,12 +1266,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 continue
             with self.db.transaction() as s:
                 self.report_revision(s, p, lock=True)
-                if lease:
-                    from app.db import Job
-                    from app.optimization.projections import _rebuild_owned
-
-                    if not _rebuild_owned(s.get(Job, lease[0], with_for_update=True), lease, self.clock()):
-                        return {"status": "lost_lease", "saved": saved}
+                self.jobs.require_owned_in(s, lease)
                 if not internal:
                     user, _, _, _ = self.report_scope(s, p)
                     if user["role"] != "admin":
@@ -1358,7 +1359,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
             "omitted_schedule_rows": forecast["schedule_rows_omitted"],
         }
 
-    def refresh_observed_health(self, p):
+    def refresh_observed_health(self, p, *, lease=None):
         with self.db.transaction(False) as s:
             numbers = self.inventory_evidence(s, p)
             generation = self.report_revision(s, p)
@@ -1367,6 +1368,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
             with self.db.transaction() as s:
                 if self.report_revision(s, p, lock=True) != generation:
                     return {"status": "superseded", "updated": updated}
+                self.jobs.require_owned_in(s, lease)
                 for number in numbers[offset : offset + 100]:
                     existing = self._by_key(s, p, "number_health", number["id"])
                     value = {**number["health"], "number_id": number["id"]}
@@ -1413,11 +1415,11 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 generation = self.report_revision(s, p)
         return {"status": "ready", "updated": updated}
 
-    def refresh_learning(self, p):
+    def refresh_learning(self, p, *, lease=None):
         """Explicit CPU-lane work; one bounded dataset for associations and optional training."""
         from app.optimization.conversations import conversation_associations
 
-        dataset = self.save_operational_dataset(p)
+        dataset = self.save_operational_dataset(p, lease=lease)
         with self.db.transaction(False) as s:
             user, _, _, _ = self.report_scope(s, p)
             if user["role"] != "admin":
@@ -1437,6 +1439,8 @@ class OptimizationWorkflows(ComparisonWorkflows):
             "window_days": dataset["window_days"],
         }
         with self.db.transaction() as s:
+            self.report_revision(s, p, lock=True)
+            self.jobs.require_owned_in(s, lease)
             owner, _, _, _ = self.report_scope(s, p)
             if owner["role"] != "admin":
                 from app.service import fail

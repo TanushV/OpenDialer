@@ -402,7 +402,7 @@ def test_forecast_worker_coalesces_changed_sources_without_consuming_failure_att
     service, p = app.state.service, principal(workspace)
     response = service.proposal(p, workspace["campaign_id"])
     identity = response["projection"]["job_id"]
-    monkeypatch.setattr(service, "build_forecast", lambda *args: {"status": "superseded"})
+    monkeypatch.setattr(service, "build_forecast", lambda *args, **kwargs: {"status": "superseded"})
     asyncio.run(service.run_jobs(p["tenant_id"], ["ml"]))
     with service.db.transaction(False) as s:
         job = s.get(Job, identity)

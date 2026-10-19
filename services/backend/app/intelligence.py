@@ -1258,6 +1258,8 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             return {"notes_version": note.version, "human_notes": text}
 
     async def run_jobs(self, tenant_id=None, queues=None):
+        from app.jobs.queue import LostJobLease
+
         if (queues is None or "ml" in queues) and self.settings.worker_enabled:
             await self.periodic_optimization(tenant_id)
         worker_id = "worker-" + uid()
@@ -1347,13 +1349,16 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                             p,
                             job["payload"]["campaign_id"],
                             job["payload"].get("capacity"),
+                            lease=(job["id"], worker_id),
                         )
                         if receipt["status"] in {"superseded", "pending"}:
                             await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
                             return 0
                     elif job["payload"].get("kind") == "home_refresh":
                         receipt = await asyncio.to_thread(
-                            self.rebuild_home_metrics, {**p, "role": job["payload"].get("role", "rep")}
+                            self.rebuild_home_metrics,
+                            {**p, "role": job["payload"].get("role", "rep")},
+                            lease=(job["id"], worker_id),
                         )
                         if receipt["status"] in {"superseded", "pending"}:
                             await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
@@ -1363,6 +1368,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                             self.rebuild_optimization_report,
                             {**p, "role": job["payload"].get("role", "rep")},
                             job["payload"].get("epoch"),
+                            lease=(job["id"], worker_id),
                         )
                         if receipt["status"] in {"superseded", "pending"}:
                             await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
@@ -1378,7 +1384,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                             if job["payload"]["kind"] == "health_refresh"
                             else self.refresh_learning
                         )
-                        receipt = await asyncio.to_thread(method, p)
+                        receipt = await asyncio.to_thread(method, p, lease=(job["id"], worker_id))
                         if receipt["status"] in {"superseded", "pending"}:
                             await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
                             return 0
@@ -1402,8 +1408,11 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     raise ValueError("Unknown work lane")
                 await asyncio.to_thread(self.jobs.complete, job["id"], worker_id)
                 return 1
+            except LostJobLease:
+                return 0
             except Exception as exc:
-                await asyncio.to_thread(self.jobs.fail, job["id"], worker_id, type(exc).__name__)
+                with contextlib.suppress(LostJobLease):
+                    await asyncio.to_thread(self.jobs.fail, job["id"], worker_id, type(exc).__name__)
                 return 0
             finally:
                 pulse.cancel()

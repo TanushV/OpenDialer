@@ -380,7 +380,7 @@ class ReportProjections:
             },
         }
 
-    def rebuild_optimization_report(self, p, epoch=None):
+    def rebuild_optimization_report(self, p, epoch=None, *, lease=None):
         if not self.prepare_metric_read(p):
             return {"status": "pending"}
         with self.db.transaction(False) as s:
@@ -389,6 +389,8 @@ class ReportProjections:
         # Historical calculation runs outside the publication/write transaction.
         report = self.optimization_report(p, epoch=epoch)
         with self.db.transaction() as s:
+            self.report_revision(s, p, lock=True)
+            self.jobs.require_owned_in(s, lease)
             _, _, _, current_key = self.report_scope(s, p, epoch)
             if current_key != key:
                 return {"status": "superseded"}
@@ -438,7 +440,7 @@ class ReportProjections:
             },
         }
 
-    def rebuild_home_metrics(self, p):
+    def rebuild_home_metrics(self, p, *, lease=None):
         if not self.prepare_metric_read(p):
             return {"status": "pending"}
         with self.db.transaction(False) as s:
@@ -446,6 +448,8 @@ class ReportProjections:
             revision = self.report_revision(s, p)
         report = self.metrics(p)
         with self.db.transaction() as s:
+            self.report_revision(s, p, lock=True)
+            self.jobs.require_owned_in(s, lease)
             _, _, _, current_identity = self.report_scope(s, p)
             if current_identity != identity or self.report_revision(s, p, lock=True) != revision:
                 return {"status": "superseded"}

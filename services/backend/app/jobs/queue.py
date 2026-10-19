@@ -12,6 +12,10 @@ def aware(value):
     return value.replace(tzinfo=UTC) if value and not value.tzinfo else value
 
 
+class LostJobLease(ValueError):
+    """A former worker cannot publish, complete or fail the current owner's work."""
+
+
 def jobdoc(j):
     return {
         "id": j.id,
@@ -30,6 +34,19 @@ def jobdoc(j):
 class JobQueue:
     def __init__(self, db, clock):
         self.db, self.clock = db, clock
+
+    def require_owned_in(self, s, lease):
+        if lease is None:
+            return
+        job = s.get(Job, lease[0], with_for_update=True)
+        if (
+            not job
+            or job.status != "running"
+            or job.lease_owner != lease[1]
+            or not job.lease_expires_at
+            or aware(job.lease_expires_at) <= self.clock()
+        ):
+            raise LostJobLease("Job lease is not owned by this worker")
 
     def enqueue(self, queue, payload, key, *, tenant_id, priority=0, max_attempts=3):
         with self.db.transaction() as s:
@@ -248,7 +265,7 @@ class JobQueue:
                 or not job.lease_expires_at
                 or aware(job.lease_expires_at) <= self.clock()
             ):
-                raise ValueError("Job lease is not owned by this worker")
+                raise LostJobLease("Job lease is not owned by this worker")
             if coalesced:
                 if job.queue != "ml" or job.payload.get("kind") not in {
                     "home_refresh",
@@ -298,7 +315,7 @@ class JobQueue:
                 or not job.lease_expires_at
                 or aware(job.lease_expires_at) <= self.clock()
             ):
-                raise ValueError("Lost job lease")
+                raise LostJobLease("Lost job lease")
             job.lease_expires_at = self.clock() + timedelta(seconds=seconds)
 
     def recover_expired(self):
