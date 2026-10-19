@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 
 from app.db import MODELS, audit, doc, put, update
+from app.operational_schema import call_work_bounds
 from app.optimization.learning import conversion_at, derive_labels, outcome_at
 from app.optimization.numbering import timestamp, wilson
 from app.service import fail
@@ -14,7 +15,7 @@ from app.telephony.reducer import TERMINAL
 WORK_LEASE_SECONDS = 90
 
 
-def work_summary(intervals, calls, *, now):
+def work_summary(intervals, calls, *, now, start_at=None, end_at=None):
     by_rep, stale = {}, 0
     for row in intervals:
         start = timestamp(row.get("started_at"))
@@ -23,31 +24,37 @@ def work_summary(intervals, calls, *, now):
         if not end:
             if not lease:
                 continue
-            stale += lease < now
+            stale += (
+                lease < now and (start_at is None or lease >= start_at) and (end_at is None or lease < end_at)
+            )
             end = min(now, lease)
         if start and start <= now and end >= start:
             by_rep.setdefault(row["rep_id"], []).append((start, min(now, end)))
     for row in calls:
-        if not (row.get("submitted_at") or row.get("provider_id")):
-            continue
-        start = timestamp(row.get("submitted_at") or row.get("started_at"))
-        end = timestamp(row.get("rep_released_at") or row.get("ended_at"))
-        if row.get("detached") and not row.get("rep_released_at"):
-            continue  # Legacy unknown detachment cannot count playback as rep work.
-        if start and not end and row.get("state") not in TERMINAL and row.get("max_call_seconds"):
-            end = min(now, start + timedelta(seconds=row["max_call_seconds"]))
+        start, end = call_work_bounds(row)
         if start and end and end >= start and start <= now and row.get("rep_id"):
             by_rep.setdefault(row["rep_id"], []).append((start, min(now, end)))
     totals = {}
     for rep, spans in by_rep.items():
         end, total = None, 0.0
         for start, stop in sorted(spans):
+            if start_at is not None:
+                start = max(start, start_at)
+            if end_at is not None:
+                stop = min(stop, end_at)
+            if (
+                stop < start
+                or (start_at is not None and stop == start_at)
+                or (end_at is not None and start == end_at)
+            ):
+                continue
             if end is None or start > end:
                 total += (stop - start).total_seconds()
             elif stop > end:
                 total += (stop - end).total_seconds()
             end = max(end, stop) if end else stop
-        totals[rep] = total
+        if end is not None:
+            totals[rep] = total
     return {
         "seconds": sum(totals.values()) if totals else None,
         "by_rep": totals,

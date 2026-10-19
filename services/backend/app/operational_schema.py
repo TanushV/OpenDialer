@@ -5,7 +5,70 @@ import hmac
 import json
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, String, inspect, text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    Float,
+    Index,
+    Integer,
+    String,
+    inspect,
+    text,
+)
+
+METRIC_TABLES = {"metric_contributions", "metric_buckets"}
+
+
+def metric_columns(kind):
+    return {
+        "campaign_id": Column(String(36), nullable=True),
+        "definition_version": Column(String(64), nullable=False),
+        **(
+            {
+                "source_kind": Column(String(24), nullable=False),
+                "source_id": Column(String(128), nullable=False),
+                "source_version": Column(BigInteger, nullable=False),
+                "next_refresh_at": Column(DateTime(timezone=True), nullable=True),
+            }
+            if kind == "metric_contributions"
+            else {
+                "bucket_day": Column(Date, nullable=True),
+                "bucket_kind": Column(String(32), nullable=False),
+                "group_key": Column(String(64), nullable=False),
+            }
+        ),
+    }
+
+
+def metric_indexes(kind):
+    if kind == "metric_contributions":
+        return (
+            Index("ix_metric_contributions_due", "tenant_id", "seller_id", "next_refresh_at"),
+            Index(
+                "ix_metric_contributions_source",
+                "tenant_id",
+                "seller_id",
+                "campaign_id",
+                "source_kind",
+                "source_id",
+                "definition_version",
+            ),
+        )
+    return (
+        Index(
+            "ix_metric_buckets_group",
+            "tenant_id",
+            "seller_id",
+            "campaign_id",
+            "definition_version",
+            "bucket_kind",
+            "bucket_day",
+        ),
+    )
+
 
 PAGE_TABLES = {
     "leads": "leads",
@@ -135,6 +198,11 @@ def columns(kind):
         "op_amount": Column(Float, nullable=True),
         "op_index_version": Column(Integer, nullable=True),
         **(
+            {"op_work_end_at": Column(DateTime(timezone=True), nullable=True)}
+            if kind == "call_attempts"
+            else {}
+        ),
+        **(
             {"op_control_due_at": Column(DateTime(timezone=True), nullable=True)}
             if kind in {"call_attempts", "followup_tasks"}
             else {}
@@ -149,6 +217,20 @@ def columns(kind):
 
 def indexes(name):
     return (
+        *(
+            (
+                Index(
+                    "ix_call_attempts_work_overlap",
+                    "tenant_id",
+                    "seller_id",
+                    "op_owner_id",
+                    "op_work_end_at",
+                    "op_at",
+                ),
+            )
+            if name == "call_attempts"
+            else ()
+        ),
         Index(
             f"ix_{name}_work",
             "tenant_id",
@@ -198,7 +280,45 @@ def as_time(value):
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
 
 
+def call_work_bounds(data):
+    """Verified occupancy bounds; unknown detachment never counts as rep time."""
+    from app.telephony.reducer import TERMINAL
+
+    if not data.get("rep_id") or not (data.get("submitted_at") or data.get("provider_id")):
+        return None, None
+    if data.get("detached") and not data.get("rep_released_at"):
+        return None, None
+    start = as_time(data.get("submitted_at") or data.get("started_at"))
+    end = as_time(data.get("rep_released_at") or data.get("ended_at"))
+    lifetime = data.get("max_call_seconds")
+    if start and not end and data.get("state") not in TERMINAL and type(lifetime) is int and lifetime > 0:
+        try:
+            end = start + timedelta(seconds=lifetime)
+        except OverflowError:
+            return None, None
+    return (start, end) if start and end and end >= start else (None, None)
+
+
 def sync_columns(row, lookup_key=None):
+    if row.__tablename__ in METRIC_TABLES:
+        from datetime import date
+
+        row.campaign_id = row.data.get("campaign_id")
+        row.definition_version = row.data["definition_version"]
+        if row.__tablename__ == "metric_contributions":
+            for field in ("source_kind", "source_id", "source_version"):
+                setattr(row, field, row.data[field])
+            row.next_refresh_at = as_time(row.data.get("next_refresh_at"))
+        else:
+            day = row.data.get("bucket_day")
+            row.bucket_day = date.fromisoformat(day) if day else None
+            row.bucket_kind = row.data["bucket_kind"]
+            row.group_key = hmac.new(
+                lookup_key,
+                json.dumps(row.data["group"], sort_keys=True, separators=(",", ":")).encode(),
+                hashlib.sha256,
+            ).hexdigest()
+        return
     if row.__tablename__ in CONTEXT_FIELDS:
         key, status, expiry = CONTEXT_FIELDS[row.__tablename__]
         row.ctx_key = context_key(row.__tablename__, row.data.get(key), lookup_key)
@@ -228,6 +348,8 @@ def sync_columns(row, lookup_key=None):
         return
     if row.__tablename__ == "work_intervals":
         row.op_owner_id = row.data["rep_id"]
+        row.op_at = as_time(row.data.get("started_at"))
+        row.op_due_at = as_time(row.data.get("ended_at") or row.data.get("lease_until"))
         return
     if row.__tablename__ not in HOT_TABLES:
         return
@@ -275,7 +397,8 @@ def sync_columns(row, lookup_key=None):
         row.op_control_due_at = (
             as_time(data.get("voicemail_deadline")) if row.op_status not in TERMINAL | {"ENDING"} else None
         )
-        row.op_index_version = 3
+        _, row.op_work_end_at = call_work_bounds(data)
+        row.op_index_version = 4
     if row.__tablename__ == "followup_tasks":
         if data.get("status") == "snoozed":
             row.op_due_at = as_time(data.get("snoozed_until") or data.get("due_at"))
@@ -307,9 +430,15 @@ def ensure_columns(connection, metadata):
     """Additive DDL only; authenticated bounded backfill happens under the authority key."""
     inspector = inspect(connection)
     existing = set(inspector.get_table_names())
-    for name in sorted((HOT_TABLES | CONTEXT_FIELDS.keys()) & existing):
+    for name in sorted((HOT_TABLES | CONTEXT_FIELDS.keys() | {"work_intervals"}) & existing):
         actual = {c["name"] for c in inspector.get_columns(name)}
-        definitions = columns(name) if name in HOT_TABLES else context_columns(name)
+        definitions = (
+            {"op_at": Column(DateTime(timezone=True)), "op_due_at": Column(DateTime(timezone=True))}
+            if name == "work_intervals"
+            else columns(name)
+            if name in HOT_TABLES
+            else context_columns(name)
+        )
         if name == "command_outbox":
             definitions["op_kind"] = Column(String(40), nullable=True)
         for column, definition in definitions.items():

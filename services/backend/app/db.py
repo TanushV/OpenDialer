@@ -41,11 +41,14 @@ from sqlalchemy.types import TypeDecorator
 from app.operational_schema import (
     CONTEXT_FIELDS,
     HOT_TABLES,
+    METRIC_TABLES,
     columns,
     context_columns,
     context_indexes,
     ensure_columns,
     indexes,
+    metric_columns,
+    metric_indexes,
     page_indexes,
     sync_columns,
 )
@@ -175,7 +178,10 @@ TABLES = [
     "coaching_feedback",
     "work_intervals",
     "report_projections",
+    "metric_contributions",
+    "metric_buckets",
 ]
+DERIVED_TABLES = frozenset({"report_projections", *METRIC_TABLES})
 MODELS = {}
 for _name in TABLES:
     MODELS[_name] = type(
@@ -186,12 +192,22 @@ for _name in TABLES:
             **(columns(_name) if _name in HOT_TABLES else {}),
             **({"op_kind": Column(String(40), nullable=True)} if _name == "command_outbox" else {}),
             **(context_columns(_name) if _name in CONTEXT_FIELDS else {}),
-            **({"op_owner_id": Column(String(36), nullable=False)} if _name == "work_intervals" else {}),
+            **(metric_columns(_name) if _name in METRIC_TABLES else {}),
+            **(
+                {
+                    "op_owner_id": Column(String(36), nullable=False),
+                    "op_at": Column(DateTime(timezone=True), nullable=True),
+                    "op_due_at": Column(DateTime(timezone=True), nullable=True),
+                }
+                if _name == "work_intervals"
+                else {}
+            ),
             "__table_args__": (
                 UniqueConstraint("tenant_id", "seller_id", "external_key", name=f"uq_{_name}_key"),
                 *(indexes(_name) if _name in HOT_TABLES else ()),
                 *page_indexes(_name),
                 *(context_indexes(_name) if _name in CONTEXT_FIELDS else ()),
+                *(metric_indexes(_name) if _name in METRIC_TABLES else ()),
                 *(
                     (
                         Index(
@@ -207,7 +223,19 @@ for _name in TABLES:
                     else ()
                 ),
                 *(
-                    (Index("ix_work_intervals_owner", "tenant_id", "seller_id", "op_owner_id", "created_at"),)
+                    (
+                        Index(
+                            "ix_work_intervals_owner", "tenant_id", "seller_id", "op_owner_id", "created_at"
+                        ),
+                        Index(
+                            "ix_work_intervals_overlap",
+                            "tenant_id",
+                            "seller_id",
+                            "op_owner_id",
+                            "op_due_at",
+                            "op_at",
+                        ),
+                    )
                     if _name == "work_intervals"
                     else ()
                 ),
@@ -366,7 +394,9 @@ class Database:
                 "call_attempts",
                 "followup_tasks",
             }:
-                outdated = outdated | (version < (3 if kind in {"usage_ledger", "call_attempts"} else 2))
+                outdated = outdated | (
+                    version < (4 if kind == "call_attempts" else 3 if kind == "usage_ledger" else 2)
+                )
             while True:
                 with self.transaction() as s:
                     batch = list(s.scalars(select(model).where(outdated).limit(500)))
@@ -402,6 +432,52 @@ class Database:
                         sync_columns(
                             row, self.identity_key
                         )  # Other index repairs preserve source content/version.
+        self.backfill_work_dates()
+
+    def backfill_work_dates(self):
+        """A saved keyset cursor also terminates for legacy intervals with unknown dates."""
+        sellers, work = MODELS["sellers"], MODELS["work_intervals"]
+        last_seller = ""
+        while True:
+            with self.transaction(False) as session:
+                identities = list(
+                    session.scalars(
+                        select(sellers.id).where(sellers.id > last_seller).order_by(sellers.id).limit(100)
+                    )
+                )
+            if not identities:
+                return
+            for identity in identities:
+                while True:
+                    with self.transaction() as session:
+                        seller = session.get(sellers, identity)
+                        contracts = dict(seller.data.get("completion_contracts", {}))
+                        marker = contracts.get("work_index_v1", {})
+                        if marker.get("completed_at"):
+                            break
+                        rows = list(
+                            session.scalars(
+                                select(work)
+                                .where(
+                                    work.tenant_id == seller.tenant_id,
+                                    work.seller_id == seller.id,
+                                    work.id > marker.get("last_id", ""),
+                                )
+                                .order_by(work.id)
+                                .limit(500)
+                            )
+                        )
+                        for row in rows:
+                            sync_columns(row, self.identity_key)
+                        contracts["work_index_v1"] = {
+                            "schema_version": 1,
+                            "last_id": rows[-1].id if rows else marker.get("last_id", ""),
+                            "completed_at": utcnow().isoformat() if len(rows) < 500 else None,
+                        }
+                        seller.data = {**seller.data, "completion_contracts": contracts}
+                    if len(rows) < 500:
+                        break
+            last_seller = identities[-1]
 
     @contextmanager
     def transaction(self, write=True, *, session=None):

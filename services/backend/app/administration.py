@@ -7,7 +7,7 @@ import re
 
 from sqlalchemy import delete, func, or_, select
 
-from app.db import MODELS, audit, doc, emit, get, put, rows, uid, update
+from app.db import DERIVED_TABLES, MODELS, audit, doc, emit, get, put, rows, uid, update
 from app.intelligence import Application
 from app.measurement import Measurement, cohort_metrics
 from app.number_operations import NumberOperations
@@ -476,7 +476,7 @@ class Dialer(
                         )
                     ]
                     for kind in MODELS
-                    if kind != "report_projections"
+                    if kind not in DERIVED_TABLES
                 },
             }
         backup_id = uid()
@@ -508,7 +508,7 @@ class Dialer(
         ):
             fail(403, "Backup identity or schema mismatch")
         # The installed schema predates observed work intervals; report caches are disposable.
-        optional = {"work_intervals", "report_projections"}
+        optional = {"work_intervals", *DERIVED_TABLES}
         if set(MODELS) - optional - payload.get("tables", {}).keys():
             fail(422, "Backup is missing required source tables")
         events = suppression_entries(self)
@@ -528,7 +528,7 @@ class Dialer(
                 if kind in {"tenants", "users", "memberships", "sessions"}:
                     # Restore business state, never old access grants, passwords or sessions.
                     continue
-                if kind == "report_projections":
+                if kind in DERIVED_TABLES:
                     s.execute(
                         delete(model).where(
                             model.tenant_id == p["tenant_id"], model.seller_id == p["seller_id"]
