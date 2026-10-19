@@ -625,7 +625,7 @@
         "A50",
         "A51"
       ],
-      "checkpoint": "eefc765 changed planning batches <=100, priority before reports, expired-owner and learning-role publication fences. 42 SQLite publication cases and four coalescing checks pass; broad SQLite/PG maintenance revalidation next. E09 remains open.",
+      "checkpoint": "Final maintenance validation active: displaced plans and blocked callback rebalance repaired; shared lease publication and current health authorization fenced. Earlier broad SQLite281/2 skip and PostgreSQL269 pass; new exit scopes and seven browser workflows running. Native0.2.1 unchanged.",
       "implementation_todos": [
         {
           "id": "E09.admission",
