@@ -1787,7 +1787,7 @@ def _rebuild_source_page(service, p, state, lease=None):
                 or_(model.created_at > at, and_(model.created_at == at, model.id > cursor["after_id"]))
             )
         rows = list(session.execute(query.order_by(model.created_at, model.id).limit(500)))
-    processed = 0
+    processed, completed_days = 0, set()
     for row in rows:
         if kind == "rep-day":
             rep, begin, end = row[2:]
@@ -1796,21 +1796,38 @@ def _rebuild_source_page(service, p, state, lease=None):
                 if processed == 500:
                     cursor["day"] = day.isoformat()
                     return cursor, processed
-                result = refresh_unit(
-                    service,
-                    p,
-                    {
-                        "source_kind": "rep-day",
-                        "source_id": (state["campaign_id"] + "|" if state["campaign_id"] != primary else "")
-                        + rep
-                        + ":"
-                        + day.isoformat(),
-                        "target_namespace": state["namespace"],
-                        "rebuild_lease": lease,
-                    },
+                identity = (
+                    (state["campaign_id"] + "|" if state["campaign_id"] != primary else "")
+                    + rep
+                    + ":"
+                    + day.isoformat()
                 )
-                if result["status"] not in {"ready", "unchanged"}:
-                    return state["cursor"], processed
+                if identity not in completed_days:
+                    key = unit_key(state["definition"], state["namespace"], "rep-day", identity)
+                    with service.db.transaction(False) as session:
+                        already = session.scalar(
+                            _scoped_query(p, "metric_contributions")
+                            .with_only_columns(MODELS["metric_contributions"].id)
+                            .where(MODELS["metric_contributions"].external_key == key)
+                        )
+                    # The new namespace already contains the complete day union.
+                    # Later corrections are fenced/replayed through dirty jobs in
+                    # both namespaces before activation; another source row is
+                    # not another contribution or reason to reread that day.
+                    if not already:
+                        result = refresh_unit(
+                            service,
+                            p,
+                            {
+                                "source_kind": "rep-day",
+                                "source_id": identity,
+                                "target_namespace": state["namespace"],
+                                "rebuild_lease": lease,
+                            },
+                        )
+                        if result["status"] not in {"ready", "unchanged"}:
+                            return state["cursor"], processed
+                    completed_days.add(identity)
                 processed += 1
                 day += timedelta(days=1)
         else:

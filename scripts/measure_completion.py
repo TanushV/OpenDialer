@@ -6,6 +6,7 @@ one at a time on idle hardware. Progress JSON retains failures and interrupted w
 
 import argparse
 import asyncio
+import base64
 import contextvars
 import hashlib
 import hmac
@@ -23,7 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from uuid import NAMESPACE_URL, uuid5
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 ROOT = Path(__file__).resolve().parents[1]
 WARMUPS, SAMPLES, COACH_RUNS = 20, 200, 30
@@ -82,6 +83,67 @@ def summarize(rows, *, target_ms):
     }
 
 
+def run_for(seconds, operation, *, monotonic=time.monotonic, pause=time.sleep, cadence=10):
+    """Real elapsed load; failures stay in the sequence, never shortened to a count."""
+    if seconds <= 0 or cadence <= 0:
+        raise ValueError("Positive duration and cadence required")
+    begun, samples = monotonic(), []
+    while monotonic() - begun < seconds:
+        at = monotonic()
+        try:
+            result = operation(len(samples))
+        except Exception as exc:
+            result = {"ok": False, "error": type(exc).__name__}
+        samples.append({**result, "ms": (monotonic() - at) * 1000})
+        remaining = min(seconds - (monotonic() - begun), cadence - (monotonic() - at))
+        if remaining > 0:
+            pause(remaining)
+    return {
+        "requested_seconds": seconds,
+        "elapsed_seconds": monotonic() - begun,
+        "samples": samples,
+        "status": "passed" if all(r.get("ok") for r in samples) else "failed",
+    }
+
+
+def profile_gates(result, spec):
+    missing, failures = [], []
+    checks = {
+        "cold_selection": result.get("selection", {}).get("cold", {}).get("status"),
+        "warm_selection": result.get("selection", {}).get("warm", {}).get("status"),
+        "workspace": result.get("cached_workspace", {}).get("summary", {}).get("status"),
+        "six_coach": result.get("six_coach", {}).get("summary", {}).get("status"),
+        "writer": result.get("writer_transactions", {}).get("status"),
+        "rebuild": result.get("rebuild", {}).get("status"),
+        "control_paths": result.get("control_paths", {}).get("status"),
+    }
+    for key, status in checks.items():
+        if status is None or status == "incomplete":
+            missing.append(key)
+        elif status != "passed":
+            failures.append(key)
+    if result.get("selection", {}).get("sql_budget_met") is False:
+        failures.append("selection_sql")
+    if result.get("training_imported") or not result.get("integrity"):
+        failures.append("runtime_integrity_or_training_import")
+    if result.get("authority_startup_ms", float("inf")) >= 5000:
+        failures.append("authority_startup")
+    for field, output in (("load_seconds", "load"), ("simulated_hours", "shift")):
+        if field in spec:
+            actual = result.get(output, {})
+            if not actual or actual.get("elapsed_seconds", 0) < spec[field] * (
+                3600 if output == "shift" else 1
+            ):
+                missing.append(output)
+            elif actual.get("status") != "passed":
+                failures.append(output)
+    return {
+        "status": "failed" if failures else "incomplete" if missing else "passed",
+        "missing": missing,
+        "failures": failures,
+    }
+
+
 def resource_gates(receipt):
     missing = [
         name
@@ -118,8 +180,9 @@ class Clock:
 
 
 class Measurements:
-    def __init__(self, service):
+    def __init__(self, service, *, stall_ms=0):
         self.service, self.writes, self.lock = service, [], threading.Lock()
+        self.stall_ms = stall_ms
 
     @contextmanager
     def instrument(self):
@@ -131,6 +194,9 @@ class Measurements:
             row = CURRENT.get()
             if row is not None:
                 row["sql"] += 1
+                if self.stall_ms and "injected_stall_ms" not in row:
+                    row["injected_stall_ms"] = self.stall_ms
+                    time.sleep(self.stall_ms / 1000)
 
         def counted_decrypt(*args, **kwargs):
             row = CURRENT.get()
@@ -175,15 +241,32 @@ class Measurements:
 
 
 def source_metadata():
+    from scripts.completion_acceptance import TESTS
     from scripts.inspect_architecture import LOCKS, digest, source_files
 
     git = shutil.which("git")
     commit = subprocess.run(  # noqa: S603 - fixed read-only repository command
         [git, "rev-parse", "HEAD"], cwd=ROOT, text=True, capture_output=True, check=True
     ).stdout.strip()
+    dirty = subprocess.run(  # noqa: S603 - fixed read-only tracked status
+        [git, "status", "--porcelain", "--untracked-files=no"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.splitlines()
+    tests = [
+        p
+        for root in TESTS
+        for p in (ROOT / root).rglob("*")
+        if p.is_file() and p.suffix in {".py", ".ts", ".tsx", ".json"} and "__pycache__" not in p.parts
+    ]
     return {
         "source_commit": commit,
         "source_hash": digest(source_files()),
+        "test_tree_digest": digest(tests),
+        "harness_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "dirty_files": dirty,
         "locks": {p: hashlib.sha256((ROOT / p).read_bytes()).hexdigest() for p in LOCKS},
         "platform": platform.platform(),
         "python": platform.python_version(),
@@ -377,13 +460,82 @@ async def coach_fixture(service, p):
     }
 
 
+async def admission_fixture(service, reps, *, runs=COACH_RUNS, delay_seconds=0.7):
+    """Exercise real shared admission; report denied opportunities as well as accepted waits."""
+    engine, rows = service.coach, []
+
+    async def wave(owners, label):
+        samples = []
+
+        async def one(index, owner):
+            began, entered = time.perf_counter(), None
+
+            class Provider:
+                async def suggest(self, request, **kwargs):
+                    nonlocal entered
+                    entered = time.perf_counter()
+                    await asyncio.sleep(delay_seconds)
+                    return {"action": "NO_ACTION"}
+
+            reply = await engine.suggest(
+                f"measure-admission-{label}-{index}",
+                {"help_request_id": f"{label}-{index}"},
+                Provider(),
+                {"action": "NO_ACTION"},
+                deadline_ms=1500,
+                owner_key=owner,
+            )
+            end = time.perf_counter()
+            accepted = entered is not None
+            samples.append(
+                {
+                    "owner": owner,
+                    "accepted": accepted,
+                    "ms": (end - began) * 1000,
+                    "queue_ms": ((entered if accepted else end) - began) * 1000,
+                    "ok": accepted or reply.get("status") == "busy",
+                    "status": reply.get("status", "completed"),
+                }
+            )
+
+        await asyncio.gather(*(one(i, owner) for i, owner in enumerate(owners)))
+        return samples
+
+    for run in range(runs):
+        rows.extend(await wave([f"rep-{i}" for i in range(reps)], str(run)))
+    noisy = await wave(["noisy"] * 5 + [f"other-{i}" for i in range(8)], "noisy")
+    accepted = [r for r in rows if r["accepted"]]
+    queue = summarize([{"ms": r["queue_ms"], "ok": r["ok"]} for r in accepted], target_ms=100)
+    noise_receipt = {
+        "accepted": sum(r["accepted"] for r in noisy if r["owner"] == "noisy"),
+        "other_owners_accepted": sum(r["accepted"] for r in noisy if r["owner"] != "noisy"),
+        "samples": noisy,
+    }
+    passed = all(r["ok"] for r in rows + noisy) and queue["status"] == "passed"
+    passed = passed and len(accepted) == min(reps, engine.limits.live_active) * runs
+    passed = passed and noise_receipt["accepted"] <= engine.limits.live_per_rep
+    passed = passed and noise_receipt["other_owners_accepted"] > 0
+    return {
+        "status": "passed" if passed else "failed",
+        "opportunities": len(rows),
+        "accepted": len(accepted),
+        "rejected": len(rows) - len(accepted),
+        "queue": queue,
+        "samples": rows,
+        "noisy_owner": noise_receipt,
+        "latency_including_rejections": summarize(rows, target_ms=1500),
+        "boundary": "real admission and cancellation; synthetic provider latency; all opportunities retained",
+    }
+
+
 def run_requests(service, p, campaign, reps, measurement, checkpoint):
     from app.db import put
 
     principals = [p]
     with service.db.transaction() as s:
+        existing = {u.data.get("email"): u for u in service.scoped(s, "users", p)}
         for i in range(1, reps):
-            user = put(
+            user = existing.get(f"measure-{i}@example.test") or put(
                 s,
                 "users",
                 p["tenant_id"],
@@ -425,6 +577,341 @@ def run_requests(service, p, campaign, reps, measurement, checkpoint):
     }
 
 
+def call_cycle(client, headers, campaign, measured, identity, *, simulated_seconds=0, callback=False):
+    """One actual HTTP control journey with simulated carrier; no paid endpoint."""
+    service = client.app.state.service
+    assert service.settings.simulation, "Measurement cannot run on a live authority"
+    paths, call, begun, outcome = {}, None, time.perf_counter(), {}
+
+    def request(method, path, **kwargs):
+        response = client.request(method, path, headers=headers, **kwargs)
+        response.raise_for_status()
+        return response.json()
+
+    def record(name, function):
+        row, value = measured.sample(function)
+        paths[name] = row
+        if not row["ok"]:
+            raise RuntimeError("Measured path failed: " + name)
+        return value
+
+    try:
+        request(
+            "POST",
+            "/v1/rep/presence",
+            json={
+                "status": "ready",
+                "audio_ready": True,
+                "telephony_ready": True,
+                "agent_call_control_id": "measurement-agent-"
+                + hashlib.sha256(headers["Authorization"].encode()).hexdigest()[:12],
+            },
+        )
+        selected = record(
+            "selection", lambda: request("POST", "/v1/queue/next", json={"campaign_id": campaign})
+        )
+        call = record(
+            "start",
+            lambda: request(
+                "POST",
+                "/v1/calls/start",
+                json={
+                    "reservation_id": selected["reservation_id"],
+                    "idempotency_key": "measurement:" + identity,
+                },
+            ),
+        )
+        if call["state"] == "RECONCILING":
+            record("recovery", lambda: request("POST", "/v1/admin/recovery"))
+            call = request("GET", f"/v1/calls/{call['id']}")
+        provider_event = {
+            "id": "measure-event:" + identity,
+            "event_type": "call.answered",
+            "payload": {
+                "call_control_id": call["provider_id"],
+                "occurred_at": service.clock().isoformat(),
+                "client_state": base64.b64encode(
+                    json.dumps({"call_id": call["id"], "kind": "prospect"}).encode()
+                ).decode(),
+            },
+        }
+        principal = request("GET", "/v1/workspace")["user"]
+        # Identity comes from the stored call, not a user-supplied tenant guess.
+        from app.db import get
+
+        with service.db.transaction(False) as s:
+            stored = get(s, "call_attempts", call["id"])
+            p = {
+                "tenant_id": stored.tenant_id,
+                "seller_id": stored.seller_id,
+                "user_id": principal["id"],
+                "role": principal["role"],
+            }
+        receipt = record(
+            "event_ack",
+            lambda: service._receive_webhook(
+                p["tenant_id"],
+                provider_event,
+                hashlib.sha256(json.dumps(provider_event, sort_keys=True).encode()).hexdigest(),
+            ),
+        )
+        record("event_state", lambda: service._process_webhook(p["tenant_id"], receipt["receipt_id"]))
+        request(
+            "POST",
+            f"/v1/calls/{call['id']}/transcript",
+            json={
+                "segment_id": "measure-turn",
+                "revision": 1,
+                "side": "remote",
+                "text": "Our purchasing team needs clearer ownership of approvals.",
+                "is_final": True,
+            },
+        )
+
+        def context():
+            value = service._help_context(p, call["id"], True, "Help clarify the next step")
+            assert value is not None
+            return value
+
+        record("live_context", context)
+        raw_expired = None
+        if simulated_seconds:
+            assert simulated_seconds >= 300 and hasattr(service.clock, "now")
+            service.clock.now += timedelta(seconds=simulated_seconds)
+            raw_expired = not request("GET", f"/v1/calls/{call['id']}/analysis")["transcript"]
+            assert raw_expired
+        record("hangup", lambda: request("POST", f"/v1/calls/{call['id']}/hangup"))
+        current = request("GET", f"/v1/calls/{call['id']}")
+        saved = record(
+            "wrapup",
+            lambda: request(
+                "POST",
+                f"/v1/calls/{call['id']}/disposition",
+                json={
+                    "outcome": "callback_requested" if callback else "right_party",
+                    **(
+                        {
+                            "callback_at": (service.clock() + timedelta(days=1)).isoformat(),
+                            "callback_note": "Rep-confirmed follow-up about purchasing ownership.",
+                        }
+                        if callback
+                        else {}
+                    ),
+                    "contact_role": "right_party",
+                    "request_id": str(uuid4()),
+                    "expected_version": current["version"],
+                },
+            ),
+        )
+        outcome.update(
+            {
+                "ok": True,
+                "paths": paths,
+                "raw_expired": raw_expired,
+                "task_id": saved.get("canonical_task_id"),
+                "call_id": call["id"],
+                "elapsed_ms": (time.perf_counter() - begun) * 1000,
+            }
+        )
+    except Exception as exc:
+        outcome.update(
+            {
+                "ok": False,
+                "paths": paths,
+                "error": type(exc).__name__,
+                "elapsed_ms": (time.perf_counter() - begun) * 1000,
+            }
+        )
+    finally:
+        if call is not None:
+            paths["cleanup_hangup"] = measured.sample(
+                lambda: request("POST", f"/v1/calls/{call['id']}/hangup")
+            )[0]
+        paths["pause"] = measured.sample(
+            lambda: request("POST", "/v1/rep/presence", json={"status": "paused"})
+        )[0]
+        outcome["ok"] = outcome.get("ok", False) and all(r["ok"] for r in paths.values())
+        outcome["elapsed_ms"] = (time.perf_counter() - begun) * 1000
+    return outcome
+
+
+def workload_capacity(service, p, reps):
+    """Declared synthetic capacity, not a bypass of runtime admission checks."""
+    from app.db import put, update
+
+    with service.db.transaction() as s:
+        numbers = service.scoped(s, "number_inventory", p)
+        for number in numbers:
+            update(number, daily_limit=1000)
+        prototype = dict(numbers[0].data)
+        for i in range(max(0, reps - len(numbers) + 1)):
+            phone = f"+14155550{200 + i:03d}"
+            put(
+                s,
+                "number_inventory",
+                p["tenant_id"],
+                p["seller_id"],
+                {**prototype, "phone": phone, "region": "415", "daily_limit": 1000},
+                key=phone,
+                now=service.clock(),
+            )
+        for budget in service.scoped(s, "budgets", p):
+            update(budget, daily_limit_usd=5000, monthly_limit_usd=5000)
+    return {
+        "number_limit": 1000,
+        "numbers": max(len(numbers), reps + 1),
+        "synthetic_budget_usd": 5000,
+        "external_calls": False,
+    }
+
+
+def run_control_paths(client, headers, campaign, measured, checkpoint):
+    attempts = []
+    for i in range(WARMUPS + SAMPLES):
+        attempts.append(call_cycle(client, headers, campaign, measured, f"controls-{i}"))
+        if i % 20 == 0:
+            checkpoint({"control_cycles": i + 1, "control_failures": sum(not r["ok"] for r in attempts)})
+    rows = attempts[WARMUPS:]
+    paths = {
+        name: summarize(
+            [r["paths"].get(name, {"ok": False, "ms": r["elapsed_ms"], "unattempted": True}) for r in rows],
+            target_ms=target,
+        )
+        for name, target in {
+            "event_ack": 100,
+            "event_state": 250,
+            "live_context": 100,
+            "wrapup": 250,
+            "hangup": 250,
+        }.items()
+    }
+    return {
+        "status": "passed"
+        if all(r["ok"] for r in rows) and all(r["status"] == "passed" for r in paths.values())
+        else "failed",
+        "boundaries": paths,
+        "warmups": attempts[:WARMUPS],
+        "samples": rows,
+        "boundary": "HTTP control/wrap-up; durable verified-event receipt and reducer, excluding network/signature transit",
+    }
+
+
+def run_load(client, headers, campaign, measured, seconds, checkpoint, *, p, reps):
+    service = client.app.state.service
+    from functools import partial
+
+    from app.security import issue_session
+
+    rep_headers = [headers]
+    with service.db.transaction() as s:
+        for user in service.scoped(s, "users", p):
+            if user.id != p["user_id"] and user.data.get("email", "").startswith("measure-"):
+                token = issue_session(s, service.settings, user, service.clock())["access_token"]
+                rep_headers.append({"Authorization": "Bearer " + token})
+    assert len(rep_headers) == reps
+
+    def cycle(index):
+        # Preparation, interpretation, recovery and projections share the real
+        # worker admission. Unconfigured inference retains the declared fallback.
+        with ThreadPoolExecutor(max_workers=reps + 1) as pool:
+            background = pool.submit(
+                client.portal.call,
+                partial(service.run_jobs, queues=["webhook", "live_coach", "postcall", "scripts", "ml"]),
+            )
+            calls = [
+                pool.submit(call_cycle, client, h, campaign, measured, f"load-{index}-{rep}")
+                for rep, h in enumerate(rep_headers)
+            ]
+            results = [future.result() for future in calls]
+            result = {"ok": all(r["ok"] for r in results), "reps": results}
+            try:
+                result["background"] = background.result(timeout=30)
+            except Exception as exc:
+                result.update(ok=False, background_error=type(exc).__name__)
+        checkpoint({"load_cycles": index + 1, "latest_ok": result["ok"]})
+        return result
+
+    return run_for(seconds, cycle)
+
+
+def run_shift(settings, clock, headers, campaign, hours, checkpoint):
+    """Eight virtual hours; real persisted HTTP journeys and four authority lifetimes."""
+    from app.db import MODELS, ActiveClaim
+    from app.main import create_app
+    from app.providers.simulated import SimulatedCarrier
+    from fastapi.testclient import TestClient
+    from sqlalchemy import func, select
+
+    began, wall, rows, restarts = clock.now, time.perf_counter(), [], []
+    carrier, task_ids = SimulatedCarrier(), set()
+    count = int(hours * 3600 / 720)
+    for page in range(0, count, 10):
+        app = create_app(settings, clock=clock, carrier=carrier)
+        with TestClient(app) as client:
+            service = app.state.service
+            measured = Measurements(service)
+            with measured.instrument():
+                for index in range(page, min(page + 10, count)):
+                    carrier.timeout_after_accept = index % 7 == 0
+                    before = len(carrier.dials)
+                    row = call_cycle(
+                        client,
+                        headers,
+                        campaign,
+                        measured,
+                        f"shift-{index}",
+                        simulated_seconds=720,
+                        callback=index % 4 == 0,
+                    )
+                    row["one_carrier_submission"] = len(carrier.dials) == before + 1
+                    if row.get("task_id"):
+                        task_ids.add(row["task_id"])
+                    row["raw_bytes"] = service.raw.bytes_used
+                    rows.append(row)
+                    checkpoint(
+                        {"shift_calls": len(rows), "simulated_seconds": (clock.now - began).total_seconds()}
+                    )
+                    if not row["ok"]:
+                        break
+            with service.db.transaction(False) as s:
+                retained = set(
+                    s.scalars(
+                        select(MODELS["followup_tasks"].id).where(MODELS["followup_tasks"].id.in_(task_ids))
+                    )
+                )
+                claims = s.scalar(select(func.count()).select_from(ActiveClaim))
+            restarts.append(
+                {
+                    "phase": page // 10,
+                    "task_count": len(retained),
+                    "tasks_preserved": retained == task_ids,
+                    "claims": claims,
+                    "integrity": service.db.integrity(),
+                    "active_helper": len(service.coach.active),
+                }
+            )
+        assert service.raw.bytes_used == 0
+        if rows and not rows[-1]["ok"]:
+            break
+    elapsed = (clock.now - began).total_seconds()
+    passed = (
+        elapsed == hours * 3600
+        and all(r["ok"] and r["one_carrier_submission"] and r["raw_expired"] for r in rows)
+        and all(
+            r["tasks_preserved"] and not r["claims"] and r["integrity"] and not r["active_helper"]
+            for r in restarts
+        )
+    )
+    return {
+        "status": "passed" if passed else "failed",
+        "elapsed_seconds": elapsed,
+        "wall_seconds": time.perf_counter() - wall,
+        "samples": rows,
+        "restarts": restarts,
+        "boundary": "simulated clock, carrier and provider failures; real authority restarts/persistence; native process proof separate",
+    }
+
+
 def run_profile(name, directory, seed, checkpoint):
     from app.config import Settings
     from app.main import create_app
@@ -444,6 +931,7 @@ def run_profile(name, directory, seed, checkpoint):
         secret_key="synthetic-measurement-" + "a" * 48,
         local_token="synthetic-measurement-token",  # noqa: S106 - isolated fixture identity
         mode="local",
+        session_seconds=86400,
     )
     begun = time.perf_counter()
     app = create_app(settings, clock=clock)
@@ -488,30 +976,40 @@ def run_profile(name, directory, seed, checkpoint):
                     "samples": reports[WARMUPS:],
                 }
                 result["six_coach"] = client.portal.call(coach_fixture, service, p)
+                result["live_admission"] = client.portal.call(admission_fixture, service, spec["reps"])
+                result["workload_capacity"] = workload_capacity(service, p, spec["reps"])
+                result["control_paths"] = run_control_paths(client, headers, campaign, measured, checkpoint)
+                if "load_seconds" in spec:
+                    result["load"] = run_load(
+                        client,
+                        headers,
+                        campaign,
+                        measured,
+                        spec["load_seconds"],
+                        checkpoint,
+                        p=p,
+                        reps=spec["reps"],
+                    )
+                if name in {"shared", "saturation"}:
+                    measured.stall_ms = 100
+                    result["stalled_selection"] = run_requests(
+                        service, p, campaign, spec["reps"], measured, checkpoint
+                    )
+                    measured.stall_ms = 0
             result["writer_transactions"] = summarize(measured.writes, target_ms=25)
             result["training_imported"] = any(m in sys.modules for m in ("numpy", "scipy", "sklearn"))
             result["integrity"] = service.db.integrity()
+        if "simulated_hours" in spec:
+            result["shift"] = run_shift(
+                settings, clock, headers, campaign, spec["simulated_hours"], checkpoint
+            )
     finally:
         app.state.db.engine.dispose()
-    # Long-load, shift and frozen native evidence are explicit independent gates.
-    # A hot-path receipt cannot assert those durations from a shorter run.
-    result["missing"] = [k for k in ("load_seconds", "simulated_hours") if k in spec]
+    result.update(profile_gates(result, spec))
     if name in {"shared", "saturation"}:
         result["missing"].append("2vcpu_4gib_reference")
-    checks = [
-        result["selection"]["warm"]["status"],
-        result["cached_workspace"]["summary"]["status"],
-        result["six_coach"]["summary"]["status"],
-        result["writer_transactions"]["status"],
-        result["rebuild"]["status"],
-    ]
-    result["status"] = (
-        "failed"
-        if "failed" in checks or result["training_imported"]
-        else "incomplete"
-        if result["missing"]
-        else "passed"
-    )
+        if result["status"] == "passed":
+            result["status"] = "incomplete"
     return result
 
 

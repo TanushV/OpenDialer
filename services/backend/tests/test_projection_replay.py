@@ -1004,3 +1004,51 @@ def test_rebuild_lease_expiring_during_math_cannot_write_inactive_units(workspac
     result = projections.rebuild_page(service, p, lease=(job["id"], "slow-owner"))
     assert result["status"] == "lost_lease"
     assert vectors(service, p, "metric_contributions") == before
+
+
+def test_rebuild_computes_each_rep_day_once_and_replays_later_corrections(workspace, app, clock, monkeypatch):
+    from datetime import timedelta
+
+    from app.db import get, put
+    from app.optimization import projections
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        for i in range(6):
+            interval = put(
+                s,
+                "work_intervals",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    "rep_id": p["user_id"],
+                    "started_at": (clock.now - timedelta(minutes=30)).isoformat(),
+                    "ended_at": clock.now.isoformat(),
+                },
+                key=f"rebuild-repeated-day-{i}",
+                now=clock.now,
+            )
+        identity = interval.id
+    state, _ = projections._rebuild_control(service, p, start=True)
+    state["cursor"] = {"phase": 4, "after_id": "", "after_at": None, "day": None}
+    measured, original = [], projections._unit_snapshot
+
+    def observe(service, p, payload):
+        if payload.get("target_namespace") == state["namespace"] and payload["source_kind"] == "rep-day":
+            measured.append(payload["source_id"])
+        return original(service, p, payload)
+
+    monkeypatch.setattr(projections, "_unit_snapshot", observe)
+    # Repeated page after a lost cursor update must also reuse completed derived work.
+    for _ in range(2):
+        projections._rebuild_source_page(service, p, state)
+    assert measured == [p["user_id"] + ":" + clock.now.date().isoformat()], (
+        "Each source row must not recompute its entire rep-day union"
+    )
+    with service.db.transaction() as s:
+        update(get(s, "work_intervals", identity), started_at=(clock.now - timedelta(hours=1)).isoformat())
+    finish_rebuild(service, p)
+    _, values = active_total(service, p)
+    assert values["rep_work_seconds"] == 3600, (
+        "Skipping repeated rebuild inputs must not skip dirty corrections"
+    )

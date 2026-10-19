@@ -998,12 +998,12 @@
         {
           "id": "E13.3",
           "task": "Complete performance/load/shift/resource runner",
-          "status": "Guarded real-record measurement harness and preserved historical import pass 12 contracts; historical timing running; duration/native gates open"
+          "status": "Control/load/shift/stall/admission harness implemented; 22 boundary tests pass; actual duration and native profiles remain open"
         },
         {
           "id": "E13.4",
           "task": "Frozen semantic120-case matrix and independent review",
-          "status": "Frozen120 distinct synthetic cases and 30-case independent human overlap contract; 20 transport/blinding checks pass. Human/model quality and independent code review remain unaccepted"
+          "status": "Frozen120-case matrix and 30-case human overlap; 20 blinding contracts pass; separate read-only Codex review running; funded/human quality unaccepted"
         },
         {
           "id": "E13.5",
@@ -1018,7 +1018,7 @@
         {
           "id": "E13.7",
           "task": "Full resource/performance targets and repairs",
-          "status": "open"
+          "status": "Large diagnostic exposed repeated rep-day rebuild; regression red12 versus1 then green; SQLite126 passes/1skip, PostgreSQL running; diagnostic interruption retained"
         },
         {
           "id": "E13.8",

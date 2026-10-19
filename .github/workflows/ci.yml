@@ -30,6 +30,13 @@ jobs:
       - run: uv sync --frozen --python 3.12
       - run: uv run ruff check services/backend/app services/backend/tests tests scripts deploy/backup
       - run: uv run ruff format --check services/backend/app services/backend/tests tests scripts deploy/backup
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: npm ci
+        working-directory: apps/desktop
       - run: mkdir -p work/remediation/completion
       - run: uv run pytest services/backend/tests tests -q --cov=app --cov-branch --cov-report=json:work/remediation/completion/sqlite-coverage.json --junitxml=work/remediation/completion/sqlite-junit.xml
       - run: uv run pytest services/backend/tests tests -q --cov=app --cov-branch --cov-report=json:work/remediation/completion/postgres-coverage.json --junitxml=work/remediation/completion/postgres-junit.xml
@@ -45,13 +52,6 @@ jobs:
             work/remediation/completion/*-junit.xml
       - run: uv run pip-audit --disable-pip --no-deps -r <(uv export --frozen --no-dev --no-hashes --no-emit-project)
         shell: bash
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: apps/desktop/package-lock.json
-      - run: npm ci
-        working-directory: apps/desktop
       - run: npm run typecheck && npm run format:check && npm run build && npm test && npm audit --audit-level=moderate
         working-directory: apps/desktop
       - run: npx playwright install --with-deps chromium

@@ -223,3 +223,10 @@ def test_handoff_manifest_scope(tmp_path, bad):
     report = json.loads((tmp_path / "result.json").read_text())
     assert report["status"] == "incomplete" and report["errors"]
     assert bad in {e["code"] for e in report["errors"]}, "Each distinct defect needs its own diagnostic"
+
+
+def test_ci_installs_the_locked_ast_parser_before_backend_acceptance():
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text().split("  native:")[0]
+    assert workflow.index("- run: npm ci") < workflow.index("- run: uv run pytest"), (
+        "The backend acceptance includes the TypeScript AST parser and needs locked node_modules"
+    )

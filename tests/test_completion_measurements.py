@@ -84,3 +84,70 @@ def test_native_resource_gate_requires_actual_frozen_process_receipts():
     result = measurement().resource_gates({"authority_rss_mib": 99, "idle_cpu_percent": 0.2})
     assert result["status"] == "incomplete"
     assert "frozen_native_processes" in result["missing"]
+
+
+def test_duration_receipt_keeps_errors_and_does_not_shortcut_elapsed_time():
+    m = measurement()
+    now = [0.0]
+    attempts = []
+
+    def pause(seconds):
+        now[0] += seconds
+
+    def operation(index):
+        attempts.append(index)
+        now[0] += 0.1
+        if index == 1:
+            raise TimeoutError("synthetic timeout")
+        return {"ok": True}
+
+    result = m.run_for(3, operation, monotonic=lambda: now[0], pause=pause, cadence=1)
+    assert result["elapsed_seconds"] >= 3 and result["requested_seconds"] == 3
+    assert attempts == [0, 1, 2]
+    assert result["samples"][1]["ok"] is False
+    assert result["status"] == "failed"
+
+
+def test_cold_sql_and_missing_request_paths_are_release_gates():
+    m = measurement()
+    candidate = {
+        "rebuild": {"status": "passed"},
+        "training_imported": False,
+        "authority_startup_ms": 10,
+        "integrity": True,
+        "selection": {"cold": {"status": "failed"}, "warm": {"status": "passed"}, "sql_budget_met": False},
+        "cached_workspace": {"summary": {"status": "passed"}},
+        "six_coach": {"summary": {"status": "passed"}},
+        "writer_transactions": {"status": "passed"},
+    }
+    result = m.profile_gates(candidate, {})
+    assert result["status"] == "failed"
+    assert {"cold_selection", "selection_sql"} <= set(result["failures"])
+    assert "control_paths" in result["missing"]
+
+
+@pytest.mark.asyncio
+async def test_admission_measurement_counts_rejection_and_noisy_owner_without_hiding_latency():
+    from types import SimpleNamespace
+
+    from app.coaching.engine import CoachEngine
+
+    m = measurement()
+    service = SimpleNamespace(coach=CoachEngine())
+    result = await m.admission_fixture(service, 20, runs=1, delay_seconds=0.12)
+    assert result["status"] == "passed", result
+    assert result["opportunities"] == 20
+    assert result["accepted"] == 8 and result["rejected"] == 12
+    assert len(result["samples"]) == 20
+    assert result["queue"]["samples"] == 8
+    assert result["noisy_owner"]["accepted"] <= 2
+    assert result["noisy_owner"]["other_owners_accepted"] > 0
+    assert not service.coach.active and not service.coach._pending
+
+
+def test_source_receipt_identifies_uncommitted_product_and_harness_bytes():
+    result = measurement().source_metadata()
+    assert isinstance(result["dirty_files"], list)
+    assert len(result["harness_sha256"]) == 64
+    assert len(result["test_tree_digest"]) == 64
+    assert result["logical_cpus"] > 0
