@@ -65,12 +65,11 @@ def connect_health(calls, *, now, min_support=30):
         if not at or at > now or at < now - timedelta(days=28):
             continue
         outcome = outcome_at(call, now)
-        if not outcome:
+        label = derive_labels(outcome or {})["human"]
+        if label is None:
             unknown += at >= now - timedelta(days=1)
             continue
-        (current if at >= now - timedelta(days=1) else reference).append(
-            derive_labels(outcome["outcome"])["human"]
-        )
+        (current if at >= now - timedelta(days=1) else reference).append(label)
     count, base = len(current), len(reference)
     low, high = wilson(sum(current), count)
     ref_low, ref_high = wilson(sum(reference), base)
@@ -102,7 +101,7 @@ def cohort_metrics(leads, calls, events, blocked, work, config, *, now):
         for r in leads
         if r.get("status") == "eligible" and r["phone"] not in blocked and not r.get("outreach_hold")
     ]
-    labels = {c["id"]: derive_labels((outcome_at(c, now) or {}).get("outcome")) for c in calls}
+    labels = {c["id"]: derive_labels(outcome_at(c, now) or {}) for c in calls}
     goal = config["conversion_goal"]
     label = "qualified" if goal == "qualified_conversation" else goal
     right = {c["lead_id"] for c in calls if labels[c["id"]]["right_party"]} & original
@@ -142,7 +141,9 @@ def cohort_metrics(leads, calls, events, blocked, work, config, *, now):
         "eligible_now": len(eligible),
         "suppressed": sum(r["phone"] in blocked for r in leads),
         "attempts": len(calls),
-        "human_pickups": sum(row["human"] for row in labels.values()),
+        "human_pickups": sum(row["human"] is True for row in labels.values()),
+        "human_classified_attempts": sum(row["human"] is not None for row in labels.values()),
+        "human_unknown_attempts": sum(row["human"] is None for row in labels.values()),
         "right_party_unique": len(right),
         "held_meetings": len(held),
         "unique_conversions": len(converted),
@@ -187,6 +188,50 @@ class WorkEdit(BaseModel):
 
 
 class Measurement:
+    def record_attempt_work_in(self, s, p, call, *, closing=False):
+        """A call-scoped wrap-up union, separate from call edit versions and ready time."""
+        model = MODELS["outcomes"]
+        key = "attempt-work:" + call.id
+        row = s.scalar(
+            select(model).where(
+                model.tenant_id == p["tenant_id"],
+                model.seller_id == p["seller_id"],
+                model.external_key == key,
+            )
+        )
+        if closing and (not row or row.data.get("closed")):
+            return
+        now = self.clock()
+        ended = timestamp(call.data.get("ended_at"))
+        previous = timestamp(row.data.get("heartbeat_at")) if row else ended
+        if row and row.data.get("closed"):
+            previous = now
+        spans = list(row.data.get("rep_work_intervals", [])) if row else []
+        if (
+            previous
+            and ended
+            and ended <= previous <= now
+            and (now - previous).total_seconds() <= WORK_LEASE_SECONDS
+        ):
+            if spans and timestamp(spans[-1]["ended_at"]) == previous:
+                spans[-1] = {**spans[-1], "ended_at": now.isoformat()}
+            else:
+                spans.append({"started_at": previous.isoformat(), "ended_at": now.isoformat()})
+        values = {
+            "kind": "attempt_work",
+            "call_id": call.id,
+            "rep_id": p["user_id"],
+            "heartbeat_at": now.isoformat(),
+            "rep_work_intervals": spans[:64],
+            "rep_work_incomplete": len(spans) > 64 or bool(row and row.data.get("rep_work_incomplete")),
+            "source": "wrapup_heartbeat",
+            "closed": closing,
+        }
+        if row:
+            update(row, **values)
+        else:
+            put(s, "outcomes", p["tenant_id"], p["seller_id"], values, key=key, now=now)
+
     def open_work_in(self, s, p):
         model = MODELS["work_intervals"]
         return list(
@@ -201,6 +246,7 @@ class Measurement:
         )
 
     def pause_work_in(self, s, p):
+        self.end_wrapup_work_in(s, p, self.required(s, "users", p["user_id"], p))
         for row in self.open_work_in(s, p):
             update(
                 row,
@@ -208,6 +254,14 @@ class Measurement:
                 close_reason="paused",
             )
             row.external_key = None
+
+    def end_wrapup_work_in(self, s, p, user):
+        call_id = user.data.get("presence", {}).get("wrapup_call_id")
+        if call_id:
+            call = self.required(s, "call_attempts", call_id, p)
+            if call.data.get("rep_id") == p["user_id"]:
+                self.record_attempt_work_in(s, p, call, closing=True)
+            update(user, presence={**user.data.get("presence", {}), "wrapup_call_id": None})
 
     def record_work_in(self, s, p, active):
         now = self.clock()
@@ -260,6 +314,8 @@ class Measurement:
             self.db.authorize_stream(s, p)
             user = self.required(s, "users", p["user_id"], p)
             presence = user.data.get("presence", {})
+            if activity != "wrapup":
+                self.end_wrapup_work_in(s, p, user)
             if activity == "ready" and presence.get("status") not in {"ready", "busy"}:
                 fail(409, "Explicitly go ready before resuming availability")
             if activity in {"call", "wrapup"}:
@@ -301,6 +357,8 @@ class Measurement:
                     and (not ended or self.clock() - ended > timedelta(minutes=15))
                 ):
                     fail(409, "No current owned call or recent unfinished wrap-up supports this heartbeat")
+                if activity == "wrapup":
+                    self.record_attempt_work_in(s, p, call)
             interval = self.record_work_in(s, p, activity != "idle")
             other_active = activity == "idle" and any(
                 timestamp(row.data["lease_until"]) > self.clock() for row in self.open_work_in(s, p)
@@ -309,6 +367,7 @@ class Measurement:
                 user,
                 presence={
                     **presence,
+                    "wrapup_call_id": call.id if activity == "wrapup" else None,
                     "at": self.clock().isoformat(),
                     **({"status": "paused"} if activity == "idle" and not other_active else {}),
                 },

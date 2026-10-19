@@ -10,6 +10,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validato
 from app.db import audit, doc, emit, put, uid, update
 from app.optimization.goals import goal_plan
 from app.optimization.numbering import timestamp
+from app.scheduling.models import EstimatePolicy
 from app.service import fail
 
 
@@ -68,6 +69,7 @@ class OptimizationSettings(Strict):
     account_channel_limit: int | None = Field(default=None, ge=1, le=1000)
     minimum_expansion_age_hours: int | None = Field(default=None, ge=1, le=168)
     health_policy: HealthPolicy | None = None
+    estimate_policy: EstimatePolicy | None = None
 
     @model_validator(mode="after")
     def distinct_windows(self):
@@ -460,6 +462,10 @@ def register_optimization(app, service, principal, administrator):
                 if available != roster:
                     fail(422, "Named staffing requires current active reps in this workspace")
             previous = service.optimization_config(s, p)
+            if body.estimate_policy is not None:
+                values["estimate_policy"] = EstimatePolicy.model_validate(
+                    {**previous["estimate_policy"], **body.estimate_policy.model_dump(exclude_unset=True)}
+                ).model_dump(mode="json")
             merged = {**previous, **values}
             if merged["staffing_start_hour"] >= merged["staffing_end_hour"]:
                 fail(422, "The staffing end must follow its start; split an overnight shift into two periods")

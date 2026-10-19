@@ -18,6 +18,7 @@ from app.optimization.learning import (
     trial_report,
 )
 from app.optimization.numbering import capacity_forecast, number_health, timestamp
+from app.scheduling.models import EstimatePolicy, prediction_key, saved_prediction
 
 DEFAULTS = {
     "conversion_goal": "meeting_held",
@@ -236,6 +237,9 @@ class OptimizationWorkflows(ComparisonWorkflows):
         )
         config = {**DEFAULTS, **campaign.data.get("optimization", {})}
         config["health_policy"] = HealthPolicy.model_validate(config.get("health_policy", {})).model_dump()
+        config["estimate_policy"] = EstimatePolicy.model_validate(
+            config.get("estimate_policy", {})
+        ).model_dump(mode="json")
         return config
 
     def inventory_evidence(self, s, p, fast=False):
@@ -363,7 +367,13 @@ class OptimizationWorkflows(ComparisonWorkflows):
         campaign = self.scoped(s, "campaigns", p)[0]
         data = [r for r in data if r.get("campaign_id") == campaign.id]
         policy = self.required(s, "policy_versions", campaign.data["policy_id"], p)
-        segments = sorted({r.get("segment", "unknown") for r in data})
+        leads = [doc(r) for r in self.scoped(s, "leads", p) if r.data["campaign_id"] == campaign.id]
+        cells = sorted({(r.get("segment", "unknown"), r.get("attempt_count", 0)) for r in leads})
+        segments = sorted({segment for segment, _ in cells})
+        estimate_options = {
+            "handling_seconds": config["handling_seconds"],
+            "estimate_policy": config["estimate_policy"],
+        }
         actions = [r.id for r in self.scoped(s, "treatment_variants", p) if r.data.get("approved")] or [
             "approved-default"
         ]
@@ -371,19 +381,23 @@ class OptimizationWorkflows(ComparisonWorkflows):
             "as_of": self.clock().isoformat(),
             "goal": config["conversion_goal"],
             "samples": len(data),
+            "estimate_policy_version": EstimatePolicy.model_validate(config["estimate_policy"]).version,
+            "work_assumption_seconds": config["handling_seconds"],
             "retry_observations": retry_statistics(
                 data,
-                [doc(r) for r in self.scoped(s, "leads", p) if r.data["campaign_id"] == campaign.id],
+                leads,
                 now=self.clock(),
                 max_attempts=policy.data.get("max_attempts", 4),
             ),
-            "pooled": funnel_predictions(data, {"segment": "unknown", "local_hour": 12}),
+            "pooled": funnel_predictions(data, {}, **estimate_options),
             "predictions": {
-                str(segment) + ":" + str(hour): funnel_predictions(
-                    data, {"segment": segment, "local_hour": hour}
-                )
-                for segment in segments
+                prediction_key(features): funnel_predictions(data, features, **estimate_options)
+                for segment, attempt in cells
+                for day in (0, 5)
                 for hour in range(24)
+                for features in [
+                    {"segment": segment, "local_hour": hour, "local_weekday": day, "attempt_count": attempt}
+                ]
             },
             "treatments": {
                 str(segment): learn_distribution(
@@ -410,21 +424,28 @@ class OptimizationWorkflows(ComparisonWorkflows):
         }
         # This explicit historical dataset is replaced by projections in E09.
         # Fetch its metadata once, never one query for each previous call.
-        lineage = {}
+        lineage, work = {}, {}
         model = MODELS["outcomes"]
         for row in s.scalars(
             select(model).where(
                 model.tenant_id == p["tenant_id"],
                 model.seller_id == p["seller_id"],
-                model.ctx_status == "conversation_lineage",
+                model.ctx_status.in_(("conversation_lineage", "attempt_work")),
             )
         ):
-            lineage.setdefault(row.data["call_id"], {})[lineage_key(row.data["id"], row.data["version"])] = (
-                row.data
-            )
+            if row.data["kind"] == "attempt_work":
+                work[row.data["call_id"]] = row.data
+            else:
+                lineage.setdefault(row.data["call_id"], {})[
+                    lineage_key(row.data["id"], row.data["version"])
+                ] = row.data
         lead_campaigns = {r.id: r.data["campaign_id"] for r in self.scoped(s, "leads", p)}
         for call in calls:
             call["campaign_id"] = lead_campaigns.get(call["lead_id"])
+            if call["id"] in work:
+                call.update(
+                    {key: work[call["id"]].get(key) for key in ("rep_work_intervals", "rep_work_incomplete")}
+                )
             note = notes.get(call["id"])
             memory = memories.get(call["id"])
             observed = (
@@ -433,20 +454,30 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 else (note.data.get("observations", []) if note else [])
             )
             call["observations"] = active_observations(observed, self.clock())
-        costs = {}
+        from decimal import Decimal
+
+        costs, incomplete, verified = {}, set(), set()
         for record in self.scoped(s, "usage_ledger", p):
-            if (
-                record.data.get("call_id")
-                and record.data.get("cost_usd") is not None
-                and record.data.get("provider_record_id")
-            ):
-                key = record.data["call_id"]
-                costs[key] = costs.get(key, 0) + record.op_amount
-        by_snapshot = {r["id"]: r for r in snapshots}
+            value = record.data
+            key = value.get("call_id") or value.get("object_id")
+            if not key:
+                continue
+            if value.get("status") == "released":
+                continue
+            if value.get("status") != "settled" or value.get("cost_usd") is None:
+                incomplete.add(key)
+                continue
+            if value.get("kind") == "call_authorization" and value.get("billing_verified"):
+                verified.add(key)
+            costs[key] = (
+                costs.get(key, Decimal(0))
+                + Decimal(str(value["cost_usd"]))
+                - Decimal(str(value.get("credited_usd", 0)))
+            )
         for call in calls:
-            snapshot = by_snapshot.get(call.get("feature_snapshot_id"))
-            if snapshot and call["id"] in costs:
-                snapshot["observed_cost_usd"] = costs[call["id"]]
+            complete = call["id"] in verified and call["id"] not in incomplete
+            call["cost_status"] = "settled" if complete else "uncertain"
+            call["observed_cost_usd"] = float(costs.get(call["id"], 0)) if complete else None
         data = training_rows(
             calls,
             snapshots,
@@ -487,6 +518,8 @@ class OptimizationWorkflows(ComparisonWorkflows):
         policy = {
             **policy_row.data,
             **{k: v for k, v in config.items() if k.startswith("staffing_")},
+            "handling_seconds": config["handling_seconds"],
+            "estimate_policy": config["estimate_policy"],
             "version": f"{policy_row.id}:{policy_row.version}",
             "goal_version": campaign.data.get("optimization_epoch", config["conversion_goal"]),
             "estimate_version": profile.get("version") or profile.get("as_of") or "pooled-v1",
@@ -589,25 +622,37 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 sort_keys=True,
             ).encode()
         ).hexdigest()
-        pooled = profile.get("pooled") or {"expected_rep_seconds": config["handling_seconds"]}
+        pooled = saved_prediction(profile, {}, config)
         estimate_cache = {}
         regions = {"general", *(lead.get("region") or "general" for lead in leads)}
         for lead in leads:
-            segment = str(lead.get("segment", "unknown"))
-            if segment not in estimate_cache:
-                estimate_cache[segment] = {
-                    f"*:{hour}:{region}": math.prod(
-                        prediction.get(k, 0)
+            cell = (str(lead.get("segment", "unknown")), lead.get("attempt_count", 0))
+            if cell not in estimate_cache:
+                estimate_cache[cell] = {
+                    f"{day}:{hour}:{region}": math.prod(
+                        prediction[k]
                         for k in ("p_human", "p_right_party_given_human", "p_conversion_given_right_party")
                     )
+                    for day in range(7)
                     for hour in range(24)
+                    for prediction in [
+                        saved_prediction(
+                            profile,
+                            {
+                                "segment": cell[0],
+                                "attempt_count": cell[1],
+                                "local_hour": hour,
+                                "local_weekday": day,
+                            },
+                            config,
+                        )
+                    ]
                     for region in regions
-                    if (prediction := profile.get("predictions", {}).get(segment + ":" + str(hour)))
                 }
             lead.update(
-                predicted_work_seconds=pooled.get("expected_rep_seconds", config["handling_seconds"]),
+                predicted_work_seconds=pooled["expected_rep_seconds"],
                 outcome_estimates=pooled,
-                slot_estimates=estimate_cache[segment],
+                slot_estimates=estimate_cache[cell],
             )
         inventory = self.inventory_evidence(s, p, fast=True)
         present = {n["phone"] for n in inventory}
@@ -813,7 +858,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                     "occurred_at": c.data.get("ended_at", c.data["started_at"]),
                 }
                 for c in calls
-                if derive_labels(c.data.get("outcome")).get(
+                if derive_labels(c.data).get(
                     "qualified" if trial_goal == "qualified_conversation" else trial_goal
                 )
             ]
@@ -1101,7 +1146,13 @@ class OptimizationWorkflows(ComparisonWorkflows):
             profile = campaign.data.get("selection_profile", {})
             if profile.get("goal") != config["conversion_goal"]:
                 profile = {}
-            estimates = {**profile.get("predictions", {}), "pooled": profile.get("pooled", {})}
+            if (
+                profile.get("estimate_policy_version")
+                != EstimatePolicy.model_validate(config["estimate_policy"]).version
+                or profile.get("work_assumption_seconds") != config["handling_seconds"]
+            ):
+                profile = {}
+            estimates = {**profile.get("predictions", {}), "pooled": saved_prediction(profile, {}, config)}
         forecast = capacity_forecast(**inputs, schedule_row_limit=None)
         selected = {row["lead_id"]: row for row in forecast["existing_schedule"]}
         saved, superseded, unchanged = 0, 0, 0
@@ -1175,7 +1226,16 @@ class OptimizationWorkflows(ComparisonWorkflows):
                     local = timestamp(choice["at"]).astimezone(ZoneInfo(lead["timezone"]))
                     prediction = next(
                         (r["predictions"] for r in alternatives if r["at"] == choice["at"]),
-                        estimates.get(str(lead.get("segment", "unknown")) + ":" + str(local.hour))
+                        estimates.get(
+                            prediction_key(
+                                {
+                                    "segment": lead.get("segment", "unknown"),
+                                    "local_hour": local.hour,
+                                    "local_weekday": local.weekday(),
+                                    "attempt_count": lead.get("attempt_count", 0),
+                                }
+                            )
+                        )
                         or estimates["pooled"],
                     )
                     choice = {

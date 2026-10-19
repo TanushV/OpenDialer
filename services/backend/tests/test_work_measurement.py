@@ -70,6 +70,33 @@ def test_attempt_work_wrapup_disconnect_is_not_filled_in(workspace, app, clock):
         assert attempt_work_seconds(row.data) == 40
 
 
+@pytest.mark.parametrize("pause", ["idle", "presence"])
+def test_pause_ends_attempt_work_before_a_later_disposition(workspace, app, clock, pause):
+    from conftest import disposition_body
+
+    c, h = workspace["client"], workspace["headers"]
+    call = start(workspace)
+    clock.now += timedelta(seconds=20)
+    c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
+    heartbeat(workspace, "wrapup")
+    clock.now += timedelta(seconds=30)
+    if pause == "idle":
+        assert heartbeat(workspace, "idle").status_code == 200
+    else:
+        assert c.post("/v1/rep/presence", headers=h, json={"status": "paused"}).status_code == 200
+    clock.now += timedelta(seconds=20)
+    c.post(
+        f"/v1/calls/{call['id']}/disposition",
+        headers=h,
+        json=disposition_body(c, h, call["id"], outcome="right_party"),
+    )
+    with app.state.db.transaction(False) as s:
+        row = next(
+            r for r in app.state.service.operational_dataset(s, p(workspace)) if r["call_id"] == call["id"]
+        )
+    assert row["rep_work_seconds"] == 50
+
+
 def test_heartbeat_work_excludes_pauses_and_stale_disconnected_time(workspace, clock):
     ready(workspace)
     for _ in range(3):

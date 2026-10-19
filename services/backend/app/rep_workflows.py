@@ -352,7 +352,8 @@ class RepWorkflows:
 
     def prospect_context_in(self, s, p, lead, calls, commitments, tasks):
         from app.optimization.conversations import active_observations
-        from app.optimization.learning import freeze_features, funnel_predictions
+        from app.optimization.learning import freeze_features
+        from app.scheduling.models import saved_prediction
 
         campaign = self.required(s, "campaigns", lead.data["campaign_id"], p)
         config = self.optimization_config(s, p, campaign.id)
@@ -360,11 +361,7 @@ class RepWorkflows:
         profile = campaign.data.get("selection_profile", {})
         if profile.get("goal") != config["conversion_goal"]:
             profile = {}
-        prediction = (
-            profile.get("predictions", {}).get(f"{features['segment']}:{features['local_hour']}")
-            or profile.get("pooled")
-            or funnel_predictions([], features)
-        )
+        prediction = saved_prediction(profile, features, config)
         recent = sorted(calls, key=lambda c: c.get("started_at", ""))[-10:]
         model = MODELS["notes"]
         notes = (
@@ -890,6 +887,7 @@ class RepWorkflows:
                                     "outcome": call.data["outcome"],
                                     "outcome_available_at": call.data.get("outcome_available_at"),
                                     "outcome_source": call.data.get("outcome_source", "legacy_unknown"),
+                                    "contact_role": call.data.get("contact_role"),
                                 }
                             ]
                             if call.data.get("outcome")
@@ -897,6 +895,7 @@ class RepWorkflows:
                         ),
                     ],
                 )
+                self.record_attempt_work_in(s, p, call, closing=True)
                 update(lead, last_outcome=outcome, last_outcome_at=self.clock().isoformat())
                 if outcome in {"wrong_party", "invalid_endpoint"}:
                     update(lead, status="needs_correction")

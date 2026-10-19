@@ -12,11 +12,11 @@ from app.optimization.learning import (
     choose_cohort_candidate,
     conversion_score,
     freeze_features,
-    funnel_predictions,
     learn_distribution,
     stable_control,
 )
 from app.optimization.numbering import select_number, timestamp
+from app.scheduling.models import saved_prediction
 from app.scheduling.policy import queue_decision, rank_candidates
 
 
@@ -188,12 +188,7 @@ class ReservationPlanner:
                 )
                 values["callback_history"] = lead.data.get("callback_history", 0)
                 features[lead.id] = values
-                key = str(values["segment"]) + ":" + str(values["local_hour"])
-                predictions[lead.id] = dict(
-                    profile.get("predictions", {}).get(key)
-                    or profile.get("pooled")
-                    or funnel_predictions([], values)
-                )
+                predictions[lead.id] = saved_prediction(profile, values, config)
                 serving = self.serving_model(s, p, config, lead.id)
                 if serving:
                     by_model.setdefault(serving.id, (serving, []))[1].append(lead.id)

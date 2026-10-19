@@ -5,16 +5,7 @@ import statistics
 from datetime import UTC, datetime, timedelta
 
 from app.scheduling.models import contact_labels
-
-
-def wilson(successes, total, *, z=1.96):
-    if not total:
-        return (0.0, 1.0)
-    p = successes / total
-    denominator = 1 + z * z / total
-    center = (p + z * z / (2 * total)) / denominator
-    margin = z * math.sqrt(p * (1 - p) / total + z * z / (4 * total * total)) / denominator
-    return max(0.0, center - margin), min(1.0, center + margin)
+from app.scheduling.models import wilson as wilson
 
 
 def timestamp(value):
@@ -73,7 +64,7 @@ def _observed_health(observed, now, policy):
     durations = [
         float(r["connected_seconds"])
         for r, y, _ in labels
-        if y == 1
+        if y is not None
         and r.get("connected_leg_kind") in {None, "prospect"}
         and type(r.get("connected_seconds")) in (int, float)
         and math.isfinite(r["connected_seconds"])

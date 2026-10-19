@@ -24,7 +24,7 @@ def review_token(lead, campaign):
 
 def goal_state(lead, goal, calls, events, *, now, suppressed=False, changed=False):
     label = "qualified" if goal == "qualified_conversation" else goal
-    achieved = any(derive_labels((outcome_at(c, now) or {}).get("outcome"))[label] for c in calls)
+    achieved = any(derive_labels(outcome_at(c, now) or {})[label] for c in calls)
     achieved |= any(
         derive_labels(value["kind"])[label] and not value["retracted"]
         for event in events

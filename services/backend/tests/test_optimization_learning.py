@@ -360,6 +360,44 @@ def test_dataset_cost_waits_for_complete_attributed_receipts(workspace, app):
     assert complete["cost_status"] == "settled"
 
 
+def test_forecast_shares_weekday_and_attempt_estimates_with_selection(workspace, app):
+    from app.db import update
+    from app.scheduling.models import EstimatePolicy
+
+    service = app.state.service
+    p = {k: workspace[k] for k in ("tenant_id", "seller_id", "user_id")} | {"role": "owner"}
+    with app.state.db.transaction() as s:
+        campaign = service.scoped(s, "campaigns", p)[0]
+        leads = service.scoped(s, "leads", p)
+        for lead in leads:
+            update(lead, segment="fixture", attempt_count=0)
+        base = {
+            "p_human": 0.2,
+            "p_right_party_given_human": 0.5,
+            "p_conversion_given_right_party": 0.5,
+            "expected_rep_seconds": 180,
+        }
+        update(
+            campaign,
+            selection_profile={
+                "goal": "meeting_held",
+                "estimate_policy_version": EstimatePolicy().version,
+                "work_assumption_seconds": 120,
+                "pooled": base,
+                "predictions": {
+                    '["fixture",10,false,0]': {**base, "p_human": 0.8},
+                    '["fixture",10,true,0]': {**base, "p_human": 0.4},
+                },
+            },
+        )
+    with app.state.db.transaction(False) as s:
+        inputs, _ = service.forecast_input(s, p)
+    for lead in inputs["leads"]:
+        assert lead["slot_estimates"]["0:10:general"] == pytest.approx(0.2)
+        assert lead["slot_estimates"]["6:10:general"] == pytest.approx(0.1)
+        assert lead["predicted_work_seconds"] == 180
+
+
 def test_snapshot_only_has_information_known_before_the_call(clock):
     lead = {
         "segment": "roofing",

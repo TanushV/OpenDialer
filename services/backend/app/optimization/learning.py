@@ -5,34 +5,16 @@ from statistics import NormalDist
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.optimization.conversations import conversation_associations as conversation_associations
-from app.optimization.numbering import timestamp, wilson
-from app.scheduling.models import pooled_predictions
+from app.optimization.numbering import timestamp
+from app.scheduling.models import (
+    attempt_work_seconds,
+    derive_labels,
+    pooled_predictions,
+    prediction_key,
+    wilson,
+)
 
 GOALS = {"qualified_conversation", "meeting_held", "sale_won"}
-HUMAN = {
-    "wrong_party",
-    "gatekeeper",
-    "right_party",
-    "callback_requested",
-    "meeting_booked",
-    "meeting_held",
-    "not_interested",
-    "opt_out",
-    "qualified_conversation",
-    "sale_won",
-}
-RIGHT = HUMAN - {"wrong_party", "gatekeeper", "opt_out", "not_interested"}
-QUALIFIED = {"qualified_conversation", "meeting_booked", "meeting_held", "sale_won"}
-
-
-def derive_labels(outcome):
-    return {
-        "human": outcome in HUMAN,
-        "right_party": outcome in RIGHT,
-        "qualified": outcome in QUALIFIED,
-        "meeting_held": outcome == "meeting_held",
-        "sale_won": outcome == "sale_won",
-    }
 
 
 def outcome_at(call, now):
@@ -140,11 +122,10 @@ def training_rows(calls, snapshots, events, *, now, goal, window_days):
             if at <= timestamp(e["occurred_at"]) <= min(now, end)
         ]
         matched = [e for e in relevant if not e["retracted"]]
-        labels = derive_labels(outcome["outcome"])
+        labels = derive_labels(outcome)
         direct = labels.get(goal if goal != "qualified_conversation" else "qualified", False)
-        positive = bool(matched) or direct
+        positive = bool(matched or direct)
         closed = now >= end
-        ended = timestamp(call.get("ended_at"))
         positive_times = [e["available"] for e in matched] + ([outcome["available"]] if direct else [])
         label_available = (
             min(positive_times)
@@ -185,46 +166,27 @@ def training_rows(calls, snapshots, events, *, now, goal, window_days):
                 "conversion_event_ids": sorted({e["id"] for e in matched}),
                 "action": call.get("treatment_variant_id", "approved-default"),
                 "segment": snapshot["features"].get("segment", "unknown"),
-                "local_hour": snapshot["features"].get("local_hour", 12),
-                "duration_seconds": max(0, (ended - at).total_seconds()) if ended else 0,
+                "local_hour": snapshot["features"].get("local_hour"),
+                "local_weekday": snapshot["features"].get("local_weekday"),
+                "attempt_count": snapshot["features"].get("attempt_count"),
+                "rep_work_seconds": attempt_work_seconds(call),
+                "duration_seconds": attempt_work_seconds(call),
+                "contact_role": outcome.get("contact_role"),
+                "company_id": call.get("company_id"),
                 "propensity": snapshot.get("propensity", 1.0),
                 "p_human": snapshot.get("predictions", {}).get("p_human"),
                 "experiment_arm": snapshot.get("experiment_arm", "baseline"),
-                "observed_cost_usd": snapshot.get("observed_cost_usd"),
+                "observed_cost_usd": call.get("observed_cost_usd"),
+                "cost_status": call.get("cost_status", "unknown"),
             }
         )
     return result
 
 
-def funnel_predictions(history, features):
-    eligible = [r for r in history if r.get("human") is not None]
-    local = [
-        r
-        for r in eligible
-        if r.get("segment") == features.get("segment")
-        and abs(r.get("local_hour", 12) - features.get("local_hour", 12)) <= 2
-    ]
-    base = pooled_predictions(
-        history, segment=features.get("segment", "unknown"), hour=features.get("local_hour", 12)
+def funnel_predictions(history, features, *, handling_seconds=120, estimate_policy=None):
+    return pooled_predictions(
+        history, features=features, handling_seconds=handling_seconds, estimate_policy=estimate_policy
     )
-    human = sum(r["human"] for r in local)
-    right = sum(r.get("right_party", False) for r in local)
-    mature = [r for r in local if r.get("window_closed") and r.get("right_party")]
-    pooled_mature = [r for r in eligible if r.get("window_closed") and r.get("right_party")]
-    prior = (sum(r.get("conversion") or 0 for r in pooled_mature) + 1) / (len(pooled_mature) + 10)
-    costs = [r["observed_cost_usd"] for r in local if r.get("observed_cost_usd") is not None]
-    return {
-        **base,
-        "p_human": (human + 10 * (sum(r["human"] for r in eligible) + 2) / (len(eligible) + 10))
-        / (len(local) + 10),
-        "p_right_party_given_human": (right + 1) / (human + 3),
-        "p_conversion_given_right_party": (sum(r.get("conversion") or 0 for r in mature) + 10 * prior)
-        / (len(mature) + 10),
-        "expected_attempt_cost_usd": sum(costs) / len(costs) if costs else None,
-        "cost_observations": len(costs),
-        "conversion_observations": len(mature),
-        "model_version": "pooled-funnel-v2",
-    }
 
 
 def conversion_score(prediction):
@@ -232,8 +194,7 @@ def conversion_score(prediction):
         prediction.get("p_human", 0.2)
         * prediction.get("p_right_party_given_human", 0.33)
         * prediction.get("p_conversion_given_right_party", 0.1)
-        * 60
-        / max(1, prediction.get("expected_rep_seconds", 120))
+        / max(10, prediction.get("expected_rep_seconds", 120))
     )
 
 
@@ -386,10 +347,27 @@ def future_slots(
     for day in range(7):
         for hour in range(24):
             estimate = dict(
-                (estimates or {}).get(str(lead.get("segment", "unknown")) + ":" + str(hour))
+                (estimates or {}).get(
+                    prediction_key(
+                        {
+                            "segment": lead.get("segment", "unknown"),
+                            "local_hour": hour,
+                            "local_weekday": day,
+                            "attempt_count": lead.get("attempt_count", 0),
+                        }
+                    )
+                )
                 or (estimates or {}).get("pooled")
                 or funnel_predictions(
-                    history, {"segment": lead.get("segment", "unknown"), "local_hour": hour}
+                    history,
+                    {
+                        "segment": lead.get("segment", "unknown"),
+                        "local_hour": hour,
+                        "local_weekday": day,
+                        "attempt_count": lead.get("attempt_count", 0),
+                    },
+                    handling_seconds=policy.get("handling_seconds", 120),
+                    estimate_policy=policy.get("estimate_policy"),
                 )
             )
             if predictor is not None:

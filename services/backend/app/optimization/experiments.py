@@ -30,7 +30,7 @@ def comparison_report(study, assignments, calls, events, feedback, *, now, goal,
     events = events + [
         {"lead_id": call["lead_id"], "kind": goal, "occurred_at": call.get("ended_at") or call["started_at"]}
         for call in calls
-        if derive_labels(call.get("outcome")).get("qualified" if goal == "qualified_conversation" else goal)
+        if derive_labels(call).get("qualified" if goal == "qualified_conversation" else goal)
     ]
     selected = [a for a in assignments if a.get("comparison_id") == study["id"]]
     by_lead = defaultdict(list)

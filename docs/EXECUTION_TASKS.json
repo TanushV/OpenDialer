@@ -542,7 +542,7 @@
         },
         {
           "id": "E08.features",
-          "status": "open",
+          "status": "in-progress",
           "work": "Decision-time prior reviewed concepts and missingness; bounded training-only vocabularies"
         },
         {

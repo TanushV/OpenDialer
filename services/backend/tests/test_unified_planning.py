@@ -518,6 +518,7 @@ def test_simple_staffing_is_explicit_versioned_and_validated(workspace, app):
 
 def test_forecast_uses_the_saved_work_estimate_and_prior_versions(workspace, app):
     from app.db import update
+    from app.scheduling.models import EstimatePolicy
     from test_remediation_privacy import principal
 
     service, p = app.state.service, principal(workspace)
@@ -528,6 +529,8 @@ def test_forecast_uses_the_saved_work_estimate_and_prior_versions(workspace, app
             selection_profile={
                 "goal": "meeting_held",
                 "version": "observed-v3",
+                "estimate_policy_version": EstimatePolicy().version,
+                "work_assumption_seconds": 120,
                 "pooled": {
                     "p_human": 0.5,
                     "p_right_party_given_human": 0.5,
