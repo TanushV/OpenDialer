@@ -363,3 +363,95 @@ def test_drift_projection_corrects_and_expires_without_source_reads(workspace, a
     project_pending(service, p)
     report = read()
     assert report["reference_rows"] == report["recent_rows"] == 0
+
+
+def test_trial_count_reducer_preserves_matured_and_original_denominators(clock):
+    from app.optimization import learning
+
+    assigned = (clock.now - timedelta(days=15)).isoformat()
+    pending = (clock.now - timedelta(days=1)).isoformat()
+    records = [
+        {"lead_id": "a", "arm": "control", "assigned_at": assigned, "covered": True, "policy_unknown": 0},
+        {"lead_id": "b", "arm": "candidate", "assigned_at": assigned, "covered": True, "policy_unknown": 0},
+        {"lead_id": "c", "arm": "candidate", "assigned_at": pending, "covered": False, "policy_unknown": 1},
+    ]
+    events = [
+        {"lead_id": "b", "kind": "meeting_held", "occurred_at": (clock.now - timedelta(days=2)).isoformat()}
+    ]
+    counts = {}
+    for assignment in records:
+        for key, value in learning.trial_values(
+            assignment, events, now=clock.now, goal="meeting_held", window_days=14
+        ).items():
+            counts[key] = counts.get(key, 0) + value
+    report = learning.trial_from_counts(counts, goal="meeting_held", window_days=14)
+    assert report["arms"]["candidate"]["leads"] == 2
+    assert report["arms"]["candidate"]["matured_leads"] == 1
+    assert report["arms"]["candidate"]["rate"] == 1
+    assert report["arms"]["control"]["rate"] == 0
+    assert report["pending_leads"] == report["policy_unknown"] == 1
+    assert not report["sufficient_evidence"]
+
+
+def test_trial_projection_reads_original_cohort_and_later_correction(workspace, app, clock):
+    from app.optimization import projections
+    from sqlalchemy import event
+    from test_projection_replay import project_pending
+
+    service, p = app.state.service, principal(workspace)
+    initial = completed_report(workspace).json()
+    call = start(workspace)
+    finish(workspace, call)
+    with service.db.transaction() as s:
+        conversion = put(
+            s,
+            "conversion_events",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "lead_id": call["lead_id"],
+                "call_id": call["id"],
+                "kind": "meeting_held",
+                "occurred_at": clock.now.isoformat(),
+                "label_available_at": clock.now.isoformat(),
+                "status": "confirmed",
+            },
+            now=clock.now,
+        )
+        identity = conversion.id
+    project_pending(service, p)
+
+    def read():
+        def reject(connection, cursor, statement, parameters, context, many):
+            assert not any(
+                "FROM " + table in statement
+                for table in (
+                    "leads",
+                    "call_attempts",
+                    "experiment_assignments",
+                    "conversion_events",
+                    "feature_snapshots",
+                    "compliance_decisions",
+                )
+            )
+
+        event.listen(service.db.engine, "before_cursor_execute", reject)
+        try:
+            return projections.read_trial_metrics(service, p, epoch=initial["trial"]["epoch"])
+        finally:
+            event.remove(service.db.engine, "before_cursor_execute", reject)
+
+    actual = read()
+    assert sum(a["leads"] for a in actual["arms"].values()) == 3
+    assert sum(a["conversions"] for a in actual["arms"].values()) == 1
+    assert actual["pending_leads"] == 3
+    clock.now += timedelta(days=15)
+    projections.refresh_due(service, p)
+    project_pending(service, p)
+    actual = read()
+    assert actual["pending_leads"] == 0
+    assert sum(a["matured_conversions"] for a in actual["arms"].values()) == 1
+    with service.db.transaction() as s:
+        update(get(s, "conversion_events", identity), retracted=True, retracted_at=clock.now.isoformat())
+    project_pending(service, p)
+    assert sum(a["conversions"] for a in read()["arms"].values()) == 0
