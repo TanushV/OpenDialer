@@ -1,6 +1,8 @@
 # Execution log and continuation state
 
-**Current checkpoint — E09 active:** E00–E08 pass their scoped software contracts. Continue E09–E15 in order. Installed Mac remains0.2.1; no update, reinstall, funded request or purchase occurred. Whole-system, load, native and live acceptance remain open.
+**Current checkpoint — E10 active:** E00–E09 pass their scoped software contracts. Continue E10–E15 in order. Installed Mac remains0.2.1; no update, reinstall, funded request or purchase occurred. Whole-system, load, native and live acceptance remain open.
+
+2026-10-19 E09 EXIT. Product2472c64 final maintenance scope:158 SQLite passes/one PG-only skip (79.13s),159 PostgreSQL passes (309.39s),seven browser workflows (24.2s). Incremental readers/estimates, changed planning, inactive rebuild/replay, shared admission and current source/lease/role publication are accepted at this boundary. [Receipt](evidence/completion/E09.json). E10 initial scope:326 passes/six failures; four stale fixtures corrected separately (six focused passes), two interrupted-agent defects remain. New expiry and SDK identity regressions are red before product changes. E13 full/load and E14 updates remain open.
 
 2026-10-19 E09 FINAL MAINTENANCE VERIFICATION. Source7dbe194 broad PostgreSQL269 passed; source3f08561 broad SQLite281 passed/two PG-only skips. Restored partial rebuild cursors now restart missing derived namespaces (15 focused checks). Campaign treatments and comparison assignment reads are scoped/bounded (59 checks). Expired derived owners cannot publish (64 SQLite passes/one PG-only skip;68 planning compatibility passes). New red cases reproduced displaced allocation reuse, blocked callback priority, revoked health authority and expired optimization coordination; repairs are committed with final dual-database and seven-workflow browser verification running. E09 remains open pending those receipts. Installed0.2.1 remains untouched.
 

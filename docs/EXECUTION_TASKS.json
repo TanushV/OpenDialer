@@ -3,10 +3,10 @@
   "written_at": "2026-10-18",
   "baseline_commit": "63f4d4242f60672777f596177fe98fe57f715bf9",
   "baseline_product_test_commit": "6611d3c2fb486b0aac65df2bb42e20663457552a",
-  "status": "implementation-authorized; E00-E08 scoped software accepted; E09 in progress",
+  "status": "implementation-authorized; E00-E09 scoped software accepted; E10 in progress",
   "requirements_source": "docs/REMEDIATION_PLAN.md",
   "implementation_source": "docs/EXECUTION_SPEC.md",
-  "next_step": "E09",
+  "next_step": "E10",
   "receipt_rule": "No inherited checkbox or planned node is a current passing receipt. Update by actual source-bound evidence.",
   "steps": [
     {
@@ -574,7 +574,7 @@
     {
       "id": "E09",
       "title": "Incremental reporting and small critical sections",
-      "status": "in-progress",
+      "status": "accepted-software",
       "depends_on": [
         "E08"
       ],
@@ -609,7 +609,8 @@
         "docs/evidence/completion/E09-comparison-health.json",
         "docs/evidence/completion/E09-report-readers.json",
         "docs/evidence/completion/E09-estimate-counts.json",
-        "docs/evidence/completion/E09-estimate-serving.json"
+        "docs/evidence/completion/E09-estimate-serving.json",
+        "docs/evidence/completion/E09.json"
       ],
       "planned_case_ids": [
         "C035",
@@ -625,7 +626,7 @@
         "A50",
         "A51"
       ],
-      "checkpoint": "Final maintenance validation active: displaced plans and blocked callback rebalance repaired; shared lease publication and current health authorization fenced. Earlier broad SQLite281/2 skip and PostgreSQL269 pass; new exit scopes and seven browser workflows running. Native0.2.1 unchanged.",
+      "checkpoint": "Scoped E09 accepted at2472c64:158 SQLite plus one PG-only skip,159 PostgreSQL,seven browser workflows. E13 performance/full-system and E14 native gates remain open.",
       "implementation_todos": [
         {
           "id": "E09.admission",
@@ -634,22 +635,22 @@
         },
         {
           "id": "E09.contributions",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "0017 encrypted source contributions and buckets; independent replay parity"
         },
         {
           "id": "E09.dirty",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Field-specific content-free source jobs, version fencing and future maturity"
         },
         {
           "id": "E09.rebuild",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Resumable inactive namespace, change replay and atomic activation"
         },
         {
           "id": "E09.readers",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Shared metric readers and incremental estimates/planning; remove normal history rebuild"
         },
         {
@@ -659,7 +660,7 @@
         },
         {
           "id": "E09.secondary_readers",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Incremental dataset, coaching, health, trial/strategy and drift reports; no historical source scans"
         },
         {
@@ -669,12 +670,12 @@
         },
         {
           "id": "E09.maintenance",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Dirty estimate and retry planning, explicit bounded dataset work, maintenance independent of training"
         },
         {
           "id": "E09.acceptance",
-          "status": "open",
+          "status": "accepted-software",
           "work": "Dual-database corrections, churn, work union, scaling and affected UI; retired paths and receipt"
         },
         {
@@ -707,7 +708,7 @@
     {
       "id": "E10",
       "title": "Complete recovery, callbacks and accounting",
-      "status": "open",
+      "status": "in-progress",
       "depends_on": [
         "E09"
       ],
@@ -749,6 +750,34 @@
         "A46",
         "A49",
         "A54"
+      ],
+      "checkpoint": "Initial scope326 passes/six failures. Four stale fixtures corrected without product edits; two interrupted agent recovery failures remain. Five new expired-effect and six SDK identity/control regressions are red.",
+      "implementation_todos": [
+        {
+          "id": "E10.contracts",
+          "status": "in-progress",
+          "work": "Record operation matrix, expired publication and actual SDK identity regression evidence before repairs"
+        },
+        {
+          "id": "E10.ownership",
+          "status": "open",
+          "work": "Fence completion/failure by current unexpired lease; recover interrupted agents without another dial"
+        },
+        {
+          "id": "E10.callbacks",
+          "status": "open",
+          "work": "Exact SDK identities, explicit inbound accept/mute/hangup, stale-session isolation and conflicting outbound prevention"
+        },
+        {
+          "id": "E10.matrix",
+          "status": "open",
+          "work": "One machine-readable operation policy selects existing operation-specific handlers and retry boundaries"
+        },
+        {
+          "id": "E10.acceptance",
+          "status": "open",
+          "work": "Full E10 crash, callback, final-attempt voicemail/accounting scopes in both databases and affected browser/native contracts"
+        }
       ]
     },
     {
@@ -1295,7 +1324,9 @@
         "E11"
       ],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E09.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1304,11 +1335,13 @@
       "id": "M2.02",
       "requirement": "Introduce only the bulk repository methods needed by hot paths; remove all-history/per-candidate reads there.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "retained-needs-revalidation",
       "primary_step": "E09",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E09.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1340,7 +1373,9 @@
         "E12"
       ],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E09.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1420,7 +1455,9 @@
       "primary_step": "E09",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E09.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1446,11 +1483,13 @@
       "id": "M2.06",
       "requirement": "Replace report-time planning with versioned incremental projections and explicit background refresh/replay.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "retained-needs-revalidation",
       "primary_step": "E09",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E09.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1463,7 +1502,9 @@
       "primary_step": "E09",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E09.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1476,7 +1517,9 @@
       "primary_step": "E09",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E09.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1489,7 +1532,9 @@
       "primary_step": "E09",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E09.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1498,11 +1543,13 @@
       "id": "M2.08",
       "requirement": "Reuse bounded HTTP clients; move synchronous DB/CPU work off live event-loop paths without proliferating services.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "retained-needs-revalidation",
       "primary_step": "E09",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E09.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1515,7 +1562,9 @@
       "primary_step": "E09",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E09.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1528,7 +1577,9 @@
       "primary_step": "E09",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E09.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1541,7 +1592,9 @@
       "primary_step": "E09",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E09.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -2683,11 +2736,13 @@
       "id": "M7.08",
       "requirement": "Correct actual rep-time and connected-duration collection; reconcile dashboard/report/export definitions.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "retained-needs-revalidation",
       "primary_step": "E09",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E09.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -2700,7 +2755,9 @@
       "primary_step": "E09",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E09.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -2726,14 +2783,15 @@
       "id": "M7.09",
       "requirement": "Produce uncertainty-aware cohort/treatment/number/help reports with real cost and sample support.",
       "baseline_checked": false,
-      "execution_status": "in-progress",
+      "execution_status": "retained-needs-revalidation",
       "primary_step": "E09",
       "supporting_steps": [
         "E08"
       ],
       "acceptance_gate": "software",
       "receipts": [
-        "docs/evidence/completion/E08.json"
+        "docs/evidence/completion/E08.json",
+        "docs/evidence/completion/E09.json"
       ],
       "verification_steps": [
         "E13"
@@ -6079,14 +6137,29 @@
       "step": "E09",
       "planned_node": "services/backend/tests/test_incremental_metrics.py::test_contribution_replay_oracle",
       "expected": "Corrections/deletions/maturity/credits produce exact independent batch-oracle totals; unique leads and rep-day union not double counted.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json",
         "docs/evidence/completion/E09-contracts-red.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E09-contracts-red.json",
+        "docs/evidence/completion/E09-admission.json",
+        "docs/evidence/completion/E09-vectors-red.json",
+        "docs/evidence/completion/E09-contributions.json",
+        "docs/evidence/completion/E09-publication.json",
+        "docs/evidence/completion/E09-dependents.json",
+        "docs/evidence/completion/E09-core-readers.json",
+        "docs/evidence/completion/E09-secondary-counts.json",
+        "docs/evidence/completion/E09-trial-counts.json",
+        "docs/evidence/completion/E09-comparison-health.json",
+        "docs/evidence/completion/E09-report-readers.json",
+        "docs/evidence/completion/E09-estimate-counts.json",
+        "docs/evidence/completion/E09-estimate-serving.json",
+        "docs/evidence/completion/E09.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_incremental_metrics.py::test_contribution_replay_oracle",
         "services/backend/tests/test_incremental_metrics.py::test_normal_correction_does_not_rebuild_entire_operational_dataset"
@@ -6097,14 +6170,29 @@
       "step": "E09",
       "planned_node": "services/backend/tests/test_projection_replay.py::test_rebuild_churn_and_atomic_publish",
       "expected": "Inactive namespace and cursor resume; concurrent dirty generations replay; same version no-op; old consistent snapshot remains available.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json",
         "docs/evidence/completion/E09-contracts-red.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E09-contracts-red.json",
+        "docs/evidence/completion/E09-admission.json",
+        "docs/evidence/completion/E09-vectors-red.json",
+        "docs/evidence/completion/E09-contributions.json",
+        "docs/evidence/completion/E09-publication.json",
+        "docs/evidence/completion/E09-dependents.json",
+        "docs/evidence/completion/E09-core-readers.json",
+        "docs/evidence/completion/E09-secondary-counts.json",
+        "docs/evidence/completion/E09-trial-counts.json",
+        "docs/evidence/completion/E09-comparison-health.json",
+        "docs/evidence/completion/E09-report-readers.json",
+        "docs/evidence/completion/E09-estimate-counts.json",
+        "docs/evidence/completion/E09-estimate-serving.json",
+        "docs/evidence/completion/E09.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_projection_replay.py::test_interrupted_inactive_rebuild_replays_concurrent_dirty_units",
         "services/backend/tests/test_projection_replay.py::test_rebuild_churn_and_atomic_publish",
@@ -6116,14 +6204,29 @@
       "step": "E09",
       "planned_node": "services/backend/tests/test_job_admission.py::test_claim_only_running_capacity",
       "expected": "More pending jobs than slots cannot expire while unstarted; heartbeat on actual claim; two workers do not execute one paid job twice.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json",
         "docs/evidence/completion/E09-contracts-red.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E09-contracts-red.json",
+        "docs/evidence/completion/E09-admission.json",
+        "docs/evidence/completion/E09-vectors-red.json",
+        "docs/evidence/completion/E09-contributions.json",
+        "docs/evidence/completion/E09-publication.json",
+        "docs/evidence/completion/E09-dependents.json",
+        "docs/evidence/completion/E09-core-readers.json",
+        "docs/evidence/completion/E09-secondary-counts.json",
+        "docs/evidence/completion/E09-trial-counts.json",
+        "docs/evidence/completion/E09-comparison-health.json",
+        "docs/evidence/completion/E09-report-readers.json",
+        "docs/evidence/completion/E09-estimate-counts.json",
+        "docs/evidence/completion/E09-estimate-serving.json",
+        "docs/evidence/completion/E09.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_job_admission.py::test_claim_only_running_capacity",
         "services/backend/tests/test_job_admission.py::test_two_workers_share_job_identity_and_global_capacity",
@@ -6137,14 +6240,29 @@
       "step": "E09",
       "planned_node": "services/backend/tests/test_report_scaling.py::test_bounded_normal_reads_and_short_writes",
       "expected": "GET/selection use scoped indexes and projections; no history-sized decryptions/global advisory lock/planning in writer.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json",
         "docs/evidence/completion/E09-contracts-red.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E09-contracts-red.json",
+        "docs/evidence/completion/E09-admission.json",
+        "docs/evidence/completion/E09-vectors-red.json",
+        "docs/evidence/completion/E09-contributions.json",
+        "docs/evidence/completion/E09-publication.json",
+        "docs/evidence/completion/E09-dependents.json",
+        "docs/evidence/completion/E09-core-readers.json",
+        "docs/evidence/completion/E09-secondary-counts.json",
+        "docs/evidence/completion/E09-trial-counts.json",
+        "docs/evidence/completion/E09-comparison-health.json",
+        "docs/evidence/completion/E09-report-readers.json",
+        "docs/evidence/completion/E09-estimate-counts.json",
+        "docs/evidence/completion/E09-estimate-serving.json",
+        "docs/evidence/completion/E09.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_report_scaling.py::test_bounded_normal_reads_and_short_writes",
         "services/backend/tests/test_report_scaling.py::test_report_history_join_grows_linearly"

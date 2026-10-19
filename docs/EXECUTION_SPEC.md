@@ -718,7 +718,7 @@ These boxes are deliberately open. This planning pass does not perform implement
 - [x] E06 One planner, conservative capacity, known/retry separation and minimum-addition oracle pass.
 - [x] E07 Existing-number setup, health and route/reassignment evidence pass.
 - [x] E08 Sparse baselines, as-of learning, strategy exposure and manual reviewed model control pass.
-- [ ] E09 Incremental metrics, bounded job claims and short writes pass; full-history hot readers removed.
+- [x] E09 Incremental metrics, bounded job claims and short writes pass; full-history hot readers removed.
 - [ ] E10 Every external-operation crash/recovery case and local online callback journey passes; offline gate accurately recorded.
 - [ ] E11 Actual installed-copy migration, raw sanitation, independent journal and restore pass.
 - [ ] E12 Complete rep/admin/setup/deployment journeys and ownership simplification pass.
@@ -726,4 +726,4 @@ These boxes are deliberately open. This planning pass does not perform implement
 - [ ] E14 Exact Mac/Windows artifacts accepted, existing installations updated and native use recorded.
 - [ ] E15 Accurate docs, remaining external gates, final preflight and scoped cleanup complete; source/artifact/remote match.
 
-**Next action on implementation resumption:** E09. E08 scoped learning/strategy/model control passes its dual-database and browser receipts in STATUS/E08.json. Complete incremental reporting and bounded job admission, then E10–E15. Preserve E13 full-system and all native/live gates.
+**Next action on implementation resumption:** E10. Scoped E09 is accepted in STATUS/E09.json. Complete operation-specific recovery and SDK callback controls, then E11–E15. Preserve E13 full-system and all native/live gates.

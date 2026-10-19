@@ -1,0 +1,88 @@
+{
+  "step_id": "E09",
+  "stage": "accepted-scoped-software",
+  "source_commit": "2472c6494b5e275c7c477456e1ef37e71854fa0e",
+  "production_tree_digest": "e1ec46383556d73de9b803a5c74441647d58e2b631c55822233c5641e8cf88ac",
+  "test_tree_digest": "327df2af1570f112688ee15523eaea3d612e136fc0c884f428c0ddb6e0c1116c",
+  "digest_method": "SHA256 git ls-tree -r at source_commit over the listed product and test roots",
+  "case_ids": [
+    "C035",
+    "C036",
+    "C037",
+    "C038"
+  ],
+  "mode": [
+    "sqlite",
+    "postgresql",
+    "browser-local-and-connected-postgresql"
+  ],
+  "fixture_seed": 20261018,
+  "commands": {
+    "backend": ".venv/bin/python -m pytest services/backend/tests/test_job_admission.py services/backend/tests/test_projection_source_edges.py services/backend/tests/test_incremental_planning.py services/backend/tests/test_unified_planning.py services/backend/tests/test_learning_history_scaling.py services/backend/tests/test_metric_readiness.py services/backend/tests/test_report_projections.py services/backend/tests/test_incremental_estimates.py -q --tb=short",
+    "browser": "npm --prefix apps/desktop run test:e2e -- tests/optimization.spec.ts tests/report-projections.spec.ts"
+  },
+  "environment": {
+    "python": "3.12.13",
+    "postgresql": "17; guarded disposable loopback unit database and separate browser database",
+    "installed_app_changed": false
+  },
+  "started_at": null,
+  "finished_at": "2026-10-19T19:23:50.568499+00:00",
+  "timestamp_note": "Receipt creation time; exact run start times not retained. Runner durations preserved.",
+  "result_counts": {
+    "sqlite": {
+      "passed": 158,
+      "skipped": 1,
+      "seconds": 79.13,
+      "skip_reason": "PostgreSQL-specific case"
+    },
+    "postgresql": {
+      "passed": 159,
+      "seconds": 309.39
+    },
+    "browser": {
+      "passed": 7,
+      "seconds": 24.2
+    }
+  },
+  "failed_cases": [],
+  "raw_log_sha256": {
+    "E09-maintenance-exit-sqlite.txt": "07d0825c5facde2ffc2662b392a748de1df2d9fae018ad5dc45d9a14bba7cfcb",
+    "E09-maintenance-exit-postgres.txt": "05daebee3cb1c22298986191335830d0cf595df1fef656b6a09fbb1e8d1260b7",
+    "E09-maintenance-browser.txt": "39dd1fe4ef063638946b4cdf31a228242ad8139f4f34dc3645c7ee8074af8f11",
+    "E09-reallocation-red.txt": "6fba6de552fe1716d54ab457b536ef6e20471774918b7892fd8e2745ddc52855",
+    "E09-priority-rebalance-red.txt": "a8ada7e5e9f0d56d3b73ec4a9999fce6382b89912eed6d770412db28be12fdb6",
+    "E09-health-owner-red.txt": "24dddaf1e360fa46ba4053e13b312a124db8243e5804674814d565d69533be4b",
+    "E09-optimization-lease-red.txt": "8366ea3a9d3cd7294c2134bf9b3b344287d4635d892b32b0f494e31545fa416a"
+  },
+  "supporting_receipts": [
+    "docs/evidence/completion/E09-contracts-red.json",
+    "docs/evidence/completion/E09-admission.json",
+    "docs/evidence/completion/E09-vectors-red.json",
+    "docs/evidence/completion/E09-contributions.json",
+    "docs/evidence/completion/E09-publication.json",
+    "docs/evidence/completion/E09-dependents.json",
+    "docs/evidence/completion/E09-core-readers.json",
+    "docs/evidence/completion/E09-secondary-counts.json",
+    "docs/evidence/completion/E09-trial-counts.json",
+    "docs/evidence/completion/E09-comparison-health.json",
+    "docs/evidence/completion/E09-report-readers.json",
+    "docs/evidence/completion/E09-estimate-counts.json",
+    "docs/evidence/completion/E09-estimate-serving.json"
+  ],
+  "retired_paths": [
+    "Whole-history operational metric/health/trial/report reconstruction",
+    "Routine historical learning dataset creation",
+    "Repeated full forecast for retry publication",
+    "Per-lead historical assignment and usage scans",
+    "Leasing work before shared execution capacity",
+    "Publishing derived state with expired owners",
+    "Reusing a displaced allocation solely because its lead was unchanged"
+  ],
+  "known_limitations": [
+    "Scoped E09 implementation acceptance; E13 still owns full frozen suites, coverage, large load/resource and independent review.",
+    "E10 recovery, E11 privacy/disaster recovery, E12 setup and E14 native delivery remain open.",
+    "No live traffic, funded inference, account certification or installed-app update."
+  ],
+  "external_calls": false
+}
