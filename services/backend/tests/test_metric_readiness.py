@@ -90,3 +90,19 @@ def test_namespace_range_uses_ascii_order_on_both_authorities(workspace, app):
             )
         )
     assert len(identities) == 3, "Locale collation must not move hash suffixes outside the namespace range"
+
+
+def test_dead_source_unit_surfaces_recovery_instead_of_endless_pending(workspace, app):
+    import pytest
+    from app.db import Job, update
+
+    service, p = app.state.service, principal(workspace)
+    initialized(service, p)
+    with service.db.transaction() as session:
+        lead = service.scoped(session, "leads", p)[0]
+        update(lead, status="invalid")
+        session.flush()
+        job = session.scalar(select(Job).where(Job.key == f"projection:{p['seller_id']}:lead:{lead.id}"))
+        job.status, job.error = "dead", "Synthetic source failure"
+    with pytest.raises(RuntimeError, match="source.*recovery"):
+        service.rebuild_home_metrics(p)

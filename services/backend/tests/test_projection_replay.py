@@ -972,6 +972,7 @@ def test_new_definition_during_owned_rebuild_keeps_pending_generation(workspace,
 
 def test_rebuild_lease_expiring_during_math_cannot_write_inactive_units(workspace, app, clock, monkeypatch):
     from datetime import timedelta
+
     from app.db import Job
     from app.optimization import projections
 
