@@ -116,3 +116,81 @@ def test_damaged_effect_journal_holds_new_effects(workspace, app, monkeypatch, c
         else:
             assert packet.status_code in {409, 503}
     assert not carrier.dials
+
+
+@pytest.mark.parametrize("kind", ["live_coach", "live_coach_review", "dnc_screen", "script_batch"])
+def test_optional_admission_retains_independent_liability(workspace, app, kind):
+    service, p = app.state.service, principal(workspace)
+    assert service.reserve_optional_budget(p, "request-" + kind, 0.01, object_id="object", work_kind=kind)
+    records = service.vault.read_journal("effects")
+    assert any(r["kind"] == kind and r["phase"] == "intent" for r in records)
+    assert any(r["phase"] == "submitted" for r in records)
+    # Admission is a conservative submission boundary, not proof the provider was reached.
+    assert all(r.get("network_confirmed") is not True for r in records)
+    service.release_unsubmitted_budget(p, "request-" + kind)
+    assert service.vault.read_journal("effects")[-1]["phase"] == "receipt"
+
+
+def test_failed_optional_journal_prevents_admission(workspace, app, monkeypatch):
+    from fastapi import HTTPException
+
+    service, p = app.state.service, principal(workspace)
+    monkeypatch.setattr(service.vault, "append_journal", lambda *_: (_ for _ in ()).throw(OSError("full")))
+    with pytest.raises(HTTPException) as error:
+        service.reserve_optional_budget(p, "new-request", 0.01, object_id="object", work_kind="live_coach")
+    assert error.value.status_code == 503
+    assert "EFFECT_JOURNAL_RECOVERY_REQUIRED" in service.preflight(p)["blockers"]
+
+
+def test_backup_contains_verified_journal_checkpoint(workspace, app):
+    import json
+
+    service, p = app.state.service, principal(workspace)
+    start(workspace)
+    backup = service.backup(p)
+    path = service.settings.data_dir / "backups" / (backup["backup_id"] + ".backup")
+    payload = json.loads(service.vault.cipher.decrypt(path.read_bytes()))
+    checkpoints = payload.get("journal_checkpoints", {})
+    assert checkpoints.get("effects", {}).get("sequence", 0) >= 3
+    assert checkpoints["effects"] == service.vault.journal_checkpoint("effects")
+
+
+def test_lost_receipt_restores_settled_cost_without_double_charge(workspace, app):
+    from app.db import get
+    from app.providers.inference import InferenceResult
+
+    service, p = app.state.service, principal(workspace)
+    backup = service.backup(p)
+    service.reserve_optional_budget(p, "exact-receipt", 0.01, object_id="object", work_kind="live_coach")
+    identity = service.usage(
+        p,
+        "openrouter",
+        "live_coach",
+        InferenceResult({}, {"cost": 0.002}, "remote"),
+        object_id="object",
+        request_key="exact-receipt",
+    )
+    with service.db.transaction() as s:
+        s.delete(get(s, "usage_ledger", identity))
+    service.restore(p, backup["backup_id"])
+    with service.db.transaction(False) as s:
+        restored = get(s, "usage_ledger", identity)
+        assert restored and restored.data["cost_usd"] == 0.002
+        assert restored.data["status"] == "settled" and restored.data["reserved_usd"] == 0
+
+
+@pytest.mark.asyncio
+async def test_control_receipts_never_persist_text_or_digits(workspace, app):
+    from app.db import get
+
+    service, p, call = app.state.service, principal(workspace), start(workspace)
+    with service.db.transaction() as s:
+        command = service.control_intent(s, p, call["id"], "speak", {"text": "PRIVATE_SPEECH_CANARY"})
+        identity = command.id
+    await service.dispatch_controls(p, command_id=identity)
+    records = service.vault.read_journal("effects")
+    matched = [r for r in records if r["kind"] == "speak"]
+    assert {r["phase"] for r in matched} >= {"intent", "submitted", "receipt"}
+    assert "PRIVATE_SPEECH_CANARY" not in str(records)
+    with service.db.transaction(False) as s:
+        assert get(s, "command_outbox", identity).data["status"] == "completed"
