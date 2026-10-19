@@ -11,6 +11,61 @@ from test_postcall_completion import setup_analysis
 from test_remediation_rep_workflow import p
 
 
+@pytest.mark.parametrize("bad", ["foreign", "forward", "cycle", "too_many_sources", "unknown_speaker"])
+def test_reviewed_state_sources(bad):
+    """C008: malformed lineage is rejected; unknown speech cannot confirm a promise."""
+    from app.coaching.context import merge_semantic_state
+    from app.coaching.engine import CardRejected
+
+    segment = {
+        "segment_id": "s",
+        "revision": 1,
+        "is_final": True,
+        "side": "remote",
+        "text": "An approval discussion is useful.",
+    }
+    item = {
+        "text": "An internal signoff question remains.",
+        "quote": segment["text"],
+        "evidence_segment_ids": ["s"],
+        "status": "confirmed",
+    }
+    prior = {
+        "stage": "discovery",
+        "needs": [
+            {
+                "id": "prior",
+                "text": "Older issue",
+                "evidence_segment_ids": ["s"],
+                "evidence_revisions": {"s": 1},
+            }
+        ],
+    }
+    if bad == "foreign":
+        item["evidence_segment_ids"] = ["other-call-source"]
+    elif bad == "forward":
+        item["replaces"] = ["future-observation"]
+    elif bad == "cycle":
+        item.update(
+            id="prior", replaces=["prior"], sources=[{"kind": "observation", "id": "prior", "version": 1}]
+        )
+    elif bad == "too_many_sources":
+        item["evidence_segment_ids"] = ["s"] * 33
+    else:
+        segment["side"] = "unknown"
+    if bad == "unknown_speaker":
+        result = merge_semantic_state(prior, {"stage": "discovery", "needs": [item]}, [segment])
+        assert all(row.get("epistemic_status") != "human_confirmed" for row in result.get("needs", []))
+        assert all(
+            row.get("status") != "confirmed"
+            for row in result.get("needs", [])
+            if row.get("text") == item["text"]
+        )
+    else:
+        with pytest.raises(CardRejected):
+            merge_semantic_state(prior, {"stage": "discovery", "needs": [item]}, [segment])
+
+
 def setup(workspace, app, monkeypatch):
     call, state = setup_analysis(workspace, app, monkeypatch)
     result = workspace["client"].post(

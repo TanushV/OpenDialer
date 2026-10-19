@@ -15,6 +15,27 @@ from test_remediation_privacy import persisted_content, principal
 LESSON = "Clarify who owns the procurement decision before describing the next step."
 
 
+def test_practice_and_rep_opportunity_limits(workspace):
+    """C013: a bounded improvement view cannot silently grow an unlimited goal list."""
+    c, h = workspace["client"], workspace["headers"]
+    before = c.get("/v1/coaching", headers=h).json()
+    result = c.put(
+        "/v1/coaching/goals",
+        headers=h,
+        json={
+            "expected_version": before["goals_version"],
+            "goals": [
+                {"id": str(uuid4()), "text": f"Clarify decision ownership {i}", "status": "active"}
+                for i in range(4)
+            ],
+        },
+    )
+    assert result.status_code == 422
+    current = c.get("/v1/coaching", headers=h).json()
+    assert current["goals"] == before["goals"]
+    assert len(current.get("reviewed_opportunities", [])) <= 20
+
+
 def source(workspace, app):
     call = start(workspace)
     service, p = app.state.service, principal(workspace)

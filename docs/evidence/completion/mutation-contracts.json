@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "execution": "disposable_copy_only",
+  "success_requires": "unmutated_pass_and_designated_mutated_assertion_failure",
+  "note": "Rebind removed source anchors to the replacement owner before E13. Mutation runs must not change the working checkout or installed application.",
+  "mutations": [
+    {
+      "id": "dedupe",
+      "source": "services/backend/app/service.py",
+      "find": "previous = self._by_key(s, p, \"call_attempts\", data[\"idempotency_key\"])",
+      "replace": "previous = None",
+      "designated_test": "services/backend/tests/test_operations.py::test_call_start_idempotency_and_explicit_identity",
+      "status": "planned-not-executed"
+    },
+    {
+      "id": "source_version",
+      "source": "services/backend/app/coaching/workflows.py",
+      "find": "or not sources.current(self, s, p, request.get(\"context_sources\"))",
+      "replace": "or False",
+      "designated_test": "services/backend/tests/test_live_claim_review.py::test_changed_sources_during_review_cannot_publish_but_both_requests_are_settled",
+      "status": "planned-not-executed"
+    },
+    {
+      "id": "internal_suppression",
+      "source": "services/backend/app/compliance/policy.py",
+      "find": "require(not c.internal_suppressed, \"INTERNAL_SUPPRESSION\")",
+      "replace": "require(True, \"INTERNAL_SUPPRESSION\")",
+      "designated_test": "services/backend/tests/test_policy.py::test_fail_closed_on_each_independent_rule",
+      "status": "planned-not-executed"
+    },
+    {
+      "id": "early_voicemail",
+      "source": "services/backend/app/telephony/workflows.py",
+      "find": "reasons.append(\"FINAL_ATTEMPT_REQUIRED\")",
+      "replace": "pass  # deliberate mutation: allow early drop",
+      "designated_test": "services/backend/tests/test_final_attempt_voicemail.py::test_reducing_attempt_policy_does_not_enable_early_voicemail",
+      "status": "planned-not-executed"
+    },
+    {
+      "id": "general_capacity",
+      "source": "services/backend/app/optimization/capacity.py",
+      "find": "if daily_use[(identity, day)] + debit >= limit:",
+      "replace": "if daily_use[(identity, day)] + debit >= (limit * 2 if number.get(\"region\") == \"general\" else limit):",
+      "designated_test": "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle",
+      "status": "planned-not-executed"
+    },
+    {
+      "id": "human_note",
+      "source": "services/backend/app/intelligence.py",
+      "find": "\"human_notes\": note.data.get(\"human_text\"),",
+      "replace": "\"human_notes\": None,",
+      "designated_test": "services/backend/tests/test_call_rubrics.py::test_rep_purpose_correction_invalidates_scores_but_preserves_human_note_and_reviews",
+      "status": "planned-not-executed"
+    },
+    {
+      "id": "future_label",
+      "source": "services/backend/app/ml/training.py",
+      "find": "timestamp(row.get(\"label_available_at\")) or at,",
+      "replace": "at,",
+      "designated_test": "services/backend/tests/test_learning_chronology.py::test_each_fitting_partition_purges_labels_crossing_its_next_boundary",
+      "status": "planned-not-executed"
+    },
+    {
+      "id": "unreviewed_stream",
+      "source": "services/backend/app/coaching/workflows.py",
+      "find": "ground_guidance(result, request)",
+      "replace": "None if progressive else ground_guidance(result, request)",
+      "designated_test": "services/backend/tests/test_live_claim_review.py::test_early_factual_stream_is_not_displayed_before_meaning_review",
+      "status": "planned-not-executed"
+    },
+    {
+      "id": "raw_expiry",
+      "source": "services/backend/app/privacy.py",
+      "find": "if deadline <= now or monotonic_deadline <= mono:",
+      "replace": "if False:  # deliberate mutation: skip expiry",
+      "designated_test": "services/backend/tests/test_remediation_privacy.py::test_transcript_expires_during_an_active_long_call",
+      "status": "planned-not-executed"
+    },
+    {
+      "id": "uncertainty_hold",
+      "source": "services/backend/app/accounting.py",
+      "find": "else max(reserved, (target.data if target else {}).get(\"reserved_usd\", 0)),",
+      "replace": "else 0,",
+      "designated_test": "services/backend/tests/test_request_accounting.py::test_unknown_then_actual_receipt_settles_exactly_once",
+      "status": "planned-not-executed"
+    }
+  ]
+}

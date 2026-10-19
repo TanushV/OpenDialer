@@ -176,3 +176,38 @@ def test_existing_inventory_waiting_for_setup_or_review_does_not_trigger_identit
         assert region["usable_existing_capacity"] == 0
         assert region["capacity_waiting_for_review"] >= 7
         assert region["proposed_additional"] == 0
+
+
+@pytest.mark.parametrize(
+    "count,expected,outcome,prediction",
+    [
+        (2, "unknown", "no_answer", 0.8),
+        (29, "unknown", "no_answer", 0.8),
+        (40, "investigating", "no_answer", 0.8),
+        (40, "observed", "no_answer", 0.05),
+    ],
+)
+def test_health_support_and_case_mix(clock, count, expected, outcome, prediction):
+    """C027: compare frozen expected pickup, and keep sparse evidence unknown."""
+    from app.optimization.numbering import number_health
+
+    rows = [
+        {
+            "id": str(i),
+            "started_at": clock.now.isoformat(),
+            "outcome": outcome,
+            "expected_human": prediction,
+            "feature_schema_version": 2,
+            "campaign_id": "campaign",
+            "segment": "same",
+            "local_hour": 10,
+            "attempt_count": 0,
+        }
+        for i in range(count)
+    ]
+    health = number_health(rows, pooled_attempts=rows, now=clock.now)
+    assert health["status"] == expected
+    assert health["spam_label_confirmed"] is False
+    if count >= 30:
+        assert health.get("case_mix_residual_mean") == pytest.approx(-prediction)
+        assert health.get("comparable_samples") == count

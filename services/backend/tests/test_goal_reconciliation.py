@@ -7,6 +7,33 @@ from app.db import doc, put, update
 from test_remediation_rep_workflow import p
 
 
+@pytest.mark.parametrize("status", ["no_show", "cancelled"])
+def test_rep_meeting_hold_lifecycle(workspace, clock, status):
+    """C012: ending a meeting hold requires the rep to choose the next action."""
+    c, h = workspace["client"], workspace["headers"]
+    lead = c.get("/v1/workspace", headers=h).json()["leads"][0]
+    booked = c.post(
+        f"/v1/leads/{lead['id']}/meeting",
+        headers=h,
+        json={
+            "expected_version": lead["version"],
+            "status": "booked",
+            "due_at": (clock.now + timedelta(days=1)).isoformat(),
+            "timezone": "America/Los_Angeles",
+        },
+    )
+    assert booked.status_code == 200, booked.text
+    current = c.get(f"/v1/leads/{lead['id']}/packet", headers=h).json()["lead"]
+    result = c.post(
+        f"/v1/leads/{lead['id']}/meeting",
+        headers=h,
+        json={"expected_version": current["version"], "status": status},
+    )
+    assert result.status_code == 422
+    after = c.get(f"/v1/leads/{lead['id']}/packet", headers=h).json()["lead"]
+    assert after["outreach_hold"] == current["outreach_hold"]
+
+
 @pytest.fixture
 def goals(workspace, app, clock):
     service, principal = app.state.service, p(workspace)

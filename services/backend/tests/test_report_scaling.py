@@ -6,6 +6,40 @@ from types import SimpleNamespace
 from test_remediation_privacy import principal
 
 
+def test_bounded_normal_reads_and_short_writes(workspace, app, monkeypatch):
+    """C038: forecast/slot scoring must not run while an operational writer is held."""
+    from contextlib import contextmanager
+    from threading import local
+
+    import app.optimization.workflows as workflows
+
+    service, p = app.state.service, principal(workspace)
+    state = local()
+    transaction = service.db.transaction
+
+    @contextmanager
+    def traced(write=True):
+        prior = getattr(state, "writing", False)
+        state.writing = prior or write
+        try:
+            with transaction(write) as session:
+                yield session
+        finally:
+            state.writing = prior
+
+    slots, seen = workflows.future_slots, []
+
+    def checked(*args, **kwargs):
+        seen.append(True)
+        assert not getattr(state, "writing", False), "Scheduling computes outside a write transaction"
+        return slots(*args, **kwargs)
+
+    monkeypatch.setattr(service.db, "transaction", traced)
+    monkeypatch.setattr(workflows, "future_slots", checked)
+    service.refresh_optimization(p)
+    assert seen, "The fixture must actually exercise due-work planning"
+
+
 def test_report_history_join_grows_linearly(workspace, app, clock, monkeypatch):
     service, p = app.state.service, principal(workspace)
     with service.db.transaction(False) as s:

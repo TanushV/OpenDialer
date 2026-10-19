@@ -4,7 +4,7 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from app.db import Job, update
+from app.db import Job, put, update
 from app.providers.inference import InferenceResult
 from conftest import start
 from sqlalchemy import event, select
@@ -19,6 +19,44 @@ TEMPLATE = {
     "proof": "{proof}",
     "closing_question": "Would a further conversation be useful?",
 }
+
+
+@pytest.mark.asyncio
+async def test_bounded_parallel_preparation(workspace, app, monkeypatch):
+    """C015: two simultaneous batches share two company slots, not one cap each."""
+    service = app.state.service
+    active, peak, finished = 0, 0, []
+
+    async def unit(principal, identity, owner):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+        if identity in failures:
+            raise RuntimeError("Synthetic per-company failure")
+        finished.append(identity)
+        return True
+
+    monkeypatch.setattr(service, "prepare_one", unit)
+    with service.db.transaction() as s:
+        original = service.scoped(s, "leads", p(workspace))[0]
+        ids = [
+            put(
+                s,
+                "leads",
+                original.tenant_id,
+                original.seller_id,
+                {**original.data, "domain": f"company-{i}.example.test"},
+                key=f"parallel-{i}",
+            ).id
+            for i in range(100)
+        ]
+    failures = {ids[1], ids[77]}
+    with pytest.raises(RuntimeError, match="2 objects"):
+        await service.prepare(p(workspace), ids)
+    assert sorted(finished) == sorted(set(ids) - failures)
+    assert peak == 2, "Preparation should overlap independent work, but cap the authority total at two"
 
 
 @pytest.mark.asyncio

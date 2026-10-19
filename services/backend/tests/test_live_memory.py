@@ -22,9 +22,15 @@ def setup(workspace, app, monkeypatch):
 
         async def suggest(self, request, **kwargs):
             requests.append(deepcopy(request))
-            latest = request["recent_dialogue"][-1]
             self.last_usage = {"cost": 0.001}
             self.last_request_id = f"memory-{len(requests)}"
+            if not request["recent_dialogue"]:
+                return {
+                    "action": "NO_ACTION",
+                    "state_version": request["state_version"],
+                    "state_update": None,
+                }
+            latest = request["recent_dialogue"][-1]
             result = advice(request["state_version"], latest["segment_id"])
             result["state_update"] = {
                 "stage": "discovery",
@@ -69,12 +75,13 @@ async def test_quiet_interval_defers_the_final_turn_instead_of_losing_it(workspa
     call, p, requests, _ = setup(workspace, app, monkeypatch)
     service = app.state.service
     turn(service, p, call, "opening")
+    clock.now += timedelta(milliseconds=301)
     await service.run_jobs(p["tenant_id"], queues=["live_coach"])
     clock.now += timedelta(seconds=1)
     turn(service, p, call, "last")
     await service.run_jobs(p["tenant_id"], queues=["live_coach"])
     assert len(requests) == 1
-    clock.now += timedelta(seconds=9)
+    clock.now += timedelta(milliseconds=301)
     await service.run_jobs(p["tenant_id"], queues=["live_coach"])
     assert len(requests) == 2, (
         "The last coalesced turn needs one deferred interpretation without another utterance"

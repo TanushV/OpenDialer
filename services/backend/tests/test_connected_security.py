@@ -6,11 +6,15 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def connected(tmp_path, clock):
+def connected(tmp_path, clock, app):
     settings = Settings(
         mode="connected",
         simulation=True,
-        database_url=f"sqlite:///{tmp_path}/connected-test.db",
+        database_url=(
+            app.state.service.settings.database_url
+            if not app.state.db.sqlite
+            else f"sqlite:///{tmp_path}/connected-test.db"
+        ),
         data_dir=tmp_path,
         secret_key="a" * 64,
         bootstrap_token="bootstrap-123456789",

@@ -1,0 +1,78 @@
+"""E11/E14: additive legacy-schema contract and installed acceptance receipt validation."""
+
+import hashlib
+import json
+import os
+from pathlib import Path
+
+import pytest
+from app.db import get, put
+from app.migrate import migrate_database
+from conftest import start
+from sqlalchemy import inspect, text
+from test_remediation_privacy import RAW, persisted_content, principal
+
+
+def test_legacy_copy_allowlist_continuity(workspace, app):
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    human = "Keep the rep-authored relationship correction."
+    with service.db.transaction() as s:
+        note = put(
+            s,
+            "notes",
+            p["tenant_id"],
+            p["seller_id"],
+            {"call_id": call["id"], "human_text": human, "notes": {"summary": RAW, "transcript_version": 0}},
+            key=call["id"],
+        )
+        identity = note.id
+        put(
+            s,
+            "transcript_segments",
+            p["tenant_id"],
+            p["seller_id"],
+            {"call_id": call["id"], "segment_id": "legacy", "text": RAW, "revision": 1, "is_final": True},
+            key="legacy",
+        )
+    backup = service.backup(p)
+    path = service.settings.data_dir / "backups" / (backup["backup_id"] + ".backup")
+    decoded = json.loads(service.vault.cipher.decrypt(path.read_bytes()))
+    assert RAW not in str(decoded)
+    assert human in str(decoded)
+    assert not {"metric_contributions", "metric_buckets"} & decoded["tables"].keys()
+    service.purge_legacy_raw_content()
+    service.purge_legacy_raw_content()
+    service.db.backfill_operational_columns()
+    migrate_database(service.db.engine.url.render_as_string(hide_password=False))
+    assert RAW not in persisted_content(service, p)
+    with service.db.transaction(False) as s:
+        assert (
+            hashlib.sha256(get(s, "notes", identity).data["human_text"].encode()).digest()
+            == hashlib.sha256(human.encode()).digest()
+        )
+        assert (
+            s.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0017_metric_projections"
+        )
+        assert {"ctx_key", "ctx_status", "ctx_index_version"} <= {
+            c["name"] for c in inspect(s.connection()).get_columns("outcomes")
+        }
+
+
+@pytest.mark.parametrize("platform", ["macos-aarch64", "windows-x86_64"])
+def test_actual_update_allowed_data(platform):
+    """Executed against E14 receipts; never substitute a fresh install for an update."""
+    location = os.getenv("OPENDIALER_NATIVE_COMPLETION_RECEIPTS")
+    if not location:
+        pytest.skip("E14 installed-update receipt pending; this does not accept the native gate")
+    receipt = json.loads((Path(location) / f"{platform}.json").read_text())
+    assert receipt["installation_method"] == "signed_in_place_update"
+    assert receipt["previous_version"] == "0.2.1" and receipt["installed_version"] == "0.3.0"
+    assert receipt["updater_exited"] is True
+    assert receipt["installed_backend_sha256"] == receipt["verified_package_backend_sha256"]
+    assert receipt["before"]["allowed_identity_sha256"] == receipt["after"]["allowed_identity_sha256"]
+    assert receipt["before"]["human_notes_sha256"] == receipt["after"]["human_notes_sha256"]
+    assert receipt["after"]["integrity"] == "ok" and receipt["after"]["legacy_raw_found"] is False
+    assert receipt["session_restored"] is True
+    assert {"local", "connected_postgresql"} <= receipt["native_journeys"].keys()
+    assert all(row["passed"] for row in receipt["native_journeys"].values())

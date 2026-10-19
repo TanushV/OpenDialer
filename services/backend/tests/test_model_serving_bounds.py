@@ -19,6 +19,50 @@ from test_context_reads import count_decrypted
 from test_remediation_privacy import principal
 
 
+class FeatureColumnClassifier:
+    def predict_proba(self, values):
+        # Independent oracle: a named training-vocabulary column is probability.
+        probabilities = np.asarray(values)[:, 0]
+        return np.column_stack((1 - probabilities, probabilities))
+
+
+@pytest.mark.parametrize("version", [1, 2])
+def test_v1_v2_model_compatibility(tmp_path, version):
+    """C034: a v2 vocabulary must not reinterpret a retained v1 artifact."""
+    path = tmp_path / f"v{version}.joblib"
+    artifact = {"human": FeatureColumnClassifier()}
+    if version == 2:
+        artifact.update(
+            feature_schema_version=2, vocabulary={"segments": ["enterprise"], "concepts": ["approval"]}
+        )
+    joblib.dump(artifact, path)
+    record = {
+        "artifact": str(path),
+        "checksum": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "feature_schema_version": version,
+        "feature_order": ["requested_contact"]
+        if version == 1
+        else ["segment:enterprise", "concept:approval", "concept:approval:missing"],
+    }
+    rows = [
+        {
+            "requested_contact": 1,
+            "segment": "enterprise",
+            "conversation_concepts": ["approval"],
+            "conversation_evidence_missing": False,
+        },
+        {
+            "requested_contact": 0,
+            "segment": "unknown",
+            "conversation_concepts": [],
+            "conversation_evidence_missing": True,
+        },
+    ]
+    values = training.predict_funnel_batch(record, rows, tmp_path)
+    assert values == [{"p_human": 1.0}, {"p_human": 0.0}]
+    assert training.predict_funnel_batch(record, rows, tmp_path) == values
+
+
 def artifact(tmp_path, probability=None):
     root = tmp_path / "models"
     root.mkdir(exist_ok=True)

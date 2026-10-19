@@ -11,9 +11,10 @@ from test_remediation_privacy import persisted_content
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("raw_at_hangup", [False, True])
-async def test_early_context_survives_ttl(workspace, app, clock, monkeypatch, raw_at_hangup):
+async def test_early_context_survives_ttl(workspace, app, clock, carrier, monkeypatch, raw_at_hangup):
     call, p, requests, changes = setup(workspace, app, monkeypatch)
     service = app.state.service
+    monkeypatch.setattr(service, "carrier", lambda _tenant: carrier)
     c, h = workspace["client"], workspace["headers"]
     began = clock.now
     old_roles = []
@@ -55,7 +56,7 @@ async def test_early_context_survives_ttl(workspace, app, clock, monkeypatch, ra
                         "evidence_segment_ids": [identity],
                         "status": "confirmed",
                     }
-                ]
+                ],
             },
         }
         response = c.post(

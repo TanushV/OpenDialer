@@ -15,6 +15,29 @@ def principal(w):
     return {k: w[k] for k in ("tenant_id", "seller_id", "user_id")} | {"role": "owner"}
 
 
+@pytest.mark.parametrize("seconds,visible", [(299, True), (300, False), (301, False)])
+def test_all_boundaries_original_ttl(workspace, app, clock, seconds, visible):
+    """C044: exact expiry, revision and repeated views share the original deadline."""
+    call = start(workspace)
+    post_turn(workspace, call)
+    began = clock.now
+    clock.now = began + timedelta(seconds=290)
+    post_turn(workspace, call, revision=2, text=RAW + " correction")
+    clock.now = began + timedelta(seconds=seconds)
+    c, h = workspace["client"], workspace["headers"]
+    view = c.get(f"/v1/calls/{call['id']}/analysis", headers=h)
+    assert (RAW in view.text) is visible
+    assert RAW not in persisted_content(app.state.service, principal(workspace))
+    backup = app.state.service.backup(principal(workspace))
+    path = app.state.service.settings.data_dir / "backups" / (backup["backup_id"] + ".backup")
+    assert RAW.encode() not in app.state.service.vault.cipher.decrypt(path.read_bytes())
+    if not visible:
+        # Wall clock rollback cannot revive an item already expired by a read.
+        clock.now -= timedelta(seconds=200)
+        assert RAW not in c.get(f"/v1/calls/{call['id']}/analysis", headers=h).text
+        assert RAW not in c.get("/v1/events", headers=h).text
+
+
 def post_turn(w, call, **changes):
     result = w["client"].post(
         "/v1/calls/" + call["id"] + "/transcript",

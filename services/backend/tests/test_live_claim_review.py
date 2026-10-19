@@ -20,6 +20,7 @@ def context():
         "private_question": "Help me answer",
         "seller": {"knowledge": KNOWLEDGE},
         "recent_dialogue": [],
+        "context_fingerprint": "fixture-context",
     }
 
 
@@ -42,6 +43,11 @@ def test_a_novel_nonassertive_question_keeps_the_single_request_path():
         **advice(1, text="What would make evaluating this worth your time?"),
         "evidence_segment_ids": [],
         "reason": "Invite the prospect to explain priorities.",
+        "field_audit": [
+            {"field": field, "classification": "nonassertive", "sources": [], "implied_premises": []}
+            for field in ("say_or_ask", "reason")
+        ],
+        "context_fingerprint": "fixture-context",
     }
     assert ground_guidance(card, context())
 
@@ -72,6 +78,7 @@ def review_fixture(
             self.last_usage, self.last_request_id = {"cost": 0.002}, "generation-receipt"
             result = {**advice(request["state_version"], "claim", text=text), "reason": reason}
             result.update(options.get("result", {}))
+            result.setdefault("context_fingerprint", request.get("context_fingerprint"))
             if options.get("progress"):
                 await self.on_progress(result)
                 options["progress"].set()
@@ -134,13 +141,19 @@ async def test_review_rejects_contradiction_despite_identical_words(workspace, a
 
 @pytest.mark.asyncio
 async def test_ordinary_open_question_does_not_add_an_inference_request(workspace, app, monkeypatch):
-    service, p, call, requests, _ = review_fixture(
+    service, p, call, requests, options = review_fixture(
         workspace,
         app,
         monkeypatch,
         text="What would make evaluating this worthwhile?",
         reason="Invite their priorities.",
     )
+    options["result"] = {
+        "field_audit": [
+            {"field": field, "classification": "nonassertive", "sources": [], "implied_premises": []}
+            for field in ("say_or_ask", "reason")
+        ]
+    }
     result = await service.coach_turn(p, call["id"], urgent=True, question="What should I ask?")
     assert result["action"] == "SHOW_CARD"
     assert [kind for kind, _ in requests] == ["suggest"]

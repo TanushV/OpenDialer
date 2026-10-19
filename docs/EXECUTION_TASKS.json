@@ -3,7 +3,7 @@
   "written_at": "2026-10-18",
   "baseline_commit": "63f4d4242f60672777f596177fe98fe57f715bf9",
   "baseline_product_test_commit": "6611d3c2fb486b0aac65df2bb42e20663457552a",
-  "status": "planning-complete-implementation-not-performed",
+  "status": "implementation-authorized; complete contract baseline running before E01",
   "requirements_source": "docs/REMEDIATION_PLAN.md",
   "implementation_source": "docs/EXECUTION_SPEC.md",
   "next_step": "E00",
@@ -638,7 +638,7 @@
     },
     {
       "id": "M0.03",
-      "requirement": "Write the complete A01–A56 acceptance suite and test data contracts before production changes; identify tests needing actual accounts/devices.",
+      "requirement": "Write the complete A01\u2013A56 acceptance suite and test data contracts before production changes; identify tests needing actual accounts/devices.",
       "baseline_checked": true,
       "execution_status": "retained-needs-revalidation",
       "primary_step": "E00",
@@ -677,7 +677,7 @@
     },
     {
       "id": "M0.06",
-      "requirement": "Record latest scope, no-subscription policy and DNC authority limitations; replace withdrawn connector tests with A40–A44 privacy/DNC contracts.",
+      "requirement": "Record latest scope, no-subscription policy and DNC authority limitations; replace withdrawn connector tests with A40\u2013A44 privacy/DNC contracts.",
       "baseline_checked": true,
       "execution_status": "retained-needs-revalidation",
       "primary_step": "E00",
@@ -1626,7 +1626,7 @@
     },
     {
       "id": "M4.06",
-      "requirement": "Finish approved purchase → configuration → callback verification → limited-use onboarding/recovery.",
+      "requirement": "Finish approved purchase \u2192 configuration \u2192 callback verification \u2192 limited-use onboarding/recovery.",
       "baseline_checked": false,
       "execution_status": "open",
       "primary_step": "E07",
@@ -3415,7 +3415,7 @@
     },
     {
       "id": "A45",
-      "required_cases": "Complete local journey: import → prepare → call/help → commitment → dated task → restart → next-call context → corrected outcome",
+      "required_cases": "Complete local journey: import \u2192 prepare \u2192 call/help \u2192 commitment \u2192 dated task \u2192 restart \u2192 next-call context \u2192 corrected outcome",
       "steps": [
         "E03",
         "E04",
@@ -3707,7 +3707,7 @@
       "id": "OD-06",
       "finding": "general DID counted twice",
       "repair": "One shared inventory/time capacity ledger with assignments conserved across regions",
-      "existing_acceptance": "A14–A18, M4.02",
+      "existing_acceptance": "A14\u2013A18, M4.02",
       "source_locations": "`optimization/numbering.py`, forecast/proposal paths",
       "steps": [
         "E06"
@@ -3849,7 +3849,7 @@
     {
       "id": 1,
       "title": "Executive decisions",
-      "accepted_scope": "Same desktop/control/media split and outcome objectives; local mode and simpler runtime in §§1–4; Cerebras replaces Groq",
+      "accepted_scope": "Same desktop/control/media split and outcome objectives; local mode and simpler runtime in \u00a7\u00a71\u20134; Cerebras replaces Groq",
       "steps": [
         "E12",
         "E03"
@@ -3858,7 +3858,7 @@
     {
       "id": 2,
       "title": "Technology boundaries",
-      "accepted_scope": "Real stat ML, evidence-linked intelligence, no emotion/personality claims, no borrowed proprietary data in §§7–9, 16–17",
+      "accepted_scope": "Real stat ML, evidence-linked intelligence, no emotion/personality claims, no borrowed proprietary data in \u00a7\u00a77\u20139, 16\u201317",
       "steps": [
         "E08",
         "E01"
@@ -3867,7 +3867,7 @@
     {
       "id": 3,
       "title": "Hosting/budget",
-      "accepted_scope": "Small deployment, resource/load measurement, outage/backup recovery in §§3, 16, 18–19; refresh vendor prices before choosing hosting",
+      "accepted_scope": "Small deployment, resource/load measurement, outage/backup recovery in \u00a7\u00a73, 16, 18\u201319; refresh vendor prices before choosing hosting",
       "steps": [
         "E12",
         "E13"
@@ -3876,7 +3876,7 @@
     {
       "id": 4,
       "title": "Trust boundaries",
-      "accepted_scope": "Scoped credentials, backend authority, media bypass, seller separation and native gates in §§3, 5, 17, 19",
+      "accepted_scope": "Scoped credentials, backend authority, media bypass, seller separation and native gates in \u00a7\u00a73, 5, 17, 19",
       "steps": [
         "E10",
         "E11",
@@ -3886,7 +3886,7 @@
     {
       "id": 5,
       "title": "Desktop product",
-      "accepted_scope": "Full rep/review/admin surfaces, prior-call context and helpers in §§6–7, 12–15",
+      "accepted_scope": "Full rep/review/admin surfaces, prior-call context and helpers in \u00a7\u00a76\u20137, 12\u201315",
       "steps": [
         "E03",
         "E12"
@@ -3895,7 +3895,7 @@
     {
       "id": 6,
       "title": "Schema/invariants",
-      "accepted_scope": "IDs/time zones, durable events, claims, human corrections and encrypted/indexed data in §§4–5, 12–13",
+      "accepted_scope": "IDs/time zones, durable events, claims, human corrections and encrypted/indexed data in \u00a7\u00a74\u20135, 12\u201313",
       "steps": [
         "E02",
         "E09",
@@ -3906,7 +3906,7 @@
     {
       "id": 7,
       "title": "Endpoint/permission controls",
-      "accepted_scope": "Normalization, evidence states, registry freshness, suppressions, RND capability, separate permissions in §17",
+      "accepted_scope": "Normalization, evidence states, registry freshness, suppressions, RND capability, separate permissions in \u00a717",
       "steps": [
         "E05",
         "E10",
@@ -3916,7 +3916,7 @@
     {
       "id": 8,
       "title": "Research/scripts",
-      "accepted_scope": "Bounded discovery, safe fetch, caching, provenance, complete claims validation, role adapters/Batch limitations in §§8, 12, 17",
+      "accepted_scope": "Bounded discovery, safe fetch, caching, provenance, complete claims validation, role adapters/Batch limitations in \u00a7\u00a78, 12, 17",
       "steps": [
         "E04"
       ]
@@ -3924,7 +3924,7 @@
     {
       "id": 9,
       "title": "Numbers/reputation/callbacks",
-      "accepted_scope": "Existing inventory, minimum viable procurement, legitimate ramp, Telnyx observed health and honest external-label availability and actual callback fallback in §§10–11, 14",
+      "accepted_scope": "Existing inventory, minimum viable procurement, legitimate ramp, Telnyx observed health and honest external-label availability and actual callback fallback in \u00a7\u00a710\u201311, 14",
       "steps": [
         "E06",
         "E07",
@@ -3935,7 +3935,7 @@
     {
       "id": 10,
       "title": "Scheduling/ML",
-      "accepted_scope": "As-of features, pooled baseline, challenger, exploration, censored labels, coverage and trials in §§9–10, 16",
+      "accepted_scope": "As-of features, pooled baseline, challenger, exploration, censored labels, coverage and trials in \u00a7\u00a79\u201310, 16",
       "steps": [
         "E06",
         "E08"
@@ -3944,7 +3944,7 @@
     {
       "id": 11,
       "title": "Call control",
-      "accepted_scope": "Linked legs, ready rep, explicit identity, state ordering, policy rechecks, cost/traffic validation in §§5, 17, 19",
+      "accepted_scope": "Linked legs, ready rep, explicit identity, state ordering, policy rechecks, cost/traffic validation in \u00a7\u00a75, 17, 19",
       "steps": [
         "E10"
       ]
@@ -3952,7 +3952,7 @@
     {
       "id": 12,
       "title": "Voicemail",
-      "accepted_scope": "Permission, exact topology, mailbox readiness, independently tracked leg, recovery and valid outcome measurement in §5.4",
+      "accepted_scope": "Permission, exact topology, mailbox readiness, independently tracked leg, recovery and valid outcome measurement in \u00a75.4",
       "steps": [
         "E10"
       ]
@@ -3960,7 +3960,7 @@
     {
       "id": 13,
       "title": "Speech/state",
-      "accepted_scope": "Track/finality/revision normalization, uncertain attribution and compact versioned context in §§5–6",
+      "accepted_scope": "Track/finality/revision normalization, uncertain attribution and compact versioned context in \u00a7\u00a75\u20136",
       "steps": [
         "E01",
         "E02",
@@ -3970,7 +3970,7 @@
     {
       "id": 14,
       "title": "Live coaching",
-      "accepted_scope": "Replaced by contextual freeform Cerebras helper, bounded concurrency, manual help and truthful grounding in §§6–7",
+      "accepted_scope": "Replaced by contextual freeform Cerebras helper, bounded concurrency, manual help and truthful grounding in \u00a7\u00a76\u20137",
       "steps": [
         "E01",
         "E03"
@@ -3979,7 +3979,7 @@
     {
       "id": 15,
       "title": "Post-call intelligence",
-      "accepted_scope": "Notes, evidence, metrics, trackers, rubrics, human edits and cross-call memory plus real task execution in §§7, 12–16",
+      "accepted_scope": "Notes, evidence, metrics, trackers, rubrics, human edits and cross-call memory plus real task execution in \u00a7\u00a77, 12\u201316",
       "steps": [
         "E02",
         "E03",
@@ -3989,7 +3989,7 @@
     {
       "id": 16,
       "title": "APIs/jobs/providers",
-      "accepted_scope": "Small typed contracts, leases, idempotency, scoped live events and capability-specific adapters in §§4–6, 12–13 and §23.3",
+      "accepted_scope": "Small typed contracts, leases, idempotency, scoped live events and capability-specific adapters in \u00a7\u00a74\u20136, 12\u201313 and \u00a723.3",
       "steps": [
         "E09",
         "E10",
@@ -3999,7 +3999,7 @@
     {
       "id": 17,
       "title": "Build/deploy",
-      "accepted_scope": "Existing stack, tested dependency pins, one local process, compact connected composition and simple onboarding in §§3, 18–19",
+      "accepted_scope": "Existing stack, tested dependency pins, one local process, compact connected composition and simple onboarding in \u00a7\u00a73, 18\u201319",
       "steps": [
         "E12",
         "E14"
@@ -4008,7 +4008,7 @@
     {
       "id": 18,
       "title": "Security/privacy",
-      "accepted_scope": "Secrets/scopes, minimization, prompt injection, retention, audited overrides and signed updates in §§17, 19",
+      "accepted_scope": "Secrets/scopes, minimization, prompt injection, retention, audited overrides and signed updates in \u00a7\u00a717, 19",
       "steps": [
         "E11",
         "E12",
@@ -4018,7 +4018,7 @@
     {
       "id": 19,
       "title": "Costs",
-      "accepted_scope": "Unified actual/estimated/uncertain accounting including excluded recurring costs and two-leg billing in §§4.4, 11.3, 16.3",
+      "accepted_scope": "Unified actual/estimated/uncertain accounting including excluded recurring costs and two-leg billing in \u00a7\u00a74.4, 11.3, 16.3",
       "steps": [
         "E05",
         "E10",
@@ -4028,7 +4028,7 @@
     {
       "id": 20,
       "title": "Implementation gates",
-      "accepted_scope": "Test-first ordered milestones M0–M9 with separate provider/hardware gates in §§20–21",
+      "accepted_scope": "Test-first ordered milestones M0\u2013M9 with separate provider/hardware gates in \u00a7\u00a720\u201321",
       "steps": [
         "E00",
         "E13",
@@ -4039,7 +4039,7 @@
     {
       "id": 21,
       "title": "Test matrix",
-      "accepted_scope": "All original cases retained and expanded to the A01–A56 catalogue, crash/property/native/load/semantic checks in §20",
+      "accepted_scope": "All original cases retained and expanded to the A01\u2013A56 catalogue, crash/property/native/load/semantic checks in \u00a720",
       "steps": [
         "E00",
         "E13"
@@ -4048,7 +4048,7 @@
     {
       "id": 22,
       "title": "Metrics/success",
-      "accepted_scope": "Unique whole-cohort reach, actual rep time, conversions, cost and customer experience in §16",
+      "accepted_scope": "Unique whole-cohort reach, actual rep time, conversions, cost and customer experience in \u00a716",
       "steps": [
         "E08",
         "E09",
@@ -4058,7 +4058,7 @@
     {
       "id": 23,
       "title": "Account validation",
-      "accepted_scope": "Real Telnyx/STT/LLM/DNC/hosting/policy/device receipts in X01–X08; no simulated substitution",
+      "accepted_scope": "Real Telnyx/STT/LLM/DNC/hosting/policy/device receipts in X01\u2013X08; no simulated substitution",
       "steps": [
         "E13",
         "E14",
@@ -4068,7 +4068,7 @@
     {
       "id": 24,
       "title": "Sources",
-      "accepted_scope": "Preserve historical source register; fresh relevant documentation and implementation evidence in §24",
+      "accepted_scope": "Preserve historical source register; fresh relevant documentation and implementation evidence in \u00a724",
       "steps": [
         "E15"
       ]
@@ -4156,7 +4156,19 @@
       "red_receipts": [
         "docs/evidence/completion/E00-group1.json"
       ],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_live_claim_review.py::test_word_overlap_or_a_question_mark_cannot_certify_a_novel_claim",
+        "services/backend/tests/test_live_claim_review.py::test_a_novel_nonassertive_question_keeps_the_single_request_path",
+        "services/backend/tests/test_live_claim_review.py::test_reviewed_freeform_paraphrase_publishes_and_keeps_separate_receipts",
+        "services/backend/tests/test_live_claim_review.py::test_review_rejects_contradiction_despite_identical_words",
+        "services/backend/tests/test_live_claim_review.py::test_ordinary_open_question_does_not_add_an_inference_request",
+        "services/backend/tests/test_live_claim_review.py::test_review_has_its_own_budget_admission",
+        "services/backend/tests/test_live_claim_review.py::test_changed_sources_during_review_cannot_publish_but_both_requests_are_settled",
+        "services/backend/tests/test_live_claim_review.py::test_early_factual_stream_is_not_displayed_before_meaning_review",
+        "services/backend/tests/test_live_claim_review.py::test_cancelled_review_retains_its_uncertain_cost_and_generation_receipt",
+        "services/backend/tests/test_live_claim_review.py::test_complete_field_audit"
+      ]
     },
     {
       "id": "C002",
@@ -4167,25 +4179,72 @@
       "red_receipts": [
         "docs/evidence/completion/E00-group1.json"
       ],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_coach_admission.py::test_prospect_debounce_and_rate_limit",
+        "services/backend/tests/test_coach_admission.py::test_provider_ignoring_cancel_cannot_publish_obsolete_same_version_advice",
+        "services/backend/tests/test_coach_admission.py::test_automatic_turn_cannot_cancel_a_manual_answer_in_progress",
+        "services/backend/tests/test_coach_admission.py::test_local_capacity_wait_is_not_a_provider_failure_or_global_circuit_break",
+        "services/backend/tests/test_coach_admission.py::test_admission_bounds_waiting_calls_instead_of_accumulating_a_backlog",
+        "services/backend/tests/test_coach_admission.py::test_call_end_cancels_from_the_storage_thread_and_fences_late_provider_output",
+        "services/backend/tests/test_coach_admission.py::test_timeout_ignoring_provider_cannot_return_late_advice",
+        "services/backend/tests/test_coach_admission.py::test_breaker_is_scoped_to_the_affected_seller_route",
+        "services/backend/tests/test_coach_admission.py::test_cancel_resistant_work_still_counts_against_capacity",
+        "services/backend/tests/test_coach_admission.py::test_one_rep_cannot_fill_the_shared_queue_with_practice_requests"
+      ]
     },
     {
       "id": "C003",
       "step": "E01",
       "planned_node": "services/backend/tests/test_helper_progress.py::test_review_cost_cancellation",
       "expected": "Generation/review have distinct ledger keys; source change or cancel withholds output and preserves submitted liability.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_helper_progress.py::test_complete_primary_answer_is_visible_before_explanation_and_one_receipt_is_updated",
+        "services/backend/tests/test_helper_progress.py::test_partial_help_is_withdrawn_at_a_changed_boundary",
+        "services/backend/tests/test_helper_progress.py::test_transport_cancel_during_early_publication_cannot_leave_an_unfinished_answer",
+        "services/backend/tests/test_helper_progress.py::test_stream_never_displays_unverified_or_incomplete_primary_fields",
+        "services/backend/tests/test_live_claim_review.py::test_word_overlap_or_a_question_mark_cannot_certify_a_novel_claim",
+        "services/backend/tests/test_live_claim_review.py::test_a_novel_nonassertive_question_keeps_the_single_request_path",
+        "services/backend/tests/test_live_claim_review.py::test_reviewed_freeform_paraphrase_publishes_and_keeps_separate_receipts",
+        "services/backend/tests/test_live_claim_review.py::test_review_rejects_contradiction_despite_identical_words",
+        "services/backend/tests/test_live_claim_review.py::test_ordinary_open_question_does_not_add_an_inference_request",
+        "services/backend/tests/test_live_claim_review.py::test_review_has_its_own_budget_admission",
+        "services/backend/tests/test_live_claim_review.py::test_changed_sources_during_review_cannot_publish_but_both_requests_are_settled",
+        "services/backend/tests/test_live_claim_review.py::test_early_factual_stream_is_not_displayed_before_meaning_review",
+        "services/backend/tests/test_live_claim_review.py::test_cancelled_review_retains_its_uncertain_cost_and_generation_receipt",
+        "services/backend/tests/test_live_claim_review.py::test_complete_field_audit"
+      ]
     },
     {
       "id": "C004",
       "step": "E01",
       "planned_node": "services/backend/tests/test_coach_stream.py::test_reviewed_progress_identity",
       "expected": "Complete reviewed primary field may display; partial factual field may not; conflicting receipt withdraws exactly one card.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_coach_stream.py::test_manual_help_uses_streaming_schema_and_preserves_final_usage",
+        "services/backend/tests/test_coach_stream.py::test_manual_stream_errors_never_publish_partial_content",
+        "services/backend/tests/test_coach_stream.py::test_stream_identity_cannot_change_and_then_revert",
+        "services/backend/tests/test_coach_stream.py::test_malformed_stream_frames_fail_through_the_provider_contract",
+        "services/backend/tests/test_coach_stream.py::test_terminal_accounting_frame_does_not_reopen_content_or_overwrite_an_error",
+        "services/backend/tests/test_coach_stream.py::test_only_accepted_primary_help_unlocks_the_longer_explanation_deadline",
+        "services/backend/tests/test_coach_stream.py::test_stream_comments_cannot_extend_the_full_response_deadline",
+        "services/backend/tests/test_live_claim_review.py::test_word_overlap_or_a_question_mark_cannot_certify_a_novel_claim",
+        "services/backend/tests/test_live_claim_review.py::test_a_novel_nonassertive_question_keeps_the_single_request_path",
+        "services/backend/tests/test_live_claim_review.py::test_reviewed_freeform_paraphrase_publishes_and_keeps_separate_receipts",
+        "services/backend/tests/test_live_claim_review.py::test_review_rejects_contradiction_despite_identical_words",
+        "services/backend/tests/test_live_claim_review.py::test_ordinary_open_question_does_not_add_an_inference_request",
+        "services/backend/tests/test_live_claim_review.py::test_review_has_its_own_budget_admission",
+        "services/backend/tests/test_live_claim_review.py::test_changed_sources_during_review_cannot_publish_but_both_requests_are_settled",
+        "services/backend/tests/test_live_claim_review.py::test_early_factual_stream_is_not_displayed_before_meaning_review",
+        "services/backend/tests/test_live_claim_review.py::test_cancelled_review_retains_its_uncertain_cost_and_generation_receipt",
+        "services/backend/tests/test_live_claim_review.py::test_complete_field_audit"
+      ]
     },
     {
       "id": "C005",
@@ -4196,7 +4255,11 @@
       "red_receipts": [
         "docs/evidence/completion/E00-group1.json"
       ],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_conversation_finalization.py::test_early_context_survives_ttl",
+        "services/backend/tests/test_conversation_finalization.py::test_merge_correction_and_missing_source"
+      ]
     },
     {
       "id": "C006",
@@ -4207,70 +4270,164 @@
       "red_receipts": [
         "docs/evidence/completion/E00-group1.json"
       ],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_conversation_finalization.py::test_early_context_survives_ttl",
+        "services/backend/tests/test_conversation_finalization.py::test_merge_correction_and_missing_source"
+      ]
     },
     {
       "id": "C007",
       "step": "E02",
       "planned_node": "services/backend/tests/test_call_rubrics.py::test_complete_rubric_once_per_call",
       "expected": "Each frozen dimension has scored/N-A/insufficient state; chunks are not independent calls; coverage denominator is exact.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_call_rubrics.py::test_complete_rubric_once_per_call",
+        "services/backend/tests/test_call_rubrics.py::test_call_type_defaults_have_distinct_observable_anchors",
+        "services/backend/tests/test_call_rubrics.py::test_invalid_rubrics_never_replace_the_campaign",
+        "services/backend/tests/test_call_rubrics.py::test_config_versions_conflict_and_existing_call_keeps_its_anchors",
+        "services/backend/tests/test_call_rubrics.py::test_non_sales_outcome_selects_operational_only_scorecard",
+        "services/backend/tests/test_call_rubrics.py::test_rep_purpose_correction_invalidates_scores_but_preserves_human_note_and_reviews",
+        "services/backend/tests/test_call_rubrics.py::test_unknown_call_purpose_has_no_manufactured_sales_score",
+        "services/backend/tests/test_call_rubrics.py::test_model_uses_selected_dimensions_weights_and_rejects_obsolete_rubric"
+      ]
     },
     {
       "id": "C008",
       "step": "E02",
       "planned_node": "services/backend/tests/test_tracker_publication.py::test_reviewed_state_sources",
       "expected": "Unknown speaker, foreign IDs, reference cycles and stale review cannot publish confirmed trackers or commitments.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_tracker_publication.py::test_reviewed_state_sources",
+        "services/backend/tests/test_tracker_publication.py::test_tracker_shares_one_extraction_and_meaning_review_with_original_versions",
+        "services/backend/tests/test_tracker_publication.py::test_tracker_publication_rechecks_expiry_and_exact_sources",
+        "services/backend/tests/test_tracker_publication.py::test_correction_invalidates_published_tracker_without_erasing_human_note",
+        "services/backend/tests/test_tracker_publication.py::test_no_tracker_request_after_raw_expiry",
+        "services/backend/tests/test_tracker_publication.py::test_malformed_tracker_result_cannot_publish"
+      ]
     },
     {
       "id": "C009",
       "step": "E03",
       "planned_node": "services/backend/tests/test_completion_journeys.py::test_full_rep_journey_both_authorities",
       "expected": "Import through next call, early callback, correction, restart, booking hold and cancellation yields one preserved task in local and real PostgreSQL modes.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_completion_journeys.py::test_full_rep_journey_both_authorities"
+      ]
     },
     {
       "id": "C010",
       "step": "E03",
       "planned_node": "services/backend/tests/test_local_followthrough.py::test_callback_identity_and_alias",
       "expected": "Lost response and repeated wrap-up resolve one canonical task; conflicting human-edited legacy duplicates remain explicit exceptions.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_local_followthrough.py::test_callback_time_and_snooze",
+        "services/backend/tests/test_local_followthrough.py::test_callback_identity_and_alias",
+        "services/backend/tests/test_local_followthrough.py::test_duplicate_wrapup_has_one_outcome_and_does_not_reopen_completed_task",
+        "services/backend/tests/test_local_followthrough.py::test_terminal_task_clears_only_its_callback",
+        "services/backend/tests/test_local_followthrough.py::test_task_rescheduling_survives_duplicate_wrapup",
+        "services/backend/tests/test_local_followthrough.py::test_invalid_task_edit_leaves_state_unchanged",
+        "services/backend/tests/test_local_followthrough.py::test_undated_callback_needs_confirmation_and_holds_automatic_outreach",
+        "services/backend/tests/test_local_followthrough.py::test_assignment_keeps_callback_with_selected_rep",
+        "services/backend/tests/test_local_followthrough.py::test_booked_hold_is_enforced_by_final_authorization_and_not_time_passage",
+        "services/backend/tests/test_local_followthrough.py::test_meeting_changes_require_explicit_next_action_and_are_versioned",
+        "services/backend/tests/test_local_followthrough.py::test_cancel_meeting_without_next_action_keeps_hold",
+        "services/backend/tests/test_local_followthrough.py::test_wrapup_and_refresh_job_commit_together",
+        "services/backend/tests/test_local_followthrough.py::test_callback_assignment_is_enforced_at_submission",
+        "services/backend/tests/test_local_followthrough.py::test_naive_callback_time_is_a_validation_error_not_server_error",
+        "services/backend/tests/test_local_followthrough.py::test_meeting_endpoint_rejects_unused_task_fields",
+        "services/backend/tests/test_local_followthrough.py::test_null_task_status_cannot_remove_task_from_the_workflow",
+        "services/backend/tests/test_local_followthrough.py::test_explicit_new_callback_reopens_previous_meeting_task",
+        "services/backend/tests/test_local_followthrough.py::test_stale_disposition_cannot_overwrite_new_outcome"
+      ]
     },
     {
       "id": "C011",
       "step": "E03",
       "planned_node": "services/backend/tests/test_local_followthrough.py::test_callback_time_and_snooze",
       "expected": "Exact zoned date schedules; vague/missing-zone/DST fold requires confirmation; snooze never rewrites promised window.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_local_followthrough.py::test_callback_time_and_snooze",
+        "services/backend/tests/test_local_followthrough.py::test_callback_identity_and_alias",
+        "services/backend/tests/test_local_followthrough.py::test_duplicate_wrapup_has_one_outcome_and_does_not_reopen_completed_task",
+        "services/backend/tests/test_local_followthrough.py::test_terminal_task_clears_only_its_callback",
+        "services/backend/tests/test_local_followthrough.py::test_task_rescheduling_survives_duplicate_wrapup",
+        "services/backend/tests/test_local_followthrough.py::test_invalid_task_edit_leaves_state_unchanged",
+        "services/backend/tests/test_local_followthrough.py::test_undated_callback_needs_confirmation_and_holds_automatic_outreach",
+        "services/backend/tests/test_local_followthrough.py::test_assignment_keeps_callback_with_selected_rep",
+        "services/backend/tests/test_local_followthrough.py::test_booked_hold_is_enforced_by_final_authorization_and_not_time_passage",
+        "services/backend/tests/test_local_followthrough.py::test_meeting_changes_require_explicit_next_action_and_are_versioned",
+        "services/backend/tests/test_local_followthrough.py::test_cancel_meeting_without_next_action_keeps_hold",
+        "services/backend/tests/test_local_followthrough.py::test_wrapup_and_refresh_job_commit_together",
+        "services/backend/tests/test_local_followthrough.py::test_callback_assignment_is_enforced_at_submission",
+        "services/backend/tests/test_local_followthrough.py::test_naive_callback_time_is_a_validation_error_not_server_error",
+        "services/backend/tests/test_local_followthrough.py::test_meeting_endpoint_rejects_unused_task_fields",
+        "services/backend/tests/test_local_followthrough.py::test_null_task_status_cannot_remove_task_from_the_workflow",
+        "services/backend/tests/test_local_followthrough.py::test_explicit_new_callback_reopens_previous_meeting_task",
+        "services/backend/tests/test_local_followthrough.py::test_stale_disposition_cannot_overwrite_new_outcome"
+      ]
     },
     {
       "id": "C012",
       "step": "E03",
       "planned_node": "services/backend/tests/test_goal_reconciliation.py::test_rep_meeting_hold_lifecycle",
       "expected": "Booked/rescheduled holds; held evidence explicit; no-show/canceled require selected next action; no calendar/network write.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_goal_reconciliation.py::test_rep_meeting_hold_lifecycle",
+        "services/backend/tests/test_goal_reconciliation.py::test_preview_is_read_only_and_explains_preserved_next_actions",
+        "services/backend/tests/test_goal_reconciliation.py::test_apply_reconciles_completion_and_preserves_callback_and_booking",
+        "services/backend/tests/test_goal_reconciliation.py::test_preview_version_prevents_stale_goal_application",
+        "services/backend/tests/test_goal_reconciliation.py::test_goal_change_never_removes_optout_or_claims_unobserved_success",
+        "services/backend/tests/test_goal_reconciliation.py::test_explicit_next_action_clears_only_the_goal_review_hold",
+        "services/backend/tests/test_goal_reconciliation.py::test_goal_review_can_become_one_dated_callback",
+        "services/backend/tests/test_goal_reconciliation.py::test_changed_outcome_window_retires_models_from_the_old_definition",
+        "services/backend/tests/test_goal_reconciliation.py::test_background_script_preparation_does_not_invalidate_outreach_review",
+        "services/backend/tests/test_goal_reconciliation.py::test_meaningful_change_still_invalidates_review",
+        "services/backend/tests/test_goal_reconciliation.py::test_background_preparation_does_not_invalidate_meeting_report",
+        "services/backend/tests/test_goal_reconciliation.py::test_window_only_change_does_not_reopen_a_legacy_completed_relationship"
+      ]
     },
     {
       "id": "C013",
       "step": "E03",
       "planned_node": "services/backend/tests/test_coaching_library.py::test_practice_and_rep_opportunity_limits",
       "expected": "At most 20 reviewed opportunities and three goals; practice has no call outcome, training label or durable raw content.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_coaching_library.py::test_practice_and_rep_opportunity_limits",
+        "services/backend/tests/test_coaching_library.py::test_personal_goals_are_versioned_and_do_not_become_business_outcomes",
+        "services/backend/tests/test_coaching_library.py::test_reviewed_example_copies_derived_tip_once_and_keeps_no_raw_quote",
+        "services/backend/tests/test_coaching_library.py::test_only_the_exact_reviewed_current_tip_can_be_published",
+        "services/backend/tests/test_coaching_library.py::test_corrected_source_and_withdrawn_example_cannot_reenter_context",
+        "services/backend/tests/test_coaching_library.py::test_personal_coaching_reads_only_bounded_own_history",
+        "services/backend/tests/test_coaching_library.py::test_approved_examples_reach_practice_and_live_context_without_gating_generation",
+        "services/backend/tests/test_coaching_library.py::test_revoked_practice_requester_receives_no_private_result",
+        "services/backend/tests/test_coaching_library.py::test_practice_retry_reuses_original_request_and_never_extends_raw_expiry",
+        "services/backend/tests/test_coaching_library.py::test_new_source_revision_can_be_reviewed_without_reactivating_old_example",
+        "services/backend/tests/test_coaching_library.py::test_practice_does_not_return_help_from_a_changed_knowledge_source",
+        "services/backend/tests/test_coaching_library.py::test_practice_replay_rechecks_current_knowledge_without_another_charge",
+        "services/backend/tests/test_coaching_library.py::test_invalidated_examples_do_not_exhaust_the_active_library"
+      ]
     },
     {
       "id": "C014",
@@ -4281,34 +4438,107 @@
       "red_receipts": [
         "docs/evidence/completion/E00-group1.json"
       ],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_preparation_discovery.py::test_official_discovery_bounds",
+        "services/backend/tests/test_preparation_discovery.py::test_missing_search_capability_keeps_truthful_generic_script"
+      ]
     },
     {
       "id": "C015",
       "step": "E04",
       "planned_node": "services/backend/tests/test_preparation_completion.py::test_bounded_parallel_preparation",
       "expected": "Shared HTTP/company/script limits hold with 100 queued leads; two failures preserve other results; controls stay responsive.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_preparation_completion.py::test_bounded_parallel_preparation",
+        "services/backend/tests/test_preparation_completion.py::test_immediate_publication_rechecks_fact_after_inference",
+        "services/backend/tests/test_preparation_completion.py::test_template_rejects_unsafe_or_incomplete_placeholders",
+        "services/backend/tests/test_preparation_completion.py::test_nested_preparation_patch_preserves_schedule_and_template_version",
+        "services/backend/tests/test_preparation_completion.py::test_advance_preparation_is_bounded_offhours_and_not_replayed_on_wake",
+        "services/backend/tests/test_preparation_completion.py::test_template_fallback_and_readiness_are_prepared_without_credentials",
+        "services/backend/tests/test_preparation_completion.py::test_generated_slots_fill_template_without_replacing_the_seller_script",
+        "services/backend/tests/test_preparation_completion.py::test_preparation_cache_uses_selected_pointer_not_history_timestamp",
+        "services/backend/tests/test_preparation_completion.py::test_returning_to_an_existing_template_repoints_the_prepared_packet",
+        "services/backend/tests/test_preparation_completion.py::test_unsupported_slot_is_rejected_even_without_a_claims_list",
+        "services/backend/tests/test_preparation_completion.py::test_changed_template_invalidates_prepared_packet_but_not_active_script",
+        "services/backend/tests/test_preparation_completion.py::test_partial_template_failures_do_not_regenerate_successes",
+        "services/backend/tests/test_preparation_completion.py::test_concurrent_preparation_pays_for_one_generation",
+        "services/backend/tests/test_preparation_completion.py::test_rejected_slots_never_leak_through_the_generic_fallback",
+        "services/backend/tests/test_preparation_completion.py::test_template_change_during_generation_cannot_publish_old_work",
+        "services/backend/tests/test_preparation_completion.py::test_readiness_query_count_does_not_grow_per_candidate",
+        "services/backend/tests/test_preparation_completion.py::test_published_script_reverts_when_supported_fact_content_changes"
+      ]
     },
     {
       "id": "C016",
       "step": "E04",
       "planned_node": "services/backend/tests/test_preparation_completion.py::test_runway_window_wake",
       "expected": "Prepared count uses eligible inspected horizon; off-hours DST and one wake catch-up; no paid work when target satisfied.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_preparation_completion.py::test_bounded_parallel_preparation",
+        "services/backend/tests/test_preparation_completion.py::test_immediate_publication_rechecks_fact_after_inference",
+        "services/backend/tests/test_preparation_completion.py::test_template_rejects_unsafe_or_incomplete_placeholders",
+        "services/backend/tests/test_preparation_completion.py::test_nested_preparation_patch_preserves_schedule_and_template_version",
+        "services/backend/tests/test_preparation_completion.py::test_advance_preparation_is_bounded_offhours_and_not_replayed_on_wake",
+        "services/backend/tests/test_preparation_completion.py::test_template_fallback_and_readiness_are_prepared_without_credentials",
+        "services/backend/tests/test_preparation_completion.py::test_generated_slots_fill_template_without_replacing_the_seller_script",
+        "services/backend/tests/test_preparation_completion.py::test_preparation_cache_uses_selected_pointer_not_history_timestamp",
+        "services/backend/tests/test_preparation_completion.py::test_returning_to_an_existing_template_repoints_the_prepared_packet",
+        "services/backend/tests/test_preparation_completion.py::test_unsupported_slot_is_rejected_even_without_a_claims_list",
+        "services/backend/tests/test_preparation_completion.py::test_changed_template_invalidates_prepared_packet_but_not_active_script",
+        "services/backend/tests/test_preparation_completion.py::test_partial_template_failures_do_not_regenerate_successes",
+        "services/backend/tests/test_preparation_completion.py::test_concurrent_preparation_pays_for_one_generation",
+        "services/backend/tests/test_preparation_completion.py::test_rejected_slots_never_leak_through_the_generic_fallback",
+        "services/backend/tests/test_preparation_completion.py::test_template_change_during_generation_cannot_publish_old_work",
+        "services/backend/tests/test_preparation_completion.py::test_readiness_query_count_does_not_grow_per_candidate",
+        "services/backend/tests/test_preparation_completion.py::test_published_script_reverts_when_supported_fact_content_changes"
+      ]
     },
     {
       "id": "C017",
       "step": "E04",
       "planned_node": "services/backend/tests/test_preparation_batch_completion.py::test_original_batch_partial_recovery",
       "expected": "Same provider/custom IDs; only missing outputs requeued; each novel field reviewed once at its source version.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_preparation_batch_completion.py::test_delayed_request_uses_slot_schema_and_publishes_current_template",
+        "services/backend/tests/test_preparation_batch_completion.py::test_delayed_request_cannot_replace_template_after_edit",
+        "services/backend/tests/test_preparation_batch_completion.py::test_batch_result_must_match_the_persisted_provider_identity",
+        "services/backend/tests/test_preparation_batch_completion.py::test_rejected_result_settles_one_budget_hold_and_preserves_uncertainty",
+        "services/backend/tests/test_preparation_batch_completion.py::test_delayed_result_does_not_overwrite_newer_immediate_script",
+        "services/backend/tests/test_preparation_batch_completion.py::test_batch_preparation_reads_do_not_block_control_event_loop",
+        "services/backend/tests/test_preparation_batch_completion.py::test_removed_batch_evidence_is_an_object_retry_not_a_reconciliation_failure",
+        "services/backend/tests/test_preparation_batch_completion.py::test_changed_fact_statement_invalidates_a_previously_filled_slot",
+        "services/backend/tests/test_preparation_batch_completion.py::test_batch_budget_is_bound_to_its_intent_and_legacy_binding_is_repaired",
+        "services/backend/tests/test_preparation_batch_completion.py::test_batch_creation_failure_cannot_leave_an_orphan_budget_hold",
+        "services/backend/tests/test_preparation_batch_completion.py::test_legacy_batch_receipt_can_settle_its_original_unbound_hold",
+        "services/backend/tests/test_batch_recovery.py::test_uncertain_batch_is_listed_without_sending_or_exposing_prompts",
+        "services/backend/tests/test_batch_recovery.py::test_second_click_with_new_key_cannot_resubmit_pending_leads",
+        "services/backend/tests/test_batch_recovery.py::test_recover_original_batch_by_bound_metadata_without_resubmission",
+        "services/backend/tests/test_batch_recovery.py::test_unrelated_or_invalid_recovery_receipt_cannot_bind",
+        "services/backend/tests/test_batch_recovery.py::test_recovery_expected_version_is_checked_before_provider_request",
+        "services/backend/tests/test_batch_recovery.py::test_late_recovery_cannot_publish_after_owner_or_authorization_change",
+        "services/backend/tests/test_batch_recovery.py::test_malformed_submission_is_uncertain_not_a_permanent_sending_row",
+        "services/backend/tests/test_batch_recovery.py::test_cancelled_submission_retains_liability_and_recovery_state",
+        "services/backend/tests/test_batch_recovery.py::test_expired_sending_is_visible_without_retrying_submission",
+        "services/backend/tests/test_batch_recovery.py::test_cross_seller_batch_is_not_visible_or_recoverable",
+        "services/backend/tests/test_batch_recovery.py::test_operator_reference_is_not_an_arbitrary_provider_path",
+        "services/backend/tests/test_batch_recovery.py::test_legacy_unknown_reference_requires_original_input_content",
+        "services/backend/tests/test_batch_recovery.py::test_recovery_heartbeat_keeps_the_owned_operation_live",
+        "services/backend/tests/test_batch_recovery.py::test_expired_submission_ack_preserves_reference_but_requires_recovery",
+        "services/backend/tests/test_batch_recovery.py::test_listing_does_not_decrypt_unrelated_command_history",
+        "services/backend/tests/test_batch_recovery.py::test_terminal_provider_receipt_is_not_finished_publication",
+        "services/backend/tests/test_batch_recovery.py::test_repeated_completed_batch_read_never_regresses_or_reissues_reviews",
+        "services/backend/tests/test_batch_recovery.py::test_shared_provider_receipt_is_not_bound_to_another_submission"
+      ]
     },
     {
       "id": "C018",
@@ -4319,34 +4549,90 @@
       "red_receipts": [
         "docs/evidence/completion/E00-group1.json"
       ],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_screening_readiness.py::test_prepaid_preflight_authorization_agree"
+      ]
     },
     {
       "id": "C019",
       "step": "E05",
       "planned_node": "services/backend/tests/test_screening_refresh.py::test_bounded_paid_refresh",
       "expected": "Two workers yield one submission; 500-row cursor resumes; opt-outs excluded; unknown charge prevents automatic repeat.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_screening_refresh.py::test_bounded_paid_refresh",
+        "services/backend/tests/test_screening_refresh.py::test_screening_refresh_requires_bounded_explicit_funding",
+        "services/backend/tests/test_screening_refresh.py::test_screening_refresh_disabled_default_is_visible",
+        "services/backend/tests/test_screening_refresh.py::test_whole_list_refresh_resumes_after_one_500_endpoint_page"
+      ]
     },
     {
       "id": "C020",
       "step": "E05",
       "planned_node": "services/backend/tests/test_registry_hotpath.py::test_npa_chunk_country_bound",
       "expected": "500 NPA chunks require only relevant membership decode within LRU; atomic publication/expiry fences survive replacement.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_registry_hotpath.py::test_npa_chunk_country_bound",
+        "services/backend/tests/test_registry_hotpath.py::test_reservation_ignores_retired_snapshots_and_unrelated_prepaid_checks",
+        "services/backend/tests/test_registry_hotpath.py::test_precommand_context_ignores_registry_history",
+        "services/backend/tests/test_registry_hotpath.py::test_bitmap_is_decoded_once_per_decision_not_per_candidate",
+        "services/backend/tests/test_registry_hotpath.py::test_internal_dnc_blocks_before_any_national_bitmap_decode",
+        "services/backend/tests/test_registry_hotpath.py::test_bounded_prefetch_keeps_the_exact_current_prepaid_result",
+        "services/backend/tests/test_registry_hotpath.py::test_direct_authorization_looks_up_only_matching_internal_suppression",
+        "services/backend/tests/test_registry_hotpath.py::test_registry_status_backfill_changes_only_indexed_metadata",
+        "services/backend/tests/test_registry_hotpath.py::test_bitmap_cache_rechecks_changed_source_inside_the_transaction",
+        "services/backend/tests/test_registry_hotpath.py::test_authorization_reads_endpoint_consents_without_unrelated_history",
+        "services/backend/tests/test_registry_hotpath.py::test_new_registry_publication_between_ranking_and_claim_is_authoritative",
+        "services/backend/tests/test_registry_hotpath.py::test_registry_replacement_does_not_rewrite_retired_source_history"
+      ]
     },
     {
       "id": "C021",
       "step": "E05",
       "planned_node": "services/backend/tests/test_operating_validation.py::test_literal_cost_privacy_constraints",
       "expected": "Settings merge cannot enable subscription/recording or longer raw retention; rates differ from actual charges; no paid GET.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_operating_validation.py::test_dnc_settings_validate_source_shape_before_saving",
+        "services/backend/tests/test_operating_validation.py::test_partial_privacy_update_uses_existing_evidence",
+        "services/backend/tests/test_operating_validation.py::test_legacy_operating_coach_setting_cannot_override_the_actual_provider",
+        "services/backend/tests/test_remediation_dnc_costs.py::test_prepaid_adapter_uses_header_and_verifies_exact_result",
+        "services/backend/tests/test_remediation_dnc_costs.py::test_prepaid_malformed_or_mismatched_response_never_clears",
+        "services/backend/tests/test_remediation_dnc_costs.py::test_prepaid_denial_exhausted_credits_and_outage_do_not_retry_spend",
+        "services/backend/tests/test_remediation_dnc_costs.py::test_new_number_purchase_rejects_recurring_commitment",
+        "services/backend/tests/test_remediation_dnc_costs.py::test_no_subscription_capabilities_are_visible_and_not_false_ready",
+        "services/backend/tests/test_remediation_dnc_costs.py::test_national_screening_cannot_be_disabled_by_ordinary_policy_toggle",
+        "services/backend/tests/test_remediation_dnc_costs.py::test_dnc_expiry_between_reservation_and_dial_blocks_carrier",
+        "services/backend/tests/test_remediation_dnc_costs.py::test_local_optout_still_blocks_even_with_a_fresh_clear_national_check",
+        "services/backend/tests/test_remediation_dnc_costs.py::test_prepaid_screening_does_not_substitute_for_seller_authorization",
+        "services/backend/tests/test_remediation_dnc_costs.py::test_dnc_api_key_is_protected_and_not_in_settings_response",
+        "services/backend/tests/test_remediation_dnc_costs.py::test_covered_seller_prepaid_screen_is_cached_and_keeps_local_suppression",
+        "services/backend/tests/test_remediation_dnc_costs.py::test_overlapping_prepaid_requests_submit_only_once_and_uncertainty_survives_reload",
+        "services/backend/tests/test_remediation_privacy.py::test_all_boundaries_original_ttl",
+        "services/backend/tests/test_remediation_privacy.py::test_raw_content_never_enters_permanent_database",
+        "services/backend/tests/test_remediation_privacy.py::test_transcript_expires_during_an_active_long_call",
+        "services/backend/tests/test_remediation_privacy.py::test_revision_and_repeated_reads_cannot_extend_original_ttl",
+        "services/backend/tests/test_remediation_privacy.py::test_expired_evidence_is_not_reintroduced_by_analysis_or_event_replay",
+        "services/backend/tests/test_remediation_privacy.py::test_restart_cannot_reload_expired_or_previous_raw_content",
+        "services/backend/tests/test_remediation_privacy.py::test_recording_remains_disabled_even_when_legacy_permission_exists",
+        "services/backend/tests/test_remediation_privacy.py::test_legacy_recording_url_is_never_exposed_for_playback",
+        "services/backend/tests/test_remediation_privacy.py::test_raw_expiry_preserves_human_notes_outcome_and_optout",
+        "services/backend/tests/test_remediation_privacy.py::test_ephemeral_buffer_is_bounded_and_source_revision_does_not_reset_expiry",
+        "services/backend/tests/test_remediation_privacy.py::test_retention_cannot_be_disabled_or_extended_by_settings",
+        "services/backend/tests/test_remediation_privacy.py::test_backup_excludes_raw_content_but_keeps_all_allowed_ids",
+        "services/backend/tests/test_remediation_privacy.py::test_legacy_raw_cleanup_is_idempotent_and_preserves_human_notes",
+        "services/backend/tests/test_remediation_privacy.py::test_legacy_pending_raw_capture_cannot_bypass_privacy_preflight",
+        "services/backend/tests/test_remediation_privacy.py::test_restore_sanitizes_legacy_backup_even_after_cutover",
+        "services/backend/tests/test_remediation_privacy.py::test_noisy_call_cannot_evict_another_calls_entire_raw_context"
+      ]
     },
     {
       "id": "C022",
@@ -4357,7 +4643,13 @@
       "red_receipts": [
         "docs/evidence/completion/E00-group1.json"
       ],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_unified_planning.py::test_same_availability_same_demand",
+        "services/backend/tests/test_unified_planning.py::test_conservation_known_and_contingent",
+        "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle",
+        "services/backend/tests/test_unified_planning.py::test_staffing_binding_and_time_constraints"
+      ]
     },
     {
       "id": "C023",
@@ -4368,7 +4660,13 @@
       "red_receipts": [
         "docs/evidence/completion/E00-group1.json"
       ],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_unified_planning.py::test_same_availability_same_demand",
+        "services/backend/tests/test_unified_planning.py::test_conservation_known_and_contingent",
+        "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle",
+        "services/backend/tests/test_unified_planning.py::test_staffing_binding_and_time_constraints"
+      ]
     },
     {
       "id": "C024",
@@ -4379,7 +4677,13 @@
       "red_receipts": [
         "docs/evidence/completion/E00-group1.json"
       ],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_unified_planning.py::test_same_availability_same_demand",
+        "services/backend/tests/test_unified_planning.py::test_conservation_known_and_contingent",
+        "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle",
+        "services/backend/tests/test_unified_planning.py::test_staffing_binding_and_time_constraints"
+      ]
     },
     {
       "id": "C025",
@@ -4390,43 +4694,118 @@
       "red_receipts": [
         "docs/evidence/completion/E00-group1.json"
       ],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_unified_planning.py::test_same_availability_same_demand",
+        "services/backend/tests/test_unified_planning.py::test_conservation_known_and_contingent",
+        "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle",
+        "services/backend/tests/test_unified_planning.py::test_staffing_binding_and_time_constraints"
+      ]
     },
     {
       "id": "C026",
       "step": "E07",
       "planned_node": "services/backend/tests/test_number_reconciliation.py::test_inventory_and_route_proof",
       "expected": "Incomplete pagination never deletes ownership; changed configuration invalidates callback evidence; partial order stays pending.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_number_reconciliation.py::test_inventory_pages_are_complete_or_explicitly_rejected",
+        "services/backend/tests/test_number_reconciliation.py::test_lost_configuration_response_reconciles_before_another_patch",
+        "services/backend/tests/test_number_reconciliation.py::test_inventory_routing_change_invalidates_callback_evidence_and_keeps_identity",
+        "services/backend/tests/test_number_reconciliation.py::test_absent_number_is_flagged_without_releasing_the_callback_identity",
+        "services/backend/tests/test_number_reconciliation.py::test_edit_number_rejects_invalid_workload_limits",
+        "services/backend/tests/test_number_reconciliation.py::test_production_identity_promotion_requires_confirmed_carrier_route",
+        "services/backend/tests/test_number_reconciliation.py::test_inventory_does_not_treat_incomplete_pagination_as_complete",
+        "services/backend/tests/test_number_reconciliation.py::test_number_configuration_has_one_owner_and_fences_inventory_changes",
+        "services/backend/tests/test_number_reconciliation.py::test_unconfirmed_route_is_never_promoted_or_resent",
+        "services/backend/tests/test_number_reconciliation.py::test_simulated_owned_configuration_preserves_phone_and_cannot_buy"
+      ]
     },
     {
       "id": "C027",
       "step": "E07",
       "planned_node": "services/backend/tests/test_optimization_numbers.py::test_health_support_and_case_mix",
       "expected": "Sparse observations stay unknown; mix shifts do not imply spam; sustained comparable residual/drop triggers supported investigation.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_optimization_numbers.py::test_number_health_unknown_is_not_a_fabricated_half",
+        "services/backend/tests/test_optimization_numbers.py::test_number_health_separates_delivery_from_pickup_and_carries_uncertainty",
+        "services/backend/tests/test_optimization_numbers.py::test_case_mix_adjustment_does_not_blame_harder_leads",
+        "services/backend/tests/test_optimization_numbers.py::test_repeated_delivery_errors_trigger_investigation_not_spam_certification",
+        "services/backend/tests/test_optimization_numbers.py::test_forecast_subtracts_existing_used_reserved_and_warmup_capacity",
+        "services/backend/tests/test_optimization_numbers.py::test_forecast_does_not_buy_capacity_for_unavailable_reps_or_suppressed_leads",
+        "services/backend/tests/test_optimization_numbers.py::test_allocation_retains_binding_and_explains_health_reassignment",
+        "services/backend/tests/test_optimization_numbers.py::test_allocation_never_falls_back_to_an_unrelated_region_and_honors_detached_lease",
+        "services/backend/tests/test_optimization_numbers.py::test_forecast_accounts_for_due_callbacks_and_future_horizon",
+        "services/backend/tests/test_optimization_numbers.py::test_invalid_capacity_is_rejected",
+        "services/backend/tests/test_optimization_numbers.py::test_existing_inventory_waiting_for_setup_or_review_does_not_trigger_identity_churn",
+        "services/backend/tests/test_optimization_numbers.py::test_health_support_and_case_mix"
+      ]
     },
     {
       "id": "C028",
       "step": "E07",
       "planned_node": "services/backend/tests/test_number_orders.py::test_no_new_rental_or_reputation",
       "expected": "Purchase/enrollment denied before provider call; old order retains original reconciliation identity.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_number_orders.py::test_lost_order_without_reference_survives_reload_with_actionable_state",
+        "services/backend/tests/test_number_orders.py::test_partial_order_reconciles_one_identity_and_preserves_waiting_numbers",
+        "services/backend/tests/test_number_orders.py::test_order_receipt_must_match_the_owned_intent",
+        "services/backend/tests/test_number_orders.py::test_order_reconciliation_fences_stale_version_and_other_seller",
+        "services/backend/tests/test_number_orders.py::test_failed_order_retains_liability_until_billing_reconciles",
+        "services/backend/tests/test_number_orders.py::test_pending_order_capacity_is_waiting_and_not_bought_again",
+        "services/backend/tests/test_number_orders.py::test_expired_order_lease_can_be_reconciled_and_unknown_receipt_keeps_same_intent",
+        "services/backend/tests/test_remediation_dnc_costs.py::test_prepaid_adapter_uses_header_and_verifies_exact_result",
+        "services/backend/tests/test_remediation_dnc_costs.py::test_prepaid_malformed_or_mismatched_response_never_clears",
+        "services/backend/tests/test_remediation_dnc_costs.py::test_prepaid_denial_exhausted_credits_and_outage_do_not_retry_spend",
+        "services/backend/tests/test_remediation_dnc_costs.py::test_new_number_purchase_rejects_recurring_commitment",
+        "services/backend/tests/test_remediation_dnc_costs.py::test_no_subscription_capabilities_are_visible_and_not_false_ready",
+        "services/backend/tests/test_remediation_dnc_costs.py::test_national_screening_cannot_be_disabled_by_ordinary_policy_toggle",
+        "services/backend/tests/test_remediation_dnc_costs.py::test_dnc_expiry_between_reservation_and_dial_blocks_carrier",
+        "services/backend/tests/test_remediation_dnc_costs.py::test_local_optout_still_blocks_even_with_a_fresh_clear_national_check",
+        "services/backend/tests/test_remediation_dnc_costs.py::test_prepaid_screening_does_not_substitute_for_seller_authorization",
+        "services/backend/tests/test_remediation_dnc_costs.py::test_dnc_api_key_is_protected_and_not_in_settings_response",
+        "services/backend/tests/test_remediation_dnc_costs.py::test_covered_seller_prepaid_screen_is_cached_and_keeps_local_suppression",
+        "services/backend/tests/test_remediation_dnc_costs.py::test_overlapping_prepaid_requests_submit_only_once_and_uncertainty_survives_reload",
+        "services/backend/tests/test_scheduling_and_numbers.py::test_callback_and_coverage_beat_propensity",
+        "services/backend/tests/test_scheduling_and_numbers.py::test_exploration_logs_actual_propensity_and_never_invents_actions",
+        "services/backend/tests/test_scheduling_and_numbers.py::test_pre_call_features_strip_protected_future_and_registry_data",
+        "services/backend/tests/test_scheduling_and_numbers.py::test_pending_outcome_window_is_censored",
+        "services/backend/tests/test_scheduling_and_numbers.py::test_challenger_evaluates_chronologically_and_requires_approval",
+        "services/backend/tests/test_scheduling_and_numbers.py::test_number_selection_stability_health_and_regional_demand",
+        "services/backend/tests/test_scheduling_and_numbers.py::test_purchase_cannot_exceed_operator_approved_budget",
+        "services/backend/tests/test_scheduling_and_numbers.py::test_warmup_requires_identity_and_callback_evidence",
+        "services/backend/tests/test_scheduling_and_numbers.py::test_metrics_keep_original_cohort_denominator",
+        "services/backend/tests/test_scheduling_and_numbers.py::test_only_verified_local_model_artifact_can_influence_probability"
+      ]
     },
     {
       "id": "C029",
       "step": "E07",
       "planned_node": "services/backend/tests/test_scheduling_and_numbers.py::test_stable_identity_and_reassignment",
       "expected": "Healthy retries retain identity; approved health change retains inbound old number and invalidates capacity proposal.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_scheduling_and_numbers.py::test_callback_and_coverage_beat_propensity",
+        "services/backend/tests/test_scheduling_and_numbers.py::test_exploration_logs_actual_propensity_and_never_invents_actions",
+        "services/backend/tests/test_scheduling_and_numbers.py::test_pre_call_features_strip_protected_future_and_registry_data",
+        "services/backend/tests/test_scheduling_and_numbers.py::test_pending_outcome_window_is_censored",
+        "services/backend/tests/test_scheduling_and_numbers.py::test_challenger_evaluates_chronologically_and_requires_approval",
+        "services/backend/tests/test_scheduling_and_numbers.py::test_number_selection_stability_health_and_regional_demand",
+        "services/backend/tests/test_scheduling_and_numbers.py::test_purchase_cannot_exceed_operator_approved_budget",
+        "services/backend/tests/test_scheduling_and_numbers.py::test_warmup_requires_identity_and_callback_evidence",
+        "services/backend/tests/test_scheduling_and_numbers.py::test_metrics_keep_original_cohort_denominator",
+        "services/backend/tests/test_scheduling_and_numbers.py::test_only_verified_local_model_artifact_can_influence_probability"
+      ]
     },
     {
       "id": "C030",
@@ -4437,16 +4816,52 @@
       "red_receipts": [
         "docs/evidence/completion/E00-group1.json"
       ],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_optimization_learning.py::test_labels_keep_the_funnel_distinct",
+        "services/backend/tests/test_optimization_learning.py::test_nullable_labels_and_pooled_counts",
+        "services/backend/tests/test_optimization_learning.py::test_sparse_prior_excludes_cell_and_uses_circular_hour",
+        "services/backend/tests/test_optimization_learning.py::test_snapshot_only_has_information_known_before_the_call",
+        "services/backend/tests/test_optimization_learning.py::test_dataset_uses_immutable_snapshot_and_censors_delayed_conversions",
+        "services/backend/tests/test_optimization_learning.py::test_future_features_and_events_are_rejected_from_training",
+        "services/backend/tests/test_optimization_learning.py::test_conversion_score_prefers_useful_outcomes_over_easy_low_value_pickups",
+        "services/backend/tests/test_optimization_learning.py::test_treatment_learning_changes_the_best_approved_action_and_logs_exact_distribution",
+        "services/backend/tests/test_optimization_learning.py::test_pending_outcomes_cannot_promote_a_treatment",
+        "services/backend/tests/test_optimization_learning.py::test_future_slots_respect_timezone_retry_callback_and_coverage",
+        "services/backend/tests/test_optimization_learning.py::test_no_timezone_and_exhausted_leads_are_not_scheduled",
+        "services/backend/tests/test_optimization_learning.py::test_a_possible_coverage_deadline_is_not_replaced_with_a_later_slot",
+        "services/backend/tests/test_optimization_learning.py::test_future_slots_can_use_the_verified_active_model_instead_of_only_the_pooled_baseline",
+        "services/backend/tests/test_optimization_learning.py::test_trial_reports_use_unique_matured_leads_and_do_not_claim_lift_from_tiny_samples",
+        "services/backend/tests/test_optimization_learning.py::test_drift_report_exposes_changed_features_without_automatic_activation"
+      ]
     },
     {
       "id": "C031",
       "step": "E08",
       "planned_node": "services/backend/tests/test_learning_chronology.py::test_rolling_asof_entity_embargo",
       "expected": "Future/corrected labels, overlapping outcomes, timestamp ties and shared entity cannot leak across training/calibration/evaluation.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_learning_chronology.py::test_rolling_asof_entity_embargo",
+        "services/backend/tests/test_learning_chronology.py::test_feature_vocabulary_is_fitted_only_in_each_training_partition",
+        "services/backend/tests/test_learning_chronology.py::test_each_fitting_partition_purges_labels_crossing_its_next_boundary",
+        "services/backend/tests/test_learning_chronology.py::test_answer_model_can_learn_before_conversion_windows_mature",
+        "services/backend/tests/test_learning_chronology.py::test_timestamp_ties_are_not_split_between_training_and_calibration",
+        "services/backend/tests/test_learning_chronology.py::test_duplicate_entities_cannot_cross_fitting_partitions",
+        "services/backend/tests/test_learning_chronology.py::test_conversion_stage_waits_for_its_conditioning_right_party_label",
+        "services/backend/tests/test_learning_chronology.py::test_challenger_persists_auditable_per_stage_cutoffs",
+        "services/backend/tests/test_learning_chronology.py::test_late_observed_conversion_is_not_available_at_its_occurrence",
+        "services/backend/tests/test_learning_chronology.py::test_retraction_changes_only_datasets_after_it_is_known",
+        "services/backend/tests/test_learning_chronology.py::test_future_disposition_is_excluded_and_provisional_labels_are_not_training_truth",
+        "services/backend/tests/test_learning_chronology.py::test_legacy_unknown_label_availability_is_not_backdated",
+        "services/backend/tests/test_learning_chronology.py::test_future_callback_does_not_change_frozen_pre_call_features",
+        "services/backend/tests/test_learning_chronology.py::test_same_timestamp_correction_uses_the_latest_recorded_revision",
+        "services/backend/tests/test_learning_chronology.py::test_repeated_retraction_does_not_move_the_original_availability",
+        "services/backend/tests/test_learning_chronology.py::test_disposition_corrections_retain_as_of_history_without_transcripts",
+        "services/backend/tests/test_learning_chronology.py::test_revised_meeting_reports_keep_observation_and_retraction_history"
+      ]
     },
     {
       "id": "C032",
@@ -4457,241 +4872,486 @@
       "red_receipts": [
         "docs/evidence/completion/E00-group1.json"
       ],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_conversation_features.py::test_prior_observation_features_only"
+      ]
     },
     {
       "id": "C033",
       "step": "E08",
       "planned_node": "services/backend/tests/test_strategy_exposure.py::test_finite_strategy_assignment",
       "expected": "Stable approved arms, actual allowed set/mixture probability, display-use distinction and matured reward; no invented sentence propensity.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_strategy_exposure.py::test_finite_strategy_assignment",
+        "services/backend/tests/test_strategy_exposure.py::test_displayed_guidance_is_not_assumed_used_or_converted"
+      ]
     },
     {
       "id": "C034",
       "step": "E08",
       "planned_node": "services/backend/tests/test_model_serving_bounds.py::test_v1_v2_model_compatibility",
       "expected": "Owned checksummed artifacts retain original vectorizer; stages without support fall back; baseline imports no scientific stack.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_model_serving_bounds.py::test_v1_v2_model_compatibility",
+        "services/backend/tests/test_model_serving_bounds.py::test_checksum_verified_bytes_are_the_bytes_deserialized",
+        "services/backend/tests/test_model_serving_bounds.py::test_concurrent_first_predictions_verify_and_load_once",
+        "services/backend/tests/test_model_serving_bounds.py::test_invalid_model_probabilities_fall_back_without_poisoning_the_queue",
+        "services/backend/tests/test_model_serving_bounds.py::test_oversized_artifact_is_rejected_before_reading_or_loading",
+        "services/backend/tests/test_model_serving_bounds.py::test_retired_model_history_does_not_enter_reservation_reads",
+        "services/backend/tests/test_model_serving_bounds.py::test_serving_pointer_is_loaded_once_per_transaction_without_unrelated_enrollment",
+        "services/backend/tests/test_model_serving_bounds.py::test_serving_index_backfill_keeps_source_identity_and_versions",
+        "services/backend/tests/test_model_serving_bounds.py::test_queue_scores_one_vector_batch_for_each_selected_model",
+        "services/backend/tests/test_model_serving_bounds.py::test_trial_pointer_cannot_cross_its_reviewed_epoch",
+        "services/backend/tests/test_model_serving_bounds.py::test_trial_enrollment_reads_only_the_original_model_assignment"
+      ]
     },
     {
       "id": "C035",
       "step": "E09",
       "planned_node": "services/backend/tests/test_incremental_metrics.py::test_contribution_replay_oracle",
       "expected": "Corrections/deletions/maturity/credits produce exact independent batch-oracle totals; unique leads and rep-day union not double counted.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_incremental_metrics.py::test_contribution_replay_oracle",
+        "services/backend/tests/test_incremental_metrics.py::test_normal_correction_does_not_rebuild_entire_operational_dataset"
+      ]
     },
     {
       "id": "C036",
       "step": "E09",
       "planned_node": "services/backend/tests/test_projection_replay.py::test_rebuild_churn_and_atomic_publish",
       "expected": "Inactive namespace and cursor resume; concurrent dirty generations replay; same version no-op; old consistent snapshot remains available.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_projection_replay.py::test_interrupted_inactive_rebuild_replays_concurrent_dirty_units",
+        "services/backend/tests/test_projection_replay.py::test_rebuild_churn_and_atomic_publish",
+        "services/backend/tests/test_projection_replay.py::test_rolled_back_tombstone_cannot_remove_a_live_contribution"
+      ]
     },
     {
       "id": "C037",
       "step": "E09",
       "planned_node": "services/backend/tests/test_job_admission.py::test_claim_only_running_capacity",
       "expected": "More pending jobs than slots cannot expire while unstarted; heartbeat on actual claim; two workers do not execute one paid job twice.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_job_admission.py::test_claim_only_running_capacity",
+        "services/backend/tests/test_job_admission.py::test_two_workers_share_job_identity_and_global_capacity"
+      ]
     },
     {
       "id": "C038",
       "step": "E09",
       "planned_node": "services/backend/tests/test_report_scaling.py::test_bounded_normal_reads_and_short_writes",
       "expected": "GET/selection use scoped indexes and projections; no history-sized decryptions/global advisory lock/planning in writer.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_report_scaling.py::test_bounded_normal_reads_and_short_writes",
+        "services/backend/tests/test_report_scaling.py::test_report_history_join_grows_linearly"
+      ]
     },
     {
       "id": "C039",
       "step": "E10",
       "planned_node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases",
       "expected": "Each E10 operation times each five crash boundaries has original identity, fenced owner, cost state and meaningful next action; no blind repeat.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_effect_matrix.py::test_inference_attempt_crash_matrix",
+        "services/backend/tests/test_effect_matrix.py::test_deferred_script_crash_matrix",
+        "services/backend/tests/test_effect_matrix.py::test_prior_purchase_read_recovery_matrix",
+        "services/backend/tests/test_effect_matrix.py::test_local_task_edit_crash_matrix",
+        "services/backend/tests/test_effect_matrix.py::test_prepaid_screen_crash_matrix",
+        "services/backend/tests/test_effect_matrix.py::test_owned_number_configuration_crash_matrix",
+        "services/backend/tests/test_effect_matrix.py::test_dial_and_agent_crash_matrix",
+        "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases"
+      ]
     },
     {
       "id": "C040",
       "step": "E10",
       "planned_node": "services/backend/tests/test_inbound_completion.py::test_online_callback_and_offline_capability",
       "expected": "Owner, teammate, busy, ambiguous caller and external destination paths retain leg/task; offline local is unavailable without actual compatible proof.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_inbound_completion.py::test_default_fallback_answers_then_speaks_and_ends_without_losing_task",
+        "services/backend/tests/test_inbound_completion.py::test_duplicate_provider_call_with_different_event_ids_has_one_task_and_effect",
+        "services/backend/tests/test_inbound_completion.py::test_uncertain_answer_never_submits_transfer_or_message",
+        "services/backend/tests/test_inbound_completion.py::test_business_fallback_is_configured_versioned_and_does_not_fake_completion",
+        "services/backend/tests/test_inbound_completion.py::test_fallback_destination_is_bounded_and_cannot_target_private_or_premium_routes",
+        "services/backend/tests/test_inbound_completion.py::test_routing_reserves_rep_and_endpoint_until_terminal_event",
+        "services/backend/tests/test_inbound_completion.py::test_unavailable_owner_routes_to_fresh_same_seller_teammate",
+        "services/backend/tests/test_inbound_completion.py::test_other_seller_rep_is_never_rung_and_ambiguous_contact_is_not_guessed",
+        "services/backend/tests/test_inbound_completion.py::test_failed_rep_leg_tries_teammate_then_message_only_after_confirmed_failure",
+        "services/backend/tests/test_inbound_completion.py::test_ended_caller_cancels_unsent_commands_and_late_answer_cannot_revive",
+        "services/backend/tests/test_inbound_completion.py::test_missing_ring_receipt_times_out_without_blind_second_transfer",
+        "services/backend/tests/test_inbound_completion.py::test_private_metadata_cannot_forge_an_unrelated_transfer_leg",
+        "services/backend/tests/test_inbound_completion.py::test_live_callback_cannot_be_reassigned_by_task_editor",
+        "services/backend/tests/test_inbound_completion.py::test_recheck_rep_pause_before_transfer_submission",
+        "services/backend/tests/test_inbound_completion.py::test_answer_receipt_reconciles_uncertain_ack_before_routing",
+        "services/backend/tests/test_inbound_completion.py::test_unmatched_client_state_is_not_a_processing_failure",
+        "services/backend/tests/test_inbound_completion.py::test_rep_can_end_the_current_inbound_call_and_both_known_legs",
+        "services/backend/tests/test_inbound_completion.py::test_connected_callback_completes_only_the_related_unedited_return_task",
+        "services/backend/tests/test_inbound_completion.py::test_ended_provider_callback_is_reconciled_after_restart_without_replaying_transfer",
+        "services/backend/tests/test_inbound_completion.py::test_callback_budget_prevents_optional_transfer_and_speech_but_never_hangup",
+        "services/backend/tests/test_inbound_completion.py::test_callback_charges_remain_uncertain_until_matching_imported_carrier_receipt",
+        "services/backend/tests/test_inbound_completion.py::test_callback_rates_are_visible_without_a_paid_request",
+        "services/backend/tests/test_inbound_completion.py::test_control_retry_does_not_extend_original_inbound_deadline",
+        "services/backend/tests/test_inbound_completion.py::test_nonfinite_or_invalid_billing_never_corrupts_callback_budget",
+        "services/backend/tests/test_inbound_completion.py::test_verified_retry_reuses_callback_liability_without_readmitting_spend",
+        "services/backend/tests/test_capability_consistency.py::test_configured_vs_verified_capabilities"
+      ]
     },
     {
       "id": "C041",
       "step": "E10",
       "planned_node": "services/backend/tests/test_final_attempt_voicemail.py::test_permission_allowance_topology",
       "expected": "Greatest declared allowance, actual submissions, late human, no beep, full mailbox, opt-out and detached restart preserve correct obligation.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_final_attempt_voicemail.py::test_reducing_attempt_policy_does_not_enable_early_voicemail",
+        "services/backend/tests/test_final_attempt_voicemail.py::test_first_call_is_final_only_when_original_policy_allows_one_attempt",
+        "services/backend/tests/test_final_attempt_voicemail.py::test_pending_playback_rechecks_final_attempt_after_policy_expansion",
+        "services/backend/tests/test_final_attempt_voicemail.py::test_pending_playback_rechecks_optout",
+        "services/backend/tests/test_effect_matrix.py::test_inference_attempt_crash_matrix",
+        "services/backend/tests/test_effect_matrix.py::test_deferred_script_crash_matrix",
+        "services/backend/tests/test_effect_matrix.py::test_prior_purchase_read_recovery_matrix",
+        "services/backend/tests/test_effect_matrix.py::test_local_task_edit_crash_matrix",
+        "services/backend/tests/test_effect_matrix.py::test_prepaid_screen_crash_matrix",
+        "services/backend/tests/test_effect_matrix.py::test_owned_number_configuration_crash_matrix",
+        "services/backend/tests/test_effect_matrix.py::test_dial_and_agent_crash_matrix",
+        "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases"
+      ]
     },
     {
       "id": "C042",
       "step": "E10",
       "planned_node": "services/backend/tests/test_billing_resolution.py::test_every_effect_cost_and_credit",
       "expected": "All actual legs/reviews/transfers and uncertain amounts reconcile once; credit period retained; optional budget cannot prevent stop.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_billing_resolution.py::test_partial_carrier_receipt_does_not_clear_other_leg_liability",
+        "services/backend/tests/test_billing_resolution.py::test_same_carrier_receipt_cannot_change_attribution",
+        "services/backend/tests/test_billing_resolution.py::test_settlement_reuses_original_liability_and_is_retryable",
+        "services/backend/tests/test_billing_resolution.py::test_invalid_or_changed_settlement_cannot_release_liability",
+        "services/backend/tests/test_billing_resolution.py::test_one_statement_receipt_cannot_settle_two_attempts",
+        "services/backend/tests/test_billing_resolution.py::test_settlement_cannot_close_an_active_reservation",
+        "services/backend/tests/test_billing_resolution.py::test_credit_preserves_gross_and_changes_only_the_original_budget_period",
+        "services/backend/tests/test_billing_resolution.py::test_credit_cannot_exceed_charge_or_apply_to_uncertainty",
+        "services/backend/tests/test_billing_resolution.py::test_read_lists_uncertainty_without_prompts_secrets_or_provider_work",
+        "services/backend/tests/test_billing_resolution.py::test_ledger_pages_and_cdr_import_do_not_decrypt_history",
+        "services/backend/tests/test_billing_resolution.py::test_only_confirmed_complete_terminal_call_receipts_release_call_hold",
+        "services/backend/tests/test_billing_resolution.py::test_another_seller_or_rep_cannot_settle_original_liability",
+        "services/backend/tests/test_billing_resolution.py::test_credit_is_used_consistently_by_metrics_and_operational_learning",
+        "services/backend/tests/test_billing_resolution.py::test_legacy_partial_statement_is_reopened_once_without_losing_records",
+        "services/backend/tests/test_billing_resolution.py::test_legacy_callback_receipt_cannot_be_reassigned_without_its_request_key",
+        "services/backend/tests/test_billing_resolution.py::test_explicit_zero_charge_statement_can_close_a_terminal_call_without_cdr",
+        "services/backend/tests/test_billing_resolution.py::test_same_carrier_receipt_cannot_move_to_a_different_call",
+        "services/backend/tests/test_billing_resolution.py::test_concurrent_credits_cannot_over_refund_one_charge",
+        "services/backend/tests/test_billing_resolution.py::test_reimporting_legacy_cdr_repairs_its_original_call_receipt_set",
+        "services/backend/tests/test_billing_resolution.py::test_surrounding_whitespace_cannot_create_a_second_credit_identity",
+        "services/backend/tests/test_billing_resolution.py::test_carrier_statement_conflict_rolls_back_the_whole_import",
+        "services/backend/tests/test_request_accounting.py::test_request_identity_cannot_authorize_different_work",
+        "services/backend/tests/test_request_accounting.py::test_receipt_cannot_settle_a_different_work_hold",
+        "services/backend/tests/test_request_accounting.py::test_finished_or_possibly_submitted_key_never_readmits_new_spend",
+        "services/backend/tests/test_request_accounting.py::test_late_receipt_cannot_replace_original_provider_identity",
+        "services/backend/tests/test_request_accounting.py::test_late_unknown_receipt_never_erases_known_request_id",
+        "services/backend/tests/test_request_accounting.py::test_same_receipt_cannot_be_bound_to_two_local_attempts",
+        "services/backend/tests/test_request_accounting.py::test_unknown_then_actual_receipt_settles_exactly_once",
+        "services/backend/tests/test_request_accounting.py::test_inner_reservation_rejects_invalid_estimate_too",
+        "services/backend/tests/test_request_accounting.py::test_two_jobs_cannot_each_admit_against_the_same_remaining_budget",
+        "services/backend/tests/test_request_accounting.py::test_each_admission_in_one_cached_transaction_sees_previous_reservations",
+        "services/backend/tests/test_request_accounting.py::test_concurrent_duplicate_receipts_return_one_identity",
+        "services/backend/tests/test_request_accounting.py::test_receipts_and_request_keys_are_seller_and_provider_scoped",
+        "services/backend/tests/test_request_accounting.py::test_attempt_accounting_does_not_decrypt_unrelated_ledger_history",
+        "services/backend/tests/test_request_accounting.py::test_receipt_index_is_hashed_and_backfill_preserves_legacy_identity"
+      ]
     },
     {
       "id": "C043",
       "step": "E11",
       "planned_node": "services/backend/tests/test_installed_copy_migration.py::test_legacy_copy_allowlist_continuity",
       "expected": "Copied actual schema authenticates; raw canaries removed before retained backup; IDs, human notes, denials and effect identities unchanged.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_installed_copy_migration.py::test_legacy_copy_allowlist_continuity",
+        "services/backend/tests/test_installed_copy_migration.py::test_actual_update_allowed_data"
+      ]
     },
     {
       "id": "C044",
       "step": "E11",
       "planned_node": "services/backend/tests/test_remediation_privacy.py::test_all_boundaries_original_ttl",
       "expected": "299/300/301 seconds, retries/revisions/clock changes/wake/restart never extend raw life in any durable or transient boundary.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_remediation_privacy.py::test_all_boundaries_original_ttl",
+        "services/backend/tests/test_remediation_privacy.py::test_raw_content_never_enters_permanent_database",
+        "services/backend/tests/test_remediation_privacy.py::test_transcript_expires_during_an_active_long_call",
+        "services/backend/tests/test_remediation_privacy.py::test_revision_and_repeated_reads_cannot_extend_original_ttl",
+        "services/backend/tests/test_remediation_privacy.py::test_expired_evidence_is_not_reintroduced_by_analysis_or_event_replay",
+        "services/backend/tests/test_remediation_privacy.py::test_restart_cannot_reload_expired_or_previous_raw_content",
+        "services/backend/tests/test_remediation_privacy.py::test_recording_remains_disabled_even_when_legacy_permission_exists",
+        "services/backend/tests/test_remediation_privacy.py::test_legacy_recording_url_is_never_exposed_for_playback",
+        "services/backend/tests/test_remediation_privacy.py::test_raw_expiry_preserves_human_notes_outcome_and_optout",
+        "services/backend/tests/test_remediation_privacy.py::test_ephemeral_buffer_is_bounded_and_source_revision_does_not_reset_expiry",
+        "services/backend/tests/test_remediation_privacy.py::test_retention_cannot_be_disabled_or_extended_by_settings",
+        "services/backend/tests/test_remediation_privacy.py::test_backup_excludes_raw_content_but_keeps_all_allowed_ids",
+        "services/backend/tests/test_remediation_privacy.py::test_legacy_raw_cleanup_is_idempotent_and_preserves_human_notes",
+        "services/backend/tests/test_remediation_privacy.py::test_legacy_pending_raw_capture_cannot_bypass_privacy_preflight",
+        "services/backend/tests/test_remediation_privacy.py::test_restore_sanitizes_legacy_backup_even_after_cutover",
+        "services/backend/tests/test_remediation_privacy.py::test_noisy_call_cannot_evict_another_calls_entire_raw_context"
+      ]
     },
     {
       "id": "C045",
       "step": "E11",
       "planned_node": "services/backend/tests/test_effect_journal.py::test_lost_store_and_flush_failure",
       "expected": "Replay typed encrypted effects/denials from independent journal; truncation, wrong key, fsync/disk-full and missing segments hold new effects.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_effect_journal.py::test_lost_store_and_flush_failure",
+        "services/backend/tests/test_effect_journal.py::test_journal_failure_cannot_block_stopping_an_existing_leg",
+        "services/backend/tests/test_effect_journal.py::test_lost_newer_database_rows_recover_from_effect_journal",
+        "services/backend/tests/test_effect_journal.py::test_damaged_effect_journal_holds_new_effects"
+      ]
     },
     {
       "id": "C046",
       "step": "E11",
       "planned_node": "services/backend/tests/test_restore_effects.py::test_restore_preserves_newer_state",
       "expected": "Current effects/liabilities/human edits/auth win; conflicting identity aborts; old backups cannot resurrect revoked access.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_restore_effects.py::test_restore_keeps_a_call_submitted_after_the_backup_and_its_live_claim",
+        "services/backend/tests/test_restore_effects.py::test_restore_does_not_resurrect_a_finished_call_or_completed_command",
+        "services/backend/tests/test_restore_effects.py::test_restore_keeps_later_settled_cost_and_its_attributed_credit",
+        "services/backend/tests/test_restore_effects.py::test_restore_keeps_prior_uncertain_number_effects_and_their_original_targets",
+        "services/backend/tests/test_restore_effects.py::test_restore_preserves_dependencies_of_newly_submitted_calls",
+        "services/backend/tests/test_restore_effects.py::test_restore_does_not_erase_later_goal_holds_tasks_or_human_notes",
+        "services/backend/tests/test_restore_effects.py::test_restore_preserves_durable_inbox_completion_instead_of_replaying_old_events",
+        "services/backend/tests/test_restore_effects.py::test_restore_recovers_missing_records_and_retains_current_business_corrections",
+        "services/backend/tests/test_restore_effects.py::test_restore_rejects_a_missing_identity_now_owned_by_another_seller_atomically",
+        "services/backend/tests/test_restore_effects.py::test_backup_denial_cannot_be_lost_when_current_database_is_older",
+        "services/backend/tests/test_restore_effects.py::test_restore_reconciliation_includes_live_calls_missing_from_journal",
+        "services/backend/tests/test_restore_effects.py::test_a_new_live_obligation_during_restore_reconciliation_prevents_release"
+      ]
     },
     {
       "id": "C047",
       "step": "E12",
       "planned_node": "services/backend/tests/test_ingress_boundary.py::test_exact_public_route_allowlist",
       "expected": "Only signed webhook POST and active nonce GET pass; other methods/paths denied; arbitrary/private probe target refused.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_ingress_boundary.py::test_exact_public_route_allowlist",
+        "services/backend/tests/test_ingress_boundary.py::test_unconfigured_ingress_returns_an_actionable_capability",
+        "services/backend/tests/test_ingress_boundary.py::test_ingress_check_is_admin_authenticated",
+        "services/backend/tests/test_ingress_boundary.py::test_active_challenge_is_one_time_content_free_and_source_fenced"
+      ]
     },
     {
       "id": "C048",
       "step": "E12",
       "planned_node": "services/backend/tests/test_capability_consistency.py::test_configured_vs_verified_capabilities",
       "expected": "All UI/API capabilities reflect same evidence/source versions; missing keys/privacy/coverage remain actionable; GET never charges.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_capability_consistency.py::test_configured_vs_verified_capabilities"
+      ]
     },
     {
       "id": "C049",
       "step": "E12",
       "planned_node": "services/backend/tests/test_connected_security.py::test_authority_switch_scope",
       "expected": "Switch held during active effects; no cross-authority cache/session or seller leakage; connected fixtures use real PostgreSQL.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_connected_security.py::test_connected_never_grants_loopback_auth_bypass",
+        "services/backend/tests/test_connected_security.py::test_login_logout_revocation_and_no_default_password",
+        "services/backend/tests/test_connected_security.py::test_rep_cannot_publish_policy_see_keys_or_promote_model",
+        "services/backend/tests/test_connected_security.py::test_tenant_isolation_on_reads_writes_events_and_phone_suppression",
+        "services/backend/tests/test_connected_security.py::test_master_keys_are_write_only_and_not_in_snapshot",
+        "services/backend/tests/test_connected_security.py::test_live_mode_without_provider_keys_is_fail_closed",
+        "apps/desktop/tests/completion.spec.ts::authority_switch_scope"
+      ]
     },
     {
       "id": "C050",
       "step": "E12",
       "planned_node": "apps/desktop/tests/completion.spec.ts::small_window_keyboard_journey",
       "expected": "1024x720 and1280x720 helper/script/hangup visible; F1/Escape/focus/opt-out work during AI failure and reconnect.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "apps/desktop/tests/completion.spec.ts::small_window_keyboard_journey"
+      ]
     },
     {
       "id": "C051",
       "step": "E13",
       "planned_node": "services/backend/tests/test_completion_contracts.py::test_coverage_receipt_parser",
       "expected": "Missing totals, branch floor alone, stale source and absent case receipts fail acceptance; docs-only digest equivalence explicit.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_completion_contracts.py::test_coverage_receipt_parser",
+        "services/backend/tests/test_completion_contracts.py::test_missing_or_empty_coverage_cannot_certify_anything",
+        "services/backend/tests/test_completion_contracts.py::test_targeted_mutation_detection",
+        "services/backend/tests/test_completion_contracts.py::test_mutation_inventory_names_real_assertions_and_disposable_execution",
+        "services/backend/tests/test_completion_contracts.py::test_bounded_acceptance_tools",
+        "services/backend/tests/test_completion_contracts.py::test_handoff_manifest_scope"
+      ]
     },
     {
       "id": "C052",
       "step": "E13",
       "planned_node": "services/backend/tests/test_completion_contracts.py::test_targeted_mutation_detection",
       "expected": "Ten named mutations each fail their designated test; no mutated source enters production.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_completion_contracts.py::test_coverage_receipt_parser",
+        "services/backend/tests/test_completion_contracts.py::test_missing_or_empty_coverage_cannot_certify_anything",
+        "services/backend/tests/test_completion_contracts.py::test_targeted_mutation_detection",
+        "services/backend/tests/test_completion_contracts.py::test_mutation_inventory_names_real_assertions_and_disposable_execution",
+        "services/backend/tests/test_completion_contracts.py::test_bounded_acceptance_tools",
+        "services/backend/tests/test_completion_contracts.py::test_handoff_manifest_scope"
+      ]
     },
     {
       "id": "C053",
       "step": "E13",
       "planned_node": "services/backend/tests/test_completion_contracts.py::test_bounded_acceptance_tools",
       "expected": "Performance/AST tools reject installed paths, raw fields and unexpected network; parsers inventory whole production source.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_completion_contracts.py::test_coverage_receipt_parser",
+        "services/backend/tests/test_completion_contracts.py::test_missing_or_empty_coverage_cannot_certify_anything",
+        "services/backend/tests/test_completion_contracts.py::test_targeted_mutation_detection",
+        "services/backend/tests/test_completion_contracts.py::test_mutation_inventory_names_real_assertions_and_disposable_execution",
+        "services/backend/tests/test_completion_contracts.py::test_bounded_acceptance_tools",
+        "services/backend/tests/test_completion_contracts.py::test_handoff_manifest_scope"
+      ]
     },
     {
       "id": "C054",
       "step": "E14",
       "planned_node": "tests/test_distribution_contract.py::test_version_identity_artifact_contract",
       "expected": "0.3.0 versions agree; keys/data identity unchanged; wrong signature/hash/platform rejected; fresh executable works without dev PATH.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "tests/test_distribution_contract.py::test_version_identity_artifact_contract",
+        "tests/test_distribution_contract.py::test_desktop_is_tauri_with_scoped_capabilities_and_microphone_metadata",
+        "tests/test_distribution_contract.py::test_updater_uses_signature_verification_and_stable_identity",
+        "tests/test_distribution_contract.py::test_deployment_database_is_private_and_workers_have_separate_lanes",
+        "tests/test_distribution_contract.py::test_deployment_orders_migration_before_all_authority_workers",
+        "tests/test_distribution_contract.py::test_declared_macos_minimum_covers_the_bundled_numeric_wheels",
+        "tests/test_distribution_contract.py::test_windows_package_bundles_webview_and_timezone_data_for_clean_install",
+        "tests/test_distribution_contract.py::test_development_macos_bundle_is_explicitly_signed_as_a_complete_bundle",
+        "tests/test_distribution_contract.py::test_frozen_python_library_entitlement_is_scoped_away_from_the_webview"
+      ]
     },
     {
       "id": "C055",
       "step": "E14",
       "planned_node": "tests/test_native_update_wait.py::test_installed_exact_backend_after_exit",
       "expected": "Upgrader exited and installed backend SHA-256 equals accepted installer before native workflow; old GUI-only success insufficient.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "tests/test_native_update_wait.py::test_updater_wait_handles_the_native_window_closing",
+        "tests/test_native_update_wait.py::test_updated_executable_alone_is_not_completed_installation",
+        "tests/test_native_update_wait.py::test_installed_exact_backend_after_exit"
+      ]
     },
     {
       "id": "C056",
       "step": "E14",
       "planned_node": "services/backend/tests/test_installed_copy_migration.py::test_actual_update_allowed_data",
       "expected": "Mac/Windows installed update preserves actual allowed record IDs/note/denial/session and has no raw legacy data.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_installed_copy_migration.py::test_legacy_copy_allowlist_continuity",
+        "services/backend/tests/test_installed_copy_migration.py::test_actual_update_allowed_data"
+      ],
+      "baseline_reason": "E14 installed binary receipts pending. Explicit skips do not accept delivery."
     },
     {
       "id": "C057",
       "step": "E15",
       "planned_node": "services/backend/tests/test_completion_contracts.py::test_handoff_manifest_scope",
       "expected": "Artifact/source/remote/evidence and cleanup allowlist agree; missing external receipt cannot become accepted-external.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "services/backend/tests/test_completion_contracts.py::test_coverage_receipt_parser",
+        "services/backend/tests/test_completion_contracts.py::test_missing_or_empty_coverage_cannot_certify_anything",
+        "services/backend/tests/test_completion_contracts.py::test_targeted_mutation_detection",
+        "services/backend/tests/test_completion_contracts.py::test_mutation_inventory_names_real_assertions_and_disposable_execution",
+        "services/backend/tests/test_completion_contracts.py::test_bounded_acceptance_tools",
+        "services/backend/tests/test_completion_contracts.py::test_handoff_manifest_scope"
+      ]
     },
     {
       "id": "C058",
       "step": "E12",
       "planned_node": "apps/desktop/src-tauri/src/lib.rs::tests::webhook_tunnel_owned_runtime_lifecycle",
       "expected": "Validated argument arrays target the managed random loopback port; reconnect, missing SSH, mode switch and updater stop only the owned child; no token persisted.",
-      "status": "planned",
+      "status": "authored-baseline-running",
       "red_receipts": [],
-      "green_receipts": []
+      "green_receipts": [],
+      "actual_nodes": [
+        "apps/desktop/src-tauri/src/lib.rs::tests::webhook_tunnel_owned_runtime_lifecycle"
+      ]
     }
   ],
   "case_mapping_rule": "Resolve added cases and test files through acceptance_families.steps -> steps.planned_case_ids/planned_test_files; retained files are listed per family. Do not duplicate derived case arrays per family."

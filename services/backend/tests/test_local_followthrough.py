@@ -10,6 +10,82 @@ from sqlalchemy import select
 from test_remediation_rep_workflow import finish, p
 
 
+def test_callback_time_and_snooze(workspace, clock):
+    """C011: a reminder date cannot silently replace the promised callback."""
+    from uuid import uuid4
+
+    call = start(workspace)
+    due = (clock.now + timedelta(days=2)).isoformat()
+    finish(workspace, call, callback_at=due)
+    task = tasks(workspace, call)[0]
+    snooze = (clock.now + timedelta(hours=1)).isoformat()
+    response = workspace["client"].patch(
+        f"/v1/tasks/{task['id']}",
+        headers=workspace["headers"],
+        json={
+            "request_id": str(uuid4()),
+            "expected_version": task["version"],
+            "status": "snoozed",
+            "snoozed_until": snooze,
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["due_at"] == due
+    assert response.json()["snoozed_until"] == snooze
+    assert response.json()["confirmation_state"] == "confirmed"
+
+
+@pytest.mark.parametrize("conflicting_human", [False, True])
+def test_callback_identity_and_alias(workspace, app, clock, conflicting_human):
+    """C010: legacy duplication is reconciled without losing human decisions."""
+    from uuid import uuid4
+
+    call = start(workspace)
+    due = (clock.now + timedelta(days=1)).isoformat()
+    finish(workspace, call, callback_at=due)
+    original = tasks(workspace, call)[0]
+    service, who = app.state.service, p(workspace)
+    with service.db.transaction() as s:
+        duplicate = put(
+            s,
+            "followup_tasks",
+            who["tenant_id"],
+            who["seller_id"],
+            {
+                **{k: v for k, v in original.items() if k not in {"id", "version"}},
+                **(
+                    {
+                        "human_edited": True,
+                        "due_at": (clock.now + timedelta(days=2)).isoformat(),
+                        "note": "Rep promised a different day",
+                    }
+                    if conflicting_human
+                    else {}
+                ),
+            },
+            key="legacy-duplicate",
+            now=clock.now,
+        )
+        alias = duplicate.id
+    # Startup/backfill is the required idempotent reconciliation boundary.
+    service.db.backfill_operational_columns()
+    view = tasks(workspace, call)
+    if conflicting_human:
+        assert len(view) == 2 and any(t.get("source_conflicts") for t in view)
+    else:
+        assert len(view) == 1 and view[0]["id"] == original["id"]
+        edit = workspace["client"].patch(
+            f"/v1/tasks/{alias}",
+            headers=workspace["headers"],
+            json={
+                "request_id": str(uuid4()),
+                "expected_version": view[0]["version"],
+                "status": "completed",
+            },
+        )
+        assert edit.status_code == 200 and edit.json()["id"] == original["id"]
+
+
 def tasks(w, call):
     return [
         t

@@ -10,6 +10,29 @@ from test_grounding_review import review_response
 from test_remediation_rep_workflow import p
 
 
+@pytest.mark.asyncio
+async def test_complete_rubric_once_per_call(workspace, app, clock, monkeypatch):
+    """C007: a long call has one frozen rubric with every dimension represented."""
+    from datetime import timedelta
+
+    from test_live_memory import setup, turn
+
+    call, who, _, changes = setup(workspace, app, monkeypatch)
+    service = app.state.service
+    changes["result"] = {"action": "NO_ACTION"}
+    for i in range(3):
+        turn(service, who, call, f"rubric-{i}")
+        await service.coach_turn(who, call["id"], urgent=True)
+        clock.now += timedelta(minutes=4)
+    view = service.analysis(who, call["id"])
+    items = view["call_memory"].get("rubric_items", [])
+    expected = {row["id"] for row in call["rubric_snapshot"]["dimensions"]}
+    assert {row["id"] for row in items} == expected
+    assert len(items) == len(expected)
+    assert all(row["status"] in {"unassessed", "insufficient", "not_applicable", "scored"} for row in items)
+    assert all(row.get("score") is None for row in items), "Ordinary transcript chunks are not scored calls"
+
+
 def config(workspace):
     r = workspace["client"].get(
         "/v1/admin/rubrics", headers=workspace["headers"], params={"campaign_id": workspace["campaign_id"]}

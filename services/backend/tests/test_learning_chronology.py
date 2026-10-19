@@ -28,6 +28,52 @@ def timeline(count=150, gap_days=7):
     ]
 
 
+def test_rolling_asof_entity_embargo(tmp_path):
+    """C031: model evidence exposes three honest expanding as-of evaluations."""
+    rows = timeline(500, gap_days=2)
+    for i, row in enumerate(rows):
+        row["company_id"] = f"company-{i // 2}"
+        row["features"].update(segment=f"segment-{i % 40}", feature_schema_version=2)
+        row["right_party"] = int(i % 4 != 0) if row["human"] else None
+    rows[0]["label_available_at"] = rows[-1]["at"]
+    model = train_challenger(rows, tmp_path)
+    folds = model.get("rolling_evaluations", [])
+    assert len(folds) == 3, "One chronological split does not establish rolling validation"
+    for fold in folds:
+        assert fold["training_cutoff"] < fold["calibration_cutoff"] < fold["evaluation_cutoff"]
+        for stage in fold["stages"].values():
+            if stage["status"] == "fitted":
+                assert stage["train_labels_through"] < stage["calibration_from"]
+                assert stage["calibration_labels_through"] < stage["validation_from"]
+                assert stage["entity_overlap_count"] == 0
+                assert stage["calibration_min_class"] >= 10 and stage["validation_min_class"] >= 10
+    assert model["feature_schema_version"] == 2
+    assert model["bootstrap"]["resamples"] == 1000
+    assert model["bootstrap"]["unit"] == "linked_entity"
+
+
+def test_feature_vocabulary_is_fitted_only_in_each_training_partition(tmp_path):
+    rows = timeline(500, gap_days=2)
+    for i, row in enumerate(rows):
+        row["features"].update(
+            segment="training-segment" if i < 350 else "future-only-segment",
+            conversation_concepts=["early-concept"] if i < 350 else ["future-only-concept"],
+            conversation_evidence_missing=False,
+        )
+    model = train_challenger(rows, tmp_path)
+    assert model.get("feature_schema_version") == 2
+    vocabularies = [fold["vocabulary"] for fold in model["rolling_evaluations"]] + [model["vocabulary"]]
+    for vocabulary in vocabularies:
+        assert len(vocabulary["segments"]) <= 32 and len(vocabulary["concepts"]) <= 24
+        assert "future-only-segment" not in vocabulary["segments"]
+        assert "future-only-concept" not in vocabulary["concepts"]
+    ablation = model["conversation_ablation"]
+    assert ablation["comparison"] == "same_folds_without_conversation_features"
+    assert ablation["eligible_for_serving"] is False, (
+        "Constant prior-call concepts add no predictive evidence"
+    )
+
+
 def test_each_fitting_partition_purges_labels_crossing_its_next_boundary():
     source = timeline()
     # A very late observation must be purged even though its outcome window closed.

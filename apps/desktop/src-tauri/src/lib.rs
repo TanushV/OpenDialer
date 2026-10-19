@@ -17,6 +17,113 @@ struct BackendConfig {
 #[derive(Default, Clone)]
 struct LocalBackend(Arc<Mutex<Option<Backend>>>);
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn fixture() -> WebhookTunnelConfig {
+        WebhookTunnelConfig {
+            enabled: true,
+            host: "forwarder.example.test".into(),
+            user: "dialer".into(),
+            remote_port: 18765,
+        }
+    }
+
+    #[test]
+    fn webhook_tunnel_owned_runtime_lifecycle() {
+        let config = fixture();
+        for port in [34001, 59123] {
+            let args = webhook_ssh_args(&config, &format!("http://127.0.0.1:{port}")).unwrap();
+            assert_eq!(
+                args,
+                vec![
+                    "-NT".to_string(),
+                    "-o".into(),
+                    "BatchMode=yes".into(),
+                    "-o".into(),
+                    "StrictHostKeyChecking=yes".into(),
+                    "-o".into(),
+                    "ExitOnForwardFailure=yes".into(),
+                    "-o".into(),
+                    "ServerAliveInterval=30".into(),
+                    "-o".into(),
+                    "ServerAliveCountMax=3".into(),
+                    "-R".into(),
+                    format!("127.0.0.1:18765:127.0.0.1:{port}"),
+                    "dialer@forwarder.example.test".into(),
+                ]
+            );
+        }
+        let saved = serde_json::to_string(&config).unwrap();
+        assert!(!saved.contains("local_token") && !saved.contains("34001"));
+        let waits: Vec<_> = (0..9).map(tunnel_retry_delay).collect();
+        assert_eq!(
+            waits,
+            [1, 2, 4, 8, 16, 30, 30, 30, 30].map(Duration::from_secs)
+        );
+    }
+
+    #[test]
+    fn webhook_tunnel_rejects_argument_injection_and_nonmanaged_destination() {
+        for host in [
+            "-oProxyCommand=bad",
+            "example.test;echo",
+            "example.test\nHost *",
+            "user@host",
+            "host name",
+        ] {
+            let mut config = fixture();
+            config.host = host.into();
+            assert!(webhook_ssh_args(&config, "http://127.0.0.1:34001").is_err());
+        }
+        for user in ["-root", "root;echo", "user name", "user@host", "user\n"] {
+            let mut config = fixture();
+            config.user = user.into();
+            assert!(webhook_ssh_args(&config, "http://127.0.0.1:34001").is_err());
+        }
+        for url in [
+            "https://remote.example.test",
+            "http://127.0.0.1:34001/v1",
+            "http://user@127.0.0.1:34001",
+            "http://127.0.0.1:34001?token=secret",
+            "http://127.0.0.1",
+        ] {
+            assert!(webhook_ssh_args(&fixture(), url).is_err());
+        }
+        let mut disabled = fixture();
+        disabled.enabled = false;
+        assert!(webhook_ssh_args(&disabled, "http://127.0.0.1:34001").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn webhook_tunnel_cleanup_waits_for_only_the_owned_child() {
+        let owned = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .unwrap();
+        let mut unrelated = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .unwrap();
+        let mut tunnel = OwnedWebhookTunnel::new(owned);
+        let result = tunnel.stop();
+        let unrelated_alive = unrelated.try_wait().unwrap().is_none();
+        // Always reap both test-owned children even when an assertion fails.
+        let _ = unrelated.kill();
+        let _ = unrelated.wait();
+        assert!(result.is_ok());
+        assert!(tunnel.is_stopped());
+        assert!(unrelated_alive);
+        assert!(
+            tunnel.stop().is_ok(),
+            "cleanup is idempotent for quit/mode/update"
+        );
+    }
+}
+
 struct ExitCleanup(Mutex<Option<Box<dyn FnOnce() + Send>>>);
 impl tauri::Resource for ExitCleanup {}
 impl Drop for ExitCleanup {

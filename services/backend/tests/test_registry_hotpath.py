@@ -13,6 +13,68 @@ from test_context_reads import count_decrypted
 from test_remediation_privacy import principal
 
 
+def test_npa_chunk_country_bound(workspace, app, clock, monkeypatch):
+    """C020: a country-sized publication reads only the requested NPA chunk."""
+    import gc
+    import hashlib
+    import json
+    import weakref
+    import zlib
+
+    from app.compliance.registry import registry_contains
+
+    service, p = app.state.service, principal(workspace)
+    bits = bytearray(1_250_000)
+    suffix = 5550101
+    bits[suffix >> 3] |= 1 << (suffix & 7)
+    encoded = bytes(bits).hex()
+    with service.db.transaction() as s:
+        parent = service.scoped(s, "registry_snapshots", p)[0]
+        chunks = {}
+        for npa in map(str, range(200, 700)):
+            # Keep one decoded chunk resident while authoring a 500-NPA source.
+            payload = zlib.compress(json.dumps({npa: encoded}, sort_keys=True).encode(), 1)
+            checksum = hashlib.sha256(payload).hexdigest()
+            child = put(
+                s,
+                "registry_snapshots",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    "kind": "national_chunk",
+                    "publication_id": parent.id,
+                    "npa": npa,
+                    "bitmap": base64.b64encode(payload).decode(),
+                    "checksum": checksum,
+                },
+                key=f"{parent.id}:{npa}",
+                now=clock.now,
+            )
+            chunks[npa] = {"id": child.id, "checksum": checksum, "count": 1}
+        update(parent, bitmap=None, listed_numbers=[], chunks=chunks, npas=list(chunks))
+        parent_id = parent.id
+    decoded, live = [], weakref.WeakSet()
+    original = RegistryBitmap.load
+
+    def load(*args):
+        value = original(*args)
+        decoded.extend(value.regions)
+        live.add(value)
+        return value
+
+    monkeypatch.setattr(RegistryBitmap, "load", load)
+    for _ in range(2):
+        with service.db.transaction(False) as s:
+            assert registry_contains(s, get(s, "registry_snapshots", parent_id), "+14155550101")
+            assert not registry_contains(s, get(s, "registry_snapshots", parent_id), "+14155550102")
+    assert decoded == ["415"], "A second decision reuses the exact publication/NPA cache"
+    for npa in range(200, 220):
+        with service.db.transaction(False) as s:
+            assert registry_contains(s, get(s, "registry_snapshots", parent_id), f"+1{npa}5550101")
+    gc.collect()
+    assert sum(sum(len(bits) for bits in bitmap.regions.values()) for bitmap in live) <= 16_777_216
+
+
 def add_history(service, p, clock, count=400):
     with service.db.transaction() as s:
         for i in range(count):

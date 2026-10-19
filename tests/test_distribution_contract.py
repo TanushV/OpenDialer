@@ -4,6 +4,42 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_version_identity_artifact_contract():
+    """C054: all release inputs agree while the installed updater identity stays stable."""
+    import hashlib
+    import tomllib
+
+    from app.config import Settings
+
+    tauri = json.loads((ROOT / "apps/desktop/src-tauri/tauri.conf.json").read_text())
+    package = json.loads((ROOT / "apps/desktop/package.json").read_text())
+    lock = json.loads((ROOT / "apps/desktop/package-lock.json").read_text())
+    cargo = tomllib.loads((ROOT / "apps/desktop/src-tauri/Cargo.toml").read_text())
+    python = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    versions = [
+        tauri["version"],
+        package["version"],
+        lock["version"],
+        lock["packages"][""]["version"],
+        cargo["package"]["version"],
+        python["project"]["version"],
+        Settings().version,
+    ]
+    assert versions == ["0.3.0"] * len(versions)
+    assert tauri["identifier"] == "com.opendialer.desktop"
+    updater = tauri["plugins"]["updater"]
+    assert (
+        hashlib.sha256(updater["pubkey"].encode()).hexdigest()
+        == "562e88f1045a31e34b8dc05381b2c3b1645ad06c023772588a24946186af5aa4"
+    )
+    assert updater["endpoints"] == [
+        "https://github.com/TanushV/OpenDialer/releases/latest/download/latest.json"
+    ]
+    source = (ROOT / "scripts/frozen_acceptance.py").read_text()
+    assert "--expected-version" in source
+    assert '== "0.2.1"' not in source
+
+
 def test_desktop_is_tauri_with_scoped_capabilities_and_microphone_metadata():
     config = json.loads((ROOT / "apps/desktop/src-tauri/tauri.conf.json").read_text())
     assert config["identifier"] == "com.opendialer.desktop"
