@@ -1,0 +1,83 @@
+{
+  "step_id": "E09",
+  "stage": "bounded-report-readers-and-attributed-cost",
+  "source_commit": "b0bbd8c5ecb0f3f7aef9dcee542edd9f90827fe4",
+  "production_tree_digest": "16b622993b864ac21cdedbcc8744cbc595a32b20235e34dae09e9d2b0d71f456",
+  "test_tree_digest": "91cf8407201898b18de7b508688de4471a2c89e52d1995f37df772c1f0e16986",
+  "digest_method": "SHA256 git ls-tree -r of named roots",
+  "case_ids": [
+    "C035",
+    "C038"
+  ],
+  "mode": [
+    "sqlite",
+    "postgresql",
+    "browser"
+  ],
+  "fixture_seed": 20261018,
+  "commands": [
+    "pytest services/backend/tests/{test_incremental_reports,test_incremental_metrics,test_billing_resolution}.py -q --tb=short -k \"not report_publication_reads_bucket and not ordinary_refresh and not normal_correction\"",
+    "pytest services/backend/tests/{test_incremental_reports,test_incremental_metrics,test_report_projections,test_optimization_workflows}.py -q --tb=short -k \"not ordinary_refresh\"",
+    "playwright test tests/optimization.spec.ts",
+    "npm --prefix apps/desktop run typecheck"
+  ],
+  "environment": {
+    "python": "3.12.13",
+    "postgresql": "17 disposable loopback authority",
+    "installed_app_changed": false
+  },
+  "started_at": null,
+  "finished_at": "2026-10-19T17:56:32.118026+00:00",
+  "timestamp_note": "Start not retained; durations from runner logs",
+  "result_counts": {
+    "cost_source_ad2dcde": {
+      "sqlite_passed": 75,
+      "postgresql_passed": 75,
+      "deselected_each": 3,
+      "sqlite_seconds": 29.47,
+      "postgresql_seconds": 155.49
+    },
+    "backend_source_023916a": {
+      "sqlite_passed": 87,
+      "postgresql_passed": 87,
+      "deselected_each": 1,
+      "sqlite_seconds": 57.29,
+      "postgresql_seconds": 220.5
+    },
+    "browser_final": {
+      "passed": 4,
+      "seconds": 17.3
+    }
+  },
+  "failed_cases": [],
+  "historical_intermediate_results": {
+    "cost_contract": "Two missing cost/count contracts",
+    "saved_detail": "Three behavioral failures: recomputed horizon, unbounded decisions contract, historical plans in current view",
+    "browser": "Two passed, one failed because pending report unmounted comparison form and lost draft. Dedicated red regression captured; four final passes."
+  },
+  "raw_log_sha256": {
+    "E09-call-cost-red.txt": "dc31355c175957cf8fe7a4eb059342b62841372544b748da25b419895ae64e0e",
+    "E09-cost-sqlite.txt": "9d4008cee729d1a886be203c7f576dc1932a14316a0dc7c1eec26f3f995d6ec8",
+    "E09-cost-postgres.txt": "7a17cb749ef119f04a5eba2983d934ed57cbf1515aec22798514844d83451da3",
+    "E09-saved-detail-red.txt": "87748c05c70f574b56c9aed5490db4ed5aed0df10f35c67c2b6b2e87a85d216a",
+    "E09-report-readers-sqlite.txt": "765fc6517f8958100a5de3f52fe5130b5d09f080a3e46e2be4612d100adfdc6d",
+    "E09-report-readers-postgres.txt": "004658e4ea390b9b6eafe984ea7527b13769de0e7927faacf25a1506cc3f381f",
+    "E09-capacity-ui-red.txt": "e27d32258c9662ae361a0264268ecda354597011966c9af0c3f27a837370de6b",
+    "E09-report-readers-ui.txt": "c44e5891e180ab083ec3986206f2d9aded4ea096261702d07fcc1c7b54cf2926",
+    "E09-draft-refresh-red.txt": "2afea9a33db85136a113f99a181cd235ed4f9dfb0261488099519fb0ff7b0ed4",
+    "E09-report-readers-ui-recheck.txt": "38547afad434135fc956a6170cdbbae99eae2b24698191042f5baf60e262497f"
+  },
+  "retired_paths": [
+    "Normal report operational_dataset and full lead/decision/plan readers",
+    "Live horizon recomputation during report publication",
+    "Report overwriting complete-attributed cost with zero for unknown calls",
+    "Conditional comparison-form mount causing refresh draft loss"
+  ],
+  "known_limitations": [
+    "Routine refresh still constructs historical dataset; its contract deliberately remains red",
+    "Scoped source receipts do not close full E09 replay, maintenance, index/load or E13 acceptance",
+    "Browser output includes expected unavailable conversation finalization in no-provider simulation; no funded inference is certified",
+    "Native app remains0.2.1; E10-E15 and all external gates remain open"
+  ],
+  "external_calls": false
+}

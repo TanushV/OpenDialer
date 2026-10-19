@@ -603,7 +603,8 @@
         "docs/evidence/completion/E09-core-readers.json",
         "docs/evidence/completion/E09-secondary-counts.json",
         "docs/evidence/completion/E09-trial-counts.json",
-        "docs/evidence/completion/E09-comparison-health.json"
+        "docs/evidence/completion/E09-comparison-health.json",
+        "docs/evidence/completion/E09-report-readers.json"
       ],
       "planned_case_ids": [
         "C035",
@@ -619,7 +620,7 @@
         "A50",
         "A51"
       ],
-      "checkpoint": "624d75c: comparison/strategy counts pass117 perDB; health passes95 PostgreSQL,94 SQLite plus corrected asynchronous fixture1pass. Finish attributed-cost, saved-plan/forecast readers then changed-unit maintenance; full E09 open.",
+      "checkpoint": "023916a backend87 perDB; cost75 perDB; final four browser workflows pass with draft-preservation fix. Ordinary refresh still rebuilds history. Continue changed-unit estimates/plans and explicit bounded datasets, then final E09 acceptance.",
       "implementation_todos": [
         {
           "id": "E09.admission",
@@ -680,6 +681,11 @@
           "id": "E09.comparison_health",
           "status": "accepted-software",
           "work": "Incremental controlled comparisons, strategy exposure/corrected speech and rolling number-health counters; scoped receipt E09-comparison-health"
+        },
+        {
+          "id": "E09.bounded_reports",
+          "status": "accepted-software",
+          "work": "Saved forecast freshness, bounded current plans/recent scoped decisions, complete-attributed cost and comparison draft preservation; E09-report-readers receipt"
         }
       ]
     },
