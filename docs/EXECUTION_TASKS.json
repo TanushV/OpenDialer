@@ -3,7 +3,7 @@
   "written_at": "2026-10-18",
   "baseline_commit": "63f4d4242f60672777f596177fe98fe57f715bf9",
   "baseline_product_test_commit": "6611d3c2fb486b0aac65df2bb42e20663457552a",
-  "status": "implementation-authorized; E00-E06 scoped software steps accepted; E07 in progress",
+  "status": "implementation-authorized; E00-E07 scoped software accepted; E08 in progress",
   "requirements_source": "docs/REMEDIATION_PLAN.md",
   "implementation_source": "docs/EXECUTION_SPEC.md",
   "next_step": "E08",
@@ -516,7 +516,8 @@
       ],
       "receipts": [
         "docs/evidence/completion/E08-contracts-red.json",
-        "docs/evidence/completion/E08-progress.json"
+        "docs/evidence/completion/E08-progress.json",
+        "docs/evidence/completion/E08-models.json"
       ],
       "planned_case_ids": [
         "C030",
@@ -553,7 +554,7 @@
         },
         {
           "id": "E08.strategy",
-          "status": "open",
+          "status": "in-progress",
           "work": "Finite reviewed approaches, real display/use exposures and exact trial/adaptive assignment"
         },
         {
@@ -567,7 +568,7 @@
           "work": "Dual-database and browser evidence, superseded paths removed and mapping updated"
         }
       ],
-      "checkpoint": "Prior-context slice at 277d336: 107 SQLite plus connected-only skip; 108 PostgreSQL. Rolling evaluation and owned v2 serving are implemented but still under focused verification; strategy/UI/full E08 acceptance remain open."
+      "checkpoint": "Model slice da8fc6d: 119 passes in each database; finite strategy/display/use contracts captured red. Integration and full E08 acceptance remain open."
     },
     {
       "id": "E09",

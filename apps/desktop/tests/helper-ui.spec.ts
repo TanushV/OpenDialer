@@ -4,6 +4,14 @@ import { prepareSimulationCall } from "./simulation";
 test("fixed helper remains visible, private controls work and no raw content is archived", async ({
   page,
 }) => {
+  const exposureRequests: Record<string, unknown>[] = [];
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      request.url().endsWith("/coach/feedback")
+    )
+      exposureRequests.push(request.postDataJSON());
+  });
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto("/");
   await expect(page.getByText("Opening your workspace…")).toBeHidden();
@@ -82,6 +90,17 @@ test("fixed helper remains visible, private controls work and no raw content is 
       page.getByRole("button", { name: "Hang up", exact: true }),
     ).toBeInViewport();
   }
+  await expect
+    .poll(() => exposureRequests.some((r) => r.displayed === true))
+    .toBe(true);
+  await page
+    .getByRole("button", { name: "I did not use this guidance", exact: true })
+    .click();
+  await expect(
+    page.getByText("Guidance feedback saved", { exact: true }),
+  ).toBeVisible();
+  expect(exposureRequests.some((r) => r.used_by_rep === false)).toBe(true);
+  expect(exposureRequests.every((r) => r.conversion === undefined)).toBe(true);
   await page.unrouteAll({ behavior: "wait" });
   await page.getByRole("button", { name: "Hang up", exact: true }).click();
   await page.getByLabel("Disposition").selectOption("no_answer");

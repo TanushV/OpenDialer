@@ -1,0 +1,71 @@
+{
+  "step_id": "E08",
+  "acceptance": "partial-model-evaluation; strategy and integration remain open",
+  "source_commit": "da8fc6dd0e3e7d7bf3ff2e75c18c45593a927ef6",
+  "production_tree_digest": "f90ff70f7fdb227036a34f29f582b4eca0ffb9645566208bbe5ea7795cf581a2",
+  "test_tree_digest": "8038e70958cbc7b8475b50d48bae9f51b51496d960fc5aae754d4ac7f2970e96",
+  "digest_method": "SHA256 git ls-tree -r at named source",
+  "case_ids": [
+    "C030",
+    "C031",
+    "C032",
+    "C034"
+  ],
+  "fixture_seed": 20261018,
+  "environment": {
+    "os": "macOS-26.5.1-arm64-arm-64bit",
+    "python": "3.12.13",
+    "interpreter": ".venv/bin/python",
+    "postgres": "task-owned loopback disposable PostgreSQL 17"
+  },
+  "runs": [
+    {
+      "mode": "sqlite",
+      "command": "pytest services/backend/tests/test_learning_chronology.py services/backend/tests/test_model_serving_bounds.py services/backend/tests/test_training_isolation.py services/backend/tests/test_scheduling_and_numbers.py services/backend/tests/test_conversation_features.py services/backend/tests/test_optimization_workflows.py services/backend/tests/test_optimization_integrity.py -q --tb=short",
+      "result_counts": {
+        "tests": 119,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "elapsed_seconds": 35.764,
+      "started_at": "2026-10-19T06:56:04.049662-07:00",
+      "finished_at": "2026-10-19T06:56:39.813662-07:00",
+      "raw_log_sha256": "dc9f04383d04202cb827c751e45e7262e1e0f2977bec553ccf96e32af12148dd",
+      "junit_sha256": "90a56f34d6e2a16e1765b2abe7e4f70bad4dd427a42155ea26d591504104e29e"
+    },
+    {
+      "mode": "postgres",
+      "command": "pytest services/backend/tests/test_learning_chronology.py services/backend/tests/test_model_serving_bounds.py services/backend/tests/test_training_isolation.py services/backend/tests/test_scheduling_and_numbers.py services/backend/tests/test_conversation_features.py services/backend/tests/test_optimization_workflows.py services/backend/tests/test_optimization_integrity.py -q --tb=short",
+      "result_counts": {
+        "tests": 119,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "elapsed_seconds": 158.235,
+      "started_at": "2026-10-19T06:56:58.695814-07:00",
+      "finished_at": "2026-10-19T06:59:36.930814-07:00",
+      "raw_log_sha256": "93dcdb605a738ded254953abf5fc56d0c1dd9910455d83f9c5f5f5bbba395be9",
+      "junit_sha256": "148e9eb9cced63b0960dbbe2d8336564db1654c2a6ff04e468bb2adcfcfb0cb6"
+    }
+  ],
+  "failed_cases": [],
+  "external_calls": false,
+  "retired_paths": [
+    "New models no longer hash segment names into eight buckets",
+    "Single random holdout replaced for new models by three label-as-of grouped folds",
+    "New model serving uses each stage owned vocabulary and transforms"
+  ],
+  "known_limitations": [
+    "Offline predictive fit is not conversion lift",
+    "Strategy/UI/full E08 acceptance remain open",
+    "Native and provider acceptance not covered"
+  ],
+  "supplemental_red_logs": {
+    "E08-evaluation-boundaries-red.txt": "752c16f78c24ff026ef0af8a82c8c0045de309738c847e90746c15e196faea38",
+    "E08-training-integration-red.txt": "2c02fe5038b850965265058f57e4d55039692feb514e0e5233ca96b3c5cabb2c",
+    "E08-review-admission-red.txt": "8bb002b18bba6a2f16d04f9f9361b9df9ec6332dfb0ba2f53fa766286ee56a8b",
+    "E08-baseline-publication-red.txt": "327669ddda843dd916be348a2b4f99f77092a7fcf2dab7e52679fc6a688db411"
+  }
+}
