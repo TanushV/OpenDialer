@@ -151,6 +151,8 @@ def persistent_document(kind, data, *, legacy=False):
                 "server_received_at",
                 "raw_expires_at",
                 "content_hash",
+                "semantic_hash",
+                "transport_revision",
                 "effects_complete",
                 "transcript_version",
                 "interpretation_revision",
@@ -184,6 +186,8 @@ def persistent_document(kind, data, *, legacy=False):
                 "strategy",
                 "status",
                 "context_sources",
+                "context_fingerprint",
+                "meaning_review",
             }
         }
     if kind in {"call_attempts", "provider_events", "webhook_inbox"}:
@@ -332,7 +336,30 @@ class SpeechPrivacy:
                 )
             )
             content_hash = hashlib.sha256(json.dumps(segment, sort_keys=True).encode()).hexdigest()
-            if row and segment["revision"] <= row.data["revision"]:
+            semantic_hash = hashlib.sha256(
+                json.dumps({k: v for k, v in segment.items() if k != "revision"}, sort_keys=True).encode()
+            ).hexdigest()
+            if (
+                row
+                and segment["revision"] >= row.data["revision"]
+                and row.data.get("semantic_hash") == semantic_hash
+            ):
+                # Transport-only revisions retain the canonical content revision and
+                # its original TTL. They neither invalidate memory nor purchase interpretation.
+                update(
+                    row,
+                    transport_revision=max(
+                        segment["revision"], row.data.get("transport_revision", row.data["revision"])
+                    ),
+                )
+                phone = self.required(s, "leads", call.data["lead_id"], p).data["phone"]
+                return {
+                    "duplicate": True,
+                    "effects_complete": row.data.get("effects_complete", False),
+                    "transcript_version": call.data["transcript_version"],
+                    "expired": dt(row.data["raw_expires_at"]) <= self.clock(),
+                }, phone
+            if row and segment["revision"] <= row.data.get("transport_revision", row.data["revision"]):
                 if segment["revision"] == row.data["revision"] and content_hash == row.data.get(
                     "content_hash"
                 ):
@@ -360,6 +387,8 @@ class SpeechPrivacy:
                     **full,
                     "call_id": call_id,
                     "content_hash": content_hash,
+                    "semantic_hash": semantic_hash,
+                    "transport_revision": segment["revision"],
                     "effects_complete": False,
                     "transcript_version": call.data.get("transcript_version", 0) + 1,
                     "question_count": segment.get("text", "").count("?"),
@@ -482,18 +511,12 @@ class SpeechPrivacy:
             )
         eligible = bool(segment.get("is_final") and not result["expired"])
         if eligible and queue_coach:
-            self.jobs.enqueue_in(
+            self._defer_help(
                 s,
-                "live_coach",
-                {
-                    "call_id": call_id,
-                    "seller_id": p["seller_id"],
-                    "user_id": p["user_id"],
-                    "state_version": result["transcript_version"],
-                },
-                "coach:" + call_id + ":" + str(result["transcript_version"]),
-                tenant_id=p["tenant_id"],
-                priority=100,
+                p,
+                call,
+                self.clock() + timedelta(milliseconds=self.settings.runtime_limits.prospect_debounce_ms),
+                "final",
             )
         model = MODELS["transcript_segments"]
         row = s.scalar(
@@ -503,7 +526,7 @@ class SpeechPrivacy:
                 model.external_key == call_id + ":" + segment["segment_id"],
             )
         )
-        if row and row.data["revision"] == segment["revision"]:
+        if row and (row.data["revision"] == segment["revision"] or result.get("duplicate")):
             update(row, effects_complete=True)
         return result, eligible
 
@@ -525,10 +548,8 @@ class SpeechPrivacy:
         import asyncio
 
         result, eligible = await asyncio.to_thread(
-            self._receive_transcript, p, call_id, segment, received_at, defer_coach
+            self._receive_transcript, p, call_id, segment, received_at, True
         )
-        if eligible and not defer_coach:
-            await self.coach_turn(p, call_id)
         return result
 
     def purge_legacy_raw_content(self):

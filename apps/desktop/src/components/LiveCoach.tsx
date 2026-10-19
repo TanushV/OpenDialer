@@ -17,8 +17,13 @@ export function LiveCoach({
   const [waiting, setWaiting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const pending = useRef<{ id: string; callId: string } | null>(null);
+  const questionInput = useRef<HTMLInputElement>(null);
+  const expandButton = useRef<HTMLButtonElement>(null);
   const [dismissed, setDismissed] = useState<string | null>(null);
   const hasQuestion = !!question;
+  useEffect(() => {
+    if (expanded) questionInput.current?.focus();
+  }, [expanded]);
   useEffect(() => {
     const timer = setTimeout(() => setQuestion(""), 300000);
     return () => clearTimeout(timer);
@@ -46,6 +51,13 @@ export function LiveCoach({
   }, [call?.id, active, api]);
   useEffect(() => {
     const hotkey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && expanded) {
+        event.preventDefault();
+        if (waiting) void run(cancelHelp);
+        setExpanded(false);
+        expandButton.current?.focus();
+        return;
+      }
       if (event.key !== "F1" || !active) return;
       event.preventDefault();
       if (!event.repeat) void run(help);
@@ -78,6 +90,14 @@ export function LiveCoach({
       if (pending.current !== current) return;
       if (response.status === "busy")
         notice("The helper is busy. Try again shortly.");
+      else if (
+        ["no_action", "unavailable", "expired_or_corrected"].includes(
+          response.status || "",
+        )
+      )
+        notice(
+          "No supported suggestion is available for this context. Keep using your prepared script.",
+        );
       setDismissed(null);
       await onChange();
     } finally {
@@ -151,6 +171,7 @@ export function LiveCoach({
           <button
             className="text-button"
             aria-expanded={expanded}
+            ref={expandButton}
             onClick={() => setExpanded(!expanded)}
           >
             {expanded ? "Less" : "Private help"}
@@ -193,12 +214,16 @@ export function LiveCoach({
           {advice && (
             <>
               <p>{advice.reason}</p>
+              {advice.alternatives?.map((alternative, index) => (
+                <p key={index}>Alternative: {alternative}</p>
+              ))}
               <small>
-                {advice.private
-                  ? "Private answer"
+                {advice.private ? "Private answer · " : ""}
+                {advice.meaning_review?.status === "model_reviewed"
+                  ? "Model-reviewed guidance"
                   : advice.provider === "cached_knowledge"
-                    ? "Cached knowledge example · AI unavailable"
-                    : "Contextual suggestion · verify material claims"}
+                    ? "Seller-approved example · AI unavailable"
+                    : "Model suggestion"}
               </small>
               <div className="guidance-feedback" aria-label="Guidance feedback">
                 {[
@@ -239,6 +264,7 @@ export function LiveCoach({
             className="input-row"
           >
             <input
+              ref={questionInput}
               aria-label="Private helper question"
               placeholder="Optional question — never sent to the prospect"
               maxLength={2000}

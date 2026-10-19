@@ -68,10 +68,18 @@ def test_coach_rejects_stale_ungrounded_and_long_cards(clock):
         {"evidence_segment_ids": ["missing"]},
         {"say_or_ask": "word " * 201},
         {"playbook_card_ids": ["unapproved"]},
-        {"say_or_ask": "We guarantee to double your revenue"},
     ]:
         with pytest.raises(CardRejected):
             validate_card({**card, **modified}, state_version=3, segment_ids={"seg1"}, card_ids={"card1"})
+    # Transport validation cannot certify or reject meaning from a phrase list.
+    # The independent live review contract covers unsupported factual assertions.
+    from app.coaching.context import ground_guidance
+
+    with pytest.raises(CardRejected):
+        ground_guidance(
+            {**card, "say_or_ask": "We guarantee to double your revenue"},
+            {"state_version": 3, "private_question": "Help", "recent_dialogue": []},
+        )
 
 
 def test_revision_lineage_optout_and_manual_notes_survive_finalization(workspace):

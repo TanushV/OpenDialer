@@ -797,6 +797,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     "interpreted_segments": interpreted,
                     "pending_segments": pending,
                     "unavailable_segments": len(stable_metadata) - interpreted - pending,
+                    "rate_limited_opportunities": derived.get("rate_limited_opportunities", 0),
                 },
                 "notes_version": note.version,
                 "human_notes": note.data.get("human_text"),

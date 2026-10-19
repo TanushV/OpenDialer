@@ -9,7 +9,7 @@ from app.db import get, put, update
 from conftest import start
 from test_context_reads import count_decrypted
 from test_live_memory import turn
-from test_remediation_coach import advice
+from test_remediation_coach import ordinary_advice
 from test_remediation_privacy import persisted_content, principal
 
 LESSON = "Clarify who owns the procurement decision before describing the next step."
@@ -194,7 +194,7 @@ async def test_approved_examples_reach_practice_and_live_context_without_gating_
             requests.append(request)
             self.last_request_id = f"example-{len(requests)}"
             self.last_usage = {"cost": 0.001}
-            result = advice(request["state_version"], "lesson")
+            result = ordinary_advice(request, "lesson")
             result["evidence_segment_ids"] = [] if request.get("simulation") else ["lesson"]
             return result
 
@@ -222,7 +222,7 @@ async def test_revoked_practice_requester_receives_no_private_result(workspace, 
         async def suggest(self, request, **kwargs):
             with service.db.transaction() as s:
                 update(get(s, "users", p["user_id"]), disabled=True)
-            result = advice(0)
+            result = ordinary_advice(request)
             result["evidence_segment_ids"] = []
             return result
 
@@ -249,7 +249,7 @@ async def test_practice_retry_reuses_original_request_and_never_extends_raw_expi
             calls.append(request)
             ready.set()
             await release.wait()
-            result = advice(0)
+            result = ordinary_advice(request)
             result["evidence_segment_ids"] = []
             return result
 
@@ -332,7 +332,7 @@ async def test_practice_does_not_return_help_from_a_changed_knowledge_source(
                     )
             if boundary == "correct":
                 turn(service, p, call, "lesson", revision=2, text="The earlier description was incorrect.")
-            result = advice(0)
+            result = ordinary_advice(request)
             result["evidence_segment_ids"] = []
             return result
 
@@ -352,7 +352,7 @@ async def test_practice_replay_rechecks_current_knowledge_without_another_charge
 
         async def suggest(self, request, **kwargs):
             requests.append(request)
-            result = advice(0)
+            result = ordinary_advice(request)
             result["evidence_segment_ids"] = []
             return result
 

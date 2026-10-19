@@ -45,7 +45,7 @@ class Service(ReservationPlanner):
         self.raw = EphemeralBuffer(clock=clock)
         from app.coaching.engine import CoachEngine
 
-        self.coach = CoachEngine()
+        self.coach = CoachEngine(settings.runtime_limits)
 
     def required(self, s, kind, object_id, p):
         obj = get(s, kind, object_id, p["tenant_id"])

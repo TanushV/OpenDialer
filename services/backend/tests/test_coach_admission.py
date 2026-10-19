@@ -10,6 +10,40 @@ from test_live_memory import setup, turn
 FALLBACK = {"action": "NO_ACTION"}
 
 
+@pytest.mark.asyncio
+async def test_unchanged_final_revision_does_not_rebill_interpretation(workspace, app, clock, monkeypatch):
+    call, p, requests, _ = setup(workspace, app, monkeypatch)
+    service = app.state.service
+    turn(service, p, call, "unchanged")
+    clock.now += timedelta(milliseconds=301)
+    await service.run_jobs(p["tenant_id"], queues=["live_coach"])
+    assert len(requests) == 1
+    turn(service, p, call, "unchanged", revision=2)
+    clock.now += timedelta(seconds=10)
+    await service.run_jobs(p["tenant_id"], queues=["live_coach"])
+    assert len(requests) == 1
+    assert service.analysis(p, call["id"])["interpretation_coverage"]["interpreted_segments"] == 1
+
+
+@pytest.mark.asyncio
+async def test_rep_only_refresh_is_paced_but_not_lost(workspace, app, clock, monkeypatch):
+    call, p, requests, _ = setup(workspace, app, monkeypatch)
+    service = app.state.service
+    turn(service, p, call, "seller-1", side="rep")
+    clock.now += timedelta(milliseconds=301)
+    await service.run_jobs(p["tenant_id"], queues=["live_coach"])
+    for i in range(3):
+        clock.now += timedelta(seconds=1)
+        turn(service, p, call, f"seller-{i + 2}", side="rep")
+        clock.now += timedelta(milliseconds=301)
+        await service.run_jobs(p["tenant_id"], queues=["live_coach"])
+    assert len(requests) == 1
+    clock.now += timedelta(seconds=8)
+    await service.run_jobs(p["tenant_id"], queues=["live_coach"])
+    assert len(requests) == 2
+    assert requests[-1]["recent_dialogue"][-1]["segment_id"] == "seller-4"
+
+
 def test_many_final_chunks_keep_only_one_latest_pending_context(workspace, app, monkeypatch):
     from app.db import Job
     from sqlalchemy import select

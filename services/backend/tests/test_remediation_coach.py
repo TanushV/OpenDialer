@@ -24,9 +24,23 @@ def advice(version=1, evidence="s1", text="Which part of that constraint would b
     }
 
 
+def ordinary_advice(request, evidence="s1", **changes):
+    """Explicit audited nonassertive fixture; claim tests keep the untyped advice helper."""
+    return {
+        **advice(request["state_version"], evidence),
+        "context_fingerprint": request["context_fingerprint"],
+        "field_audit": [
+            {"field": field, "classification": "nonassertive", "sources": [], "implied_premises": []}
+            for field in ("say_or_ask", "reason")
+        ],
+        **changes,
+    }
+
+
 def test_novel_grounded_question_does_not_need_a_matching_playbook_sentence():
     request = {
         "state_version": 1,
+        "context_fingerprint": "novel-question",
         "recent_dialogue": [
             {
                 "segment_id": "s1",
@@ -39,7 +53,7 @@ def test_novel_grounded_question_does_not_need_a_matching_playbook_sentence():
         "facts": [],
         "approved_claims": [],
     }
-    assert ground_guidance(advice(), request)
+    assert ground_guidance(ordinary_advice(request), request)
 
 
 @pytest.mark.asyncio
@@ -61,7 +75,7 @@ async def test_cerebras_request_is_zdr_and_prompt_allows_contextual_wording():
 
 
 @pytest.mark.asyncio
-async def test_unknown_topic_reaches_provider_without_matching_card(workspace, app, monkeypatch):
+async def test_unknown_topic_reaches_provider_without_matching_card(workspace, app, clock, monkeypatch):
     call = start(workspace)
     service = app.state.service
     captured = []
@@ -75,7 +89,7 @@ async def test_unknown_topic_reaches_provider_without_matching_card(workspace, a
 
         async def suggest(self, request, **kwargs):
             captured.append(request)
-            return advice(request["state_version"], "unknown")
+            return ordinary_advice(request, "unknown")
 
     monkeypatch.setattr(service, "configured_coach", lambda p: (Coach(), "openrouter"))
     # Only the inference boundary is made live; no carrier or external network is used.
@@ -92,12 +106,19 @@ async def test_unknown_topic_reaches_provider_without_matching_card(workspace, a
             "text": "Our approvals depend on a union committee.",
         },
     )
+    assert not captured
+    from datetime import timedelta
+
+    clock.now += timedelta(milliseconds=301)
+    await service.run_jobs(p["tenant_id"], queues=["live_coach"])
     assert len(captured) == 1
     assert captured[0]["lead_context"]
     assert captured[0]["recent_dialogue"][-1]["text"].endswith("committee.")
 
 
-def test_every_stable_chunk_is_observed_without_a_paid_request_per_partial(workspace, app, monkeypatch):
+def test_every_stable_chunk_is_observed_without_a_paid_request_per_partial(
+    workspace, app, clock, monkeypatch
+):
     call = start(workspace)
     seen = []
 
@@ -123,6 +144,11 @@ def test_every_stable_chunk_is_observed_without_a_paid_request_per_partial(works
             ).status_code
             == 200
         )
+    assert not seen
+    from datetime import timedelta
+
+    clock.now += timedelta(milliseconds=301)
+    assert c.post("/v1/admin/jobs/run", headers=h, json={"queues": ["live_coach"]}).status_code == 200
     assert seen == [call["id"]]
 
 

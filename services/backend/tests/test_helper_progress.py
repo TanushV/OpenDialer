@@ -10,7 +10,7 @@ import pytest
 from app.db import get
 from app.providers.openrouter import OpenRouterCoach
 from test_live_memory import setup, turn
-from test_remediation_coach import advice
+from test_remediation_coach import advice, ordinary_advice
 from test_remediation_privacy import persisted_content
 
 
@@ -37,8 +37,13 @@ class PausedStream(httpx.AsyncByteStream):
 
     async def __aiter__(self):
         # The primary response and all its evidence/identity fields finish first.
-        primary = {k: v for k, v in self.result.items() if k not in {"reason", "state_update"}}
-        prefix = json.dumps(primary)[:-1] + ', "reason": "'
+        primary = {k: self.result[k] for k in ("state_version", "context_fingerprint", "field_audit")}
+        guidance = {
+            k: self.result[k]
+            for k in ("kind", "say_or_ask", "evidence_segment_ids", "playbook_card_ids", "expires_in_ms")
+        }
+        guidance["alternatives"] = []
+        prefix = json.dumps(primary)[:-1] + ', "guidance": ' + json.dumps(guidance)[:-1] + ', "reason": "'
         yield frame(prefix, provider=self.provider)
         self.ready.set()
         await self.release.wait()
@@ -46,7 +51,7 @@ class PausedStream(httpx.AsyncByteStream):
             yield frame(error={"message": "synthetic provider failure"})
             return
         suffix = ', "say_or_ask": "Altered later?"' if self.broken == "duplicate" else ""
-        yield frame('A fuller explanation after the useful answer.", "state_update": null' + suffix + "}")
+        yield frame('A fuller explanation after the useful answer."' + suffix + '}, "state_delta": null}')
         yield frame(
             choices=[{"delta": {}, "finish_reason": "stop"}],
             usage={"cost": 0.001, "completion_tokens": 60},
@@ -64,9 +69,7 @@ async def test_complete_primary_answer_is_visible_before_explanation_and_one_rec
 
     def handler(request):
         context = json.loads(json.loads(request.content)["messages"][1]["content"])
-        return httpx.Response(
-            200, stream=PausedStream(advice(context["state_version"], "progress"), ready, release)
-        )
+        return httpx.Response(200, stream=PausedStream(ordinary_advice(context, "progress"), ready, release))
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
         monkeypatch.setattr(
@@ -113,7 +116,7 @@ async def test_partial_help_is_withdrawn_at_a_changed_boundary(workspace, app, c
         return httpx.Response(
             200,
             stream=PausedStream(
-                advice(context["state_version"], "progress"),
+                ordinary_advice(context, "progress"),
                 ready,
                 release,
                 broken="duplicate" if boundary == "duplicate" else boundary == "failure",
@@ -177,9 +180,7 @@ async def test_transport_cancel_during_early_publication_cannot_leave_an_unfinis
 
     def handler(request):
         context = json.loads(json.loads(request.content)["messages"][1]["content"])
-        return httpx.Response(
-            200, stream=PausedStream(advice(context["state_version"], "progress"), ready, release)
-        )
+        return httpx.Response(200, stream=PausedStream(ordinary_advice(context, "progress"), ready, release))
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
         monkeypatch.setattr(
@@ -226,7 +227,7 @@ async def test_stream_never_displays_unverified_or_incomplete_primary_fields(
 
     def handler(request):
         context = json.loads(json.loads(request.content)["messages"][1]["content"])
-        result = advice(context["state_version"], "progress")
+        result = ordinary_advice(context, "progress")
         if unsafe == "unsupported_number":
             result["say_or_ask"] = "We guarantee 999 meetings."
         return httpx.Response(

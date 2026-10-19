@@ -10,14 +10,19 @@ from sqlalchemy import or_, select
 from app.coaching import library, sources
 from app.coaching import requests as help_requests
 from app.coaching.context import (
+    MeaningReviewRequired,
     build_context,
     ground_guidance,
+    guidance_review_request,
+    guidance_sources,
     merge_semantic_state,
     persistent_state,
     retrieve_cards,
 )
+from app.coaching.contracts import card_view
 from app.coaching.engine import CardRejected, finish_shielded
 from app.db import MODELS, doc, emit, get, put, uid, update
+from app.grounding import accept_review
 from app.privacy import persistent_document
 from app.providers.inference import InferenceResult
 from app.service import dt, fail
@@ -26,7 +31,7 @@ from app.telephony.reducer import TERMINAL
 
 class LiveHelper:
     def _defer_help(self, s, p, call, due, marker):
-        self.jobs.enqueue_in(
+        self.jobs.coalesce_live_in(
             s,
             "live_coach",
             {
@@ -35,7 +40,7 @@ class LiveHelper:
                 "user_id": call.data["rep_id"],
                 "state_version": call.data["transcript_version"],
             },
-            f"coach-due:{call.id}:{call.data['transcript_version']}:{marker}",
+            f"coach:{call.id}",
             tenant_id=p["tenant_id"],
             priority=100,
             available_at=due,
@@ -128,6 +133,9 @@ class LiveHelper:
                         "practice_goals": user.data.get("coaching_goals", []),
                         "recent_dialogue": [],
                         "facts": [],
+                        "context_sources": {
+                            "knowledge": sources.knowledge(book, seller.data["name"], examples)
+                        },
                     },
                     None,
                     expires,
@@ -136,18 +144,55 @@ class LiveHelper:
         request, previous, expires = await asyncio.to_thread(context)
         if previous is not None:
             return {"simulation": True, "request_id": identity, **previous}
+        request["context_fingerprint"] = sources.digest(request)
+        request["evidence_catalog"] = guidance_sources(request)
+        request["help_request_id"] = key
         provider, route = self.configured_coach(p)
         result = {"status": "unconfigured", "examples": request["approved_cards"]}
         if provider and not self.settings.simulation:
+            deadline = time.monotonic() + min(
+                self.settings.runtime_limits.manual_full_ms / 1000,
+                (expires - self.clock()).total_seconds(),
+            )
+
+            async def authorized():
+                return self.coach.current(key, key) and await asyncio.to_thread(
+                    self._practice_authorized, p, key
+                )
 
             async def admit(submit):
-                with_authority = await asyncio.to_thread(self._practice_authorized, p)
+                with_authority = await authorized()
                 return with_authority and (
                     not submit or await self._reserve_coach(p, key, key, "coaching_practice")
                 )
 
             async def settle(submitted):
                 await self._settle_coach(p, key, key, "coaching_practice", route, provider, submitted)
+
+            async def publish(guidance):
+                guidance = card_view(guidance)
+                if not await authorized() or time.monotonic() >= deadline:
+                    raise CardRejected("Practice context changed")
+                try:
+                    ground_guidance(guidance, request)
+                except MeaningReviewRequired:
+                    receipt = await self._review_help(
+                        p,
+                        key,
+                        request,
+                        guidance,
+                        provider,
+                        route,
+                        expires,
+                        deadline,
+                        authorize=authorized,
+                        work_kind="coaching_practice_review",
+                    )
+                    ground_guidance(guidance, request, review=receipt)
+                    guidance = {**guidance, "meaning_review": receipt.metadata()}
+                else:
+                    guidance = {**guidance, "meaning_review": {"status": "model_suggestion"}}
+                return guidance
 
             result = {"status": "unavailable"}
             try:
@@ -156,16 +201,16 @@ class LiveHelper:
                     request,
                     provider,
                     {"action": "NO_ACTION"},
-                    deadline_ms=8000,
+                    deadline_ms=max(1, int((deadline - time.monotonic()) * 1000)),
                     admit=admit,
                     settle=settle,
+                    publish=publish,
                     circuit_key=(p["tenant_id"], p["seller_id"], route),
                     owner_key=(p["tenant_id"], p["seller_id"], p["user_id"]),
                 )
-                ground_guidance(guidance, request)
                 if guidance.get("action") == "SHOW_CARD":
                     result = {"status": "ready", "guidance": guidance}
-            except CardRejected:
+            except (CardRejected, ValueError):
                 pass
             finally:
                 if asyncio.current_task().cancelling():
@@ -178,9 +223,15 @@ class LiveHelper:
             **await asyncio.to_thread(self._finish_practice, p, key, raw_key, expires, result),
         }
 
-    def _practice_authorized(self, p):
+    def _practice_authorized(self, p, key):
         with self.db.transaction(False) as s:
-            return self._coach_authority(s, p)
+            record = self._by_key(s, p, "conversation_states", key)
+            return (
+                self._coach_authority(s, p)
+                and record is not None
+                and dt(record.data["expires_at"]) > self.clock()
+                and self._practice_knowledge_current(s, p, record)
+            )
 
     def _practice_knowledge_current(self, s, p, record):
         if not sources.knowledge_current(self, s, p, record.data.get("knowledge")):
@@ -375,6 +426,7 @@ class LiveHelper:
             # Observe every stable chunk; coalesce paid work within the configured quiet interval.
             if (
                 not urgent
+                and not any(item.get("side") == "remote" for item in pending)
                 and previous.get("last_request_at")
                 and (self.clock() - dt(previous["last_request_at"])).total_seconds() < interval
             ):
@@ -491,6 +543,23 @@ class LiveHelper:
             request["conversation_learning"] = guidance_context(
                 campaign, self.optimization_config(s, p, campaign.id), now=self.clock()
             )
+            request["context_fingerprint"] = sources.digest(
+                {
+                    "state_version": version,
+                    "sources": request["context_sources"],
+                    "segments": [(r["segment_id"], r["revision"], r.get("side")) for r in stable],
+                }
+            )
+            request["evidence_catalog"] = guidance_sources(request)
+            pending_times = [dt(item["server_received_at"]) for item in pending]
+            request["timing"] = {
+                "coalescing_ms": max(0, (self.clock() - max(pending_times)).total_seconds() * 1000)
+                if pending_times and not urgent
+                else 0,
+                "oldest_pending_ms": max(0, (self.clock() - min(pending_times)).total_seconds() * 1000)
+                if pending_times
+                else 0,
+            }
             update(state_record, last_request_at=self.clock().isoformat())
             deadline = min(
                 [dt(r["raw_expires_at"]) for r in stable] or [self.clock() + timedelta(seconds=300)]
@@ -551,15 +620,23 @@ class LiveHelper:
         return {**result, "request_id": identity, "private": bool(question)}
 
     async def _coach_turn(self, p, call_id, urgent=False, question=None, identity=None):
+        request_started = time.monotonic()
         prepared = await asyncio.to_thread(self._help_context, p, call_id, urgent, question, identity)
         if not prepared:
             return {"action": "NO_ACTION", "status": "no_action", "private": bool(question)}
         request, fallback, expires, state_ms, retrieval_ms, comparison = prepared
         remaining = (expires - self.clock()).total_seconds()
-        monotonic_deadline = time.monotonic() + remaining
+        limits = self.settings.runtime_limits
+        allowed_ms = limits.manual_full_ms if urgent else limits.automatic_deadline_ms
+        monotonic_deadline = min(request_started + allowed_ms / 1000, time.monotonic() + remaining)
         if remaining <= 0:
             return {"action": "NO_ACTION", "status": "expired", "private": bool(question)}
         provider, route = self.configured_coach(p)
+        if provider:
+            provider.first_useful_ms = max(
+                1, int((request_started + limits.manual_first_ms / 1000 - time.monotonic()) * 1000)
+            )
+            provider.connect_ms = limits.manual_connect_ms
         if (comparison or {}).get("arm") == "control" and not urgent:
             provider = None
         result, source = fallback, "cached_knowledge"
@@ -584,6 +661,9 @@ class LiveHelper:
                     retrieval_ms,
                     (time.perf_counter() - began) * 1000,
                     progressive=True,
+                    deadline=min(monotonic_deadline, began + limits.manual_first_ms / 1000)
+                    if urgent
+                    else monotonic_deadline,
                 )
                 progress_id = shown.get("id")
                 return bool(progress_id)
@@ -609,7 +689,7 @@ class LiveHelper:
                     <= 0
                 ):
                     return False
-                return await asyncio.to_thread(self._admit_help, p, call_id, request)
+                return await asyncio.to_thread(self._admit_help, p, call_id, request, True)
 
             async def settle(submitted):
                 await self._settle_coach(p, request_key, call_id, "live_coach", route, provider, submitted)
@@ -628,6 +708,9 @@ class LiveHelper:
                     retrieval_ms,
                     (time.perf_counter() - began) * 1000,
                     event_id=progress_id if result is not fallback else None,
+                    deadline=min(monotonic_deadline, began + limits.manual_first_ms / 1000)
+                    if urgent and not progress_id
+                    else monotonic_deadline,
                 )
                 final_id = final.get("id")
                 return final
@@ -638,7 +721,7 @@ class LiveHelper:
                     request,
                     provider,
                     fallback,
-                    deadline_ms=min(int(remaining * 1000), 8000 if urgent else 1500),
+                    deadline_ms=max(1, int((monotonic_deadline - time.monotonic()) * 1000)),
                     admit=admit,
                     settle=settle,
                     publish=publish,
@@ -664,7 +747,7 @@ class LiveHelper:
             (time.perf_counter() - began) * 1000,
         )
 
-    def _admit_help(self, p, call_id, request):
+    def _admit_help(self, p, call_id, request, count_admission=False):
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
             s.refresh(call, with_for_update=True)
@@ -679,6 +762,27 @@ class LiveHelper:
                 or not sources.current(self, s, p, request.get("context_sources"))
             ):
                 return False
+            if count_admission and not request.get("manual_help"):
+                now = self.clock()
+                admitted = [
+                    item
+                    for item in state.data.get("automatic_admissions", [])
+                    if dt(item["at"]) > now - timedelta(seconds=60)
+                ]
+                if not any(item["id"] == request["help_request_id"] for item in admitted):
+                    if len(admitted) >= self.settings.runtime_limits.automatic_per_call_minute:
+                        version = request["state_version"]
+                        if state.data.get("rate_limited_version") != version:
+                            update(
+                                state,
+                                rate_limited_version=version,
+                                rate_limited_opportunities=state.data.get("rate_limited_opportunities", 0)
+                                + 1,
+                            )
+                        self._defer_help(s, p, call, dt(admitted[0]["at"]) + timedelta(seconds=60), "rate")
+                        return False
+                    admitted.append({"id": request["help_request_id"], "at": now.isoformat()})
+                    update(state, automatic_admissions=admitted)
             update(state, coach_request_key=request["help_request_id"])
             return True
 
@@ -686,7 +790,7 @@ class LiveHelper:
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
             if call.data["state"] not in TERMINAL | {"ENDING"}:
-                due = self.clock() + timedelta(seconds=8)
+                due = self.clock() + timedelta(milliseconds=self.settings.runtime_limits.prospect_debounce_ms)
                 self._defer_help(s, p, call, due, "capacity:" + due.isoformat())
 
     async def _validated_help(
@@ -704,16 +808,40 @@ class LiveHelper:
         *,
         progressive=False,
         event_id=None,
+        deadline=None,
     ):
+        review_ms = 0.0
         try:
-            ground_guidance(result, request)
-        except CardRejected:
+            result = card_view(result)
+            try:
+                ground_guidance(result, request, cached=source == "cached_knowledge", progressive=progressive)
+            except MeaningReviewRequired:
+                if progressive or provider is None or deadline is None:
+                    raise CardRejected("Guidance is awaiting independent review") from None
+                review_started = time.perf_counter()
+                receipt = await self._review_help(
+                    p, call_id, request, result, provider, source, expires, deadline
+                )
+                review_ms = (time.perf_counter() - review_started) * 1000
+                ground_guidance(result, request, review=receipt)
+                result = {**result, "meaning_review": receipt.metadata()}
+            else:
+                if result.get("action") == "SHOW_CARD":
+                    result = {
+                        **result,
+                        "meaning_review": {
+                            "status": "seller_approved"
+                            if source == "cached_knowledge"
+                            else "model_suggestion"
+                        },
+                    }
+        except (CardRejected, ValueError):
             # An unsafe suggestion need not lose a separately validated interpretation.
             result = {
                 "action": "NO_ACTION",
                 "state_version": request["state_version"],
                 "state_update": result.get("state_update")
-                if result.get("state_version") == request["state_version"]
+                if isinstance(result, dict) and result.get("state_version") == request["state_version"]
                 else None,
             }
         result = {
@@ -737,6 +865,7 @@ class LiveHelper:
                 retrieval_ms,
                 inference_ms,
                 event_id,
+                review_ms,
             )
         except CardRejected:
             return {
@@ -744,6 +873,71 @@ class LiveHelper:
                 "status": "no_action",
                 "private": bool(request.get("private_question")),
             }
+
+    async def _review_help(
+        self,
+        p,
+        call_id,
+        request,
+        candidate,
+        provider,
+        route,
+        expires,
+        deadline,
+        *,
+        authorize=None,
+        work_kind="live_coach_review",
+    ):
+        """Optional independent review in the existing live slot, with its own liability."""
+        if not hasattr(provider, "review"):
+            raise CardRejected("Independent live review unavailable")
+        review = guidance_review_request(candidate, request)
+        key = f"{request.get('help_request_id', call_id)}:review:{uid()}"
+        generation = {
+            name: getattr(provider, name, None)
+            for name in ("last_usage", "last_request_id", "last_provider", "last_model")
+        }
+        submitted = False
+
+        async def current():
+            return (
+                await authorize()
+                if authorize
+                else await asyncio.to_thread(self._admit_help, p, call_id, request)
+            )
+
+        def remaining():
+            return min(deadline - time.monotonic(), (expires - self.clock()).total_seconds())
+
+        try:
+            if remaining() <= 0 or not await current():
+                raise CardRejected("Review context expired or changed")
+            if not await self._reserve_coach(p, key, call_id, work_kind):
+                raise CardRejected("Review budget unavailable")
+            if remaining() <= 0 or not await current():
+                raise CardRejected("Review context expired before submission")
+            # Never attribute the generation receipt to a review that failed before
+            # receiving a response, including provider adapters supplied by tests.
+            provider.last_usage, provider.last_request_id = {}, None
+            submitted = True
+            result = await asyncio.wait_for(
+                provider.review(review, deadline_ms=max(1, int(remaining() * 1000))), remaining()
+            )
+            if remaining() <= 0 or not await current():
+                raise CardRejected("Review completed after its original context deadline")
+            if str(getattr(provider, "last_provider", "") or "").casefold().split("/")[0] != "cerebras":
+                raise CardRejected("Review did not verify the Cerebras provider")
+            return accept_review(review, result, getattr(provider, "last_request_id", None))
+        except Exception as exc:
+            raise CardRejected("Independent meaning review unavailable or unsupported") from exc
+        finally:
+            try:
+                await finish_shielded(
+                    self._settle_coach(p, key, call_id, work_kind, route, provider, submitted)
+                )
+            finally:
+                for name, value in generation.items():
+                    setattr(provider, name, value)
 
     def _withdraw_help(self, p, call_id, event_id):
         with self.db.transaction() as s:
@@ -768,6 +962,7 @@ class LiveHelper:
         retrieval_ms,
         inference_ms,
         event_id=None,
+        review_ms=0.0,
     ):
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
@@ -848,10 +1043,17 @@ class LiveHelper:
                         "model": getattr(provider, "last_model", None),
                         "provider_request_id": getattr(provider, "last_request_id", None),
                         "latency": {
+                            **request.get("timing", {}),
                             "state_ms": max(0, state_ms - retrieval_ms),
                             "retrieval_ms": retrieval_ms,
                             "state_retrieval_ms": state_ms,
-                            "inference_ms": inference_ms,
+                            "generation_ms": inference_ms,
+                            "review_ms": review_ms,
+                            "inference_ms": inference_ms + review_ms,
+                            "total_server_ms": request.get("timing", {}).get("coalescing_ms", 0)
+                            + state_ms
+                            + inference_ms
+                            + review_ms,
                             "stt_ms": None,
                         },
                     },
@@ -879,5 +1081,5 @@ class LiveHelper:
                     scope=p["tenant_id"] + ":" + call_id,
                 )
                 emit(s, p["tenant_id"], "coach.card_ready", call, self.clock(), {"coach_event_id": obj.id})
-                result = {**result, "id": obj.id}
+                result = {**result, "id": obj.id, "latency": metadata["latency"]}
         return result

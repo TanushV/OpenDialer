@@ -3,7 +3,7 @@ import threading
 import time
 from collections import OrderedDict
 
-from app.research.validation import BANNED
+from app.coaching.contracts import Guidance
 
 
 class CardRejected(ValueError):
@@ -25,8 +25,16 @@ async def finish_shielded(work):
 
 
 def validate_card(card, *, state_version, segment_ids, card_ids, manual=False):
+    if not isinstance(card, dict):
+        raise CardRejected("Invalid guidance object")
     if card.get("action") == "NO_ACTION":
         return True
+    try:
+        Guidance.model_validate(
+            {"alternatives": [], **{key: card[key] for key in Guidance.model_fields if key in card}}
+        )
+    except ValueError as exc:
+        raise CardRejected("Invalid bounded guidance") from exc
     if card.get("action") != "SHOW_CARD" or card.get("state_version") != state_version:
         raise CardRejected("Obsolete conversation state")
     if (not manual and not card.get("evidence_segment_ids")) or not set(
@@ -35,11 +43,7 @@ def validate_card(card, *, state_version, segment_ids, card_ids, manual=False):
         raise CardRejected("Unrecognized transcript evidence")
     if not set(card.get("playbook_card_ids", [])).issubset(card_ids):
         raise CardRejected("Unapproved playbook source")
-    if (
-        not card.get("say_or_ask")
-        or len(card.get("say_or_ask", "")) > 1000
-        or BANNED.search(card.get("say_or_ask", ""))
-    ):
+    if not card.get("say_or_ask") or len(card.get("say_or_ask", "")) > 1000:
         raise CardRejected("Unsafe or excessive guidance")
     if not 0 < card.get("expires_in_ms", 0) <= 300000:
         raise CardRejected("Invalid card lifetime")
@@ -47,15 +51,18 @@ def validate_card(card, *, state_version, segment_ids, card_ids, manual=False):
 
 
 class CoachEngine:
-    def __init__(self):
+    def __init__(self, limits=None):
+        from app.config import RuntimeLimits
+
+        self.limits = limits or RuntimeLimits()
         self.active = {}
         self._manual = set()
         self._identities = {}
         self._pending = {}
         self._lock = threading.RLock()
         self._circuits = OrderedDict()
-        self.capacity = asyncio.Semaphore(8)
-        self.max_pending = 32
+        self.capacity = asyncio.Semaphore(self.limits.live_active)
+        self.max_pending = self.limits.live_pending
 
     @property
     def failures(self):
@@ -114,7 +121,7 @@ class CoachEngine:
                 return self.active.get(call_id) is task and not task.cancelling()
 
         async def perform():
-            submitted, acquired = False, False
+            submitted, acquired, settled = False, False, False
             result = fallback
             try:
                 try:
@@ -141,20 +148,28 @@ class CoachEngine:
                         except Exception:
                             self._circuit(circuit_key, True)
                             result = fallback
-            finally:
-                if acquired:
-                    self.capacity.release()
                 if settle:
+                    settled = True
                     await finish_shielded(settle(submitted))
-            if not current():
-                return {"action": "NO_ACTION", "status": "superseded"}
-            return await publish(result) if publish else result
+                if not current():
+                    return {"action": "NO_ACTION", "status": "superseded"}
+                # Publication includes optional review. Retain this same capacity
+                # slot until it finishes; another semaphore would multiply work.
+                return await publish(result) if publish else result
+            finally:
+                try:
+                    if settle and not settled:
+                        await finish_shielded(settle(submitted))
+                finally:
+                    if acquired:
+                        self.capacity.release()
 
         with self._lock:
             if call_id in self._manual and not manual:
                 return {"action": "NO_ACTION", "status": "manual_pending"}
             if len(self._pending) >= self.max_pending or (
-                owner_key is not None and list(self._pending.values()).count(owner_key) >= 2
+                owner_key is not None
+                and list(self._pending.values()).count(owner_key) >= self.limits.live_per_rep
             ):
                 return {"action": "NO_ACTION", "status": "busy"}
             self.cancel(call_id)

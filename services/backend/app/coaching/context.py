@@ -3,7 +3,9 @@
 import hashlib
 import re
 
+from app.coaching.contracts import FieldAudit
 from app.coaching.engine import CardRejected, validate_card
+from app.grounding import require_review, review_request
 
 STATE_FIELDS = (
     "needs",
@@ -127,7 +129,73 @@ def retrieve_cards(state, cards):
     return [c for _, c in sorted(relevant, key=lambda item: (-item[0], item[1]["id"]))[:4]]
 
 
-def ground_guidance(card, request):
+class MeaningReviewRequired(CardRejected):
+    """Valid transport/source references, but no independent support for its assertions."""
+
+
+def guidance_sources(request):
+    """A bounded source catalog. Private questions provide intent, never factual authority."""
+    book = request.get("context_sources", {}).get("knowledge", {}).get("book") or ["seller", 0]
+    result = [
+        {
+            "kind": "knowledge",
+            "id": book[0],
+            "version": book[1],
+            "text": request.get("seller", {}).get("knowledge", ""),
+            "claims": request.get("approved_claims", []),
+            "prohibited_claims": request.get("prohibited_claims", []),
+        }
+    ]
+    for kind, values, identity, version in (
+        ("segment", request.get("recent_dialogue", []), "segment_id", "revision"),
+        ("fact", request.get("facts", []), "id", "version"),
+        ("card", request.get("approved_cards", []), "id", "version"),
+        ("commitment", request.get("prior_commitments", []), "id", "version"),
+    ):
+        for item in values:
+            if not item.get(identity):
+                continue
+            result.append(
+                {
+                    "kind": kind,
+                    "id": item[identity],
+                    "version": item.get(version, 1),
+                    "text": item.get("text", item.get("statement", item.get("action", ""))),
+                    "side": item.get("side"),
+                    "status": item.get("status"),
+                    "raw_expires_at": item.get("raw_expires_at"),
+                }
+            )
+    return result
+
+
+def guidance_fields(card, *, progressive=False):
+    fields = {"say_or_ask": card.get("say_or_ask", "")}
+    if not progressive or card.get("reason"):
+        fields["reason"] = card.get("reason", "")
+    fields.update({f"alternatives.{i}": text for i, text in enumerate(card.get("alternatives", []))})
+    return fields
+
+
+def guidance_review_request(card, request, *, progressive=False):
+    return review_request(
+        "guidance",
+        [
+            {"field": field, "value": value, "evidence": [], "allows_non_factual": True}
+            for field, value in guidance_fields(card, progressive=progressive).items()
+        ],
+        [{**source, "id": source["kind"] + ":" + source["id"]} for source in guidance_sources(request)],
+        {
+            "state_version": request["state_version"],
+            "context_fingerprint": request.get("context_fingerprint"),
+            "private_question": request.get("private_question"),
+            "state": request.get("state", {}),
+            "prior_call_context": request.get("prior_call_context", []),
+        },
+    )
+
+
+def ground_guidance(card, request, *, review=None, cached=False, progressive=False):
     sources = {
         s["segment_id"]: s
         for s in request.get("recent_dialogue", [])
@@ -143,33 +211,54 @@ def ground_guidance(card, request):
     )
     if card["action"] == "NO_ACTION":
         return True
+    if any(not isinstance(text, str) or len(text) > 1000 for text in card.get("alternatives", [])):
+        raise CardRejected("Excessive alternative guidance")
+    if card.get("context_fingerprint") is not None and card["context_fingerprint"] != request.get(
+        "context_fingerprint"
+    ):
+        raise CardRejected("Guidance belongs to an obsolete context")
     knowledge = " ".join(str(f.get("statement", f.get("text", ""))) for f in request.get("facts", []))
     knowledge += " " + " ".join(str(c) for c in request.get("approved_claims", []))
     knowledge += " " + request.get("seller", {}).get("knowledge", "")
     knowledge += " " + " ".join(c.get("text", "") for c in cards.values())
     transcript = " ".join(sources[i]["text"] for i in card.get("evidence_segment_ids", []))
-    visible = card.get("say_or_ask", "") + " " + card.get("reason", "")
+    visible = " ".join(guidance_fields(card, progressive=progressive).values())
 
     def numbers(text):
         return set(re.findall(r"\d+(?:\.\d+)?", text))
 
     if not numbers(visible) <= numbers(knowledge + " " + transcript):
         raise CardRejected("Unsupported numerical assertion")
-    # New questions and guidance are freeform. Business assertions require knowledge support.
-    # This is an omission guard, not a claim to prove arbitrary semantic entailment.
-    for sentence in re.split(r"(?<=[.!?])\s+", card.get("say_or_ask", "")):
-        factual = re.search(
-            r"\b(?:our|your|their|the company|the product)\b.*\b(?:is|are|has|have|will|can|does|supports|offers|includes|opened)\b",
-            sentence,
-            re.I,
-        )
-        if factual and not (
-            sentence.rstrip().endswith("?")
-            and not re.search(r"\b(?:our|your) (?:price|guarantee)\b", sentence, re.I)
-        ):
-            support = words(knowledge)
-            if not words(sentence) <= support:
-                raise CardRejected("Business assertion needs verified knowledge or a clarifying question")
+    if cached and any(card.get("say_or_ask") == c.get("text") for c in cards.values()):
+        return True  # Only the application-created fallback can supply this flag.
+    if review is not None:
+        try:
+            require_review(guidance_review_request(card, request, progressive=progressive), review)
+            return True
+        except ValueError as exc:
+            raise CardRejected("Meaning review is not current for these complete fields") from exc
+    try:
+        audits = [FieldAudit.model_validate(a) for a in card.get("field_audit", [])]
+    except ValueError as exc:
+        raise MeaningReviewRequired("Incomplete generator audit") from exc
+    catalog = {(s["kind"], s["id"], s["version"]) for s in guidance_sources(request)}
+    if any((s.kind, s.id, s.version) not in catalog for audit in audits for s in audit.sources):
+        raise CardRejected("Generator audit cites an unknown or obsolete source")
+    expected = set(guidance_fields(card, progressive=progressive))
+    selected = [a for a in audits if a.field in expected]
+    # Audits route work; they do not establish semantic truth. The independent
+    # semantic evaluation retains generator misclassification as a separate risk.
+    if (
+        not card.get("context_fingerprint")
+        or len(selected) != len(expected)
+        or {a.field for a in selected} != expected
+        or any(a.classification != "nonassertive" or a.sources or a.implied_premises for a in selected)
+        or not progressive
+        and {a.field for a in audits} != expected
+        or isinstance(card.get("state_update"), dict)
+        and any(card["state_update"].get(key) for key in ("commitments", "score_items"))
+    ):
+        raise MeaningReviewRequired("Complete independent review required")
     return True
 
 

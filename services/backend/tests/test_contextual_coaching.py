@@ -125,14 +125,14 @@ def test_grounding_rejects_unapproved_meaning_even_with_existing_source_ids():
         "state_version": 1,
         "expires_in_ms": 7000,
     }
-    assert ground_guidance(card, request)
+    assert ground_guidance(card, request, cached=True)
     with pytest.raises(CardRejected):
         ground_guidance({**card, "say_or_ask": "Your current supplier is stealing your money."}, request)
     with pytest.raises(CardRejected):
         ground_guidance({**card, "say_or_ask": "Our price is $99 and your revenue will double."}, request)
 
 
-def test_call_state_and_quality_feedback_are_persisted_and_scoped(workspace):
+def test_call_state_and_quality_feedback_are_persisted_and_scoped(workspace, clock):
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
     response = c.post(
@@ -147,6 +147,10 @@ def test_call_state_and_quality_feedback_are_persisted_and_scoped(workspace):
         },
     )
     assert response.status_code == 200
+    from datetime import timedelta
+
+    clock.now += timedelta(milliseconds=301)
+    assert c.post("/v1/admin/jobs/run", headers=h, json={"queues": ["live_coach"]}).status_code == 200
     live = c.get(f"/v1/calls/{call['id']}", headers=h).json()
     assert live["conversation_state"]["trigger"] == "conversation"
     assert live["conversation_state"]["version"] == 1
@@ -168,7 +172,7 @@ def test_call_state_and_quality_feedback_are_persisted_and_scoped(workspace):
     assert report["reviewed_cards"] == 1 and report["useful_fraction"] == 1
 
 
-def test_state_and_retrieval_timing_are_distinct_and_transcript_receipt_is_idempotent(workspace):
+def test_state_and_retrieval_timing_are_distinct_and_transcript_receipt_is_idempotent(workspace, clock):
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
     segment = {
@@ -181,6 +185,10 @@ def test_state_and_retrieval_timing_are_distinct_and_transcript_receipt_is_idemp
     response = c.post(f"/v1/calls/{call['id']}/transcript", headers=h, json=segment)
     assert response.status_code == 200
     assert c.post(f"/v1/calls/{call['id']}/transcript", headers=h, json=segment).json()["duplicate"]
+    from datetime import timedelta
+
+    clock.now += timedelta(milliseconds=301)
+    assert c.post("/v1/admin/jobs/run", headers=h, json={"queues": ["live_coach"]}).status_code == 200
     detailed = c.get(f"/v1/calls/{call['id']}", headers=h).json()
     assert detailed["transcript"][0]["server_received_at"]
     assert detailed["coach"]["latency"]["state_ms"] >= 0

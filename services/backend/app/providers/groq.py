@@ -2,32 +2,9 @@ import json
 
 import httpx
 
-from .inference import InferenceError
+from app.coaching.contracts import CARD_SCHEMA
 
-CARD_SCHEMA = {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-        "action": {"type": "string", "enum": ["SHOW_CARD", "NO_ACTION"]},
-        "kind": {"type": "string"},
-        "say_or_ask": {"type": "string"},
-        "reason": {"type": "string"},
-        "evidence_segment_ids": {"type": "array", "items": {"type": "string"}},
-        "playbook_card_ids": {"type": "array", "items": {"type": "string"}},
-        "state_version": {"type": "integer"},
-        "expires_in_ms": {"type": "integer"},
-    },
-    "required": [
-        "action",
-        "kind",
-        "say_or_ask",
-        "reason",
-        "evidence_segment_ids",
-        "playbook_card_ids",
-        "state_version",
-        "expires_in_ms",
-    ],
-}
+from .inference import InferenceError
 
 
 class GroqCoach:

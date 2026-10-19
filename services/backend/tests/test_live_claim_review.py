@@ -80,6 +80,20 @@ def test_audit_identity_and_complete_visible_coverage_are_required(change):
         ground_guidance(card, context())
 
 
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"say_or_ask": 7},
+        {"playbook_card_ids": [["bad"]]},
+        {"evidence_segment_ids": None},
+        {"expires_in_ms": "long"},
+    ],
+)
+def test_malformed_legacy_guidance_is_rejected_without_a_runtime_error(changes):
+    with pytest.raises(CardRejected):
+        ground_guidance({**advice(1), **changes}, context())
+
+
 def review_fixture(
     workspace,
     app,
@@ -150,6 +164,42 @@ async def test_reviewed_freeform_paraphrase_publishes_and_keeps_separate_receipt
     charges = usage(service, p)
     assert len(charges) == 2 and all(row["status"] == "settled" for row in charges)
     assert sorted(row["cost_usd"] for row in charges) == [0.001, 0.002]
+
+
+@pytest.mark.asyncio
+async def test_approved_guarantee_is_reviewed_without_a_phrase_blacklist(workspace, app, monkeypatch):
+    service, p, call, requests, _ = review_fixture(
+        workspace,
+        app,
+        monkeypatch,
+        text="The approved service includes a guaranteed replacement.",
+    )
+    with service.db.transaction() as s:
+        update(
+            service.approved_playbook(s, p),
+            product_description="The service includes a guaranteed replacement.",
+        )
+    result = await service.coach_turn(p, call["id"], urgent=True, question="Explain the replacement terms")
+    assert result["action"] == "SHOW_CARD"
+    assert [kind for kind, _ in requests] == ["suggest", "review"]
+    assert result["meaning_review"]["status"] == "model_reviewed"
+
+
+@pytest.mark.asyncio
+async def test_live_latency_receipt_includes_review_and_coalescing(workspace, app, clock, monkeypatch):
+    import time
+    from datetime import timedelta
+
+    service, p, call, _, options = review_fixture(workspace, app, monkeypatch)
+    options["during"] = lambda: time.sleep(0.04)
+    clock.now += timedelta(milliseconds=301)
+    result = await service.coach_turn(p, call["id"])
+    assert result["action"] == "SHOW_CARD"
+    latency = result["latency"]
+    assert latency["review_ms"] >= 35
+    assert latency["coalescing_ms"] >= 300
+    assert latency["total_server_ms"] >= latency["generation_ms"] + latency["review_ms"]
+    assert latency["stt_ms"] is None
 
 
 @pytest.mark.asyncio

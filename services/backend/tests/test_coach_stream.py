@@ -7,7 +7,7 @@ import httpx
 import pytest
 from app.providers.inference import InferenceError
 from app.providers.openrouter import OpenRouterCoach
-from test_remediation_coach import advice
+from test_remediation_coach import advice, ordinary_advice
 
 
 def frames(*, provider="Cerebras", finish="stop", done=True, error=False):
@@ -136,7 +136,11 @@ async def test_terminal_accounting_frame_does_not_reopen_content_or_overwrite_an
 async def test_only_accepted_primary_help_unlocks_the_longer_explanation_deadline(accepted):
     from test_helper_progress import frame
 
-    primary = {k: v for k, v in advice().items() if k not in {"reason", "state_update"}}
+    primary = {
+        k: v
+        for k, v in ordinary_advice({"state_version": 1, "context_fingerprint": "stream-fixture"}).items()
+        if k not in {"reason", "state_update"}
+    }
     shown = []
 
     class Stream(httpx.AsyncByteStream):

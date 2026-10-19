@@ -22,7 +22,7 @@ Check proposed unknowns and N/A explanations too: absence in a partial transcrip
 that something never happened. Ratings require the stated rubric anchor and actual opportunity.
 Use UNCERTAIN for ambiguity or insufficient context, CONTRADICTED for a conflicting assertion,
 and UNSUPPORTED for an invented assertion. NON_FACTUAL is only for a genuinely nonassertive
-script question or greeting; never use it to approve an analysis, commitment or rating.
+script question, greeting or nonassertive guidance; never use it to approve an analysis, commitment or rating.
 Return each requested field exactly once with its verdict and supporting source IDs, and echo
 the fingerprint. No invented source IDs. Do not include source quotations in the response."""
 
@@ -79,7 +79,11 @@ def accept_review(request, data, request_id):
         field = expected[verdict.field]
         if not set(verdict.evidence).issubset(sources):
             raise ValueError("Meaning review references an unknown source")
-        if verdict.verdict == "NON_FACTUAL" and request["kind"] == "script":
+        if verdict.verdict == "NON_FACTUAL" and (
+            request["kind"] == "script"
+            or request["kind"] == "guidance"
+            and field.get("allows_non_factual") is True
+        ):
             continue
         if verdict.verdict != "SUPPORTED" or not verdict.evidence:
             raise ValueError("Meaning review did not support every assertion")

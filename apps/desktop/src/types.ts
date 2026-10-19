@@ -95,6 +95,10 @@ export interface Coach {
   kind: string;
   say_or_ask: string;
   reason: string;
+  alternatives?: string[];
+  meaning_review?: {
+    status: "model_suggestion" | "model_reviewed" | "seller_approved";
+  };
   expires_at?: string;
   remaining_ms?: number;
   provider?: string;

@@ -4,7 +4,7 @@ import pytest
 from app.coaching.context import build_context, ground_guidance, merge_semantic_state
 from app.db import get
 from conftest import start
-from test_remediation_coach import advice
+from test_remediation_coach import ordinary_advice
 from test_remediation_privacy import principal
 
 
@@ -45,9 +45,17 @@ def test_current_interpretation_can_reconsider_a_previous_decline():
         [speech],
     )
     assert revised["stage"] == "discovery"
-    result = advice(2, "nuance", "Which part of the support process would you like to understand?")
+    request = {
+        "state_version": 2,
+        "state": state,
+        "recent_dialogue": [speech],
+        "context_fingerprint": "reconsidered",
+    }
+    result = ordinary_advice(
+        request, "nuance", say_or_ask="Which part of the support process would you like to understand?"
+    )
     result["state_update"] = {"stage": "discovery"}
-    assert ground_guidance(result, {"state_version": 2, "state": state, "recent_dialogue": [speech]})
+    assert ground_guidance(result, request)
 
 
 async def test_nuanced_refusal_does_not_hide_contextual_help_but_opt_out_still_stops_it(
@@ -66,11 +74,7 @@ async def test_nuanced_refusal_does_not_hide_contextual_help_but_opt_out_still_s
 
         async def suggest(self, request, **kwargs):
             captured.append(request)
-            return advice(
-                request["state_version"],
-                "nuance",
-                "What reporting would be useful alongside the existing system?",
-            )
+            return ordinary_advice(request, "nuance", say_or_ask="What reporting would be useful?")
 
     monkeypatch.setattr(service, "configured_coach", lambda p: (Coach(), "openrouter"))
     monkeypatch.setattr(service.settings, "simulation", False)

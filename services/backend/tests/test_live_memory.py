@@ -7,7 +7,7 @@ import pytest
 from app.coaching.context import build_context, merge_semantic_state, persistent_state
 from app.db import get, update
 from conftest import start
-from test_remediation_coach import advice
+from test_remediation_coach import ordinary_advice
 from test_remediation_privacy import persisted_content, principal
 
 
@@ -31,7 +31,7 @@ def setup(workspace, app, monkeypatch):
                     "state_update": None,
                 }
             latest = request["recent_dialogue"][-1]
-            result = advice(request["state_version"], latest["segment_id"])
+            result = ordinary_advice(request, latest["segment_id"])
             result["state_update"] = {
                 "stage": "discovery",
                 "rundown_points": [
@@ -391,6 +391,7 @@ async def test_bounded_backlog_is_drained_without_an_additional_turn(workspace, 
     service = app.state.service
     for i in range(40):
         turn(service, p, call, f"backlog-{i:03}")
+    clock.now += timedelta(milliseconds=301)
     await service.run_jobs(p["tenant_id"], queues=["live_coach"])
     clock.now += timedelta(seconds=10)
     await service.run_jobs(p["tenant_id"], queues=["live_coach"])

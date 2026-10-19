@@ -3,7 +3,8 @@
 import os
 import sys
 import tempfile
-from datetime import UTC, datetime
+import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -30,8 +31,10 @@ with tempfile.TemporaryDirectory(prefix="opendialer-e2e-") as directory:
         bootstrap_token="e2e-bootstrap-token",
     )
 
+    began = time.monotonic()
+
     def clock():
-        return datetime(2026, 10, 14, 18, tzinfo=UTC)
+        return datetime(2026, 10, 14, 18, tzinfo=UTC) + timedelta(seconds=time.monotonic() - began)
 
     app = create_app(settings, clock=clock)
     if mode == "connected":

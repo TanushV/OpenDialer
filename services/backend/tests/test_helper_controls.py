@@ -13,6 +13,8 @@ def test_pinned_help_survives_display_timeout_but_not_raw_expiry(workspace, cloc
     call = start(workspace)
     post_turn(workspace, call, text="We have no budget for this.")
     c, h = workspace["client"], workspace["headers"]
+    clock.now += timedelta(milliseconds=301)
+    assert c.post("/v1/admin/jobs/run", headers=h, json={"queues": ["live_coach"]}).status_code == 200
     assert c.patch("/v1/calls/" + call["id"] + "/coach", headers=h, json={"pinned": True}).status_code == 200
     clock.now += timedelta(seconds=35)
     live = c.get("/v1/calls/" + call["id"], headers=h).json()
@@ -50,12 +52,13 @@ async def test_configured_quiet_interval_limits_paid_work_but_manual_help_bypass
             {
                 "segment_id": str(i),
                 "revision": 1,
-                "side": "remote",
+                "side": "rep",
                 "is_final": True,
                 "text": "An unfamiliar constraint needs explaining.",
             },
         )
         clock.now += timedelta(seconds=10)
+        await service.run_jobs(p["tenant_id"], queues=["live_coach"])
     assert len(requests) == 1
     await service.coach_turn(p, call["id"], urgent=True, question="What should I clarify?")
     assert len(requests) == 2
