@@ -21,6 +21,55 @@ def test_missing_work_evidence_is_unknown_not_attempt_duration(workspace):
     assert metrics(workspace).get("conversions_per_rep_hour", "missing") is None
 
 
+def test_attempt_work_counts_supported_wrapup_and_keeps_call_edit_version(workspace, app, clock):
+    from conftest import disposition_body
+
+    c, h = workspace["client"], workspace["headers"]
+    call = start(workspace)
+    clock.now += timedelta(seconds=20)
+    c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
+    saved = c.get(f"/v1/calls/{call['id']}", headers=h).json()
+    assert heartbeat(workspace, "wrapup").status_code == 200
+    clock.now += timedelta(seconds=30)
+    assert heartbeat(workspace, "wrapup").status_code == 200
+    assert c.get(f"/v1/calls/{call['id']}", headers=h).json()["version"] == saved["version"]
+    clock.now += timedelta(seconds=10)
+    result = c.post(
+        f"/v1/calls/{call['id']}/disposition",
+        headers=h,
+        json=disposition_body(c, h, call["id"], outcome="right_party"),
+    )
+    assert result.status_code == 200
+    with app.state.db.transaction(False) as s:
+        data = app.state.service.operational_dataset(s, p(workspace))
+    row = next(r for r in data if r["call_id"] == call["id"])
+    assert row["rep_work_seconds"] == 60
+
+
+def test_attempt_work_wrapup_disconnect_is_not_filled_in(workspace, app, clock):
+    c, h = workspace["client"], workspace["headers"]
+    call = start(workspace)
+    clock.now += timedelta(seconds=20)
+    c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
+    heartbeat(workspace, "wrapup")
+    clock.now += timedelta(seconds=30)
+    heartbeat(workspace, "wrapup")
+    clock.now += timedelta(minutes=5)
+    heartbeat(workspace, "wrapup")
+    clock.now += timedelta(seconds=10)
+    heartbeat(workspace, "wrapup")
+    # No disposition yet; the durable occupied intervals still exist for finalization.
+    from app.db import MODELS
+    from app.scheduling.models import attempt_work_seconds
+    from sqlalchemy import select
+
+    with app.state.db.transaction(False) as s:
+        model = MODELS["outcomes"]
+        row = s.scalar(select(model).where(model.external_key == "attempt-work:" + call["id"]))
+        assert row is not None
+        assert attempt_work_seconds(row.data) == 40
+
+
 def test_heartbeat_work_excludes_pauses_and_stale_disconnected_time(workspace, clock):
     ready(workspace)
     for _ in range(3):

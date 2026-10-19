@@ -18,16 +18,16 @@ from app.optimization.learning import (
     [
         ("wrong_party", True, False, False),
         ("gatekeeper", True, False, False),
-        ("screening", False, False, False),
-        ("ivr", False, False, False),
-        ("voicemail", False, False, False),
-        ("no_answer", False, False, False),
-        ("opt_out", True, False, False),
-        ("not_interested", True, False, False),
+        ("screening", False, None, False),
+        ("ivr", False, None, False),
+        ("voicemail", False, None, False),
+        ("no_answer", False, None, False),
+        ("opt_out", True, None, False),
+        ("not_interested", True, None, False),
         ("right_party", True, True, False),
         ("qualified_conversation", True, True, True),
-        ("meeting_held", True, True, True),
-        ("sale_won", True, True, True),
+        ("meeting_held", True, None, False),
+        ("sale_won", True, None, False),
     ],
 )
 def test_labels_keep_the_funnel_distinct(outcome, human, right, qualified):
@@ -172,7 +172,10 @@ def test_attempt_work_unions_phases_and_excludes_detached_playback(clock):
     from app.scheduling.models import attempt_work_seconds
 
     at = clock.now
-    stamp = lambda sec: (at + timedelta(seconds=sec)).isoformat()
+
+    def stamp(sec):
+        return (at + timedelta(seconds=sec)).isoformat()
+
     call = {
         "submitted_at": stamp(0),
         "ended_at": stamp(120),
@@ -204,6 +207,157 @@ def test_estimate_policy_is_validated_and_returned_by_the_single_settings_owner(
         ).status_code
         == 422
     )
+
+
+def test_sparse_cells_keep_weekend_attempt_and_missing_labels_distinct():
+    from app.optimization.learning import funnel_predictions
+
+    rows = [
+        {"segment": "a", "local_hour": 23, "local_weekday": 5, "attempt_count": 1, "outcome": "right_party"},
+        {"segment": "a", "local_hour": 0, "local_weekday": 1, "attempt_count": 1, "outcome": "no_answer"},
+        {"segment": "a", "local_hour": 0, "local_weekday": 6, "attempt_count": 2, "outcome": "no_answer"},
+        {
+            "segment": "a",
+            "local_hour": 0,
+            "local_weekday": 6,
+            "attempt_count": 1,
+            "outcome": "right_party",
+            "outcome_source": "llm_provisional",
+            "human": True,
+        },
+    ]
+    result = funnel_predictions(
+        rows, {"segment": "a", "local_hour": 0, "local_weekday": 6, "attempt_count": 1}
+    )
+    assert result["p_human"] == pytest.approx((1 + 10 * (2 / 12)) / 11)
+    assert result["stage_support"]["human"]["cell_unknown"] == 1
+    assert result["estimate_level"] == "segment_time_attempt"
+
+
+def test_pending_conversion_and_unsettled_cost_are_never_observed_rewards():
+    from app.optimization.learning import funnel_predictions
+
+    result = funnel_predictions(
+        [
+            {
+                "human": True,
+                "right_party": True,
+                "conversion": 0,
+                "window_status": "pending",
+                "observed_cost_usd": 0.5,
+                "cost_status": "uncertain",
+            },
+            {
+                "human": True,
+                "right_party": True,
+                "conversion": 1,
+                "window_status": "resolved",
+                "observed_cost_usd": 0.2,
+                "cost_status": "settled",
+            },
+        ],
+        {},
+    )
+    assert result["conversion_observations"] == 1
+    assert result["expected_attempt_cost_usd"] == 0.2
+    assert result["cost_unknown_observations"] == 1
+
+
+def test_attempt_work_preserves_asof_contact_role_and_missing_time(clock):
+    at = clock.now - timedelta(days=20)
+    call = {
+        "id": "c",
+        "lead_id": "l",
+        "started_at": at.isoformat(),
+        "feature_snapshot_id": "f",
+        "outcome": "callback_requested",
+        "contact_role": "right_party",
+        "outcome_source": "rep_reported",
+        "outcome_available_at": (at + timedelta(minutes=2)).isoformat(),
+    }
+    snap = {
+        "id": "f",
+        "as_of": at.isoformat(),
+        "features": {"local_hour": 0, "local_weekday": 6, "attempt_count": 1},
+    }
+    row = training_rows([call], [snap], [], now=clock.now, goal="meeting_held", window_days=14)[0]
+    assert row["right_party"] is True
+    assert row["rep_work_seconds"] is None
+    assert row["local_weekday"] == 6 and row["attempt_count"] == 1
+
+
+def test_live_decision_uses_saved_cold_assumptions(workspace, app):
+    from conftest import start
+
+    c, h = workspace["client"], workspace["headers"]
+    assert (
+        c.put(
+            "/v1/admin/optimization",
+            headers=h,
+            json={"handling_seconds": 180, "estimate_policy": {"human_prior": [1, 1]}},
+        ).status_code
+        == 200
+    )
+    # A subsequent partial policy edit preserves the explicitly saved prior.
+    assert (
+        c.put("/v1/admin/optimization", headers=h, json={"estimate_policy": {"work_prior": 3}}).status_code
+        == 200
+    )
+    call = start(workspace)
+    from app.db import rows
+
+    with app.state.db.transaction(False) as s:
+        frozen = next(r.data for r in rows(s, "feature_snapshots") if r.id == call["feature_snapshot_id"])
+    assert frozen["predictions"]["p_human"] == 0.5
+    assert frozen["predictions"]["expected_rep_seconds"] == 180
+
+
+def test_dataset_cost_waits_for_complete_attributed_receipts(workspace, app):
+    from app.db import put, rows, update
+    from conftest import disposition_body, start
+
+    c, h = workspace["client"], workspace["headers"]
+    call = start(workspace)
+    c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
+    c.post(
+        f"/v1/calls/{call['id']}/disposition",
+        headers=h,
+        json=disposition_body(c, h, call["id"], outcome="right_party"),
+    )
+    p = {k: workspace[k] for k in ("tenant_id", "seller_id", "user_id")} | {"role": "owner"}
+    service = app.state.service
+    with app.state.db.transaction() as s:
+        put(
+            s,
+            "usage_ledger",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "call_id": call["id"],
+                "kind": "voice",
+                "status": "settled",
+                "cost_usd": 0.2,
+                "credited_usd": 0.05,
+                "provider_record_id": "synthetic-cost",
+            },
+        )
+    with app.state.db.transaction(False) as s:
+        incomplete = service.operational_dataset(s, p)[0]
+    assert incomplete["observed_cost_usd"] is None and incomplete["cost_status"] == "uncertain"
+    with app.state.db.transaction() as s:
+        hold = next(r for r in rows(s, "usage_ledger") if r.external_key == "call:" + call["id"])
+        update(
+            hold,
+            status="settled",
+            cost_usd=0,
+            reserved_usd=0,
+            billing_verified=True,
+            reconciled_to_provider_records=True,
+        )
+    with app.state.db.transaction(False) as s:
+        complete = service.operational_dataset(s, p)[0]
+    assert complete["observed_cost_usd"] == pytest.approx(0.15)
+    assert complete["cost_status"] == "settled"
 
 
 def test_snapshot_only_has_information_known_before_the_call(clock):
