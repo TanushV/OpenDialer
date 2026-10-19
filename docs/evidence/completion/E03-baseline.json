@@ -21,6 +21,10 @@
         "local",
         "postgres"
       ]
+    },
+    "local_edit_transport_contract": {
+      "failed": 6,
+      "reason": "localEdit interface is absent; paired browser reproduces the actual lost-response defect"
     }
   },
   "known_limitations": [
@@ -33,7 +37,8 @@
     "E03-sqlite-baseline.txt": "80f57e88dd1b1c9c3ca20014b245c962e72acfc282af2c28ccd72f4f4698148b",
     "E03-choice-red.txt": "9d5b8d6433686f3b7c36163a33f5dcb225dcd547167ed99cc9caf74a6bb3f1f2",
     "E03-browser-red.txt": "f50fbf52b47b62179b63008e06472406a12fac3c3835a68b81cbe1116a1e0115",
-    "E03-browser-paired-red.txt": "fac3bc7f444da852a78a629455d6d4037d9e80e19db8be628e7ee3915149cde4"
+    "E03-browser-paired-red.txt": "fac3bc7f444da852a78a629455d6d4037d9e80e19db8be628e7ee3915149cde4",
+    "E03-local-edits-unit-red.txt": "f863a26899b2b026f0bd9328796903711bcd1445c47ea475c335c93ef6d0d4fc"
   },
   "tests": {
     "services/backend/tests/test_local_followthrough.py": "37a0e607345ea33f43f3de42110196d466f89badd1df5740cd5528419dcda7cc",
