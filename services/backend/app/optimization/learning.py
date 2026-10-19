@@ -472,91 +472,98 @@ DRIFT_POLICY = {
 }
 
 
-def drift_report(reference, recent):
-    """Descriptive paired-stratum monitoring, never an automatic policy change."""
-    from collections import defaultdict
+DRIFT_FEATURES = (
+    "local_hour",
+    "attempt_count",
+    "source_age_days",
+    "number_health_missing",
+    "conversation_evidence_missing",
+)
+DRIFT_STAGES = (
+    ("human", "human", "p_human", None),
+    ("right_party", "right_party", "p_right_party_given_human", "human"),
+    ("conversion", "conversion", "p_conversion_given_right_party", "right_party"),
+)
 
-    def stratum(row):
-        f = row.get("features", {})
-        return (
-            row.get("model_version"),
-            row.get("campaign_id"),
-            row.get("goal"),
-            f.get("feature_schema_version"),
-            f.get("segment"),
-            f.get("attempt_count"),
-        )
 
-    groups = []
-    for rows in (reference, recent):
-        grouped = defaultdict(list)
-        for row in rows:
-            if row.get("model_version"):
-                grouped[stratum(row)].append(row)
-        groups.append(grouped)
-    common = groups[0].keys() & groups[1].keys()
-    compared = [[r for key in common for r in group[key]] for group in groups]
+def drift_stratum(row):
+    if not row.get("model_version"):
+        return None
+    f = row.get("features", {})
+    return (
+        row["model_version"],
+        row.get("campaign_id"),
+        row.get("goal"),
+        f.get("feature_schema_version"),
+        f.get("segment"),
+        f.get("attempt_count"),
+    )
+
+
+def drift_values(row):
+    """Additive counts/losses; no row identities or conversation content."""
 
     def numeric(v):
         return isinstance(v, (int, float)) and math.isfinite(v)
 
+    values = {"rows": 1}
+    for key in DRIFT_FEATURES:
+        value = row.get("features", {}).get(key)
+        values[key + ":n"] = int(numeric(value))
+        values[key + ":sum"] = float(value) if numeric(value) else 0
+    for stage, label, probability, condition in DRIFT_STAGES:
+        known = (
+            row.get(label) in (0, 1)
+            and numeric(row.get(probability))
+            and 0 <= row[probability] <= 1
+            and (condition is None or row.get(condition) == 1)
+            and (stage != "conversion" or row.get("window_closed") or row.get("window_status") == "matured")
+        )
+        values[stage + ":n"] = int(bool(known))
+        values[stage + ":loss"] = (row[probability] - row[label]) ** 2 if known else 0
+    return values
+
+
+def drift_from_counts(reference, recent):
+    """Same paired-stratum review policy for stored totals and offline fixtures."""
+    groups = (reference, recent)
+    common = {
+        key
+        for key in reference.keys() & recent.keys()
+        if key is not None and reference[key].get("rows", 0) > 0 and recent[key].get("rows", 0) > 0
+    }
+    totals = [sum(v.get("rows", 0) for v in group.values()) for group in groups]
+    compared = [sum(group[key].get("rows", 0) for key in common) for group in groups]
     changes = {}
-    for key in (
-        "local_hour",
-        "attempt_count",
-        "source_age_days",
-        "number_health_missing",
-        "conversation_evidence_missing",
-    ):
-        values = [
-            [float(r["features"][key]) for r in rows if numeric(r.get("features", {}).get(key))]
-            for rows in compared
-        ]
-        a, b = [sum(v) / len(v) if v else None for v in values]
-        missing = [len(rows) - len(v) for rows, v in zip(compared, values, strict=True)]
-        changes[key] = {
-            "reference_mean": a,
-            "recent_mean": b,
+    for field in DRIFT_FEATURES:
+        n = [sum(group[key].get(field + ":n", 0) for key in common) for group in groups]
+        sums = [sum(group[key].get(field + ":sum", 0) for key in common) for group in groups]
+        means = [v / count if count else None for v, count in zip(sums, n, strict=True)]
+        missing = [count - known for count, known in zip(compared, n, strict=True)]
+        changes[field] = {
+            "reference_mean": means[0],
+            "recent_mean": means[1],
             "reference_missing": missing[0],
             "recent_missing": missing[1],
-            "missing_fraction_change": abs(missing[1] / len(compared[1]) - missing[0] / len(compared[0]))
+            "missing_fraction_change": abs(missing[1] / compared[1] - missing[0] / compared[0])
             if all(compared)
             else None,
         }
     support = {}
-    for stage, label, probability, condition in (
-        ("human", "human", "p_human", None),
-        ("right_party", "right_party", "p_right_party_given_human", "human"),
-        ("conversion", "conversion", "p_conversion_given_right_party", "right_party"),
-    ):
-        totals = [0, 0]
-        weighted = [0.0, 0.0]
-        weight = 0
+    for stage, _, _, _ in DRIFT_STAGES:
+        ns, weighted, weight = [0, 0], [0.0, 0.0], 0
         for key in common:
-            losses = [
-                [
-                    (r[probability] - r[label]) ** 2
-                    for r in group[key]
-                    if r.get(label) in (0, 1)
-                    and numeric(r.get(probability))
-                    and 0 <= r[probability] <= 1
-                    and (condition is None or r.get(condition) == 1)
-                    and (
-                        stage != "conversion" or r.get("window_closed") or r.get("window_status") == "matured"
-                    )
-                ]
-                for group in groups
-            ]
-            for i, v in enumerate(losses):
-                totals[i] += len(v)
-            n = min(map(len, losses))
-            if n >= DRIFT_POLICY["minimum_support"]:
-                weight += n
-                for i, v in enumerate(losses):
-                    weighted[i] += n * (sum(v) / len(v))
+            counts = [group[key].get(stage + ":n", 0) for group in groups]
+            for i, n in enumerate(counts):
+                ns[i] += n
+            paired = min(counts)
+            if paired >= DRIFT_POLICY["minimum_support"]:
+                weight += paired
+                for i, group in enumerate(groups):
+                    weighted[i] += paired * group[key].get(stage + ":loss", 0) / counts[i]
         support[stage] = {
-            "reference": totals[0],
-            "recent": totals[1],
+            "reference": ns[0],
+            "recent": ns[1],
             "paired_support": weight,
             "reference_brier": weighted[0] / weight if weight else None,
             "recent_brier": weighted[1] / weight if weight else None,
@@ -584,10 +591,10 @@ def drift_report(reference, recent):
         "reference_brier": support["human"]["reference_brier"],
         "recent_brier": support["human"]["recent_brier"],
         "features": changes,
-        "reference_rows": len(reference),
-        "recent_rows": len(recent),
-        "excluded_reference": len(reference) - len(compared[0]),
-        "excluded_recent": len(recent) - len(compared[1]),
+        "reference_rows": totals[0],
+        "recent_rows": totals[1],
+        "excluded_reference": totals[0] - compared[0],
+        "excluded_recent": totals[1] - compared[1],
         "action": "insufficient_comparable_data"
         if not common
         else "insufficient_data"
@@ -599,6 +606,19 @@ def drift_report(reference, recent):
         else "retain_and_monitor",
         "scope": "Comparable model, campaign, goal, feature version, segment and attempt strata; equal stratum weights across periods. Descriptive warning; no automatic activation.",
     }
+
+
+def drift_report(reference, recent):
+    """Offline adapter; normal reports read the same sufficient statistics."""
+    groups = []
+    for rows in (reference, recent):
+        counts = {}
+        for row in rows:
+            group = counts.setdefault(drift_stratum(row), {})
+            for key, value in drift_values(row).items():
+                group[key] = group.get(key, 0) + value
+        groups.append(counts)
+    return drift_from_counts(*groups)
 
 
 def trial_report(assignments, events, *, now, goal, window_days=14, baseline_rate=0.1, minimum_effect=0.05):

@@ -10,7 +10,6 @@ from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, update
 from app.optimization.experiments import ComparisonWorkflows
 from app.optimization.learning import (
     derive_labels,
-    drift_report,
     freeze_features,
     future_slots,
     training_rows,
@@ -812,7 +811,11 @@ class OptimizationWorkflows(ComparisonWorkflows):
         }
 
     def optimization_report(self, p, epoch=None):
-        from app.optimization.projections import read_coaching_metrics, read_dataset_metrics
+        from app.optimization.projections import (
+            read_coaching_metrics,
+            read_dataset_metrics,
+            read_drift_metrics,
+        )
 
         with self.db.transaction(False) as s:
             s.info["row_cache"] = {}
@@ -960,19 +963,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                     r.id,
                 ),
             )
-            now = self.clock()
-            model_drift = {
-                **drift_report(
-                    [
-                        r
-                        for r in data
-                        if now - timedelta(days=28) <= timestamp(r["at"]) < now - timedelta(days=7)
-                    ],
-                    [r for r in data if now - timedelta(days=7) <= timestamp(r["at"]) <= now],
-                ),
-                "as_of": now.isoformat(),
-                "windows": "Latest 7 days versus preceding 21 days",
-            }
+            model_drift = read_drift_metrics(self, p)
             latest_plans = {}
             for record in plans:
                 plan = record.data

@@ -16,7 +16,14 @@ from sqlalchemy import func, or_, select
 
 from app.db import MODELS, Job, doc, put, uid, update
 from app.operational_schema import call_work_bounds
-from app.optimization.learning import conversion_at, outcome_at, training_rows
+from app.optimization.learning import (
+    conversion_at,
+    drift_from_counts,
+    drift_stratum,
+    drift_values,
+    outcome_at,
+    training_rows,
+)
 from app.optimization.numbering import timestamp
 from app.scheduling.models import derive_labels
 
@@ -383,7 +390,7 @@ def definition_version(config, epoch):
     return hashlib.sha256(
         json.dumps(
             {
-                "metrics": "cohort-work-v6",
+                "metrics": "cohort-work-v7",
                 "epoch": epoch,
                 "goal": config["conversion_goal"],
                 "window_days": config["window_days"],
@@ -580,6 +587,15 @@ def _calculate_unit(snapshot, now):
                 for days in (1, 28)
                 if (boundary := start + timedelta(days=days, microseconds=1)) > now
             )
+        if at := timestamp(row.get("started_at")):
+            refresh.extend(
+                boundary
+                for boundary in (
+                    at + timedelta(days=7, microseconds=1),
+                    at + timedelta(days=28, microseconds=1),
+                )
+                if boundary > now
+            )
     elif kind == "usage" and row:
         values = usage_values(row)
     elif kind == "help" and row:
@@ -656,6 +672,38 @@ def _group_key(service, group):
     return f"v{group['definition_version']}:{group['namespace']}:{digest}"
 
 
+def _detail_groups(snapshot, now, namespace):
+    """Per-call statistics grouped independently of the workspace totals."""
+    if snapshot["kind"] != "call" or not snapshot["row"]:
+        return []
+    config, row = snapshot["config"], snapshot["row"]
+    data = training_rows(
+        [row],
+        [snapshot["feature"]] if snapshot["feature"] else [],
+        snapshot["events"],
+        now=now,
+        goal=config["conversion_goal"],
+        window_days=config["window_days"],
+    )
+    if not data or not now - timedelta(days=28) <= timestamp(data[0]["at"]) <= now:
+        return []
+    observed = data[0]
+    return [
+        (
+            {
+                "bucket_kind": "drift",
+                "bucket_day": None,
+                "campaign_id": snapshot["campaign_id"],
+                "definition_version": snapshot["definition"],
+                "namespace": namespace,
+                "period": "recent" if timestamp(observed["at"]) >= now - timedelta(days=7) else "reference",
+                "stratum": drift_stratum(observed),
+            },
+            drift_values(observed),
+        )
+    ]
+
+
 def refresh_unit(service, p, payload):
     """Compute outside writes, then replace one source vector under a generation fence."""
     if payload["source_kind"] in {"endpoint-leads", "lead-calls"}:
@@ -664,7 +712,10 @@ def refresh_unit(service, p, payload):
     if not snapshot["namespaces"]:
         return {"status": "superseded"}
     calculated = {
-        ns: _calculate_unit({**snapshot, **target}, service.clock())
+        ns: (
+            *_calculate_unit({**snapshot, **target}, service.clock()),
+            _detail_groups({**snapshot, **target}, service.clock(), ns),
+        )
         for ns, target in snapshot["targets"].items()
     }
     kind, identity = snapshot["kind"], snapshot["identity"]
@@ -724,13 +775,21 @@ def refresh_unit(service, p, payload):
         changed = False
         for namespace, previous in current.items():
             target = snapshot["targets"][namespace]
-            values, due = calculated[namespace]
+            values, due, details = calculated[namespace]
             key = unit_key(target["definition"], namespace, kind, identity)
             saved = previous.data if previous else {}
-            groups = _groups({**snapshot, **target}, namespace) if values else []
+            groups = (_groups({**snapshot, **target}, namespace) if values else []) + [g for g, _ in details]
+            group_values = {_group_key(service, g): v for g, v in details}
             fingerprint = hashlib.sha256(
                 json.dumps(
-                    [values, groups, due, snapshot["generation"], snapshot["input_version_fingerprint"]],
+                    [
+                        values,
+                        groups,
+                        group_values,
+                        due,
+                        snapshot["generation"],
+                        snapshot["input_version_fingerprint"],
+                    ],
                     sort_keys=True,
                     separators=(",", ":"),
                 ).encode()
@@ -741,8 +800,10 @@ def refresh_unit(service, p, payload):
             new_groups = {_group_key(service, g): g for g in groups}
             for group_key in sorted(old_groups.keys() | new_groups.keys()):
                 delta = delta_values(
-                    saved.get("values", {}) if group_key in old_groups else {},
-                    values if group_key in new_groups else {},
+                    saved.get("group_values", {}).get(group_key, saved.get("values", {}))
+                    if group_key in old_groups
+                    else {},
+                    group_values.get(group_key, values) if group_key in new_groups else {},
                 )
                 if not delta:
                     continue
@@ -754,7 +815,7 @@ def refresh_unit(service, p, payload):
                 )
                 old_values = bucket.data.get("values", {}) if bucket else {}
                 total = {
-                    **dict.fromkeys(values, 0),
+                    **dict.fromkeys(group_values.get(group_key, values), 0),
                     **old_values,
                     **{k: old_values.get(k, 0) + v for k, v in delta.items()},
                 }
@@ -764,7 +825,10 @@ def refresh_unit(service, p, payload):
                     "group_key": group_key.rsplit(":", 1)[-1],
                     "values": total,
                 }
-                if bucket:
+                if value["bucket_kind"] == "drift" and total.get("rows", 0) == 0:
+                    if bucket:
+                        session.delete(bucket)
+                elif bucket:
                     update(bucket, **value)
                 else:
                     put(
@@ -787,6 +851,7 @@ def refresh_unit(service, p, payload):
                 "input_version_fingerprint": snapshot["input_version_fingerprint"],
                 "dirty_generation": snapshot["generation"],
                 "values": values,
+                "group_values": group_values,
                 "groups": groups,
                 "next_refresh_at": due,
                 "as_of": service.clock().isoformat(),
@@ -1285,6 +1350,53 @@ def read_dataset_metrics(service, p):
             )
         },
         "snapshots": saved,
+    }
+
+
+def read_drift_metrics(service, p, *, limit=1000):
+    if not 1 <= limit <= 1000:
+        raise ValueError("At most1000 drift strata can be read per report")
+    with service.db.transaction(False) as session:
+        _, group, _ = _total_in(service, session, p)
+        prefix = f"v{group['definition_version']}:{group['namespace']}:"
+        model = MODELS["metric_buckets"]
+        buckets = list(
+            session.scalars(
+                _scoped_query(p, "metric_buckets")
+                .where(
+                    model.external_key >= prefix,
+                    model.external_key < prefix + "~",
+                    model.bucket_kind == "drift",
+                )
+                .order_by(model.external_key)
+                .limit(limit + 1)
+            )
+        )
+    if len(buckets) > limit:
+        return {
+            **drift_from_counts({}, {}),
+            "complete": False,
+            "action": "summary_capacity_exceeded",
+            "drift_detected": None,
+            "missingness_shift": None,
+            "reference_rows": None,
+            "recent_rows": None,
+            "excluded_reference": None,
+            "excluded_recent": None,
+            "as_of": service.clock().isoformat(),
+            "reason": "More comparable strata than the bounded report can inspect; no monitoring conclusion published",
+            "inspected_limit": limit,
+        }
+    periods = {"reference": {}, "recent": {}}
+    for bucket in buckets:
+        group = bucket.data["group"]
+        key = tuple(group["stratum"]) if group["stratum"] is not None else None
+        periods[group["period"]][key] = bucket.data["values"]
+    return {
+        **drift_from_counts(periods["reference"], periods["recent"]),
+        "complete": True,
+        "as_of": service.clock().isoformat(),
+        "windows": "Latest 7 days versus preceding 21 days",
     }
 
 
