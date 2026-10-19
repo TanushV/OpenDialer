@@ -76,6 +76,39 @@ def test_committed_optout_journal_replays_before_an_authority_restart(workspace,
         restarted.state.db.engine.dispose()
 
 
+@pytest.mark.asyncio
+async def test_restart_denial_blocks_preexisting_reservation_and_future_selection(workspace, app):
+    from conftest import ready
+
+    service, p = app.state.service, principal(workspace)
+    ready(workspace)
+    reservation = service.reserve(p, workspace["campaign_id"])
+    phone = reservation["lead"]["phone"]
+    # Crash after flushing the independent denial but before the business commit.
+    with pytest.raises(RuntimeError, match="interrupted commit"):
+        with service.db.transaction() as session:
+            service.suppress(p, phone, "opt_out", event_id="reserved-denial", session=session)
+            raise RuntimeError("interrupted commit")
+    restarted = create_app(service.settings, clock=service.clock, carrier=service.simulated_carrier)
+    target = restarted.state.service
+    try:
+        with pytest.raises(HTTPException):
+            await target.start_call(
+                p,
+                {"reservation_id": reservation["reservation_id"], "idempotency_key": "after-restart-denial"},
+            )
+        with target.db.transaction() as session:
+            for lead in target.scoped(session, "leads", p):
+                if lead.data["phone"] != phone:
+                    update(lead, status="needs_review")
+            assert target.suppressed(session, p, phone)
+        with pytest.raises(HTTPException):
+            target.reserve(p, workspace["campaign_id"])
+        assert target.simulated_carrier.dials == []
+    finally:
+        target.db.engine.dispose()
+
+
 def test_failed_optout_flush_keeps_outbound_held(workspace, app, monkeypatch):
     import os
 

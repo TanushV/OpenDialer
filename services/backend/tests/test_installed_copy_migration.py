@@ -134,6 +134,35 @@ def test_current_startup_does_not_repeat_history_authentication(tmp_path, monkey
     reopened.state.db.engine.dispose()
 
 
+def test_upgrade_does_not_publish_before_recovery_directory_is_durable(tmp_path, monkeypatch):
+    import sqlite3
+
+    from app.main import create_app
+    from app.security import Vault
+
+    settings = legacy_upgrade_store(tmp_path)
+    with closing(sqlite3.connect(tmp_path / "legacy.db")) as original:
+        before = list(original.iterdump())
+    synced = []
+    sync = Vault._sync_directory
+
+    def fail_recovery(path):
+        synced.append(Path(path).name)
+        if Path(path).name == "sanitized-upgrades":
+            raise OSError("Synthetic recovery directory flush failure")
+        sync(path)
+
+    monkeypatch.setattr(Vault, "_sync_directory", staticmethod(fail_recovery))
+    with pytest.raises(OSError, match="directory flush"):
+        create_app(settings)
+    assert ".opendialer-upgrade-v1" in synced, "Manifest replacement needs durable directory metadata"
+    with closing(sqlite3.connect(tmp_path / "legacy.db")) as original:
+        assert list(original.iterdump()) == before
+    monkeypatch.setattr(Vault, "_sync_directory", staticmethod(sync))
+    resumed = create_app(settings)
+    resumed.state.db.engine.dispose()
+
+
 def test_upgrade_refuses_unowned_staging_content(tmp_path):
     from app.main import create_app
 

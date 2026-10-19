@@ -47,6 +47,8 @@ def migrate_business_state(service):
 
 
 def _save_manifest(path, value, cipher):
+    from app.security import Vault
+
     temporary = path.with_suffix(".tmp")
     if temporary.is_symlink():
         raise ValueError("Staging manifest is not protected")
@@ -56,6 +58,7 @@ def _save_manifest(path, value, cipher):
         output.flush()
         os.fsync(output.fileno())
     os.replace(temporary, path)
+    Vault._sync_directory(path.parent)
 
 
 def _stage_manifest(source, stage, cipher):
@@ -187,6 +190,10 @@ def prepare_database(settings, clock):
             saved.chmod(0o600)
             with saved.open("rb") as retained:
                 os.fsync(retained.fileno())
+            from app.security import Vault
+
+            Vault._sync_directory(recovery)
+            Vault._sync_directory(settings.data_dir)
             clean.backup(original, pages=256)
         original.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     shutil.rmtree(stage)

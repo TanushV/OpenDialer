@@ -51,6 +51,51 @@ test("missing and stale capacity estimates are explicit", async ({ page }) => {
   ).toBeVisible();
 });
 
+test("capacity discloses screening exclusions without spending on refresh", async ({
+  page,
+}) => {
+  await simulation(page);
+  const paidRequests: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && /screen|registry/.test(request.url()))
+      paidRequests.push(request.url());
+  });
+  await page.route("**/v1/optimization", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    if (body.forecast)
+      body.forecast.screening = {
+        cleared_count: 1,
+        blocked_count: 2,
+        blocked_reasons: { prepaid_result_missing: 1, source_expired: 1 },
+        as_of: "2026-10-14T18:00:00Z",
+      };
+    await route.fulfill({ response, json: body });
+  });
+  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  const capacity = page.getByRole("region", {
+    name: "Capacity before procurement",
+  });
+  await expect(
+    capacity.getByText(
+      "1 lead has current screening; 2 are excluded from executable capacity.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(
+    capacity.getByText("Prepaid result missing: 1", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    capacity.getByText("Source expired: 1", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    capacity.getByText(
+      /Review source authorization and current coverage in Settings/,
+    ),
+  ).toBeVisible();
+  expect(paidRequests).toEqual([]);
+});
+
 test("pending report refresh preserves comparison input", async ({ page }) => {
   await simulation(page);
   await page.getByRole("button", { name: "Intelligence", exact: true }).click();

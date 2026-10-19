@@ -335,12 +335,43 @@ for (const connected of [false, true]) {
         const question = page.getByLabel("Private helper question");
         await expect(question).toBeFocused();
         await question.fill("Which approved fact is missing?");
-        // Asynchronous workspace updates must not steal the rep's focus/text.
+        // Deliver the asynchronous update while the rep is already typing;
+        // refocusing after delivery would not test focus preservation.
+        let releaseTurn!: () => void;
+        let turnArrived!: () => void;
+        const arrived = new Promise<void>((resolve) => {
+          turnArrived = resolve;
+        });
+        const release = new Promise<void>((resolve) => {
+          releaseTurn = resolve;
+        });
+        await page.route("**/v1/calls/*/transcript", async (route) => {
+          turnArrived();
+          await release;
+          await route.continue();
+        });
         await page
           .getByLabel("Simulation transcript")
           .fill("The committee needs a clearer approval process.");
         await page.getByRole("button", { name: "Add prospect turn" }).click();
+        await arrived;
         await question.focus();
+        const updated = page.waitForResponse(
+          (r) =>
+            r.url().endsWith("/v1/workspace") && r.request().method() === "GET",
+        );
+        releaseTurn();
+        await updated;
+        await expect(page.getByLabel("Simulation transcript")).toHaveValue("");
+        await page.evaluate(
+          () =>
+            new Promise<void>((resolve) =>
+              requestAnimationFrame(() =>
+                requestAnimationFrame(() => resolve()),
+              ),
+            ),
+        );
+        await expect(question).toBeFocused();
         await expect(question).toHaveValue("Which approved fact is missing?");
         await page.keyboard.press("Escape");
         await expect(question).toBeHidden();

@@ -179,6 +179,62 @@ def resource_gates(receipt):
     }
 
 
+def validate_reference(manifest, cpu_max, memory_max):
+    """Compare Docker's two-container limits with the executing cgroup, not a declared flag."""
+    try:
+        api, database = manifest["api"], manifest["database"]
+        quota, period = map(int, cpu_max.split())
+        runtime_memory = int(memory_max)
+        limits = [item["HostConfig"] for item in (api, database)]
+        if any(
+            item["Config"]["Labels"].get("opendialer.task") != "completion-E13"
+            or len(item["Id"]) != 64
+            or not item["Image"].startswith("sha256:")
+            for item in (api, database)
+        ):
+            raise ValueError("Missing owned container identity")
+        if any(
+            cap["NanoCpus"] <= 0 or cap["Memory"] <= 0 or cap["MemorySwap"] != cap["Memory"] for cap in limits
+        ):
+            raise ValueError("Unbounded CPU, memory or swap")
+        cpu, memory = sum(c["NanoCpus"] for c in limits) / 1e9, sum(c["Memory"] for c in limits)
+        if (
+            cpu > 2
+            or memory > 4 * 1024**3
+            or api["Id"] == database["Id"]
+            or limits[0]["NetworkMode"] != "container:" + database["Id"]
+            or period <= 0
+            or quota / period != limits[0]["NanoCpus"] / 1e9
+            or runtime_memory != limits[0]["Memory"]
+        ):
+            raise ValueError("Reference limits or executing namespace differ")
+        return {
+            "status": "passed",
+            "cpu_limit": cpu,
+            "memory_limit_mib": memory / 1024**2,
+            "runtime_cpu_max": cpu_max.strip(),
+            "runtime_memory_max": runtime_memory,
+            "containers": manifest,
+            "boundary": "Linux container CPU/memory limits on the recorded host; provider and native resources separate",
+        }
+    except (KeyError, TypeError, ValueError, ZeroDivisionError) as exc:
+        return {"status": "failed", "error_type": type(exc).__name__}
+
+
+def shared_reference():
+    source = os.getenv("OPENDIALER_REFERENCE_MANIFEST")
+    if not source:
+        raise ValueError("An inspected reference manifest is required before shared measurement")
+    result = validate_reference(
+        json.loads(Path(source).read_text()),
+        Path("/sys/fs/cgroup/cpu.max").read_text(),
+        Path("/sys/fs/cgroup/memory.max").read_text(),
+    )
+    if result["status"] != "passed":
+        raise ValueError("Inspected reference limits do not match the executing container")
+    return result
+
+
 class Clock:
     now = datetime(2026, 10, 14, 18, tzinfo=UTC)
 
@@ -817,17 +873,20 @@ def run_load(client, headers, campaign, measured, seconds, checkpoint, *, p, rep
                 rep_headers.append({"Authorization": "Bearer " + token})
     assert len(rep_headers) == reps
 
+    def maintain_and_drain():
+        maintenance = client.portal.call(service.maintenance_tick)
+        drained = client.portal.call(
+            partial(
+                service.run_jobs, queues=["webhook", "live_coach", "postcall", "research", "scripts", "ml"]
+            )
+        )
+        return {"maintenance": maintenance, "drained": drained}
+
     def cycle(index):
         # Preparation, interpretation, recovery and projections share the real
         # worker admission. Unconfigured inference retains the declared fallback.
         with ThreadPoolExecutor(max_workers=reps + 1) as pool:
-            background = pool.submit(
-                client.portal.call,
-                partial(
-                    service.run_jobs,
-                    queues=["webhook", "live_coach", "postcall", "research", "scripts", "ml"],
-                ),
-            )
+            background = pool.submit(maintain_and_drain)
             calls = [
                 pool.submit(call_cycle, client, h, campaign, measured, f"load-{index}-{rep}")
                 for rep, h in enumerate(rep_headers)
@@ -985,6 +1044,7 @@ def run_profile(name, directory, seed, checkpoint):
 
     spec, clock = PROFILES[name], Clock()
     database = profile_database(name, directory)
+    reference = shared_reference() if name in {"shared", "saturation"} else None
     if name in {"shared", "saturation"}:
         reset_database(database, purpose="performance")
     settings = Settings(
@@ -1000,6 +1060,8 @@ def run_profile(name, directory, seed, checkpoint):
     begun = time.perf_counter()
     app = create_app(settings, clock=clock)
     result = {"profile": name, "declared": spec, "status": "running"}
+    if reference:
+        result["shared_reference"] = reference
     try:
         with TestClient(app) as client:
             result["authority_startup_ms"] = (time.perf_counter() - begun) * 1000

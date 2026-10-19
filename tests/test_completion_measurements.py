@@ -186,3 +186,78 @@ def test_shift_duration_without_maintenance_and_queue_recovery_is_not_acceptance
     )
     assert "shift_maintenance" in result["missing"]
     assert "shift_queue_recovery" in result["missing"]
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def test_normal_load_runs_real_maintenance_and_retains_its_failure(monkeypatch, failed):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    m = measurement()
+    ticks = []
+
+    def maintenance():
+        ticks.append(True)
+        if failed:
+            raise TimeoutError("synthetic maintenance failure")
+        return {"reconciled": 1}
+
+    service = SimpleNamespace(
+        db=SimpleNamespace(transaction=lambda: nullcontext(None)),
+        scoped=lambda *args: [],
+        run_jobs=lambda **kwargs: 0,
+        maintenance_tick=maintenance,
+    )
+    client = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(service=service)),
+        portal=SimpleNamespace(call=lambda fn: fn()),
+    )
+    monkeypatch.setattr(m, "call_cycle", lambda *args: {"ok": True})
+    monkeypatch.setattr(m, "run_for", lambda seconds, cycle: cycle(0))
+    result = m.run_load(client, {}, "campaign", None, 1, lambda _: None, p={}, reps=1)
+    assert ticks == [True], "Normal load must include maintenance contention, not only drain queued jobs"
+    assert result["ok"] is not failed
+    if failed:
+        assert result["background_error"] == "TimeoutError"
+
+
+def reference_manifest():
+    return {
+        "api": {
+            "Id": "a" * 64,
+            "Image": "sha256:" + "c" * 64,
+            "Config": {"Labels": {"opendialer.task": "completion-E13"}},
+            "HostConfig": {
+                "NanoCpus": 1500000000,
+                "Memory": 3 * 1024**3,
+                "MemorySwap": 3 * 1024**3,
+                "NetworkMode": "container:" + "b" * 64,
+            },
+        },
+        "database": {
+            "Id": "b" * 64,
+            "Image": "sha256:" + "d" * 64,
+            "Config": {"Labels": {"opendialer.task": "completion-E13"}},
+            "HostConfig": {"NanoCpus": 500000000, "Memory": 1024**3, "MemorySwap": 1024**3},
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    "changed", ["none", "unlimited_api", "unlimited_database", "wrong_namespace", "runtime_mismatch"]
+)
+def test_reference_requires_inspected_caps_and_matching_actual_runtime(changed):
+    m = measurement()
+    data = reference_manifest()
+    if changed == "unlimited_api":
+        data["api"]["HostConfig"]["Memory"] = 0
+    elif changed == "unlimited_database":
+        data["database"]["HostConfig"]["NanoCpus"] = 0
+    elif changed == "wrong_namespace":
+        data["api"]["HostConfig"]["NetworkMode"] = "bridge"
+    result = m.validate_reference(
+        data, "max 100000" if changed == "runtime_mismatch" else "150000 100000", str(3 * 1024**3)
+    )
+    assert result["status"] == ("passed" if changed == "none" else "failed")
+    if changed == "none":
+        assert result["cpu_limit"] == 2 and result["memory_limit_mib"] == 4096

@@ -43,6 +43,12 @@ interface OptimizationReport {
     staffing_shortfall: number | null;
     number_shortfall: number | null;
     planning_limited?: boolean;
+    screening?: {
+      cleared_count: number;
+      blocked_count: number;
+      blocked_reasons: Record<string, number>;
+      as_of: string;
+    };
     projection?: {
       status: "pending" | "stale" | "ready";
       as_of: string | null;
@@ -627,7 +633,10 @@ export function OptimizationPanel({
         </section>
       )}
       {report && (
-        <section className="card padded optimization-panel">
+        <section
+          className="card padded optimization-panel"
+          aria-label="Capacity before procurement"
+        >
           <h2>Capacity before procurement</h2>
           <p className="muted small">
             Forecast includes due attempts, usable inventory and available rep
@@ -644,6 +653,40 @@ export function OptimizationPanel({
             <p className="notice">
               Capacity estimate is out of date. Refresh before acting on it.
             </p>
+          )}
+          {report.forecast.screening && (
+            <div className="fine" aria-label="Screening constraints">
+              <p>
+                {report.forecast.screening.cleared_count}{" "}
+                {report.forecast.screening.cleared_count === 1
+                  ? "lead has"
+                  : "leads have"}{" "}
+                current screening; {report.forecast.screening.blocked_count} are
+                excluded from executable capacity.
+              </p>
+              <p>
+                Screening as of {date(report.forecast.screening.as_of)}. All
+                leads remain in list coverage totals; clearance is checked again
+                before calling.
+              </p>
+              {report.forecast.screening.blocked_count > 0 && (
+                <>
+                  <ul>
+                    {Object.entries(
+                      report.forecast.screening.blocked_reasons,
+                    ).map(([reason, count]) => (
+                      <li key={reason}>
+                        {label(reason)}: {count}
+                      </li>
+                    ))}
+                  </ul>
+                  <p>
+                    Review source authorization and current coverage in
+                    Settings. Viewing this report does not purchase screening.
+                  </p>
+                </>
+              )}
+            </div>
           )}
           <div className="optimization-table">
             <table>

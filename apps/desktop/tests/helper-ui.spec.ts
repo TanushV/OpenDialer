@@ -1,6 +1,92 @@
 import { expect, test } from "@playwright/test";
 import { prepareSimulationCall } from "./simulation";
 
+test("a delayed helper refresh cannot restore a previous call after wrap-up", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await prepareSimulationCall(page, "Delayed helper fixture", "+14155550881");
+  await page
+    .getByRole("button", { name: "Get next lead", exact: true })
+    .click();
+  const started = page.waitForResponse((r) =>
+    r.url().endsWith("/v1/calls/start"),
+  );
+  await page.getByRole("button", { name: "Start call", exact: true }).click();
+  const original = await (await started).json();
+  let release!: () => void;
+  let arrived!: () => void;
+  const delayed = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const pending = new Promise<void>((resolve) => {
+    arrived = resolve;
+  });
+  const oldCallPath = `**/v1/calls/${original.id}`;
+  await page.route(oldCallPath, async (route) => {
+    const response = await route.fetch();
+    arrived();
+    await delayed;
+    await route.fulfill({ response });
+  });
+  try {
+    await page.keyboard.press("F1");
+    await pending;
+    await page.getByRole("button", { name: "Hang up", exact: true }).click();
+    await page.getByLabel("Disposition").selectOption("no_answer");
+    await page
+      .getByRole("button", { name: "Save outcome", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Get next lead", exact: true })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Start call", exact: true }),
+    ).toBeVisible();
+    release();
+    await page.unrouteAll({ behavior: "wait" });
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    await expect(
+      page.getByRole("button", { name: "Start call", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Hang up", exact: true }),
+    ).toHaveCount(0);
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: "wait" });
+    if (
+      await page
+        .getByRole("button", { name: "Hang up", exact: true })
+        .isVisible()
+    )
+      await page.getByRole("button", { name: "Hang up", exact: true }).click();
+    if (await page.getByLabel("Disposition").isVisible()) {
+      await page.getByLabel("Disposition").selectOption("no_answer");
+      await page
+        .getByRole("button", { name: "Save outcome", exact: true })
+        .click();
+    }
+    await page
+      .getByRole("button", { name: "Pause dialing", exact: true })
+      .click();
+  }
+});
+
 test("fixed helper remains visible, private controls work and no raw content is archived", async ({
   page,
 }) => {

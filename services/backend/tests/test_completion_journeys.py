@@ -12,6 +12,153 @@ from fastapi.testclient import TestClient
 from test_remediation_privacy import principal
 
 
+def restore_separate_authority(service, p, root):
+    """Recover business state into an empty disposable authority with current access."""
+    import shutil
+
+    from app.db import put
+
+    from scripts.disposable_database import reset_database
+
+    receipt = service.backup(p)
+    root.mkdir(mode=0o700)
+    (root / "backups").mkdir(mode=0o700)
+    name = receipt["backup_id"] + ".backup"
+    shutil.copyfile(service.settings.data_dir / "backups" / name, root / "backups" / name)
+    for source in service.settings.data_dir.glob("*-journal*"):
+        if source.suffix in {".enc", ".head"}:
+            shutil.copyfile(source, root / source.name)
+    configuration = service.vault.read(p["tenant_id"])
+    url = "sqlite:///" + str(root / "recovered.db")
+    if not service.db.sqlite:
+        url = service.settings.database_url
+        service.db.engine.dispose()
+        reset_database(url)  # Exact test URL guard; never an installed or browser authority.
+    restored = create_app(
+        service.settings.model_copy(update={"data_dir": root, "database_url": url}),
+        clock=service.clock,
+        carrier=service.simulated_carrier,
+    ).state.service
+    with restored.db.transaction() as session:
+        put(
+            session,
+            "tenants",
+            p["tenant_id"],
+            "",
+            {"name": "Recovered current authority"},
+            object_id=p["tenant_id"],
+        )
+        put(
+            session,
+            "users",
+            p["tenant_id"],
+            p["seller_id"],
+            {"role": "owner", "name": "Current authorized rep"},
+            object_id=p["user_id"],
+        )
+    restored.vault.write(p["tenant_id"], configuration)
+    assert restored.restore(p, receipt["backup_id"])["outbound_paused"]
+    return restored
+
+
+@pytest.mark.asyncio
+async def test_restored_conversation_new_interpretation_and_old_source_correction(
+    workspace, app, clock, monkeypatch, tmp_path
+):
+    import json
+
+    from app.db import get, put
+    from test_live_memory import setup, turn
+
+    call, p, requests, changes = setup(workspace, app, monkeypatch)
+    source = app.state.service
+    turn(source, p, call, "early-source")
+    await source.coach_turn(p, call["id"], urgent=True)
+    with source.db.transaction() as session:
+        state = source._by_key(session, p, "conversation_states", call["id"])
+        original_id = state.data["observations"][0]["id"]
+        put(
+            session,
+            "notes",
+            p["tenant_id"],
+            p["seller_id"],
+            {"call_id": call["id"], "human_text": "Keep the rep's corrected account context."},
+            key=call["id"],
+        )
+        task = put(
+            session,
+            "followup_tasks",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "call_id": call["id"],
+                "lead_id": call["lead_id"],
+                "owner_id": p["user_id"],
+                "kind": "callback",
+                "status": "open",
+                "human_edited": True,
+                "confirmation_state": "confirmed",
+                "action": "Human-confirmed next conversation",
+                "due_at": (clock.now + timedelta(days=2)).isoformat(),
+            },
+            key="retained-human-task",
+        )
+        task_id, task_data = task.id, dict(task.data)
+    clock.now += timedelta(seconds=301)
+    target = restore_separate_authority(source, p, tmp_path / "recovered-conversation")
+    monkeypatch.setattr(target, "configured_coach", source.configured_coach)
+    try:
+        assert target.analysis(p, call["id"])["transcript"] == []
+        turn(target, p, call, "new-source")
+        changes["result"] = {
+            "action": "NO_ACTION",
+            "state_update": {
+                "stage": "discovery",
+                "observations": [
+                    {
+                        "kind": "need",
+                        "text": "Procurement could benefit from clearer review steps.",
+                        "state": "confirmed",
+                        "sources": [{"kind": "observation", "id": original_id, "version": 1}],
+                        "replaces": [],
+                        "quote": "",
+                        "commitment": None,
+                    }
+                ],
+                "rubric_items": [],
+                "tracker_matches": [],
+                "interpreted_segments": [{"kind": "segment", "id": "new-source", "version": 1}],
+            },
+        }
+        await target.coach_turn(p, call["id"], urgent=True)
+        with target.db.transaction(False) as session:
+            observations = target._by_key(session, p, "conversation_states", call["id"]).data["observations"]
+            dependent_id = next(o["id"] for o in observations if o["kind"] == "need")
+        turn(target, p, call, "pending-source")
+        changes["during"] = lambda: turn(
+            target, p, call, "early-source", revision=2, text="The earlier account description was incorrect."
+        )
+        result = await target.coach_turn(p, call["id"], urgent=True)
+        assert result.get("action") == "NO_ACTION", "The old in-flight answer must not publish"
+        with target.db.transaction(False) as session:
+            observations = target._by_key(session, p, "conversation_states", call["id"]).data["observations"]
+            assert next(o for o in observations if o["id"] == dependent_id)["state"] == "stale"
+            assert get(session, "followup_tasks", task_id).data == task_data
+            assert (
+                target._by_key(session, p, "notes", call["id"]).data["human_text"]
+                == "Keep the rep's corrected account context."
+            )
+        assert "workflow constraint in part 1" in json.dumps(requests[-1]), (
+            "Retained context must reach new interpretation"
+        )
+        assert all(
+            r["segment_id"] != "early-source" or r["revision"] == 2
+            for r in target.analysis(p, call["id"])["transcript"]
+        )
+    finally:
+        target.db.engine.dispose()
+
+
 @pytest.mark.parametrize("mode", ["local", "connected"])
 def test_full_rep_journey_both_authorities(workspace, app, clock, carrier, monkeypatch, mode):
     if mode == "connected" and not os.getenv("OPENDIALER_TEST_POSTGRES_URL"):

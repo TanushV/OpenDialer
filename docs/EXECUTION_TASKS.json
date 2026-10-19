@@ -998,7 +998,7 @@
         {
           "id": "E13.3",
           "task": "Complete performance/load/shift/resource runner",
-          "status": "Maintenance and real queue draining added to shift harness;25 boundary tests pass. Full resource/reference profiles remain open."
+          "status": "Normal load and shift execute actual maintenance plus bounded queue draining.22 measurement-boundary checks pass; inspected container/cgroup limits required for shared acceptance. Full elapsed profiles/native resources open."
         },
         {
           "id": "E13.4",
@@ -1028,7 +1028,7 @@
         {
           "id": "E13.review-atomic",
           "task": "Atomic wrap-up denial, source-owned meeting correction, exact inbound identity",
-          "status": "SQLite scoped green; wider dual-database and UI review acceptance running"
+          "status": "Separate-source meeting correction, atomic denial and exact inbound identity pass focused scopes in both databases; final frozen suite remains open."
         },
         {
           "id": "E13.review-occupancy",
@@ -1043,20 +1043,25 @@
         {
           "id": "E13.review-screening",
           "task": "Forecast excludes currently uncleared national screening while retaining list denominator",
-          "status": "Five behavioral counterexamples then24 SQLite checks pass; forecast UI and fresh dual-database acceptance remain open"
+          "status": "Forecast screening UI two browser passes; restored prepaid valid/expired/replaced/uncovered cases pass both databases. National-chunk combined assertion final dual-database run active."
         },
         {
           "id": "E13.review-migration",
           "task": "Protected-copy upgrade and original-store preservation on late corruption/interruption",
-          "status": "Protected-copy interruption, source-change, publication rollback/cleanup, wrong-key/corruption and bounded current startup pass;21 scoped checks/two native skips. Full dual-database/native acceptance remains open."
+          "status": "Protected-copy and directory-durability regressions pass; current startup bounded, original preserved on failure;33 migration/load passes with two explicit native skips. Actual installed update remains open."
         },
         {
           "id": "E13.review-combined",
           "task": "Combined restore/source correction, restored screening, UI conflict/retry/focus and native cleanup assertions",
-          "status": "Eight local/shared follow-through browser journeys pass, including lost committed correction and stale meeting reload. Separate-authority restore/correction and focus/source-response assertions remain open."
+          "status": "70 SQLite passes/one PG-only skip and31 PostgreSQL passes for combined restore/correction scopes. Four focus journeys, delayed helper regression/repair and review conflict/late-save journey pass. National chunks and restart-denial final scope running."
+        },
+        {
+          "id": "E13.review-final",
+          "task": "Delayed mutation/audio ownership, equal-version help withdrawal, swallowed maintenance/job failures, actual reference identity",
+          "status": "Four reachable findings from independent targeted review; author regressions before repairs. Native/load/full acceptance open."
         }
       ],
-      "checkpoint": "E13 review repairs and acceptance tooling; exact-source full suites, load/resources and native updates are not accepted."
+      "checkpoint": "E13 combined recovery/UI and protected upgrade repaired; targeted independent review and full performance/reference/frozen acceptance still in progress. No native update yet."
     },
     {
       "id": "E14",
@@ -6911,7 +6916,9 @@
         "services/backend/tests/test_completion_contracts.py::test_targeted_mutation_detection",
         "services/backend/tests/test_completion_contracts.py::test_mutation_inventory_names_real_assertions_and_disposable_execution",
         "services/backend/tests/test_completion_contracts.py::test_bounded_acceptance_tools",
-        "services/backend/tests/test_completion_contracts.py::test_handoff_manifest_scope"
+        "services/backend/tests/test_completion_contracts.py::test_handoff_manifest_scope",
+        "tests/test_completion_measurements.py::test_normal_load_runs_real_maintenance_and_retains_its_failure",
+        "tests/test_completion_measurements.py::test_reference_requires_inspected_caps_and_matching_actual_runtime"
       ]
     },
     {

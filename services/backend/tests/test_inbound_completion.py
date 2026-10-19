@@ -61,6 +61,34 @@ def test_inbound_provider_lookup_has_a_tenant_scoped_index(app):
     assert any(i["column_names"] == ["tenant_id", "op_provider_id"] for i in indexes)
 
 
+def test_duplicate_inbound_provider_identity_requires_review_without_mutation(workspace, app):
+    from fastapi import HTTPException
+
+    identities = []
+    with app.state.db.transaction() as session:
+        for seller in (workspace["seller_id"], "other-seller"):
+            row = put(
+                session,
+                "followup_tasks",
+                workspace["tenant_id"],
+                seller,
+                {
+                    "inbound": True,
+                    "provider_id": "ambiguous-provider",
+                    "inbound_state": "ringing",
+                    "status": "open",
+                },
+            )
+            identities.append((row.id, dict(row.data)))
+    with pytest.raises(HTTPException) as error:
+        webhook(workspace, "call.hangup", {"call_control_id": "ambiguous-provider"})
+    assert error.value.status_code == 409 and "ambiguous" in str(error.value.detail)
+    with app.state.db.transaction(False) as session:
+        assert [
+            (identity, get(session, "followup_tasks", identity).data) for identity, _ in identities
+        ] == identities
+
+
 def principal(w):
     return {k: w[k] for k in ("tenant_id", "seller_id", "user_id")} | {"role": "owner"}
 

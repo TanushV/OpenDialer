@@ -476,3 +476,127 @@ test("unfinished wrap-up survives navigation and a full reload", async ({
     page.getByText("Outcome saved. Analysis continues in the background."),
   ).toBeVisible();
 });
+
+test("outcome conflict reload and late save preserve the selected review", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await prepareSimulationCall(page, "Review response fixture", "+14155550882");
+  const calls: { id: string; name: string }[] = [];
+  for (let index = 0; index < 2; index++) {
+    const packet = page.waitForResponse((r) =>
+      /\/v1\/leads\/[^/]+\/packet$/.test(r.url()),
+    );
+    await page
+      .getByRole("button", { name: "Get next lead", exact: true })
+      .click();
+    const name = (await (await packet).json()).lead.name;
+    const started = page.waitForResponse((r) =>
+      r.url().endsWith("/v1/calls/start"),
+    );
+    await page.getByRole("button", { name: "Start call", exact: true }).click();
+    const call = await (await started).json();
+    calls.push({ id: call.id, name });
+    await page.getByRole("button", { name: "Hang up", exact: true }).click();
+    await page.getByLabel("Disposition").selectOption("no_answer");
+    await page.getByLabel("Wrap-up note").fill(`Human note ${index}`);
+    await page
+      .getByRole("button", { name: "Save outcome", exact: true })
+      .click();
+    await expect(page.getByLabel("Disposition")).toBeHidden();
+  }
+  await page
+    .getByRole("button", { name: "Pause dialing", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Review", exact: true }).click();
+  await page
+    .getByRole("button", { name: `Review call ${calls[0].name}`, exact: true })
+    .first()
+    .click();
+  await page.getByText("Correct confirmed outcome", { exact: true }).click();
+  await page.getByLabel("Disposition").selectOption("right_party");
+  let attempts = 0;
+  let release!: () => void;
+  let received!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const arrived = new Promise<void>((resolve) => {
+    received = resolve;
+  });
+  await page.route(`**/v1/calls/${calls[0].id}/disposition`, async (route) => {
+    attempts++;
+    if (attempts === 1) {
+      await route.fulfill({
+        status: 409,
+        json: { detail: "Call changed; reload before saving" },
+      });
+      return;
+    }
+    const response = await route.fetch();
+    expect(response.ok()).toBeTruthy();
+    received();
+    await held;
+    await route.fulfill({ response });
+  });
+  try {
+    await page
+      .getByRole("button", { name: "Save outcome", exact: true })
+      .click();
+    await expect(
+      page.getByText("Call changed; reload before saving", { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByLabel("Wrap-up note")).toHaveValue("Human note 0");
+    const refreshed = page.waitForResponse((r) =>
+      r.url().endsWith(`/v1/calls/${calls[0].id}/analysis`),
+    );
+    await page
+      .getByRole("button", { name: "Reload confirmed outcome", exact: true })
+      .click();
+    await refreshed;
+    await page.getByLabel("Disposition").selectOption("right_party");
+    await page
+      .getByRole("button", { name: "Save outcome", exact: true })
+      .click();
+    await arrived;
+    await page
+      .getByRole("button", { name: "All conversations", exact: true })
+      .click();
+    await page
+      .getByRole("button", {
+        name: `Review call ${calls[1].name}`,
+        exact: true,
+      })
+      .first()
+      .click();
+    await expect(
+      page.getByRole("heading", { name: calls[1].name, exact: true }),
+    ).toBeVisible();
+    release();
+    await page.unrouteAll({ behavior: "wait" });
+    await expect(
+      page.getByText("Outcome saved. Analysis continues in the background.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: calls[1].name, exact: true }),
+    ).toBeVisible();
+    await page.getByText("Correct confirmed outcome", { exact: true }).click();
+    await expect(page.getByLabel("Wrap-up note")).toHaveValue("Human note 1");
+    await expect(page.getByLabel("Disposition")).toHaveValue("no_answer");
+    expect(attempts).toBe(2);
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: "wait" });
+  }
+});

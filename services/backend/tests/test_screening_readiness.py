@@ -93,6 +93,88 @@ def test_forecast_uses_current_national_clearance_without_charging(workspace, sc
     assert len(calls) == before, "Planning must never initiate paid screening"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["valid", "expired", "changed_authorization", "uncovered"])
+async def test_restored_prepaid_cache_requires_current_authority_before_queue_and_send(
+    workspace,
+    screening,  # noqa: F811 - imported pytest fixture
+    clock,
+    tmp_path,
+    state,  # noqa: F811
+):
+    from app.db import get
+    from fastapi import HTTPException
+    from test_completion_journeys import restore_separate_authority
+
+    service, p, calls, _, config = screening
+    assert screen(workspace).status_code == 200
+    with service.db.transaction() as session:
+        for row in service.scoped(session, "registry_snapshots", p):
+            if row.data.get("kind") == "national":
+                update(row, published=False)
+        for row in service.scoped(session, "leads", p):
+            if row.data["phone"] != PHONE:
+                update(row, status="needs_review")
+    target = restore_separate_authority(service, p, tmp_path / "restored-screening")
+    try:
+        await target.reconcile_restore(p, "Checked the synthetic original-effect ledger")
+        target.presence(
+            p,
+            {
+                "status": "ready",
+                "audio_ready": True,
+                "telephony_ready": True,
+                "agent_call_control_id": "restored-agent",
+            },
+        )
+        if state in {"changed_authorization", "uncovered"}:
+            target.vault.write(
+                p["tenant_id"],
+                {
+                    "dnc_seller_authorization": {
+                        **config["dnc_seller_authorization"],
+                        **(
+                            {"reference": "new-authority"}
+                            if state == "changed_authorization"
+                            else {"npas": ["212"]}
+                        ),
+                    }
+                },
+            )
+        with target.db.transaction() as session:
+            if state == "expired":
+                for row in target.scoped(session, "registry_snapshots", p):
+                    if row.data.get("kind") == "prepaid":
+                        update(row, expires_at=clock.now.isoformat())
+            lead = next(row for row in target.scoped(session, "leads", p) if row.data["phone"] == PHONE)
+            number = target.scoped(session, "number_inventory", p)[0]
+            assert authorize(target.context(session, p, lead, number)).allowed is (state == "valid")
+        if state == "valid":
+            reservation = target.reserve(p, workspace["campaign_id"])
+            # Clearance was valid for selection, then the authorization changed before send.
+            target.vault.write(
+                p["tenant_id"],
+                {"dnc_seller_authorization": {**config["dnc_seller_authorization"], "npas": ["212"]}},
+            )
+            with pytest.raises(HTTPException):
+                await target.start_call(
+                    p,
+                    {
+                        "reservation_id": reservation["reservation_id"],
+                        "idempotency_key": "restored-screening-start",
+                    },
+                )
+        else:
+            with pytest.raises(HTTPException):
+                target.reserve(p, workspace["campaign_id"])
+        assert calls == [PHONE], "Recovery and reading cannot spend on another screening request"
+        assert target.simulated_carrier.dials == []
+        with target.db.transaction(False) as session:
+            assert get(session, "sellers", p["seller_id"]).data.get("restore_hold") is False
+    finally:
+        target.db.engine.dispose()
+
+
 def test_national_snapshot_uses_the_sellers_shorter_freshness_policy(workspace, app, clock):
     from datetime import timedelta
 
@@ -335,3 +417,58 @@ def test_state_source_honors_original_access_and_freshness(workspace, app, clock
     assert response.status_code == 200
     # Two fixture leads are inside their current calling windows.
     assert response.json()["screening"]["dialable_queue_count"] == (2 if boundary == "valid" else 0)
+
+
+@pytest.mark.asyncio
+async def test_restored_national_chunks_keep_membership_and_recheck_replaced_source(
+    workspace, app, clock, tmp_path
+):
+    from uuid import uuid4
+
+    from app.compliance.registry import publish_registry, registry_contains
+    from fastapi import HTTPException
+    from test_completion_journeys import restore_separate_authority
+    from test_remediation_privacy import principal
+
+    service, p = app.state.service, principal(workspace)
+    blocked, allowed = "+14155550101", "+12125550102"
+    body = {
+        "request_id": str(uuid4()),
+        "kind": "national",
+        "npas": ["415", "212"],
+        "subscription_reference": "synthetic-current-seller-access",
+        "refreshed_at": clock.now.isoformat(),
+        "numbers": [blocked],
+    }
+    published = publish_registry(service, p, body)
+    with service.db.transaction() as session:
+        for lead in service.scoped(session, "leads", p):
+            if lead.data["phone"] != allowed:
+                update(lead, status="needs_review")
+    target = restore_separate_authority(service, p, tmp_path / "national-recovery")
+    try:
+        await target.reconcile_restore(p, "Checked original synthetic effects")
+        target.presence(
+            p,
+            {
+                "status": "ready",
+                "audio_ready": True,
+                "telephony_ready": True,
+                "agent_call_control_id": "restored-agent",
+            },
+        )
+        with target.db.transaction(False) as session:
+            row = target.required(session, "registry_snapshots", published["id"], p)
+            assert row.data["chunks"] and registry_contains(session, row, blocked)
+            assert not registry_contains(session, row, allowed)
+        reservation = target.reserve(p, workspace["campaign_id"])
+        assert reservation["lead"]["phone"] == allowed
+        publish_registry(target, p, {**body, "request_id": str(uuid4()), "numbers": [blocked, allowed]})
+        with pytest.raises(HTTPException) as error:
+            await target.start_call(
+                p, {"reservation_id": reservation["reservation_id"], "idempotency_key": "restored-national"}
+            )
+        assert error.value.status_code == 403
+        assert target.simulated_carrier.dials == []
+    finally:
+        target.db.engine.dispose()

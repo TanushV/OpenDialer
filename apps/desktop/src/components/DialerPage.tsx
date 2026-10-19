@@ -84,8 +84,17 @@ export function DialerPage() {
     };
   }, []);
 
+  function applyCallUpdate(value: Call) {
+    setCall((current) =>
+      current?.id === value.id &&
+      value.version >= current.version &&
+      value.transcript_version >= current.transcript_version
+        ? value
+        : current,
+    );
+  }
   async function reloadCall(id: string) {
-    setCall(await api<Call>(`/v1/calls/${id}`));
+    applyCallUpdate(await api<Call>(`/v1/calls/${id}`));
   }
   useEffect(() => {
     const owned = w.calls.filter((c) => c.rep_id === w.user.id);
@@ -115,7 +124,7 @@ export function DialerPage() {
         .then((value) => {
           if (!disposed) {
             responseReceived.current = performance.now();
-            setCall(value);
+            applyCallUpdate(value);
           }
         })
         .catch(() => {
