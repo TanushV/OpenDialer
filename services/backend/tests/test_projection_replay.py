@@ -350,9 +350,75 @@ def test_due_maturity_and_cross_midnight_work_are_replaceable(workspace, app, cl
     project_pending(service, p)
     values = [d["values"] for _, d in vectors(service, p, "metric_contributions").values()]
     assert sum(v.get("rep_work_seconds", 0) for v in values) == 240
+
     assert sum(v.get("pending_outcome_windows", 0) for v in values) == 1
     clock.now += timedelta(days=2)
     assert refresh_due(service, p, limit=100)["processed"] > 0
     values = [d["values"] for _, d in vectors(service, p, "metric_contributions").values()]
     assert sum(v.get("pending_outcome_windows", 0) for v in values) == 0
     assert sum(v.get("rep_work_seconds", 0) for v in values) == 240
+
+
+def test_inplace_work_correction_dirties_old_and_new_days(workspace, app, clock):
+    from datetime import timedelta
+
+    from app.db import get, put
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as session:
+        interval = put(
+            session,
+            "work_intervals",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "rep_id": p["user_id"],
+                "started_at": (clock.now - timedelta(hours=1)).isoformat(),
+                "ended_at": clock.now.isoformat(),
+            },
+            now=clock.now,
+        )
+        identity = interval.id
+    old_key = f"projection:{p['seller_id']}:rep-day:{p['user_id']}:{clock.now.date()}"
+    before = dirty_jobs(service, p)[old_key]["payload"]["desired_generation"]
+    with service.db.transaction() as session:
+        interval = get(session, "work_intervals", identity)
+        interval.data["started_at"] = (clock.now - timedelta(days=2, hours=1)).isoformat()
+        interval.data["ended_at"] = (clock.now - timedelta(days=2)).isoformat()
+    assert dirty_jobs(service, p)[old_key]["payload"]["desired_generation"] > before
+
+
+def test_building_conflict_cannot_partially_commit_active_namespace(workspace, app, monkeypatch):
+    from app.db import get
+    from app.optimization import projections
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as session:
+        campaign = get(session, "campaigns", workspace["campaign_id"])
+        update(campaign, metric_projection={"active_namespace": "initial", "building_namespace": "building"})
+    project_pending(service, p)
+    with service.db.transaction() as session:
+        lead = service.scoped(session, "leads", p)[0]
+        identity = lead.id
+        update(lead, status="needs_review")
+    before = vectors(service, p, "metric_contributions")
+    original = projections.lead_values
+
+    def conflict(lead, *args, **kwargs):
+        result = original(lead, *args, **kwargs)
+        with service.db.transaction() as session:
+            row = next(
+                r
+                for r in service.scoped(session, "metric_contributions", p)
+                if r.data["namespace"] == "building" and r.data["source_id"] == identity
+            )
+            update(row, conflict_test=True)
+        return result
+
+    monkeypatch.setattr(projections, "lead_values", conflict)
+    payload = dirty_jobs(service, p)[f"projection:{p['seller_id']}:lead:{identity}"]["payload"]
+    assert projections.refresh_unit(service, p, payload)["status"] == "superseded"
+    after = vectors(service, p, "metric_contributions")
+    assert {k: v for k, v in after.items() if v[1]["namespace"] == "initial"} == {
+        k: v for k, v in before.items() if v[1]["namespace"] == "initial"
+    }
