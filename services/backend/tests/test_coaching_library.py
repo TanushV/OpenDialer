@@ -286,21 +286,30 @@ def test_new_source_revision_can_be_reviewed_without_reactivating_old_example(wo
     assert first.status_code == 200
     service = app.state.service
     turn(service, p, call, "lesson", revision=2, text="The actual process has a different owner.")
+    from app.coaching.context import merge_semantic_state
+
     with service.db.transaction() as s:
-        state = service._by_key(s, p, "conversation_states", call["id"])
-        update(
-            state,
-            coaching_points=[
-                {
-                    "id": "tip-1",
-                    "text": "Confirm the decision owner's responsibilities.",
-                    "status": "confirmed",
-                    "evidence_revisions": {"lesson": 2},
-                    "evidence_segment_ids": ["lesson"],
-                }
-            ],
+        row = service._by_key(s, p, "conversation_states", call["id"])
+        state = merge_semantic_state(
+            row.data,
+            {
+                "stage": "discovery",
+                "coaching_points": [
+                    {
+                        "text": "Confirm the decision owner's responsibilities.",
+                        "status": "confirmed",
+                        "evidence_segment_ids": ["lesson"],
+                        "quote": "",
+                    }
+                ],
+            },
+            service.transcript_rows(s, p, call["id"]),
+            request_id="new-tip-revision",
+            at=service.clock(),
         )
-    second = publish(workspace, call, expected_transcript_version=2)
+        point_id = state["coaching_points"][0]["id"]
+        service._store_conversation(s, p, service.required(s, "call_attempts", call["id"], p), state, row)
+    second = publish(workspace, call, expected_transcript_version=2, coaching_point_id=point_id)
     assert second.status_code == 200, second.text
     assert second.json()["id"] != first.json()["id"]
     current = workspace["client"].get("/v1/coaching", headers=workspace["headers"]).json()["examples"]
@@ -393,3 +402,23 @@ def test_invalidated_examples_do_not_exhaust_the_active_library(workspace, app):
     with service.db.transaction(False) as s:
         assert len(service.scoped(s, "snippets", p)) == 25, "Retain obsolete review history"
         assert get(s, "sellers", p["seller_id"]).data["coaching_library_ids"] == [result.json()["id"]]
+
+
+@pytest.mark.parametrize("source_expired", [False, True])
+def test_canonical_coaching_tips_reach_personal_history_and_editorial_review(
+    workspace, app, clock, source_expired
+):
+    call, p = source(workspace, app)
+    service = app.state.service
+    service.migrate_conversation_states()
+    if source_expired:
+        clock.now += timedelta(seconds=301)
+    overview = workspace["client"].get("/v1/coaching", headers=workspace["headers"])
+    assert overview.status_code == 200
+    assert overview.json()["recent_tips"][0]["tips"][0]["text"] == LESSON
+    saved = publish(workspace, call)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["text"] == LESSON
+    with service.db.transaction(False) as s:
+        state = service._by_key(s, p, "conversation_states", call["id"]).data
+        assert "coaching_points" not in state

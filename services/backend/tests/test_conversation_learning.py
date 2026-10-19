@@ -293,11 +293,11 @@ async def test_observations_are_in_meaning_review_and_rejected_as_a_unit(workspa
 
 
 def test_suggested_response_is_not_evidence_the_rep_used_it():
-    from app.postcall.inference import parse_analysis
+    from test_postcall_completion import merge_test_analysis
 
     data = observed_body()
     with pytest.raises(ValueError, match="rep"):
-        parse_analysis(
+        merge_test_analysis(
             data,
             [
                 {

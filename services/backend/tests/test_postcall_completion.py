@@ -67,7 +67,6 @@ def test_model_timestamp_must_match_the_evidenced_date_and_zone():
 
 
 def test_partial_and_non_scored_rubrics_cannot_publish_an_inflated_score():
-    from app.postcall.inference import validate_analysis
 
     source = {"segment_id": "s", "is_final": True, "text": "Hello from our team."}
     body = {
@@ -87,8 +86,18 @@ def test_partial_and_non_scored_rubrics_cannot_publish_an_inflated_score():
             }
         ],
     }
-    with pytest.raises(ValueError, match="complete rubric"):
-        validate_analysis(body, [source])
+    from app.postcall.analysis import DIMENSIONS, build_analysis
+
+    state = merge_test_analysis(body, [source])
+    # Incremental updates may cover one dimension; the saved view always includes all.
+    card = build_analysis("fixture", [source], derived=state)["scorecard"]
+    assert len(card["items"]) == len(DIMENSIONS)
+    assert card["overall"]["coverage"] == 0  # No reviewed score yet.
+    for item in state["rubric_items"]:
+        if item["status"] == "scored":
+            item.update(review_status="reviewed", review_receipt_id="fixture-review")
+    card = build_analysis("fixture", [source], derived=state)["scorecard"]
+    assert card["overall"]["coverage"] == 1 / len(DIMENSIONS)
 
 
 def analysis_body(action="Call back"):
@@ -132,6 +141,13 @@ def conversation_turn(body, context):
         ("objection", body.get("objections", [])),
         ("commitment", body.get("commitments", [])),
         ("approach", body.get("observations", [])),
+        (
+            "question",
+            [
+                {"text": value, "evidence": body["summary_evidence"], "review_required": True}
+                for value in body.get("unknowns", [])
+            ],
+        ),
     ):
         for item in values:
             observations.append(
@@ -145,7 +161,7 @@ def conversation_turn(body, context):
                     "review_required": item.get("review_required", False),
                     "approach": item.get("approach"),
                     "commitment": {
-                        k: item[k]
+                        k: item.get(k, "followup" if k == "kind" else None)
                         for k in (
                             "kind",
                             "owner",
@@ -192,6 +208,39 @@ def conversation_turn(body, context):
             "interpreted_segments": refs(list(revisions)),
         },
     }
+
+
+def merge_test_analysis(body, segments):
+    """Old scenario bodies drive the actual incremental schema and merge."""
+    from app.coaching.context import merge_semantic_state, upgrade_state
+    from app.postcall.rubrics import effective
+
+    segments = [{"revision": 1, **item} for item in segments]
+    context = {
+        "recent_dialogue": segments,
+        "trackers": [],
+        "state_version": 1,
+        "context_fingerprint": "fixture",
+    }
+    state = upgrade_state({}, call_id="fixture", rubric=effective({}))
+    return merge_semantic_state(
+        state, conversation_turn(body, context)["state_delta"], segments, request_id="fixture"
+    )
+
+
+def stage_review(workspace, app, monkeypatch, body=None):
+    """Enter the real finalization/review publication boundary without network work."""
+    call, _ = setup_analysis(workspace, app, monkeypatch)
+    service, who = app.state.service, p(workspace)
+    service.analysis(who, call["id"])
+    owner = service._begin_finalization(who, call["id"])
+    request = service._conversation_context(who, call["id"], "finalize")
+    assert service._merge_finalization(
+        who, call["id"], owner, request, conversation_turn(body or analysis_body(), request)
+    )
+    request = service._conversation_context(who, call["id"], "review")
+    owner, review = service._state_review_snapshot(who, call["id"], request)
+    return service, who, call, request, owner, review
 
 
 class ConversationProvider:
@@ -540,7 +589,6 @@ async def test_confirming_corrected_task_acknowledges_review(workspace, app, mon
 
 def test_non_scored_dimensions_cannot_carry_a_score():
     from app.postcall.analysis import DIMENSIONS
-    from app.postcall.inference import validate_analysis
 
     body = analysis_body()
     body["commitments"] = []
@@ -556,4 +604,4 @@ def test_non_scored_dimensions_cannot_carry_a_score():
     ]
     body["score_items"][0]["score"] = 2
     with pytest.raises(ValueError):
-        validate_analysis(body, [{"segment_id": "s", "is_final": True, "text": "Please call next week."}])
+        merge_test_analysis(body, [{"segment_id": "s", "is_final": True, "text": "Please call next week."}])

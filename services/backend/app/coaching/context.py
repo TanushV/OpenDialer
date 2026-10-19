@@ -403,6 +403,105 @@ def lineage_key(identity, version):
     return f"{identity}:{version}"
 
 
+def migrate_note_state(state, note, *, at, revisions, card=None):
+    """Move allowed legacy derivations once; preserve receipts, never invent them."""
+    from uuid import NAMESPACE_URL, uuid5
+
+    value = upgrade_state(state)
+    known = {item["id"] for item in value["observations"]}
+    notes = note.get("notes", {})
+    receipt = notes.get("grounding", {}).get("request_id")
+
+    def refs(item):
+        versions = item.get("source_revisions", item.get("evidence_revisions", {})) or {
+            i: revisions[i] for i in item.get("evidence", []) if i in revisions
+        }
+        return [
+            dict(
+                kind="segment",
+                id=i,
+                version=v,
+                occurred_at=None,
+                available_at=None,
+                content_hash=None,
+                raw_expires_at=None,
+            )
+            for i, v in versions.items()
+        ][:32]
+
+    groups = [
+        ("rundown", [{"text": notes.get("summary", ""), "evidence": notes.get("summary_evidence", [])}]),
+        ("need", notes.get("problems", [])),
+        ("objection", notes.get("objections", [])),
+        ("commitment", notes.get("commitments", [])),
+        ("approach", note.get("observations", [])),
+    ]
+    for kind, items in groups:
+        for index, item in enumerate(items):
+            text = item.get("text", item.get("action", item.get("concept", "")))
+            identity = item.get("id") or str(
+                uuid5(NAMESPACE_URL, f"legacy:{value['call_id']}:{kind}:{index}")
+            )
+            if not text or identity in known:
+                continue
+            review = item.get("review_request_id") if kind == "approach" else receipt
+            human = bool(item.get("reviewer_id")) and item.get("review_status") == "human_confirmed"
+            value["observations"].append(
+                dict(
+                    id=identity,
+                    version=item.get("version", 1),
+                    kind=kind,
+                    text=text[:400],
+                    state="stale"
+                    if note.get("stale") or item.get("status") == "invalidated"
+                    else "retracted"
+                    if item.get("status") == "retracted"
+                    else "confirmed",
+                    sources=refs(item),
+                    replaces=[],
+                    epistemic_status="human_confirmed"
+                    if human
+                    else "model_reviewed"
+                    if review
+                    else "model_interpreted",
+                    observed_at=item.get("observed_at"),
+                    available_at=item.get("observed_at") or at.isoformat(),
+                    invalidated_at=at.isoformat() if note.get("stale") else None,
+                    review_receipt_id=review,
+                    review_status="unavailable"
+                    if note.get("stale")
+                    else "reviewed"
+                    if review or human
+                    else "not_required"
+                    if kind not in {"commitment", "approach"}
+                    else "pending",
+                    lineage_depth=0,
+                    commitment=None,
+                    approach=item.get("approach"),
+                    reviewer_id=item.get("reviewer_id"),
+                    reviewed_at=item.get("reviewed_at"),
+                )
+            )
+            known.add(identity)
+    if card and card.get("rubric_version") == value["purpose"].get("rubric_version"):
+        existing = {i["dimension"]: i for i in value["rubric_items"]}
+        for item in card.get("items", []):
+            target = existing.get(item.get("dimension"))
+            if target and target["status"] == "unassessed" and item.get("score") is not None:
+                # Legacy score rows have no per-rating review receipt. Keep the
+                # interpretation pending, not certified by a newer summary review.
+                target.update(
+                    status="scored",
+                    score=item["score"],
+                    sources=refs(item),
+                    explanation=item.get("explanation", "Legacy assessment")[:400],
+                    review_status="pending",
+                )
+    value["version"] += 1
+    value["finalization"]["status"] = "partial"
+    return value
+
+
 def lineage_metadata(item):
     return {
         k: item.get(k)
@@ -773,7 +872,7 @@ def merge_semantic_state(
     }
 
 
-def invalidate_state(state, source_id, revision, *, at, lineage=None):
+def invalidate_state(state, source_id, revision, *, at, lineage=None, source_kind="segment"):
     value = upgrade_state(state)
     history = dict(lineage or state.get("_lineage", {}))
     for item in value["observations"]:
@@ -782,7 +881,7 @@ def invalidate_state(state, source_id, revision, *, at, lineage=None):
         k
         for k, item in history.items()
         if any(
-            r["kind"] == "segment" and r["id"] == source_id and r["version"] != revision
+            r["kind"] == source_kind and r["id"] == source_id and r["version"] != revision
             for r in item.get("sources", [])
         )
     }
@@ -801,7 +900,7 @@ def invalidate_state(state, source_id, revision, *, at, lineage=None):
 
     def affected(item):
         return lineage_key(item.get("id", ""), item.get("version", 0)) in invalid or any(
-            r["kind"] == "segment"
+            r["kind"] == source_kind
             and r["id"] == source_id
             and r["version"] != revision
             or r["kind"] == "observation"
@@ -824,6 +923,7 @@ def invalidate_state(state, source_id, revision, *, at, lineage=None):
                 {
                     "id": item.get("id") or item.get("dimension") or item.get("tracker_id"),
                     "source_id": source_id,
+                    "source_kind": source_kind,
                     "reason": "source_corrected",
                     "at": at.isoformat(),
                 }

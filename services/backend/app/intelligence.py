@@ -1150,6 +1150,8 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
         record = self._by_key(s, p, "conversation_states", call.id)
         if not record or not self._coach_authority(s, p, call):
             return False
+        if call.data.get("transcription_disabled") and request["recent_dialogue"]:
+            return False
         if owner and (
             record.data["finalization"].get("owner") != owner
             or dt(record.data["finalization"]["lease_expires_at"]) <= self.clock()
@@ -1164,6 +1166,20 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             return False
         if not sources.current(self, s, p, request["context_sources"]):
             return False
+        observations = {i["id"]: i for i in record.data.get("observations", [])}
+        for expected in request.get("evidence_catalog", []):
+            if expected["kind"] != "observation":
+                continue
+            current = observations.get(expected["id"])
+            if (
+                not current
+                or current["version"] != expected["version"]
+                or current["state"] != expected["status"]
+                or current["epistemic_status"] != expected["epistemic_status"]
+                or current.get("review_status") in {"unavailable", "rejected"}
+                or current.get("invalidated_at")
+            ):
+                return False
         for expected in request.get("trackers", []):
             row = get(s, "trackers", expected["id"], p["tenant_id"])
             if not row or row.seller_id != p["seller_id"] or row.version != expected["version"]:
@@ -1267,6 +1283,11 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
         result = card_view(result)
         if result.get("state_version") != request["state_version"]:
             raise ValueError("Finalizer returned a different transcript version")
+        if (
+            result.get("context_fingerprint", request["context_fingerprint"])
+            != request["context_fingerprint"]
+        ):
+            raise ValueError("Finalizer returned a different context fingerprint")
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
             s.refresh(call, with_for_update=True)
@@ -1315,7 +1336,10 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 return
             state = upgrade_state(row.data)
             signature = self._conversation_signature(s, p, call, state)
-            changed = signature != state["finalization"].get("input_fingerprint")
+            changed = (
+                signature != state["finalization"].get("input_fingerprint")
+                or dt(state["finalization"]["lease_expires_at"]) <= self.clock()
+            )
             segments = [
                 r.data
                 for r in self.transcript_metadata(s, p, call_id)
@@ -1471,6 +1495,11 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             if not fields:
                 return None
             relevant = {identity for f in fields for identity in f["evidence"]}
+            # Only referenced sources constrain this selective review. Its own
+            # provisional targets are not evidence for themselves.
+            request["evidence_catalog"] = [
+                i for i in request["evidence_catalog"] if i["kind"] + ":" + i["id"] in relevant
+            ]
             sources = [
                 {**i, "id": i["kind"] + ":" + i["id"]}
                 for i in catalog.values()

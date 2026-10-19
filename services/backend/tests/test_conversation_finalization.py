@@ -667,3 +667,240 @@ async def test_review_cannot_certify_a_changed_derived_source(workspace, app, cl
     with service.db.transaction(False) as s:
         state = service._by_key(s, p, "conversation_states", call["id"]).data
         assert not any(i.get("review_receipt_id") == "second-review" for i in state["observations"])
+
+
+def test_legacy_notes_without_live_state_migrate_without_losing_derived_or_human_context(workspace, app):
+    from app.db import put
+    from conftest import start
+    from test_remediation_privacy import principal
+
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    with service.db.transaction() as s:
+        note = put(
+            s,
+            "notes",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "privacy_contract": 1,
+                "call_id": call["id"],
+                "human_text": "Rep-owned follow-up notes.",
+                "status": "human_confirmed",
+                "notes": {
+                    "summary": "Purchasing approval requires a further evaluation.",
+                    "summary_evidence": ["early"],
+                    "transcript_version": 1,
+                    "problems": [],
+                    "objections": [],
+                    "commitments": [],
+                },
+                "observations": [
+                    {
+                        "id": "legacy-observation",
+                        "version": 3,
+                        "concept": "Procurement approval",
+                        "approach": "Clarify approval steps",
+                        "source_revisions": {"early": 2},
+                        "evidence": ["early"],
+                        "status": "active",
+                        "review_status": "model_reviewed",
+                        "review_request_id": "existing-receipt",
+                        "observed_at": service.clock().isoformat(),
+                    }
+                ],
+            },
+            key=call["id"],
+            now=service.clock(),
+        )
+        identity, version = note.id, note.version
+    service.migrate_conversation_states()
+    service.migrate_conversation_states()
+    view = service.analysis(p, call["id"])
+    assert "further evaluation" in view["notes"]["summary"]
+    assert view["human_notes"] == "Rep-owned follow-up notes."
+    item = view["observations"][0]
+    assert (item["id"], item["version"], item["review_request_id"]) == (
+        "legacy-observation",
+        3,
+        "existing-receipt",
+    )
+    assert item["source_revisions"] == {"early": 2}
+    with service.db.transaction(False) as s:
+        note = service._by_key(s, p, "notes", call["id"])
+        assert note.id == identity and note.version >= version
+        assert "summary" not in note.data["notes"] and "observations" not in note.data
+        state = service._by_key(s, p, "conversation_states", call["id"]).data
+        assert sum(i["kind"] == "approach" for i in state["observations"]) == 1
+        summary = next(i for i in state["observations"] if i["kind"] == "rundown")
+        assert summary["epistemic_status"] == "model_interpreted"
+        assert summary["review_receipt_id"] is None
+
+
+def test_retained_source_correction_invalidates_every_dependent_observation():
+    from app.coaching.context import invalidate_state, lineage_metadata, merge_semantic_state
+
+    state, segment, at = conversation_fixture()
+    delta = {
+        "stage": "discovery",
+        "rundown_points": [
+            {
+                "text": "Approval steps add delay.",
+                "status": "confirmed",
+                "evidence_segment_ids": ["source"],
+                "quote": "",
+            }
+        ],
+    }
+    state = merge_semantic_state(state, delta, [segment], request_id="original", at=at)
+    original = state["observations"][0]
+    original.update(epistemic_status="human_confirmed", review_status="reviewed")
+    old_id = original["id"]
+    child = {
+        "stage": "discovery",
+        "observations": [
+            {
+                "kind": "need",
+                "text": "Procurement could benefit from clearer review steps.",
+                "state": "confirmed",
+                "sources": [{"kind": "observation", "id": old_id, "version": 1}],
+                "replaces": [],
+                "quote": "",
+                "commitment": None,
+            }
+        ],
+        "rubric_items": [],
+        "tracker_matches": [],
+        "interpreted_segments": [],
+    }
+    state = merge_semantic_state(state, child, [], request_id="dependent", at=at)
+    original = next(i for i in state["observations"] if i["id"] == old_id)
+    original.update(state="retracted", version=2)
+    state["_lineage"][f"{old_id}:2"] = lineage_metadata(original)
+    invalidated = invalidate_state(state, old_id, 2, at=at, source_kind="observation")
+    assert next(i for i in invalidated["observations"] if i["id"] != old_id)["state"] == "stale"
+    assert next(i for i in invalidated["observations"] if i["id"] == old_id)["state"] == "retracted"
+
+
+def test_migration_resumes_after_a_committed_page_and_preserves_versions(workspace, app, monkeypatch):
+    from app.db import put
+    from conftest import start
+    from test_remediation_privacy import principal
+
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    identities = []
+    with service.db.transaction() as s:
+        template = service.required(s, "call_attempts", call["id"], p).data
+        for _index in range(501):
+            copied = put(s, "call_attempts", p["tenant_id"], p["seller_id"], template, now=service.clock())
+            row = put(
+                s,
+                "conversation_states",
+                p["tenant_id"],
+                p["seller_id"],
+                {"call_id": copied.id, "privacy_contract": 1, "version": 0},
+                key=copied.id,
+                now=service.clock(),
+            )
+            identities.append((row.id, row.version))
+    store, count = service._store_conversation, 0
+
+    def interrupted(*args, **kwargs):
+        nonlocal count
+        count += 1
+        if count == 501:
+            raise OSError("Synthetic migration interruption")
+        return store(*args, **kwargs)
+
+    monkeypatch.setattr(service, "_store_conversation", interrupted)
+    with pytest.raises(OSError):
+        service.migrate_conversation_states()
+    with service.db.transaction(False) as s:
+        assert (
+            sum(r.data.get("schema_version") == 2 for r in service.scoped(s, "conversation_states", p)) == 500
+        )
+    monkeypatch.setattr(service, "_store_conversation", store)
+    service.migrate_conversation_states()
+    with service.db.transaction(False) as s:
+        rows = service.scoped(s, "conversation_states", p)
+        assert sorted((r.id, r.version) for r in rows) == sorted(identities)
+        assert all(r.data["schema_version"] == 2 for r in rows)
+
+
+@pytest.mark.asyncio
+async def test_human_observation_retraction_invalidates_the_existing_brief(workspace, app, monkeypatch):
+    from app.coaching.context import merge_semantic_state
+    from test_conversation_learning import observed_call
+    from test_remediation_privacy import principal
+
+    service, p = app.state.service, principal(workspace)
+    call, _ = observed_call(workspace, app, monkeypatch)
+    await service.analyze_postcall(p, call["id"])
+    original = service.analysis(p, call["id"])["observations"][0]
+    with service.db.transaction() as s:
+        row = service._by_key(s, p, "conversation_states", call["id"])
+        state = merge_semantic_state(
+            row.data,
+            {
+                "stage": "discovery",
+                "observations": [
+                    {
+                        "kind": "need",
+                        "text": "Clarifying procurement remains useful.",
+                        "state": "confirmed",
+                        "sources": [
+                            {"kind": "observation", "id": original["id"], "version": original["version"]}
+                        ],
+                        "replaces": [],
+                        "quote": "",
+                        "commitment": None,
+                    }
+                ],
+                "rubric_items": [],
+                "tracker_matches": [],
+                "interpreted_segments": [],
+            },
+            [],
+            request_id="prior-brief",
+            at=service.clock(),
+        )
+        service._store_conversation(s, p, service.required(s, "call_attempts", call["id"], p), state, row)
+    response = workspace["client"].post(
+        f"/v1/calls/{call['id']}/observations/{original['id']}/review",
+        headers=workspace["headers"],
+        json={
+            "expected_version": original["version"],
+            "decision": "retract",
+            "reason": "The suggested approach was not used.",
+        },
+    )
+    assert response.status_code == 200, response.text
+    view = service.analysis(p, call["id"])
+    assert not view["call_memory"]["needs"]
+    assert view["source_conflicts"]
+
+
+def test_finalizer_rejects_a_different_context_fingerprint(workspace, app, monkeypatch):
+    from test_live_memory import turn
+
+    call, p, _, _ = setup(workspace, app, monkeypatch)
+    service = app.state.service
+    turn(service, p, call, "fingerprint")
+    service.analysis(p, call["id"])
+    owner = service._begin_finalization(p, call["id"])
+    request = service._conversation_context(p, call["id"], "finalize")
+    with pytest.raises(ValueError, match="context"):
+        service._merge_finalization(
+            p,
+            call["id"],
+            owner,
+            request,
+            {
+                "guidance": None,
+                "field_audit": [],
+                "state_delta": None,
+                "state_version": request["state_version"],
+                "context_fingerprint": "different-input",
+            },
+        )

@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
+from app.coaching.context import lineage_key, state_view
 from app.db import MODELS, audit, doc, put, update
 from app.service import fail
 
@@ -123,8 +124,21 @@ def overview(service, p):
             )
         )
         state = MODELS["conversation_states"]
+        metadata = MODELS["outcomes"]
+        lineage = {}
+        for row in s.scalars(
+            select(metadata).where(
+                metadata.tenant_id == p["tenant_id"],
+                metadata.seller_id == p["seller_id"],
+                metadata.ctx_key.in_([c.id for c in calls]),
+                metadata.ctx_status == "conversation_lineage",
+            )
+        ):
+            lineage.setdefault(row.data["call_id"], {})[lineage_key(row.data["id"], row.data["version"])] = (
+                row.data
+            )
         states = {
-            r.external_key: r.data
+            r.external_key: state_view(r.data, lineage=lineage.get(r.external_key))
             for r in s.scalars(
                 select(state).where(
                     state.tenant_id == p["tenant_id"],
@@ -181,12 +195,9 @@ def publish(service, p, data):
         if call.data["transcript_version"] != data["expected_transcript_version"]:
             fail(409, "The call context changed; review the current tip")
         state = service._by_key(s, p, "conversation_states", call.id)
+        view = state_view(state.data, lineage=service._conversation_lineage(s, p, call.id)) if state else {}
         point = next(
-            (
-                i
-                for i in (state.data.get("coaching_points", []) if state else [])
-                if i.get("id") == data["coaching_point_id"]
-            ),
+            (i for i in view.get("coaching_points", []) if i.get("id") == data["coaching_point_id"]),
             None,
         )
         if (

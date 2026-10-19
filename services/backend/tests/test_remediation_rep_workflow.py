@@ -213,9 +213,7 @@ def test_dashboard_health_distinguishes_unknown_from_bad(workspace):
 
 
 def test_exact_commitment_date_is_retained_and_vague_time_is_not_guessed():
-    from app.grounding import accept_review
-    from app.postcall.inference import analysis_review_request, validate_analysis
-    from test_grounding_review import review_response
+    from test_postcall_completion import merge_test_analysis
 
     segment = {
         "segment_id": "s",
@@ -241,24 +239,18 @@ def test_exact_commitment_date_is_retained_and_vague_time_is_not_guessed():
             }
         ],
     }
-    request = analysis_review_request(body, [segment])
-    result = validate_analysis(
-        body, [segment], review=accept_review(request, review_response(request), "date-review")
-    )
-    assert result["commitments"][0]["due_at"] == "2026-10-20T21:00:00+00:00"
-    assert result["commitments"][0]["needs_time_confirmation"] is False
+    result = merge_test_analysis(body, [segment])["commitments"][0]["commitment"]
+    assert result["due_at"] == "2026-10-20T21:00:00+00:00"
+    assert result["needs_time_confirmation"] is False
     vague = {**segment, "text": "Maybe some afternoon next month."}
     body["commitments"][0].update(verbatim_time_expression=vague["text"], needs_time_confirmation=True)
     body["summary"] = "Follow-up timing remains tentative."
-    request = analysis_review_request(body, [vague])
-    result = validate_analysis(
-        body, [vague], review=accept_review(request, review_response(request), "vague-date-review")
-    )
-    assert result["commitments"][0]["due_at"] is None
+    result = merge_test_analysis(body, [vague])["commitments"][0]["commitment"]
+    assert result["due_at"] is None
 
 
 def test_duplicate_rubric_dimensions_are_rejected_instead_of_inflating_score():
-    from app.postcall.inference import validate_analysis
+    from test_postcall_completion import merge_test_analysis
 
     segment = {"segment_id": "s", "side": "rep", "is_final": True, "text": "Hello from Example Seller."}
     item = {
@@ -269,7 +261,7 @@ def test_duplicate_rubric_dimensions_are_rejected_instead_of_inflating_score():
         "explanation": "Identity supplied",
     }
     with pytest.raises(ValueError):
-        validate_analysis(
+        merge_test_analysis(
             {
                 "summary": "The rep introduced the seller.",
                 "summary_evidence": ["s"],

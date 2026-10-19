@@ -8,7 +8,6 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from app.db import doc, update
 from app.optimization.numbering import capacity_forecast
-from app.postcall.inference import validate_analysis
 from app.providers.inference import InferenceResult
 from app.transcripts import normalize_transcription
 from conftest import start
@@ -156,26 +155,40 @@ def test_uncertain_purchase_cannot_be_resubmitted_with_new_ui_key(workspace, car
     assert len(submitted) <= 1, submitted  # No-subscription policy may reject both before purchase.
 
 
-def test_postcall_grounding_rejects_a_contradictory_claim_with_a_real_quote():
+@pytest.mark.asyncio
+async def test_postcall_grounding_rejects_a_contradictory_claim_with_a_real_quote(
+    workspace, app, monkeypatch
+):
+    from test_postcall_completion import setup_analysis
+
+    call, state = setup_analysis(workspace, app, monkeypatch)
+    service, who = app.state.service, principal(workspace)
     source = "We are happy with our current provider and have no problems."
-    segments = [{"segment_id": "s1", "text": source, "is_final": True, "side": "remote"}]
-    data = {
-        "summary": "The prospect is unhappy with their current provider.",
-        "summary_evidence": ["s1"],
-        "problems": [
+    service._receive_transcript(
+        who,
+        call["id"],
+        {"segment_id": "s", "revision": 2, "is_final": True, "side": "remote", "text": source},
+        None,
+        True,
+    )
+    state["body"].update(
+        summary="The prospect is unhappy with their current provider.",
+        commitments=[],
+        problems=[
             {
                 "text": "The prospect is unhappy with their current provider.",
                 "quote": source,
-                "evidence": ["s1"],
+                "evidence": ["s"],
+                "review_required": True,
             }
         ],
-        "objections": [],
-        "commitments": [],
-        "unknowns": [],
-        "score_items": [],
-    }
-    with pytest.raises(ValueError):
-        validate_analysis(data, segments)
+    )
+    state["verdict"] = "CONTRADICTED"
+    await service.analyze_postcall(who, call["id"])
+    result = service.analysis(who, call["id"])
+    assert "unhappy" not in result["notes"]["summary"]
+    assert result["notes"]["problems"] == []
+    assert result["grounding_status"] == "review_required"
 
 
 def test_corrected_transcript_invalidates_old_ai_scorecard(workspace, app):
@@ -315,9 +328,12 @@ def test_app_score_coverage_counts_all_rubric_dimensions():
             }
         ],
     }
-    # The revised contract rejects partial rubrics at publication and still handles legacy reads honestly.
-    with pytest.raises(ValueError, match="complete rubric"):
-        validate_analysis(data, segments)
+    # Incremental ratings preserve full configured coverage; legacy views do too.
+    from app.postcall.analysis import build_analysis
+    from test_postcall_completion import merge_test_analysis
+
+    merged = merge_test_analysis(data, segments)
+    assert build_analysis("fixture", segments, derived=merged)["scorecard"]["overall"]["coverage"] == 0
     coverage = score_summary(data["score_items"])["coverage"]
     assert coverage <= 1 / len(DIMENSIONS), {
         "reported_coverage": coverage,

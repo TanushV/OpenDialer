@@ -4,10 +4,15 @@ from datetime import timedelta
 
 import pytest
 from app.db import doc
-from app.postcall.inference import validate_analysis
 from app.preparation.templates import ScriptTemplate, fill
 from app.providers.inference import InferenceResult
-from test_postcall_completion import ConversationProvider, analysis_body, conversation_turn, setup_analysis
+from test_postcall_completion import (
+    ConversationProvider,
+    analysis_body,
+    conversation_turn,
+    setup_analysis,
+    stage_review,
+)
 from test_remediation_rep_workflow import p
 
 
@@ -35,31 +40,53 @@ def source():
     }
 
 
-def test_matching_evidence_does_not_authorize_unreviewed_paraphrase():
-    with pytest.raises(ValueError, match="review"):
-        validate_analysis(analysis_body(), [source()])
+def test_matching_evidence_does_not_authorize_unreviewed_paraphrase(workspace, app, monkeypatch):
+    service, who, call, _, _, _ = stage_review(workspace, app, monkeypatch)
+    result = service.analysis(who, call["id"])
+    assert result["grounding_status"] == "review_required"
+    assert "future conversation was requested" not in result["notes"]["summary"]
+    with service.db.transaction(False) as session:
+        assert not service.lead_records(session, who, "commitments", call["lead_id"])
 
 
-def test_complete_review_accepts_freeform_paraphrase_and_binds_source_version():
+@pytest.mark.parametrize("change", [None, "revision", "text", "side", "candidate"])
+def test_complete_review_accepts_freeform_paraphrase_and_binds_source_version(
+    workspace, app, monkeypatch, change
+):
+    from app.db import update
     from app.grounding import accept_review
-    from app.postcall.inference import analysis_review_request
 
-    body = analysis_body("Reconnect about their evaluation")
-    request = analysis_review_request(body, [source()])
-    receipt = accept_review(request, review_response(request), "independent-review")
-    result = validate_analysis(body, [source()], review=receipt)
-    assert result["commitments"][0]["action"] == "Reconnect about their evaluation"
-    assert result["commitments"][0]["due_at"] == "2026-10-20T21:00:00+00:00"
-    for changed in [
-        {**source(), "revision": 2},
-        {**source(), "text": "No callback was agreed."},
-        {**source(), "side": "rep"},
-    ]:
-        with pytest.raises(ValueError):
-            validate_analysis(body, [changed], review=receipt)
-    changed_body = {**body, "summary": "They agreed to purchase."}
-    with pytest.raises(ValueError):
-        validate_analysis(changed_body, [source()], review=receipt)
+    service, who, call, request, owner, review = stage_review(
+        workspace, app, monkeypatch, analysis_body("Reconnect about their evaluation")
+    )
+    receipt = accept_review(review, review_response(review), "independent-review")
+    if change in {"revision", "text", "side"}:
+        changed = source() | {"revision": 2}
+        if change == "revision":
+            changed["text"] += " We will review the pricing then."
+        if change == "text":
+            changed["text"] = "No callback was agreed."
+        if change == "side":
+            changed["side"] = "rep"
+        service._receive_transcript(who, call["id"], changed, None, True)
+    elif change == "candidate":
+        from copy import deepcopy
+
+        with service.db.transaction() as s:
+            row = service._by_key(s, who, "conversation_states", call["id"])
+            state = deepcopy(row.data)
+            for item in state["observations"]:
+                item["text"] = "They agreed to purchase."
+            update(row, **state)
+    service._publish_state_review(who, call["id"], request, owner, receipt)
+    service.analysis(who, call["id"])
+    with service.db.transaction(False) as session:
+        promises = [i.data for i in service.lead_records(session, who, "commitments", call["lead_id"])]
+    if change:
+        assert promises == []
+    else:
+        assert promises[0]["action"] == "Reconnect about their evaluation"
+        assert promises[0]["due_at"] == "2026-10-20T21:00:00+00:00"
 
 
 @pytest.mark.parametrize(
@@ -76,11 +103,10 @@ def test_complete_review_accepts_freeform_paraphrase_and_binds_source_version():
         "empty_receipt",
     ],
 )
-def test_incomplete_or_unsafe_reviews_cannot_publish(change):
+def test_incomplete_or_unsafe_reviews_cannot_publish(change, workspace, app, monkeypatch):
     from app.grounding import accept_review
-    from app.postcall.inference import analysis_review_request
 
-    request = analysis_review_request(analysis_body(), [source()])
+    *_, request = stage_review(workspace, app, monkeypatch)
     review = review_response(request)
     if change == "omitted":
         review["verdicts"].pop()
@@ -102,38 +128,42 @@ def test_incomplete_or_unsafe_reviews_cannot_publish(change):
         accept_review(request, review, None if change == "empty_receipt" else "review-1")
 
 
-def test_every_visible_analysis_field_is_reviewed_including_omitted_assertions():
+def test_every_visible_analysis_field_is_reviewed_including_omitted_assertions(workspace, app, monkeypatch):
     from app.postcall.analysis import DIMENSIONS
-    from app.postcall.inference import analysis_review_request
 
     body = analysis_body()
     body["summary"] += " Their budget was approved."
-    body["problems"] = [{"text": "Procurement is delayed", "quote": "Please call me", "evidence": ["s"]}]
-    body["objections"] = [{"text": "Timing constraint", "quote": "Please call me", "evidence": ["s"]}]
+    body["problems"] = [
+        {
+            "text": "Procurement is delayed",
+            "quote": "Please call me",
+            "evidence": ["s"],
+            "review_required": True,
+        }
+    ]
+    body["objections"] = [
+        {"text": "Timing constraint", "quote": "Please call me", "evidence": ["s"], "review_required": True}
+    ]
     body["unknowns"] = ["They never discussed security"]
     body["score_items"] = [
         {
             "dimension": dim,
             "score": None,
             "status": "N/A",
-            "evidence": [],
+            "evidence": ["s"],
             "explanation": "No opportunity was offered",
         }
         for dim in DIMENSIONS
     ]
-    request = analysis_review_request(body, [source()])
-    fields = {item["field"]: item for item in request["fields"]}
-    assert set(fields) == {
-        "summary",
-        "problems/0",
-        "objections/0",
-        "commitments/0",
-        "unknowns/0",
-        *(f"score_items/{i}" for i in range(len(DIMENSIONS))),
-    }
-    assert "budget was approved" in fields["summary"]["value"]
-    assert fields["commitments/0"]["value"]["owner"] == "rep"
-    assert fields["score_items/0"]["value"]["status"] == "N/A"
+    *_, request = stage_review(workspace, app, monkeypatch, body)
+    fields = request["fields"]
+    assert len(fields) == 5 + len(DIMENSIONS)
+    assert any("budget was approved" in str(f["value"]) for f in fields)
+    assert any(
+        f["value"].get("commitment", {}).get("owner") == "rep" for f in fields if f["value"].get("commitment")
+    )
+    assert any(f["value"].get("status") == "not_applicable" for f in fields)
+    assert any(f["value"].get("text") == "They never discussed security" for f in fields)
 
 
 @pytest.mark.parametrize("slot_text", ["We are certified.", "are certified", "certified"])

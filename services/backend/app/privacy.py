@@ -628,7 +628,7 @@ class SpeechPrivacy:
         """Resumable payload migration; original record IDs and visible versions survive."""
         from sqlalchemy import select
 
-        from app.coaching.context import lineage_metadata, upgrade_state
+        from app.coaching.context import lineage_metadata, migrate_note_state, upgrade_state
         from app.db import MODELS, get
         from app.postcall.rubrics import effective
 
@@ -642,7 +642,8 @@ class SpeechPrivacy:
                     marker = seller.data.get("completion_contracts", {}).get("conversation", {})
                     if marker.get("completed_at"):
                         break
-                    model = MODELS["conversation_states"]
+                    table = marker.get("last_table", "conversation_states")
+                    model = MODELS[table]
                     batch = list(
                         s.scalars(
                             select(model)
@@ -657,20 +658,77 @@ class SpeechPrivacy:
                     )
                     for row in batch:
                         call = get(s, "call_attempts", row.data.get("call_id"), tenant)
-                        if not call or call.seller_id != seller_id or row.data.get("schema_version") == 2:
+                        if not call or call.seller_id != seller_id:
                             continue
-                        state = upgrade_state(row.data, call_id=call.id, rubric=effective(call.data))
+                        memory = (
+                            row
+                            if table == "conversation_states"
+                            else self._by_key(s, p, "conversation_states", call.id)
+                        )
+                        note = row if table == "notes" else self._by_key(s, p, "notes", call.id)
+                        legacy = (
+                            note
+                            and "derived_state_revision" not in note.data
+                            and note.data.get("privacy_contract") == 1
+                        )
+                        if memory and memory.data.get("schema_version") == 2 and not legacy:
+                            continue
+                        state = upgrade_state(
+                            memory.data if memory else {}, call_id=call.id, rubric=effective(call.data)
+                        )
+                        if legacy:
+                            revisions = (
+                                {
+                                    r.data["segment_id"]: r.data["revision"]
+                                    for r in self.transcript_metadata(s, p, call.id)
+                                }
+                                if note.data.get("notes", {}).get("transcript_version")
+                                == call.data["transcript_version"]
+                                else {}
+                            )
+                            card = self._by_key(s, p, "scorecards", call.id)
+                            state = migrate_note_state(
+                                state,
+                                note.data,
+                                at=self.clock(),
+                                revisions=revisions,
+                                card=card.data if card else None,
+                            )
+                            # Strip the duplicate machine narrative. Human text, record
+                            # identity and original review metadata remain untouched.
+                            note.data = {
+                                k: v
+                                for k, v in note.data.items()
+                                if k not in {"observations", "semantic_trackers"}
+                            } | {
+                                "notes": {
+                                    k: v
+                                    for k, v in note.data.get("notes", {}).items()
+                                    if k in {"call_id", "transcript_version", "outcome", "grounding"}
+                                },
+                                "suggested_update": bool(note.data.get("suggested_update")),
+                                "derived_state_revision": state["version"],
+                            }
                         state["_lineage_updates"] = [lineage_metadata(i) for i in state["observations"]]
-                        version = row.version
-                        self._store_conversation(s, p, call, state, row)
-                        row.version = version
+                        version = memory.version if memory else None
+                        memory = self._store_conversation(s, p, call, state, memory)
+                        if version is not None:
+                            memory.version = version
                     contracts = dict(seller.data.get("completion_contracts", {}))
                     contracts["conversation"] = {
                         "schema_version": 2,
                         "phase": "conversation",
-                        "last_table": "conversation_states",
-                        "last_id": batch[-1].id if batch else marker.get("last_id", ""),
-                        "completed_at": self.clock().isoformat() if len(batch) < 500 else None,
+                        "last_table": "notes"
+                        if table == "conversation_states" and len(batch) < 500
+                        else table,
+                        "last_id": ""
+                        if table == "conversation_states" and len(batch) < 500
+                        else batch[-1].id
+                        if batch
+                        else marker.get("last_id", ""),
+                        "completed_at": self.clock().isoformat()
+                        if table == "notes" and len(batch) < 500
+                        else None,
                     }
                     seller.data = {**seller.data, "completion_contracts": contracts}
 

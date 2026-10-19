@@ -212,7 +212,7 @@ def register_optimization(app, service, principal, administrator):
 
     @app.post("/v1/calls/{call_id}/observations/{observation_id}/review")
     def review_observation(call_id: str, observation_id: str, body: ObservationReview, p=Depends(principal)):
-        from app.coaching.context import lineage_metadata, upgrade_state
+        from app.coaching.context import invalidate_state, lineage_metadata, upgrade_state
         from app.optimization.conversations import invalidate_report
         from app.postcall.analysis import learning_observations
 
@@ -234,6 +234,7 @@ def register_optimization(app, service, principal, administrator):
                 fail(404, "Observation not found")
             if observation["version"] != body.expected_version:
                 fail(409, "Observation changed; refresh before reviewing")
+            previous = lineage_metadata(observation)
             observation.update(
                 state="confirmed" if body.decision == "confirm" else "retracted",
                 review_status="reviewed",
@@ -245,7 +246,24 @@ def register_optimization(app, service, principal, administrator):
             )
             state["version"] += 1
             state["finalization"]["status"] = "pending"
-            state["_lineage_updates"] = [lineage_metadata(observation)]
+            state = invalidate_state(
+                state,
+                observation_id,
+                observation["version"],
+                at=service.clock(),
+                lineage=service._conversation_lineage(s, p, call_id),
+                source_kind="observation",
+            )
+            state["_lineage_updates"].extend(
+                [
+                    {
+                        **previous,
+                        "invalidated_at": service.clock().isoformat(),
+                        "review_status": "unavailable",
+                    },
+                    lineage_metadata(observation),
+                ]
+            )
             service._store_conversation(s, p, call, state, memory)
             lead = service.required(s, "leads", call.data["lead_id"], p)
             invalidate_report(service, s, p, lead.data["campaign_id"])
