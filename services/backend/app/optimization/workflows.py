@@ -915,15 +915,13 @@ class OptimizationWorkflows(ComparisonWorkflows):
 
     def save_operational_dataset(self, p):
         with self.db.transaction(False) as s:
+            generation = self.report_revision(s, p)
             config = self.optimization_config(s, p)
-            data = self.operational_dataset(s, p, config)
             campaign = self.scoped(s, "campaigns", p)[0]
             revision = campaign.data.get("conversation_revision", 0)
             campaign_id = campaign.id
-            generation = self.report_revision(s, p)
             baseline = {k: config[k] for k in ("estimate_policy", "handling_seconds")}
-            # Bound training memory, retain the complete operational ledger as source of truth.
-            data = data[-20000:]
+            data = self.operational_dataset(s, p, config)
             key = hashlib.sha256(
                 json.dumps(
                     [config["conversion_goal"], config["window_days"], data, revision, baseline],
@@ -1063,6 +1061,19 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 }
             computed = []
             for lead in page:
+                # Derive only the cells needed by this bounded page; keep the
+                # same canonical sparse estimates used by live queue selection.
+                for day in (0, 5):
+                    for hour in range(24):
+                        features = {
+                            "segment": lead.get("segment", "unknown"),
+                            "attempt_count": lead.get("attempt_count", 0),
+                            "local_hour": hour,
+                            "local_weekday": day,
+                        }
+                        key = prediction_key(features)
+                        if key not in estimates:
+                            estimates[key] = saved_prediction(profile, features, config)
                 digest = fingerprint(lead)
                 old = prior.get(lead["id"], {})
                 if (
