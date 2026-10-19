@@ -368,3 +368,98 @@ def test_same_definition_has_separate_inactive_namespace_keys():
     assert one != two
     assert one == unit_key(definition, "active", "lead", "one")
     assert len(one) <= 512
+
+
+def test_work_projection_indexes_use_effective_times_not_record_creation(workspace, app, clock):
+    from datetime import timedelta
+
+    from sqlalchemy import inspect, select
+
+    service, p = app.state.service, principal(workspace)
+    schema = inspect(service.db.engine)
+    assert {"op_at", "op_due_at"} <= {c["name"] for c in schema.get_columns("work_intervals")}, (
+        "Corrected intervals require indexed start/end overlap reads"
+    )
+    assert "op_work_end_at" in {c["name"] for c in schema.get_columns("call_attempts")}
+    with service.db.transaction() as session:
+        interval = put(
+            session,
+            "work_intervals",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "rep_id": p["user_id"],
+                "started_at": (clock.now - timedelta(minutes=2)).isoformat(),
+                "ended_at": clock.now.isoformat(),
+            },
+            now=clock.now - timedelta(days=40),
+        )
+        identity = interval.id
+        lead = service.scoped(session, "leads", p)[0]
+        call = put(
+            session,
+            "call_attempts",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "lead_id": lead.id,
+                "rep_id": p["user_id"],
+                "started_at": (clock.now - timedelta(minutes=1)).isoformat(),
+                "submitted_at": (clock.now - timedelta(minutes=1)).isoformat(),
+                "state": "ENDED",
+                "ended_at": clock.now.isoformat(),
+                "detached": True,
+                "rep_released_at": (clock.now - timedelta(seconds=20)).isoformat(),
+            },
+            now=clock.now,
+        )
+        call_id = call.id
+    with service.db.transaction(False) as session:
+        intervals = MODELS["work_intervals"]
+        found = list(
+            session.scalars(
+                select(intervals).where(
+                    intervals.op_owner_id == p["user_id"],
+                    intervals.op_at < clock.now,
+                    intervals.op_due_at > clock.now - timedelta(minutes=3),
+                )
+            )
+        )
+        assert [r.id for r in found] == [identity]
+        from app.jobs.queue import aware
+
+        assert aware(get(session, "call_attempts", call_id).op_work_end_at) == clock.now - timedelta(
+            seconds=20
+        )
+
+
+def test_work_index_backfill_preserves_payload_versions_and_resumes(workspace, app, clock):
+    from sqlalchemy import inspect, text
+
+    service, p = app.state.service, principal(workspace)
+    assert "op_at" in {c["name"] for c in inspect(service.db.engine).get_columns("work_intervals")}
+    with service.db.transaction() as session:
+        rows = [
+            put(session, "work_intervals", p["tenant_id"], p["seller_id"], data, now=clock.now)
+            for data in [
+                {"rep_id": p["user_id"], "started_at": clock.now.isoformat(),
+                 "lease_until": (clock.now + timedelta(seconds=90)).isoformat()},
+                {"rep_id": p["user_id"], "started_at": None},
+            ]
+        ]
+        before = {r.id: (dict(r.data), r.version) for r in rows}
+        seller = get(session, "sellers", p["seller_id"])
+        contracts = dict(seller.data.get("completion_contracts", {}))
+        contracts.pop("work_index_v1", None)
+        update(seller, completion_contracts=contracts)
+    with service.db.engine.begin() as connection:
+        connection.execute(text("UPDATE work_intervals SET op_at=NULL, op_due_at=NULL"))
+    service.db.backfill_operational_columns()
+    service.db.backfill_operational_columns()
+    with service.db.transaction(False) as session:
+        for identity, expected in before.items():
+            row = get(session, "work_intervals", identity)
+            assert (row.data, row.version) == expected
+            assert bool(row.op_at) == bool(row.data.get("started_at"))
+        marker = get(session, "sellers", p["seller_id"]).data["completion_contracts"]["work_index_v1"]
+        assert marker["completed_at"] and marker["last_id"] == max(before)
