@@ -538,3 +538,50 @@ def test_call_vector_moves_health_windows_without_a_history_scan(clock):
     assert expired["connect_reference_n"] == expired["connect_recent_n"] == 0
     unknown = call_values({**call, "outcome": None}, config=config, now=start)
     assert unknown["connect_recent_unknown"] == 1 and unknown["connect_recent_n"] == 0
+
+
+def test_metric_reader_does_not_decrypt_inactive_rep_history(workspace, app, clock, monkeypatch):
+    from app.optimization.projections import _group_key
+    from test_context_reads import count_decrypted
+    from test_projection_replay import active_total, project_pending
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as session:
+        put(
+            session,
+            "work_intervals",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "rep_id": p["user_id"],
+                "started_at": (clock.now - timedelta(seconds=90)).isoformat(),
+                "ended_at": clock.now.isoformat(),
+            },
+            now=clock.now,
+        )
+    project_pending(service, p)
+    pointer, _ = active_total(service, p)
+    with service.db.transaction() as session:
+        for i in range(100):
+            group = {
+                "bucket_kind": "rep_total",
+                "bucket_day": None,
+                "namespace": "inactive",
+                "campaign_id": workspace["campaign_id"],
+                "definition_version": pointer["active_definition"],
+                "rep_id": f"unrelated-{i}",
+            }
+            put(
+                session,
+                "metric_buckets",
+                p["tenant_id"],
+                p["seller_id"],
+                {**group, "group": group, "values": {"rep_work_seconds": 9999, "work_evidence_count": 1}},
+                key=_group_key(service, group),
+                now=clock.now,
+            )
+    seen = count_decrypted(app, monkeypatch)
+    result = service.metrics(p)
+    assert result["rep_work_seconds"] == 90
+    assert result["work_time"]["by_rep"] == {p["user_id"]: 90}
+    assert len(seen) <= 15, "Inactive derived history must be excluded by indexed namespace"
