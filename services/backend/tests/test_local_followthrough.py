@@ -132,6 +132,78 @@ def test_alias_reconciliation_retains_human_note_and_protection_on_survivor(work
     ]
 
 
+@pytest.mark.parametrize("ambiguous", [False, True])
+def test_manual_wrapup_preserves_source_identity_and_never_adds_an_ambiguous_third_callback(
+    workspace, app, clock, ambiguous
+):
+    call = start(workspace)
+    service, who = app.state.service, p(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
+    with service.db.transaction() as s:
+        for index in range(2 if ambiguous else 1):
+            promise = put(
+                s,
+                "commitments",
+                who["tenant_id"],
+                who["seller_id"],
+                {
+                    "lead_id": call["lead_id"],
+                    "call_id": call["id"],
+                    "kind": "callback",
+                    "action": "Revisit the purchasing discussion",
+                    "status": "confirmed",
+                },
+                now=clock(),
+            )
+            task = put(
+                s,
+                "followup_tasks",
+                who["tenant_id"],
+                who["seller_id"],
+                {
+                    "lead_id": call["lead_id"],
+                    "call_id": call["id"],
+                    "commitment_id": promise.id,
+                    "kind": "callback",
+                    "source": "inferred",
+                    "status": "open",
+                    "action": "Call back",
+                    "owner_id": who["user_id"],
+                    "due_at": (clock() + timedelta(days=index + 1)).isoformat(),
+                },
+                key="commitment:" + promise.id,
+                now=clock(),
+            )
+            task_id, key = task.id, task.external_key
+    response = c.post(
+        f"/v1/calls/{call['id']}/disposition",
+        headers=h,
+        json=disposition_body(
+            c,
+            h,
+            call["id"],
+            outcome="callback_requested",
+            callback_at=(clock() + timedelta(days=1)).isoformat(),
+        ),
+    )
+    if ambiguous:
+        assert response.status_code == 409 and response.json()["detail"]["code"] == "ambiguous_callbacks"
+        assert len(tasks(workspace, call)) == 2
+    else:
+        assert response.status_code == 200, response.text
+        assert response.json()["canonical_task_id"] == task_id
+        with service.db.transaction(False) as s:
+            assert service.required(s, "followup_tasks", task_id, who).external_key == key
+        changed = c.post(
+            f"/v1/calls/{call['id']}/disposition",
+            headers=h,
+            json=disposition_body(c, h, call["id"], outcome="no_answer"),
+        )
+        assert changed.status_code == 200, changed.text
+        assert tasks(workspace, call)[0]["status"] == "cancelled"
+
+
 def test_meeting_report_replays_without_repeating_outcome_or_clearing_newer_hold(workspace):
     call = start(workspace)
     finish(workspace, call, "meeting_booked")

@@ -74,6 +74,80 @@ def conversation_fixture():
     return state, segment, at
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("supported", [True, False])
+async def test_outcome_suggestion_is_reviewed_with_its_contact_role_but_never_confirms_a_label(
+    workspace, app, clock, monkeypatch, supported
+):
+    from app.grounding import accept_review
+    from test_grounding_review import review_response
+    from test_live_memory import turn
+
+    call, p, _, changes = setup(workspace, app, monkeypatch)
+    service = app.state.service
+    turn(
+        service,
+        p,
+        call,
+        "classification",
+        text="I handle purchase approvals. Please call me next Tuesday to discuss the process.",
+    )
+    source = {"kind": "segment", "id": "classification", "version": 1}
+    changes["result"] = {
+        "action": "NO_ACTION",
+        "state_update": {
+            "stage": "next_step",
+            "observations": [
+                {
+                    "kind": "signal",
+                    "text": "The contact requested another discussion about purchasing.",
+                    "state": "confirmed",
+                    "sources": [source],
+                    "replaces": [],
+                    "quote": "",
+                    "commitment": None,
+                    "outcome": {"code": "callback_requested", "contact_role": "right_party"},
+                }
+            ],
+            "rubric_items": [],
+            "tracker_matches": [],
+            "interpreted_segments": [source],
+        },
+    }
+    await service.coach_turn(p, call["id"], urgent=True)
+    with service.db.transaction(False) as s:
+        state = service._by_key(s, p, "conversation_states", call["id"]).data
+        assert state["observations"][0]["review_status"] == "pending"
+    assert service.analysis(p, call["id"])["notes"].get("suggested_outcome") is None
+    request = service._conversation_context(p, call["id"], "review")
+    owner, review = service._state_review_snapshot(p, call["id"], request)
+    assert review["fields"][0]["value"]["outcome"] == {
+        "code": "callback_requested",
+        "contact_role": "right_party",
+    }
+    receipt = accept_review(review, review_response(review), "outcome-review") if supported else None
+    service._publish_state_review(p, call["id"], request, owner, receipt)
+    analysis = service.analysis(p, call["id"])
+    suggestion = analysis["notes"]["suggested_outcome"]
+    assert bool(suggestion) == supported
+    assert not analysis["call"].get("outcome"), "Model interpretation is not a confirmed training label"
+    with service.db.transaction(False) as s:
+        assert not service.lead_records(s, p, "followup_tasks", call["lead_id"])
+    if supported:
+        assert suggestion["code"] == "callback_requested" and suggestion["source_observation_id"]
+        clock.now += timedelta(seconds=301)
+        assert service.analysis(p, call["id"])["notes"]["suggested_outcome"] == suggestion
+        turn(
+            service,
+            p,
+            call,
+            "classification",
+            revision=2,
+            text="I cannot speak for purchasing and did not request a follow-up.",
+        )
+        assert service.analysis(p, call["id"])["notes"]["suggested_outcome"] is None
+
+
 async def pending_review(workspace, app, clock, monkeypatch):
     from app.grounding import accept_review
     from test_grounding_review import review_response
