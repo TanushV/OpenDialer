@@ -134,6 +134,9 @@ async def test_prospect_debounce_and_rate_limit(workspace, app, clock, monkeypat
         await service.run_jobs(p["tenant_id"], queues=["live_coach"])
     assert len(requests) == 30
     coverage = service.analysis(p, call["id"])["interpretation_coverage"]
+    with service.db.transaction(False) as session:
+        memory = service._by_key(session, p, "conversation_states", call["id"])
+        assert memory.data["rate_limited_opportunities"] >= 4
     assert coverage.get("rate_limited_opportunities", 0) >= 4
 
 
