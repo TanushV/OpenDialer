@@ -183,6 +183,12 @@ def training_rows(calls, snapshots, events, *, now, goal, window_days):
                 "company_id": snapshot.get("company_id", call.get("company_id")),
                 "propensity": snapshot.get("propensity", 1.0),
                 "p_human": snapshot.get("predictions", {}).get("p_human"),
+                "p_right_party_given_human": snapshot.get("predictions", {}).get("p_right_party_given_human"),
+                "p_conversion_given_right_party": snapshot.get("predictions", {}).get(
+                    "p_conversion_given_right_party"
+                ),
+                "model_version": snapshot.get("model_version")
+                or snapshot.get("predictions", {}).get("model_version"),
                 "experiment_arm": snapshot.get("experiment_arm", "baseline"),
                 "observed_cost_usd": call.get("observed_cost_usd"),
                 "cost_status": call.get("cost_status", "unknown"),
@@ -458,42 +464,140 @@ def future_slots(
     )[:8]
 
 
+DRIFT_POLICY = {
+    "version": "comparable-stages-v2",
+    "minimum_support": 20,
+    "brier_increase": 0.05,
+    "missing_fraction_change": 0.20,
+}
+
+
 def drift_report(reference, recent):
-    def brier(data):
-        valid = [r for r in data if r.get("p_human") is not None and r.get("human") is not None]
+    """Descriptive paired-stratum monitoring, never an automatic policy change."""
+    from collections import defaultdict
+
+    def stratum(row):
+        f = row.get("features", {})
         return (
-            sum((float(r["p_human"]) - int(r["human"])) ** 2 for r in valid) / len(valid) if valid else None
+            row.get("model_version"),
+            row.get("campaign_id"),
+            row.get("goal"),
+            f.get("feature_schema_version"),
+            f.get("segment"),
+            f.get("attempt_count"),
         )
 
+    groups = []
+    for rows in (reference, recent):
+        grouped = defaultdict(list)
+        for row in rows:
+            if row.get("model_version"):
+                grouped[stratum(row)].append(row)
+        groups.append(grouped)
+    common = groups[0].keys() & groups[1].keys()
+    compared = [[r for key in common for r in group[key]] for group in groups]
+
+    def numeric(v):
+        return isinstance(v, (int, float)) and math.isfinite(v)
+
     changes = {}
-    for key in ("local_hour", "attempt_count", "source_age_days", "number_health_missing"):
-        left = [float(r.get("features", {}).get(key) or 0) for r in reference]
-        right = [float(r.get("features", {}).get(key) or 0) for r in recent]
-        if left and right:
-            a, b = sum(left) / len(left), sum(right) / len(right)
-            changes[key] = {
-                "reference_mean": a,
-                "recent_mean": b,
-                "relative_change": abs(b - a) / max(1, abs(a)),
-            }
-    a, b = brier(reference), brier(recent)
-    sufficient = min(len(reference), len(recent)) >= 20
-    drift = sufficient and (
-        any(v["relative_change"] > 0.5 for v in changes.values())
-        or (a is not None and b is not None and b > a + 0.05)
+    for key in (
+        "local_hour",
+        "attempt_count",
+        "source_age_days",
+        "number_health_missing",
+        "conversation_evidence_missing",
+    ):
+        values = [
+            [float(r["features"][key]) for r in rows if numeric(r.get("features", {}).get(key))]
+            for rows in compared
+        ]
+        a, b = [sum(v) / len(v) if v else None for v in values]
+        missing = [len(rows) - len(v) for rows, v in zip(compared, values, strict=True)]
+        changes[key] = {
+            "reference_mean": a,
+            "recent_mean": b,
+            "reference_missing": missing[0],
+            "recent_missing": missing[1],
+            "missing_fraction_change": abs(missing[1] / len(compared[1]) - missing[0] / len(compared[0]))
+            if all(compared)
+            else None,
+        }
+    support = {}
+    for stage, label, probability, condition in (
+        ("human", "human", "p_human", None),
+        ("right_party", "right_party", "p_right_party_given_human", "human"),
+        ("conversion", "conversion", "p_conversion_given_right_party", "right_party"),
+    ):
+        totals = [0, 0]
+        weighted = [0.0, 0.0]
+        weight = 0
+        for key in common:
+            losses = [
+                [
+                    (r[probability] - r[label]) ** 2
+                    for r in group[key]
+                    if r.get(label) in (0, 1)
+                    and numeric(r.get(probability))
+                    and 0 <= r[probability] <= 1
+                    and (condition is None or r.get(condition) == 1)
+                    and (
+                        stage != "conversion" or r.get("window_closed") or r.get("window_status") == "matured"
+                    )
+                ]
+                for group in groups
+            ]
+            for i, v in enumerate(losses):
+                totals[i] += len(v)
+            n = min(map(len, losses))
+            if n >= DRIFT_POLICY["minimum_support"]:
+                weight += n
+                for i, v in enumerate(losses):
+                    weighted[i] += n * (sum(v) / len(v))
+        support[stage] = {
+            "reference": totals[0],
+            "recent": totals[1],
+            "paired_support": weight,
+            "reference_brier": weighted[0] / weight if weight else None,
+            "recent_brier": weighted[1] / weight if weight else None,
+        }
+    sufficient = any(v["paired_support"] for v in support.values())
+    missing_shift = any(
+        v["missing_fraction_change"] is not None
+        and v["missing_fraction_change"] >= DRIFT_POLICY["missing_fraction_change"]
+        for v in changes.values()
+    )
+    drift = bool(
+        sufficient
+        and any(
+            v["paired_support"] and v["recent_brier"] > v["reference_brier"] + DRIFT_POLICY["brier_increase"]
+            for v in support.values()
+        )
     )
     return {
-        "drift_detected": bool(drift),
-        "reference_brier": a,
-        "recent_brier": b,
+        "definition_version": DRIFT_POLICY["version"],
+        "policy": dict(DRIFT_POLICY),
+        "model_versions": sorted({k[0] for k in common}),
+        "stage_support": support,
+        "drift_detected": drift,
+        "missingness_shift": missing_shift,
+        "reference_brier": support["human"]["reference_brier"],
+        "recent_brier": support["human"]["recent_brier"],
         "features": changes,
         "reference_rows": len(reference),
         "recent_rows": len(recent),
-        "action": "review_or_restore_baseline"
+        "excluded_reference": len(reference) - len(compared[0]),
+        "excluded_recent": len(recent) - len(compared[1]),
+        "action": "insufficient_comparable_data"
+        if not common
+        else "insufficient_data"
+        if not sufficient
+        else "review_or_restore_baseline"
         if drift
-        else "retain_and_monitor"
-        if sufficient
-        else "insufficient_data",
+        else "review_data_coverage"
+        if missing_shift
+        else "retain_and_monitor",
+        "scope": "Comparable model, campaign, goal, feature version, segment and attempt strata; equal stratum weights across periods. Descriptive warning; no automatic activation.",
     }
 
 

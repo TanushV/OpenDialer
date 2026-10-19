@@ -458,6 +458,12 @@ class RepWorkflows:
                 "conversion_goal": config["conversion_goal"],
                 "samples": samples,
                 "conversion_samples": prediction.get("conversion_observations", 0),
+                "stage_support": prediction.get("stage_support", {}),
+                "prior_only": prediction.get("prior_only", False),
+                "estimate_level": prediction.get("estimate_level"),
+                "estimate_policy": config["estimate_policy"],
+                "estimate_policy_version": prediction.get("estimate_policy_version"),
+                "work_assumption_seconds": config["handling_seconds"],
                 "uncertainty": "Sparse evidence; pooled starting estimates, not individual guarantees."
                 if samples < 30
                 else "Pooled estimates; conditional outcomes have separate sample support.",

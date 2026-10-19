@@ -241,6 +241,23 @@ export interface Packet {
     conversion_goal: string;
     samples: number;
     conversion_samples: number;
+    prior_only?: boolean;
+    estimate_level?: string;
+    estimate_policy?: EstimatePolicy;
+    estimate_policy_version?: string;
+    work_assumption_seconds?: number;
+    stage_support?: Record<
+      string,
+      {
+        cell_known: number;
+        cell_successes: number;
+        cell_unknown: number;
+        conditioning_excluded: number;
+        outside_known: number;
+        observed_interval: [number, number];
+        interval_kind: string;
+      }
+    >;
     uncertainty: string;
     why_now: string;
     as_of: string | null;
@@ -411,6 +428,25 @@ export interface Workspace {
     trial_active?: boolean;
     trial_ends_at?: string;
     goal?: string;
+    feature_schema_version?: number;
+    reviewable?: boolean;
+    objective_stage?: string;
+    window_days?: number;
+    pooled_stages?: string[];
+    bootstrap?: { groups: number; interval: [number, number] | null };
+    conversation_ablation?: { eligible_for_serving: boolean };
+    rolling_evaluations?: {
+      training_cutoff: string;
+      calibration_cutoff: string;
+      evaluation_cutoff: string;
+      stages: Record<
+        string,
+        {
+          status: string;
+          support: Record<string, { positive: number; negative: number }>;
+        }
+      >;
+    }[];
     calibration?: {
       expected_calibration_error: number | null;
       bins: {
@@ -428,11 +464,18 @@ export interface Workspace {
         >
       >;
     };
-    metrics: Record<string, number>;
+    metrics: Record<string, number | null>;
     checksum: string;
   }[];
   tasks: FollowupTask[];
   task_owners?: { id: string; name: string }[];
+}
+export interface EstimatePolicy {
+  human_prior: [number, number];
+  right_prior: [number, number];
+  goal_prior: [number, number];
+  shrinkage: number;
+  work_prior: number;
 }
 export interface EvidenceItem {
   text: string;

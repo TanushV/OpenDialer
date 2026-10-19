@@ -77,6 +77,36 @@ def test_sparse_prior_excludes_cell_and_uses_circular_hour():
     assert predicted["expected_rep_seconds"] == pytest.approx((80 + 5 * 120) / 6)
 
 
+def test_missing_historical_time_falls_back_to_the_known_segment():
+    from app.scheduling.models import pooled_predictions
+
+    rows = [{"segment": "a", "outcome": "right_party"}] * 3 + [{"segment": "b", "outcome": "no_answer"}] * 5
+    value = pooled_predictions(
+        rows, features={"segment": "a", "local_hour": 9, "local_weekday": 1, "attempt_count": 0}
+    )
+    assert value["estimate_level"] == "segment"
+    assert value["stage_support"]["human"]["cell_known"] == 3
+    assert value["p_human"] == pytest.approx((3 + 10 * (2 / 15)) / 13)
+
+
+def test_finite_large_prior_parameters_cannot_overflow_a_prediction():
+    import math
+
+    from app.scheduling.models import EstimatePolicy, pooled_predictions
+
+    policy = EstimatePolicy(
+        human_prior=(1e308, 1e308),
+        right_prior=(1e308, 1e308),
+        goal_prior=(1e308, 1e308),
+        work_prior=1e308,
+        shrinkage=1e308,
+    )
+    value = pooled_predictions([], estimate_policy=policy)
+    for key in ("p_human", "p_right_party_given_human", "p_conversion_given_right_party"):
+        assert math.isfinite(value[key]) and value[key] == pytest.approx(0.5)
+    assert value["expected_rep_seconds"] == pytest.approx(120)
+
+
 @pytest.mark.parametrize("outcome", ["callback_requested", "meeting_booked", "meeting_held", "sale_won"])
 def test_ambiguous_import_does_not_invent_target_contact(outcome):
     labels = derive_labels({"outcome": outcome, "outcome_source": "imported", "contact_role": "unknown"})
@@ -581,8 +611,80 @@ def test_trial_reports_use_unique_matured_leads_and_do_not_claim_lift_from_tiny_
 
 
 def test_drift_report_exposes_changed_features_without_automatic_activation():
-    reference = [{"features": {"local_hour": 10}, "human": 1, "p_human": 0.8} for _ in range(40)]
-    recent = [{"features": {"local_hour": 23}, "human": 0, "p_human": 0.8} for _ in range(40)]
+    reference = [
+        {"features": {"local_hour": 10}, "human": 1, "p_human": 0.8, "model_version": "m"} for _ in range(40)
+    ]
+    recent = [
+        {"features": {"local_hour": 23}, "human": 0, "p_human": 0.8, "model_version": "m"} for _ in range(40)
+    ]
     report = drift_report(reference, recent)
     assert report["drift_detected"] and report["recent_brier"] > report["reference_brier"]
     assert report["action"] == "review_or_restore_baseline"
+
+
+def test_drift_separates_missingness_from_values_and_requires_comparable_model_support():
+    base = {
+        "model_version": "m1",
+        "goal": "meeting_held",
+        "human": 1,
+        "p_human": 0.8,
+        "right_party": 1,
+        "p_right_party_given_human": 0.8,
+        "conversion": 0,
+        "p_conversion_given_right_party": 0.1,
+        "window_closed": True,
+    }
+    reference = [{**base, "features": {"local_hour": 10}} for _ in range(40)]
+    recent = [{**base, "features": {"local_hour": None}} for _ in range(40)]
+    result = drift_report(reference, recent)
+    assert result["features"]["local_hour"]["recent_mean"] is None
+    assert result["features"]["local_hour"]["recent_missing"] == 40
+    assert result["missingness_shift"] is True
+    assert result["stage_support"]["human"]["recent"] == 40
+    assert result["definition_version"] and result["model_versions"] == ["m1"]
+    changed = drift_report(reference, [{**r, "model_version": "m2", "human": 0} for r in recent])
+    assert changed["action"] == "insufficient_comparable_data"
+    assert not changed["drift_detected"]
+    sparse = drift_report(
+        reference, [{**r, "human": None, "right_party": None, "conversion": None} for r in recent]
+    )
+    assert sparse["stage_support"]["human"]["recent"] == 0
+    assert sparse["recent_brier"] is None
+    assert sparse["action"] != "review_or_restore_baseline"
+
+
+def test_training_rows_retain_each_actual_frozen_stage_prediction(clock):
+    at = (clock() - timedelta(days=20)).isoformat()
+    predictions = {
+        "p_human": 0.4,
+        "p_right_party_given_human": 0.3,
+        "p_conversion_given_right_party": 0.2,
+        "model_version": "owned-model",
+    }
+    rows = training_rows(
+        [
+            {
+                "id": "call",
+                "lead_id": "lead",
+                "started_at": at,
+                "feature_snapshot_id": "snapshot",
+                "outcome": "right_party",
+                "outcome_available_at": at,
+            }
+        ],
+        [
+            {
+                "id": "snapshot",
+                "as_of": at,
+                "features": {},
+                "predictions": predictions,
+                "model_version": "owned-model",
+            }
+        ],
+        [],
+        now=clock(),
+        goal="meeting_held",
+        window_days=14,
+    )
+    for key, value in predictions.items():
+        assert rows[0].get(key) == value

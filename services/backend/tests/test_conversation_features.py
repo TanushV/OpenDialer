@@ -205,3 +205,18 @@ def test_current_review_state_and_versions_are_frozen_in_the_actual_next_decisio
             next(r.data for r in rows(s, "feature_snapshots") if r.id == second["feature_snapshot_id"])
             == frozen
         )
+
+
+def test_brief_exposes_conditional_support_and_actual_prior_policy(workspace, app):
+    from test_remediation_privacy import principal
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction(False) as s:
+        lead = service.scoped(s, "leads", p)[0]
+        config = service.optimization_config(s, p)
+    brief = service.packet(p, lead.id)["statistical_guidance"]
+    assert brief["prior_only"] is True
+    assert brief["estimate_policy"] == config["estimate_policy"]
+    assert brief["work_assumption_seconds"] == config["handling_seconds"]
+    assert brief["stage_support"]["right_party"]["cell_known"] == 0
+    assert brief["stage_support"]["conversion"]["observed_interval"] == [0, 1]

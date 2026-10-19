@@ -109,6 +109,107 @@ class ProbabilityEstimator:
         return np.array([[1 - self.probability, self.probability] for _ in values])
 
 
+@pytest.mark.parametrize("action", ["activate", "rollback", "serve"])
+@pytest.mark.parametrize("change", [None, "work", "prior", "window", "goal", "source", "artifact"])
+def test_v2_model_controls_recheck_frozen_definition_and_owned_source(workspace, app, clock, action, change):
+    service, p = app.state.service, principal(workspace)
+    root, path, descriptor = artifact(service.settings.data_dir)
+    joblib.dump(
+        {
+            "feature_schema_version": 2,
+            "stages": {
+                "human": {
+                    "estimator": DummyClassifier(strategy="prior").fit([[0], [1]], [0, 1]),
+                    "feature_order": ["local_hour"],
+                    "vocabulary": {"segments": [], "concepts": []},
+                }
+            },
+        },
+        path,
+    )
+    descriptor["checksum"] = hashlib.sha256(path.read_bytes()).hexdigest()
+    assert root == service.settings.data_dir / "models"
+    with service.db.transaction() as s:
+        config = service.optimization_config(s, p)
+        baseline = {k: config[k] for k in ("estimate_policy", "handling_seconds")}
+        source = put(
+            s,
+            "learning_datasets",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "goal": config["conversion_goal"],
+                "window_days": config["window_days"],
+                "baseline": baseline,
+            },
+            now=clock(),
+        )
+        model = put(
+            s,
+            "model_versions",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                **descriptor,
+                "feature_schema_version": 2,
+                "source_dataset_id": source.id,
+                "goal": config["conversion_goal"],
+                "window_days": config["window_days"],
+                "baseline": baseline,
+                "active": action == "serve",
+                "ever_activated": True,
+                "reviewable": True,
+                "manual_approved": True,
+                "online_trial_passed": True,
+                "coverage_delta": 0,
+                "policy_violations": 0,
+            },
+            now=clock(),
+        )
+        model_id = model.id
+        campaign = get(s, "campaigns", workspace["campaign_id"])
+        values = dict(campaign.data.get("optimization", {}))
+        if change == "work":
+            values["handling_seconds"] = 300
+        elif change == "prior":
+            values["estimate_policy"] = {**config["estimate_policy"], "human_prior": [1, 1]}
+        elif change == "window":
+            values["window_days"] = config["window_days"] + 1
+        elif change == "goal":
+            values["conversion_goal"] = "sale_won"
+        elif change == "source":
+            update(model, source_dataset_id="missing")
+        elif change == "artifact":
+            update(model, checksum="0" * 64)
+        if change in {"work", "prior", "window", "goal"}:
+            update(campaign, optimization=values)
+    if action == "serve":
+        with service.db.transaction(False) as s:
+            found = service.serving_model(s, p, service.optimization_config(s, p))
+            # Artifact verification belongs to batched serving, not pointer lookup.
+            if change == "artifact":
+                assert training.predict_funnel_batch(found.data, [{}], root) == [{}]
+            else:
+                assert (found.id if found else None) == (None if change else model_id)
+    else:
+        response = workspace["client"].post(
+            f"/v1/admin/models/{model_id}/{action}",
+            headers=workspace["headers"],
+            json={"approved": True, "reason": "Reviewed model control"},
+        )
+        assert response.status_code == (409 if change else 200), response.text
+
+
+def test_baseline_rollback_names_the_current_baseline(workspace):
+    response = workspace["client"].post(
+        "/v1/admin/models/baseline/rollback",
+        headers=workspace["headers"],
+        json={"reason": "Restore current sparse estimator"},
+    )
+    assert response.status_code == 200
+    assert response.json()["active"] == "pooled-funnel-v3"
+
+
 def test_checksum_verified_bytes_are_the_bytes_deserialized(tmp_path, monkeypatch):
     root, path, model = artifact(tmp_path)
     replacement = io.BytesIO()

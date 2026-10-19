@@ -83,10 +83,27 @@ async def test_training_freezes_and_uses_the_actual_configured_baseline(workspac
     with service.db.transaction() as s:
         update(get(s, "learning_datasets", payload["source_dataset_id"]), baseline=baseline)
     payload["baseline"] = baseline
+    payload["window_days"] = 14
+    with service.db.transaction() as s:
+        update(get(s, "learning_datasets", payload["source_dataset_id"]), window_days=14)
     await service.train_model_job(p, payload)
     with service.db.transaction(False) as s:
         model = service._by_key(s, p, "model_versions", "training:" + payload["source_dataset_id"])
         assert model.data.get("baseline") == baseline
+        assert model.data.get("window_days") == 14
+
+
+def test_training_source_rejects_changed_window_before_publication(workspace, app):
+    from fastapi import HTTPException
+
+    service, p = app.state.service, principal(workspace)
+    payload = source(service, p)
+    payload["window_days"] = 7
+    with service.db.transaction() as s:
+        update(get(s, "learning_datasets", payload["source_dataset_id"]), window_days=7)
+    with service.db.transaction(False) as s, pytest.raises(HTTPException) as failure:
+        service._training_source(s, p, payload)
+    assert failure.value.status_code == 409
 
 
 @pytest.mark.asyncio

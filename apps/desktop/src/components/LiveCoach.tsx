@@ -7,11 +7,16 @@ import { terminal } from "../types";
 export function LiveCoach({
   call,
   onChange,
+  deliveryTiming,
 }: {
   call: Call | null;
   onChange: () => Promise<void>;
+  deliveryTiming?: { receivedAt: number | null; eventAt: number | null };
 }) {
   const { api, run, notice } = useWorkspace();
+  const strip = useRef<HTMLElement>(null);
+  const displayRequest = useRef<{ id: string; requestId: string } | null>(null);
+  const [savingFeedback, setSavingFeedback] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [question, setQuestion] = useState("");
   const [waiting, setWaiting] = useState(false);
@@ -35,6 +40,75 @@ export function LiveCoach({
   }, [call?.id]);
   const advice = call?.coach?.id !== dismissed ? call?.coach : null;
   const active = !!call && !terminal(call) && call.state !== "ENDING";
+  useEffect(() => {
+    if (!advice || !call || !active) return;
+    const id = advice.id,
+      callId = call.id;
+    if (displayRequest.current?.id !== id)
+      displayRequest.current = { id, requestId: crypto.randomUUID() };
+    const requestId = displayRequest.current.requestId;
+    let sent = false,
+      frame = 0;
+    const acknowledge = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const rect = strip.current?.getBoundingClientRect();
+        if (
+          sent ||
+          document.visibilityState !== "visible" ||
+          !rect ||
+          rect.bottom <= 0 ||
+          rect.top >= window.innerHeight
+        )
+          return;
+        sent = true;
+        const at = performance.now();
+        void api(`/v1/calls/${callId}/coach/feedback`, "POST", {
+          coach_event_id: id,
+          request_id: requestId,
+          displayed: true,
+          render_ms:
+            deliveryTiming?.receivedAt == null
+              ? undefined
+              : Math.max(0, at - deliveryTiming.receivedAt),
+          event_to_render_ms:
+            deliveryTiming?.eventAt == null
+              ? undefined
+              : Math.max(0, at - deliveryTiming.eventAt),
+        }).catch(() => {
+          /* Missing acknowledgements remain unknown. */
+        });
+      });
+    };
+    const observer = new IntersectionObserver(acknowledge);
+    if (strip.current) observer.observe(strip.current);
+    document.addEventListener("visibilitychange", acknowledge);
+    acknowledge();
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      document.removeEventListener("visibilitychange", acknowledge);
+    };
+  }, [api, advice?.id, call?.id, active]);
+  async function saveFeedback(fields: Record<string, boolean>) {
+    if (!call || !advice || savingFeedback) return;
+    setSavingFeedback(true);
+    const path = `/v1/calls/${call.id}/coach/feedback`;
+    try {
+      const previous = await api<{ version: number }>(
+        `${path}?coach_event_id=${encodeURIComponent(advice.id)}`,
+      );
+      await api(path, "POST", {
+        coach_event_id: advice.id,
+        request_id: crypto.randomUUID(),
+        expected_version: previous.version,
+        ...fields,
+      });
+      notice("Guidance feedback saved");
+    } finally {
+      setSavingFeedback(false);
+    }
+  }
   useEffect(() => {
     setWaiting(false);
     setCancelling(false);
@@ -129,6 +203,7 @@ export function LiveCoach({
   }
   return (
     <section
+      ref={strip}
       className="live-coaching-strip"
       data-testid="live-coaching-strip"
       aria-label="Live coaching"
@@ -227,6 +302,8 @@ export function LiveCoach({
               </small>
               <div className="guidance-feedback" aria-label="Guidance feedback">
                 {[
+                  ["I used this guidance", { used_by_rep: true }],
+                  ["I did not use this guidance", { used_by_rep: false }],
                   ["Guidance was useful", { useful: true }],
                   ["Guidance was not useful", { useful: false }],
                   ["Guidance was distracting", { distracting: true }],
@@ -236,18 +313,11 @@ export function LiveCoach({
                   <button
                     key={String(title)}
                     className="text-button"
+                    disabled={savingFeedback}
                     onClick={() =>
-                      void run(async () => {
-                        await api(
-                          `/v1/calls/${call!.id}/coach/feedback`,
-                          "POST",
-                          {
-                            coach_event_id: advice.id,
-                            ...(fields as Record<string, boolean>),
-                          },
-                        );
-                        notice("Guidance feedback saved");
-                      })
+                      void run(() =>
+                        saveFeedback(fields as Record<string, boolean>),
+                      )
                     }
                   >
                     {String(title)}

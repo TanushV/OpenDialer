@@ -12,8 +12,10 @@
   "fixture_seed": "repository deterministic synthetic fixtures; generated identities isolated per test",
   "environment": {
     "os": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
-    "python": "3.14.8",
-    "postgres": "task-owned loopback disposable database"
+    "python": "3.12.13",
+    "postgres": "task-owned loopback disposable database",
+    "interpreter": ".venv/bin/python",
+    "metadata_correction": "Previous 3.14.8 value described the host receipt-writing interpreter; test commands ran in the Python 3.12.13 project environment."
   },
   "runs": [
     {

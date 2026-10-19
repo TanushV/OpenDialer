@@ -1363,6 +1363,13 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             or dataset.data.get("baseline") != payload.get("baseline")
             or config["conversion_goal"] != payload.get("goal")
             or (
+                payload.get("window_days") is not None
+                and (
+                    dataset.data.get("window_days") != payload["window_days"]
+                    or config["window_days"] != payload["window_days"]
+                )
+            )
+            or (
                 payload.get("baseline") is not None
                 and payload["baseline"] != {k: config[k] for k in ("estimate_policy", "handling_seconds")}
             )
@@ -1393,6 +1400,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     "active": False,
                     "source_dataset_id": payload.get("source_dataset_id"),
                     "goal": payload.get("goal", "meeting_held"),
+                    "window_days": payload.get("window_days"),
                 },
                 key="training:" + payload["source_dataset_id"],
                 now=self.clock(),
@@ -1717,6 +1725,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 catalog=request["evidence_catalog"],
                 call_at=dt(request["call_at"]),
                 timezone=request["prospect_timezone"],
+                exposures=request.get("recent_exposures", []),
             )
             state["finalization"]["input_fingerprint"] = self._conversation_signature(s, p, call, state)
             self._store_conversation(s, p, call, state, row)
@@ -1883,6 +1892,8 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                                     "text",
                                     "state",
                                     "approach",
+                                    "observed_guidance_id",
+                                    "strategy_id",
                                     "commitment",
                                     "outcome",
                                     "score",
@@ -1926,6 +1937,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     "prospect_timezone": request["prospect_timezone"],
                     "call_at": request["call_at"],
                     "context_fingerprint": request["context_fingerprint"],
+                    "displayed_approaches": request.get("recent_exposures", []),
                 },
             )
             owner = uid()

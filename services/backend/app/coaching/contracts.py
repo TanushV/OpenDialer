@@ -83,6 +83,7 @@ class ObservationDelta(StrictModel):
     review_required: bool = False
     approach: ShortText | None = None
     outcome: ProposedOutcome | None = None
+    observed_guidance_id: str | None = Field(default=None, max_length=160)
 
 
 class RubricDelta(StrictModel):
@@ -127,6 +128,8 @@ class Observation(StrictModel):
     reviewer_id: str | None = None
     reviewed_at: str | None = None
     outcome: ProposedOutcome | None = None
+    observed_guidance_id: str | None = Field(default=None, max_length=160)
+    strategy_id: str | None = Field(default=None, max_length=160)
 
 
 class ConversationStateV2(StrictModel):

@@ -119,6 +119,10 @@ class Retraction(Strict):
 
 class Feedback(Strict):
     coach_event_id: str
+    request_id: UUID | None = None
+    expected_version: int | None = Field(default=None, ge=0, strict=True)
+    displayed: Literal[True] | None = None
+    used_by_rep: bool | None = None
     useful: bool | None = None
     grounded: bool | None = None
     timely: bool | None = None
@@ -155,6 +159,26 @@ class Comparison(Strict):
     family: Literal["number_allocation", "coaching"]
     review_reference: str = Field(min_length=3, max_length=1000)
     duration_days: int = Field(default=14, ge=1, le=90)
+    request_id: UUID | None = None
+    strategy_ids: list[str] | None = Field(default=None, min_length=2, max_length=8)
+    strategy_policy: Literal["two_arm", "adaptive"] = "two_arm"
+    candidate_probability: float = Field(default=0.5, ge=0.1, le=0.9, allow_inf_nan=False)
+    evidence_comparison_id: str | None = None
+
+    @model_validator(mode="after")
+    def finite(self):
+        if self.strategy_ids is not None and (
+            not self.request_id
+            or self.family != "coaching"
+            or self.strategy_ids[0] != "control"
+            or len(self.strategy_ids) != len(set(self.strategy_ids))
+            or self.strategy_policy == "two_arm"
+            and len(self.strategy_ids) != 2
+        ):
+            raise ValueError(
+                "Reviewed finite strategies require a request identity, control first and two arms for a fixed comparison"
+            )
+        return self
 
 
 class ConversationAlias(Strict):
@@ -333,8 +357,56 @@ def register_optimization(app, service, principal, administrator):
 
         with service.db.transaction() as s:
             campaign = service.scoped(s, "campaigns", p)[0]
+            s.refresh(campaign, with_for_update=True)
             config = service.optimization_config(s, p)
             studies = campaign.data.get("controlled_comparisons", [])
+            from app.coaching.sources import digest
+
+            request = body.model_dump(mode="json")
+            prior = next(
+                (r for r in studies if body.request_id and r.get("request_id") == str(body.request_id)), None
+            )
+            if prior:
+                if prior.get("request_digest") != digest(request):
+                    fail(409, "Comparison request identity was already used with different content")
+                return {k: v for k, v in prior.items() if k != "population"}
+            extra = {}
+            if body.strategy_ids:
+                catalog = {r["id"]: r for r in service.strategy_catalog(s, p)}
+                if any(i not in catalog for i in body.strategy_ids):
+                    fail(422, "Every approach must have a current seller-reviewed example")
+                extra["strategies"] = [
+                    {k: catalog[i][k] for k in ("id", "source_version")} for i in body.strategy_ids
+                ]
+                if body.strategy_policy == "adaptive":
+                    _, _, _, report_key = service.report_scope(s, p)
+                    saved = service._by_key(s, p, "report_projections", report_key)
+                    evidence = next(
+                        (
+                            r
+                            for r in (saved.data["report"].get("comparisons", []) if saved else [])
+                            if r["id"] == body.evidence_comparison_id
+                        ),
+                        None,
+                    )
+                    if (
+                        not evidence
+                        or not evidence.get("sufficient_evidence")
+                        or evidence.get("strategy_policy") != "two_arm"
+                        or evidence.get("strategy_ids") != body.strategy_ids
+                        or evidence.get("strategies") != extra["strategies"]
+                        or evidence.get("goal") != config["conversion_goal"]
+                        or evidence.get("window_days") != config["window_days"]
+                        or saved.data["source_revision"] != service.report_revision(s, p)
+                        or timestamp(saved.data["expires_at"]) <= service.clock()
+                    ):
+                        fail(
+                            409,
+                            "Adaptive strategies need fresh, matured, supported reviewed comparison evidence for this exact set",
+                        )
+                    extra.update(
+                        initial_strategy_policy=evidence["strategy_policy_snapshot"], report_key=report_key
+                    )
             if any(
                 r["family"] == body.family
                 and not r.get("stopped_at")
@@ -350,7 +422,9 @@ def register_optimization(app, service, principal, administrator):
                 if lead.data.get("campaign_id") == campaign.id and lead.data.get("originally_eligible", True)
             ]
             study = {
-                **body.model_dump(),
+                **request,
+                **extra,
+                "request_digest": digest(request),
                 "id": uid(),
                 "starts_at": service.clock().isoformat(),
                 "ends_at": (service.clock() + timedelta(days=body.duration_days)).isoformat(),
@@ -377,6 +451,11 @@ def register_optimization(app, service, principal, administrator):
             )
             emit(s, p["tenant_id"], "optimization.updated", campaign, service.clock())
             return {k: v for k, v in study.items() if k != "population"}
+
+    @app.get("/v1/optimization/strategies")
+    def strategies(p=Depends(principal)):
+        with service.db.transaction(False) as s:
+            return {"strategies": service.strategy_catalog(s, p)}
 
     @app.post("/v1/admin/optimization/comparisons/{comparison_id}/stop")
     def stop_comparison(comparison_id: str, body: Retraction, p=Depends(administrator)):
@@ -538,26 +617,20 @@ def register_optimization(app, service, principal, administrator):
             model = service.required(s, "model_versions", model_id, p)
             config = service.optimization_config(s, p)
             metrics = model.data.get("metrics", {})
-            source = next(
-                (
-                    r
-                    for r in service.scoped(s, "learning_datasets", p)
-                    if r.id == model.data.get("source_dataset_id")
-                ),
-                None,
-            )
+            from app.db import get
+
+            source = get(s, "learning_datasets", model.data.get("source_dataset_id"), p["tenant_id"])
             if (
                 model.data.get("active")
                 or model.data.get("goal") != config["conversion_goal"]
                 or not model.data.get("source_dataset_id")
                 or not source
+                or source.seller_id != p["seller_id"]
                 or source.data.get("goal") != config["conversion_goal"]
                 or (
                     (
                         not model.data.get("reviewable")
-                        or model.data.get("baseline")
-                        != {k: config[k] for k in ("estimate_policy", "handling_seconds")}
-                        or model.data.get("baseline") != source.data.get("baseline")
+                        or not service.model_source_current(s, p, model, config)
                     )
                     if model.data.get("feature_schema_version", 1) == 2
                     else metrics.get("brier", 1) >= metrics.get("pooled_baseline_brier", 0)
@@ -797,23 +870,107 @@ def register_optimization(app, service, principal, administrator):
                 **({"receipt": service.local_edit_receipt(s, p, identity, number)} if identity else {}),
             }
 
+    def feedback_card(s, p, call_id, card_id):
+        call = service.required(s, "call_attempts", call_id, p)
+        card = service.required(s, "coach_events", card_id, p)
+        if card.data["call_id"] != call_id:
+            fail(422, "Feedback must reference this call's card")
+        if not service._coach_authority(s, p, call) or card.data.get("user_id") != p["user_id"]:
+            fail(403, "Only the receiving rep may acknowledge or report using guidance")
+        return card
+
+    @app.get("/v1/calls/{call_id}/coach/feedback")
+    def read_feedback(call_id: str, coach_event_id: str, p=Depends(principal)):
+        from app.coaching.context import state_view
+        from app.optimization.experiments import observed_strategy_uses
+
+        with service.db.transaction(False) as s:
+            feedback_card(s, p, call_id, coach_event_id)
+            previous = service._by_key(s, p, "coaching_feedback", coach_event_id + ":" + p["user_id"])
+            state = service._by_key(s, p, "conversation_states", call_id)
+            view = (
+                state_view(state.data, lineage=service._conversation_lineage(s, p, call_id)) if state else {}
+            )
+            return {
+                **(doc(previous) if previous else {"version": 0, "used_by_rep": None}),
+                "observed_in_speech": observed_strategy_uses(view.get("observations", []), coach_event_id),
+            }
+
     @app.post("/v1/calls/{call_id}/coach/feedback")
     def feedback(call_id: str, body: Feedback, p=Depends(principal)):
+        import hashlib
+        import hmac
+        import json
+
+        from app.coaching import sources
+
         with service.db.transaction() as s:
-            service.required(s, "call_attempts", call_id, p)
-            card = service.required(s, "coach_events", body.coach_event_id, p)
-            if card.data["call_id"] != call_id:
-                fail(422, "Feedback must reference this call's card")
+            service.db.authorize_stream(s, p)
+            card = feedback_card(s, p, call_id, body.coach_event_id)
+            s.refresh(card, with_for_update=True)
             key = body.coach_event_id + ":" + p["user_id"]
-            previous = next(
-                (r for r in service.scoped(s, "coaching_feedback", p) if r.external_key == key), None
-            )
+            previous = service._by_key(s, p, "coaching_feedback", key)
+            data = body.model_dump(mode="json", exclude_none=True)
+            identity = None
+            if body.displayed or body.used_by_rep is not None:
+                if body.request_id is None:
+                    fail(409, "client_upgrade_required: identified display/use acknowledgement required")
+            if body.request_id:
+                receipt_key = "edit:coach_feedback:" + str(body.request_id)
+                digest = hmac.new(
+                    service.db.identity_key,
+                    json.dumps([call_id, p["user_id"], data], sort_keys=True).encode(),
+                    hashlib.sha256,
+                ).hexdigest()
+                old = service._by_key(s, p, "outcomes", receipt_key)
+                if old:
+                    if old.data["digest"] != digest:
+                        fail(409, "Feedback request identity already used for different content")
+                    return doc(previous) if previous else {"version": 0, "used_by_rep": None}
+                identity = (receipt_key, digest, None)
+            if body.used_by_rep is not None and body.expected_version != (
+                previous.version if previous else 0
+            ):
+                fail(409, "Feedback changed; reload before correcting rep use")
+            exposure = dict(card.data.get("strategy_exposure", {}))
+            if body.displayed and not exposure.get("displayed_at"):
+                if (
+                    not service.raw.get("help:" + p["tenant_id"] + ":" + card.id)
+                    or timestamp(card.data["expires_at"]) <= service.clock()
+                    or card.data.get("status") == "withdrawn"
+                    or not sources.current(service, s, p, card.data.get("context_sources"))
+                ):
+                    fail(409, "Guidance expired or changed before display acknowledgement")
+                exposure["displayed_at"] = service.clock().isoformat()
+                exposure["display_evidence"] = "authenticated_client_render_ack"
+                state = service._by_key(s, p, "conversation_states", call_id)
+                if state:
+                    ids = state.data.get("displayed_coach_event_ids", [])
+                    update(state, displayed_coach_event_ids=[*ids, card.id][-8:])
+            if body.used_by_rep is not None:
+                exposure.update(used_by_rep=body.used_by_rep, use_reported_at=service.clock().isoformat())
+            timing = {k: data[k] for k in ("delivery_ms", "render_ms", "event_to_render_ms") if k in data}
+            if timing:
+                exposure["timing"] = {**exposure.get("timing", {}), **timing}
+            if exposure != card.data.get("strategy_exposure", {}):
+                update(card, strategy_exposure=exposure)
+            # Passive transport/render evidence never changes a human edit version.
+            if not body.model_fields_set.intersection(
+                {"used_by_rep", "useful", "grounded", "timely", "distracting", "note"}
+            ):
+                if identity:
+                    service.local_edit_receipt(
+                        s, p, identity, previous or card, object_version=previous.version if previous else 0
+                    )
+                return doc(previous) if previous else {"version": 0, "used_by_rep": None}
             values = {
-                **body.model_dump(exclude_none=True),
-                "call_id": call_id,
-                "reviewer_id": p["user_id"],
-                "reviewed_at": service.clock().isoformat(),
+                k: v
+                for k, v in data.items()
+                if k not in {"request_id", "expected_version", "displayed", *timing}
             }
+            values.update(call_id=call_id, reviewer_id=p["user_id"], reviewed_at=service.clock().isoformat())
+            if exposure.get("displayed_at"):
+                values["displayed_at"] = exposure["displayed_at"]
             result = (
                 update(previous, **values)
                 if previous
@@ -827,6 +984,8 @@ def register_optimization(app, service, principal, administrator):
                     now=service.clock(),
                 )
             )
+            if identity:
+                service.local_edit_receipt(s, p, identity, result)
             return doc(result)
 
     @app.post("/v1/admin/optimization/trial")

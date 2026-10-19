@@ -373,7 +373,13 @@ def test_reviewed_owned_candidate_can_run_a_bounded_pilot_and_expire_without_ful
             "learning_datasets",
             workspace["tenant_id"],
             workspace["seller_id"],
-            {"goal": "meeting_held", "rows": [], "as_of": clock.now.isoformat(), "baseline": baseline},
+            {
+                "goal": "meeting_held",
+                "rows": [],
+                "as_of": clock.now.isoformat(),
+                "baseline": baseline,
+                "window_days": 14,
+            },
             now=clock.now,
         )
         model = put(
@@ -390,6 +396,7 @@ def test_reviewed_owned_candidate_can_run_a_bounded_pilot_and_expire_without_ful
                 "feature_order": FEATURE_ORDER,
                 **({"feature_schema_version": 2, "reviewable": reviewable} if reviewable is not None else {}),
                 "baseline": baseline,
+                "window_days": 14,
                 "metrics": {"brier": 0.1, "pooled_baseline_brier": 0.2},
             },
             now=clock.now,

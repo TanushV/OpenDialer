@@ -45,7 +45,12 @@ class LiveHelper:
         for item in state.get("_lineage_updates", []):
             key = f"observation:{call.id}:{item['id']}:{item['version']}"
             prior = self._by_key(s, p, "outcomes", key)
-            values = {**item, "call_id": call.id, "kind": "conversation_lineage"}
+            values = {
+                **item,
+                "observation_kind": item.get("observation_kind", item.get("kind")),
+                "call_id": call.id,
+                "kind": "conversation_lineage",
+            }
             if prior:
                 update(prior, **values)
             else:
@@ -65,6 +70,7 @@ class LiveHelper:
                 "last_request_at",
                 "latest_coach_event_id",
                 "review_work",
+                "displayed_coach_event_ids",
             }
         }
         values = {
@@ -652,6 +658,15 @@ class LiveHelper:
             request["conversation_learning"] = guidance_context(
                 campaign, self.optimization_config(s, p, campaign.id), now=self.clock()
             )
+            request["strategy_context"] = self.strategy_context(
+                s, p, campaign, lead, call.data.get("coaching_comparison")
+            )
+            request["recent_exposures"] = self.strategy_exposures_in(s, p, state_record)
+            request["context_sources"]["strategy"] = {
+                "campaign_id": campaign.id,
+                "assignment_id": (call.data.get("coaching_comparison") or {}).get("id"),
+                "fingerprint": sources.digest(request["strategy_context"]),
+            }
             request["context_fingerprint"] = sources.digest(
                 {
                     "state_version": version,
@@ -748,8 +763,12 @@ class LiveHelper:
                 1, int((request_started + limits.manual_first_ms / 1000 - time.monotonic()) * 1000)
             )
             provider.connect_ms = limits.manual_connect_ms
-        if (comparison or {}).get("arm") == "control" and not urgent:
-            provider = None
+        if (
+            (comparison or {}).get("arm") == "control"
+            and not (comparison or {}).get("strategy_id")
+            and not urgent
+        ):
+            request["guidance_display"] = "approved_static_only"
         result, source = fallback, "cached_knowledge"
         request_key = help_requests.request_key(call_id, identity or uid())
         request["manual_request_id"] = identity
@@ -1120,6 +1139,7 @@ class LiveHelper:
                     catalog=request.get("evidence_catalog", []),
                     call_at=dt(call.data.get("started_at")),
                     timezone=lead.data.get("timezone"),
+                    exposures=request.get("recent_exposures", []),
                 )
                 state["transcript_version"] = call.data["transcript_version"]
                 state_record = self._store_conversation(s, p, call, state, state_record)
@@ -1143,6 +1163,8 @@ class LiveHelper:
                 call.data["transcript_version"] != request["state_version"]
                 or call.data["state"] in TERMINAL | {"ENDING"}
                 or (call.data.get("coach_preferences", {}).get("muted") and not request["manual_help"])
+                or request.get("guidance_display") == "approved_static_only"
+                and source != "cached_knowledge"
             ):
                 return {"action": "NO_ACTION", "status": "context_updated", "private": result["private"]}
             if result["action"] != "NO_ACTION" and expires > self.clock():
@@ -1161,6 +1183,19 @@ class LiveHelper:
                         "actual_provider": getattr(provider, "last_provider", None),
                         "model": getattr(provider, "last_model", None),
                         "provider_request_id": getattr(provider, "last_request_id", None),
+                        "strategy_exposure": {
+                            **{
+                                k: v
+                                for k, v in request.get("strategy_context", {}).items()
+                                if k != "approach"
+                            },
+                            "generated_at": self.clock().isoformat(),
+                            "displayed_at": None,
+                            "used_by_rep": None,
+                            "observed_in_speech": [],
+                            "conversion": None,
+                            "sentence_propensity": None,
+                        },
                         "latency": {
                             **request.get("timing", {}),
                             "state_ms": max(0, state_ms - retrieval_ms),
@@ -1182,6 +1217,9 @@ class LiveHelper:
                     if obj.data["call_id"] != call_id or obj.data.get("user_id") != p["user_id"]:
                         raise CardRejected("Incorrect guidance identity")
                     metadata["created_at"] = obj.data["created_at"]
+                    metadata["strategy_exposure"] = obj.data.get(
+                        "strategy_exposure", metadata["strategy_exposure"]
+                    )
                     metadata["latency"]["first_useful_ms"] = obj.data["latency"]["inference_ms"]
                     update(obj, **metadata)
                 else:

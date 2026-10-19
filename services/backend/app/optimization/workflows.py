@@ -93,6 +93,25 @@ class OptimizationWorkflows(ComparisonWorkflows):
             )
         return epoch
 
+    def model_source_current(self, s, p, model, config):
+        """Check the evaluated definition once per transaction, without ML imports."""
+        value = model.data
+        if value.get("goal", config["conversion_goal"]) != config["conversion_goal"]:
+            return False
+        if value.get("feature_schema_version", 1) != 2:
+            return value.get("window_days", config["window_days"]) == config["window_days"]
+        baseline = {k: config[k] for k in ("estimate_policy", "handling_seconds")}
+        if value.get("baseline") != baseline or value.get("window_days") != config["window_days"]:
+            return False
+        source = get(s, "learning_datasets", value.get("source_dataset_id"), p["tenant_id"])
+        return bool(
+            source
+            and source.seller_id == p["seller_id"]
+            and source.data.get("baseline") == baseline
+            and source.data.get("goal") == config["conversion_goal"]
+            and source.data.get("window_days") == config["window_days"]
+        )
+
     def serving_model(self, s, p, config, lead_id=None):
         from app.optimization.learning import stable_control
 
@@ -101,7 +120,14 @@ class OptimizationWorkflows(ComparisonWorkflows):
         # This pointer cache lives only for this read transaction. A rollback,
         # promotion or goal edit is visible to the next decision immediately.
         cache = s.info.setdefault("serving_context", {})
-        scope = (p["tenant_id"], p["seller_id"], config["conversion_goal"])
+        scope = (
+            p["tenant_id"],
+            p["seller_id"],
+            config["conversion_goal"],
+            config["window_days"],
+            config["handling_seconds"],
+            EstimatePolicy.model_validate(config["estimate_policy"]).version,
+        )
         if scope not in cache:
             model = MODELS["model_versions"]
             prefetched = s.info.get("row_cache", {}).get(("model_versions", p["tenant_id"], p["seller_id"]))
@@ -120,6 +146,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                     )
                 )
             )
+            models = [m for m in models if self.model_source_current(s, p, m, config)]
             cache[scope] = {"models": models}
             if any(m.data.get("trial_active") for m in models):
                 campaign = self.scoped(s, "campaigns", p)[0]
@@ -801,10 +828,15 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 r.data for r in self.scoped(s, "coaching_feedback", p) if r.data["call_id"] in known_calls
             ]
             coach_events = [
-                r.data for r in self.scoped(s, "coach_events", p) if r.data["call_id"] in known_calls
+                doc(r) for r in self.scoped(s, "coach_events", p) if r.data["call_id"] in known_calls
             ]
+            timing_by_card = {r["coach_event_id"]: r for r in feedback}
+            for event in coach_events:
+                if timing := event.get("strategy_exposure", {}).get("timing"):
+                    timing_by_card[event["id"]] = {**timing_by_card.get(event["id"], {}), **timing}
+            timing_feedback = list(timing_by_card.values())
             latency = sorted(r["latency"]["inference_ms"] for r in coach_events if r.get("latency"))
-            delivery = sorted(r["delivery_ms"] for r in feedback if r.get("delivery_ms") is not None)
+            delivery = sorted(r["delivery_ms"] for r in timing_feedback if r.get("delivery_ms") is not None)
             campaign = self.scoped(s, "campaigns", p)[0]
             current_epoch = campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
             epoch = epoch or current_epoch
@@ -934,8 +966,19 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 ),
             )
             count = len(data)
-            midpoint = max(0, count - max(20, count // 3))
-            model_drift = drift_report(data[:midpoint], data[midpoint:])
+            now = self.clock()
+            model_drift = {
+                **drift_report(
+                    [
+                        r
+                        for r in data
+                        if now - timedelta(days=28) <= timestamp(r["at"]) < now - timedelta(days=7)
+                    ],
+                    [r for r in data if now - timedelta(days=7) <= timestamp(r["at"]) <= now],
+                ),
+                "as_of": now.isoformat(),
+                "windows": "Latest 7 days versus preceding 21 days",
+            }
             latest_plans = {}
             for record in plans:
                 plan = record.data
@@ -969,7 +1012,9 @@ class OptimizationWorkflows(ComparisonWorkflows):
             )
             return {
                 "settings": config,
-                "comparisons": self.comparison_reports(s, p, campaign, calls, derived_events, feedback),
+                "comparisons": self.comparison_reports(
+                    s, p, campaign, calls, derived_events, feedback, coach_events
+                ),
                 "cohort_history": sorted(
                     {
                         r.data["epoch"]
@@ -1037,10 +1082,13 @@ class OptimizationWorkflows(ComparisonWorkflows):
                         for r in feedback
                     ),
                     **{
-                        "p95_" + key: sorted(r[key] for r in feedback if r.get(key) is not None)[
-                            max(0, int(sum(r.get(key) is not None for r in feedback) * 0.95 + 0.999) - 1)
+                        "p95_" + key: sorted(r[key] for r in timing_feedback if r.get(key) is not None)[
+                            max(
+                                0,
+                                int(sum(r.get(key) is not None for r in timing_feedback) * 0.95 + 0.999) - 1,
+                            )
                         ]
-                        if any(r.get(key) is not None for r in feedback)
+                        if any(r.get(key) is not None for r in timing_feedback)
                         else None
                         for key in ("render_ms", "event_to_render_ms")
                     },
@@ -1129,6 +1177,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 "source_dataset_id": dataset["id"],
                 "goal": dataset["goal"],
                 "baseline": dataset["baseline"],
+                "window_days": dataset["window_days"],
             },
             "operational-train:" + dataset["checksum"],
             tenant_id=p["tenant_id"],

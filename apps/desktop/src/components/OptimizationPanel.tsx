@@ -3,6 +3,7 @@ import { date, label, useWorkspace } from "../context";
 import { TrialControls, type ControlledComparison } from "./TrialControls";
 import { ConversationLearning } from "./ConversationLearning";
 import { Staffing, type StaffedWindow, type SimpleStaffing } from "./Staffing";
+import type { EstimatePolicy } from "../types";
 
 interface OptimizationSettings extends SimpleStaffing {
   conversion_goal: string;
@@ -16,6 +17,7 @@ interface OptimizationSettings extends SimpleStaffing {
   training_min_rows: number;
   staffed_windows: StaffedWindow[];
   additional_ready_after_hours: number;
+  estimate_policy?: EstimatePolicy;
   health_policy?: {
     min_comparable: number;
     material_drop: number;
@@ -99,6 +101,19 @@ interface OptimizationReport {
     drift_detected: boolean;
     recent_brier: number | null;
     reference_brier: number | null;
+    model_versions?: string[];
+    missingness_shift?: boolean;
+    windows?: string;
+    stage_support?: Record<
+      string,
+      {
+        reference: number;
+        recent: number;
+        paired_support: number;
+        reference_brier: number | null;
+        recent_brier: number | null;
+      }
+    >;
   };
   trial: {
     epoch: string;
@@ -379,6 +394,69 @@ export function OptimizationPanel({
                   />
                 </label>
               </div>
+              {settings.estimate_policy && (
+                <details>
+                  <summary>Sparse estimate assumptions</summary>
+                  <p className="fine">
+                    Starting weights apply until observed outcomes provide
+                    support. Changing these assumptions requires renewed model
+                    evaluation.
+                  </p>
+                  <div className="optimization-fields">
+                    {(
+                      [
+                        ["human_prior", "Human pickup"],
+                        ["right_prior", "Right party"],
+                        ["goal_prior", "Selected goal"],
+                      ] as const
+                    ).flatMap(([key, title]) =>
+                      ([0, 1] as const).map((index) => (
+                        <label key={`${key}:${index}`}>
+                          {title} prior {index === 0 ? "successes" : "failures"}
+                          <input
+                            type="number"
+                            min={0}
+                            step="any"
+                            value={settings.estimate_policy![key][index]}
+                            onChange={(e) => {
+                              const weights: [number, number] = [
+                                ...settings.estimate_policy![key],
+                              ];
+                              weights[index] = Number(e.target.value);
+                              change("estimate_policy", {
+                                ...settings.estimate_policy!,
+                                [key]: weights,
+                              });
+                            }}
+                          />
+                        </label>
+                      )),
+                    )}
+                    {(
+                      [
+                        ["shrinkage", "Pooled shrinkage weight"],
+                        ["work_prior", "Work prior attempt equivalents"],
+                      ] as const
+                    ).map(([key, title]) => (
+                      <label key={key}>
+                        {title}
+                        <input
+                          type="number"
+                          min={0}
+                          step="any"
+                          value={settings.estimate_policy![key]}
+                          onChange={(e) =>
+                            change("estimate_policy", {
+                              ...settings.estimate_policy!,
+                              [key]: Number(e.target.value),
+                            })
+                          }
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </details>
+              )}
               <Staffing
                 simple={settings}
                 onSimple={(value) => {
@@ -692,6 +770,34 @@ export function OptimizationPanel({
               Drift: {label(report.drift.action)}. Candidate models retain
               manual promotion and rollback controls below.
             </p>
+            {report.drift.stage_support && (
+              <details>
+                <summary>Drift support and missing data</summary>
+                <p>
+                  {report.drift.windows}. Compared models:{" "}
+                  {report.drift.model_versions?.join(", ") ||
+                    "No comparable model evidence"}
+                  .
+                </p>
+                {report.drift.missingness_shift && (
+                  <p role="status">
+                    Missing input coverage changed; check sources before
+                    interpreting performance.
+                  </p>
+                )}
+                {Object.entries(report.drift.stage_support).map(
+                  ([stage, v]) => (
+                    <p key={stage}>
+                      {label(stage)}: {v.reference} reference / {v.recent}{" "}
+                      recent classified outcomes; {v.paired_support} comparable
+                      support. Brier{" "}
+                      {v.reference_brier?.toFixed(4) ?? "unavailable"} →{" "}
+                      {v.recent_brier?.toFixed(4) ?? "unavailable"}.
+                    </p>
+                  ),
+                )}
+              </details>
+            )}
             {admin && (
               <div className="button-row">
                 <button

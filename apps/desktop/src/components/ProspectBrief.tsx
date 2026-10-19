@@ -35,6 +35,58 @@ export function ProspectBrief({
             <details>
               <summary>Estimates &amp; uncertainty</summary>
               <p>{stats.uncertainty}</p>
+              {stats.stage_support && (
+                <>
+                  <p>
+                    {stats.prior_only
+                      ? "Starting priors; no observed support yet."
+                      : `Estimate level: ${label(stats.estimate_level || "pooled")}.`}
+                  </p>
+                  <table aria-label="Conditional estimate support">
+                    <thead>
+                      <tr>
+                        <th>Stage</th>
+                        <th>Classified / unknown</th>
+                        <th>Pooled support</th>
+                        <th>Observed interval</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(stats.stage_support).map(
+                        ([stage, support]) => (
+                          <tr key={stage}>
+                            <td>{label(stage)}</td>
+                            <td>
+                              {support.cell_known} / {support.cell_unknown}
+                            </td>
+                            <td>{support.outside_known}</td>
+                            <td>
+                              {support.observed_interval
+                                .map((v) => `${Math.round(v * 100)}%`)
+                                .join("–")}
+                            </td>
+                          </tr>
+                        ),
+                      )}
+                    </tbody>
+                  </table>
+                  <p>
+                    Observed-rate intervals describe classified history, not
+                    certainty about this prospect.
+                  </p>
+                  {stats.estimate_policy && (
+                    <p>
+                      Prior success/failure weights: pickup{" "}
+                      {stats.estimate_policy.human_prior.join("/")}, right party{" "}
+                      {stats.estimate_policy.right_prior.join("/")}, selected
+                      goal {stats.estimate_policy.goal_prior.join("/")}. Work
+                      assumption {stats.work_assumption_seconds} seconds;{" "}
+                      {stats.estimate_policy.work_prior} prior attempt
+                      equivalents.
+                    </p>
+                  )}
+                </>
+              )}
               <p>
                 Right party after human pickup:{" "}
                 {Math.round(stats.right_party_given_human * 100)}%.{" "}

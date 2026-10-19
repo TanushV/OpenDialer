@@ -82,7 +82,8 @@ def test_cross_call_improvement_uses_twenty_reviewed_opportunities_and_two_examp
                     "state": "FINALIZED",
                     "started_at": clock().isoformat(),
                     "transcript_version": 0,
-                    "lead_id": f"synthetic-lead-{n}",
+                    "lead_id": service.scoped(s, "leads", p)[0].id,
+                    "campaign_id": workspace["campaign_id"],
                 },
                 now=clock() + timedelta(seconds=n),
             )

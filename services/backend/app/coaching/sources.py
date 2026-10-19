@@ -44,6 +44,22 @@ def current(service, s, p, receipt):
     lead = get(s, "leads", receipt["lead_id"], p["tenant_id"])
     if not lead or lead.seller_id != p["seller_id"] or digest(lead_context(lead)) != receipt["lead_hash"]:
         return False
+    if strategy := receipt.get("strategy"):
+        campaign = get(s, "campaigns", strategy["campaign_id"], p["tenant_id"])
+        assignment = (
+            get(s, "experiment_assignments", strategy["assignment_id"], p["tenant_id"])
+            if strategy.get("assignment_id")
+            else None
+        )
+        if not campaign or campaign.seller_id != p["seller_id"]:
+            return False
+        if assignment and assignment.seller_id != p["seller_id"]:
+            return False
+        from app.db import doc
+
+        context = service.strategy_context(s, p, campaign, lead, doc(assignment) if assignment else None)
+        if digest(context) != strategy["fingerprint"]:
+            return False
     # One query per used kind, never per fact or over unrelated history.
     for kind, expected in receipt["rows"].items():
         if not expected and kind != "notes":

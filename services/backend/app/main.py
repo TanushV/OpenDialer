@@ -951,17 +951,24 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/admin/models/{model_id}/activate")
     def activate(model_id: str, data: dict, p=Depends(administrator)):
-        from app.ml.training import promotion_allowed
+        from app.ml.training import predict_funnel, promotion_allowed
 
         with db.transaction() as s:
             model = service.required(s, "model_versions", model_id, p)
             candidate = {**model.data, "manual_approved": data.get("approved", False)}
             if not promotion_allowed(candidate):
                 fail(409, "Model has not passed calibration, online trial, coverage and policy gates")
+            if not service.model_source_current(
+                s, p, model, service.optimization_config(s, p)
+            ) or not predict_funnel(model.data, {}, service.settings.data_dir / "models"):
+                fail(
+                    409,
+                    "Model source, evaluated baseline or owned artifact changed; evaluate current settings",
+                )
             for previous in service.scoped(s, "model_versions", p):
                 if previous.data.get("active"):
                     update(previous, active=False, trial_active=False)
-            update(model, **candidate, active=True, trial_active=False, ever_activated=True)
+            update(model, **{**candidate, "active": True, "trial_active": False, "ever_activated": True})
             audit(s, p["tenant_id"], p["seller_id"], p["user_id"], "model.activated", model.id, clock())
             return doc(model)
 
@@ -1248,13 +1255,19 @@ def create_app(settings=None, *, clock=None, carrier=None):
                     p["tenant_id"],
                     clock(),
                 )
-                return {"active": "pooled-beta-v1"}
+                return {"active": "pooled-funnel-v3"}
             model = service.required(session, "model_versions", model_id, p)
-            if (
-                not model.data.get("ever_activated")
-                or model.data.get("goal") != service.optimization_config(session, p)["conversion_goal"]
+            if not model.data.get("ever_activated") or not service.model_source_current(
+                session, p, model, service.optimization_config(session, p)
             ):
-                fail(409, "Rollback requires a previously activated model for the current goal")
+                fail(
+                    409,
+                    "Rollback requires a previously activated model with the current evaluated definition",
+                )
+            from app.ml.training import predict_funnel
+
+            if not predict_funnel(model.data, {}, service.settings.data_dir / "models"):
+                fail(409, "Rollback artifact is unavailable or failed verification; use the pooled baseline")
             for item in service.scoped(session, "model_versions", p):
                 update(item, active=item.id == model.id, trial_active=False)
             audit(

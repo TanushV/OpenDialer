@@ -515,6 +515,11 @@ def lineage_metadata(item):
             "review_receipt_id",
             "invalidated_at",
             "lineage_depth",
+            "kind",
+            "observed_guidance_id",
+            "strategy_id",
+            "state",
+            "available_at",
         )
     }
 
@@ -666,6 +671,7 @@ def merge_semantic_state(
     catalog=None,
     call_at=None,
     timezone=None,
+    exposures=(),
 ):
     import hashlib
     import hmac
@@ -757,6 +763,26 @@ def merge_semantic_state(
             or not any(r["kind"] == "segment" and live[r["id"]].get("side") == "rep" for r in refs)
         ):
             raise CardRejected("An observed approach requires actual rep speech, not suggested advice")
+        exposure = None
+        if item.get("observed_guidance_id"):
+            exposure = next((e for e in exposures if e["id"] == item["observed_guidance_id"]), None)
+            if (
+                not exposure
+                or not exposure.get("displayed_at")
+                or not exposure.get("approach")
+                or item["kind"] != "approach"
+                or not item.get("approach")
+                or not any(
+                    r["kind"] == "segment"
+                    and live[r["id"]].get("side") == "rep"
+                    and live[r["id"]].get("server_received_at")
+                    and live[r["id"]]["server_received_at"] >= exposure["displayed_at"]
+                    for r in refs
+                )
+            ):
+                raise CardRejected(
+                    "Observed strategy needs displayed guidance and subsequent received rep evidence"
+                )
         depths = [prior[r["id"]]["lineage_depth"] for r in refs if r["kind"] == "observation"]
         depth = 1 + max(depths, default=-1)
         if depth > 8:
@@ -812,6 +838,8 @@ def merge_semantic_state(
             commitment=commitment,
             approach=item.get("approach"),
             outcome=item.get("outcome"),
+            observed_guidance_id=item.get("observed_guidance_id"),
+            strategy_id=exposure["strategy_id"] if exposure else None,
         )
         if not material:
             for old in replacement:

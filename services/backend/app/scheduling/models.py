@@ -189,7 +189,13 @@ def _cell(rows, features):
         return set(range(len(rows))), "pooled"
     local = {i for i, r in enumerate(rows) if r.get("segment") == segment}
     hour, day = features.get("local_hour"), features.get("local_weekday")
-    if hour is None or day is None:
+    if (
+        hour is None
+        or day is None
+        or not any(
+            rows[i].get("local_hour") is not None and rows[i].get("local_weekday") is not None for i in local
+        )
+    ):
         return local, "segment"
     timed = {
         i
@@ -200,9 +206,17 @@ def _cell(rows, features):
         and (rows[i]["local_weekday"] >= 5) == (day >= 5)
     }
     attempt = features.get("attempt_count")
-    if attempt is not None:
+    if attempt is not None and any(rows[i].get("attempt_count") is not None for i in timed):
         timed = {i for i in timed if rows[i].get("attempt_count") == attempt}
-    return timed, "segment_time_attempt" if attempt is not None else "segment_time"
+        return timed, "segment_time_attempt"
+    return timed, "segment_time"
+
+
+def _weighted_mean(values):
+    """Normalize positive finite weights before arithmetic to avoid overflow."""
+    scale = max(weight for _, weight in values)
+    total = math.fsum(weight / scale for _, weight in values)
+    return math.fsum(value * ((weight / scale) / total) for value, weight in values)
 
 
 def _stage_counts(rows, indexes, stage):
@@ -252,11 +266,11 @@ def pooled_predictions(
         s, n, missing, excluded = _stage_counts(rows, cell, stage)
         os, on, _, _ = _stage_counts(rows, outside, stage)
         a, b = prior
-        pooled = (os + a) / (on + a + b)
+        pooled = _weighted_mean([(os / on if on else 0, on), (1, a), (0, b)])
         predictions[key] = (
-            (s + a) / (n + a + b)
+            _weighted_mean([(s / n if n else 0, n), (1, a), (0, b)])
             if level == "pooled"
-            else (s + policy.shrinkage * pooled) / (n + policy.shrinkage)
+            else _weighted_mean([(s / n if n else 0, n), (pooled, policy.shrinkage)])
         )
         support[stage] = {
             "cell_known": n,
@@ -276,8 +290,9 @@ def pooled_predictions(
     return {
         **predictions,
         "p_next_step_given_right_party": predictions["p_conversion_given_right_party"],
-        "expected_rep_seconds": (sum(work) + policy.work_prior * handling_seconds)
-        / (len(work) + policy.work_prior),
+        "expected_rep_seconds": _weighted_mean(
+            [(v, 1) for v in work] + [(handling_seconds, policy.work_prior)]
+        ),
         "work_observations": len(work),
         "work_assumption_seconds": handling_seconds,
         "expected_attempt_cost_usd": sum(costs) / len(costs) if costs else None,

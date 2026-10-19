@@ -146,23 +146,6 @@ export function DialerPage() {
     };
   }, [call?.id, api, subscribe]);
   useEffect(() => {
-    if (!call?.coach || responseReceived.current == null) return;
-    const id = call.id,
-      coachId = call.coach.id;
-    const frame = requestAnimationFrame(() => {
-      const at = performance.now();
-      void api("/v1/calls/" + id + "/coach/feedback", "POST", {
-        coach_event_id: coachId,
-        render_ms: at - responseReceived.current!,
-        event_to_render_ms:
-          eventReceived.current == null
-            ? undefined
-            : at - eventReceived.current,
-      }).catch(() => {});
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [call?.coach?.id, api]);
-  useEffect(() => {
     telephony.current.onStatus = (status) => {
       setAudioStatus(status);
       if (status === "agent-disconnected" || status === "reconnecting")
@@ -385,6 +368,10 @@ export function DialerPage() {
         />
       )}
       <LiveCoach
+        deliveryTiming={{
+          receivedAt: responseReceived.current,
+          eventAt: eventReceived.current,
+        }}
         call={call}
         onChange={() => (call ? reloadCall(call.id) : Promise.resolve())}
       />

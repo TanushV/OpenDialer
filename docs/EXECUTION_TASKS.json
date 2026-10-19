@@ -559,16 +559,16 @@
         },
         {
           "id": "E08.integration",
-          "status": "open",
+          "status": "in-progress",
           "work": "Shared scheduling/brief/report estimates, drift, manual model controls and scoped UI"
         },
         {
           "id": "E08.acceptance",
-          "status": "open",
+          "status": "in-progress",
           "work": "Dual-database and browser evidence, superseded paths removed and mapping updated"
         }
       ],
-      "checkpoint": "Model slice da8fc6d: 119 passes in each database; finite strategy/display/use contracts captured red. Integration and full E08 acceptance remain open."
+      "checkpoint": "Scoped SQLite 382 passes (121.03s) for strategy/model-control/drift integration. PostgreSQL and UI running. Remaining E08: as-of call-derived rewards, exact scoped receipt and deletion check; then E09 incremental projections."
     },
     {
       "id": "E09",

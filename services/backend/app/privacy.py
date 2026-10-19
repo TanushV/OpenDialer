@@ -184,6 +184,7 @@ def persistent_document(kind, data, *, legacy=False):
                 "private",
                 "user_id",
                 "strategy",
+                "strategy_exposure",
                 "status",
                 "context_sources",
                 "context_fingerprint",
