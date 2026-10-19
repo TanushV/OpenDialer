@@ -3,6 +3,7 @@ import { Check } from "lucide-react";
 import { localEdit } from "../api/client";
 import { label, useWorkspace } from "../context";
 import type { Call } from "../types";
+import { localDateInput } from "./FollowupTasks";
 
 export function WrapUp({
   call,
@@ -12,10 +13,18 @@ export function WrapUp({
   onSaved: (call: Call) => Promise<void>;
 }) {
   const { api, run, notice } = useWorkspace();
-  const [outcome, setOutcome] = useState("right_party");
-  const [contactRole, setContactRole] = useState("unknown");
-  const [callbackAt, setCallbackAt] = useState("");
-  const [wrapNote, setWrapNote] = useState("");
+  const [outcome, setOutcome] = useState(
+    (call.state === "FINALIZED" && call.outcome) || "right_party",
+  );
+  const [contactRole, setContactRole] = useState(
+    call.disposition_input?.contact_role || "unknown",
+  );
+  const [callbackAt, setCallbackAt] = useState(
+    localDateInput(call.disposition_input?.callback_at),
+  );
+  const [wrapNote, setWrapNote] = useState(
+    call.disposition_input?.callback_note || "",
+  );
   const [saving, setSaving] = useState(false);
   const pending = useRef<{ fingerprint: string; request_id: string } | null>(
     null,

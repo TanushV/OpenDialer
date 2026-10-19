@@ -1,6 +1,167 @@
 import { expect, test } from "@playwright/test";
 import { prepareSimulationCall } from "./simulation";
 
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: "wait" });
+});
+
+for (const connected of [false, true]) {
+  test(`correct a confirmed meeting without losing the rep note, then review outreach ${connected ? "postgres" : "local"}`, async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await expect(page.getByText("Opening your workspace…")).toBeHidden();
+    if (
+      await page
+        .getByRole("button", { name: "Try a simulated workspace" })
+        .isVisible()
+    )
+      await page
+        .getByRole("button", { name: "Try a simulated workspace" })
+        .click();
+    if (connected) {
+      await page.getByTitle("Sign out").click();
+      await page.getByRole("button", { name: "Connect to a server" }).click();
+      await page.getByLabel("Server URL").fill("http://127.0.0.1:8766");
+      await page.getByLabel("Email").fill("team@example.test");
+      await page
+        .getByLabel("Password", { exact: true })
+        .fill("Connected-test-password-123");
+      await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    }
+    await prepareSimulationCall(
+      page,
+      "Meeting correction fixture",
+      "+14155550991",
+    );
+    const packetResponse = page.waitForResponse((r) =>
+      /\/v1\/leads\/[^/]+\/packet$/.test(r.url()),
+    );
+    await page
+      .getByRole("button", { name: "Get next lead", exact: true })
+      .click();
+    const packet = await (await packetResponse).json();
+    await page.getByRole("button", { name: "Start call", exact: true }).click();
+    await page.getByRole("button", { name: "Hang up", exact: true }).click();
+    await page.getByLabel("Disposition").selectOption("meeting_held");
+    await page
+      .getByLabel("Who did you speak with?")
+      .selectOption("right_party");
+    await page
+      .getByLabel("Wrap-up note")
+      .fill("Keep my original human note through the correction.");
+    await page
+      .getByRole("button", { name: "Save outcome", exact: true })
+      .click();
+    await expect(page.getByText(/Meeting recorded.*rep/i)).toBeVisible();
+    await page
+      .getByRole("button", { name: "Pause dialing", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Review", exact: true }).click();
+    await page
+      .getByRole("button", {
+        name: `Review call ${packet.lead.name}`,
+        exact: true,
+      })
+      .first()
+      .click();
+    await page.getByText("Correct confirmed outcome", { exact: true }).click();
+    await expect(page.getByLabel("Disposition")).toHaveValue("meeting_held");
+    await expect(page.getByLabel("Who did you speak with?")).toHaveValue(
+      "right_party",
+    );
+    await expect(page.getByLabel("Wrap-up note")).toHaveValue(
+      "Keep my original human note through the correction.",
+    );
+    await page.getByLabel("Disposition").selectOption("right_party");
+    const correctionBodies: unknown[] = [];
+    await page.route("**/v1/calls/*/disposition", async (route) => {
+      correctionBodies.push(route.request().postDataJSON());
+      const response = await route.fetch();
+      expect(response.ok()).toBeTruthy();
+      if (correctionBodies.length === 1) await route.abort("failed");
+      else await route.fulfill({ response });
+    });
+    const saved = page.waitForResponse(
+      (r) =>
+        r.url().endsWith("/disposition") && r.request().method() === "POST",
+    );
+    await page
+      .getByRole("button", { name: "Save outcome", exact: true })
+      .click();
+    expect((await saved).ok()).toBeTruthy();
+    expect(correctionBodies).toHaveLength(2);
+    expect(correctionBodies[1]).toEqual(correctionBodies[0]);
+    await page.unroute("**/v1/calls/*/disposition");
+    await page.getByRole("button", { name: "Leads", exact: true }).click();
+    await page
+      .getByRole("button", {
+        name: `Open lead ${packet.lead.name}`,
+        exact: true,
+      })
+      .click();
+    const modal = page.locator(".modal");
+    await modal
+      .getByText("Prior conversation & next step", { exact: true })
+      .click();
+    await expect(
+      modal
+        .getByRole("status")
+        .filter({ hasText: /^Outreach paused: meeting next action$/i }),
+    ).toBeVisible();
+    await modal.getByText("Record a meeting outcome", { exact: true }).click();
+    await expect(modal.getByLabel("Meeting status")).toHaveValue(
+      "needs_review",
+    );
+    await expect(
+      modal.getByRole("button", { name: "Save meeting outcome", exact: true }),
+    ).toBeDisabled();
+    await modal.getByLabel("Meeting status").selectOption("cancelled");
+    await expect(
+      modal.getByRole("button", { name: "Save meeting outcome", exact: true }),
+    ).toBeDisabled();
+    await modal.getByLabel("Next outreach action").selectOption("resume");
+    let meetingAttempts = 0;
+    await page.route("**/v1/leads/*/meeting", async (route) => {
+      meetingAttempts++;
+      if (meetingAttempts === 1)
+        await route.fulfill({
+          status: 409,
+          json: {
+            detail:
+              "Prospect context changed; refresh before saving your review",
+          },
+        });
+      else await route.continue();
+    });
+    const refreshed = page.waitForResponse((r) =>
+      r.url().endsWith(`/v1/leads/${packet.lead.id}/packet`),
+    );
+    await modal
+      .getByRole("button", { name: "Save meeting outcome", exact: true })
+      .click();
+    await expect(
+      page.getByText(
+        "Prospect context changed; refresh before saving your review",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await refreshed;
+    expect(meetingAttempts).toBe(1);
+    await expect(modal.getByLabel("Meeting status")).toHaveValue("cancelled");
+    await expect(modal.getByLabel("Next outreach action")).toHaveValue(
+      "resume",
+    );
+    await modal
+      .getByRole("button", { name: "Save meeting outcome", exact: true })
+      .click();
+    await expect(modal.getByText(/^Outreach paused:/)).toHaveCount(0);
+    await expect(
+      modal.getByText(/Keep my original human note through the correction/),
+    ).toBeVisible();
+  });
+}
+
 test("a suggested outcome requires a rep choice and keeps the rep's note and contact role", async ({
   page,
 }) => {

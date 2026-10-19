@@ -17,9 +17,10 @@ import { ConversationObservations } from "./ConversationObservations";
 import { CallPurpose } from "./Rubrics";
 import { ScoreReview } from "./ScoreReview";
 import { Coaching, ReviewTip } from "./Coaching";
+import { WrapUp } from "./WrapUp";
 
 export function ReviewPage() {
-  const { snapshot: w, api, run, notice } = useWorkspace();
+  const { snapshot: w, api, run, notice, refresh } = useWorkspace();
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   useSpeechExpiry(analysis, setAnalysis);
   const [notes, setNotes] = useState("");
@@ -193,6 +194,29 @@ export function ReviewPage() {
         </p>
       )}
       <ConversionForm call={analysis.call} />
+      {analysis.call.state === "FINALIZED" && (
+        <details className="card padded">
+          <summary>Correct confirmed outcome</summary>
+          <p>
+            Corrections update the lead and learning records. A changed meeting
+            still needs an explicit next outreach decision.
+          </p>
+          <button
+            className="secondary"
+            onClick={() => void run(() => reload(analysis.call.id))}
+          >
+            Reload confirmed outcome
+          </button>
+          <WrapUp
+            key={`${analysis.call.id}:${analysis.call.version}`}
+            call={analysis.call}
+            onSaved={async (result) => {
+              await reload(result.id);
+              await refresh();
+            }}
+          />
+        </details>
+      )}
       <section className="card padded" aria-label="Retained call context">
         <h2>Retained call context</h2>
         <p className="small muted">

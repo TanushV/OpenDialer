@@ -44,6 +44,55 @@ def test_prepaid_preflight_authorization_agree(workspace, screening, covered):  
         assert result.status_code == 200, result.text
 
 
+@pytest.mark.parametrize("state", ["valid", "pending", "expired", "changed_authorization", "uncovered"])
+def test_forecast_uses_current_national_clearance_without_charging(workspace, screening, clock, state):  # noqa: F811
+    from datetime import timedelta
+
+    service, p, calls, _, config = screening
+    if state != "pending":
+        assert screen(workspace).status_code == 200
+    if state in {"changed_authorization", "uncovered"}:
+        authorization = {**config["dnc_seller_authorization"]}
+        authorization.update(
+            {"reference": "new-authority"} if state == "changed_authorization" else {"npas": ["212"]}
+        )
+        service.vault.write(p["tenant_id"], {"dnc_seller_authorization": authorization})
+    with service.db.transaction() as s:
+        for row in service.scoped(s, "registry_snapshots", p):
+            if row.data.get("kind") == "national":
+                update(row, published=False)
+            elif state == "expired" and row.data.get("kind") == "prepaid":
+                update(row, expires_at=clock.now.isoformat())
+        campaign = service.required(s, "campaigns", workspace["campaign_id"], p)
+        update(
+            campaign,
+            optimization={
+                **campaign.data.get("optimization", {}),
+                "max_attempts": 1,
+                "staffed_windows": [
+                    {
+                        "start_at": clock.now.isoformat(),
+                        "end_at": (clock.now + timedelta(hours=1)).isoformat(),
+                        "rep_ids": [p["user_id"]],
+                    }
+                ],
+            },
+        )
+    before = len(calls)
+    with service.db.transaction(False) as s:
+        forecast = service.forecast(s, p, campaign_id=workspace["campaign_id"])
+        expected = {
+            row.id for row in service.scoped(s, "leads", p) if row.data["phone"] == PHONE and state == "valid"
+        }
+    assert forecast["imported_leads"] == 3, "Blocked leads remain in the list denominator"
+    assert forecast["known_next_attempts"] == len(expected)
+    assert {row["lead_id"] for row in forecast["existing_schedule"]} == expected
+    assert forecast["screening"]["blocked_count"] == 3 - len(expected)
+    assert forecast["screening"]["cleared_count"] == len(expected)
+    assert forecast["screening"]["blocked_reasons"], "The capacity shortfall needs its actual remedy"
+    assert len(calls) == before, "Planning must never initiate paid screening"
+
+
 def test_national_snapshot_uses_the_sellers_shorter_freshness_policy(workspace, app, clock):
     from datetime import timedelta
 

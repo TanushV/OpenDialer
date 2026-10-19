@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { date, label, useWorkspace } from "../context";
 import type { Packet } from "../types";
 import { localDateInput } from "./FollowupTasks";
@@ -21,6 +21,12 @@ export function ProspectBrief({
   const [reviewAction, setReviewAction] = useState("resume");
   const [reviewReason, setReviewReason] = useState("");
   const [reviewTime, setReviewTime] = useState("");
+  useEffect(() => {
+    if (brief?.meeting?.status === "needs_review") {
+      setStatus("needs_review");
+      setNext("");
+    }
+  }, [brief?.meeting?.status]);
   return (
     <div className="prospect-context">
       <div data-testid="statistical-guidance" className="small">
@@ -255,6 +261,9 @@ export function ProspectBrief({
         )}
         <details>
           <summary>Record a meeting outcome</summary>
+          {brief?.meeting?.correction_reason && (
+            <p role="status">{brief.meeting.correction_reason}</p>
+          )}
           <p>
             You book the meeting in your own workflow. This records its outcome
             and outreach hold.
@@ -262,6 +271,11 @@ export function ProspectBrief({
           <label>
             Meeting status
             <select value={status} onChange={(e) => setStatus(e.target.value)}>
+              {status === "needs_review" && (
+                <option value="needs_review" disabled>
+                  Choose the corrected meeting status
+                </option>
+              )}
               {["booked", "held", "no_show", "cancelled", "rescheduled"].map(
                 (x) => (
                   <option key={x} value={x}>
@@ -301,6 +315,7 @@ export function ProspectBrief({
           <button
             className="small secondary"
             disabled={
+              status === "needs_review" ||
               (next === "callback" && !callback) ||
               (["no_show", "cancelled"].includes(status) && !next)
             }

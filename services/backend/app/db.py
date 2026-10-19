@@ -20,6 +20,7 @@ from sqlalchemy import (
     UniqueConstraint,
     create_engine,
     event,
+    inspect,
     literal,
     select,
     text,
@@ -55,6 +56,37 @@ from app.operational_schema import (
 
 _DATABASE_CIPHER = contextvars.ContextVar("opendialer_database_cipher", default=None)
 _DATABASE_LOOKUP_KEY = contextvars.ContextVar("opendialer_database_lookup_key", default=None)
+
+
+def database_cipher(key):
+    return Fernet(base64.urlsafe_b64encode(hashlib.sha256((key + ":database:v1").encode()).digest()))
+
+
+def authenticate_store(engine, cipher):
+    """Read all existing encrypted payloads before any upgrade DDL or backfill.
+
+    Raw SQL intentionally does not require the *new* mapped columns to exist.
+    Fetch pages stay bounded; no plaintext content leaves this check.
+    """
+    with engine.connect() as connection:
+        existing = set(inspect(connection).get_table_names())
+        for name in [*TABLES, "events", "jobs"]:
+            if name not in existing:
+                continue
+            field = "payload" if name in {"events", "jobs"} else "data"
+            rows = connection.execution_options(stream_results=True).execute(
+                text(f'SELECT "{field}" FROM "{name}"')  # noqa: S608 - fixed table/field allowlists
+            )
+            for page in rows.partitions(500):
+                for (value,) in page:
+                    value = json.loads(value) if isinstance(value, str) else value
+                    if isinstance(value, dict) and value.get("od_encrypted") == 1:
+                        try:
+                            json.loads(cipher.decrypt(value["token"].encode()))
+                        except (InvalidToken, KeyError, ValueError, AttributeError, TypeError) as exc:
+                            raise ValueError(
+                                "Stored data cannot be authenticated with this authority key"
+                            ) from exc
 
 
 class EncryptedJSON(TypeDecorator):
@@ -311,9 +343,7 @@ class Database:
     def __init__(self, url, encryption_key=None):
         if not encryption_key:
             raise ValueError("A persistent authority encryption key is required")
-        self.cipher = Fernet(
-            base64.urlsafe_b64encode(hashlib.sha256((encryption_key + ":database:v1").encode()).digest())
-        )
+        self.cipher = database_cipher(encryption_key)
         self.identity_key = hashlib.sha256((encryption_key + ":lookup:v1").encode()).digest()
         self.url = url
         self.registry_lru = OrderedDict()
@@ -325,6 +355,11 @@ class Database:
             pool_pre_ping=True,
             connect_args={"check_same_thread": False, "timeout": 30} if self.sqlite else {},
         )
+        try:
+            authenticate_store(self.engine, self.cipher)
+        finally:
+            # Authentication connections must not skip the runtime pragmas below.
+            self.engine.dispose()
         if self.sqlite:
 
             @event.listens_for(self.engine, "connect")

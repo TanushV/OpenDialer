@@ -43,7 +43,7 @@ def main():
     clock = (lambda: datetime(2026, 10, 14, 18, 0, tzinfo=UTC)) if settings.simulation else None
     from app.migrate import migrate_database
 
-    migrate_database(settings.database_url)
+    migrate_database(settings.database_url, encryption_key=settings.secret_key)
     if args.command == "migrate":
         return
     app = create_app(settings, clock=clock)

@@ -11,6 +11,112 @@ from sqlalchemy import select
 from test_remediation_rep_workflow import finish, p
 
 
+@pytest.mark.parametrize("original", ["meeting_held", "meeting_booked"])
+def test_corrected_meeting_disposition_retracts_only_its_derived_evidence(workspace, app, clock, original):
+    from app.db import doc
+    from app.optimization.learning import conversion_at, training_rows
+    from app.optimization.projections import lead_values
+
+    call = start(workspace)
+    finish(workspace, call, original)
+    before = clock.now
+    clock.now += timedelta(minutes=1)
+    c, h = workspace["client"], workspace["headers"]
+    corrected = c.post(
+        f"/v1/calls/{call['id']}/disposition",
+        headers=h,
+        json=disposition_body(c, h, call["id"], outcome="right_party", contact_role="right_party"),
+    )
+    assert corrected.status_code == 200, corrected.text
+    service, actor = app.state.service, p(workspace)
+    with service.db.transaction(False) as s:
+        lead = service.required(s, "leads", call["lead_id"], actor)
+        event = service._by_key(s, actor, "conversion_events", "rep-meeting:" + lead.id)
+        calls = [doc(service.required(s, "call_attempts", call["id"], actor))]
+        events = [doc(event)] if event else []
+        config = service.optimization_config(s, actor, workspace["campaign_id"])
+        now_values = lead_values(doc(lead), calls, events, suppressed=False, config=config, now=clock.now)
+        assert now_values["held_meetings"] == 0 and now_values["unique_conversions"] == 0
+        assert lead.data.get("conversion_goal_achieved") is None
+        assert lead.data["meeting"]["status"] == "needs_review"
+        assert lead.data["outreach_hold"] == "meeting_next_action"
+        features = [doc(service.required(s, "feature_snapshots", calls[0]["feature_snapshot_id"], actor))]
+        learned = training_rows(calls, features, events, now=clock.now, goal="meeting_held", window_days=14)
+        assert learned[0]["conversion"] is None
+        if original == "meeting_held":
+            assert event.data["retracted"] is True
+            assert conversion_at(doc(event), before)["retracted"] is False
+            historical = lead_values(doc(lead), calls, events, suppressed=False, config=config, now=before)
+            assert historical["held_meetings"] == 1
+    packet = c.get(f"/v1/leads/{call['lead_id']}/packet", headers=h).json()
+    reviewed = c.post(
+        f"/v1/leads/{call['lead_id']}/meeting",
+        headers=h,
+        json={
+            "request_id": str(uuid4()),
+            "expected_version": packet["lead"]["version"],
+            "status": "cancelled",
+            "next_action": "resume",
+        },
+    )
+    assert reviewed.status_code == 200, reviewed.text
+    assert reviewed.json()["outreach_hold"] is None
+
+
+@pytest.mark.parametrize("corrected_outcome", ["right_party", "meeting_booked"])
+def test_call_correction_cannot_retract_a_later_independent_meeting_report(
+    workspace, app, clock, corrected_outcome
+):
+    call = start(workspace)
+    finish(workspace, call, "meeting_held")
+    clock.now += timedelta(minutes=1)
+    c, h = workspace["client"], workspace["headers"]
+    path = f"/v1/leads/{call['lead_id']}"
+    packet = c.get(path + "/packet", headers=h).json()
+    confirmed = c.post(
+        path + "/meeting",
+        headers=h,
+        json={
+            "request_id": str(uuid4()),
+            "expected_version": packet["lead"]["version"],
+            "status": "held",
+        },
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    clock.now += timedelta(minutes=1)
+    changed = c.post(
+        f"/v1/calls/{call['id']}/disposition",
+        headers=h,
+        json=disposition_body(c, h, call["id"], outcome=corrected_outcome),
+    )
+    assert changed.status_code == 200, changed.text
+    with app.state.service.db.transaction(False) as s:
+        event = app.state.service._by_key(
+            s, p(workspace), "conversion_events", "rep-meeting:" + call["lead_id"]
+        )
+        assert event.data["retracted"] is False
+        lead = app.state.service.required(s, "leads", call["lead_id"], p(workspace))
+        assert lead.data["meeting"]["status"] == "held"
+
+
+def test_legacy_unlinked_meeting_requires_source_review_before_disposition_correction(workspace, app):
+    from app.db import update
+
+    call = start(workspace)
+    finish(workspace, call, "meeting_held")
+    with app.state.service.db.transaction() as s:
+        lead = app.state.service.required(s, "leads", call["lead_id"], p(workspace))
+        update(lead, meeting={k: v for k, v in lead.data["meeting"].items() if k != "source_call_id"})
+    c, h = workspace["client"], workspace["headers"]
+    response = c.post(
+        f"/v1/calls/{call['id']}/disposition",
+        headers=h,
+        json=disposition_body(c, h, call["id"], outcome="right_party"),
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "meeting_source_review_required"
+
+
 def test_wrapup_keeps_call_locked_through_version_check_and_commit(workspace, app, monkeypatch):
     """Background interpretation cannot invalidate an already-checked human edit."""
     import threading

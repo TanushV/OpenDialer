@@ -5,16 +5,18 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect
 
-from app.db import Base
+from app.db import Base, authenticate_store, database_cipher
 
 
-def migrate_database(url):
+def migrate_database(url, *, encryption_key=None):
     root = Path(sys._MEIPASS) if getattr(sys, "frozen", False) else Path(__file__).resolve().parent.parent
     config = Config(str(root / "alembic.ini"))
     config.set_main_option("script_location", str(root / "migrations"))
     config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
     engine = create_engine(url)
     try:
+        if encryption_key:
+            authenticate_store(engine, database_cipher(encryption_key))
         existing = set(inspect(engine).get_table_names())
         if "tenants" in existing and "alembic_version" not in existing:
             # Adopt only the pre-migration development schema after checking every existing column.

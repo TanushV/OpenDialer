@@ -181,6 +181,28 @@ def test_declared_account_channel_limit_applies_across_numbers():
     assert result["minimum_additional_numbers"] == 0
 
 
+def test_paused_numbers_keep_account_occupancy_until_terminal_release():
+    inventory = [
+        number(
+            "paused",
+            lifecycle="paused_for_outbound",
+            active_obligations=1,
+            busy_until=(NOW + timedelta(minutes=10)).isoformat(),
+        ),
+        number("ready"),
+    ]
+    options = {
+        "staffed_windows": [window(minutes=2)],
+        "policy": {"max_attempts": 2, "account_channel_limit": 1},
+    }
+    result = plan([lead("waiting")], inventory, **options)
+    assert result["existing_only_capacity"] == result["existing_plus_addition_capacity"] == 0
+    assert not result["existing_schedule"] and not result["expanded_schedule"]
+    inventory[0]["active_obligations"] = 0
+    released = plan([lead("waiting")], inventory, **options)
+    assert released["existing_only_capacity"] == 1
+
+
 def test_pending_setup_delay_is_used_in_the_conditional_schedule():
     result = plan(
         [lead("due")],

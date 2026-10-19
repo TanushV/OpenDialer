@@ -776,6 +776,7 @@ class RepWorkflows:
         reference="",
         next_action="keep_hold",
         callback_at=None,
+        source_call_id=None,
     ):
         if next_action == "callback" and not callback_at:
             fail(422, "A confirmed callback time is required")
@@ -783,6 +784,7 @@ class RepWorkflows:
         meeting = {
             "status": status,
             "source": "rep_reported",
+            "source_call_id": source_call_id,
             "reported_at": self.clock().isoformat(),
             "reported_by": p["user_id"],
             "due_at": due_at or previous.get("due_at"),
@@ -829,7 +831,7 @@ class RepWorkflows:
                 "label_available_at": self.clock().isoformat(),
                 "source": "rep_reported",
                 "retracted": False,
-                "call_id": None,
+                "call_id": source_call_id,
             }
             if event:
                 update(
@@ -915,6 +917,38 @@ class RepWorkflows:
             duplicate = call.data.get("disposition_input") == canonical
             if not identity[2]:
                 self.check_edit_version(call, data)
+            previous_outcome = call.data.get("outcome")
+            correcting_confirmed = call.data["state"] == "FINALIZED"
+            correcting_meeting = (
+                not identity[2]
+                and not duplicate
+                and previous_outcome in {"meeting_booked", "meeting_held"}
+                and outcome not in {"meeting_booked", "meeting_held"}
+            )
+            meeting = lead.data.get("meeting", {})
+            if (
+                correcting_meeting
+                and "source_call_id" not in meeting
+                and outcome
+                not in {
+                    "opt_out",
+                    "wrong_party",
+                    "invalid_endpoint",
+                }
+            ):
+                fail(
+                    409,
+                    {
+                        "code": "meeting_source_review_required",
+                        "message": "Record the current meeting outcome and next outreach action first; this legacy meeting is not linked to a specific call.",
+                    },
+                )
+            if outcome in {"wrong_party", "invalid_endpoint", "opt_out"}:
+                # Journal the denial before any wrap-up mutation or receipt can
+                # commit. A rollback retains the journal and recovery hold.
+                self.suppress(
+                    p, lead.data["phone"], outcome, event_id=f"disposition:{call_id}:{outcome}", session=s
+                )
             if not identity[2] and not duplicate:
                 if canonical["callback_note"] and canonical["callback_note"] != call.data.get(
                     "disposition_input", {}
@@ -1008,8 +1042,40 @@ class RepWorkflows:
                         update(old_task, status="cancelled", reason="corrected_disposition")
                         self._sync_callback(s, p, lead)
                         emit(s, p["tenant_id"], "task.updated", old_task, self.clock())
-                if outcome in {"meeting_booked", "meeting_held"}:
-                    self._meeting_in(s, p, lead, "booked" if outcome == "meeting_booked" else "held")
+                independent_meeting = (
+                    correcting_confirmed
+                    and "source_call_id" in meeting
+                    and meeting["source_call_id"] != call.id
+                )
+                if outcome in {"meeting_booked", "meeting_held"} and not independent_meeting:
+                    self._meeting_in(
+                        s,
+                        p,
+                        lead,
+                        "booked" if outcome == "meeting_booked" else "held",
+                        source_call_id=call.id,
+                    )
+                elif correcting_meeting:
+                    event = self._by_key(s, p, "conversion_events", "rep-meeting:" + lead.id)
+                    if event and event.data.get("call_id") == call.id and not event.data.get("retracted"):
+                        update(
+                            event,
+                            retracted=True,
+                            retracted_at=self.clock().isoformat(),
+                            retraction_reason="corrected_disposition",
+                        )
+                    if meeting.get("source_call_id") == call.id:
+                        update(
+                            lead,
+                            meeting={
+                                **meeting,
+                                "status": "needs_review",
+                                "held": False,
+                                "correction_reason": "Call outcome corrected. Confirm the meeting status and next outreach action.",
+                                "corrected_at": self.clock().isoformat(),
+                            },
+                            outreach_hold="meeting_next_action",
+                        )
                 record = self._by_key(s, p, "outcomes", "disposition:" + call_id)
                 values = {
                     "call_id": call_id,
@@ -1076,7 +1142,4 @@ class RepWorkflows:
                 ),
                 "suggested_outcome": suggested_outcome(memory.data if memory else {}),
             }
-            phone = lead.data["phone"]
-        if outcome in {"wrong_party", "invalid_endpoint", "opt_out"}:
-            self.suppress(p, phone, outcome, event_id=f"disposition:{call_id}:{outcome}")
         return result

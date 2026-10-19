@@ -10,6 +10,58 @@ from test_context_reads import count_decrypted
 from test_control_completion import principal
 
 
+def test_wrapup_denial_and_receipt_cannot_commit_before_suppression(workspace, app, monkeypatch):
+    from uuid import uuid4
+
+    service, p, call = app.state.service, principal(workspace), start(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    ended = c.post(f"/v1/calls/{call['id']}/hangup", headers=h).json()
+    body = {"request_id": str(uuid4()), "expected_version": ended["version"], "outcome": "opt_out"}
+    original = service.suppress
+
+    def interrupted(*args, **kwargs):
+        raise RuntimeError("synthetic crash before denial persistence")
+
+    monkeypatch.setattr(service, "suppress", interrupted)
+    with pytest.raises(RuntimeError, match="synthetic crash"):
+        service.save_disposition(p, call["id"], body)
+    with service.db.transaction(False) as s:
+        current = get(s, "call_attempts", call["id"])
+        assert current.data.get("outcome") != "opt_out", "Wrap-up cannot commit ahead of its denial"
+        assert service._by_key(s, p, "outcomes", "edit:disposition:" + body["request_id"]) is None
+    monkeypatch.setattr(service, "suppress", original)
+    saved = service.save_disposition(p, call["id"], body)
+    assert saved["outcome"] == "opt_out"
+    with service.db.transaction(False) as s:
+        phone = get(s, "leads", call["lead_id"]).data["phone"]
+        assert service.suppressed(s, p, phone)
+
+
+def test_wrapup_crash_after_denial_journal_recovers_before_new_call(workspace, app, monkeypatch):
+    from uuid import uuid4
+
+    service, p, call = app.state.service, principal(workspace), start(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    ended = c.post(f"/v1/calls/{call['id']}/hangup", headers=h).json()
+    body = {"request_id": str(uuid4()), "expected_version": ended["version"], "outcome": "opt_out"}
+
+    def interrupted(*args, **kwargs):
+        raise RuntimeError("synthetic crash before wrap-up receipt")
+
+    monkeypatch.setattr(service, "local_edit_receipt", interrupted)
+    with pytest.raises(RuntimeError, match="synthetic crash"):
+        service.save_disposition(p, call["id"], body)
+    restarted = create_app(service.settings, clock=service.clock)
+    try:
+        with restarted.state.db.transaction(False) as s:
+            phone = get(s, "leads", call["lead_id"]).data["phone"]
+            assert restarted.state.service.suppressed(s, p, phone), (
+                "Durable denial survives incomplete wrap-up"
+            )
+    finally:
+        restarted.state.db.engine.dispose()
+
+
 def test_committed_optout_journal_replays_before_an_authority_restart(workspace, app):
     service, p = app.state.service, principal(workspace)
     phone = "+14155550771"

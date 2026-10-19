@@ -998,12 +998,12 @@
         {
           "id": "E13.3",
           "task": "Complete performance/load/shift/resource runner",
-          "status": "Control/load/shift/stall/admission harness implemented; 22 boundary tests pass; actual duration and native profiles remain open"
+          "status": "Maintenance and real queue draining added to shift harness;25 boundary tests pass. Full resource/reference profiles remain open."
         },
         {
           "id": "E13.4",
           "task": "Frozen semantic120-case matrix and independent review",
-          "status": "Frozen120-case matrix and 30-case human overlap; 20 blinding contracts pass; separate read-only Codex review running; funded/human quality unaccepted"
+          "status": "Two separate read-only reviews complete; eight reported findings with overlapping correction scope. Tests-first repairs and targeted follow-up remain in progress; human semantic quality unaccepted."
         },
         {
           "id": "E13.5",
@@ -1024,8 +1024,39 @@
           "id": "E13.8",
           "task": "Final exact-source receipts and freeze",
           "status": "open"
+        },
+        {
+          "id": "E13.review-atomic",
+          "task": "Atomic wrap-up denial, source-owned meeting correction, exact inbound identity",
+          "status": "SQLite scoped green; wider dual-database and UI review acceptance running"
+        },
+        {
+          "id": "E13.review-occupancy",
+          "task": "Paused DID obligations continue to debit shared account capacity",
+          "status": "Tests-first backend repair;141 SQLite scoped passes/one PG-only skip. Final PostgreSQL and native assertion remain open."
+        },
+        {
+          "id": "E13.review-logout",
+          "task": "Operation-specific replay after a lost committed logout response",
+          "status": "Tests-first backend repair;141 SQLite scoped passes/one PG-only skip. Final PostgreSQL and native assertion remain open."
+        },
+        {
+          "id": "E13.review-screening",
+          "task": "Forecast excludes currently uncleared national screening while retaining list denominator",
+          "status": "Five behavioral counterexamples then24 SQLite checks pass; forecast UI and fresh dual-database acceptance remain open"
+        },
+        {
+          "id": "E13.review-migration",
+          "task": "Protected-copy upgrade and original-store preservation on late corruption/interruption",
+          "status": "Four behavioral counterexamples then10 SQLite migration/authentication checks pass; protected-copy interruption/publication remains open"
+        },
+        {
+          "id": "E13.review-combined",
+          "task": "Combined restore/source correction, restored screening, UI conflict/retry/focus and native cleanup assertions",
+          "status": "open"
         }
-      ]
+      ],
+      "checkpoint": "E13 review repairs and acceptance tooling; exact-source full suites, load/resources and native updates are not accepted."
     },
     {
       "id": "E14",

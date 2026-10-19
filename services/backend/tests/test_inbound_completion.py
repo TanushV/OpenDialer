@@ -12,6 +12,55 @@ from conftest import ready, reserve, start
 from sqlalchemy import select
 
 
+@pytest.mark.parametrize("matched", [False, True])
+def test_signed_events_do_not_decrypt_unrelated_task_history(workspace, app, monkeypatch, matched):
+    from test_context_reads import count_decrypted
+
+    call = start(workspace)
+    task = incoming(workspace, provider_id="indexed-inbound", event_id="indexed-create") if matched else None
+    service = app.state.service
+    with service.db.transaction() as s:
+        for i in range(300):
+            put(
+                s,
+                "followup_tasks",
+                workspace["tenant_id"],
+                workspace["seller_id"] if i % 2 else "another-seller",
+                {"status": "completed", "inbound": True, "inbound_state": "ended", "provider_id": f"old-{i}"},
+                key=f"old-callback-{i}",
+            )
+    decoded = count_decrypted(app, monkeypatch)
+    webhook(
+        workspace,
+        "call.hangup" if matched else "call.answered",
+        {
+            "call_control_id": "indexed-inbound" if matched else call["provider_id"],
+            **(
+                {}
+                if matched
+                else {
+                    "client_state": base64.b64encode(
+                        json.dumps({"call_id": call["id"], "kind": "prospect"}).encode()
+                    ).decode()
+                }
+            ),
+        },
+        event_id="indexed-delivery",
+    )
+    assert len(decoded) < 100, "A signed event must not decrypt task history"
+    if matched:
+        assert saved(workspace, "followup_tasks", task["id"])["caller_ended"] is True
+    else:
+        assert saved(workspace, "call_attempts", call["id"])["state"] == "ANSWERED_UNCLASSIFIED"
+
+
+def test_inbound_provider_lookup_has_a_tenant_scoped_index(app):
+    from sqlalchemy import inspect
+
+    indexes = inspect(app.state.db.engine).get_indexes("followup_tasks")
+    assert any(i["column_names"] == ["tenant_id", "op_provider_id"] for i in indexes)
+
+
 def principal(w):
     return {k: w[k] for k in ("tenant_id", "seller_id", "user_id")} | {"role": "owner"}
 

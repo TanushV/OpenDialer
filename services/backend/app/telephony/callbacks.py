@@ -312,28 +312,39 @@ class InboundCallbacks:
         self.journal_effect_in(s, p, "inbound", task.id, "receipt", (task,), emergency=True)
 
     def inbound_event(self, tenant_id, payload, event_type, *, session=None, receipt=None):
+        provider_id = payload.get("call_control_id")
+        if not isinstance(provider_id, str) or not provider_id:
+            return False
         with self.db.transaction(session=session) as s:
-            tasks = [t for t in rows(s, "followup_tasks", tenant_id) if t.data.get("inbound")]
-            task = next(
-                (t for t in tasks if t.data.get("provider_id") == payload.get("call_control_id")), None
+            model = MODELS["followup_tasks"]
+            matches = list(
+                s.scalars(
+                    select(model)
+                    .where(
+                        model.tenant_id == tenant_id,
+                        model.op_provider_id == provider_id,
+                    )
+                    .limit(2)
+                )
             )
+            if len(matches) > 1:
+                fail(409, "Inbound provider identity is ambiguous; review original callback records")
+            task = matches[0] if matches and matches[0].data.get("inbound") else None
             attempt_id = None
             if not task:
                 try:
                     context = json.loads(base64.b64decode(payload.get("client_state", "")))
-                    if not isinstance(context, dict):
+                    if not isinstance(context, dict) or not isinstance(context.get("inbound_task"), str):
                         return False
-                    task = next(
-                        (
-                            t
-                            for t in tasks
-                            if t.id == context.get("inbound_task")
-                            and any(
-                                a["id"] == context.get("attempt") for a in t.data.get("routing_attempts", [])
-                            )
-                        ),
-                        None,
-                    )
+                    task = get(s, "followup_tasks", context["inbound_task"], tenant_id)
+                    if (
+                        not task
+                        or not task.data.get("inbound")
+                        or not any(
+                            a["id"] == context.get("attempt") for a in task.data.get("routing_attempts", [])
+                        )
+                    ):
+                        return False
                     attempt_id = context.get("attempt")
                 except (ValueError, TypeError):
                     return False

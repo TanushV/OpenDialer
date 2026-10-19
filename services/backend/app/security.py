@@ -431,7 +431,7 @@ def issue_session(s, settings, user, now):
     }
 
 
-def decode_session(db, settings, token, now):
+def decode_session(db, settings, token, now, *, logout_receipt_only=False):
     try:
         claims = jwt.decode(token, settings.secret_key, algorithms=["HS256"], options={"verify_exp": False})
         from datetime import datetime
@@ -439,12 +439,22 @@ def decode_session(db, settings, token, now):
         with db.transaction(False) as s:
             session = get(s, "sessions", claims["jti"], claims["tenant_id"])
             user = get(s, "users", claims["sub"], claims["tenant_id"])
+            completed_logout = bool(
+                logout_receipt_only and session and session.data.get("logout_completed_at")
+            )
             if (
                 not session
-                or session.data["revoked"]
-                or datetime.fromisoformat(session.data["expires_at"]) <= now
                 or not user
-                or user.data.get("disabled")
+                or session.data.get("user_id") != user.id
+                or session.seller_id != user.seller_id
+                or (
+                    not completed_logout
+                    and (
+                        session.data["revoked"]
+                        or datetime.fromisoformat(session.data["expires_at"]) <= now
+                        or user.data.get("disabled")
+                    )
+                )
             ):
                 raise ValueError("Revoked or expired session")
             return {

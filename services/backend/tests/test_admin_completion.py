@@ -2,6 +2,45 @@ import pytest
 from conftest import reserve, start
 
 
+def test_logout_receipt_replays_after_lost_response_and_restart(workspace, app, clock):
+    from app.main import create_app
+    from fastapi.testclient import TestClient
+
+    c, h = workspace["client"], workspace["headers"]
+    assert c.post("/v1/auth/logout", headers=h).status_code == 200
+    assert c.get("/v1/workspace", headers=h).status_code == 401
+    assert c.post("/v1/auth/logout", headers=h).status_code == 200
+    restarted = create_app(app.state.service.settings, clock=clock)
+    with TestClient(restarted) as fresh:
+        assert fresh.post("/v1/auth/logout", headers=h).json() == {"logged_out": True}
+        assert fresh.get("/v1/workspace", headers=h).status_code == 401
+    restarted.state.db.engine.dispose()
+
+
+def test_logout_replay_is_not_generic_revocation_proof_and_rechecks_current_obligations(workspace, app):
+    from app.db import put, update
+    from test_remediation_privacy import principal
+
+    c, h, p = workspace["client"], workspace["headers"], principal(workspace)
+    with app.state.db.transaction() as s:
+        session = app.state.service.scoped(s, "sessions", p)[0]
+        update(session, revoked=True)
+    assert c.post("/v1/auth/logout", headers=h).status_code == 401
+    with app.state.db.transaction() as s:
+        session = app.state.service.scoped(s, "sessions", p)[0]
+        update(session, revoked=False)
+    assert c.post("/v1/auth/logout", headers=h).status_code == 200
+    with app.state.db.transaction() as s:
+        put(
+            s,
+            "call_legs",
+            p["tenant_id"],
+            p["seller_id"],
+            {"kind": "agent", "state": "answered", "rep_id": p["user_id"]},
+        )
+    assert c.post("/v1/auth/logout", headers=h).status_code == 409
+
+
 @pytest.mark.parametrize("obligation", ["call", "inbound", "submitted_operation", "agent"])
 def test_authority_change_refuses_unresolved_obligations(workspace, app, obligation):
     from app.db import get, put, update

@@ -151,3 +151,38 @@ def test_source_receipt_identifies_uncommitted_product_and_harness_bytes():
     assert len(result["harness_sha256"]) == 64
     assert len(result["test_tree_digest"]) == 64
     assert result["logical_cpus"] > 0
+
+
+def test_shared_admission_stalls_and_reference_limits_are_required_gates():
+    m = measurement()
+    candidate = {
+        "rebuild": {"status": "passed"},
+        "training_imported": False,
+        "authority_startup_ms": 10,
+        "integrity": True,
+        "selection": {"cold": {"status": "passed"}, "warm": {"status": "passed"}},
+        "cached_workspace": {"summary": {"status": "passed"}},
+        "six_coach": {"summary": {"status": "passed"}},
+        "writer_transactions": {"status": "passed"},
+        "control_paths": {"status": "passed"},
+    }
+    result = m.profile_gates(candidate, {"reps": 8})
+    assert result["status"] == "incomplete"
+    assert {"live_admission", "stalled_selection", "2vcpu_4gib_reference"} <= set(result["missing"])
+    candidate.update(
+        live_admission={"status": "failed"},
+        stalled_selection={"warm": {"status": "failed"}},
+        shared_reference={"status": "passed"},
+    )
+    result = m.profile_gates(candidate, {"reps": 8})
+    assert {"live_admission", "stalled_selection"} <= set(result["failures"])
+
+
+def test_shift_duration_without_maintenance_and_queue_recovery_is_not_acceptance():
+    m = measurement()
+    result = m.profile_gates(
+        {"shift": {"status": "passed", "elapsed_seconds": 28800}},
+        {"simulated_hours": 8},
+    )
+    assert "shift_maintenance" in result["missing"]
+    assert "shift_queue_recovery" in result["missing"]

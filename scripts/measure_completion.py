@@ -116,7 +116,14 @@ def profile_gates(result, spec):
         "writer": result.get("writer_transactions", {}).get("status"),
         "rebuild": result.get("rebuild", {}).get("status"),
         "control_paths": result.get("control_paths", {}).get("status"),
+        "live_admission": result.get("live_admission", {}).get("status"),
     }
+    if spec.get("reps", 1) > 1:
+        checks["stalled_selection"] = result.get("stalled_selection", {}).get("warm", {}).get("status")
+        checks["2vcpu_4gib_reference"] = result.get("shared_reference", {}).get("status")
+    if "simulated_hours" in spec:
+        checks["shift_maintenance"] = result.get("shift", {}).get("maintenance", {}).get("status")
+        checks["shift_queue_recovery"] = result.get("shift", {}).get("queue_recovery", {}).get("status")
     for key, status in checks.items():
         if status is None or status == "incomplete":
             missing.append(key)
@@ -816,7 +823,10 @@ def run_load(client, headers, campaign, measured, seconds, checkpoint, *, p, rep
         with ThreadPoolExecutor(max_workers=reps + 1) as pool:
             background = pool.submit(
                 client.portal.call,
-                partial(service.run_jobs, queues=["webhook", "live_coach", "postcall", "scripts", "ml"]),
+                partial(
+                    service.run_jobs,
+                    queues=["webhook", "live_coach", "postcall", "research", "scripts", "ml"],
+                ),
             )
             calls = [
                 pool.submit(call_cycle, client, h, campaign, measured, f"load-{index}-{rep}")
@@ -836,13 +846,16 @@ def run_load(client, headers, campaign, measured, seconds, checkpoint, *, p, rep
 
 def run_shift(settings, clock, headers, campaign, hours, checkpoint):
     """Eight virtual hours; real persisted HTTP journeys and four authority lifetimes."""
-    from app.db import MODELS, ActiveClaim
+    from functools import partial
+
+    from app.db import MODELS, ActiveClaim, Job
     from app.main import create_app
     from app.providers.simulated import SimulatedCarrier
     from fastapi.testclient import TestClient
     from sqlalchemy import func, select
 
     began, wall, rows, restarts = clock.now, time.perf_counter(), [], []
+    maintenance, queue_samples = [], []
     carrier, task_ids = SimulatedCarrier(), set()
     count = int(hours * 3600 / 720)
     for page in range(0, count, 10):
@@ -850,7 +863,40 @@ def run_shift(settings, clock, headers, campaign, hours, checkpoint):
         with TestClient(app) as client:
             service = app.state.service
             measured = Measurements(service)
+
+            def queue_state(service=service):
+                with service.db.transaction(False) as s:
+                    states = dict(s.execute(select(Job.status, func.count()).group_by(Job.status)).all())
+                    due = s.scalar(
+                        select(func.count())
+                        .select_from(Job)
+                        .where(Job.status.in_(["queued", "retry"]), Job.available_at <= clock())
+                    )
+                result = {
+                    "due": due,
+                    "running": states.get("running", 0),
+                    "dead": states.get("dead", 0),
+                    "total": sum(states.values()),
+                }
+                queue_samples.append(result)
+                return result
+
+            def maintain(service=service, measured=measured):
+                row, _ = measured.sample(lambda: client.portal.call(service.maintenance_tick))
+                maintenance.append(row)
+                for _ in range(200):
+                    state = queue_state()
+                    if not (state["due"] or state["running"]):
+                        break
+                    client.portal.call(
+                        partial(
+                            service.run_jobs,
+                            queues=["webhook", "live_coach", "postcall", "research", "scripts", "ml"],
+                        )
+                    )
+
             with measured.instrument():
+                maintain()
                 for index in range(page, min(page + 10, count)):
                     carrier.timeout_after_accept = index % 7 == 0
                     before = len(carrier.dials)
@@ -868,6 +914,7 @@ def run_shift(settings, clock, headers, campaign, hours, checkpoint):
                         task_ids.add(row["task_id"])
                     row["raw_bytes"] = service.raw.bytes_used
                     rows.append(row)
+                    maintain()
                     checkpoint(
                         {"shift_calls": len(rows), "simulated_seconds": (clock.now - began).total_seconds()}
                     )
@@ -901,6 +948,9 @@ def run_shift(settings, clock, headers, campaign, hours, checkpoint):
             r["tasks_preserved"] and not r["claims"] and r["integrity"] and not r["active_helper"]
             for r in restarts
         )
+        and all(row["ok"] for row in maintenance)
+        and bool(queue_samples)
+        and not any(queue_samples[-1][key] for key in ("due", "running", "dead"))
     )
     return {
         "status": "passed" if passed else "failed",
@@ -908,6 +958,20 @@ def run_shift(settings, clock, headers, campaign, hours, checkpoint):
         "wall_seconds": time.perf_counter() - wall,
         "samples": rows,
         "restarts": restarts,
+        "maintenance": {
+            "ticks": len(maintenance),
+            "status": "passed" if maintenance and all(row["ok"] for row in maintenance) else "failed",
+            "samples": maintenance,
+        },
+        "queue_recovery": {
+            "status": "passed"
+            if queue_samples and not any(queue_samples[-1][k] for k in ("due", "running", "dead"))
+            else "failed",
+            "due_remaining": queue_samples[-1]["due"] if queue_samples else None,
+            "running_remaining": queue_samples[-1]["running"] if queue_samples else None,
+            "dead_remaining": queue_samples[-1]["dead"] if queue_samples else None,
+            "samples": queue_samples,
+        },
         "boundary": "simulated clock, carrier and provider failures; real authority restarts/persistence; native process proof separate",
     }
 
@@ -1006,10 +1070,6 @@ def run_profile(name, directory, seed, checkpoint):
     finally:
         app.state.db.engine.dispose()
     result.update(profile_gates(result, spec))
-    if name in {"shared", "saturation"}:
-        result["missing"].append("2vcpu_4gib_reference")
-        if result["status"] == "passed":
-            result["status"] = "incomplete"
     return result
 
 

@@ -508,6 +508,10 @@ class OptimizationWorkflows(ComparisonWorkflows):
         )
 
     def forecast_input(self, s, p, *, campaign_id=None, capacity=None, lead_ids=None):
+        from collections import Counter
+
+        from app.compliance.operating import screening_page
+
         if lead_ids is not None and len(lead_ids) > 100:
             raise ValueError("At most100 changed leads per planning page")
         config = self.optimization_config(s, p, campaign_id)
@@ -564,6 +568,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
             for w in windows
         ]
         leads, cursor = [], None
+        screening_counts, screening_reasons = Counter(), Counter()
         model = MODELS["leads"]
         while True:
             page = list(
@@ -601,12 +606,19 @@ class OptimizationWorkflows(ComparisonWorkflows):
                         bindings[row.data["lead_id"]] = row.data["number_id"]
                     elif row.data.get("active", True):
                         denied.add(row.data["phone"])
+            screening = screening_page(self, s, p, [row.data["phone"] for row in page], denied)
+            for row in page:
+                decision = screening[row.data["phone"]]
+                screening_counts["cleared_count" if decision["decision"] == "clear" else "blocked_count"] += 1
+                if decision["decision"] != "clear":
+                    screening_reasons.update(decision["reason_codes"])
             leads.extend(
                 {
                     **doc(row),
                     "suppressed": row.data["phone"] in denied,
                     "bound_number_id": bindings.get(row.id),
                     "active_obligation": row.id in claimed_leads,
+                    "screening": screening[row.data["phone"]],
                 }
                 for row in page
             )
@@ -704,6 +716,12 @@ class OptimizationWorkflows(ComparisonWorkflows):
             "occupied_rep_count": len(busy),
             "list_staffing_fingerprint": list_staffing_fingerprint,
             "minimum_expansion_age_hours": config["minimum_expansion_age_hours"],
+            "screening": {
+                "cleared_count": screening_counts["cleared_count"],
+                "blocked_count": screening_counts["blocked_count"],
+                "blocked_reasons": dict(screening_reasons),
+                "as_of": self.clock().isoformat(),
+            },
         }
 
     def forecast(self, s, p, *, campaign_id=None, capacity=None):

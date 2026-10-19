@@ -439,6 +439,54 @@ def screening_key(service, phone):
     return "prepaid:" + hmac.new(service.db.identity_key, phone.encode(), hashlib.sha256).hexdigest()
 
 
+def screening_page(service, s, p, phones, denied):
+    """Charge-free, bounded planning snapshot using the same per-endpoint decision."""
+    from app.compliance.registry import published_snapshots, registry_contains
+
+    if len(phones) > 500:
+        raise ValueError("At most500 endpoints per screening snapshot")
+    base = screening_snapshot(service, s, p)
+    publications = {r.id: r for r in published_snapshots(s, p)}
+    keys = [screening_key(service, phone) for phone in phones if phone not in denied]
+    model = MODELS["registry_snapshots"]
+    prepaid = (
+        {
+            row.data.get("phone"): {**row.data, "id": row.id, "version": row.version}
+            for row in s.scalars(
+                select(model).where(
+                    model.tenant_id == p["tenant_id"],
+                    model.seller_id == p["seller_id"],
+                    model.external_key.in_(keys),
+                )
+            )
+        }
+        if keys
+        else {}
+    )
+    result = {}
+    for phone in phones:
+        national = []
+        if phone not in denied:
+            for source in base["national"]:
+                item = dict(source)
+                if phone[2:5] in item.get("npas", []):
+                    try:
+                        item["listed"] = registry_contains(s, publications[item["id"]], phone)
+                    except ValueError:
+                        item["source_invalid"] = True
+                national.append(item)
+        result[phone] = screening_capability(
+            {
+                **base,
+                "internal_suppressed": phone in denied,
+                "national": national,
+                "prepaid": prepaid.get(phone),
+            },
+            phone,
+        )
+    return result
+
+
 def prepaid_snapshot(service, config, max_age, data=None):
     auth = config.get("dnc_seller_authorization") or {}
     return {

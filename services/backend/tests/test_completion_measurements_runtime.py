@@ -174,3 +174,16 @@ def test_cleanup_failure_is_retained_instead_of_losing_measured_call_receipt(wor
     assert result["paths"]["wrapup"]["ok"]
     assert result["paths"]["cleanup_hangup"]["error"] == "TimeoutError"
     assert result["paths"]["pause"]["ok"]
+
+
+def test_shift_runs_maintenance_and_drains_due_work_before_certifying_restart(workspace, app, clock):
+    result = measure.run_shift(
+        app.state.service.settings, clock, workspace["headers"], workspace["campaign_id"], 0.2, lambda _: None
+    )
+    assert result["maintenance"]["ticks"] >= 1
+    assert result["maintenance"]["status"] == "passed"
+    assert result["queue_recovery"]["status"] == "passed"
+    assert result["queue_recovery"]["due_remaining"] == 0
+    assert result["queue_recovery"]["running_remaining"] == 0
+    assert result["queue_recovery"]["dead_remaining"] == 0
+    assert len(result["queue_recovery"]["samples"]) >= 2

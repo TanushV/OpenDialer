@@ -400,8 +400,15 @@ def create_app(settings=None, *, clock=None, carrier=None):
             login_failures.pop(key, None)
             return issue_session(s, settings, user, clock())
 
+    def logout_principal(credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)]):
+        if not credentials:
+            fail(401, "Authentication required")
+        # This dependency is exclusive to logout, never a general authentication
+        # bypass. The signed original session must own a committed logout receipt.
+        return decode_session(db, settings, credentials.credentials, clock(), logout_receipt_only=True)
+
     @app.post("/v1/auth/logout")
-    def logout(p=Depends(principal)):
+    def logout(p=Depends(logout_principal)):
         with db.transaction() as s:
             db.authorize_stream(s, p)
             status = service.quiescence_in(s, p)
@@ -409,7 +416,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 fail(409, {"code": "AUTHORITY_HAS_OBLIGATIONS", "reasons": status["reasons"]})
             service.release_unused_reservation_in(s, p)
             service.record_work_in(s, p, False)
-            update(service.required(s, "sessions", p["session_id"], p), revoked=True)
+            session = service.required(s, "sessions", p["session_id"], p)
+            if not session.data.get("logout_completed_at"):
+                update(session, revoked=True, logout_completed_at=clock().isoformat())
         return {"logged_out": True}
 
     @app.get("/v1/auth/quiescence")

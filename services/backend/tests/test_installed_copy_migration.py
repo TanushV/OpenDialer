@@ -13,6 +13,68 @@ from sqlalchemy import inspect, text
 from test_remediation_privacy import RAW, persisted_content, principal
 
 
+@pytest.mark.parametrize("entry", ["application", "cli_migrate"])
+@pytest.mark.parametrize("damage", ["wrong_key", "late_corrupt_row"])
+def test_failed_upgrade_authentication_preserves_original_store(tmp_path, monkeypatch, entry, damage):
+    import sqlite3
+    import sys
+
+    from app.config import Settings
+    from app.db import Database
+    from app.main import create_app
+
+    path = tmp_path / "original.db"
+    url = "sqlite:///" + str(path)
+    secret = "synthetic-migration-authority"
+    db = Database(url, encryption_key=secret)
+    with db.transaction() as s:
+        for i in range(603):
+            put(
+                s,
+                "transcript_segments",
+                "t",
+                "s",
+                {"segment_id": str(i), "text": RAW},
+                object_id=f"legacy-{i:04}",
+            )
+        put(s, "notes", "t", "s", {"human_text": "Keep the original relationship note"}, object_id="note")
+    db.engine.dispose()
+    with sqlite3.connect(path) as connection:
+        connection.execute("DROP TABLE metric_buckets")
+        if damage == "late_corrupt_row":
+            connection.execute(
+                "UPDATE transcript_segments SET data=? WHERE id='legacy-0602'",
+                (json.dumps({"od_encrypted": 1, "token": "damaged-synthetic-ciphertext"}),),
+            )
+        connection.commit()
+        before = list(connection.iterdump())
+    candidate_key = "wrong-key" if damage == "wrong_key" else secret
+    with pytest.raises(ValueError, match="authenticated"):
+        if entry == "application":
+            create_app(
+                Settings(
+                    data_dir=tmp_path,
+                    database_url=url,
+                    secret_key=candidate_key,
+                    local_token="synthetic-local",
+                    worker_enabled=False,
+                    simulation=True,
+                )
+            )
+        else:
+            from app.cli import main
+
+            monkeypatch.setenv("OPENDIALER_DATABASE_URL", url)
+            monkeypatch.setenv("OPENDIALER_SECRET_KEY", candidate_key)
+            monkeypatch.setenv("OPENDIALER_LOCAL_TOKEN", "synthetic-local")
+            monkeypatch.setattr(sys, "argv", ["opendialer", "migrate", "--data-dir", str(tmp_path)])
+            main()
+    with sqlite3.connect(path) as connection:
+        assert list(connection.iterdump()) == before, (
+            "No DDL, backfill or partial sanitation may precede authentication"
+        )
+
+
 def test_empty_business_authority_restores_without_resurrecting_auth(workspace, app, tmp_path):
     import shutil
 

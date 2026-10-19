@@ -154,6 +154,7 @@ def work_items(leads, now, end, policy, handling_seconds=120):
             or lead.get("outreach_hold")
             or lead.get("goal_completed")
             or lead.get("active_obligation")
+            or ("screening" in lead and lead["screening"].get("decision") != "clear")
             or lead.get("attempt_count", 0) >= policy.get("max_attempts", 4)
         ):
             continue
@@ -190,7 +191,11 @@ def work_items(leads, now, end, policy, handling_seconds=120):
                 lead.get("attempt_count", 0) + 1,
                 priority_class(lead, now),
                 due,
-                min(end, timestamp(lead.get("callback_window_end")) or end),
+                min(
+                    end,
+                    timestamp(lead.get("callback_window_end")) or end,
+                    timestamp(lead.get("screening", {}).get("expires_at")) or end,
+                ),
                 (
                     policy.get("local_start_hour", 9),
                     policy.get("local_end_hour", 20),
@@ -473,7 +478,8 @@ class Assignment:
         account_limit = self.policy.get(
             "account_channel_limit", max(1, sum(n.concurrent_limit for n in numbers.values()))
         )
-        for n in numbers.values():
+        # Pausing origination does not release a live/detached account channel.
+        for n in all_numbers:
             counts = Counter()
             for start, finish, count in n.active_leg_intervals:
                 for i in range(

@@ -134,6 +134,12 @@ export interface Coach {
   evidence_segment_ids: string[];
 }
 export interface Call {
+  disposition_input?: {
+    outcome: string;
+    contact_role: string;
+    callback_at: string | null;
+    callback_note: string;
+  };
   rundown_status?: "pending" | "partial" | "ready" | "unavailable";
   suggested_outcome?: {
     code: string;
@@ -232,6 +238,7 @@ export interface Packet {
     next_question: string;
     last_outcome: string | null;
     meeting: {
+      correction_reason?: string;
       status: string;
       due_at: string | null;
       timezone: string | null;
