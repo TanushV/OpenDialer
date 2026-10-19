@@ -594,7 +594,8 @@
       "receipts": [
         "docs/evidence/completion/E09-contracts-red.json",
         "docs/evidence/completion/E09-admission.json",
-        "docs/evidence/completion/E09-vectors-red.json"
+        "docs/evidence/completion/E09-vectors-red.json",
+        "docs/evidence/completion/E09-contributions.json"
       ],
       "planned_case_ids": [
         "C035",
@@ -610,7 +611,7 @@
         "A50",
         "A51"
       ],
-      "checkpoint": "Shared admission accepted64 checks per database on21effd0. Continue contributions/schema, field-specific dirty sources, resumable replay and report-reader consolidation; E09 parent remains open.",
+      "checkpoint": "3687aac: pure vectors/additive schema/work overlap/backup contracts84 passes SQLite,53+31 PostgreSQL. Continue field-specific dirty publication, replay and reader retirement; parentE09 open.",
       "implementation_todos": [
         {
           "id": "E09.admission",
@@ -624,7 +625,7 @@
         },
         {
           "id": "E09.dirty",
-          "status": "open",
+          "status": "in-progress",
           "work": "Field-specific content-free source jobs, version fencing and future maturity"
         },
         {

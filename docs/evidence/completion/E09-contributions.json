@@ -1,0 +1,73 @@
+{
+  "step_id": "E09",
+  "stage": "storage-and-pure-contributions-only",
+  "source_commit": "3687aacaec0272920c72db77493c9b5de05cb6b0",
+  "production_tree_digest": "724071db6f935e75032c52e177c323263616c746c4166df83c0884bbdfe87bb8",
+  "test_tree_digest": "bcf9fff71d692cee9f0b66e7d51f9c3367e99bd5ea4364cea6e0ea214f5c2a6a",
+  "digest_method": "SHA256 git ls-tree -r for listed source roots",
+  "case_ids": [
+    "C035",
+    "C036",
+    "C038"
+  ],
+  "mode": [
+    "sqlite",
+    "postgresql"
+  ],
+  "fixture_seed": 20261018,
+  "commands": [
+    ".venv/bin/python -m pytest services/backend/tests/test_incremental_metrics.py services/backend/tests/test_migrations.py services/backend/tests/test_work_measurement.py services/backend/tests/test_billing_resolution.py -k \"not contribution_replay_oracle and not normal_correction\" -q --tb=short (SQLite)",
+    "Same guarded disposable PostgreSQL: first three files (53); billing file separately (31)."
+  ],
+  "environment": {
+    "python": "3.12.13",
+    "postgresql": "17",
+    "installed_app_changed": false
+  },
+  "started_at": null,
+  "finished_at": "2026-10-19T15:48:48.959630+00:00",
+  "timestamp_note": "Start timestamps were not captured. Exact elapsed durations and log hashes retained.",
+  "result_counts": {
+    "sqlite": {
+      "passed": 84,
+      "deselected": 2,
+      "seconds": 28.68
+    },
+    "postgresql_vectors_work_migration": {
+      "passed": 53,
+      "deselected": 2,
+      "seconds": 74.54
+    },
+    "postgresql_billing": {
+      "passed": 31,
+      "seconds": 77.31
+    }
+  },
+  "failed_cases": [],
+  "excluded_unfinished_contracts": [
+    "test_contribution_replay_oracle",
+    "test_normal_correction_does_not_rebuild_entire_operational_dataset"
+  ],
+  "red_followups": {
+    "work_date_index": 1,
+    "work_backfill": 1,
+    "publication_contract_absence": 3
+  },
+  "raw_log_sha256": {
+    "E09-vectors-dates-sqlite.txt": "9a983e24ac84d4ed838b4a9599dc0e3a76381c6ee2c93f835ab2328d3882018d",
+    "E09-vectors-dates-postgres.txt": "274e3dee05118399b017d7829c8079be7d5e704d2d2f1a428b10c6198d276713",
+    "E09-billing-postgres.txt": "c921cce7836c923142174fe3ed3f0047a1c950635501a8c3bdb41208dcee647d",
+    "E09-work-index-red.txt": "f548fc1da81a0c45f6bc0a23504bfb830098af4e429d009f919b089c2a6923e5",
+    "E09-work-backfill-red.txt": "84688c39ea642b24c988e475c714be8c581eafe6136c76609368ed492236dce3",
+    "E09-unit-publication-red.txt": "dbd7f36b69cf54d4de7a24edbc1b9e4582f5d0202bca48313925875903863d56"
+  },
+  "retired_paths": [
+    "Duplicated verified call occupancy bound calculation now uses call_work_bounds."
+  ],
+  "known_limitations": [
+    "Pure functions and additive schema only; dirty coordinator, rebuild and readers remain open.",
+    "Three publication import failures document absent contracts, not behavioral proof.",
+    "An older billing fixture now verifies unknown cost before complete statement and exact net cost afterward."
+  ],
+  "external_calls": false
+}

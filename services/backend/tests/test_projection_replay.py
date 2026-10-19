@@ -308,6 +308,7 @@ def test_dirty_generation_fences_change_during_calculation(workspace, app, monke
 
 def test_due_maturity_and_cross_midnight_work_are_replaceable(workspace, app, clock):
     from datetime import timedelta
+
     from app.db import put
     from app.optimization.projections import refresh_due
 
