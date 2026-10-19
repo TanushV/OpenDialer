@@ -1,5 +1,7 @@
 import hashlib
+import hmac
 import json
+import math
 from datetime import timedelta
 
 from sqlalchemy import func, or_, select
@@ -29,6 +31,13 @@ DEFAULTS = {
     "training_min_rows": 100,
     "staffed_windows": [],
     "additional_ready_after_hours": 0,
+    "staffing_timezone": "UTC",
+    "staffing_start_hour": 9,
+    "staffing_end_hour": 20,
+    "staffing_reps": 1,
+    "staffing_weekdays": list(range(7)),
+    "account_channel_limit": None,
+    "minimum_expansion_age_hours": 24,
 }
 
 
@@ -424,14 +433,26 @@ class OptimizationWorkflows(ComparisonWorkflows):
             calls=calls if calls is not None else [doc(c) for c in self.scoped(s, "call_attempts", p)],
         )
 
-    def forecast(self, s, p, *, campaign_id=None, capacity=None):
+    def forecast_input(self, s, p, *, campaign_id=None, capacity=None):
         config = self.optimization_config(s, p, campaign_id)
         campaign = (
             self.required(s, "campaigns", campaign_id, p)
             if campaign_id
             else self.scoped(s, "campaigns", p)[0]
         )
-        policy = self.required(s, "policy_versions", campaign.data["policy_id"], p).data
+        policy_row = self.required(s, "policy_versions", campaign.data["policy_id"], p)
+        profile = campaign.data.get("selection_profile", {})
+        if profile.get("goal") != config["conversion_goal"]:
+            profile = {}
+        policy = {
+            **policy_row.data,
+            **{k: v for k, v in config.items() if k.startswith("staffing_")},
+            "version": f"{policy_row.id}:{policy_row.version}",
+            "goal_version": campaign.data.get("optimization_epoch", config["conversion_goal"]),
+            "estimate_version": profile.get("version") or profile.get("as_of") or "pooled-v1",
+        }
+        if config.get("account_channel_limit") is not None:
+            policy["account_channel_limit"] = config["account_channel_limit"]
         claims = list(
             s.scalars(
                 select(ActiveClaim).where(
@@ -466,17 +487,89 @@ class OptimizationWorkflows(ComparisonWorkflows):
             {**w, "rep_ids": [rep for rep in w["rep_ids"] if rep in available]} if "rep_ids" in w else w
             for w in windows
         ]
-        bindings = {r.data["lead_id"]: r.data["number_id"] for r in self.scoped(s, "lead_number_bindings", p)}
-        leads = [
-            {
-                **doc(lead),
-                "suppressed": self.suppressed(s, p, lead.data["phone"]),
-                "bound_number_id": bindings.get(lead.id),
-            }
-            for lead in self.scoped(s, "leads", p)
-            if lead.data["campaign_id"] == campaign.id and lead.id not in claimed_leads
-        ]
-        inventory = self.inventory_evidence(s, p)
+        leads, cursor = [], None
+        model = MODELS["leads"]
+        while True:
+            page = list(
+                s.scalars(
+                    select(model)
+                    .where(
+                        model.tenant_id == p["tenant_id"],
+                        model.seller_id == p["seller_id"],
+                        model.op_campaign_id == campaign.id,
+                        *([model.id > cursor] if cursor else []),
+                    )
+                    .order_by(model.id)
+                    .limit(500)
+                )
+            )
+            if not page:
+                break
+            ids = [row.id for row in page]
+            keys = [
+                hmac.new(self.db.identity_key, row.data["phone"].encode(), hashlib.sha256).hexdigest()
+                for row in page
+            ]
+            bindings, denied = {}, set()
+            for kind, identities in (("lead_number_bindings", ids), ("suppressions", keys)):
+                related = MODELS[kind]
+                for row in s.scalars(
+                    select(related).where(
+                        related.tenant_id == p["tenant_id"],
+                        related.seller_id == p["seller_id"],
+                        related.external_key.in_(identities),
+                    )
+                ):
+                    if kind == "lead_number_bindings":
+                        bindings[row.data["lead_id"]] = row.data["number_id"]
+                    elif row.data.get("active", True):
+                        denied.add(row.data["phone"])
+            leads.extend(
+                {
+                    **doc(row),
+                    "suppressed": row.data["phone"] in denied,
+                    "bound_number_id": bindings.get(row.id),
+                    "active_obligation": row.id in claimed_leads,
+                }
+                for row in page
+            )
+            cursor = page[-1].id
+            if len(page) < 500:
+                break
+        list_staffing_fingerprint = hashlib.sha256(
+            json.dumps(
+                {
+                    "list": [(row["id"], row.get("endpoint_id"), row.get("region")) for row in leads],
+                    "staff": {
+                        k: v
+                        for k, v in config.items()
+                        if k.startswith("staff") or k in {"rep_minutes", "horizon_hours"}
+                    },
+                },
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()
+        pooled = profile.get("pooled") or {"expected_rep_seconds": config["handling_seconds"]}
+        estimate_cache = {}
+        regions = {"general", *(lead.get("region") or "general" for lead in leads)}
+        for lead in leads:
+            segment = str(lead.get("segment", "unknown"))
+            if segment not in estimate_cache:
+                estimate_cache[segment] = {
+                    f"*:{hour}:{region}": math.prod(
+                        prediction.get(k, 0)
+                        for k in ("p_human", "p_right_party_given_human", "p_conversion_given_right_party")
+                    )
+                    for hour in range(24)
+                    for region in regions
+                    if (prediction := profile.get("predictions", {}).get(segment + ":" + str(hour)))
+                }
+            lead.update(
+                predicted_work_seconds=pooled.get("expected_rep_seconds", config["handling_seconds"]),
+                outcome_estimates=pooled,
+                slot_estimates=estimate_cache[segment],
+            )
+        inventory = self.inventory_evidence(s, p, fast=True)
         present = {n["phone"] for n in inventory}
         order_model = MODELS["command_outbox"]
         orders = s.scalars(
@@ -504,20 +597,107 @@ class OptimizationWorkflows(ComparisonWorkflows):
                     }
                 )
                 present.add(phone)
-        result = capacity_forecast(
-            leads,
-            inventory,
-            now=self.clock(),
-            horizon_hours=config["horizon_hours"],
-            rep_minutes=config["rep_minutes"],
-            handling_seconds=config["handling_seconds"],
-            daily_capacity_per_number=capacity or config["daily_capacity_per_number"],
-            policy=policy,
-            staffed_windows=windows,
-            additional_ready_after_hours=config["additional_ready_after_hours"],
-            rep_busy_until=busy,
-        )
-        return {**result, "unavailable_staff_count": len(roster - available), "occupied_rep_count": len(busy)}
+        return {
+            "leads": leads,
+            "inventory": inventory,
+            "now": self.clock(),
+            "horizon_hours": config["horizon_hours"],
+            "rep_minutes": config["rep_minutes"],
+            "handling_seconds": config["handling_seconds"],
+            "daily_capacity_per_number": capacity or config["daily_capacity_per_number"],
+            "policy": policy,
+            "staffed_windows": windows,
+            "additional_ready_after_hours": config["additional_ready_after_hours"],
+            "rep_busy_until": busy,
+            "retry_observations": profile.get("retry_observations", []),
+        }, {
+            "unavailable_staff_count": len(roster - available),
+            "occupied_rep_count": len(busy),
+            "list_staffing_fingerprint": list_staffing_fingerprint,
+            "minimum_expansion_age_hours": config["minimum_expansion_age_hours"],
+        }
+
+    def forecast(self, s, p, *, campaign_id=None, capacity=None):
+        inputs, metadata = self.forecast_input(s, p, campaign_id=campaign_id, capacity=capacity)
+        return {**capacity_forecast(**inputs), **metadata}
+
+    def build_forecast(self, p, campaign_id, capacity=None):
+        """Snapshot/read, pure calculation, then a short source-checked publication."""
+        from app.service import fail
+
+        key = f"planning:{campaign_id}:{capacity or 'configured'}"
+        with self.db.transaction(False) as s:
+            current, _, _, _ = self.report_scope(s, p)
+            if current["role"] != "admin":
+                fail(403, "Administrator access is required to plan inventory")
+            inputs, metadata = self.forecast_input(s, current, campaign_id=campaign_id, capacity=capacity)
+            generation = self.report_revision(s, current)
+        result = {**capacity_forecast(**inputs), **metadata}
+        with self.db.transaction() as s:
+            user, _, _, _ = self.report_scope(s, p)
+            if user["role"] != "admin" or self.report_revision(s, user, lock=True) != generation:
+                return {"status": "superseded"}
+            prior = self._by_key(s, p, "report_projections", key)
+            previous = prior.data.get("report", {}) if prior else {}
+            old_review = previous.get("expansion_review", {})
+            shortfall = result.get("number_shortfall")
+            first = (
+                timestamp(old_review.get("first_shortfall_at"))
+                if old_review.get("status") in {"observing", "eligible"}
+                else None
+            ) or inputs["now"]
+            changed = bool(
+                previous and previous.get("list_staffing_fingerprint") != result["list_staffing_fingerprint"]
+            )
+            matured = (inputs["now"] - first).total_seconds() >= 3600 * metadata[
+                "minimum_expansion_age_hours"
+            ]
+            result["expansion_review"] = {
+                "status": "unknown"
+                if shortfall is None
+                else "sufficient"
+                if shortfall == 0
+                else "eligible"
+                if changed or matured
+                else "observing",
+                "reason": "incomplete_plan"
+                if shortfall is None
+                else "existing_capacity_sufficient"
+                if shortfall == 0
+                else "list_or_staffing_changed"
+                if changed
+                else "persistent_shortfall"
+                if matured
+                else "awaiting_second_observation",
+                "first_shortfall_at": first.isoformat() if shortfall else None,
+                "observed_at": inputs["now"].isoformat(),
+                "next_review_at": (
+                    first + timedelta(hours=metadata["minimum_expansion_age_hours"])
+                ).isoformat()
+                if shortfall
+                else None,
+                "purchase_allowed": False,
+            }
+            value = {
+                "report": result,
+                "source_revision": generation,
+                "as_of": result["as_of"],
+                "expires_at": (inputs["now"] + timedelta(seconds=60)).isoformat(),
+                "campaign_id": campaign_id,
+            }
+            row = (
+                update(prior, **value)
+                if prior
+                else put(
+                    s, "report_projections", p["tenant_id"], p["seller_id"], value, key=key, now=self.clock()
+                )
+            )
+            emit(s, p["tenant_id"], "planning.changed", row, self.clock())
+        return {
+            "status": "ready",
+            "source_revision": generation,
+            "input_fingerprint": result["input_fingerprint"],
+        }
 
     def optimization_report(self, p, epoch=None):
         with self.db.transaction(False) as s:

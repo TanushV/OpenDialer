@@ -1284,7 +1284,17 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 elif lane == "live_coach":
                     await self.coach_turn(p, job["payload"]["call_id"])
                 elif lane == "ml":
-                    if job["payload"].get("kind") == "home_refresh":
+                    if job["payload"].get("kind") == "forecast_refresh":
+                        receipt = await asyncio.to_thread(
+                            self.build_forecast,
+                            p,
+                            job["payload"]["campaign_id"],
+                            job["payload"].get("capacity"),
+                        )
+                        if receipt["status"] == "superseded":
+                            await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
+                            return 0
+                    elif job["payload"].get("kind") == "home_refresh":
                         receipt = await asyncio.to_thread(
                             self.rebuild_home_metrics, {**p, "role": job["payload"].get("role", "rep")}
                         )

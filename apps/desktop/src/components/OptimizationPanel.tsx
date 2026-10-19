@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { date, label, useWorkspace } from "../context";
 import { TrialControls, type ControlledComparison } from "./TrialControls";
 import { ConversationLearning } from "./ConversationLearning";
-import { Staffing, type StaffedWindow } from "./Staffing";
+import { Staffing, type StaffedWindow, type SimpleStaffing } from "./Staffing";
 
-interface OptimizationSettings {
+interface OptimizationSettings extends SimpleStaffing {
   conversion_goal: string;
   window_days: number;
   exploration: number;
@@ -380,6 +380,11 @@ export function OptimizationPanel({
                 </label>
               </div>
               <Staffing
+                simple={settings}
+                onSimple={(value) => {
+                  dirty.current = true;
+                  setSettings({ ...settings, ...value });
+                }}
                 windows={settings.staffed_windows || []}
                 delay={settings.additional_ready_after_hours || 0}
                 onChange={(value) => change("staffed_windows", value)}

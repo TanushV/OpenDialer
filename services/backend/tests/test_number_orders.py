@@ -173,6 +173,12 @@ def test_pending_order_capacity_is_waiting_and_not_bought_again(workspace, app):
     )
     assert r.status_code == 200, r.text
     value = r.json()
+    assert value["projection"]["status"] == "pending"
+    import asyncio
+
+    asyncio.run(service.run_jobs(p["tenant_id"], ["ml"]))
+    value = service.proposal(p, workspace["campaign_id"])
+    assert value["projection"]["status"] == "ready"
     assert value["existing_only_capacity"] == 0
     assert sum(x["capacity_waiting_for_review"] for x in value["regions"]) > 0
     assert value["proposed_additional_numbers"] == 0

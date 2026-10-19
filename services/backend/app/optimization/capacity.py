@@ -53,7 +53,7 @@ class AttemptWork:
 
     @property
     def value(self):
-        return dict(self.outcome_estimates).get("conversion", 0.0)
+        return max((v for _, v in self.outcome_estimates), default=0.0)
 
 
 @dataclass(frozen=True)
@@ -94,6 +94,8 @@ class PlanningInput:
     estimate_version: str
     policy_json: str
     rep_seconds: float
+    proposal_policy: tuple
+    retry_evidence_digest: str
 
 
 @dataclass(frozen=True)
@@ -176,7 +178,8 @@ def work_items(leads, now, end, policy, handling_seconds=120):
         if value is None:
             estimates = lead.get("outcome_estimates") or {}
             value = math.prod(
-                estimates.get(k, 0) for k in ("p_human", "p_right_given_human", "p_conversion_given_right")
+                estimates.get(k, 0)
+                for k in ("p_human", "p_right_party_given_human", "p_conversion_given_right_party")
             )
         value = float(value) if isinstance(value, (float, int)) and math.isfinite(value) else 0.0
         work.append(
@@ -196,7 +199,14 @@ def work_items(leads, now, end, policy, handling_seconds=120):
                 lead.get("callback_owner_id") if lead.get("callback_due_at") else None,
                 lead.get("bound_number_id"),
                 float(duration),
-                (("conversion", max(0.0, min(1.0, value))),),
+                (("conversion", max(0.0, min(1.0, value))),)
+                + tuple(
+                    sorted(
+                        ("slot:" + key, float(v))
+                        for key, v in lead.get("slot_estimates", {}).items()
+                        if isinstance(v, (int, float)) and math.isfinite(v) and 0 <= v <= 1
+                    )
+                ),
                 zone.key,
                 lead.get("region") or "general",
                 str(lead.get("segment") or "unknown"),
@@ -353,6 +363,13 @@ class Assignment:
                 self.rep_masks[rep] |= 1 << i
             self.days[at.astimezone(UTC).date().isoformat()] |= 1 << i
         self.allowed, self.lengths, cache = [], [], {}
+        shared_estimates = {}
+        self.estimates = []
+        for item in work:
+            if item.outcome_estimates not in shared_estimates:
+                shared_estimates[item.outcome_estimates] = dict(item.outcome_estimates)
+            self.estimates.append(shared_estimates[item.outcome_estimates])
+        self.time_cells = {}
         for item in work:
             length = max(1, math.ceil(item.predicted_work_seconds / seconds))
             first = bisect_left(self.starts, item.earliest_at)
@@ -397,10 +414,48 @@ class Assignment:
     def objective(self, rows):
         counts = [0, 0, 0, 0]
         value = 0
-        for index, *_ in rows:
+        for index, *choice in rows:
             counts[self.work[index].priority_class] += 1
-            value += round(self.work[index].value * 1000000)
+            predicted = (
+                self.value_at(index, choice[0], self.number_regions[choice[1]])
+                if choice
+                else self.work[index].value
+            )
+            value += round(predicted * 1000000)
         return (*counts, value)
+
+    def value_at(self, index, start, region):
+        at = self.starts[start].astimezone(ZoneInfo(self.work[index].timezone))
+        values = self.estimates[index]
+        return values.get(
+            f"slot:{at.weekday()}:{at.hour}:{region}",
+            values.get(f"slot:*:{at.hour}:{region}", values.get("conversion", 0.0)),
+        )
+
+    def scored_starts(self, index, free, exact):
+        if exact or len(self.estimates[index]) == 1:
+            while free:
+                first = (free & -free).bit_length() - 1
+                yield first
+                free &= free - 1
+                if not exact:
+                    return
+            return
+        zone = self.work[index].timezone
+        if zone not in self.time_cells:
+            cells = defaultdict(int)
+            for i, at in enumerate(self.starts):
+                if not self.budget.spend():
+                    break
+                local = at.astimezone(ZoneInfo(zone))
+                cells[local.weekday(), local.hour] |= 1 << i
+            self.time_cells[zone] = tuple(cells.values())
+        for mask in self.time_cells[zone]:
+            if not self.budget.spend():
+                return
+            available = free & mask
+            if available:
+                yield (available & -available).bit_length() - 1
 
     def solve(self, inventory, *, ignore_bindings=False):
         end = self.starts[-1] + timedelta(seconds=self.seconds) if self.starts else self.now
@@ -408,8 +463,9 @@ class Assignment:
             n if isinstance(n, NumberCapacity) else number_input(n, self.now, end) for n in inventory
         ]
         numbers = {n.number_id: n for n in all_numbers if n.usable}
+        self.number_regions = {identity: n.region for identity, n in numbers.items()}
         rep_used, number_used, day_used, endpoints = defaultdict(int), defaultdict(Counter), Counter(), set()
-        number_blocked, initial_number = {}, {}
+        number_blocked = {}
         account_count, account_blocked = Counter(), 0
         account_limit = self.policy.get(
             "account_channel_limit", max(1, sum(n.concurrent_limit for n in numbers.values()))
@@ -427,7 +483,6 @@ class Assignment:
             number_blocked[n.number_id] = sum(
                 1 << i for i, count in counts.items() if count >= n.concurrent_limit
             )
-            initial_number[n.number_id] = number_blocked[n.number_id]
         account_blocked = sum(1 << i for i, count in account_count.items() if count >= account_limit)
         assigned, work_used, start_times = [], 0, defaultdict(list)
         compatible = []
@@ -473,29 +528,35 @@ class Assignment:
                 mask &= run_starts(self.all_mask & ~account_blocked, length)
                 if n.available_at:
                     mask &= ~((1 << bisect_left(self.starts, n.available_at)) - 1)
+                if n.burst_limit and start_times[n.number_id]:
+                    edges = Counter()
+                    for at in start_times[n.number_id]:
+                        if not self.budget.spend():
+                            return
+                        edges[bisect_right(self.starts, at - timedelta(seconds=n.burst_seconds))] += 1
+                        edges[bisect_left(self.starts, at + timedelta(seconds=n.burst_seconds))] -= 1
+                    previous, count = 0, 0
+                    for position in sorted(edges):
+                        if count >= n.burst_limit:
+                            mask &= ~(((1 << position) - 1) ^ ((1 << previous) - 1))
+                        count += edges[position]
+                        previous = position
                 for rep in reps:
                     if not self.budget.spend():
                         return
                     free = mask & run_starts(self.rep_masks.get(rep, 0) & ~rep_used[rep], length)
-                    while free:
-                        first = (free & -free).bit_length() - 1
-                        free &= free - 1
-                        if (
-                            n.burst_limit
-                            and sum(
-                                abs((self.starts[first] - at).total_seconds()) < n.burst_seconds
-                                for at in start_times[n.number_id]
-                            )
-                            >= n.burst_limit
-                        ):
-                            continue
+                    for first in self.scored_starts(index, free, exact_branch):
                         candidates.append((first, n.number_id, rep))
-                        # Greedy needs only earliest per rep/number; exact search enumerates later below.
-                        if not exact_branch:
-                            break
             for candidate in sorted(
                 candidates,
-                key=lambda c: (c[0], numbers[c[1]].region == "general", numbers[c[1]].proposed, c[1], c[2]),
+                key=lambda c: (
+                    -self.value_at(index, c[0], numbers[c[1]].region),
+                    c[0],
+                    numbers[c[1]].region == "general",
+                    numbers[c[1]].proposed,
+                    c[1],
+                    c[2],
+                ),
             ):
                 if not self.budget.spend():
                     return
@@ -653,7 +714,7 @@ class Assignment:
                 "proposed": numbers[identifier].proposed,
                 "callback": self.work[i].priority_class == 0,
                 "priority_class": self.work[i].priority_class,
-                "predicted_conversions": self.work[i].value,
+                "predicted_conversions": self.value_at(i, start, numbers[identifier].region),
             }
             for i, start, identifier, rep in best
         ]
@@ -768,6 +829,12 @@ def time_forecast(
         str(policy.get("estimate_version", "pooled-v1")),
         json.dumps(policy, sort_keys=True),
         rep_minutes * 60,
+        (("added_daily_capacity", daily_capacity_per_number), ("setup_hours", additional_ready_after_hours)),
+        hashlib.sha256(
+            json.dumps(
+                sorted(retry_observations, key=lambda v: json.dumps(v, sort_keys=True)), sort_keys=True
+            ).encode()
+        ).hexdigest(),
     )
     fingerprint = hashlib.sha256(
         json.dumps(asdict(snapshot), sort_keys=True, default=str).encode()
@@ -830,6 +897,7 @@ def time_forecast(
                         found,
                         key=lambda pair: (
                             -sum(r["predicted_conversions"] for r in pair[0]),
+                            sum(c.get("quote_usd") is None for c in pair[1]),
                             sum(c.get("quote_usd") or 0 for c in pair[1]),
                             tuple(c["id"] for c in pair[1]),
                         ),
@@ -853,7 +921,8 @@ def time_forecast(
                 alternatives,
                 key=lambda pair: (
                     tuple(-v for v in schedule_value(pair[0])),
-                    pair[1].get("quote_usd", math.inf),
+                    pair[1].get("quote_usd") is None,
+                    pair[1].get("quote_usd") or 0,
                     pair[1]["id"],
                 ),
             )

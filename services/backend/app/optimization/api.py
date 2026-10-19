@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime
 from typing import Annotated, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import Depends
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
@@ -19,6 +20,7 @@ class StaffedWindow(Strict):
     start_at: AwareDatetime
     end_at: AwareDatetime
     reps: int = Field(ge=1, le=100, strict=True)
+    pool_id: str | None = Field(default=None, min_length=1, max_length=64)
     rep_ids: list[Annotated[str, Field(min_length=1, max_length=36)]] | None = Field(
         default=None, min_length=1, max_length=100
     )
@@ -47,9 +49,27 @@ class OptimizationSettings(Strict):
     training_min_rows: int | None = Field(default=None, ge=100, le=20000)
     staffed_windows: list[StaffedWindow] | None = Field(default=None, max_length=100)
     additional_ready_after_hours: int | None = Field(default=None, ge=0, le=168)
+    staffing_timezone: str | None = None
+    staffing_start_hour: int | None = Field(default=None, ge=0, le=23)
+    staffing_end_hour: int | None = Field(default=None, ge=1, le=24)
+    staffing_reps: int | None = Field(default=None, ge=1, le=100)
+    staffing_weekdays: list[Annotated[int, Field(ge=0, le=6)]] | None = Field(
+        default=None, min_length=1, max_length=7
+    )
+    account_channel_limit: int | None = Field(default=None, ge=1, le=1000)
+    minimum_expansion_age_hours: int | None = Field(default=None, ge=1, le=168)
 
     @model_validator(mode="after")
     def distinct_windows(self):
+        if self.staffing_timezone is not None:
+            try:
+                ZoneInfo(self.staffing_timezone)
+            except (ValueError, ZoneInfoNotFoundError) as exc:
+                raise ValueError("A valid staffing IANA timezone is required") from exc
+        if self.staffing_weekdays is not None and len(set(self.staffing_weekdays)) != len(
+            self.staffing_weekdays
+        ):
+            raise ValueError("Each staffed weekday is listed once")
         windows = sorted(self.staffed_windows or [], key=lambda w: w.start_at)
         if len({rep for w in windows for rep in (w.rep_ids or [])}) > 100:
             raise ValueError("A staffing plan supports at most 100 named reps")
@@ -57,7 +77,7 @@ class OptimizationSettings(Strict):
             for b in windows[i + 1 :]:
                 if b.start_at >= a.end_at:
                     break
-                if a.rep_ids is None or b.rep_ids is None:
+                if (a.rep_ids is None or b.rep_ids is None) and not (a.pool_id and a.pool_id == b.pool_id):
                     raise ValueError(
                         "Overlapping periods must name every rep; anonymous headcount cannot overlap"
                     )
@@ -386,6 +406,8 @@ def register_optimization(app, service, principal, administrator):
     @app.put("/v1/admin/optimization")
     def configure(body: OptimizationSettings, p=Depends(administrator)):
         values = body.model_dump(exclude_none=True, exclude={"expected_campaign_version"})
+        if "account_channel_limit" in body.model_fields_set:
+            values["account_channel_limit"] = body.account_channel_limit
         if body.staffed_windows is not None:
             values["staffed_windows"] = [
                 {
@@ -393,6 +415,7 @@ def register_optimization(app, service, principal, administrator):
                     "end_at": w.end_at.isoformat(),
                     "reps": w.reps,
                     **({"rep_ids": w.rep_ids} if w.rep_ids is not None else {}),
+                    **({"pool_id": w.pool_id} if w.pool_id is not None else {}),
                 }
                 for w in sorted(body.staffed_windows, key=lambda w: w.start_at)
             ]
@@ -425,6 +448,9 @@ def register_optimization(app, service, principal, administrator):
                 if available != roster:
                     fail(422, "Named staffing requires current active reps in this workspace")
             previous = service.optimization_config(s, p)
+            merged = {**previous, **values}
+            if merged["staffing_start_hour"] >= merged["staffing_end_hour"]:
+                fail(422, "The staffing end must follow its start; split an overnight shift into two periods")
             definition_changed = any(
                 key in values and values[key] != previous[key] for key in ("conversion_goal", "window_days")
             )

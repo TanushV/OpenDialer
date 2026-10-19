@@ -11,7 +11,7 @@ import {
   Sparkles,
   Upload,
 } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useHistory } from "../state/useHistory";
 import { HistoryMore } from "./HistoryMore";
 import { openSource } from "../api/client";
@@ -319,6 +319,11 @@ function EndpointCorrection({
 }
 
 interface Proposal {
+  expansion_review?: {
+    status: string;
+    reason: string;
+    next_review_at: string | null;
+  };
   regions: {
     region: string;
     eligible_leads: number;
@@ -343,11 +348,75 @@ interface Proposal {
   setup_shortfall?: number | null;
   planning_limited?: boolean;
   existing_schedule?: { lead_id: string; number_id: string; at: string }[];
+  lower_bound?: number;
+  optimality_gap?: number;
+  best_found_additional_numbers?: number;
+  existing_plus_addition_capacity?: number;
+  conditional_pending_schedule?: unknown[];
+  contingent_retry_low_mean_high?: {
+    low: number;
+    mean: number;
+    high: number;
+    support: number;
+    omitted_leads: number;
+  };
+  assumptions?: {
+    staffing_grid_seconds: number;
+    handling_seconds: number;
+    account_channel_limit: number | null;
+    additional_ready_after_hours: number;
+  };
 }
+interface PlanningProjection {
+  status: "pending" | "stale" | "ready";
+  job_id?: string | null;
+  as_of?: string | null;
+  refresh_status?: string | null;
+  refresh_error?: string | null;
+  attempts?: number | null;
+}
+type ProposalResponse =
+  | (Proposal & { projection?: PlanningProjection })
+  | { projection: PlanningProjection };
 export function NumbersPage() {
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
   const history = useHistory("numbers", w.numbers);
-  const [proposal, setProposal] = useState<Proposal | null>(null);
+  const [response, setResponse] = useState<ProposalResponse | null>(null);
+  const proposal =
+    response && "forecast_attempts" in response ? response : null;
+  const projection = response?.projection;
+  const [planning, setPlanning] = useState(false);
+  const requestVersion = useRef(0);
+  const loadProposal = useCallback(async () => {
+    const version = ++requestVersion.current;
+    setPlanning(true);
+    try {
+      const value = await api<ProposalResponse>(
+        "/v1/admin/numbers/proposal",
+        "POST",
+        { campaign_id: w.campaign.id },
+      );
+      if (version === requestVersion.current) setResponse(value);
+    } finally {
+      if (version === requestVersion.current) setPlanning(false);
+    }
+  }, [api, w.campaign.id]);
+  useEffect(
+    () => () => {
+      requestVersion.current++;
+    },
+    [],
+  );
+  useEffect(() => {
+    if (
+      !projection ||
+      projection.status === "ready" ||
+      projection.refresh_status === "dead"
+    )
+      return;
+    const timer = setTimeout(() => void run(loadProposal), 2000);
+    return () => clearTimeout(timer);
+  }, [projection, loadProposal, run]);
   const [phone, setPhone] = useState("");
   return (
     <>
@@ -361,15 +430,8 @@ export function NumbersPage() {
         </div>
         <button
           className="primary"
-          onClick={() =>
-            void run(async () =>
-              setProposal(
-                await api("/v1/admin/numbers/proposal", "POST", {
-                  campaign_id: w.campaign.id,
-                }),
-              ),
-            )
-          }
+          disabled={planning}
+          onClick={() => void run(loadProposal)}
         >
           <Layers3 size={17} />
           Plan regional capacity
@@ -493,12 +555,65 @@ export function NumbersPage() {
           </button>
         </div>
       </section>
+      {projection && (
+        <section className="card padded" aria-label="Capacity planning status">
+          <p role="status">
+            {projection.refresh_status === "dead"
+              ? "Capacity planning failed. Retry the saved job after reviewing its error."
+              : projection.status === "pending"
+                ? "Capacity plan is being prepared in the background."
+                : projection.status === "stale"
+                  ? "Showing a saved capacity plan while current inputs are recalculated."
+                  : "Capacity plan is current."}
+          </p>
+          {projection.as_of && (
+            <p className="fine">Calculated {date(projection.as_of)}.</p>
+          )}
+          {projection.refresh_error && (
+            <p className="notice">{projection.refresh_error}</p>
+          )}
+          <button
+            className="secondary"
+            disabled={planning}
+            onClick={() => void run(loadProposal)}
+          >
+            Check capacity plan
+          </button>
+          {projection.refresh_status === "dead" && projection.job_id && (
+            <button
+              className="secondary"
+              disabled={planning}
+              onClick={() =>
+                void run(async () => {
+                  await api(
+                    `/v1/admin/recovery/jobs/${projection.job_id}/retry`,
+                    "POST",
+                    { expected_attempts: projection.attempts },
+                  );
+                  await loadProposal();
+                })
+              }
+            >
+              Retry capacity planning
+            </button>
+          )}
+        </section>
+      )}
       {proposal && (
         <section className="card proposal" data-testid="capacity-proposal">
           <span className="eyebrow">PLAN BEFORE PROCUREMENT</span>
           <h2>Regional capacity proposal</h2>
-          {proposal.schedule_scope && (
+          {proposal.schedule_scope === "declared_staffed_windows" && (
             <p className="pill subtle">Declared staffed periods</p>
+          )}
+          {proposal.schedule_scope === "normalized_simple_windows" && (
+            <p className="pill subtle">Saved simple staffing schedule</p>
+          )}
+          {proposal.contingent_retry_low_mean_high && (
+            <p className="fine">
+              Known next attempts are separate from uncertain later retries.
+              Neither schedule authorizes a call.
+            </p>
           )}
           {proposal.planning_limited && (
             <p className="notice">
@@ -532,7 +647,9 @@ export function NumbersPage() {
                   : "Minimum additional numbers"}
               </dt>
               <dd>
-                {proposal.minimum_additional_numbers ?? "Not established"}
+                {proposal.minimum_additional_numbers ??
+                  proposal.best_found_additional_numbers ??
+                  "Not established"}
               </dd>
             </div>
             {proposal.schedule_scope && (
@@ -554,6 +671,80 @@ export function NumbersPage() {
               </>
             )}
           </dl>
+          {proposal.contingent_retry_low_mean_high && (
+            <dl className="capacity-summary">
+              <div>
+                <dt>Possible later retries</dt>
+                <dd>
+                  {proposal.contingent_retry_low_mean_high.low.toFixed(1)}–
+                  {proposal.contingent_retry_low_mean_high.high.toFixed(1)};
+                  mean {proposal.contingent_retry_low_mean_high.mean.toFixed(1)}
+                </dd>
+              </div>
+              <div>
+                <dt>Observed retry support</dt>
+                <dd>
+                  {proposal.contingent_retry_low_mean_high.support ||
+                    "Cold prior; no matured observations"}
+                </dd>
+              </div>
+              <div>
+                <dt>Capacity with hypothetical additions</dt>
+                <dd>
+                  {proposal.existing_plus_addition_capacity ??
+                    "Not established"}
+                </dd>
+              </div>
+              <div>
+                <dt>Pending inventory scenario</dt>
+                <dd>
+                  {proposal.conditional_pending_schedule?.length ??
+                    "Not established"}{" "}
+                  displayed attempts, conditional on setup
+                </dd>
+              </div>
+              <div>
+                <dt>Proven addition lower bound / gap</dt>
+                <dd>
+                  {proposal.lower_bound ?? "Unknown"} /{" "}
+                  {proposal.optimality_gap ?? "Unknown"}
+                </dd>
+              </div>
+            </dl>
+          )}
+          {!!proposal.contingent_retry_low_mean_high?.omitted_leads && (
+            <p className="notice">
+              Retry scenarios are incomplete:{" "}
+              {proposal.contingent_retry_low_mean_high.omitted_leads} leads
+              omitted from this bounded calculation.
+            </p>
+          )}
+          {proposal.assumptions && (
+            <p className="fine">
+              Grid: {proposal.assumptions.staffing_grid_seconds}s. Cold work
+              assumption: {proposal.assumptions.handling_seconds}s; observed
+              estimates replace it when available. Setup delay:{" "}
+              {proposal.assumptions.additional_ready_after_hours}h. Account
+              channels:{" "}
+              {proposal.assumptions.account_channel_limit ??
+                "unknown; not provider-verified"}
+              .
+            </p>
+          )}
+          {proposal.expansion_review && (
+            <div>
+              <h3>Expansion review</h3>
+              <p>
+                {label(proposal.expansion_review.reason)}.{" "}
+                {proposal.expansion_review.status === "observing" &&
+                proposal.expansion_review.next_review_at
+                  ? `Review again after ${date(proposal.expansion_review.next_review_at)}. `
+                  : ""}
+                New rentals remain blocked; this advice does not purchase
+                capacity.
+              </p>
+            </div>
+          )}
           {!!proposal.unavailable_staff_count && (
             <p className="notice">
               {proposal.unavailable_staff_count} configured{" "}
@@ -594,7 +785,7 @@ export function NumbersPage() {
           </table>
           <p className="small muted">
             Indicative monthly rental:{" "}
-            {proposal.monthly_rental_estimate_usd === null
+            {proposal.monthly_rental_estimate_usd == null
               ? "Not established"
               : `$${proposal.monthly_rental_estimate_usd.toFixed(2)}`}
             . New rentals are blocked under the no-subscription policy.

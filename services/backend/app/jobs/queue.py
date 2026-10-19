@@ -140,7 +140,7 @@ class JobQueue:
             ):
                 raise ValueError("Job lease is not owned by this worker")
             if coalesced:
-                if job.queue != "ml" or job.payload.get("kind") != "home_refresh":
+                if job.queue != "ml" or job.payload.get("kind") not in {"home_refresh", "forecast_refresh"}:
                     raise ValueError("Only read-only workspace refresh can be coalesced")
                 job.attempts = max(0, job.attempts - 1)
             if job.payload.get("desired_generation", 0) > job.payload.get("claimed_generation", 0):

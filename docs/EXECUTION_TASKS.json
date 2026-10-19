@@ -403,17 +403,17 @@
         },
         {
           "id": "E06.learning",
-          "status": "open",
+          "status": "in-progress",
           "work": "Matured retry scenarios, work estimates, shared eligibility and bounded scoring"
         },
         {
           "id": "E06.publication",
-          "status": "open",
+          "status": "in-progress",
           "work": "Read snapshots then plan outside writes; source-fenced bounded schedule publication"
         },
         {
           "id": "E06.ui",
-          "status": "open",
+          "status": "in-progress",
           "work": "Simple/named staffing and honest now/later capacity/assumptions"
         },
         {
@@ -422,7 +422,7 @@
           "work": "Independent oracles, dual databases, affected browsers and removal receipt"
         }
       ],
-      "checkpoint": "Core normalized planner passes 92 SQLite and 92 PostgreSQL cases. Continue scored choices, runtime snapshots/publication and UI; do not accept E06 yet."
+      "checkpoint": "Core and runtime planning pass 127 SQLite / 127 PostgreSQL checks, plus eight browser journeys. Scored slots, shared estimate storage, burst feasibility, bulk scoped input, background publication/recovery, simple staffing and persistent-shortfall advice are implemented. Continue shared future-slot/retry-plan publication and observed retry evidence, then full E06 acceptance; E07-E15 remain open."
     },
     {
       "id": "E07",

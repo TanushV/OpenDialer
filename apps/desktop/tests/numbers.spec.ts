@@ -1,5 +1,117 @@
 import { expect, test } from "@playwright/test";
 
+for (const connected of [false, true]) {
+  test(`${connected ? "connected" : "local"} planning shows pending work then the saved result and explicit simple staffing`, async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await expect(page.getByText("Opening your workspace…")).toBeHidden();
+    await expect(
+      page
+        .getByTitle("Sign out")
+        .or(page.getByRole("button", { name: "Connect to a server" })),
+    ).toBeVisible();
+    if (connected) {
+      if (await page.getByTitle("Sign out").isVisible())
+        await page.getByTitle("Sign out").click();
+      await page.getByRole("button", { name: "Connect to a server" }).click();
+      await page.getByLabel("Server URL").fill("http://127.0.0.1:8766");
+      await page.getByLabel("Email").fill("team@example.test");
+      await page
+        .getByLabel("Password", { exact: true })
+        .fill("Connected-test-password-123");
+      await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    } else if (
+      await page
+        .getByRole("button", { name: "Try a simulated workspace" })
+        .isVisible()
+    ) {
+      await page
+        .getByRole("button", { name: "Try a simulated workspace" })
+        .click();
+    }
+    await page
+      .getByRole("button", { name: "Intelligence", exact: true })
+      .click();
+    await page.getByLabel("Staffing time zone").fill("America/Los_Angeles");
+    await page.getByLabel("Staffing starts (hour)").fill("10");
+    await page.getByLabel("Staffing ends (hour)").fill("16");
+    await page.getByLabel("Simple staffed reps").fill("2");
+    const saved = page.waitForResponse(
+      (r) =>
+        r.url().endsWith("/v1/admin/optimization") &&
+        r.request().method() === "PUT",
+    );
+    await page
+      .getByRole("button", { name: "Save optimization settings" })
+      .click();
+    expect((await saved).ok()).toBeTruthy();
+    await page.reload();
+    await page
+      .getByRole("button", { name: "Intelligence", exact: true })
+      .click();
+    await expect(page.getByLabel("Staffing time zone")).toHaveValue(
+      "America/Los_Angeles",
+    );
+    await expect(page.getByLabel("Simple staffed reps")).toHaveValue("2");
+    // Reset saved assumptions for subsequent existing tests.
+    await page.getByLabel("Staffing time zone").fill("UTC");
+    await page.getByLabel("Staffing starts (hour)").fill("9");
+    await page.getByLabel("Staffing ends (hour)").fill("20");
+    await page.getByLabel("Simple staffed reps").fill("1");
+    const reset = page.waitForResponse(
+      (r) =>
+        r.url().endsWith("/v1/admin/optimization") &&
+        r.request().method() === "PUT",
+    );
+    await page
+      .getByRole("button", { name: "Save optimization settings" })
+      .click();
+    expect((await reset).ok()).toBeTruthy();
+    let publish = false;
+    await page.route("**/v1/admin/numbers/proposal", async (route) => {
+      if (!publish)
+        return route.fulfill({
+          json: {
+            regions: [],
+            purchased: false,
+            projection: { status: "pending", job_id: "fixture" },
+          },
+        });
+      return route.continue();
+    });
+    await page.getByRole("button", { name: "Numbers", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Plan regional capacity", exact: true })
+      .click();
+    await expect(
+      page.getByText("Capacity plan is being prepared in the background.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(page.getByTestId("capacity-proposal")).toBeHidden();
+    publish = true;
+    await page.getByRole("button", { name: "Check capacity plan" }).click();
+    await expect(page.getByTestId("capacity-proposal")).toBeVisible();
+    await expect(
+      page
+        .getByTestId("capacity-proposal")
+        .getByText("Possible later retries", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("capacity-proposal").getByText(/Known next attempts/),
+    ).toBeVisible();
+    await expect(
+      page
+        .getByTestId("capacity-proposal")
+        .getByText("Expansion review", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Buy numbers", exact: true }),
+    ).toBeHidden();
+  });
+}
+
 test("incomplete allocation remains readable with unknown costs and bottlenecks", async ({
   page,
 }) => {
