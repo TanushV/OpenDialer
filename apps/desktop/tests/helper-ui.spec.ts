@@ -82,7 +82,7 @@ test("fixed helper remains visible, private controls work and no raw content is 
       page.getByRole("button", { name: "Hang up", exact: true }),
     ).toBeInViewport();
   }
-  await page.unroute(callView);
+  await page.unrouteAll({ behavior: "wait" });
   await page.getByRole("button", { name: "Hang up", exact: true }).click();
   await page.getByLabel("Disposition").selectOption("no_answer");
   await page.getByRole("button", { name: "Save outcome", exact: true }).click();
