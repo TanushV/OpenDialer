@@ -9,6 +9,23 @@ from sqlalchemy import select
 from test_remediation_privacy import principal
 
 
+@pytest.mark.parametrize(
+    "kind", ["health_refresh", "retry_plan_refresh", "learning_refresh", "optimization_refresh"]
+)
+def test_derived_refresh_source_changes_do_not_consume_failure_attempts(workspace, app, kind):
+    service, p = app.state.service, principal(workspace)
+    job = service.jobs.enqueue(
+        "ml",
+        {"kind": kind, "seller_id": p["seller_id"]},
+        "derived-coalescing:" + kind,
+        tenant_id=p["tenant_id"],
+    )
+    service.jobs.claim("ml", "current-owner", key_prefix=job["key"])
+    service.jobs.coalesce_refresh(job["id"], "current-owner")
+    saved = service.jobs.get(job["id"])
+    assert saved["status"] == "queued" and saved["attempts"] == 0 and saved["error"] is None
+
+
 @pytest.mark.parametrize("action", ["complete", "heartbeat", "coalesce_refresh"])
 def test_job_owner_expires_at_the_deadline(workspace, app, clock, action):
     from datetime import timedelta
