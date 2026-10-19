@@ -462,3 +462,22 @@ def test_published_future_slots_keep_conditional_estimates(workspace, app):
     assert any(
         v["observations"] == 1 and v["estimate_level"] == "segment_time_attempt" for v in predictions
     ), "Saved plans silently lost their conditional estimates"
+
+
+def test_changed_source_during_dataset_read_cannot_be_published(workspace, app, monkeypatch):
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    finish(workspace, call)
+    original = service.operational_dataset
+
+    def changed(*args, **kwargs):
+        data = original(*args, **kwargs)
+        with service.db.transaction() as s:
+            update(get(s, "call_attempts", call["id"]), outcome="gatekeeper")
+        return data
+
+    monkeypatch.setattr(service, "operational_dataset", changed)
+    with pytest.raises(RuntimeError, match="Learning sources changed"):
+        service.save_operational_dataset(p)
+    with service.db.transaction(False) as s:
+        assert not service.scoped(s, "learning_datasets", p)
