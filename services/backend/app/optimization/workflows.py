@@ -320,133 +320,167 @@ class OptimizationWorkflows(ComparisonWorkflows):
             for n in self.scoped(s, "number_inventory", p)
         ]
 
-    def selection_profile(self, s, p, data, config):
-        from app.optimization.learning import funnel_predictions, learn_distribution, retry_statistics
+    def selection_profile(self, s, p, statistics, config):
+        from app.optimization.learning import distribution_from_counts
 
-        campaign = self.scoped(s, "campaigns", p)[0]
-        data = [r for r in data if r.get("campaign_id") == campaign.id]
-        policy = self.required(s, "policy_versions", campaign.data["policy_id"], p)
-        leads = [doc(r) for r in self.scoped(s, "leads", p) if r.data["campaign_id"] == campaign.id]
-        cells = sorted({(r.get("segment", "unknown"), r.get("attempt_count", 0)) for r in leads})
-        segments = sorted({segment for segment, _ in cells})
-        estimate_options = {
-            "handling_seconds": config["handling_seconds"],
-            "estimate_policy": config["estimate_policy"],
-        }
-        actions = [r.id for r in self.scoped(s, "treatment_variants", p) if r.data.get("approved")] or [
-            "approved-default"
-        ]
+        campaign = s.scalar(
+            select(MODELS["campaigns"])
+            .where(
+                MODELS["campaigns"].tenant_id == p["tenant_id"],
+                MODELS["campaigns"].seller_id == p["seller_id"],
+            )
+            .order_by(MODELS["campaigns"].created_at)
+            .limit(1)
+        )
+        actions = [
+            r.id
+            for r in self.scoped(s, "treatment_variants", p)
+            if r.data.get("approved") and r.data.get("campaign_id") == campaign.id
+        ] or ["approved-default"]
         return {
             "as_of": self.clock().isoformat(),
             "goal": config["conversion_goal"],
-            "samples": len(data),
+            "samples": statistics["total"].get("rows", 0),
             "window_days": config["window_days"],
             "estimate_policy_version": EstimatePolicy.model_validate(config["estimate_policy"]).version,
             "work_assumption_seconds": config["handling_seconds"],
-            "retry_observations": retry_statistics(
-                data,
-                leads,
-                now=self.clock(),
-                max_attempts=policy.data.get("max_attempts", 4),
-            ),
-            "pooled": funnel_predictions(data, {}, **estimate_options),
-            "predictions": {
-                prediction_key(features): funnel_predictions(data, features, **estimate_options)
-                for segment, attempt in cells
-                for day in (0, 5)
-                for hour in range(24)
-                for features in [
-                    {"segment": segment, "local_hour": hour, "local_weekday": day, "attempt_count": attempt}
-                ]
+            "statistics": {
+                k: v for k, v in statistics.items() if k not in {"treatment_counts", "retry_observations"}
             },
+            "retry_observations": statistics["retry_observations"],
             "treatments": {
-                str(segment): learn_distribution(
-                    actions, data, segment=segment, exploration=config["exploration"]
-                )
-                for segment in segments
+                segment: distribution_from_counts(actions, counts, exploration=config["exploration"])
+                for segment, counts in statistics["treatment_counts"].items()
             },
         }
 
-    def operational_dataset(self, s, p, config=None):
-        config = config or self.optimization_config(s, p)
-        calls = [doc(c) for c in self.scoped(s, "call_attempts", p)]
-        snapshots = [doc(r) for r in self.scoped(s, "feature_snapshots", p)]
-        events = [doc(r) for r in self.scoped(s, "conversion_events", p)]
+    def operational_dataset(self, s, p, config=None, *, limit=20000):
+        """Explicit bounded snapshot. Filter identities before decrypting related content."""
+        from decimal import Decimal
+
         from app.coaching.context import lineage_key
         from app.optimization.conversations import active_observations
         from app.postcall.analysis import learning_observations
 
-        notes = {r.data["call_id"]: r for r in self.scoped(s, "notes", p)}
-        memories = {
-            r.data["call_id"]: r.data
-            for r in self.scoped(s, "conversation_states", p)
-            if r.data.get("schema_version") == 2
-        }
-        # This explicit historical dataset is replaced by projections in E09.
-        # Fetch its metadata once, never one query for each previous call.
-        lineage, work = {}, {}
-        model = MODELS["outcomes"]
-        for row in s.scalars(
-            select(model).where(
-                model.tenant_id == p["tenant_id"],
-                model.seller_id == p["seller_id"],
-                model.ctx_status.in_(("conversation_lineage", "attempt_work")),
+        if not 1 <= limit <= 20000:
+            raise ValueError("Training snapshot bound must be between1 and20000 attempts")
+        campaign = s.scalar(
+            select(MODELS["campaigns"])
+            .where(
+                MODELS["campaigns"].tenant_id == p["tenant_id"],
+                MODELS["campaigns"].seller_id == p["seller_id"],
             )
-        ):
-            if row.data["kind"] == "attempt_work":
-                work[row.data["call_id"]] = row.data
-            else:
-                lineage.setdefault(row.data["call_id"], {})[
-                    lineage_key(row.data["id"], row.data["version"])
-                ] = row.data
-        lead_campaigns = {r.id: r.data["campaign_id"] for r in self.scoped(s, "leads", p)}
-        for call in calls:
-            call["campaign_id"] = lead_campaigns.get(call["lead_id"])
-            if call["id"] in work:
-                call.update(
-                    {key: work[call["id"]].get(key) for key in ("rep_work_intervals", "rep_work_incomplete")}
-                )
-            note = notes.get(call["id"])
-            memory = memories.get(call["id"])
-            observed = (
-                learning_observations(memory["observations"], lineage.get(call["id"]))
-                if memory
-                else (note.data.get("observations", []) if note else [])
-            )
-            call["observations"] = active_observations(observed, self.clock())
-        from decimal import Decimal
-
-        costs, incomplete, verified = {}, set(), set()
-        for record in self.scoped(s, "usage_ledger", p):
-            value = record.data
-            key = value.get("call_id") or value.get("object_id")
-            if not key:
-                continue
-            if value.get("status") == "released":
-                continue
-            if value.get("status") != "settled" or value.get("cost_usd") is None:
-                incomplete.add(key)
-                continue
-            if value.get("kind") == "call_authorization" and value.get("billing_verified"):
-                verified.add(key)
-            costs[key] = (
-                costs.get(key, Decimal(0))
-                + Decimal(str(value["cost_usd"]))
-                - Decimal(str(value.get("credited_usd", 0)))
-            )
-        for call in calls:
-            complete = call["id"] in verified and call["id"] not in incomplete
-            call["cost_status"] = "settled" if complete else "uncertain"
-            call["observed_cost_usd"] = float(costs.get(call["id"], 0)) if complete else None
-        data = training_rows(
-            calls,
-            snapshots,
-            events,
-            now=self.clock(),
-            goal=config["conversion_goal"],
-            window_days=config["window_days"],
+            .order_by(MODELS["campaigns"].created_at)
+            .limit(1)
         )
-        return data
+        config = config or self.optimization_config(s, p, campaign.id)
+        model, leads = MODELS["call_attempts"], MODELS["leads"]
+        selected = list(
+            s.scalars(
+                select(model.id)
+                .join(
+                    leads,
+                    (model.op_lead_id == leads.id)
+                    & (model.tenant_id == leads.tenant_id)
+                    & (model.seller_id == leads.seller_id),
+                )
+                .where(
+                    model.tenant_id == p["tenant_id"],
+                    model.seller_id == p["seller_id"],
+                    leads.op_campaign_id == campaign.id,
+                    model.op_at <= self.clock(),
+                )
+                .order_by(model.op_at.desc(), model.id.desc())
+                .limit(limit)
+            )
+        )
+        data, encoded_bytes = [], 0
+        for offset in range(0, len(selected), 500):
+            ids = selected[offset : offset + 500]
+
+            def related(kind, field, identities):
+                table = MODELS[kind]
+                return (
+                    list(
+                        s.scalars(
+                            select(table).where(
+                                table.tenant_id == p["tenant_id"],
+                                table.seller_id == p["seller_id"],
+                                getattr(table, field).in_(identities),
+                            )
+                        )
+                    )
+                    if identities
+                    else []
+                )
+
+            calls = [doc(r) for r in related("call_attempts", "id", ids)]
+            snapshots = [
+                doc(r)
+                for r in related("feature_snapshots", "id", [c.get("feature_snapshot_id") for c in calls])
+            ]
+            events = [
+                doc(r)
+                for r in related("conversion_events", "op_lead_id", list({c["lead_id"] for c in calls}))
+            ]
+            notes = {r.external_key: r.data for r in related("notes", "external_key", ids)}
+            memories = {r.external_key: r.data for r in related("conversation_states", "external_key", ids)}
+            lineage, work = {}, {}
+            for row in related("outcomes", "ctx_key", ids):
+                if row.data.get("kind") == "attempt_work":
+                    work[row.data["call_id"]] = row.data
+                elif row.data.get("kind") == "conversation_lineage":
+                    lineage.setdefault(row.data["call_id"], {})[
+                        lineage_key(row.data["id"], row.data["version"])
+                    ] = row.data
+            costs, incomplete, verified = {}, set(), set()
+            for record in related("usage_ledger", "op_call_id", ids):
+                value = record.data
+                key = value.get("call_id") or value.get("object_id")
+                if value.get("status") == "released":
+                    continue
+                if value.get("status") != "settled" or value.get("cost_usd") is None:
+                    incomplete.add(key)
+                    continue
+                if value.get("kind") == "call_authorization" and value.get("billing_verified"):
+                    verified.add(key)
+                costs[key] = (
+                    costs.get(key, Decimal(0))
+                    + Decimal(str(value["cost_usd"]))
+                    - Decimal(str(value.get("credited_usd", 0)))
+                )
+            for call in calls:
+                call["campaign_id"] = campaign.id
+                if call["id"] in work:
+                    call.update(
+                        {
+                            key: work[call["id"]].get(key)
+                            for key in ("rep_work_intervals", "rep_work_incomplete")
+                        }
+                    )
+                memory = memories.get(call["id"], {})
+                observed = (
+                    learning_observations(memory["observations"], lineage.get(call["id"]))
+                    if memory.get("schema_version") == 2
+                    else notes.get(call["id"], {}).get("observations", [])
+                )
+                call["observations"] = active_observations(observed, self.clock())
+                complete = call["id"] in verified and call["id"] not in incomplete
+                call["cost_status"] = "settled" if complete else "uncertain"
+                call["observed_cost_usd"] = float(costs.get(call["id"], 0)) if complete else None
+            page = training_rows(
+                calls,
+                snapshots,
+                events,
+                now=self.clock(),
+                goal=config["conversion_goal"],
+                window_days=config["window_days"],
+            )
+            encoded_bytes += len(json.dumps(page, allow_nan=False).encode())
+            if encoded_bytes > 16 * 1024 * 1024:
+                raise ValueError("Training snapshot exceeds16MiB; narrow the selected cohort")
+            data.extend(page)
+        return sorted(data, key=lambda r: (r["at"], r["call_id"]))
 
     def prediction_features(self, s, p, lead, number=None, calls=None, *, fast=False):
         endpoint = get(s, "phone_endpoints", lead.data["endpoint_id"], p["tenant_id"])
@@ -880,11 +914,13 @@ class OptimizationWorkflows(ComparisonWorkflows):
             }
 
     def save_operational_dataset(self, p):
-        with self.db.transaction() as s:
+        with self.db.transaction(False) as s:
             config = self.optimization_config(s, p)
             data = self.operational_dataset(s, p, config)
             campaign = self.scoped(s, "campaigns", p)[0]
             revision = campaign.data.get("conversation_revision", 0)
+            campaign_id = campaign.id
+            generation = self.report_revision(s, p)
             baseline = {k: config[k] for k in ("estimate_policy", "handling_seconds")}
             # Bound training memory, retain the complete operational ledger as source of truth.
             data = data[-20000:]
@@ -894,6 +930,10 @@ class OptimizationWorkflows(ComparisonWorkflows):
                     sort_keys=True,
                 ).encode()
             ).hexdigest()
+        with self.db.transaction() as s:
+            campaign = self.required(s, "campaigns", campaign_id, p)
+            if self.report_revision(s, p, lock=True) != generation:
+                raise RuntimeError("Learning sources changed during snapshot; retry current work")
             previous = self._by_key(s, p, "learning_datasets", key)
             result = previous or put(
                 s,
@@ -901,6 +941,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 p["tenant_id"],
                 p["seller_id"],
                 {
+                    "campaign_id": campaign_id,
                     "goal": config["conversion_goal"],
                     "conversation_revision": revision,
                     "window_days": config["window_days"],
@@ -929,8 +970,8 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 update(campaign, dataset_summaries=revised)
             return doc(result)
 
-    def train_operational(self, p):
-        dataset = self.save_operational_dataset(p)
+    def train_operational(self, p, dataset=None):
+        dataset = dataset if dataset is not None else self.save_operational_dataset(p)
         data = dataset["rows"]
         with self.db.transaction(False) as s:
             minimum = self.optimization_config(s, p)["training_min_rows"]
@@ -1164,18 +1205,76 @@ class OptimizationWorkflows(ComparisonWorkflows):
             "omitted_schedule_rows": forecast["schedule_rows_omitted"],
         }
 
-    def refresh_optimization(self, p):
+    def refresh_observed_health(self, p):
+        with self.db.transaction(False) as s:
+            numbers = self.inventory_evidence(s, p)
+            generation = self.report_revision(s, p)
+        updated = 0
+        for offset in range(0, len(numbers), 100):
+            with self.db.transaction() as s:
+                if self.report_revision(s, p, lock=True) != generation:
+                    return {"status": "superseded", "updated": updated}
+                for number in numbers[offset : offset + 100]:
+                    existing = self._by_key(s, p, "number_health", number["id"])
+                    value = {**number["health"], "number_id": number["id"]}
+                    if not existing:
+                        put(
+                            s,
+                            "number_health",
+                            p["tenant_id"],
+                            p["seller_id"],
+                            value,
+                            key=number["id"],
+                            now=self.clock(),
+                        )
+                        updated += 1
+                    elif existing.data != value:
+                        update(existing, **value)
+                        updated += 1
+                    if number["health"]["status"] in {"blocked", "investigating"} and number["lifecycle"] in {
+                        "healthy",
+                        "limited_real_use",
+                    }:
+                        record = self.required(s, "number_inventory", number["id"], p)
+                        update(
+                            record,
+                            lifecycle="investigating",
+                            inbound_retained=True,
+                            health_review_reason=number["health"]["reason"],
+                        )
+                        audit(
+                            s,
+                            p["tenant_id"],
+                            p["seller_id"],
+                            p["user_id"],
+                            "number.delivery_hold",
+                            record.id,
+                            self.clock(),
+                            {
+                                "samples": number["health"]["samples"],
+                                "policy_version": number["health"]["policy_version"],
+                                "reason_codes": number["health"]["reason_codes"],
+                            },
+                        )
+                s.flush()
+                generation = self.report_revision(s, p)
+        return {"status": "ready", "updated": updated}
+
+    def refresh_learning(self, p):
+        """Explicit CPU-lane work; one bounded dataset for associations and optional training."""
         from app.optimization.conversations import conversation_associations
 
-        with self.db.transaction() as s:
-            s.info["row_cache"] = {}
-            self.ensure_experiment_cohort(s, p)
         dataset = self.save_operational_dataset(p)
         with self.db.transaction(False) as s:
+            user, _, _, _ = self.report_scope(s, p)
+            if user["role"] != "admin":
+                from app.service import fail
+
+                fail(403, "Administrator access required for learning refresh")
             campaign = self.scoped(s, "campaigns", p)[0]
             campaign_id = campaign.id
             vocabulary = dict(campaign.data.get("conversation_vocabulary", {"version": 1, "aliases": []}))
-        conversation_report = {
+        report = {
             **conversation_associations(
                 [r for r in dataset["rows"] if r.get("campaign_id") == campaign_id],
                 as_of=self.clock(),
@@ -1185,67 +1284,96 @@ class OptimizationWorkflows(ComparisonWorkflows):
             "window_days": dataset["window_days"],
         }
         with self.db.transaction() as s:
-            s.info["row_cache"] = {}
-            config = self.optimization_config(s, p)
-            for number in self.inventory_evidence(s, p):
-                existing = next(
-                    (r for r in self.scoped(s, "number_health", p) if r.external_key == number["id"]), None
-                )
-                if existing:
-                    update(existing, **number["health"], number_id=number["id"])
-                else:
-                    put(
-                        s,
-                        "number_health",
-                        p["tenant_id"],
-                        p["seller_id"],
-                        {**number["health"], "number_id": number["id"]},
-                        key=number["id"],
-                        now=self.clock(),
-                    )
-                if number["health"]["status"] in {"blocked", "investigating"} and number["lifecycle"] in {
-                    "healthy",
-                    "limited_real_use",
-                }:
-                    record = self.required(s, "number_inventory", number["id"], p)
-                    update(
-                        record,
-                        lifecycle="investigating",
-                        inbound_retained=True,
-                        health_review_reason=number["health"]["reason"],
-                    )
-                    audit(
-                        s,
-                        p["tenant_id"],
-                        p["seller_id"],
-                        p["user_id"],
-                        "number.delivery_hold",
-                        record.id,
-                        self.clock(),
-                        {
-                            "samples": number["health"]["samples"],
-                            "policy_version": number["health"]["policy_version"],
-                            "reason_codes": number["health"]["reason_codes"],
-                        },
-                    )
-            campaign = self.scoped(s, "campaigns", p)[0]
-            update(campaign, selection_profile=self.selection_profile(s, p, dataset["rows"], config))
-            if (
+            campaign = self.required(s, "campaigns", campaign_id, p)
+            config = self.optimization_config(s, p, campaign_id)
+            if not (
                 dataset.get("conversation_revision") == campaign.data.get("conversation_revision", 0)
                 and dataset["goal"] == config["conversion_goal"]
                 and dataset["window_days"] == config["window_days"]
                 and vocabulary["version"]
                 == campaign.data.get("conversation_vocabulary", {"version": 1})["version"]
             ):
-                update(campaign, conversation_report=conversation_report)
+                return {"status": "superseded", "dataset_id": dataset["id"]}
+            update(campaign, conversation_report=report)
             emit(s, p["tenant_id"], "optimization.updated", campaign, self.clock())
-        planning = self.refresh_schedule_plans(p, campaign_id, dataset["id"])
-        self.build_forecast(p, campaign_id)
-        training = self.train_operational(p) if config["auto_train"] else {"status": "disabled"}
-        self.rebuild_optimization_report(p)
+        training = self.train_operational(p, dataset) if config["auto_train"] else {"status": "disabled"}
         return {
+            "status": "ready",
             "dataset_id": dataset["id"],
             "rows": len(dataset["rows"]),
             "training": training,
-            "planning": planning,
+        }
+
+    def refresh_optimization(self, p):
+        from app.optimization.projections import read_estimate_statistics
+
+        if not self.prepare_metric_read(p):
+            return {"status": "pending"}
+        with self.db.transaction(False) as s:
+            user, _, _, _ = self.report_scope(s, p)
+            if user["role"] != "admin":
+                from app.service import fail
+
+                fail(403, "Administrator access required for optimization refresh")
+            generation = self.report_revision(s, p)
+            campaign = self.scoped(s, "campaigns", p)[0]
+            campaign_id = campaign.id
+            config = self.optimization_config(s, p, campaign_id)
+            statistics = read_estimate_statistics(self, p)
+            profile = self.selection_profile(s, p, statistics, config)
+            stable_statistics = {
+                **statistics,
+                "retry_observations": [
+                    {k: v for k, v in r.items() if k != "available_at"}
+                    for r in statistics["retry_observations"]
+                ],
+            }
+            fingerprint = hashlib.sha256(
+                json.dumps(
+                    [
+                        stable_statistics,
+                        config,
+                        campaign.data.get("conversation_revision", 0),
+                        campaign.data.get("conversation_vocabulary", {"version": 1}),
+                    ],
+                    sort_keys=True,
+                ).encode()
+            ).hexdigest()
+        with self.db.transaction() as s:
+            if self.report_revision(s, p, lock=True) != generation:
+                return {"status": "superseded"}
+            campaign = self.required(s, "campaigns", campaign_id, p)
+            update(campaign, selection_profile=profile)
+            jobs = []
+            for kind in ("health_refresh", "retry_plan_refresh", "forecast_refresh", "learning_refresh"):
+                key = (
+                    "operational-train:snapshot:"
+                    if kind == "learning_refresh"
+                    else "optimization-work:" + kind + ":"
+                ) + campaign_id
+                jobs.append(
+                    self.jobs.enqueue_in(
+                        s,
+                        "ml",
+                        {
+                            "kind": kind,
+                            "seller_id": p["seller_id"],
+                            "user_id": p["user_id"],
+                            "campaign_id": campaign_id,
+                            "input_fingerprint": fingerprint
+                            if kind == "learning_refresh"
+                            else str(generation),
+                        },
+                        key,
+                        tenant_id=p["tenant_id"],
+                        priority=-10 if kind == "learning_refresh" else 0,
+                        latest=True,
+                    )
+                )
+            emit(s, p["tenant_id"], "optimization.updated", campaign, self.clock())
+        self.rebuild_optimization_report(p)
+        return {
+            "status": "ready",
+            "rows": profile["samples"],
+            "jobs": [{"id": j["id"], "kind": j["payload"]["kind"]} for j in jobs],
         }

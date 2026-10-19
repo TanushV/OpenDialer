@@ -11,6 +11,8 @@ depends_on = None
 
 def upgrade():
     existing = set(sa.inspect(op.get_bind()).get_table_names())
+    if "op_call_id" not in {c["name"] for c in sa.inspect(op.get_bind()).get_columns("usage_ledger")}:
+        op.add_column("usage_ledger", sa.Column("op_call_id", sa.String(100), nullable=True))
     for name, columns in {
         "work_intervals": ("op_at", "op_due_at"),
         "call_attempts": ("op_work_end_at",),
@@ -57,6 +59,7 @@ def upgrade():
         for scope in ("tenant_id", "seller_id"):
             op.create_index(f"ix_{name}_{scope}", name, [scope])
     indexes = {
+        "usage_ledger": {"ix_usage_ledger_call": ["tenant_id", "seller_id", "op_call_id"]},
         "leads": {"ix_leads_endpoint": ["tenant_id", "seller_id", "op_endpoint_id", "id"]},
         "work_intervals": {
             "ix_work_intervals_overlap": ["tenant_id", "seller_id", "op_owner_id", "op_due_at", "op_at"]

@@ -37,11 +37,42 @@ class JobQueue:
                 s, queue, payload, key, tenant_id=tenant_id, priority=priority, max_attempts=max_attempts
             )
 
-    def enqueue_in(self, s, queue, payload, key, *, tenant_id, priority=0, max_attempts=3, available_at=None):
+    def enqueue_in(
+        self,
+        s,
+        queue,
+        payload,
+        key,
+        *,
+        tenant_id,
+        priority=0,
+        max_attempts=3,
+        available_at=None,
+        latest=False,
+    ):
         """Commit follow-on work in the same transaction as the change that requires it."""
-        previous = s.scalar(select(Job).where(Job.tenant_id == tenant_id, Job.key == key))
+        if latest and queue != "ml":
+            raise ValueError("Only internal derived work may replace a queued payload")
+        query = select(Job).where(Job.tenant_id == tenant_id, Job.key == key)
+        previous = s.scalar(query.with_for_update() if latest else query)
         if previous:
+            if latest:
+                generation_keys = {"desired_generation", "claimed_generation"}
+                old = {k: v for k, v in previous.payload.items() if k not in generation_keys}
+                if old != payload:
+                    previous.payload = {
+                        **payload,
+                        "desired_generation": previous.payload.get("desired_generation", 0) + 1,
+                        "claimed_generation": previous.payload.get("claimed_generation", 0),
+                    }
+                    previous.available_at = available_at or self.clock()
+                    if previous.status != "running":
+                        previous.status, previous.attempts, previous.error = "queued", 0, None
+                        previous.lease_owner = previous.lease_expires_at = None
+                    s.flush()
             return jobdoc(previous)
+        if latest:
+            payload = {**payload, "desired_generation": 1, "claimed_generation": 0}
         job = Job(
             id=uid(),
             tenant_id=tenant_id,

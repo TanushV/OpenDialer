@@ -202,6 +202,7 @@ def columns(kind):
         "op_active": Column(Boolean, nullable=True),
         "op_amount": Column(Float, nullable=True),
         "op_index_version": Column(Integer, nullable=True),
+        **({"op_call_id": Column(String(100), nullable=True)} if kind == "usage_ledger" else {}),
         **(
             {"op_work_end_at": Column(DateTime(timezone=True), nullable=True)}
             if kind == "call_attempts"
@@ -268,7 +269,10 @@ def indexes(name):
             else ()
         ),
         *(
-            (Index("ix_usage_ledger_receipt", "tenant_id", "seller_id", "op_provider_id"),)
+            (
+                Index("ix_usage_ledger_receipt", "tenant_id", "seller_id", "op_provider_id"),
+                Index("ix_usage_ledger_call", "tenant_id", "seller_id", "op_call_id"),
+            )
             if name == "usage_ledger"
             else ()
         ),
@@ -430,10 +434,11 @@ def sync_columns(row, lookup_key=None):
         row.op_kind = data.get("kind")
         row.op_index_version = 2
     if row.__tablename__ == "usage_ledger":
+        row.op_call_id = data.get("call_id") or data.get("object_id")
         row.op_provider_id = receipt_key(
             data.get("provider"), data.get("request_id") or data.get("provider_record_id"), lookup_key
         )
-        row.op_index_version = 3
+        row.op_index_version = 4
 
 
 def ensure_columns(connection, metadata):
