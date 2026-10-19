@@ -17,7 +17,7 @@ from app.optimization.learning import (
     stable_control,
 )
 from app.optimization.numbering import select_number, timestamp
-from app.scheduling.policy import rank_candidates
+from app.scheduling.policy import queue_decision, rank_candidates
 
 
 class SelectionChanged(Exception):
@@ -49,7 +49,9 @@ class ReservationPlanner:
         }
         specifications.update(
             {
-                "campaigns": [MODELS["campaigns"].id == campaign_id],
+                "campaigns": [
+                    MODELS["campaigns"].id.in_({campaign_id, *(r.data["campaign_id"] for r in leads)})
+                ],
                 "registry_snapshots": [
                     (
                         MODELS["registry_snapshots"].ctx_key.in_(("national", "state"))
@@ -213,8 +215,6 @@ class ReservationPlanner:
 
             def permitted(candidate):
                 lead = by_id[candidate["id"]]
-                if lead.data["endpoint_id"] in claimed or lead.data.get("outreach_hold"):
-                    return False
                 number = next(
                     (
                         n
@@ -223,7 +223,12 @@ class ReservationPlanner:
                     ),
                     None,
                 )
-                decision = authorize(self.context(s, p, lead, number))
+                decision = queue_decision(
+                    self.context(s, p, lead, number),
+                    lead.data,
+                    own_claim=own,
+                    endpoint_claimed=lead.data["endpoint_id"] in claimed,
+                )
                 denied.extend(decision.reasons)
                 return decision.allowed
 

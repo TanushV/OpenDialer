@@ -1,8 +1,24 @@
 import { useEffect, useState } from "react";
-import { useWorkspace } from "../context";
+import { label, useWorkspace } from "../context";
 import { DncScreeningPanel } from "./DncScreeningPanel";
 import { localEdit } from "../api/client";
 
+type AccountRate = {
+  values: Record<string, string>;
+  source_reference: string;
+  checked_at: string;
+};
+type Cost = {
+  unit: string;
+  currency: string;
+  source_url: string;
+  checked_at: string;
+  classification: string;
+  minimum_funding_usd: number | null;
+  rate_fields: string[];
+  basis?: string;
+  account_rate_override: AccountRate | null;
+};
 type Policy = {
   version: number;
   dnc_source_max_age_days: number;
@@ -17,21 +33,40 @@ type Policy = {
   transcription_privacy_verified: boolean;
   transcription_privacy_reference: string;
   rates_checked_at: string;
-  costs: {
-    voice: { api_per_minute_usd: number };
-    stt: { soniox_per_minute_usd: number; parakeet_per_minute_usd: number };
-    cerebras: {
+  account_rates: Record<string, AccountRate>;
+  costs: Record<string, Cost> & {
+    voice: Cost & { api_per_minute_usd: number };
+    stt: Cost & {
+      soniox_per_minute_usd: number;
+      parakeet_per_minute_usd: number;
+    };
+    cerebras: Cost & {
       input_per_million_usd: number;
       output_per_million_usd: number;
       platform_fee_fraction: number;
     };
-    dnc: { prepaid_minimum_usd: number; credits: number };
+    dnc: Cost & { prepaid_minimum_usd: number; credits: number };
   };
 };
 export function OperatingPolicySettings() {
   const { api, run, notice } = useWorkspace();
   const [policy, setPolicy] = useState<Policy | null>(null);
   const [key, setKey] = useState("");
+  const [rateComponent, setRateComponent] = useState("dnc");
+  const [rateDraft, setRateDraft] = useState<Policy["account_rates"][string]>({
+    values: {},
+    source_reference: "",
+    checked_at: "",
+  });
+  useEffect(() => {
+    setRateDraft(
+      policy?.account_rates[rateComponent] || {
+        values: {},
+        source_reference: "",
+        checked_at: "",
+      },
+    );
+  }, [policy?.version, rateComponent]);
   const [authorization, setAuthorization] = useState({
     reference: "",
     npas: "",
@@ -332,6 +367,156 @@ export function OperatingPolicySettings() {
           funded automatically.
         </p>
       </details>
+      {policy && (
+        <details>
+          <summary>Account rate estimates</summary>
+          <p className="fine">
+            Published reference rates remain separate from account estimates and
+            actual charges.
+          </p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void run(async () => {
+                const values = Object.fromEntries(
+                  Object.entries(rateDraft.values).filter(
+                    ([, value]) => value !== "",
+                  ),
+                );
+                const saved = await localEdit<Policy>(
+                  api,
+                  "/v1/admin/operating-policy",
+                  "PUT",
+                  {
+                    request_id: crypto.randomUUID(),
+                    expected_version: policy.version,
+                    account_rates: {
+                      ...policy.account_rates,
+                      [rateComponent]: { ...rateDraft, values },
+                    },
+                  },
+                );
+                setPolicy(saved);
+                notice("Account rate estimate saved");
+              });
+            }}
+          >
+            <label>
+              Rate component
+              <select
+                value={rateComponent}
+                onChange={(e) => setRateComponent(e.target.value)}
+              >
+                {Object.entries(policy.costs)
+                  .filter(([, cost]) => cost.rate_fields.length)
+                  .map(([name]) => (
+                    <option key={name} value={name}>
+                      {label(name)}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <p className="fine">
+              Unit: {policy.costs[rateComponent].unit}. Reference checked{" "}
+              {policy.costs[rateComponent].checked_at}.{" "}
+              <a
+                href={policy.costs[rateComponent].source_url}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Published source
+              </a>
+            </p>
+            <div className="two-column">
+              {policy.costs[rateComponent].rate_fields.map((field) => (
+                <label key={field}>
+                  {label(field)}
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.000000001"
+                    value={rateDraft.values[field] ?? ""}
+                    onChange={(e) =>
+                      setRateDraft({
+                        ...rateDraft,
+                        values: {
+                          ...rateDraft.values,
+                          [field]: e.target.value,
+                        },
+                      })
+                    }
+                  />
+                </label>
+              ))}
+              <label>
+                Rate invoice or quote reference
+                <input
+                  required
+                  maxLength={1000}
+                  value={rateDraft.source_reference}
+                  onChange={(e) =>
+                    setRateDraft({
+                      ...rateDraft,
+                      source_reference: e.target.value,
+                    })
+                  }
+                />
+              </label>
+              <label>
+                Account rate checked on
+                <input
+                  required
+                  type="date"
+                  value={rateDraft.checked_at}
+                  onChange={(e) =>
+                    setRateDraft({ ...rateDraft, checked_at: e.target.value })
+                  }
+                />
+              </label>
+            </div>
+            <button
+              type="submit"
+              className="secondary"
+              disabled={!Object.values(rateDraft.values).some((v) => v !== "")}
+            >
+              Save account rate estimate
+            </button>
+          </form>
+          <table>
+            <thead>
+              <tr>
+                <th>Component / unit</th>
+                <th>Cost boundary</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(policy.costs).map(([name, cost]) => (
+                <tr key={name}>
+                  <td>
+                    {label(name)} · {cost.unit}
+                  </td>
+                  <td>
+                    {label(cost.classification)}. {cost.basis} Minimum funding:{" "}
+                    {cost.minimum_funding_usd === null
+                      ? "account-dependent"
+                      : `$${cost.minimum_funding_usd}`}
+                    .
+                  </td>
+                  <td>
+                    <a href={cost.source_url} target="_blank" rel="noreferrer">
+                      Reference
+                    </a>{" "}
+                    · {cost.checked_at}
+                    {cost.account_rate_override &&
+                      ` · Account rate: ${cost.account_rate_override.source_reference}`}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
+      )}
       <h3>Prepaid DNC screening</h3>
       <p>
         National screening and the local opt-out registry are checked before

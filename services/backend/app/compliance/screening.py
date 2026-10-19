@@ -71,7 +71,9 @@ def view(service, row, config, max_age):
         "checked_at": data.get("checked_at"),
         "expires_at": data.get("expires_at"),
         "can_retry": status in UNFINISHED | {"expired"} and not lease_active(service, data),
-        "possible_charge_usd": QUERY_ESTIMATE if data.get("request_key") and status != "unsubmitted" else 0,
+        "possible_charge_usd": data.get("estimate_usd", QUERY_ESTIMATE)
+        if data.get("request_key") and status != "unsubmitted"
+        else 0,
         "previous_attempts": data.get("previous_attempts", 0),
         "reason": data.get("recovery_reason")
         or (
@@ -136,8 +138,11 @@ def claim(service, p, phone=None, identity=None, retry=None, *, refresh=None):
         ):
             fail(403, "DNC_SELLER_AUTHORIZATION_REQUIRED")
         key = "dnc:" + uid()
+        seller = service.required(s, "sellers", p["seller_id"], p)
+        rate = seller.data.get("operating_policy", {}).get("account_rates", {}).get("dnc")
+        estimate = float(rate["values"]["estimated_per_query_usd"]) if rate else QUERY_ESTIMATE
         if refresh:
-            reserve_refresh_in(service, s, p, refresh)
+            reserve_refresh_in(service, s, p, refresh, estimate)
         # Retain a legacy/crashed attempt's liability before admitting a new one.
         if row and row.data.get("request_key") and row.data.get("status") in UNFINISHED - {"unsubmitted"}:
             service.usage(
@@ -147,15 +152,17 @@ def claim(service, p, phone=None, identity=None, retry=None, *, refresh=None):
                 InferenceResult({}, {}, None),
                 object_id=screening_key(service, phone),
                 request_key=row.data["request_key"],
-                reserved=QUERY_ESTIMATE,
+                reserved=row.data.get("estimate_usd", QUERY_ESTIMATE),
                 session=s,
             )
         if not service.reserve_budget_in(
-            s, p, key, QUERY_ESTIMATE, object_id=screening_key(service, phone), work_kind="dnc_screen"
+            s, p, key, estimate, object_id=screening_key(service, phone), work_kind="dnc_screen"
         ):
             fail(403, "DNC_QUERY_BUDGET_EXHAUSTED")
         values = {
             "kind": "prepaid",
+            "estimate_usd": estimate,
+            "rate_reference": rate,
             "published": False,
             "phone": phone,
             "status": "sending",
@@ -205,7 +212,7 @@ def finish(service, p, intent, result):
         InferenceResult({}, {"credits_remaining": result["credits_remaining"]} if result else {}, None),
         object_id=screening_key(service, intent["phone"]),
         request_key=intent["request_key"],
-        reserved=QUERY_ESTIMATE,
+        reserved=intent.get("estimate_usd", QUERY_ESTIMATE),
     )
     config = service.vault.read(p["tenant_id"])
     rejected = False
@@ -254,9 +261,9 @@ def finish(service, p, intent, result):
     return saved
 
 
-def reserve_refresh_in(service, s, p, refresh):
+def reserve_refresh_in(service, s, p, refresh, estimate):
     """Debit the run/day allowance atomically with the existing per-query intent."""
-    job = s.get(Job, refresh["job_id"])
+    job = s.scalar(select(Job).where(Job.id == refresh["job_id"]).with_for_update())
     seller = service.required(s, "sellers", p["seller_id"], p)
     policy = DncRefreshPolicy(**seller.data.get("operating_policy", {}).get("dnc_refresh", {}))
     if (
@@ -270,7 +277,7 @@ def reserve_refresh_in(service, s, p, refresh):
         or not policy.enabled
     ):
         fail(409, "DNC_REFRESH_CHANGED_OR_DISABLED")
-    amount = int((Decimal(str(QUERY_ESTIMATE)) * 1_000_000).to_integral_value(rounding=ROUND_CEILING))
+    amount = int((Decimal(str(estimate)) * 1_000_000).to_integral_value(rounding=ROUND_CEILING))
     day = service.clock().date().isoformat()
     spending = seller.data.get("dnc_refresh_spending", {})
     used = spending.get("micro_usd", 0) if spending.get("day") == day else 0
@@ -367,7 +374,7 @@ def refresh_progress(
     reason=None,
 ):
     with service.db.transaction() as s:
-        job = s.get(Job, job_id)
+        job = s.scalar(select(Job).where(Job.id == job_id).with_for_update())
         if (
             not job
             or job.status != "running"
@@ -512,9 +519,31 @@ def bind_screening_api(app, service, administrator):
                 )
             )
             max_age = screening_max_age(service, s, p)
+            refresh_job = s.scalar(
+                select(Job)
+                .where(Job.tenant_id == p["tenant_id"], Job.key.like(f"dnc-refresh:{p['seller_id']}:%"))
+                .order_by(Job.available_at.desc(), Job.id.desc())
+                .limit(1)
+            )
             return {
                 "screens": [view(service, row, config, max_age) for row in pending + recent],
                 "limited": len(pending) == 100,
+                "refresh": {
+                    "status": refresh_job.status,
+                    **{
+                        key: refresh_job.payload.get(key)
+                        for key in (
+                            "phase",
+                            "inspected",
+                            "submitted",
+                            "reserved_micro_usd",
+                            "complete",
+                            "reason",
+                        )
+                    },
+                }
+                if refresh_job
+                else None,
             }
 
     @app.post("/v1/admin/dnc/screen")

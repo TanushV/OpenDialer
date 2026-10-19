@@ -337,7 +337,7 @@
         },
         {
           "id": "E05.costs",
-          "status": "open",
+          "status": "in-progress",
           "work": "Dated single cost register and source/account provenance"
         },
         {
@@ -347,10 +347,11 @@
         },
         {
           "id": "E05.acceptance",
-          "status": "open",
+          "status": "in-progress",
           "work": "Focused dual-database/browser checks and retire duplicate preflight rule"
         }
-      ]
+      ],
+      "checkpoint": "170 focused SQLite cases and four DNC/cost/import browser journeys pass; current PostgreSQL selection running. Account provenance, actual queue eligibility and resumable legacy chunk backfill implemented; full E05 exit remains open."
     },
     {
       "id": "E06",

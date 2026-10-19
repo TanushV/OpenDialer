@@ -253,6 +253,21 @@ export interface Readiness {
   mode: string;
   simulation: boolean;
   version: string;
+  screening?: {
+    mode: string;
+    configured: boolean;
+    authorized: boolean;
+    fresh: boolean;
+    cleared_count: number;
+    pending_count: number;
+    blocked_count: number;
+    dialable_queue_count: number;
+    inspected_count: number;
+    total_count: number;
+    omitted_count: number;
+    counts_complete: boolean;
+    reason_codes: string[];
+  };
 }
 export interface Policy {
   id: string;
@@ -353,7 +368,13 @@ export interface Workspace {
   playbooks: Playbook[];
   registries: {
     id: string;
+    version: number;
     kind: string;
+    jurisdiction?: string;
+    published: boolean;
+    subscription_reference?: string;
+    subscription_id?: string;
+    authorization_expires_at?: string;
     npas: string[];
     refreshed_at: string;
     checksum: string;

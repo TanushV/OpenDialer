@@ -110,4 +110,132 @@ def test_cost_register_has_units_source_date_and_funding_boundaries(workspace):
         assert rate.get("currency") == "USD", name
         assert rate.get("unit") and rate.get("source_url") and rate.get("checked_at"), name
         assert rate.get("classification") in {"included", "payg", "existing_recurring", "excluded"}, name
-        assert "account_rate_override" in rate and rate.get("minimum_funding_usd") is not None, name
+        assert "account_rate_override" in rate and "minimum_funding_usd" in rate, name
+        if rate["minimum_funding_usd"] is None:
+            assert rate["funding_status"] == "account_dependent", name
+
+
+def test_unknown_provider_minimum_is_not_published_as_zero(workspace):
+    costs = (
+        workspace["client"].get("/v1/admin/operating-policy", headers=workspace["headers"]).json()["costs"]
+    )
+    assert costs["application"]["minimum_funding_usd"] == 0
+    assert costs["dnc"]["minimum_funding_usd"] == 100
+    assert costs["voice"]["minimum_funding_usd"] is None
+    assert costs["cerebras"]["funding_status"] == "account_dependent"
+
+
+def test_corrupt_national_source_is_an_actionable_block_without_paid_fallback(workspace, app):
+    import base64
+
+    from test_remediation_privacy import principal
+
+    p, service = principal(workspace), app.state.service
+    with service.db.transaction() as s:
+        row = service.scoped(s, "registry_snapshots", p)[0]
+        update(row, bitmap=base64.b64encode(b"invalid").decode(), checksum="invalid")
+    result = workspace["client"].get("/v1/admin/preflight", headers=workspace["headers"])
+    assert result.status_code == 200
+    assert not result.json()["ready_to_call"]
+    assert "REGISTRY_SOURCE_INVALID" in result.json()["blockers"]
+
+
+def test_import_preserves_explicit_access_expiry(workspace, app, clock):
+    from datetime import timedelta
+
+    from test_remediation_privacy import principal
+
+    p, service = principal(workspace), app.state.service
+    expiry = clock.now + timedelta(hours=1)
+    result = workspace["client"].post(
+        "/v1/admin/registry/import",
+        headers=workspace["headers"],
+        json={
+            "kind": "national",
+            "npas": ["415", "212", "512"],
+            "subscription_reference": "expires-today",
+            "refreshed_at": clock.now.isoformat(),
+            "authorization_expires_at": expiry.isoformat(),
+            "numbers": [],
+        },
+    )
+    assert result.status_code == 200
+    ready(workspace)
+    clock.now = expiry
+    with service.db.transaction(False) as s:
+        lead, number = service.scoped(s, "leads", p)[0], service.scoped(s, "number_inventory", p)[0]
+        decision = authorize(service.context(s, p, lead, number))
+        assert not decision.allowed and "REGISTRY_STALE" in decision.reasons
+
+
+@pytest.mark.parametrize("blocked_by", ["state", "reservation", "completed", "capacity"])
+def test_preflight_dialable_count_obeys_current_state_policy_and_claims(workspace, app, blocked_by):
+    from test_remediation_privacy import principal
+
+    service, p = app.state.service, principal(workspace)
+    ready(workspace)
+    if blocked_by == "state":
+        with service.db.transaction() as s:
+            campaign = service.required(s, "campaigns", workspace["campaign_id"], p)
+            update(
+                service.required(s, "policy_versions", campaign.data["policy_id"], p),
+                state_registry_required=True,
+            )
+    elif blocked_by == "reservation":
+        assert (
+            workspace["client"]
+            .post(
+                "/v1/queue/next", headers=workspace["headers"], json={"campaign_id": workspace["campaign_id"]}
+            )
+            .status_code
+            == 200
+        )
+    elif blocked_by == "completed":
+        with service.db.transaction() as s:
+            for lead in service.scoped(s, "leads", p):
+                update(lead, status="converted")
+    else:
+        with service.db.transaction() as s:
+            for number in service.scoped(s, "number_inventory", p):
+                update(number, daily_limit=0)
+    result = workspace["client"].get("/v1/admin/preflight", headers=workspace["headers"]).json()
+    assert result["screening"]["cleared_count"] == 3
+    assert result["screening"]["dialable_queue_count"] == 0
+    assert not result["ready_to_call"]
+
+
+def test_corrupt_required_state_registry_blocks_without_crashing(workspace, app, clock):
+    from app.db import put
+    from test_remediation_privacy import principal
+
+    service, p = app.state.service, principal(workspace)
+    ready(workspace)
+    with service.db.transaction() as s:
+        campaign = service.required(s, "campaigns", workspace["campaign_id"], p)
+        update(
+            service.required(s, "policy_versions", campaign.data["policy_id"], p),
+            state_registry_required=True,
+        )
+        for lead in service.scoped(s, "leads", p):
+            update(lead, jurisdiction="CA")
+        put(
+            s,
+            "registry_snapshots",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "kind": "state",
+                "jurisdiction": "CA",
+                "npas": ["415", "212", "512"],
+                "refreshed_at": clock.now.isoformat(),
+                "published": True,
+                "bitmap": "broken",
+                "checksum": "broken",
+                "subscription_id": "state-authority",
+            },
+            now=clock.now,
+        )
+    response = workspace["client"].get("/v1/admin/preflight", headers=workspace["headers"])
+    assert response.status_code == 200
+    assert not response.json()["ready_to_call"]
+    assert "STATE_REGISTRY_MISSING" in response.json()["blockers"]

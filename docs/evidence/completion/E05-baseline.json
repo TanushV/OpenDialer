@@ -20,6 +20,15 @@
     "E05-refresh-ready-red.txt": "8828e28ea4479b60c52495872b599c5894355cac1120eb2d31d86daa5c0de742",
     "E05-policy-ui-unit-red.txt": "0673dbf00ec5e7c38b6b03e6eeb1b635ccb3e46d7f11857ab577b97a8a10fa57",
     "E05-policy-ui-red.txt": "c666a277f1e2a0536ff5996ea95869d881b9d44daba0067e2cb23ad0fc90504d",
-    "E05-rates-red.txt": "9681e5b0577e1e7d2898c8d510736d98e30b3cd99bd46f2978baab1fe38729e4"
-  }
+    "E05-rates-red.txt": "9681e5b0577e1e7d2898c8d510736d98e30b3cd99bd46f2978baab1fe38729e4",
+    "E05-source-boundaries-red.txt": "8a130abd9fdce10b693b9984d247ecb2d918eb58ff2c51dfee5331149154be55",
+    "E05-queue-readiness-red.txt": "17e14c335fd3d32723265eb17b81a8721edeafa7f001288f9afe80b1fede2990",
+    "E05-eligibility-red.txt": "af747284ad6cb839d1f085501c26e535fc60f4ef6d69b275a43f98e7efd1a48f",
+    "E05-rates-ui-red.txt": "d0e7bd12a9c2fdf77421b0753c1a5ebd76b20a78f8de379e17b27e4b30ccee88",
+    "E05-legacy-chunks-red.txt": "5c8302980bea55e846fa961afaaa48fb455d08920c5697144201a73a00f40258",
+    "E05-retired-replay-red.txt": "184f37ef37c6ff4ed0c2c08aadf6a05260d79e72259b1d36f23513e54199ca04",
+    "E05-registry-ui-red.txt": "0f07721234cf30147f2750f34991214ed04949709ed12864e4ed213aba15c070",
+    "E05-postgres-isolation-red.txt": "26c2cb986001278027aef7ad470059304b2881e739dafa2ebc8c3f2fe2d7a8d5"
+  },
+  "supplement_boundary": "New source/readiness/cost/legacy chunk/import recovery counterexamples retained before repair. PostgreSQL isolation receipt is a fixture ordering error, not a relaxed production corruption check."
 }

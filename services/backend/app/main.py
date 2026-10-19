@@ -244,6 +244,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
     db.registry_lru_bytes = settings.runtime_limits.registry_lru_bytes
     service = Dialer(db, settings, clock, carrier)
     service.privacy_cutover()
+    from app.compliance.registry import migrate_registry_chunks
+
+    migrate_registry_chunks(service)
     service.migrate_conversation_states()
     service.migrate_followthrough()
     try:

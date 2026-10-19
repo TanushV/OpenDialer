@@ -21,6 +21,10 @@ REGISTRY_FIELDS = {
     "synthetic",
     "published",
     "count",
+    "jurisdiction",
+    "subscription_reference",
+    "subscription_id",
+    "authorization_expires_at",
 }
 
 

@@ -1,5 +1,124 @@
 import { expect, test } from "@playwright/test";
 
+test("registry publication retains identity after lost response and reload", async ({
+  page,
+}) => {
+  const bodies: Record<string, unknown>[] = [];
+  await page.route("**/v1/admin/registry/import", async (route) => {
+    bodies.push(route.request().postDataJSON());
+    if (bodies.length === 1) {
+      const response = await route.fetch();
+      expect(response.status()).toBe(200);
+      return route.abort("failed");
+    }
+    return route.continue();
+  });
+  async function fill() {
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Policy & DNC", exact: true })
+      .click();
+    await page
+      .getByLabel("Authorized area codes (comma separated)")
+      .fill("415, 212, 512");
+    await page
+      .getByLabel("Subscription / authorization reference")
+      .fill("Synthetic registry authority");
+    await page.getByLabel("Dataset refreshed on").fill("2026-10-14");
+    await page.getByLabel("Source access expires at").fill("2026-10-20T12:00");
+    await page
+      .getByLabel("Listed E.164 numbers (one per line)")
+      .fill("+14155550199");
+  }
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await fill();
+  await page
+    .getByRole("button", { name: "Validate & publish dataset" })
+    .click();
+  await expect.poll(() => bodies.length).toBe(1);
+  await expect(page.getByText(/Failed to fetch|Load failed/)).toBeVisible();
+  await page.reload();
+  await fill();
+  await page
+    .getByRole("button", { name: "Validate & publish dataset" })
+    .click();
+  await expect(
+    page.getByText("Validated registry snapshot published atomically.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  expect(bodies).toHaveLength(2);
+  expect(bodies[0].request_id).toBeTruthy();
+  expect(bodies[1]).toEqual(bodies[0]);
+  await page.getByLabel("Dataset import mode").selectOption("changes");
+  await page.getByLabel("Base publication").selectOption({ index: 1 });
+  await page.getByLabel("Added listed E.164 numbers").fill("+14155550198");
+  await page.getByLabel("Removed listed E.164 numbers").fill("+14155550199");
+  await page
+    .getByRole("button", { name: "Validate & publish dataset" })
+    .click();
+  await expect.poll(() => bodies.length).toBe(3);
+  expect(bodies[2].base_snapshot_id).toBeTruthy();
+  expect(bodies[2].expected_version).toBeGreaterThan(0);
+  expect(bodies[2].numbers).toBeUndefined();
+  await expect(
+    page.getByText("Validated registry snapshot published atomically.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+});
+
+test("account DNC rates preserve provenance and show the dated reference separately", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByText("Account rate estimates", { exact: true }).click();
+  await page.getByLabel("Rate component").selectOption("dnc");
+  await page.getByLabel("Estimated per query usd").fill("0.003");
+  await page
+    .getByLabel("Rate invoice or quote reference")
+    .fill("Synthetic invoice reference");
+  await page.getByLabel("Account rate checked on").fill("2026-10-14");
+  await page
+    .getByRole("button", { name: "Save account rate estimate" })
+    .click();
+  await expect(
+    page.getByText("Account rate estimate saved", { exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByText("Account rate estimates", { exact: true }).click();
+  await expect(page.getByLabel("Estimated per query usd")).toHaveValue("0.003");
+  await expect(page.getByLabel("Rate invoice or quote reference")).toHaveValue(
+    "Synthetic invoice reference",
+  );
+  await expect(
+    page.getByText(
+      "Published reference rates remain separate from account estimates and actual charges.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+});
+
 test("scheduled prepaid screening requires explicit budgets and saves without charged reads", async ({
   page,
 }) => {

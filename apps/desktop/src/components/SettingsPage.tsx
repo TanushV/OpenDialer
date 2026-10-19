@@ -59,7 +59,13 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
     refreshed_at: new Date().toISOString().slice(0, 10),
     kind: "national",
     jurisdiction: "",
+    mode: "full",
+    base_snapshot_id: "",
+    authorization_expires_at: "",
+    add: "",
+    remove: "",
   });
+  const [registryBusy, setRegistryBusy] = useState(false);
   const [identityEvidence, setIdentityEvidence] = useState("");
   const [backupId, setBackupId] = useState("");
   const [restoreId, setRestoreId] = useState("");
@@ -170,6 +176,32 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
               </p>
             </div>
           </div>
+          {preflight.screening && (
+            <div className="stack">
+              <p>
+                National screening: {label(preflight.screening.mode)} ·{" "}
+                {preflight.screening.cleared_count} clear ·{" "}
+                {preflight.screening.pending_count} pending ·{" "}
+                {preflight.screening.blocked_count} blocked.
+              </p>
+              <p className="fine">
+                {preflight.screening.dialable_queue_count} currently eligible
+                candidates for this rep in {preflight.screening.inspected_count}{" "}
+                inspected leads, of {preflight.screening.total_count} total.
+                {preflight.screening.omitted_count > 0 &&
+                  ` ${preflight.screening.omitted_count} leads remain outside this bounded check.`}{" "}
+                Every submission is checked again.
+              </p>
+              {preflight.screening.pending_count > 0 && (
+                <p className="fine">
+                  Import a fresh seller-authorized dataset or configure
+                  authorized prepaid coverage and a funded screening batch.
+                  Resolve uncertain lookups in prepaid screening results.
+                  Internal opt-outs cannot be overridden.
+                </p>
+              )}
+            </div>
+          )}
           {preflight.blockers.map((b) => (
             <p className="preflight-blocker" key={b}>
               ● {label(b)}
@@ -692,88 +724,260 @@ export function SettingsPage({ onDisconnect }: { onDisconnect: () => void }) {
               features.
             </p>
             <label>
-              Dataset type
+              Dataset import mode
               <select
-                value={registry.kind}
+                value={registry.mode}
                 onChange={(e) =>
-                  setRegistry({ ...registry, kind: e.target.value })
+                  setRegistry({ ...registry, mode: e.target.value })
                 }
+                disabled={registryBusy}
               >
-                <option value="national">National</option>
-                <option value="state">State</option>
+                <option value="full">Complete authorized snapshot</option>
+                <option value="changes">Changes to a published snapshot</option>
               </select>
             </label>
-            {registry.kind === "state" && (
+            {registry.mode === "changes" && (
               <label>
-                State jurisdiction
-                <input
-                  value={registry.jurisdiction}
+                Base publication
+                <select
+                  value={registry.base_snapshot_id}
+                  disabled={registryBusy}
+                  onChange={(e) => {
+                    const base = history.items.find(
+                      (r) => r.id === e.target.value,
+                    );
+                    setRegistry({
+                      ...registry,
+                      base_snapshot_id: e.target.value,
+                      ...(base
+                        ? {
+                            kind: base.kind,
+                            jurisdiction: base.jurisdiction || "",
+                            npas: base.npas.join(", "),
+                            reference:
+                              base.subscription_reference ||
+                              base.subscription_id ||
+                              "",
+                            authorization_expires_at:
+                              base.authorization_expires_at?.slice(0, 16) || "",
+                          }
+                        : {}),
+                    });
+                  }}
+                >
+                  <option value="">Choose the current source</option>
+                  {history.items
+                    .filter((r) => r.published)
+                    .map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {label(r.kind)} · {r.npas.join(", ")} · version{" "}
+                        {r.version}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            )}
+            <fieldset disabled={registryBusy} style={{ border: 0, padding: 0 }}>
+              <label>
+                Dataset type
+                <select
+                  value={registry.kind}
                   onChange={(e) =>
-                    setRegistry({ ...registry, jurisdiction: e.target.value })
+                    setRegistry({ ...registry, kind: e.target.value })
+                  }
+                >
+                  <option value="national">National</option>
+                  <option value="state">State</option>
+                </select>
+              </label>
+              {registry.kind === "state" && (
+                <label>
+                  State jurisdiction
+                  <input
+                    value={registry.jurisdiction}
+                    onChange={(e) =>
+                      setRegistry({ ...registry, jurisdiction: e.target.value })
+                    }
+                  />
+                </label>
+              )}
+              <label>
+                Authorized area codes (comma separated)
+                <input
+                  value={registry.npas}
+                  onChange={(e) =>
+                    setRegistry({ ...registry, npas: e.target.value })
                   }
                 />
               </label>
-            )}
-            <label>
-              Authorized area codes (comma separated)
-              <input
-                value={registry.npas}
-                onChange={(e) =>
-                  setRegistry({ ...registry, npas: e.target.value })
+              <label>
+                Subscription / authorization reference
+                <input
+                  value={registry.reference}
+                  onChange={(e) =>
+                    setRegistry({ ...registry, reference: e.target.value })
+                  }
+                />
+              </label>
+              <label>
+                Dataset refreshed on
+                <input
+                  type="date"
+                  value={registry.refreshed_at}
+                  onChange={(e) =>
+                    setRegistry({ ...registry, refreshed_at: e.target.value })
+                  }
+                />
+              </label>
+              <label>
+                Source access expires at
+                <input
+                  type="datetime-local"
+                  value={registry.authorization_expires_at}
+                  onChange={(e) =>
+                    setRegistry({
+                      ...registry,
+                      authorization_expires_at: e.target.value,
+                    })
+                  }
+                />
+              </label>
+              <p className="fine">
+                Source access time is UTC. An earlier access expiry always
+                shortens the screening lifetime.
+              </p>
+              {registry.mode === "full" ? (
+                <label>
+                  Listed E.164 numbers (one per line)
+                  <textarea
+                    rows={4}
+                    value={registry.numbers}
+                    onChange={(e) =>
+                      setRegistry({ ...registry, numbers: e.target.value })
+                    }
+                  />
+                </label>
+              ) : (
+                <>
+                  <label>
+                    Added listed E.164 numbers
+                    <textarea
+                      value={registry.add}
+                      onChange={(e) =>
+                        setRegistry({ ...registry, add: e.target.value })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Removed listed E.164 numbers
+                    <textarea
+                      value={registry.remove}
+                      onChange={(e) =>
+                        setRegistry({ ...registry, remove: e.target.value })
+                      }
+                    />
+                  </label>
+                </>
+              )}
+              <button
+                className="secondary"
+                disabled={
+                  registryBusy ||
+                  !registry.npas ||
+                  !registry.reference ||
+                  (registry.mode === "changes" && !registry.base_snapshot_id)
                 }
-              />
-            </label>
-            <label>
-              Subscription / authorization reference
-              <input
-                value={registry.reference}
-                onChange={(e) =>
-                  setRegistry({ ...registry, reference: e.target.value })
+                onClick={() =>
+                  void run(async () => {
+                    setRegistryBusy(true);
+                    try {
+                      const base = history.items.find(
+                        (r) => r.id === registry.base_snapshot_id,
+                      );
+                      const body = {
+                        kind: registry.kind,
+                        jurisdiction: registry.jurisdiction,
+                        npas: registry.npas.split(",").map((s) => s.trim()),
+                        subscription_reference: registry.reference,
+                        refreshed_at: new Date(
+                          registry.refreshed_at + "T00:00:00Z",
+                        ).toISOString(),
+                        ...(registry.authorization_expires_at
+                          ? {
+                              authorization_expires_at: new Date(
+                                registry.authorization_expires_at + "Z",
+                              ).toISOString(),
+                            }
+                          : {}),
+                        ...(registry.mode === "full"
+                          ? {
+                              numbers: registry.numbers
+                                .split(/\s+/)
+                                .filter(Boolean),
+                            }
+                          : {
+                              base_snapshot_id: base?.id,
+                              expected_version: base?.version,
+                              add: registry.add.split(/\s+/).filter(Boolean),
+                              remove: registry.remove
+                                .split(/\s+/)
+                                .filter(Boolean),
+                            }),
+                      };
+                      const digest = Array.from(
+                        new Uint8Array(
+                          await crypto.subtle.digest(
+                            "SHA-256",
+                            new TextEncoder().encode(JSON.stringify(body)),
+                          ),
+                        ),
+                      )
+                        .map((b) => b.toString(16).padStart(2, "0"))
+                        .join("");
+                      const key = "opendialer.registry-import." + w.seller.id;
+                      let previous: { digest?: string; request_id?: string } =
+                        {};
+                      try {
+                        previous = JSON.parse(
+                          sessionStorage.getItem(key) || "{}",
+                        );
+                      } catch {
+                        /* Invalid metadata cannot authorize anything. */
+                      }
+                      const request_id =
+                        previous.digest === digest && previous.request_id
+                          ? previous.request_id
+                          : crypto.randomUUID();
+                      // Retain only the request fingerprint, never registry membership, across reload.
+                      sessionStorage.setItem(
+                        key,
+                        JSON.stringify({ digest, request_id }),
+                      );
+                      const result = await api<{ published: boolean }>(
+                        "/v1/admin/registry/import",
+                        "POST",
+                        { ...body, request_id },
+                      );
+                      await refresh();
+                      notice(
+                        result.published
+                          ? "Validated registry snapshot published atomically."
+                          : "Original import recovered; a newer publication is current.",
+                      );
+                    } finally {
+                      setRegistryBusy(false);
+                    }
+                  })
                 }
-              />
-            </label>
-            <label>
-              Dataset refreshed on
-              <input
-                type="date"
-                value={registry.refreshed_at}
-                onChange={(e) =>
-                  setRegistry({ ...registry, refreshed_at: e.target.value })
-                }
-              />
-            </label>
-            <label>
-              Listed E.164 numbers (one per line)
-              <textarea
-                rows={4}
-                value={registry.numbers}
-                onChange={(e) =>
-                  setRegistry({ ...registry, numbers: e.target.value })
-                }
-              />
-            </label>
-            <button
-              className="secondary"
-              disabled={!registry.npas || !registry.reference}
-              onClick={() =>
-                void run(async () => {
-                  await api("/v1/admin/registry/import", "POST", {
-                    kind: registry.kind,
-                    jurisdiction: registry.jurisdiction,
-                    npas: registry.npas.split(",").map((s) => s.trim()),
-                    subscription_reference: registry.reference,
-                    refreshed_at: new Date(
-                      registry.refreshed_at + "T00:00:00Z",
-                    ).toISOString(),
-                    numbers: registry.numbers.split(/\s+/).filter(Boolean),
-                  });
-                  await refresh();
-                  notice("Validated registry snapshot published atomically.");
-                })
-              }
-            >
-              Validate &amp; publish dataset
-            </button>
+              >
+                Validate &amp; publish dataset
+              </button>
+            </fieldset>
+            <p className="fine">
+              If interrupted, resubmit the same source and fields to resume the
+              original import. The current source remains active until all
+              chunks validate. No source download or purchase runs here.
+            </p>
           </section>
         </div>
       )}

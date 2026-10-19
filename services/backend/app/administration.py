@@ -107,17 +107,28 @@ class Dialer(
             if not healthy:
                 blockers.append("NO_HEALTHY_NUMBERS")
             from app.compliance.operating import screening_capability, screening_snapshot
-            from app.compliance.policy import authorize
+            from app.optimization.numbering import select_number
+            from app.scheduling.policy import queue_decision
 
             screening = screening_capability(screening_snapshot(self, s, p))
             lead_model = MODELS["leads"]
             scope = (lead_model.tenant_id == p["tenant_id"], lead_model.seller_id == p["seller_id"])
             total = s.scalar(select(func.count()).select_from(lead_model).where(*scope))
             leads = list(s.scalars(select(lead_model).where(*scope).order_by(lead_model.id).limit(500)))
+            self._queue_context(s, p, campaign.id, leads)
+            inventory = self.inventory_evidence(s, p, fast=True)
+            claims = s.info["active_claims"]
+            own = next((c for c in claims if c.rep_id == p["user_id"]), None)
+            claimed = {c.endpoint_id for c in claims}
+            bindings = {
+                r.data["lead_id"]: r.data["number_id"] for r in self.scoped(s, "lead_number_bindings", p)
+            }
+            by_number = {n.id: n for n in numbers}
             counts = {"cleared_count": 0, "pending_count": 0, "blocked_count": 0, "dialable_queue_count": 0}
-            reasons = set()
+            reasons, queue_reasons = set(), set()
             for lead in leads:
-                context = self.context(s, p, lead, healthy)
+                allocation = select_number(doc(lead), inventory, bound_id=bindings.get(lead.id))
+                context = self.context(s, p, lead, by_number.get(allocation["number_id"]))
                 national = context.registry_decision
                 key = (
                     "cleared_count"
@@ -128,7 +139,11 @@ class Dialer(
                 )
                 counts[key] += 1
                 reasons.update(national["reason_codes"])
-                counts["dialable_queue_count"] += int(authorize(context).allowed)
+                decision = queue_decision(
+                    context, lead.data, own_claim=own, endpoint_claimed=lead.data["endpoint_id"] in claimed
+                )
+                counts["dialable_queue_count"] += int(decision.allowed)
+                queue_reasons.update(decision.reasons)
                 if context.state_registry_required and not context.state_registry_current:
                     reasons.add("STATE_REGISTRY_MISSING")
             screening.update(
@@ -138,11 +153,17 @@ class Dialer(
                 omitted_count=max(0, total - len(leads)),
                 counts_complete=total <= len(leads),
                 reason_codes=sorted(reasons or screening["reason_codes"]),
+                queue_reason_codes=sorted(queue_reasons),
+                queue_scope="inspected candidates for the current rep; not reserved capacity",
             )
             if not counts["cleared_count"]:
                 blockers.extend(screening["reason_codes"] or ["SCREENING_PENDING"])
             if "STATE_REGISTRY_MISSING" in reasons:
                 warnings.append("Some leads require a current authorized state registry source")
+            if not counts["dialable_queue_count"]:
+                blockers.extend(sorted(queue_reasons) or ["NO_CURRENTLY_DIALABLE_WORK"])
+                if total > len(leads):
+                    warnings.append("Queue inspection is bounded; further candidates may be eligible")
             if not self.budget_ok(s, p):
                 blockers.append("BUDGET_EXHAUSTED")
             pending = sum(
@@ -180,7 +201,7 @@ class Dialer(
         return {
             "integrity_ok": integrity,
             "ready_to_call": not blockers,
-            "blockers": blockers,
+            "blockers": sorted(set(blockers)),
             "warnings": warnings,
             "mode": self.settings.mode,
             "simulation": self.settings.simulation,

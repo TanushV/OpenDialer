@@ -38,3 +38,16 @@ def validate_database_url(value: str, *, purpose: str = "unit") -> str:
         # Do not leak possibly real credentials in the refusal.
         raise ValueError(f"Refusing non-disposable {purpose} database")
     return value
+
+
+def reset_database(value: str, *, purpose: str = "unit") -> None:
+    """Reset only the explicitly admitted store, before application startup runs."""
+    from app.db import Base
+    from sqlalchemy import create_engine
+
+    engine = create_engine(validate_database_url(value, purpose=purpose))
+    try:
+        Base.metadata.drop_all(engine)
+        Base.metadata.create_all(engine)
+    finally:
+        engine.dispose()

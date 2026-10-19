@@ -13,6 +13,125 @@ from test_context_reads import count_decrypted
 from test_remediation_privacy import principal
 
 
+def test_replaying_retired_publication_returns_original_receipt_and_current_state(workspace, clock):
+    from uuid import uuid4
+
+    body = {
+        "request_id": str(uuid4()),
+        "kind": "national",
+        "npas": ["415"],
+        "subscription_reference": "original",
+        "refreshed_at": clock.now.isoformat(),
+        "numbers": [],
+    }
+
+    def submit(value):
+        response = workspace["client"].post(
+            "/v1/admin/registry/import", headers=workspace["headers"], json=value
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    original = submit(body)
+    submit({**body, "request_id": str(uuid4()), "subscription_reference": "replacement"})
+    replay = submit(body)
+    assert replay["id"] == original["id"] and replay["version"] == original["version"]
+    assert replay["published"] is False
+    assert replay["current_version"] > replay["version"]
+
+
+def test_legacy_country_publication_is_chunked_on_restart_without_losing_authority(workspace, app, clock):
+    """The old file exceeds 50 MB decoded; migration must not load a country bitmap."""
+    import hashlib
+    import json
+    import zlib
+
+    from app.compliance.registry import registry_contains
+    from app.main import create_app
+
+    service, p = app.state.service, principal(workspace)
+    encoder, pieces = zlib.compressobj(1), []
+    pieces.append(encoder.compress(b"{"))
+    bits = bytearray(1_250_000)
+    suffix = 5550101
+    bits[suffix >> 3] |= 1 << (suffix & 7)
+    encoded = json.dumps(bytes(bits).hex()).encode()
+    npas = [str(n) for n in range(400, 422)]
+    for i, npa in enumerate(npas):
+        pieces.append(encoder.compress((b", " if i else b"") + json.dumps(npa).encode() + b": " + encoded))
+    pieces.append(encoder.compress(b"}"))
+    pieces.append(encoder.flush())
+    payload = b"".join(pieces)
+    with service.db.transaction() as s:
+        row = service.scoped(s, "registry_snapshots", p)[0]
+        update(
+            row,
+            bitmap=base64.b64encode(payload).decode(),
+            checksum=hashlib.sha256(payload).hexdigest(),
+            listed_numbers=[],
+            npas=npas,
+            authorization_expires_at=(clock.now + timedelta(hours=2)).isoformat(),
+        )
+        original_id, refreshed = row.id, row.data["refreshed_at"]
+    restarted = create_app(service.settings, clock=clock, carrier=service.carrier).state.service
+    with restarted.db.transaction(False) as s:
+        row = get(s, "registry_snapshots", original_id)
+        assert "bitmap" not in row.data and "listed_numbers" not in row.data
+        assert len(row.data["chunks"]) == len(npas)
+        assert row.data["refreshed_at"] == refreshed
+        assert row.data["authorization_expires_at"] == (clock.now + timedelta(hours=2)).isoformat()
+        assert registry_contains(s, row, "+14155550101")
+        assert not registry_contains(s, row, "+14155550102")
+        before = row.version
+    twice = create_app(service.settings, clock=clock, carrier=service.carrier).state.service
+    with twice.db.transaction(False) as s:
+        assert get(s, "registry_snapshots", original_id).version == before
+
+
+def test_legacy_chunk_backfill_resumes_after_committed_chunk(workspace, app, clock, monkeypatch):
+    import app.compliance.registry as registry
+    from app.main import create_app
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        row = service.scoped(s, "registry_snapshots", p)[0]
+        bitmap = RegistryBitmap.build(["+14155550101", "+12125550101"])
+        update(
+            row, bitmap=base64.b64encode(bitmap.dump()).decode(), checksum=bitmap.checksum, listed_numbers=[]
+        )
+        original = row.id
+    real, writes = registry.put, []
+
+    def crash(s, kind, tenant, seller, data, **kwargs):
+        if data.get("kind", "").endswith("_chunk"):
+            writes.append(data["npa"])
+            if len(writes) == 2:
+                raise RuntimeError("simulated restart after chunk")
+        return real(s, kind, tenant, seller, data, **kwargs)
+
+    monkeypatch.setattr(registry, "put", crash)
+    with pytest.raises(RuntimeError, match="simulated restart"):
+        create_app(service.settings, clock=clock, carrier=service.carrier)
+    with service.db.transaction(False) as s:
+        assert get(s, "registry_snapshots", original).data["published"]
+        assert "chunks" not in get(s, "registry_snapshots", original).data
+    monkeypatch.setattr(registry, "put", real)
+    restarted = create_app(service.settings, clock=clock, carrier=service.carrier).state.service
+    with restarted.db.transaction(False) as s:
+        row = get(s, "registry_snapshots", original)
+        assert set(row.data["chunks"]) == {"212", "415"}
+        assert (
+            len(
+                [
+                    r
+                    for r in restarted.scoped(s, "registry_snapshots", p)
+                    if r.data.get("publication_id") == original
+                ]
+            )
+            == 2
+        )
+
+
 def test_npa_chunk_country_bound(workspace, app, clock, monkeypatch):
     """C020: a country-sized publication reads only the requested NPA chunk."""
     import gc

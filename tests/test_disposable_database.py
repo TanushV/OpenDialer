@@ -47,3 +47,15 @@ def test_ci_identity_requires_actual_ci_and_distinct_browser_database(monkeypatc
 def test_unit_and_browser_stores_cannot_alias():
     with pytest.raises(ValueError):
         validate_database_url(LOCAL + "opendialer_remediation_test", purpose="browser")
+
+
+def test_reset_refuses_foreign_store_before_opening_connection(monkeypatch):
+    import sqlalchemy
+
+    from scripts.disposable_database import reset_database
+
+    opened = []
+    monkeypatch.setattr(sqlalchemy, "create_engine", lambda *a, **k: opened.append(a))
+    with pytest.raises(ValueError):
+        reset_database(LOCAL + "production")
+    assert opened == []

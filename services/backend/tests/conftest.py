@@ -9,7 +9,7 @@ from app.main import create_app
 from app.providers.simulated import SimulatedCarrier
 from fastapi.testclient import TestClient
 
-from scripts.disposable_database import validate_database_url
+from scripts.disposable_database import reset_database, validate_database_url
 
 NOW = datetime(2026, 10, 14, 18, 0, tzinfo=UTC)
 
@@ -45,10 +45,9 @@ def app(tmp_path, clock, carrier):
         bootstrap_token="test-bootstrap-secret",
         secret_key="test-secret-" + "a" * 48,
     )
-    application = create_app(settings, clock=clock, carrier=carrier)
     if os.getenv("OPENDIALER_TEST_POSTGRES_URL"):
-        application.state.db.reset()
-    return application
+        reset_database(database_url)
+    return create_app(settings, clock=clock, carrier=carrier)
 
 
 @pytest.fixture

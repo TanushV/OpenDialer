@@ -527,7 +527,11 @@ class Service(ReservationPlanner):
             and lead.data["phone"][2:5] in r.data.get("npas", [])
             and (self.clock() - dt(r.data["refreshed_at"])).total_seconds() <= 31 * 86400
         ]
-        state_current = bool(state)
+        try:
+            state_listed = any(registry_contains(s, r, lead.data["phone"]) for r in state)
+            state_current = bool(state)
+        except ValueError:
+            state_listed, state_current = False, False
 
         from app.compliance.consent import permission_state
 
@@ -570,7 +574,7 @@ class Service(ReservationPlanner):
             registry_listed=national["decision"] == "listed",
             state_registry_required=config.get("state_registry_required", False),
             state_registry_current=state_current,
-            state_registry_listed=any(registry_contains(s, r, lead.data["phone"]) for r in state),
+            state_registry_listed=state_listed,
             internal_suppressed=internal_suppressed,
             consent_required=config.get("consent_required", False),
             consent_valid=granted,

@@ -3,9 +3,9 @@
 import hashlib
 import hmac
 import json
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import Depends
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -31,6 +31,22 @@ class DncRefreshPolicy(BaseModel):
         return self
 
 
+class AccountRate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    values: dict[str, Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=9)]] = Field(
+        min_length=1, max_length=8
+    )
+    source_reference: str = Field(min_length=1, max_length=1000)
+    checked_at: date
+
+    @field_validator("source_reference")
+    @classmethod
+    def source_not_blank(cls, value):
+        if not value.strip():
+            raise ValueError("An account rate needs an invoice or quote reference")
+        return value.strip()
+
+
 class OperatingPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid")
     subscriptions_allowed: Literal[False] = False
@@ -45,6 +61,14 @@ class OperatingPolicy(BaseModel):
     transcription_privacy_reference: str = Field(default="", max_length=1000)
     dnc_source_max_age_days: int = Field(default=31, ge=1, le=31)
     dnc_refresh: DncRefreshPolicy = Field(default_factory=DncRefreshPolicy)
+    account_rates: dict[str, AccountRate] = Field(default_factory=dict, max_length=20)
+
+    @model_validator(mode="after")
+    def known_rate_units(self):
+        for component, rate in self.account_rates.items():
+            if component not in RATE_FIELDS or not set(rate.values) <= set(RATE_FIELDS[component]):
+                raise ValueError("Use an advertised component and rate unit")
+        return self
 
 
 class OperatingEdit(OperatingPolicy):
@@ -129,6 +153,42 @@ COSTS = {
     },
     "external_reputation": {"allowed": False, "excluded_monthly_usd": 100},
     "recording_calendar_crm": {"enabled": False, "cost_usd": 0},
+    "lookup": {
+        "per_query_usd": None,
+        "basis": "Optional PAYG endpoint/carrier lookup; quote required; not spam-label evidence",
+    },
+    "amd": {
+        "per_call_usd": None,
+        "basis": "Optional PAYG machine detection; account rate and receipt required",
+    },
+    "search": {
+        "per_tool_request_usd": None,
+        "basis": "Optional metered search plus model tokens; exact route rate required",
+    },
+    "preparation": {
+        "input_per_million_usd": None,
+        "output_per_million_usd": None,
+        "basis": "Configured PAYG model and optional review; no assumed free inference",
+    },
+    "finalization": {
+        "input_per_million_usd": 0.35,
+        "output_per_million_usd": 0.75,
+        "basis": "Default Cerebras PAYG model plus optional selective review and platform fees",
+    },
+}
+
+RATE_FIELDS = {
+    "voice": ["api_per_minute_usd"],
+    "callbacks": ["transfer_per_invocation_usd", "standard_tts_per_character_usd"],
+    "number_rental": ["from_monthly_usd"],
+    "dnc": ["estimated_per_query_usd"],
+    "cerebras": ["input_per_million_usd", "output_per_million_usd"],
+    "stt": ["soniox_per_minute_usd", "parakeet_per_minute_usd"],
+    "lookup": ["per_query_usd"],
+    "amd": ["per_call_usd"],
+    "search": ["per_tool_request_usd"],
+    "preparation": ["input_per_million_usd", "output_per_million_usd"],
+    "finalization": ["input_per_million_usd", "output_per_million_usd"],
 }
 
 # Dated reference rates, not actual invoices. Existing aliases remain for ledger consumers.
@@ -148,6 +208,11 @@ for _name, _unit, _classification, _url, _funding in (
         0,
     ),
     ("recording_calendar_crm", "disabled operation", "excluded", "https://github.com/TanushV/OpenDialer", 0),
+    ("lookup", "lookup request", "payg", "https://telnyx.com/pricing/number-lookup", 0),
+    ("amd", "detection per call", "payg", "https://telnyx.com/pricing/voice-api", 0),
+    ("search", "search tool request plus model tokens", "payg", "https://openai.com/api/pricing/", 0),
+    ("preparation", "million input / output tokens", "payg", "https://openai.com/api/pricing/", 0),
+    ("finalization", "million input / output tokens", "payg", "https://openrouter.ai/openai/gpt-oss-120b", 0),
 ):
     COSTS[_name].update(
         currency="USD",
@@ -156,8 +221,24 @@ for _name, _unit, _classification, _url, _funding in (
         source_url=_url,
         checked_at=COSTS[_name].get("checked_at", "2026-10-17"),
         account_rate_override=None,
-        minimum_funding_usd=_funding,
+        minimum_funding_usd=_funding if _name in {"application", "dnc", "recording_calendar_crm"} else None,
+        funding_status="reference"
+        if _name == "dnc"
+        else "not_applicable"
+        if _name in {"application", "recording_calendar_crm"}
+        else "account_dependent",
     )
+
+
+def cost_register(policy):
+    return {
+        name: {
+            **rate,
+            "rate_fields": RATE_FIELDS.get(name, []),
+            "account_rate_override": policy.get("account_rates", {}).get(name),
+        }
+        for name, rate in COSTS.items()
+    }
 
 
 def authority_stamp(config):
@@ -198,7 +279,11 @@ def screening_capability(snapshot, endpoint=None):
     def expiry(data, timestamp):
         try:
             at = dt(data[timestamp])
-            if not at or at > now or at.tzinfo is None:
+            if (
+                not at
+                or at > now + timedelta(seconds=60 if timestamp == "checked_at" else 0)
+                or at.tzinfo is None
+            ):
                 return None
             return min(
                 [at + timedelta(days=max_age)]
@@ -207,8 +292,11 @@ def screening_capability(snapshot, endpoint=None):
         except (ValueError, TypeError, KeyError):
             return None
 
-    sources, stale, covered = [], False, False
+    sources, stale, covered, invalid = [], False, False, False
     for data in national:
+        if data.get("source_invalid"):
+            invalid = True
+            continue
         valid = (simulation or not data.get("synthetic")) and bool(
             data.get("subscription_reference") or data.get("subscription_id")
         )
@@ -285,7 +373,9 @@ def screening_capability(snapshot, endpoint=None):
         base.update(decision="available", expires_at=auth_end.isoformat())
     else:
         base["reason_codes"] = [
-            "REGISTRY_STALE"
+            "REGISTRY_SOURCE_INVALID"
+            if invalid
+            else "REGISTRY_STALE"
             if stale
             else "SCREENING_PENDING"
             if prepaid_authorized and auth_scope
@@ -317,7 +407,10 @@ def screening_snapshot(service, s, p, phone=None, *, internal_suppressed=None):
         if row.data.get("kind") == "national":
             item = {**row.data, "id": row.id, "version": row.version}
             if phone and phone[2:5] in item.get("npas", []):
-                item["listed"] = registry_contains(s, row, phone)
+                try:
+                    item["listed"] = registry_contains(s, row, phone)
+                except ValueError:
+                    item["source_invalid"] = True
             national.append(item)
     cached = cached_screen(service, s, p, phone) if phone else None
     return {
@@ -334,24 +427,22 @@ def screening_key(service, phone):
     return "prepaid:" + hmac.new(service.db.identity_key, phone.encode(), hashlib.sha256).hexdigest()
 
 
-def authorized_screen(service, config, phone, max_age_days=31):
+def prepaid_snapshot(service, config, max_age, data=None):
     auth = config.get("dnc_seller_authorization") or {}
-    try:
-        return bool(
-            auth.get("reference")
-            and auth.get("source_access_verified") is True
-            and phone[2:5] in auth.get("npas", [])
-            and dt(auth["expires_at"]) > service.clock()
-            and (
-                (service.settings.simulation and not auth.get("source_refreshed_at"))
-                or auth.get("source_refreshed_at")
-                and 0
-                <= (service.clock() - dt(auth["source_refreshed_at"])).total_seconds()
-                <= max_age_days * 86400
-            )
-        )
-    except (ValueError, KeyError, TypeError):
-        return False
+    return {
+        "now": service.clock(),
+        "simulation": service.settings.simulation,
+        "seller_id": auth.get("seller_id"),
+        "authorization": auth,
+        "max_age_days": max_age,
+        "prepaid_configured": bool(config.get("dnc_api_key")),
+        "prepaid": data,
+    }
+
+
+def authorized_screen(service, config, phone, max_age_days=31):
+    decision = screening_capability(prepaid_snapshot(service, config, max_age_days), phone)
+    return decision["authorized"] and decision["covered"]
 
 
 def cached_screen(service, s, p, phone):
@@ -399,22 +490,8 @@ def screening_expiry(service, config, data, max_age):
 
 
 def usable_screen(service, config, data, max_age):
-    auth = config.get("dnc_seller_authorization", {})
-    try:
-        if (
-            data.get("status") == "completed"
-            and type(data.get("listed")) is bool
-            and dt(data["checked_at"]) <= service.clock() + timedelta(seconds=60)
-            and data.get("authorization_reference") == auth.get("reference")
-            and data.get("authority_stamp") == authority_stamp(config)
-            and authorized_screen(service, config, data["phone"], max_age)
-            and screening_expiry(service, config, data, max_age) > service.clock()
-            and (service.settings.simulation or not data.get("synthetic"))
-        ):
-            return data
-    except (ValueError, TypeError, KeyError):
-        pass
-    return None
+    decision = screening_capability(prepaid_snapshot(service, config, max_age, data), data.get("phone"))
+    return data if any(source["kind"] == "prepaid" for source in decision["sources"]) else None
 
 
 def bind_operating_api(app, service, administrator):
@@ -447,7 +524,7 @@ def bind_operating_api(app, service, administrator):
                 "prepaid_supported": True,
                 "notice": "Prepaid checks do not waive seller-specific National Registry access.",
             },
-            "costs": COSTS,
+            "costs": cost_register(policy),
             "rates_checked_at": "2026-10-17",
             "rates_are_estimates": True,
         }
@@ -488,6 +565,8 @@ def bind_operating_api(app, service, administrator):
                 fail(422, "Valid operating settings and an IANA preparation timezone are required")
             if merged.transcription_privacy_verified and not merged.transcription_privacy_reference.strip():
                 fail(422, "Provider/account retention evidence is required")
+            if any(rate.checked_at > service.clock().date() for rate in merged.account_rates.values()):
+                fail(422, "An account rate cannot have a future verification date")
             values = merged.model_dump(mode="json")
             asset = (values.get("script_template") or {}).get("final_voicemail_asset")
             if asset and not any(
