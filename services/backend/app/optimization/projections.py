@@ -1474,21 +1474,45 @@ def refresh_unit(service, p, payload):
                 },
             }
         if changed and kind == "lead" and snapshot["row"].get("campaign_id"):
-            service.jobs.enqueue_in(
+            # The campaign row is already locked. Keep one not-yet-running
+            # page, and start another at100 IDs or when its owner has begun.
+            # This durable follow-on also survives explicit rebuild/catch-up.
+            pending_id = campaign.data.get("pending_planning_job")
+            pending = session.get(Job, pending_id, with_for_update=True) if pending_id else None
+            reusable = bool(
+                pending
+                and pending.tenant_id == p["tenant_id"]
+                and pending.payload.get("campaign_id") == campaign.id
+                and pending.payload.get("internal")
+                and pending.status == "queued"
+                and (identity in pending.payload["lead_ids"] or len(pending.payload["lead_ids"]) < 100)
+            )
+            ids = sorted(set((pending.payload["lead_ids"] if reusable else []) + [identity]))
+            job = service.jobs.enqueue_in(
                 session,
                 "ml",
                 {
                     "kind": "retry_plan_refresh",
                     "seller_id": p["seller_id"],
                     "campaign_id": snapshot["row"]["campaign_id"],
-                    "lead_ids": [identity],
-                    "input_fingerprint": snapshot["input_version_fingerprint"],
+                    "lead_ids": ids,
+                    "input_fingerprint": hashlib.sha256(
+                        json.dumps(
+                            [
+                                pending.payload.get("input_fingerprint") if reusable else None,
+                                identity,
+                                snapshot["input_version_fingerprint"],
+                            ]
+                        ).encode()
+                    ).hexdigest(),
                     "internal": True,
                 },
-                f"planning-source:{p['seller_id']}:{identity}",
+                pending.key if reusable else f"planning-page:{campaign.id}:{uid()}",
                 tenant_id=p["tenant_id"],
+                priority=15,
                 latest=True,
             )
+            campaign.data = {**campaign.data, "pending_planning_job": job["id"]}
         return {"status": "ready" if changed else "unchanged"}
 
 

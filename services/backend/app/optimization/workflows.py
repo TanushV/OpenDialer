@@ -1049,7 +1049,9 @@ class OptimizationWorkflows(ComparisonWorkflows):
         )
         return {"status": job["status"], "rows": len(data), "job_id": job["id"], "dataset_id": dataset["id"]}
 
-    def refresh_schedule_plans(self, p, campaign_id, dataset_id=None, *, lead_ids=None, internal=False):
+    def refresh_schedule_plans(
+        self, p, campaign_id, dataset_id=None, *, lead_ids=None, internal=False, lease=None
+    ):
         """Use the common allocator; changed pages retain other saved allocations."""
         from app.optimization.capacity import plan_changed
         from app.service import fail
@@ -1132,6 +1134,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
             dataset_id=dataset_id,
             internal=internal,
             lead_ids=lead_ids,
+            lease=lease,
         )
 
     def _publish_schedule_plans(
@@ -1147,6 +1150,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
         dataset_id=None,
         internal=False,
         lead_ids=None,
+        lease=None,
     ):
         from zoneinfo import ZoneInfo
 
@@ -1263,6 +1267,13 @@ class OptimizationWorkflows(ComparisonWorkflows):
             if not computed:
                 continue
             with self.db.transaction() as s:
+                self.report_revision(s, p, lock=True)
+                if lease:
+                    from app.optimization.projections import _rebuild_owned
+                    from app.db import Job
+
+                    if not _rebuild_owned(s.get(Job, lease[0], with_for_update=True), lease, self.clock()):
+                        return {"status": "lost_lease", "saved": saved}
                 if not internal:
                     user, _, _, _ = self.report_scope(s, p)
                     if user["role"] != "admin":
@@ -1434,6 +1445,11 @@ class OptimizationWorkflows(ComparisonWorkflows):
             "window_days": dataset["window_days"],
         }
         with self.db.transaction() as s:
+            owner, _, _, _ = self.report_scope(s, p)
+            if owner["role"] != "admin":
+                from app.service import fail
+
+                fail(403, "Learning owner no longer has administrator access")
             campaign = self.required(s, "campaigns", campaign_id, p)
             config = self.optimization_config(s, p, campaign_id)
             if not (
@@ -1521,7 +1537,11 @@ class OptimizationWorkflows(ComparisonWorkflows):
                         },
                         key,
                         tenant_id=p["tenant_id"],
-                        priority=-10 if kind == "learning_refresh" else 0,
+                        priority=-10
+                        if kind == "learning_refresh"
+                        else 25
+                        if kind == "health_refresh"
+                        else 15,
                         latest=True,
                     )
                 )

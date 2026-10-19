@@ -1389,7 +1389,10 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                             job["payload"]["campaign_id"],
                             lead_ids=job["payload"].get("lead_ids"),
                             internal=job["payload"].get("internal", False),
+                            lease=(job["id"], worker_id),
                         )
+                        if receipt["status"] == "lost_lease":
+                            return 0
                         if receipt["status"] == "superseded":
                             await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
                             return 0
