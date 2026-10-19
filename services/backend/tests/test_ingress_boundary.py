@@ -1,5 +1,6 @@
 """E12/C047: explicitly authorized content-free ingress checks, never arbitrary probes."""
 
+import asyncio
 from uuid import uuid4
 
 import pytest
@@ -56,10 +57,10 @@ def test_active_challenge_is_one_time_content_free_and_source_fenced(
         parsed = urlsplit(url)
         assert parsed.scheme == "https" and parsed.hostname == "owned.example.test"
         assert parsed.path.startswith("/webhooks/ingress-check/") and not parsed.query
-        assert c.post(parsed.path).status_code in {404, 405}
+        assert (await asyncio.to_thread(c.post, parsed.path)).status_code in {404, 405}
         if boundary == "expiry":
             clock.now += timedelta(seconds=61)
-        response = c.get(parsed.path)
+        response = await asyncio.to_thread(c.get, parsed.path, headers={"Host": parsed.hostname})
         assert response.status_code == (404 if boundary == "expiry" else 200)
         assert not any(
             secret in response.text for secret in [workspace["access_token"], "seller_id", "database"]
@@ -74,7 +75,7 @@ def test_active_challenge_is_one_time_content_free_and_source_fenced(
             with service.db.transaction() as s:
                 update(get(s, "users", workspace["user_id"]), role="rep")
         if boundary == "replay":
-            assert c.get(parsed.path).status_code == 404
+            assert (await asyncio.to_thread(c.get, parsed.path)).status_code == 404
         return {"url": url, "title": "", "text": response.text}
 
     monkeypatch.setattr(SafeFetcher, "fetch", challenge)
@@ -119,3 +120,25 @@ def test_probe_rejects_unsafe_saved_endpoint_without_network(workspace, monkeypa
         assert response.status_code == 422
     else:
         assert saved.status_code == 422
+
+
+def test_ingress_network_failure_is_actionable_and_closes_challenge(workspace, app, monkeypatch):
+    import httpx
+    from app.research.fetch import SafeFetcher
+
+    async def disconnected(*args):
+        raise httpx.ConnectError("Synthetic disconnect with provider-private response text")
+
+    monkeypatch.setattr(SafeFetcher, "fetch", disconnected)
+    c, h = workspace["client"], workspace["headers"]
+    saved = c.put(
+        "/v1/admin/settings", headers=h, json={"webhook_url": "https://owned.example.test/webhooks/telnyx"}
+    )
+    response = c.post(
+        "/v1/admin/ingress-check",
+        headers=h,
+        json={"request_id": str(uuid4()), "expected_version": saved.json()["version"]},
+    )
+    assert response.status_code == 502
+    assert "provider-private" not in response.text
+    assert app.state.service.ingress_challenges == {}
