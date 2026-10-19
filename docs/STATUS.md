@@ -1,6 +1,8 @@
 # Execution log and continuation state
 
-**Current checkpoint — E03 active:** E00 baseline, E01 helper and E02 conversation-state software acceptance are complete at their recorded source boundaries. Continue E03–E15 in order. Installed Mac remains 0.2.1; no update, reinstall, funded provider request or purchase occurred.
+**Current checkpoint — E04 active:** E00–E03 software steps pass their recorded scoped contracts. Continue E04–E15 in order. Installed Mac remains 0.2.1; no update, reinstall, funded request or purchase occurred. E13 retains the backlog/load discrepancy; whole-system acceptance is still open.
+
+2026-10-19 E03 EXIT. PostgreSQL selection passes 263 cases (733.47s). SQLite has 261 wider passes plus one connected-only skip and the preserved backlog failure; the failed case passes alone and its complete 26-case context passes without browser interference. Twelve follow-through/review browser journeys and six helper/small-window checks pass, with real PostgreSQL for connected scenarios. [Source-bound receipt](evidence/completion/E03.json). Replay-safe edits, source-linked task correction, manual meeting holds, outcome proposals and next-call context are complete at this boundary. E04 now owns used-fact/knowledge preparation freshness; E13 must resolve the load discrepancy before release. E14/native and every live gate remain open.
 
 2026-10-19 E04 CONTRACT SUPPLEMENT. While E03 PostgreSQL verification runs, new SQLite regressions reproduce eight discovery/concurrency/DNS failures, three company lease/budget failures and two missing fact-review failures. Company facts must receive whole-field source review before reusable personalization; a matched quote alone is insufficient. Tests only; E03 remains the implementation cursor. [Red hashes](evidence/completion/E04-baseline.json).
 

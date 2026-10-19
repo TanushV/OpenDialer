@@ -688,7 +688,7 @@ These boxes are deliberately open. This planning pass does not perform implement
 - [x] E00 All remaining cases authored, real baseline red/green captured, traceability committed before product changes. See E00 receipts in STATUS.md; baseline failures do not accept product behavior.
 - [x] E01 Freeform live help and selective whole-field review pass; lexical semantic gates deleted.
 - [x] E02 Shared conversation state, long-call continuity and finalization pass; duplicate extraction removed.
-- [ ] E03 One complete local rep/task/meeting/next-call journey passes in both authorities.
+- [x] E03 One complete local rep/task/meeting/next-call journey passes in both authorities.
 - [ ] E04 Bounded discovery, prepared queue, off-hours batches and partial recovery pass.
 - [ ] E05 Shared screening/cost readiness, authorized refresh and no-recurring policy pass.
 - [ ] E06 One planner, conservative capacity, known/retry separation and minimum-addition oracle pass.
@@ -702,4 +702,4 @@ These boxes are deliberately open. This planning pass does not perform implement
 - [ ] E14 Exact Mac/Windows artifacts accepted, existing installations updated and native use recorded.
 - [ ] E15 Accurate docs, remaining external gates, final preflight and scoped cleanup complete; source/artifact/remote match.
 
-**Next action on implementation resumption:** E03. E02 canonical conversation state, selective finalization, correction lineage and legacy migration pass at their recorded source (see STATUS/E02 receipt). Finish replay-safe local edits, task reconciliation, wrap-up and next-call continuity, then E04–E15. Preserve raw expiry and existing identities; do not package before whole-system acceptance.
+**Next action on implementation resumption:** E04. E03 local edits, task reconciliation, reviewed wrap-up suggestions and next-call continuity pass their recorded software contracts (see STATUS/E03 receipt). Finish bounded discovery, advance preparation and fact/knowledge refresh, then E05–E15. Preserve the E13 backlog/load discrepancy and all native/live gates.

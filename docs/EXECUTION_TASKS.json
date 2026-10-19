@@ -6,7 +6,7 @@
   "status": "implementation-authorized; E01 software boundary accepted; E02 in progress",
   "requirements_source": "docs/REMEDIATION_PLAN.md",
   "implementation_source": "docs/EXECUTION_SPEC.md",
-  "next_step": "E03",
+  "next_step": "E04",
   "receipt_rule": "No inherited checkbox or planned node is a current passing receipt. Update by actual source-bound evidence.",
   "steps": [
     {
@@ -161,7 +161,7 @@
     {
       "id": "E03",
       "title": "Complete the rep journey and next-call continuity",
-      "status": "in-progress",
+      "status": "accepted-software",
       "depends_on": [
         "E02"
       ],
@@ -179,7 +179,9 @@
         "apps/desktop/tests/grounding.spec.ts",
         "apps/desktop/tests/rubrics.spec.ts"
       ],
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E03.json"
+      ],
       "planned_case_ids": [
         "C009",
         "C010",
@@ -205,7 +207,7 @@
     {
       "id": "E04",
       "title": "Bounded useful research and advance preparation",
-      "status": "open",
+      "status": "in-progress",
       "depends_on": [
         "E03"
       ],
@@ -220,7 +222,9 @@
         "services/backend/tests/test_batch_recovery.py",
         "services/backend/tests/test_preparation_discovery.py"
       ],
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E04-baseline.json"
+      ],
       "planned_case_ids": [
         "C014",
         "C015",
@@ -1090,7 +1094,8 @@
       ],
       "acceptance_gate": "software",
       "receipts": [
-        "docs/evidence/completion/E02.json"
+        "docs/evidence/completion/E02.json",
+        "docs/evidence/completion/E03.json"
       ],
       "verification_steps": [
         "E13"
@@ -1506,13 +1511,15 @@
       "id": "M3.09",
       "requirement": "Wire reviewed snippet retrieval, before/after-call tips and lightweight practice with clear simulation boundaries.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "in-progress",
       "primary_step": "E03",
       "supporting_steps": [
         "E08"
       ],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E03.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1521,11 +1528,13 @@
       "id": "M3.09a",
       "requirement": "Add bounded personal coaching history, versioned practice goals, human-reviewed paraphrased examples and private practice using current product knowledge. Source corrections/withdrawals, duplicate requests, access changes and original raw expiry pass dual-database/browser checks in STATUS.md. Cross-call opportunity analysis, live knowledge revalidation and semantic usefulness remain open.",
       "baseline_checked": true,
-      "execution_status": "retained-needs-revalidation",
+      "execution_status": "accepted-software",
       "primary_step": "E03",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E03.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1839,11 +1848,13 @@
       "id": "M5.03",
       "requirement": "Resolve precise dates and windows using call date/zone; keep uncertain dates for focused confirmation. Supported exact calendar expressions are verified against the proposed instant; unsupported/ambiguous expressions remain drafts (October 18 post-call date/task receipts in STATUS.md).",
       "baseline_checked": true,
-      "execution_status": "retained-needs-revalidation",
+      "execution_status": "accepted-software",
       "primary_step": "E03",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E03.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1852,11 +1863,13 @@
       "id": "M5.04a",
       "requirement": "Manual wrap-up callback tasks retain identity, expected-version edits, owner, snooze, cancellation/completion and reload recovery (October 18 focused receipts in STATUS.md). Inferred commitment integration remains M5.04.",
       "baseline_checked": true,
-      "execution_status": "retained-needs-revalidation",
+      "execution_status": "accepted-software",
       "primary_step": "E03",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E03.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1865,11 +1878,13 @@
       "id": "M5.04",
       "requirement": "Build commitment-to-task identity and confirm/assign/reschedule/snooze/complete/cancel transitions.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "accepted-software",
       "primary_step": "E03",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E03.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1878,11 +1893,13 @@
       "id": "M5.04b",
       "requirement": "Publish source-linked inferred commitments/tasks atomically with notes; preserve task identity across rephrasing/manual wrap-up, protect rep edits/closed tasks, invalidate corrected sources and retain older expired-source commitments. Semantic assertion review and legacy identity reconciliation remain open.",
       "baseline_checked": true,
-      "execution_status": "retained-needs-revalidation",
+      "execution_status": "accepted-software",
       "primary_step": "E03",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E03.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1891,11 +1908,13 @@
       "id": "M5.05",
       "requirement": "Separate contactability, engagement, goal state, booking and next action; enforce appropriate outreach holds.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "accepted-software",
       "primary_step": "E03",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E03.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1904,11 +1923,13 @@
       "id": "M5.06",
       "requirement": "Implement rep-reported booked/held/no-show/canceled/rescheduled outcomes and outreach holds, without invitations/calendar work.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "accepted-software",
       "primary_step": "E03",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E03.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1924,7 +1945,8 @@
       ],
       "acceptance_gate": "software",
       "receipts": [
-        "docs/evidence/completion/E02.json"
+        "docs/evidence/completion/E02.json",
+        "docs/evidence/completion/E03.json"
       ],
       "verification_steps": [
         "E13"
@@ -1949,11 +1971,13 @@
       "id": "M5.07b",
       "requirement": "Preserve AI assessments separately from versioned human ratings, scoped appeals and explicit resolutions. Lost-response retries return the same review, conflicting changes require reload, and changed transcript/rubric context suspends old ratings without deleting them. Dual-database/browser receipts are in STATUS.md; incremental long-call scoring and semantic-quality acceptance remain open.",
       "baseline_checked": true,
-      "execution_status": "retained-needs-revalidation",
+      "execution_status": "accepted-software",
       "primary_step": "E03",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E03.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1962,11 +1986,15 @@
       "id": "M5.08",
       "requirement": "Automatically refresh next-call context and display prior needs/promises/reasons beside the dialer.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "in-progress",
       "primary_step": "E03",
-      "supporting_steps": [],
+      "supporting_steps": [
+        "E04"
+      ],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E03.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -2003,11 +2031,13 @@
       "id": "M5.10",
       "requirement": "Verify one complete local journey through restart, correction and the next call with no lost follow-up.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "accepted-software",
       "primary_step": "E03",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E03.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -2154,13 +2184,15 @@
       "id": "M6.10",
       "requirement": "Verify both modes without CRM/calendar credentials; no integration buttons, writes, invitations or synchronization.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "in-progress",
       "primary_step": "E12",
       "supporting_steps": [
         "E03"
       ],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E03.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -2275,13 +2307,15 @@
       "id": "M7.07",
       "requirement": "Add campaign-goal change preview/migration and frozen historical reporting definitions. Explicit rep review protects reopened relationships; stale meaningful context conflicts while background preparation does not (October 18 learning/goal receipts in STATUS.md).",
       "baseline_checked": true,
-      "execution_status": "retained-needs-revalidation",
+      "execution_status": "in-progress",
       "primary_step": "E08",
       "supporting_steps": [
         "E03"
       ],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E03.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -4427,13 +4461,15 @@
       "step": "E03",
       "planned_node": "services/backend/tests/test_completion_journeys.py::test_full_rep_journey_both_authorities",
       "expected": "Import through next call, early callback, correction, restart, booking hold and cancellation yields one preserved task in local and real PostgreSQL modes.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E03.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_completion_journeys.py::test_full_rep_journey_both_authorities"
       ]
@@ -4443,43 +4479,50 @@
       "step": "E03",
       "planned_node": "services/backend/tests/test_local_followthrough.py::test_callback_identity_and_alias",
       "expected": "Lost response and repeated wrap-up resolve one canonical task; conflicting human-edited legacy duplicates remain explicit exceptions.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json",
         "docs/evidence/completion/E03-baseline.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E03.json"
+      ],
       "actual_nodes": [
-        "services/backend/tests/test_local_followthrough.py::test_callback_time_and_snooze",
-        "services/backend/tests/test_local_followthrough.py::test_callback_identity_and_alias",
-        "services/backend/tests/test_local_followthrough.py::test_duplicate_wrapup_has_one_outcome_and_does_not_reopen_completed_task",
-        "services/backend/tests/test_local_followthrough.py::test_terminal_task_clears_only_its_callback",
-        "services/backend/tests/test_local_followthrough.py::test_task_rescheduling_survives_duplicate_wrapup",
-        "services/backend/tests/test_local_followthrough.py::test_invalid_task_edit_leaves_state_unchanged",
-        "services/backend/tests/test_local_followthrough.py::test_undated_callback_needs_confirmation_and_holds_automatic_outreach",
+        "services/backend/tests/test_local_followthrough.py::test_alias_reconciliation_retains_human_note_and_protection_on_survivor",
         "services/backend/tests/test_local_followthrough.py::test_assignment_keeps_callback_with_selected_rep",
         "services/backend/tests/test_local_followthrough.py::test_booked_hold_is_enforced_by_final_authorization_and_not_time_passage",
-        "services/backend/tests/test_local_followthrough.py::test_meeting_changes_require_explicit_next_action_and_are_versioned",
-        "services/backend/tests/test_local_followthrough.py::test_cancel_meeting_without_explicit_next_action_is_rejected_and_keeps_original_hold",
-        "services/backend/tests/test_local_followthrough.py::test_wrapup_and_refresh_job_commit_together",
         "services/backend/tests/test_local_followthrough.py::test_callback_assignment_is_enforced_at_submission",
-        "services/backend/tests/test_local_followthrough.py::test_naive_callback_time_is_a_validation_error_not_server_error",
-        "services/backend/tests/test_local_followthrough.py::test_meeting_endpoint_rejects_unused_task_fields",
-        "services/backend/tests/test_local_followthrough.py::test_null_task_status_cannot_remove_task_from_the_workflow",
-        "services/backend/tests/test_local_followthrough.py::test_explicit_new_callback_reopens_previous_meeting_task",
-        "services/backend/tests/test_local_followthrough.py::test_stale_disposition_cannot_overwrite_new_outcome",
-        "services/backend/tests/test_local_followthrough.py::test_wrapup_requires_identified_versioned_edits_but_read_and_hangup_remain_available",
-        "services/backend/tests/test_local_followthrough.py::test_task_replay_returns_original_receipt_and_current_view_without_overwriting_newer_edit",
-        "services/backend/tests/test_local_followthrough.py::test_wrapup_replay_has_one_outcome_one_task_and_does_not_repeat_preparation",
-        "services/backend/tests/test_local_followthrough.py::test_meeting_report_replays_without_repeating_outcome_or_clearing_newer_hold",
+        "services/backend/tests/test_local_followthrough.py::test_callback_identity_and_alias",
+        "services/backend/tests/test_local_followthrough.py::test_callback_time_and_snooze",
+        "services/backend/tests/test_local_followthrough.py::test_cancel_meeting_without_explicit_next_action_is_rejected_and_keeps_original_hold",
         "services/backend/tests/test_local_followthrough.py::test_continuity_refresh_coalesces_and_retains_running_owner",
+        "services/backend/tests/test_local_followthrough.py::test_duplicate_wrapup_has_one_outcome_and_does_not_reopen_completed_task",
+        "services/backend/tests/test_local_followthrough.py::test_explicit_new_callback_reopens_previous_meeting_task",
+        "services/backend/tests/test_local_followthrough.py::test_followthrough_backfill_resumes_after_committed_page_without_reediting_human_tasks",
         "services/backend/tests/test_local_followthrough.py::test_human_note_correction_marks_the_next_packet_dirty_atomically",
-        "services/backend/tests/test_local_followthrough.py::test_rep_task_history_and_meeting_edits_remain_scoped_to_relationship_owner",
-        "services/backend/tests/test_local_followthrough.py::test_task_replay_still_rechecks_current_account_authority",
+        "services/backend/tests/test_local_followthrough.py::test_invalid_task_edit_leaves_state_unchanged",
+        "services/backend/tests/test_local_followthrough.py::test_manual_wrapup_preserves_source_identity_and_never_adds_an_ambiguous_third_callback",
+        "services/backend/tests/test_local_followthrough.py::test_meeting_changes_require_explicit_next_action_and_are_versioned",
+        "services/backend/tests/test_local_followthrough.py::test_meeting_endpoint_rejects_unused_task_fields",
+        "services/backend/tests/test_local_followthrough.py::test_meeting_report_replays_without_repeating_outcome_or_clearing_newer_hold",
+        "services/backend/tests/test_local_followthrough.py::test_naive_callback_time_is_a_validation_error_not_server_error",
         "services/backend/tests/test_local_followthrough.py::test_next_call_brief_reuses_prior_answers_questions_and_exposes_expired_gaps",
-        "services/backend/tests/test_local_followthrough.py::test_note_only_task_edit_cannot_silently_resolve_source_conflict"
+        "services/backend/tests/test_local_followthrough.py::test_note_only_task_edit_cannot_silently_resolve_source_conflict",
+        "services/backend/tests/test_local_followthrough.py::test_null_task_status_cannot_remove_task_from_the_workflow",
+        "services/backend/tests/test_local_followthrough.py::test_rep_task_history_and_meeting_edits_remain_scoped_to_relationship_owner",
+        "services/backend/tests/test_local_followthrough.py::test_stale_disposition_cannot_overwrite_new_outcome",
+        "services/backend/tests/test_local_followthrough.py::test_task_owner_is_read_after_authorization_fence",
+        "services/backend/tests/test_local_followthrough.py::test_task_replay_returns_original_receipt_and_current_view_without_overwriting_newer_edit",
+        "services/backend/tests/test_local_followthrough.py::test_task_replay_still_rechecks_current_account_authority",
+        "services/backend/tests/test_local_followthrough.py::test_task_rescheduling_survives_duplicate_wrapup",
+        "services/backend/tests/test_local_followthrough.py::test_terminal_task_clears_only_its_callback",
+        "services/backend/tests/test_local_followthrough.py::test_undated_callback_needs_confirmation_and_holds_automatic_outreach",
+        "services/backend/tests/test_local_followthrough.py::test_wrapup_and_refresh_job_commit_together",
+        "services/backend/tests/test_local_followthrough.py::test_wrapup_note_is_saved_as_human_context_without_waiting_for_inference",
+        "services/backend/tests/test_local_followthrough.py::test_wrapup_replay_has_one_outcome_one_task_and_does_not_repeat_preparation",
+        "services/backend/tests/test_local_followthrough.py::test_wrapup_requires_identified_versioned_edits_but_read_and_hangup_remain_available"
       ]
     },
     {
@@ -4487,33 +4530,50 @@
       "step": "E03",
       "planned_node": "services/backend/tests/test_local_followthrough.py::test_callback_time_and_snooze",
       "expected": "Exact zoned date schedules; vague/missing-zone/DST fold requires confirmation; snooze never rewrites promised window.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json",
         "docs/evidence/completion/E03-baseline.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E03.json"
+      ],
       "actual_nodes": [
-        "services/backend/tests/test_local_followthrough.py::test_callback_time_and_snooze",
-        "services/backend/tests/test_local_followthrough.py::test_callback_identity_and_alias",
-        "services/backend/tests/test_local_followthrough.py::test_duplicate_wrapup_has_one_outcome_and_does_not_reopen_completed_task",
-        "services/backend/tests/test_local_followthrough.py::test_terminal_task_clears_only_its_callback",
-        "services/backend/tests/test_local_followthrough.py::test_task_rescheduling_survives_duplicate_wrapup",
-        "services/backend/tests/test_local_followthrough.py::test_invalid_task_edit_leaves_state_unchanged",
-        "services/backend/tests/test_local_followthrough.py::test_undated_callback_needs_confirmation_and_holds_automatic_outreach",
+        "services/backend/tests/test_local_followthrough.py::test_alias_reconciliation_retains_human_note_and_protection_on_survivor",
         "services/backend/tests/test_local_followthrough.py::test_assignment_keeps_callback_with_selected_rep",
         "services/backend/tests/test_local_followthrough.py::test_booked_hold_is_enforced_by_final_authorization_and_not_time_passage",
-        "services/backend/tests/test_local_followthrough.py::test_meeting_changes_require_explicit_next_action_and_are_versioned",
-        "services/backend/tests/test_local_followthrough.py::test_cancel_meeting_without_explicit_next_action_is_rejected_and_keeps_original_hold",
-        "services/backend/tests/test_local_followthrough.py::test_wrapup_and_refresh_job_commit_together",
         "services/backend/tests/test_local_followthrough.py::test_callback_assignment_is_enforced_at_submission",
-        "services/backend/tests/test_local_followthrough.py::test_naive_callback_time_is_a_validation_error_not_server_error",
-        "services/backend/tests/test_local_followthrough.py::test_meeting_endpoint_rejects_unused_task_fields",
-        "services/backend/tests/test_local_followthrough.py::test_null_task_status_cannot_remove_task_from_the_workflow",
+        "services/backend/tests/test_local_followthrough.py::test_callback_identity_and_alias",
+        "services/backend/tests/test_local_followthrough.py::test_callback_time_and_snooze",
+        "services/backend/tests/test_local_followthrough.py::test_cancel_meeting_without_explicit_next_action_is_rejected_and_keeps_original_hold",
+        "services/backend/tests/test_local_followthrough.py::test_continuity_refresh_coalesces_and_retains_running_owner",
+        "services/backend/tests/test_local_followthrough.py::test_duplicate_wrapup_has_one_outcome_and_does_not_reopen_completed_task",
         "services/backend/tests/test_local_followthrough.py::test_explicit_new_callback_reopens_previous_meeting_task",
-        "services/backend/tests/test_local_followthrough.py::test_stale_disposition_cannot_overwrite_new_outcome"
+        "services/backend/tests/test_local_followthrough.py::test_followthrough_backfill_resumes_after_committed_page_without_reediting_human_tasks",
+        "services/backend/tests/test_local_followthrough.py::test_human_note_correction_marks_the_next_packet_dirty_atomically",
+        "services/backend/tests/test_local_followthrough.py::test_invalid_task_edit_leaves_state_unchanged",
+        "services/backend/tests/test_local_followthrough.py::test_manual_wrapup_preserves_source_identity_and_never_adds_an_ambiguous_third_callback",
+        "services/backend/tests/test_local_followthrough.py::test_meeting_changes_require_explicit_next_action_and_are_versioned",
+        "services/backend/tests/test_local_followthrough.py::test_meeting_endpoint_rejects_unused_task_fields",
+        "services/backend/tests/test_local_followthrough.py::test_meeting_report_replays_without_repeating_outcome_or_clearing_newer_hold",
+        "services/backend/tests/test_local_followthrough.py::test_naive_callback_time_is_a_validation_error_not_server_error",
+        "services/backend/tests/test_local_followthrough.py::test_next_call_brief_reuses_prior_answers_questions_and_exposes_expired_gaps",
+        "services/backend/tests/test_local_followthrough.py::test_note_only_task_edit_cannot_silently_resolve_source_conflict",
+        "services/backend/tests/test_local_followthrough.py::test_null_task_status_cannot_remove_task_from_the_workflow",
+        "services/backend/tests/test_local_followthrough.py::test_rep_task_history_and_meeting_edits_remain_scoped_to_relationship_owner",
+        "services/backend/tests/test_local_followthrough.py::test_stale_disposition_cannot_overwrite_new_outcome",
+        "services/backend/tests/test_local_followthrough.py::test_task_owner_is_read_after_authorization_fence",
+        "services/backend/tests/test_local_followthrough.py::test_task_replay_returns_original_receipt_and_current_view_without_overwriting_newer_edit",
+        "services/backend/tests/test_local_followthrough.py::test_task_replay_still_rechecks_current_account_authority",
+        "services/backend/tests/test_local_followthrough.py::test_task_rescheduling_survives_duplicate_wrapup",
+        "services/backend/tests/test_local_followthrough.py::test_terminal_task_clears_only_its_callback",
+        "services/backend/tests/test_local_followthrough.py::test_undated_callback_needs_confirmation_and_holds_automatic_outreach",
+        "services/backend/tests/test_local_followthrough.py::test_wrapup_and_refresh_job_commit_together",
+        "services/backend/tests/test_local_followthrough.py::test_wrapup_note_is_saved_as_human_context_without_waiting_for_inference",
+        "services/backend/tests/test_local_followthrough.py::test_wrapup_replay_has_one_outcome_one_task_and_does_not_repeat_preparation",
+        "services/backend/tests/test_local_followthrough.py::test_wrapup_requires_identified_versioned_edits_but_read_and_hangup_remain_available"
       ]
     },
     {
@@ -4521,25 +4581,27 @@
       "step": "E03",
       "planned_node": "services/backend/tests/test_goal_reconciliation.py::test_rep_meeting_hold_lifecycle",
       "expected": "Booked/rescheduled holds; held evidence explicit; no-show/canceled require selected next action; no calendar/network write.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E03.json"
+      ],
       "actual_nodes": [
-        "services/backend/tests/test_goal_reconciliation.py::test_rep_meeting_hold_lifecycle",
-        "services/backend/tests/test_goal_reconciliation.py::test_preview_is_read_only_and_explains_preserved_next_actions",
         "services/backend/tests/test_goal_reconciliation.py::test_apply_reconciles_completion_and_preserves_callback_and_booking",
-        "services/backend/tests/test_goal_reconciliation.py::test_preview_version_prevents_stale_goal_application",
-        "services/backend/tests/test_goal_reconciliation.py::test_goal_change_never_removes_optout_or_claims_unobserved_success",
-        "services/backend/tests/test_goal_reconciliation.py::test_explicit_next_action_clears_only_the_goal_review_hold",
-        "services/backend/tests/test_goal_reconciliation.py::test_goal_review_can_become_one_dated_callback",
-        "services/backend/tests/test_goal_reconciliation.py::test_changed_outcome_window_retires_models_from_the_old_definition",
-        "services/backend/tests/test_goal_reconciliation.py::test_background_script_preparation_does_not_invalidate_outreach_review",
-        "services/backend/tests/test_goal_reconciliation.py::test_meaningful_change_still_invalidates_review",
         "services/backend/tests/test_goal_reconciliation.py::test_background_preparation_does_not_invalidate_meeting_report",
+        "services/backend/tests/test_goal_reconciliation.py::test_background_script_preparation_does_not_invalidate_outreach_review",
+        "services/backend/tests/test_goal_reconciliation.py::test_changed_outcome_window_retires_models_from_the_old_definition",
+        "services/backend/tests/test_goal_reconciliation.py::test_explicit_next_action_clears_only_the_goal_review_hold",
+        "services/backend/tests/test_goal_reconciliation.py::test_goal_change_never_removes_optout_or_claims_unobserved_success",
+        "services/backend/tests/test_goal_reconciliation.py::test_goal_review_can_become_one_dated_callback",
+        "services/backend/tests/test_goal_reconciliation.py::test_meaningful_change_still_invalidates_review",
+        "services/backend/tests/test_goal_reconciliation.py::test_preview_is_read_only_and_explains_preserved_next_actions",
+        "services/backend/tests/test_goal_reconciliation.py::test_preview_version_prevents_stale_goal_application",
+        "services/backend/tests/test_goal_reconciliation.py::test_rep_meeting_hold_lifecycle",
         "services/backend/tests/test_goal_reconciliation.py::test_window_only_change_does_not_reopen_a_legacy_completed_relationship"
       ]
     },
@@ -4548,28 +4610,31 @@
       "step": "E03",
       "planned_node": "services/backend/tests/test_coaching_library.py::test_practice_and_rep_opportunity_limits",
       "expected": "At most 20 reviewed opportunities and three goals; practice has no call outcome, training label or durable raw content.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E03.json"
+      ],
       "actual_nodes": [
-        "services/backend/tests/test_coaching_library.py::test_practice_and_rep_opportunity_limits",
-        "services/backend/tests/test_coaching_library.py::test_personal_goals_are_versioned_and_do_not_become_business_outcomes",
-        "services/backend/tests/test_coaching_library.py::test_reviewed_example_copies_derived_tip_once_and_keeps_no_raw_quote",
-        "services/backend/tests/test_coaching_library.py::test_only_the_exact_reviewed_current_tip_can_be_published",
-        "services/backend/tests/test_coaching_library.py::test_corrected_source_and_withdrawn_example_cannot_reenter_context",
-        "services/backend/tests/test_coaching_library.py::test_personal_coaching_reads_only_bounded_own_history",
         "services/backend/tests/test_coaching_library.py::test_approved_examples_reach_practice_and_live_context_without_gating_generation",
-        "services/backend/tests/test_coaching_library.py::test_revoked_practice_requester_receives_no_private_result",
-        "services/backend/tests/test_coaching_library.py::test_practice_retry_reuses_original_request_and_never_extends_raw_expiry",
+        "services/backend/tests/test_coaching_library.py::test_canonical_coaching_tips_reach_personal_history_and_editorial_review",
+        "services/backend/tests/test_coaching_library.py::test_corrected_source_and_withdrawn_example_cannot_reenter_context",
+        "services/backend/tests/test_coaching_library.py::test_cross_call_improvement_uses_twenty_reviewed_opportunities_and_two_examples",
+        "services/backend/tests/test_coaching_library.py::test_invalidated_examples_do_not_exhaust_the_active_library",
         "services/backend/tests/test_coaching_library.py::test_new_source_revision_can_be_reviewed_without_reactivating_old_example",
+        "services/backend/tests/test_coaching_library.py::test_only_the_exact_reviewed_current_tip_can_be_published",
+        "services/backend/tests/test_coaching_library.py::test_personal_coaching_reads_only_bounded_own_history",
+        "services/backend/tests/test_coaching_library.py::test_personal_goals_are_versioned_and_do_not_become_business_outcomes",
+        "services/backend/tests/test_coaching_library.py::test_practice_and_rep_opportunity_limits",
         "services/backend/tests/test_coaching_library.py::test_practice_does_not_return_help_from_a_changed_knowledge_source",
         "services/backend/tests/test_coaching_library.py::test_practice_replay_rechecks_current_knowledge_without_another_charge",
-        "services/backend/tests/test_coaching_library.py::test_invalidated_examples_do_not_exhaust_the_active_library",
-        "services/backend/tests/test_coaching_library.py::test_cross_call_improvement_uses_twenty_reviewed_opportunities_and_two_examples"
+        "services/backend/tests/test_coaching_library.py::test_practice_retry_reuses_original_request_and_never_extends_raw_expiry",
+        "services/backend/tests/test_coaching_library.py::test_reviewed_example_copies_derived_tip_once_and_keeps_no_raw_quote",
+        "services/backend/tests/test_coaching_library.py::test_revoked_practice_requester_receives_no_private_result"
       ]
     },
     {

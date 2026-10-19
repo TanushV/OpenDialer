@@ -1,0 +1,148 @@
+{
+  "step_id": "E03",
+  "source_commit": "3d0d472ed66deb0fff6df4589f70311ac54c9fa9",
+  "production_tree_digest": "22357516eced38d7709e7f1006ea270143d8533ee347b314eb417f53c0ecfd2b",
+  "test_tree_digest": "a284487cfbd82802152aaba7b3b09544f974a68e14d8d5e83105ee74f428e9c7",
+  "digest_roots": {
+    "production": [
+      "services/backend/app",
+      "services/backend/migrations",
+      "apps/desktop/src",
+      "apps/desktop/src-tauri/src"
+    ],
+    "tests": [
+      "services/backend/tests",
+      "apps/desktop/tests",
+      "tests"
+    ]
+  },
+  "digest_method": "SHA256 of git ls-tree -r at named source. E04 tests were committed after collection and are outside this receipt.",
+  "case_ids": [
+    "C009",
+    "C010",
+    "C011",
+    "C012",
+    "C013"
+  ],
+  "mode": [
+    "sqlite",
+    "postgresql",
+    "browser-local",
+    "browser-postgresql"
+  ],
+  "fixture_seed": 20261018,
+  "commands": {
+    "postgres": [
+      ".venv/bin/pytest",
+      "services/backend/tests/test_local_followthrough.py",
+      "services/backend/tests/test_completion_journeys.py",
+      "services/backend/tests/test_coaching_library.py",
+      "services/backend/tests/test_postcall_completion.py",
+      "services/backend/tests/test_goal_reconciliation.py",
+      "services/backend/tests/test_score_reviews.py",
+      "services/backend/tests/test_conversation_finalization.py",
+      "services/backend/tests/test_live_memory.py",
+      "services/backend/tests/test_coach_lifecycle.py",
+      "services/backend/tests/test_helper_progress.py",
+      "services/backend/tests/test_coach_stream.py",
+      "services/backend/tests/test_openrouter_coach.py",
+      "services/backend/tests/test_preparation_completion.py",
+      "-q",
+      "--tb=short",
+      "-k",
+      "not bounded_parallel_preparation",
+      "--junitxml=work/remediation/completion/E03-postgres-final.xml"
+    ],
+    "sqlite": [
+      ".venv/bin/pytest",
+      "services/backend/tests/test_local_followthrough.py",
+      "services/backend/tests/test_completion_journeys.py",
+      "services/backend/tests/test_coaching_library.py",
+      "services/backend/tests/test_postcall_completion.py",
+      "services/backend/tests/test_goal_reconciliation.py",
+      "services/backend/tests/test_score_reviews.py",
+      "services/backend/tests/test_conversation_finalization.py",
+      "services/backend/tests/test_live_memory.py",
+      "services/backend/tests/test_coach_lifecycle.py",
+      "services/backend/tests/test_helper_progress.py",
+      "services/backend/tests/test_coach_stream.py",
+      "services/backend/tests/test_openrouter_coach.py",
+      "services/backend/tests/test_preparation_completion.py",
+      "-q",
+      "--tb=short",
+      "-k",
+      "not bounded_parallel_preparation",
+      "--junitxml=work/remediation/completion/E03-sqlite-final.xml"
+    ],
+    "browser_completion": "npm --prefix apps/desktop run test:e2e -- tests/followthrough.spec.ts tests/rubrics.spec.ts tests/coaching.spec.ts tests/grounding.spec.ts",
+    "browser_helper": "npm --prefix apps/desktop run test:e2e -- tests/helper-ui.spec.ts"
+  },
+  "environment": {
+    "system": "macOS-26.5.1-arm64-arm-64bit",
+    "python": "3.12.13",
+    "postgres": "17.11 guarded disposable unit store; separate browser database"
+  },
+  "started_at": "2026-10-19T09:06:59.355966+00:00",
+  "finished_at": "2026-10-19T09:19:27.037410+00:00",
+  "result_counts": {
+    "sqlite_wider": {
+      "passed": 261,
+      "failed": 1,
+      "skipped": 1,
+      "deselected": 1,
+      "seconds": 144.14
+    },
+    "sqlite_failed_case_recheck": {
+      "passed": 1,
+      "seconds": 1.06
+    },
+    "sqlite_live_memory_context": {
+      "passed": 26,
+      "seconds": 8.64
+    },
+    "postgres": {
+      "passed": 263,
+      "deselected": 1,
+      "seconds": 733.47
+    },
+    "browser_completion": {
+      "passed": 12,
+      "seconds": 33.4
+    },
+    "browser_helper": {
+      "passed": 6,
+      "seconds": 22.8
+    }
+  },
+  "failed_cases": [
+    {
+      "node": "services/backend/tests/test_live_memory.py::test_bounded_backlog_is_drained_without_an_additional_turn",
+      "run": "E03-sqlite-final.txt",
+      "followup": "Isolated case and full file pass without browser load. Preserve for E13 mixed-load diagnosis; no deadline relaxed."
+    }
+  ],
+  "raw_log_sha256": {
+    "E03-sqlite-final.txt": "0cab6baa51fcb0de26271b0beb90163ac83baadf41cc26267d8f298a725685c8",
+    "E03-postgres-final.txt": "50da3aeff16190518c09b146e9159a4a35c63a0c36097ee91a3517e0e1f8e199",
+    "E03-backlog-recheck.txt": "0118cd54a1ac59e82ce12309a2808887d9508ae20ddbab7296335055162d3588",
+    "E03-backlog-context.txt": "1cacc62a0201aad8f2437290d155d2679f8f477171b1c487f0757d1b4190389f",
+    "E03-ui-completion-green.txt": "a9c0fb3d7f2839cbfbce8c9dad9c86b190f9e790e5cdf29b4c7ab75b6d168fe7",
+    "E03-helper-final.txt": "e64800cf800275665f1f40fd69a46b528968184ec1a20fded4959e08b77c4a1a",
+    "E03-read-view-green.txt": "23e496c7f322800fafdaecfbcb2dad627ef0c8abd784ed493d3c200c67c665b1",
+    "E03-review-status-green.txt": "9f5d78bb2dc036430c6c0935571885a79f77e4a852f23f706deed81f8a4554c3"
+  },
+  "retired_paths": [
+    "Unidentified local edit overwrites and body-less retry identities",
+    "Duplicate manual callback identity after inferred-task adoption",
+    "Snooze rewriting promised callback time",
+    "Review child refresh reopening a previously closed call",
+    "Direct proposal-to-confirmed-outcome behavior; proposals require explicit rep selection"
+  ],
+  "known_limitations": [
+    "Exact-source whole-suite/coverage/load/native gates remain E13/E14. The retained backlog discrepancy is not certified resolved under load.",
+    "Used knowledge/fact preparation triggers finish under E04; M5.08 remains open.",
+    "No funded provider or hardware call; no installed update.",
+    "Model review routing is deterministic fixture evidence, not semantic quality proof."
+  ],
+  "external_calls": false
+}
