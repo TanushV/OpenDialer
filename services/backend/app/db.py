@@ -629,6 +629,8 @@ def doc(obj):
 
 
 def emit(s, tenant_id, kind, obj, now, payload=None):
+    from app.privacy import bus_metadata
+
     s.add(
         Event(
             tenant_id=tenant_id,
@@ -637,7 +639,7 @@ def emit(s, tenant_id, kind, obj, now, payload=None):
             entity_version=obj.version,
             occurred_at=now,
             payload={
-                **(payload or {}),
+                **bus_metadata(payload or {}),
                 "_seller_id": getattr(obj, "seller_id", ""),
                 "_rep_id": obj.data.get("rep_id") if hasattr(obj, "data") else None,
             },

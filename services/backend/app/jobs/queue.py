@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import func, select, text
 
 from app.db import Job, uid
+from app.privacy import job_metadata
 
 
 def aware(value):
@@ -68,6 +69,7 @@ class JobQueue:
         latest=False,
     ):
         """Commit follow-on work in the same transaction as the change that requires it."""
+        payload = job_metadata(payload)
         if latest and queue != "ml":
             raise ValueError("Only internal derived work may replace a queued payload")
         query = select(Job).where(Job.tenant_id == tenant_id, Job.key == key)
@@ -205,6 +207,7 @@ class JobQueue:
 
     def coalesce_live_in(self, s, queue, payload, key, *, tenant_id, priority, available_at):
         """One latest context/packet; changed inputs never steal the running owner's lease."""
+        payload = job_metadata(payload)
         if queue != "live_coach" and (queue, payload.get("kind")) not in {
             ("postcall", "conversation_review"),
             ("scripts", "packet_refresh"),

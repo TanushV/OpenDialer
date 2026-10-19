@@ -52,6 +52,30 @@ def test_sanitation_commits_bounded_pages_and_resumes(workspace, app, monkeypatc
         assert all("text" not in r.data for r in s.scalars(select(MODELS["transcript_segments"])))
 
 
+def test_legacy_authorization_journal_drops_raw_and_keeps_recovery_identity(workspace, app):
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    entry = {
+        "call_id": call["id"],
+        "tenant_id": p["tenant_id"],
+        "seller_id": p["seller_id"],
+        "user_id": p["user_id"],
+        "at": service.clock().isoformat(),
+        "provider_id": call["provider_id"],
+        "command_id": call["id"],
+        "command_hash": "f" * 64,
+        "intent": {**call, "legacy_model_extension": RAW, "recording_url": "https://example.test/raw"},
+        "unknown_model_body": RAW,
+    }
+    path = service.settings.data_dir / "authorization-journal.enc"
+    path.write_bytes(service.vault.cipher.encrypt(json.dumps(entry).encode()) + b"\n")
+    service.purge_legacy_raw_content()
+    decoded = [json.loads(service.vault.cipher.decrypt(line)) for line in path.read_bytes().splitlines()]
+    assert RAW not in str(decoded) and "recording_url" not in str(decoded)
+    assert decoded[0]["provider_id"] == call["provider_id"]
+    assert service._restore_journal(p)[0][call["id"]]["provider_id"] == call["provider_id"]
+
+
 def test_legacy_copy_allowlist_continuity(workspace, app):
     service, p = app.state.service, principal(workspace)
     call = start(workspace)

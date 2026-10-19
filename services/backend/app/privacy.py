@@ -1,7 +1,9 @@
 """Small process-local raw-content cache. Persistent records contain only metadata."""
 
+import base64
 import copy
 import json
+import re
 import threading
 import time
 from collections import OrderedDict
@@ -106,13 +108,128 @@ class EphemeralBuffer:
 
 
 def event_metadata(payload):
-    """Allow operational event fields; remove carrier transcript/recording content recursively."""
-    forbidden = {"transcript", "text", "recording_urls", "recording_url", "recording_download_url"}
-    if isinstance(payload, dict):
-        return {k: event_metadata(v) for k, v in payload.items() if k not in forbidden}
-    if isinstance(payload, list):
-        return [event_metadata(v) for v in payload]
-    return payload
+    """Only carrier correlation/control metadata crosses the durable boundary."""
+    fields = {
+        "call_control_id",
+        "call_leg_id",
+        "call_session_id",
+        "connection_id",
+        "command_id",
+        "direction",
+        "result",
+        "from",
+        "to",
+        "recording_id",
+        "digit",
+        "digits",
+        "occurred_at",
+        "timing_source",
+        "hangup_cause",
+        "hangup_source",
+        "sip_hangup_cause",
+    }
+    clean = {
+        k: v
+        for k, v in payload.items()
+        if k in fields and isinstance(v, (str, int, float, bool)) and len(str(v)) <= 512
+    }
+    # Our own correlation envelope has IDs only. Opaque provider extensions never persist.
+    context = payload.get("client_state")
+    if isinstance(context, str) and len(context) <= 4096:
+        try:
+            parsed = json.loads(base64.b64decode(context, validate=True))
+            parsed = {
+                k: v
+                for k, v in parsed.items()
+                if k in {"call_id", "tenant_id", "agent_leg_id", "inbound_task", "attempt"}
+                and isinstance(v, str)
+                and re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", v)
+            }
+            if parsed:
+                clean["client_state"] = base64.b64encode(json.dumps(parsed, sort_keys=True).encode()).decode()
+        except (ValueError, TypeError, AttributeError, UnicodeDecodeError):
+            pass
+    return clean
+
+
+def bus_metadata(payload):
+    fields = {
+        "state",
+        "lead_id",
+        "segment_id",
+        "transcript_version",
+        "kind",
+        "retracted",
+        "permission_changed",
+        "coach_event_id",
+        "_seller_id",
+        "_rep_id",
+    }
+    return {
+        k: v for k, v in payload.items() if k in fields and (v is None or isinstance(v, (str, int, bool)))
+    }
+
+
+def job_metadata(payload):
+    # Job bodies are typed internal work references. Non-speech preparation and numeric
+    # training inputs have separate bounded contracts at their producer/consumer.
+    fields = {
+        "kind",
+        "seller_id",
+        "user_id",
+        "role",
+        "call_id",
+        "lead_id",
+        "lead_ids",
+        "receipt_id",
+        "campaign_id",
+        "capacity",
+        "epoch",
+        "rows",
+        "source_dataset_id",
+        "goal",
+        "baseline",
+        "window_days",
+        "input_fingerprint",
+        "internal",
+        "definition",
+        "namespace",
+        "table",
+        "policy_version",
+        "cursor",
+        "phase",
+        "horizon",
+        "desired_generation",
+        "claimed_generation",
+        "inspected",
+        "submitted",
+        "reserved_micro_usd",
+        "intent_id",
+        "custom_id",
+        "result_fingerprint",
+        "output",
+        "source_kind",
+        "source_id",
+        "deleted",
+        "target_namespace",
+        "rebuild_lease",
+        "job_id",
+        "lease_owner",
+        "cursor_generation",
+        "completed_generation",
+        "pending_deadline",
+        "debounce",
+        "superseded_by",
+        "context_fingerprint",
+        "state_version",
+        "transcript_version",
+        "request_id",
+        "deadline",
+        "raw_expires_at",
+        "context_version",
+        "packet_version",
+    }
+    return {k: v for k, v in payload.items() if k in fields}
 
 
 def paraphrased(text, segments):
@@ -191,8 +308,33 @@ def persistent_document(kind, data, *, legacy=False):
                 "meaning_review",
             }
         }
-    if kind in {"call_attempts", "provider_events", "webhook_inbox"}:
-        return event_metadata(data)
+    if kind in {"provider_events", "webhook_inbox"}:
+        fields = {
+            "call_id",
+            "event_id",
+            "event_type",
+            "hash",
+            "payload",
+            "signature_verified",
+            "status",
+            "received_at",
+            "occurred_at",
+            "raw_expires_at",
+            "effects_complete",
+            "processed_at",
+            "lease_owner",
+            "lease_until",
+            "attempts",
+            "ignored_reason",
+            "error",
+            "next_attempt_at",
+        }
+        return {k: event_metadata(v) if k == "payload" else v for k, v in data.items() if k in fields}
+    if kind == "call_attempts":
+        # Call data is application-owned; carrier bodies use the narrower envelope above.
+        for key in ("recording_url", "recording_urls", "recording_download_url", "transcript", "text"):
+            data.pop(key, None)
+        return data
     if kind == "conversation_states":
         if legacy and data.get("privacy_contract") != 1:
             return {
@@ -561,69 +703,79 @@ class SpeechPrivacy:
         )
         return result
 
-    def purge_legacy_raw_content(self):
+    def purge_legacy_raw_content(self, *, resume=False):
+        """Authenticate every row, committing at most 500 sanitations with its cursor.
+
+        Ingress/jobs may have no seller yet, so the existing global cutover record owns
+        this store-wide cursor. Startup completes it before any request can be served.
+        """
         from sqlalchemy import select
 
-        from app.db import MODELS, Event, Job
+        from app.db import MODELS, Event, Job, put
 
-        changed = 0
+        marker_model = MODELS["audit_events"]
+        marker_query = select(marker_model).where(
+            marker_model.tenant_id == "", marker_model.external_key == "raw-retention-v2"
+        )
+        kinds = [*sorted(MODELS), "events", "jobs"]
         with self.db.transaction() as s:
-            for kind in (
-                "transcript_segments",
-                "transcript_revisions",
-                "conversation_states",
-                "coach_events",
-                "notes",
-                "scorecards",
-                "commitments",
-                "snippets",
-                "call_attempts",
-                "provider_events",
-                "webhook_inbox",
-            ):
-                for row in s.scalars(select(MODELS[kind])).yield_per(250):
-                    clean = persistent_document(kind, row.data, legacy=True)
-                    if clean != row.data:
-                        row.data = clean
-                        changed += 1
-            for event in s.scalars(select(Event)).yield_per(250):
-                clean = (
-                    persistent_document("coach_events", event.payload)
-                    if event.type == "coach.card_ready"
-                    else event_metadata(event.payload)
-                )
-                clean.update({k: v for k, v in event.payload.items() if k.startswith("_")})
-                event.payload = clean
-            for job in s.scalars(select(Job)).yield_per(250):
-                job.payload = event_metadata(job.payload)
-        if self.db.sqlite and changed:
+            marker = s.scalar(marker_query)
+            if marker and resume and marker.data.get("completed_at"):
+                return {"sanitized_records": marker.data["sanitized_records"]}
+            if not marker:
+                marker = put(s, "audit_events", "", "", {}, key="raw-retention-v2", now=self.clock())
+            if not resume or not marker.data:
+                marker.data = {
+                    "action": "raw_retention_cutover",
+                    "schema_version": 2,
+                    "phase": 0,
+                    "last_id": None,
+                    "sanitized_records": 0,
+                }
+        while True:
+            with self.db.transaction() as s:
+                marker = s.scalar(marker_query.with_for_update())
+                state = dict(marker.data)
+                phase = state["phase"]
+                if phase == len(kinds):
+                    break
+                kind = kinds[phase]
+                model = Event if kind == "events" else Job if kind == "jobs" else MODELS[kind]
+                key = model.sequence if kind == "events" else model.id
+                query = select(model).order_by(key).limit(500)
+                if state["last_id"] is not None:
+                    query = query.where(key > state["last_id"])
+                page = list(s.scalars(query))
+                for row in page:
+                    original = row.payload if kind in {"events", "jobs"} else row.data
+                    clean = (
+                        bus_metadata(original)
+                        if kind == "events"
+                        else job_metadata(original)
+                        if kind == "jobs"
+                        else persistent_document(kind, original, legacy=True)
+                    )
+                    if clean != original:
+                        if kind in {"events", "jobs"}:
+                            row.payload = clean
+                        else:
+                            row.data = clean  # Preserve IDs and externally visible record versions.
+                        state["sanitized_records"] += 1
+                state["last_id"] = (page[-1].sequence if kind == "events" else page[-1].id) if page else None
+                if len(page) < 500:
+                    state.update(phase=phase + 1, last_id=None)
+                marker.data = state
+        if self.db.sqlite:
             with self.db.engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
                 connection.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
-        return {"sanitized_records": changed}
+        with self.db.transaction() as s:
+            marker = s.scalar(marker_query)
+            marker.data = {**marker.data, "completed_at": self.clock().isoformat()}
+            result = {"sanitized_records": marker.data["sanitized_records"]}
+        return result
 
     def privacy_cutover(self):
-        from sqlalchemy import select
-
-        from app.db import MODELS, put
-
-        marker = MODELS["audit_events"]
-        with self.db.transaction(False) as s:
-            done = s.scalar(
-                select(marker).where(marker.tenant_id == "", marker.external_key == "raw-retention-v1")
-            )
-        if done:
-            return
-        result = self.purge_legacy_raw_content()
-        with self.db.transaction() as s:
-            put(
-                s,
-                "audit_events",
-                "",
-                "",
-                {"action": "raw_retention_cutover", **result},
-                key="raw-retention-v1",
-                now=self.clock(),
-            )
+        return self.purge_legacy_raw_content(resume=True)
 
     def migrate_conversation_states(self):
         """Resumable payload migration; original record IDs and visible versions survive."""

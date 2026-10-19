@@ -415,3 +415,38 @@ def test_prior_purchase_receipt_survives_loss_without_new_purchase(workspace, ap
         assert recovered.data["numbers"] == order["numbers"]
         assert recovered.data["committed_usd"] == 2
     assert not carrier.purchases
+
+
+def test_terminal_call_receipt_is_retained_independently(workspace, app):
+    from app.db import get
+
+    service, p = app.state.service, principal(workspace)
+    backup = service.backup(p)
+    call = start(workspace)
+    service.event(p, "terminal-original", "call.hangup", call["id"])
+    with service.db.transaction() as s:
+        s.delete(get(s, "call_attempts", call["id"]))
+    service.restore(p, backup["backup_id"])
+    with service.db.transaction(False) as s:
+        assert get(s, "call_attempts", call["id"]).data["state"] == "ENDED"
+
+
+def test_inbound_recovery_keeps_original_transfer_leg_and_task(workspace, app, carrier):
+    from app.db import get
+    from test_inbound_completion import configure, dispatch, incoming, target_payload, webhook
+
+    service, p = app.state.service, principal(workspace)
+    configure(workspace, destination="sip:reception@example.test", ring_seconds=15)
+    backup = service.backup(p)
+    task = incoming(workspace)
+    dispatch(workspace)
+    webhook(workspace, "call.bridged", target_payload(carrier))
+    with service.db.transaction() as s:
+        s.delete(get(s, "followup_tasks", task["id"]))
+    service.restore(p, backup["backup_id"])
+    with service.db.transaction(False) as s:
+        recovered = get(s, "followup_tasks", task["id"]).data
+        assert recovered["inbound"] is True
+        assert recovered["provider_id"] == "inbound-1"
+        assert recovered["routing_attempts"][0]["provider_id"] == "destination-leg"
+        assert recovered["callback_phone"] == "+14155550101"
