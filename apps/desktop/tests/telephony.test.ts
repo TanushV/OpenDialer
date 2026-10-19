@@ -188,3 +188,34 @@ test("ending a callback preserves agent ownership and rejects a late callback ac
   expect(incoming.toggleAudioMute).not.toHaveBeenCalled();
   expect(agent.hangup).not.toHaveBeenCalled();
 });
+
+test("ending a callback restores the retained agent audio stream", async () => {
+  const phone = new Telephony();
+  const audio = { srcObject: null } as unknown as HTMLAudioElement;
+  await phone.connect("synthetic-token", audio);
+  const client = sdk.clients.at(-1);
+  phone.expectAgentLeg("agent");
+  const agent = { ...call("agent"), remoteStream: { id: "agent-audio" } };
+  client.emit(agent);
+  client.emit({ ...agent, state: "active" });
+  const inbound = call("return");
+  client.emit(inbound);
+  phone.expectReturnLeg("return");
+  await phone.acceptIncoming("return");
+  await phone.emergencyHangup("return");
+  expect(audio.srcObject).toBe(agent.remoteStream);
+});
+
+test("a failed local stop retains that exact leg for an emergency retry", async () => {
+  const { phone, client } = await connected();
+  phone.expectAgentLeg("agent");
+  const agent = call("agent");
+  client.emit(agent);
+  client.emit({ ...agent, state: "active" });
+  agent.hangup.mockRejectedValueOnce(
+    new Error("Synthetic disconnected signal"),
+  );
+  await expect(phone.emergencyHangup("agent")).rejects.toThrow();
+  await phone.emergencyHangup("agent");
+  expect(agent.hangup).toHaveBeenCalledTimes(2);
+});
