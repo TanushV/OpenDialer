@@ -394,7 +394,9 @@ class Database:
                 "call_attempts",
                 "followup_tasks",
             }:
-                outdated = outdated | (version < (4 if kind in {"call_attempts", "usage_ledger"} else 2))
+                outdated = outdated | (
+                    version < (5 if kind == "call_attempts" else 4 if kind == "usage_ledger" else 2)
+                )
             while True:
                 with self.transaction() as s:
                     batch = list(s.scalars(select(model).where(outdated).limit(500)))

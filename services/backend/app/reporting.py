@@ -164,21 +164,18 @@ def invalidate_reports(session):
         if row not in session.new and row not in session.deleted and not history.has_changes():
             continue
         previous = history.deleted[0] if history.deleted else None
-        if (
-            table == "outcomes"
-            and row.data.get("kind") != "attempt_work"
-            and (
-                row.data.get("kind") != "conversation_lineage"
-                or row.data.get("observation_kind") != "approach"
-                and not row.data.get("observed_guidance_id")
-            )
-        ):
-            continue
         if previous is None and row not in session.new:
             # MutableDict in-place edits do not retain their former value in
             # attribute history. Read this one source, not its surrounding history.
             model = type(row)
             previous = session.scalar(select(model.data).where(model.id == row.id))
+        if table == "outcomes" and not any(
+            value.get("kind") == "attempt_work"
+            or value.get("kind") == "conversation_lineage"
+            and (value.get("observation_kind") == "approach" or value.get("observed_guidance_id"))
+            for value in (row.data, previous or {})
+        ):
+            continue
         fields = REPORT_FIELDS[table]
         if (
             row not in session.new
@@ -229,7 +226,7 @@ class ReportProjections:
         refresh_due(self, p)
         _rebuild_catchup(self, p)
         with self.db.transaction(False) as session:
-            campaign = self.scoped(session, "campaigns", p)[0]
+            campaign = self.selected_campaign(session, p)
             config = self.optimization_config(session, p, campaign.id)
             definition = definition_version(
                 config, campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
@@ -285,7 +282,7 @@ class ReportProjections:
         if user.data.get("disabled"):
             fail(403, "Account is disabled")
         p = {**p, "role": "rep" if "rep" in (p["role"], user.data["role"]) else "admin"}
-        campaign = self.scoped(s, "campaigns", p)[0]
+        campaign = self.selected_campaign(s, p)
         current = campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
         epoch = epoch or current
         if len(epoch) > 200:

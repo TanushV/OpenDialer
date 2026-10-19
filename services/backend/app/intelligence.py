@@ -1340,17 +1340,6 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                         if receipt["status"] in {"superseded", "pending"}:
                             await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
                             return 0
-                        if planning := receipt.get("planning"):
-                            result = await asyncio.to_thread(
-                                self.refresh_schedule_plans,
-                                p,
-                                planning["campaign_id"],
-                                lead_ids=[planning["lead_id"]],
-                                internal=True,
-                            )
-                            if result["status"] == "superseded":
-                                await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
-                                return 0
                     elif job["payload"].get("kind") == "forecast_refresh":
                         receipt = await asyncio.to_thread(
                             self.build_forecast,
@@ -1393,7 +1382,16 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                             await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
                             return 0
                     elif job["payload"].get("kind") == "retry_plan_refresh":
-                        await asyncio.to_thread(self.refresh_schedule_plans, p, job["payload"]["campaign_id"])
+                        receipt = await asyncio.to_thread(
+                            self.refresh_schedule_plans,
+                            p,
+                            job["payload"]["campaign_id"],
+                            lead_ids=job["payload"].get("lead_ids"),
+                            internal=job["payload"].get("internal", False),
+                        )
+                        if receipt["status"] == "superseded":
+                            await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
+                            return 0
                     else:
                         await self.train_model_job(p, job["payload"])
                 else:

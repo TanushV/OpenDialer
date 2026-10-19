@@ -411,8 +411,10 @@ def sync_columns(row, lookup_key=None):
         row.op_control_due_at = (
             as_time(data.get("voicemail_deadline")) if row.op_status not in TERMINAL | {"ENDING"} else None
         )
-        _, row.op_work_end_at = call_work_bounds(data)
-        row.op_index_version = 4
+        work_start, row.op_work_end_at = call_work_bounds(data)
+        if work_start:
+            row.op_at = min(row.op_at, work_start)
+        row.op_index_version = 5
     if row.__tablename__ == "followup_tasks":
         if data.get("status") == "snoozed":
             row.op_due_at = as_time(data.get("snoozed_until") or data.get("due_at"))

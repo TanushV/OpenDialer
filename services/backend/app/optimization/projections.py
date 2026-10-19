@@ -481,7 +481,7 @@ def definition_version(config, epoch):
     return hashlib.sha256(
         json.dumps(
             {
-                "metrics": "cohort-work-v13",
+                "metrics": "cohort-work-v14",
                 "epoch": epoch,
                 "goal": config["conversion_goal"],
                 "window_days": config["window_days"],
@@ -501,26 +501,6 @@ def _scoped_query(p, table):
 def _unit_snapshot(service, p, payload):
     kind, identity = payload["source_kind"], payload["source_id"]
     with service.db.transaction(False) as session:
-        campaign = session.scalar(
-            _scoped_query(p, "campaigns").order_by(MODELS["campaigns"].created_at).limit(1)
-        )
-        config = service.optimization_config(session, p, campaign.id)
-        definition = definition_version(
-            config, campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
-        )
-        pointer = campaign.data.get("metric_projection", {})
-        namespaces = [pointer.get("active_namespace", "initial")]
-        if pointer.get("building_namespace"):
-            namespaces.append(pointer["building_namespace"])
-        if payload.get("target_namespace"):
-            namespaces = [ns for ns in namespaces if ns == payload["target_namespace"]]
-        targets = {}
-        for ns in namespaces:
-            prefix = "building" if ns == pointer.get("building_namespace") else "active"
-            targets[ns] = {
-                "config": pointer.get(prefix + "_config", config),
-                "definition": pointer.get(prefix + "_definition", definition),
-            }
         table = {
             "lead": "leads",
             "call": "call_attempts",
@@ -542,6 +522,59 @@ def _unit_snapshot(service, p, payload):
         row = doc(source) if source else {}
         if callback_source and not row.get("inbound"):
             row = {}
+        source_campaign = row.get("campaign_id")
+        if kind == "rep-day" and "|" in identity:
+            source_campaign = identity.split("|", 1)[0]
+        if not source_campaign and row:
+            lead_id = row.get("lead_id")
+            if not lead_id and kind in {"usage", "help"}:
+                related = session.scalar(
+                    _scoped_query(p, "call_attempts").where(
+                        MODELS["call_attempts"].id == (row.get("call_id") or row.get("object_id"))
+                    )
+                )
+                source_campaign = related.data.get("campaign_id") if related else None
+                lead_id = related.data.get("lead_id") if related else None
+            if not source_campaign and lead_id:
+                model = MODELS["leads"]
+                source_campaign = session.scalar(
+                    select(model.op_campaign_id).where(
+                        model.tenant_id == p["tenant_id"],
+                        model.seller_id == p["seller_id"],
+                        model.id == lead_id,
+                    )
+                )
+        if not source_campaign and not row and kind != "rep-day":
+            model = MODELS["metric_contributions"]
+            source_campaign = session.scalar(
+                select(model.campaign_id)
+                .where(
+                    model.tenant_id == p["tenant_id"],
+                    model.seller_id == p["seller_id"],
+                    model.source_kind == kind,
+                    model.source_id == identity,
+                )
+                .order_by(model.created_at)
+                .limit(1)
+            )
+        campaign = service.selected_campaign(session, p, source_campaign)
+        config = service.optimization_config(session, p, campaign.id)
+        definition = definition_version(
+            config, campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
+        )
+        pointer = campaign.data.get("metric_projection", {})
+        namespaces = [pointer.get("active_namespace", "initial")]
+        if pointer.get("building_namespace"):
+            namespaces.append(pointer["building_namespace"])
+        if payload.get("target_namespace"):
+            namespaces = [ns for ns in namespaces if ns == payload["target_namespace"]]
+        targets = {}
+        for ns in namespaces:
+            prefix = "building" if ns == pointer.get("building_namespace") else "active"
+            targets[ns] = {
+                "config": pointer.get(prefix + "_config", config),
+                "definition": pointer.get(prefix + "_definition", definition),
+            }
         calls, events, intervals, feedback, suppressed, feature = [], [], [], None, False, None
         work = None
         assignments, features, decisions, studies, observations = [], [], [], {}, []
@@ -613,7 +646,7 @@ def _unit_snapshot(service, p, payload):
                 suppressed = bool(denial and denial.data.get("active", True))
         elif kind == "call" and row and not callback_source:
             record = service._by_key(session, p, "outcomes", "attempt-work:" + row["id"])
-            work = doc(record) if record else None
+            work = doc(record) if record and record.data.get("kind") == "attempt_work" else None
             if work:
                 row.update({k: work[k] for k in ("rep_work_intervals", "rep_work_incomplete") if k in work})
             record = session.scalar(
@@ -1260,7 +1293,7 @@ def refresh_unit(service, p, payload):
         return expand_dependents(service, p, payload)
     snapshot = _unit_snapshot(service, p, payload)
     if not snapshot["namespaces"]:
-        return {"status": "superseded"}
+        return {"status": "unrelated" if payload.get("target_namespace") else "superseded"}
     calculated = {
         ns: (
             *_calculate_unit({**snapshot, **target}, service.clock()),
@@ -1412,12 +1445,23 @@ def refresh_unit(service, p, payload):
                     "active_config": snapshot["config"],
                 },
             }
-        return {
-            "status": "ready" if changed else "unchanged",
-            "planning": {"campaign_id": snapshot["row"]["campaign_id"], "lead_id": identity}
-            if kind == "lead" and snapshot["row"].get("campaign_id")
-            else None,
-        }
+        if changed and kind == "lead" and snapshot["row"].get("campaign_id"):
+            service.jobs.enqueue_in(
+                session,
+                "ml",
+                {
+                    "kind": "retry_plan_refresh",
+                    "seller_id": p["seller_id"],
+                    "campaign_id": snapshot["row"]["campaign_id"],
+                    "lead_ids": [identity],
+                    "input_fingerprint": snapshot["input_version_fingerprint"],
+                    "internal": True,
+                },
+                f"planning-source:{p['seller_id']}:{identity}",
+                tenant_id=p["tenant_id"],
+                latest=True,
+            )
+        return {"status": "ready" if changed else "unchanged"}
 
 
 def refresh_due(service, p, *, limit=100):
@@ -1425,9 +1469,7 @@ def refresh_due(service, p, *, limit=100):
         raise ValueError("At most100 due contributions per sweep")
     with service.db.transaction(False) as session:
         model = MODELS["metric_contributions"]
-        campaign = session.scalar(
-            _scoped_query(p, "campaigns").order_by(MODELS["campaigns"].created_at).limit(1)
-        )
+        campaign = service.selected_campaign(session, p)
         pointer = campaign.data.get("metric_projection", {})
         prefixes = [
             f"v{pointer[k + '_definition']}:{pointer[k + '_namespace']}:"
@@ -1546,9 +1588,7 @@ _REBUILD_SOURCES = (
 def _rebuild_control(service, p, *, start, lease=None):
     with service.db.transaction() as session:
         watermark = service.report_revision(session, p, lock=True)
-        campaign = session.scalar(
-            _scoped_query(p, "campaigns").order_by(MODELS["campaigns"].created_at).limit(1).with_for_update()
-        )
+        campaign = service.selected_campaign(session, p, lock=True)
         config = service.optimization_config(session, p, campaign.id)
         epoch = campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
         definition = definition_version(config, epoch)
@@ -1688,7 +1728,7 @@ def _rebuild_source_page(service, p, state, lease=None):
                     "rebuild_lease": lease,
                 },
             )
-            if result["status"] not in {"ready", "unchanged"}:
+            if result["status"] not in {"ready", "unchanged", "unrelated"}:
                 return state["cursor"], processed
             processed += 1
         cursor.update(after_id=row.id, after_at=row.created_at.isoformat(), day=None)
@@ -1848,7 +1888,7 @@ def rebuild_page(service, p, *, start=False, lease=None):
 
 
 def _total_in(service, session, p, *, rep_only=False):
-    campaign = session.scalar(_scoped_query(p, "campaigns").order_by(MODELS["campaigns"].created_at).limit(1))
+    campaign = service.selected_campaign(session, p)
     pointer = campaign.data.get("metric_projection", {})
     config = pointer.get("active_config") or service.optimization_config(session, p, campaign.id)
     group = {
@@ -1875,9 +1915,7 @@ def read_coaching_metrics(service, p):
 def read_dataset_metrics(service, p):
     with service.db.transaction(False) as session:
         _, _, values = _total_in(service, session, p)
-        campaign = session.scalar(
-            _scoped_query(p, "campaigns").order_by(MODELS["campaigns"].created_at).limit(1)
-        )
+        campaign = service.selected_campaign(session, p)
         saved = campaign.data.get("dataset_summaries", [])[-10:]
     return {
         **{

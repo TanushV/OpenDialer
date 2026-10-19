@@ -158,4 +158,4 @@ def test_campaign_specific_goal_cannot_pollute_another_campaign_estimate(workspa
     project_pending(service, p)
     assert read_estimate_statistics(service, p)["total"].get("human_known", 0) == 0
     selected = read_estimate_statistics(service, {**p, "campaign_id": campaign_id})["total"]
-    assert selected["human_known"] == 1 and selected["conversion_success"] == 1
+    assert selected["human_known"] == 1 and selected["conversion_successes"] == 1

@@ -39,13 +39,24 @@ DEFAULTS = {
 
 
 class OptimizationWorkflows(ComparisonWorkflows):
+    def selected_campaign(self, s, p, identity=None, *, lock=False):
+        model = MODELS["campaigns"]
+        query = select(model).where(model.tenant_id == p["tenant_id"], model.seller_id == p["seller_id"])
+        if identity := identity or p.get("campaign_id"):
+            query = query.where(model.id == identity)
+        query = query.order_by(model.created_at, model.id).limit(1)
+        row = s.scalar(query.with_for_update() if lock else query)
+        if not row:
+            from app.service import fail
+
+            fail(404, "Campaign not found")
+        return row
+
     def ensure_experiment_cohort(self, s, p, campaign_id=None):
         from app.optimization.learning import stable_control
 
         campaign = (
-            self.required(s, "campaigns", campaign_id, p)
-            if campaign_id
-            else self.scoped(s, "campaigns", p)[0]
+            self.required(s, "campaigns", campaign_id, p) if campaign_id else self.selected_campaign(s, p)
         )
         epoch = campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
         existing = {r.external_key for r in self.scoped(s, "experiment_assignments", p)}
@@ -145,7 +156,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
             models = [m for m in models if self.model_source_current(s, p, m, config)]
             cache[scope] = {"models": models}
             if any(m.data.get("trial_active") for m in models):
-                campaign = self.scoped(s, "campaigns", p)[0]
+                campaign = self.selected_campaign(s, p)
                 cache[scope]["epoch"] = (
                     campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
                 )
@@ -254,9 +265,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
         from app.optimization.api import HealthPolicy
 
         campaign = (
-            self.required(s, "campaigns", campaign_id, p)
-            if campaign_id
-            else self.scoped(s, "campaigns", p)[0]
+            self.required(s, "campaigns", campaign_id, p) if campaign_id else self.selected_campaign(s, p)
         )
         config = {**DEFAULTS, **campaign.data.get("optimization", {})}
         config["health_policy"] = HealthPolicy.model_validate(config.get("health_policy", {})).model_dump()
@@ -364,15 +373,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
 
         if not 1 <= limit <= 20000:
             raise ValueError("Training snapshot bound must be between1 and20000 attempts")
-        campaign = s.scalar(
-            select(MODELS["campaigns"])
-            .where(
-                MODELS["campaigns"].tenant_id == p["tenant_id"],
-                MODELS["campaigns"].seller_id == p["seller_id"],
-            )
-            .order_by(MODELS["campaigns"].created_at)
-            .limit(1)
-        )
+        campaign = self.selected_campaign(s, p)
         config = config or self.optimization_config(s, p, campaign.id)
         model, leads = MODELS["call_attempts"], MODELS["leads"]
         selected = list(
@@ -503,9 +504,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
             raise ValueError("At most100 changed leads per planning page")
         config = self.optimization_config(s, p, campaign_id)
         campaign = (
-            self.required(s, "campaigns", campaign_id, p)
-            if campaign_id
-            else self.scoped(s, "campaigns", p)[0]
+            self.required(s, "campaigns", campaign_id, p) if campaign_id else self.selected_campaign(s, p)
         )
         policy_row = self.required(s, "policy_versions", campaign.data["policy_id"], p)
         profile = campaign.data.get("selection_profile", {})
@@ -878,7 +877,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
         }
 
     def saved_forecast(self, s, p):
-        campaign = self.scoped(s, "campaigns", p)[0]
+        campaign = self.selected_campaign(s, p)
         row = self._by_key(s, p, "report_projections", f"planning:{campaign.id}:configured")
         saved = row.data if row else {}
         current = self.report_revision(s, p)
@@ -939,9 +938,14 @@ class OptimizationWorkflows(ComparisonWorkflows):
 
     def save_operational_dataset(self, p):
         with self.db.transaction(False) as s:
+            user, _, _, _ = self.report_scope(s, p)
+            if user["role"] != "admin":
+                from app.service import fail
+
+                fail(403, "Administrator access required for a learning snapshot")
             generation = self.report_revision(s, p)
             config = self.optimization_config(s, p)
-            campaign = self.scoped(s, "campaigns", p)[0]
+            campaign = self.selected_campaign(s, p)
             revision = campaign.data.get("conversation_revision", 0)
             campaign_id = campaign.id
             baseline = {k: config[k] for k in ("estimate_policy", "handling_seconds")}
@@ -954,6 +958,11 @@ class OptimizationWorkflows(ComparisonWorkflows):
             ).hexdigest()
         with self.db.transaction() as s:
             campaign = self.required(s, "campaigns", campaign_id, p)
+            user, _, _, _ = self.report_scope(s, p)
+            if user["role"] != "admin":
+                from app.service import fail
+
+                fail(403, "Learning owner no longer has administrator access")
             if self.report_revision(s, p, lock=True) != generation:
                 raise RuntimeError("Learning sources changed during snapshot; retry current work")
             previous = self._by_key(s, p, "learning_datasets", key)
@@ -1396,7 +1405,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 from app.service import fail
 
                 fail(403, "Administrator access required for learning refresh")
-            campaign = self.scoped(s, "campaigns", p)[0]
+            campaign = self.selected_campaign(s, p)
             campaign_id = campaign.id
             vocabulary = dict(campaign.data.get("conversation_vocabulary", {"version": 1, "aliases": []}))
         report = {
@@ -1441,7 +1450,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
 
                 fail(403, "Administrator access required for optimization refresh")
             generation = self.report_revision(s, p)
-            campaign = self.scoped(s, "campaigns", p)[0]
+            campaign = self.selected_campaign(s, p)
             campaign_id = campaign.id
             config = self.optimization_config(s, p, campaign_id)
             statistics = read_estimate_statistics(self, p)
@@ -1465,6 +1474,11 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 ).encode()
             ).hexdigest()
         with self.db.transaction() as s:
+            user, _, _, _ = self.report_scope(s, p)
+            if user["role"] != "admin":
+                from app.service import fail
+
+                fail(403, "Optimization owner no longer has administrator access")
             if self.report_revision(s, p, lock=True) != generation:
                 return {"status": "superseded"}
             campaign = self.required(s, "campaigns", campaign_id, p)
