@@ -277,77 +277,126 @@ def learn_distribution(actions, history, *, segment=None, exploration=0.1, contr
     }
 
 
-def future_slots(lead, history, *, now, policy, horizon_days=3, predictor=None):
-    if (
-        not lead.get("timezone")
-        or lead.get("suppressed")
-        or lead.get("attempt_count", 0) >= policy.get("max_attempts", 4)
-    ):
-        return []
+def future_slots(
+    lead,
+    history,
+    *,
+    now,
+    policy,
+    horizon_days=3,
+    predictor=None,
+    estimates=None,
+    staffed_windows=None,
+    rep_minutes=None,
+    inventory=None,
+    rep_busy_until=None,
+):
+    """Bounded suggestions through the same attempt/occupancy engine as capacity.
+
+    Callers without declared staff/inventory receive explicitly policy-only
+    possibilities; the runtime always supplies its saved staffing and inventory.
+    """
+    from app.optimization.capacity import (
+        MAX_SLOTS,
+        Assignment,
+        normalize_availability,
+        staffed_slots,
+        work_items,
+    )
+
+    end = now + timedelta(days=horizon_days)
     try:
-        zone = ZoneInfo(lead["timezone"])
-    except ZoneInfoNotFoundError:
+        zone = ZoneInfo(lead.get("timezone") or "unknown")
+    except (ValueError, ZoneInfoNotFoundError):
         return []
-    earliest = max(now, timestamp(lead.get("next_attempt_at")) or now)
-    if lead.get("last_attempt_at"):
-        earliest = max(
-            earliest,
-            timestamp(lead["last_attempt_at"]) + timedelta(seconds=policy.get("min_retry_seconds", 3600)),
-        )
-    callback = timestamp(lead.get("callback_due_at"))
-    start_hour, end_hour = policy.get("local_start_hour", 9), policy.get("local_end_hour", 20)
-    slots = []
-    if callback and earliest <= callback <= now + timedelta(days=horizon_days):
-        local = callback.astimezone(zone)
-        if start_hour <= local.hour < end_hour:
-            slots.append(
-                {
-                    "lead_id": lead["id"],
-                    "at": callback.isoformat(),
-                    "local_hour": local.hour,
-                    "reason": "requested_callback",
-                    "score": 1.0,
-                }
-            )
-    local_day = earliest.astimezone(zone)
-    for day in range(horizon_days):
-        for hour in range(start_hour, end_hour):
-            local = (local_day + timedelta(days=day)).replace(hour=hour, minute=0, second=0, microsecond=0)
-            at = local.astimezone(now.tzinfo)
-            if at < earliest or at > now + timedelta(days=horizon_days):
-                continue
-            if local.weekday() not in policy.get("allowed_weekdays", list(range(7))):
-                continue
-            estimate = funnel_predictions(
-                history, {"segment": lead.get("segment", "unknown"), "local_hour": hour}
+    # Cache each local day/hour once; no model or database call per grid point.
+    predictions = {}
+    for day in range(7):
+        for hour in range(24):
+            estimate = dict(
+                (estimates or {}).get(str(lead.get("segment", "unknown")) + ":" + str(hour))
+                or (estimates or {}).get("pooled")
+                or funnel_predictions(
+                    history, {"segment": lead.get("segment", "unknown"), "local_hour": hour}
+                )
             )
             if predictor is not None:
-                estimate.update(predictor(hour, local.weekday()) or {})
-            due = timestamp(lead.get("coverage_due_at"))
-            reason = "coverage_deadline" if due and at >= due else "expected_conversion_per_rep_minute"
-            slots.append(
-                {
-                    "lead_id": lead["id"],
-                    "at": at.isoformat(),
-                    "local_hour": hour,
-                    "reason": reason,
-                    "score": conversion_score(estimate),
-                    "predictions": estimate,
-                }
+                estimate.update(predictor(hour, day) or {})
+            predictions[day, hour] = estimate
+    regions = {
+        "general",
+        lead.get("region") or "general",
+        *(n.get("region") or "general" for n in (inventory or [])),
+    }
+    # Work estimate is fixed for this attempt; differences in optional slot
+    # outcome predictions do not create different physical call durations.
+    duration = lead.get("predicted_work_seconds", policy.get("handling_seconds", 120))
+    row = {
+        **lead,
+        "predicted_work_seconds": duration,
+        "slot_estimates": {
+            f"{day}:{hour}:{region}": math.prod(
+                estimate.get(k, 0)
+                for k in ("p_human", "p_right_party_given_human", "p_conversion_given_right_party")
             )
+            for (day, hour), estimate in predictions.items()
+            for region in regions
+        },
+    }
+    work, _ = work_items([row], now, end, policy, duration)
+    if not work:
+        return []
+    # Honor a reachable coverage deadline before considering later alternatives.
     deadline = timestamp(lead.get("coverage_due_at"))
-    if deadline and deadline > earliest:
-        before = [slot for slot in slots if timestamp(slot["at"]) <= deadline]
-        if before:
-            slots = before
+    minutes = rep_minutes if rep_minutes is not None else horizon_days * 1440
+    windows = (
+        staffed_windows if staffed_windows is not None else [{"start_at": now, "end_at": end, "reps": 1}]
+    )
+    availability = normalize_availability(windows, now, end, minutes, policy)
+    grid = max(30, math.ceil((end - now).total_seconds() / (MAX_SLOTS * 30)) * 30)
+    slots, owners, _ = staffed_slots(availability, now, end, grid, rep_busy_until)
+    assignment = Assignment(work, slots, now, policy, grid, 1, owners, work_budget=minutes * 60)
+    if deadline and deadline > work[0].earliest_at:
+        before = sum(1 << i for i, at in enumerate(assignment.starts) if at <= deadline)
+        if assignment.allowed[0] & before:
+            assignment.allowed[0] &= before
+    numbers = (
+        inventory
+        if inventory is not None
+        else [
+            {
+                "id": lead.get("bound_number_id") or "policy-only",
+                "region": "general",
+                "lifecycle": "healthy",
+                "daily_limit": 1,
+                "capacity": 1,
+            }
+        ]
+    )
+    choices, _ = assignment.solve(numbers, alternatives=8)
+    result = []
+    for choice in choices:
+        at = timestamp(choice["at"])
+        local = at.astimezone(zone)
+        estimate = predictions[local.weekday(), local.hour]
+        result.append(
+            {
+                **choice,
+                "local_hour": local.hour,
+                "reason": "requested_callback"
+                if lead.get("callback_due_at")
+                else "coverage_deadline"
+                if deadline and at >= deadline
+                else "expected_conversion_per_rep_minute",
+                "score": conversion_score(estimate),
+                "predictions": estimate,
+                "constraint_scope": "declared_staff_and_inventory"
+                if staffed_windows is not None and inventory is not None
+                else "policy_only",
+            }
+        )
     return sorted(
-        slots,
-        key=lambda r: (
-            r["reason"] != "requested_callback",
-            r["at"] if deadline and deadline <= earliest else "",
-            -r["score"],
-            r["at"],
-        ),
+        result, key=lambda r: (r["at"] if lead.get("callback_due_at") else "", -r["score"], r["at"])
     )[:8]
 
 

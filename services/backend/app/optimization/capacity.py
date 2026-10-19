@@ -457,7 +457,7 @@ class Assignment:
             if available:
                 yield (available & -available).bit_length() - 1
 
-    def solve(self, inventory, *, ignore_bindings=False):
+    def solve(self, inventory, *, ignore_bindings=False, alternatives=0):
         end = self.starts[-1] + timedelta(seconds=self.seconds) if self.starts else self.now
         all_numbers = [
             n if isinstance(n, NumberCapacity) else number_input(n, self.now, end) for n in inventory
@@ -550,6 +550,7 @@ class Assignment:
             for candidate in sorted(
                 candidates,
                 key=lambda c: (
+                    c[0] if w.priority_class == 0 else -1,
                     -self.value_at(index, c[0], numbers[c[1]].region),
                     c[0],
                     numbers[c[1]].region == "general",
@@ -598,6 +599,16 @@ class Assignment:
             and len(self.slots) <= 8
             and len({(n.region, n.concurrent_limit, n.daily_limits) for n in numbers.values()}) <= 4
         )
+        if alternatives:
+            # One lead's suggested choices use exactly the same availability,
+            # resource and window tests as whole-list assignment.
+            exact_branch = False
+            rows = (
+                [(0, *option) for option in itertools.islice(options(0), min(8, alternatives))]
+                if self.work
+                else []
+            )
+            return self.schedule_rows(rows, numbers), not self.exhausted
         feasible_cache, individually_feasible = {}, []
         for i, item in enumerate(self.work):
             key = (
@@ -698,6 +709,9 @@ class Assignment:
 
             search(0)
             exact = not self.exhausted or self.objective(best) == ceiling
+        return self.schedule_rows(best, numbers), exact
+
+    def schedule_rows(self, selected, numbers):
         rows = [
             {
                 "lead_id": self.work[i].lead_id,
@@ -716,9 +730,9 @@ class Assignment:
                 "priority_class": self.work[i].priority_class,
                 "predicted_conversions": self.value_at(i, start, numbers[identifier].region),
             }
-            for i, start, identifier, rep in best
+            for i, start, identifier, rep in selected
         ]
-        return sorted(rows, key=lambda r: (r["at"], r["priority_class"], r["lead_id"])), exact
+        return sorted(rows, key=lambda r: (r["at"], r["priority_class"], r["lead_id"]))
 
 
 def schedule_value(rows):

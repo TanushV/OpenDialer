@@ -423,7 +423,7 @@
           "work": "Independent oracles, dual databases, affected browsers and removal receipt"
         }
       ],
-      "checkpoint": "Core and runtime planning pass 127 SQLite / 127 PostgreSQL checks, plus eight browser journeys. Scored slots, shared estimate storage, burst feasibility, bulk scoped input, background publication/recovery, simple staffing and persistent-shortfall advice are implemented. Continue shared future-slot/retry-plan publication and observed retry evidence, then full E06 acceptance; E07-E15 remain open."
+      "checkpoint": "Shared future choices and whole-list saved retry scheduling implemented; 134 PostgreSQL pass, SQLite 133 plus repaired race fixture pass. Later retry sufficient statistics/scenarios and internal complete schedule are newly red. Broader guidance/report browser failures need diagnosis. Full scoped acceptance remains open."
     },
     {
       "id": "E07",

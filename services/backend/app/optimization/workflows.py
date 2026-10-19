@@ -169,16 +169,22 @@ class OptimizationWorkflows(ComparisonWorkflows):
         model = self.serving_model(s, p, config, lead.id)
         if model is None:
             return None
-        from app.ml.training import predict_funnel
-
-        features = self.prediction_features(s, p, lead)
+        features = self.prediction_features(s, p, lead, calls=[], fast=True)
+        artifact, cached = dict(model.data), {}
+        directory = self.settings.data_dir / "models"
 
         def predict(hour, weekday):
-            return predict_funnel(
-                model.data,
-                {**features, "local_hour": hour, "local_weekday": weekday},
-                self.settings.data_dir / "models",
-            )
+            if not cached:
+                from app.ml.training import predict_funnel_batch
+
+                keys = [(day, slot) for day in range(7) for slot in range(24)]
+                values = predict_funnel_batch(
+                    artifact,
+                    [{**features, "local_hour": slot, "local_weekday": day} for day, slot in keys],
+                    directory,
+                )
+                cached.update(zip(keys, values, strict=True))
+            return cached[weekday, hour]
 
         return predict
 
@@ -417,9 +423,9 @@ class OptimizationWorkflows(ComparisonWorkflows):
         )
         return data
 
-    def prediction_features(self, s, p, lead, number=None, calls=None):
+    def prediction_features(self, s, p, lead, number=None, calls=None, *, fast=False):
         endpoint = get(s, "phone_endpoints", lead.data["endpoint_id"], p["tenant_id"])
-        inventory = self.inventory_evidence(s, p)
+        inventory = self.inventory_evidence(s, p, fast=fast) if number else []
         selected = next((n for n in inventory if number and n["id"] == number.id), None)
         health = selected["health"] if selected else {"score": None, "samples": 0}
         return freeze_features(
@@ -840,18 +846,34 @@ class OptimizationWorkflows(ComparisonWorkflows):
             decisions = [
                 doc(r) for r in decision_rows if p["role"] != "rep" or r.data.get("rep_id") == p["user_id"]
             ]
-            plans = [doc(r) for r in self.scoped(s, "scheduling_plans", p)]
+            plans = sorted(
+                self.scoped(s, "scheduling_plans", p),
+                key=lambda r: (
+                    r.external_key == "current:" + r.data["lead_id"],
+                    r.created_at,
+                    r.id,
+                ),
+            )
             count = len(data)
             midpoint = max(0, count - max(20, count // 3))
             model_drift = drift_report(data[:midpoint], data[midpoint:])
             latest_plans = {}
-            for plan in plans:
-                if plan.get("selected"):
-                    latest_plans[plan["lead_id"]] = plan["selected"]
+            for record in plans:
+                plan = record.data
+                latest_plans[plan["lead_id"]] = plan
             futures = [
-                {**latest_plans[lead.id], "name": lead.data["name"]}
+                {**latest_plans[lead.id]["selected"], "name": lead.data["name"]}
                 for lead in leads
-                if lead.id in latest_plans and lead.data.get("status") == "eligible"
+                if lead.id in latest_plans
+                and latest_plans[lead.id].get("selected")
+                and lead.data.get("status") == "eligible"
+                and not lead.data.get("outreach_hold")
+                and not lead.data.get("goal_completed")
+                and latest_plans[lead.id].get("source_lead_version", lead.version) == lead.version
+                and (
+                    timestamp(latest_plans[lead.id].get("expires_at")) or self.clock() + timedelta(seconds=1)
+                )
+                > self.clock()
             ]
             call_rows = [doc(c) for c in calls]
             blocked = {
@@ -907,7 +929,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 },
                 "decisions": decisions[-30:],
                 "future_slots": futures[:100],
-                "plans": plans[-100:],
+                "plans": [doc(row) for row in plans[-100:]],
                 "drift": model_drift,
                 "trial": trial,
                 "coaching": {
@@ -1028,6 +1050,200 @@ class OptimizationWorkflows(ComparisonWorkflows):
         )
         return {"status": job["status"], "rows": len(data), "job_id": job["id"], "dataset_id": dataset["id"]}
 
+    def refresh_schedule_plans(self, p, campaign_id, dataset_id=None):
+        """Publish the shared whole-list schedule in source-fenced pages of 100."""
+        from zoneinfo import ZoneInfo
+
+        from app.service import fail
+
+        with self.db.transaction(False) as s:
+            user, _, _, _ = self.report_scope(s, p)
+            if user["role"] != "admin":
+                fail(403, "Administrator access required to refresh retry plans")
+            inputs, _ = self.forecast_input(s, p, campaign_id=campaign_id)
+            generation = self.report_revision(s, p)
+            config = self.optimization_config(s, p, campaign_id)
+            campaign = self.required(s, "campaigns", campaign_id, p)
+            profile = campaign.data.get("selection_profile", {})
+            if profile.get("goal") != config["conversion_goal"]:
+                profile = {}
+            estimates = {**profile.get("predictions", {}), "pooled": profile.get("pooled", {})}
+        forecast = capacity_forecast(**inputs)
+        selected = {row["lead_id"]: row for row in forecast["existing_schedule"]}
+        saved, superseded, unchanged = 0, 0, 0
+        common = {k: v for k, v in inputs.items() if k not in {"now", "leads"}}
+        common["time_bucket"] = int(inputs["now"].timestamp()) // 600
+        common_hash = hashlib.sha256(json.dumps(common, sort_keys=True, default=str).encode()).hexdigest()
+
+        def fingerprint(lead):
+            return hashlib.sha256(
+                json.dumps([common_hash, lead], sort_keys=True, default=str).encode()
+            ).hexdigest()
+
+        for offset in range(0, len(inputs["leads"]), 100):
+            page = inputs["leads"][offset : offset + 100]
+            ids = [row["id"] for row in page]
+            with self.db.transaction(False) as s:
+                model = MODELS["leads"]
+                records = list(
+                    s.scalars(
+                        select(model).where(
+                            model.tenant_id == p["tenant_id"],
+                            model.seller_id == p["seller_id"],
+                            model.id.in_(ids),
+                        )
+                    )
+                )
+                self._queue_context(s, p, campaign_id, records)
+                predictors = {
+                    row.id: self.slot_predictor(s, p, row, config) for row in records if row.id in selected
+                }
+                plans = MODELS["scheduling_plans"]
+                prior = {
+                    row.data["lead_id"]: dict(row.data)
+                    for row in s.scalars(
+                        select(plans).where(
+                            plans.tenant_id == p["tenant_id"],
+                            plans.seller_id == p["seller_id"],
+                            plans.external_key.in_(["current:" + identity for identity in ids]),
+                        )
+                    )
+                }
+            computed = []
+            for lead in page:
+                digest = fingerprint(lead)
+                old = prior.get(lead["id"], {})
+                if (
+                    old.get("input_fingerprint") == digest
+                    and (timestamp(old.get("expires_at")) or inputs["now"]) > inputs["now"]
+                ):
+                    unchanged += 1
+                    continue
+                choice = selected.get(lead["id"])
+                alternatives = (
+                    future_slots(
+                        lead,
+                        [],
+                        now=inputs["now"],
+                        policy=inputs["policy"],
+                        horizon_days=inputs["horizon_hours"] / 24,
+                        predictor=predictors.get(lead["id"]),
+                        estimates=estimates,
+                        staffed_windows=inputs["staffed_windows"],
+                        rep_minutes=inputs["rep_minutes"],
+                        inventory=inputs["inventory"],
+                        rep_busy_until=inputs["rep_busy_until"],
+                    )
+                    if choice
+                    else []
+                )
+                if choice:
+                    local = timestamp(choice["at"]).astimezone(ZoneInfo(lead["timezone"]))
+                    prediction = next(
+                        (r["predictions"] for r in alternatives if r["at"] == choice["at"]),
+                        estimates.get(str(lead.get("segment", "unknown")) + ":" + str(local.hour))
+                        or estimates["pooled"],
+                    )
+                    choice = {
+                        **choice,
+                        "local_hour": local.hour,
+                        "predictions": prediction,
+                        "reason": "requested_callback"
+                        if choice["callback"]
+                        else "shared_capacity_and_expected_conversion",
+                        "constraint_scope": "whole_list_schedule",
+                    }
+                computed.append((lead, choice, alternatives))
+            if not computed:
+                continue
+            with self.db.transaction() as s:
+                user, _, _, _ = self.report_scope(s, p)
+                if user["role"] != "admin":
+                    fail(403, "Planning owner no longer has administrator access")
+                if self.report_revision(s, p, lock=True) != generation:
+                    superseded += len(inputs["leads"]) - offset
+                    self.jobs.enqueue_in(
+                        s,
+                        "ml",
+                        {
+                            "kind": "retry_plan_refresh",
+                            "seller_id": p["seller_id"],
+                            "user_id": p["user_id"],
+                            "campaign_id": campaign_id,
+                        },
+                        f"retry-plans:{campaign_id}:{self.report_revision(s, p)}",
+                        tenant_id=p["tenant_id"],
+                    )
+                    break
+                model, plans = MODELS["leads"], MODELS["scheduling_plans"]
+                current = {
+                    row.id: row
+                    for row in s.scalars(
+                        select(model).where(
+                            model.tenant_id == p["tenant_id"],
+                            model.seller_id == p["seller_id"],
+                            model.id.in_(ids),
+                        )
+                    )
+                }
+                existing = {
+                    row.data["lead_id"]: row
+                    for row in s.scalars(
+                        select(plans).where(
+                            plans.tenant_id == p["tenant_id"],
+                            plans.seller_id == p["seller_id"],
+                            plans.external_key.in_(["current:" + identity for identity in ids]),
+                        )
+                    )
+                }
+                for old, choice, alternatives in computed:
+                    lead = current.get(old["id"])
+                    if not lead or lead.version != old["version"]:
+                        superseded += 1
+                        continue
+                    if (
+                        choice
+                        and lead.data.get("attempt_count")
+                        and not lead.data.get("callback_due_at")
+                        and lead.data.get("next_attempt_at") != choice["at"]
+                    ):
+                        update(lead, next_attempt_at=choice["at"])
+                        old = {**old, "next_attempt_at": choice["at"], "version": lead.version}
+                    value = {
+                        "lead_id": lead.id,
+                        "selected": choice,
+                        "alternatives": alternatives,
+                        "status": "ready" if choice else "unavailable",
+                        "dataset_id": dataset_id,
+                        "input_fingerprint": fingerprint(old),
+                        "source_lead_version": lead.version,
+                        "created_at": inputs["now"].isoformat(),
+                        "expires_at": (inputs["now"] + timedelta(minutes=10)).isoformat(),
+                        "schedule_fingerprint": forecast["input_fingerprint"],
+                        "planning_limited": forecast["planning_limited"],
+                    }
+                    if lead.id in existing:
+                        update(existing[lead.id], **value)
+                    else:
+                        put(
+                            s,
+                            "scheduling_plans",
+                            p["tenant_id"],
+                            p["seller_id"],
+                            value,
+                            key="current:" + lead.id,
+                            now=inputs["now"],
+                        )
+                    saved += 1
+                s.flush()
+                generation = self.report_revision(s, p)
+        return {
+            "saved": saved,
+            "superseded": superseded,
+            "unchanged": unchanged,
+            "omitted_schedule_rows": forecast["schedule_rows_omitted"],
+        }
+
     def refresh_optimization(self, p):
         from app.optimization.conversations import conversation_associations
 
@@ -1090,50 +1306,6 @@ class OptimizationWorkflows(ComparisonWorkflows):
                         {"samples": number["health"]["samples"]},
                     )
             campaign = self.scoped(s, "campaigns", p)[0]
-            policy = self.required(s, "policy_versions", campaign.data["policy_id"], p).data
-            for lead in self.scoped(s, "leads", p):
-                if lead.data.get("status") != "eligible" or self.suppressed(s, p, lead.data["phone"]):
-                    continue
-                key = (
-                    lead.id
-                    + ":"
-                    + str(lead.data.get("attempt_count", 0))
-                    + ":"
-                    + str(lead.data.get("callback_due_at"))
-                )
-                existing = next(
-                    (r for r in self.scoped(s, "scheduling_plans", p) if r.external_key == key), None
-                )
-                if existing:
-                    continue
-                options = future_slots(
-                    doc(lead),
-                    dataset["rows"],
-                    now=self.clock(),
-                    policy=policy,
-                    predictor=self.slot_predictor(s, p, lead, config),
-                )
-                if not options:
-                    continue
-                selected = options[0]
-                put(
-                    s,
-                    "scheduling_plans",
-                    p["tenant_id"],
-                    p["seller_id"],
-                    {
-                        "lead_id": lead.id,
-                        "selected": selected,
-                        "alternatives": options,
-                        "dataset_id": dataset["id"],
-                        "created_at": self.clock().isoformat(),
-                    },
-                    key=key,
-                    now=self.clock(),
-                )
-                # Fresh leads remain immediately callable; completed attempts get the learned retry slot.
-                if lead.data.get("attempt_count") and not lead.data.get("callback_due_at"):
-                    update(lead, next_attempt_at=selected["at"])
             update(campaign, selection_profile=self.selection_profile(s, p, dataset["rows"], config))
             if (
                 dataset.get("conversation_revision") == campaign.data.get("conversation_revision", 0)
@@ -1144,6 +1316,12 @@ class OptimizationWorkflows(ComparisonWorkflows):
             ):
                 update(campaign, conversation_report=conversation_report)
             emit(s, p["tenant_id"], "optimization.updated", campaign, self.clock())
+        planning = self.refresh_schedule_plans(p, campaign_id, dataset["id"])
         training = self.train_operational(p) if config["auto_train"] else {"status": "disabled"}
         self.rebuild_optimization_report(p)
-        return {"dataset_id": dataset["id"], "rows": len(dataset["rows"]), "training": training}
+        return {
+            "dataset_id": dataset["id"],
+            "rows": len(dataset["rows"]),
+            "training": training,
+            "planning": planning,
+        }

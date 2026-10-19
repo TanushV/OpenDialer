@@ -1311,6 +1311,8 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                             raise RuntimeError("Report source changed during calculation")
                     elif job["payload"].get("kind") == "optimization_refresh":
                         await asyncio.to_thread(self.refresh_optimization_job, p)
+                    elif job["payload"].get("kind") == "retry_plan_refresh":
+                        await asyncio.to_thread(self.refresh_schedule_plans, p, job["payload"]["campaign_id"])
                     else:
                         await self.train_model_job(p, job["payload"])
                 else:
