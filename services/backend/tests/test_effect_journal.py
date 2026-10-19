@@ -181,6 +181,48 @@ def test_lost_receipt_restores_settled_cost_without_double_charge(workspace, app
         assert restored.data["status"] == "settled" and restored.data["reserved_usd"] == 0
 
 
+def test_repaired_older_intent_cannot_erase_newer_cost_receipt(workspace, app):
+    from app.db import get
+    from app.providers.inference import InferenceResult
+
+    service, p = app.state.service, principal(workspace)
+    backup = service.backup(p)
+    service.reserve_optional_budget(p, "late-intent", 0.01, object_id="object", work_kind="live_coach")
+    old_intent = service.vault.read_journal("effects")[0]
+    identity = service.usage(
+        p,
+        "openrouter",
+        "live_coach",
+        InferenceResult({}, {"cost": 0.002}, "remote"),
+        object_id="object",
+        request_key="late-intent",
+    )
+    # Repairing independent storage may append a saved older intent after a receipt.
+    service.vault.append_journal("effects", old_intent)
+    with service.db.transaction() as s:
+        s.delete(get(s, "usage_ledger", identity))
+    service.restore(p, backup["backup_id"])
+    with service.db.transaction(False) as s:
+        restored = get(s, "usage_ledger", identity)
+        assert restored.data["cost_usd"] == 0.002 and restored.data["status"] == "settled"
+
+
+def test_backup_checkpoint_rejects_an_older_complete_journal(workspace, app):
+    from fastapi import HTTPException
+
+    service, p = app.state.service, principal(workspace)
+    service.reserve_optional_budget(p, "first", 0.01, object_id="object", work_kind="live_coach")
+    path = service.settings.data_dir / "effects-journal.enc"
+    head = service.settings.data_dir / "effects-journal.head"
+    before, before_head = path.read_bytes(), head.read_bytes()
+    service.release_unsubmitted_budget(p, "first")
+    backup = service.backup(p)
+    path.write_bytes(before)
+    head.write_bytes(before_head)
+    with pytest.raises(HTTPException):
+        service.restore(p, backup["backup_id"])
+
+
 @pytest.mark.asyncio
 async def test_control_receipts_never_persist_text_or_digits(workspace, app):
     from app.db import get
