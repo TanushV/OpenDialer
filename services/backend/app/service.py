@@ -51,6 +51,17 @@ class Service(ReservationPlanner):
         self.script_capacity = asyncio.Semaphore(settings.runtime_limits.script_generations)
         self.screening_capacity = asyncio.Semaphore(2)
         self.research_flights = {}
+        limits = settings.runtime_limits
+        self.job_admission = {
+            name: asyncio.Semaphore(capacity)
+            for name, capacity in {
+                "webhook": limits.live_active,
+                "live_coach": limits.live_active,
+                "postcall": limits.postcall_active,
+                "preparation": limits.company_units,
+                "ml": 1,
+            }.items()
+        }
 
     def required(self, s, kind, object_id, p):
         obj = get(s, kind, object_id, p["tenant_id"])

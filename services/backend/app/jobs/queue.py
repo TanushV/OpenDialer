@@ -1,6 +1,7 @@
+import hashlib
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select, text
 
 from app.db import Job, uid
 
@@ -55,19 +56,40 @@ class JobQueue:
         s.flush()
         return jobdoc(job)
 
-    def claim(self, queue, worker, lease_seconds=60, tenant_id=None):
+    def claim(self, queue, worker, lease_seconds=60, tenant_id=None, *, capacity=None, shared_queues=()):
         with self.db.transaction() as s:
+            # This fence covers only admission to one execution pool, never the
+            # job's work or other writers. It also covers independent runners.
+            pool = tuple(sorted(shared_queues or (queue,)))
+            if capacity is not None:
+                if capacity < 1 or queue not in pool:
+                    raise ValueError("Invalid execution pool capacity")
+                if not self.db.sqlite:
+                    key = int.from_bytes(
+                        hashlib.sha256(("jobs:capacity:" + ":".join(pool)).encode()).digest()[:8],
+                        signed=True,
+                    )
+                    if not s.scalar(text("SELECT pg_try_advisory_xact_lock(:pool)"), {"pool": key}):
+                        return None
+                running = s.scalar(
+                    select(func.count()).select_from(Job).where(Job.queue.in_(pool), Job.status == "running")
+                )
+                if running >= capacity:
+                    return None
             query = (
                 select(Job)
                 .where(Job.queue == queue, Job.status == "queued", Job.available_at <= self.clock())
                 .order_by(Job.priority.desc(), Job.available_at, Job.id)
-                .limit(1)
+                .limit(100 if queue == "live_coach" else 1)
             )
             if tenant_id:
                 query = query.where(Job.tenant_id == tenant_id)
             if not self.db.sqlite:
                 query = query.with_for_update(skip_locked=True)
-            job = s.scalar(query)
+            candidates = list(s.scalars(query))
+            if queue == "live_coach":
+                candidates = self._coalesce_queued(s, candidates)
+            job = next(iter(candidates), None)
             if not job:
                 return None
             job.status, job.lease_owner = "running", worker
@@ -76,6 +98,32 @@ class JobQueue:
             job.lease_expires_at = self.clock() + timedelta(seconds=lease_seconds)
             job.attempts += 1
             return jobdoc(job)
+
+    @staticmethod
+    def _coalesce_queued(s, candidates):
+        """Retire bounded legacy duplicates without charging execution attempts.
+
+        Current live producers already keep one job per call. This handles old
+        persisted keys; the selected job reads the latest current call context.
+        A running owner is never superseded or leased a second time.
+        """
+        running = {
+            (job.tenant_id, job.seller_id, job.payload.get("call_id"))
+            for job in s.scalars(select(Job).where(Job.queue == "live_coach", Job.status == "running"))
+        }
+        selected = {}
+        for job in candidates:
+            call_id = job.payload.get("call_id")
+            identity = (job.tenant_id, job.seller_id, call_id or job.id)
+            original = selected.get(identity)
+            if original:
+                job.status = "completed"
+                job.error = None
+                job.lease_owner = job.lease_expires_at = None
+                job.payload = {**job.payload, "superseded_by": original.id}
+            else:
+                selected[identity] = job
+        return [job for identity, job in selected.items() if identity not in running]
 
     def coalesce_live_in(self, s, queue, payload, key, *, tenant_id, priority, available_at):
         """One latest context/packet; changed inputs never steal the running owner's lease."""

@@ -1213,7 +1213,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     "interpreted_segments": interpreted,
                     "pending_segments": pending,
                     "unavailable_segments": len(stable_metadata) - interpreted - pending,
-                    "rate_limited_opportunities": derived.get("rate_limited_opportunities", 0),
+                    "rate_limited_opportunities": (memory.data if memory else {}).get(
+                        "rate_limited_opportunities", 0
+                    ),
                 },
                 "notes_version": note.version,
                 "human_notes": note.data.get("human_text"),
@@ -1260,7 +1262,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             await self.periodic_optimization(tenant_id)
         processed, worker_id = 0, "worker-" + uid()
 
-        async def execute(lane, job, obsolete=False):
+        async def execute(lane, job):
             p = {
                 "tenant_id": job["tenant_id"],
                 "seller_id": job["payload"].get("seller_id"),
@@ -1275,9 +1277,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
 
             pulse = asyncio.create_task(heartbeat())
             try:
-                if obsolete:
-                    pass  # A later queued turn replaces this paid request; retain the job receipt.
-                elif lane == "webhook":
+                if lane == "webhook":
                     receipt = await self.process_webhook(job["tenant_id"], job["payload"]["receipt_id"])
                     if receipt["status"] in {"processing", "retry", "unmatched"}:
                         raise RuntimeError("Webhook processing is incomplete")
@@ -1344,26 +1344,47 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     await pulse
 
         for lane in queues or ["webhook", "live_coach", "postcall", "scripts", "research", "ml"]:
-            jobs = []
-            for _ in range(20):
-                job = await asyncio.to_thread(self.jobs.claim, lane, worker_id, 60, tenant_id)
-                if not job:
-                    break
-                jobs.append(job)
-            latest = {(j["tenant_id"], j["payload"].get("call_id")): j["id"] for j in jobs}
-            capacity = 8 if lane in {"webhook", "live_coach"} else 2 if lane != "ml" else 1
-            limit = asyncio.Semaphore(capacity)
+            limits = self.settings.runtime_limits
+            capacity = (
+                limits.live_active
+                if lane in {"webhook", "live_coach"}
+                else limits.postcall_active
+                if lane == "postcall"
+                else limits.company_units
+                if lane in {"research", "scripts"}
+                else 1
+            )
+            pool = ("research", "scripts") if lane in {"research", "scripts"} else (lane,)
+            admission = self.job_admission["preparation" if len(pool) == 2 else lane]
 
-            async def bounded(job, lane=lane, limit=limit, latest=latest):
-                async with limit:
-                    return await execute(
+            async def admitted_job(lane=lane, capacity=capacity, pool=pool, admission=admission):
+                # Wait for a local slot while still queued, never while leased.
+                async with admission:
+                    job = await asyncio.to_thread(
+                        self.jobs.claim,
                         lane,
-                        job,
-                        lane == "live_coach"
-                        and latest[(job["tenant_id"], job["payload"].get("call_id"))] != job["id"],
+                        worker_id,
+                        60,
+                        tenant_id,
+                        capacity=capacity,
+                        shared_queues=pool,
                     )
+                    if not job:
+                        return None
+                    return await execute(lane, job)
 
-            processed += sum(await asyncio.gather(*(bounded(j) for j in jobs)))
+            for offset in range(0, 20, capacity):
+                active = [asyncio.create_task(admitted_job()) for _ in range(min(capacity, 20 - offset))]
+                try:
+                    results = await asyncio.gather(*active)
+                    processed += sum(result for result in results if result is not None)
+                    if all(result is None for result in results):
+                        break
+                finally:
+                    for task in active:
+                        if not task.done():
+                            task.cancel()
+                    await asyncio.gather(*active, return_exceptions=True)
         return {"processed": processed}
 
     def _training_source(self, s, p, payload):
