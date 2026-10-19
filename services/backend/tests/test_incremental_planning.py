@@ -190,3 +190,36 @@ async def test_planning_lease_expiring_during_calculation_cannot_publish(workspa
     await service.run_jobs(p["tenant_id"], ["ml"])
     with service.db.transaction(False) as s:
         assert service.scoped(s, "scheduling_plans", p) == []
+
+
+def test_full_reallocation_replaces_an_unchanged_leads_old_slot(workspace, app, clock):
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        for i, row in enumerate(service.scoped(s, "number_inventory", p)):
+            update(
+                row,
+                lifecycle="healthy" if i == 0 else "retired_callback_only",
+                daily_limit=1,
+                region="general",
+            )
+        campaign = service.required(s, "campaigns", workspace["campaign_id"], p)
+        update(
+            campaign,
+            optimization={**campaign.data.get("optimization", {}), "horizon_hours": 1, "rep_minutes": 60},
+        )
+        for row in service.scoped(s, "leads", p):
+            update(row, timezone="UTC")
+    service.refresh_schedule_plans(p, workspace["campaign_id"])
+    with service.db.transaction() as s:
+        plans = service.scoped(s, "scheduling_plans", p)
+        assert sum(bool(row.data.get("selected")) for row in plans) == 1
+        promoted = next(row.data["lead_id"] for row in plans if not row.data.get("selected"))
+        update(get(s, "leads", promoted), callback_due_at=clock.now.isoformat())
+    service.refresh_schedule_plans(p, workspace["campaign_id"])
+    with service.db.transaction(False) as s:
+        selected = {
+            row.data["lead_id"]
+            for row in service.scoped(s, "scheduling_plans", p)
+            if row.data.get("selected")
+        }
+        assert selected == {promoted}, "The old winner must relinquish its capacity after reallocation"
