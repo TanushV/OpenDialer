@@ -197,6 +197,21 @@ def test_training_is_queued_once_from_real_stored_snapshots_and_produces_a_candi
     with app.state.db.transaction() as session:
         for i in range(120):
             at = clock.now - timedelta(days=40, minutes=120 - i)
+            put(
+                session,
+                "leads",
+                workspace["tenant_id"],
+                workspace["seller_id"],
+                {
+                    "campaign_id": workspace["campaign_id"],
+                    "status": "eligible",
+                    "name": f"History{i}",
+                    "attempt_count": 1,
+                    "originally_eligible": True,
+                },
+                object_id=f"historic-{i}",
+                now=at,
+            )
             snapshot = put(
                 session,
                 "feature_snapshots",

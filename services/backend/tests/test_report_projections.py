@@ -80,6 +80,8 @@ def test_changed_comparison_definition_invalidates_saved_report(workspace, app):
 
 @pytest.mark.asyncio
 async def test_source_change_marks_previous_report_stale_until_worker_publishes(workspace, app, clock):
+    from conftest import completed_report
+
     service, p = app.state.service, principal(workspace)
     service.refresh_optimization(p)
     previous = read(workspace)
@@ -106,7 +108,7 @@ async def test_source_change_marks_previous_report_stale_until_worker_publishes(
     assert stale["metrics"] == previous["metrics"]
     assert stale["projection"]["current_revision"] > stale["projection"]["source_revision"]
     await service.run_jobs(queues=["ml"])
-    current = read(workspace)
+    current = completed_report(workspace).json()
     assert current["projection"]["status"] == "ready"
     assert current["metrics"]["unique_conversions"] == 1
 

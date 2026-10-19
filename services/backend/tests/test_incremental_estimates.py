@@ -353,7 +353,8 @@ def test_explicit_learning_snapshot_is_outside_writer_and_reuses_one_dataset(wor
 
 def test_attributed_usage_index_backfills_without_rewriting_the_receipt(workspace, app, clock):
     from app.db import MODELS
-    from sqlalchemy import inspect, update as sql_update
+    from sqlalchemy import inspect
+    from sqlalchemy import update as sql_update
 
     service, p = app.state.service, principal(workspace)
     model = MODELS["usage_ledger"]
@@ -421,3 +422,43 @@ def test_unchanged_ticks_and_changed_counts_keep_one_pending_learning_job(worksp
     updated = learning_jobs()
     assert len(updated) == 1 and updated[0][0] == first[0][0]
     assert updated[0][1] > first[0][1]
+
+
+def test_published_future_slots_keep_conditional_estimates(workspace, app):
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        lead = service.scoped(s, "leads", p)[0]
+        row = {
+            "segment": lead.data.get("segment", "unknown"),
+            "local_hour": 10,
+            "local_weekday": 0,
+            "attempt_count": 0,
+            "outcome": "right_party",
+            "rep_work_seconds": 60,
+        }
+        statistics = {
+            "total": models.estimate_counts([row]),
+            "cells": [
+                {
+                    "features": {
+                        k: row[k] for k in ("segment", "local_hour", "local_weekday", "attempt_count")
+                    },
+                    "counts": models.estimate_counts([row]),
+                }
+            ],
+            "cells_complete": True,
+            "retry_observations": [],
+            "treatment_counts": {},
+        }
+        config = service.optimization_config(s, p)
+        profile = service.selection_profile(s, p, statistics, config)
+        campaign = get(s, "campaigns", workspace["campaign_id"])
+        update(campaign, selection_profile=profile)
+    service.refresh_schedule_plans(p, workspace["campaign_id"])
+    with service.db.transaction(False) as s:
+        plans = [r.data for r in service.scoped(s, "scheduling_plans", p)]
+    predictions = [v["predictions"] for r in plans for v in r["alternatives"]]
+    assert predictions, "The fixture must exercise actual permitted future slots"
+    assert any(
+        v["observations"] == 1 and v["estimate_level"] == "segment_time_attempt" for v in predictions
+    ), "Saved plans silently lost their conditional estimates"

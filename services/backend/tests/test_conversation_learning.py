@@ -472,7 +472,7 @@ def test_background_report_cannot_publish_an_outdated_dataset_after_a_correction
         return dataset
 
     monkeypatch.setattr(service, "save_operational_dataset", changed)
-    service.refresh_optimization(p(workspace))
+    service.refresh_learning(p(workspace))
     result = workspace["client"].get("/v1/optimization/conversations", headers=workspace["headers"]).json()
     assert result["report"]["status"] != "ready"
 
@@ -486,7 +486,7 @@ def test_background_report_uses_the_selected_campaign_only(workspace, app, clock
     for row in other:
         row["campaign_id"] = "a-different-campaign"
     monkeypatch.setattr(service, "operational_dataset", lambda *args: other)
-    service.refresh_optimization(p(workspace))
+    service.refresh_learning(p(workspace))
     result = workspace["client"].get("/v1/optimization/conversations", headers=workspace["headers"]).json()
     assert result["report"]["patterns"] == []
 
@@ -653,7 +653,7 @@ def test_background_association_calculation_does_not_hold_a_write_transaction(wo
 
     monkeypatch.setattr(service.db, "transaction", watched)
     monkeypatch.setattr(conversations, "conversation_associations", calculate)
-    service.refresh_optimization(p(workspace))
+    service.refresh_learning(p(workspace))
     assert calls
 
 

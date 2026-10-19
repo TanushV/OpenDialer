@@ -667,7 +667,7 @@ def test_retry_slot_computation_does_not_hold_a_database_transaction(workspace, 
 
     monkeypatch.setattr(service.db, "transaction", observed)
     monkeypatch.setattr(workflows, "future_slots", outside)
-    service.refresh_optimization(p)
+    service.refresh_schedule_plans(p, workspace["campaign_id"])
 
 
 def test_schedule_publication_rechecks_changed_leads(workspace, app, monkeypatch):
@@ -984,27 +984,20 @@ def test_retry_capacity_can_propose_one_shared_addition_for_unbound_work():
 
 def test_runtime_retry_profile_is_used_by_capacity(workspace, app):
     from app.db import update
+    from app.optimization.projections import read_estimate_statistics
+    from conftest import start
+    from test_optimization_workflows import finish
+    from test_projection_replay import project_pending
     from test_remediation_privacy import principal
 
     service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    finish(workspace, call, outcome="no_answer")
+    project_pending(service, p)
+    statistics = read_estimate_statistics(service, p)
     with service.db.transaction() as s:
-        row = service.scoped(s, "leads", p)[0]
-        update(row, attempt_count=1, next_attempt_at=service.clock().isoformat())
-        data = [
-            {
-                "lead_id": row.id,
-                "campaign_id": workspace["campaign_id"],
-                "at": (service.clock() - timedelta(days=1)).isoformat(),
-                "features": {"attempt_count": 0},
-                "segment": "services",
-                "outcome": "no_answer",
-                "outcome_available_at": service.clock().isoformat(),
-                "label_timing_quality": "observed",
-                "conversion": None,
-            }
-        ]
         config = service.optimization_config(s, p)
-        profile = service.selection_profile(s, p, data, config)
+        profile = service.selection_profile(s, p, statistics, config)
         assert profile["retry_observations"][0]["needs_retry_count"] == 1
         campaign = service.required(s, "campaigns", workspace["campaign_id"], p)
         update(campaign, selection_profile=profile)
