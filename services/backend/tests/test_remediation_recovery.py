@@ -158,6 +158,10 @@ async def test_completed_transcript_retry_does_not_repeat_coaching_after_cooldow
         "text": "We need a useful explanation.",
     }
     await service.transcript(p, call["id"], segment)
+    clock.now += timedelta(milliseconds=301)
+    await service.run_jobs(p["tenant_id"], ["live_coach"])
+    assert seen == [call["id"]]
     clock.now += timedelta(seconds=60)
     await service.transcript(p, call["id"], segment)
+    await service.run_jobs(p["tenant_id"], ["live_coach"])
     assert seen == [call["id"]]

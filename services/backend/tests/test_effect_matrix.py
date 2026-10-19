@@ -239,7 +239,10 @@ def test_local_task_edit_crash_matrix(workspace, app, clock, monkeypatch, phase)
         monkeypatch.setattr(service.db, "transaction", rollback_before_commit)
     if phase != "before_send":
         try:
-            service.save_disposition(p, call["id"], body)
+            response = workspace["client"].post(
+                f"/v1/calls/{call['id']}/disposition", headers=workspace["headers"], json=body
+            )
+            assert response.status_code == 200, response.text
         except RuntimeError:
             assert phase == "before_publication"
     monkeypatch.setattr(service.db, "transaction", transaction)

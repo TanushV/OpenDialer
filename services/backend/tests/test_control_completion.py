@@ -70,6 +70,41 @@ async def test_effect_publication_requires_unexpired_ownership(
     assert row["lease_owner"], "Expired completion cannot clear the durable recovery obligation"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["dial", "agent"])
+async def test_late_dial_receipt_cannot_complete_an_expired_submission(
+    workspace, app, clock, carrier, monkeypatch, operation
+):
+    service, p = app.state.service, principal(workspace)
+    if operation == "agent":
+        service.settings.simulation = False
+        monkeypatch.setattr(service, "carrier", lambda _: carrier)
+        service.vault.write(
+            p["tenant_id"], {"sip_username": "test-rep", "telephony_credential_id": "test-cred"}
+        )
+
+        async def verified(_):
+            return True
+
+        monkeypatch.setattr(carrier, "verify_incoming_only_credential", verified, raising=False)
+    original = carrier.dial
+
+    async def delayed(payload):
+        result = await original(payload)
+        clock.now += timedelta(seconds=31)
+        return result
+
+    monkeypatch.setattr(carrier, "dial", delayed)
+    if operation == "agent":
+        with pytest.raises(HTTPException) as error:
+            await service.create_agent(p)
+        assert error.value.status_code == 409
+    else:
+        call = start(workspace)
+        assert command_for(service, p, call["id"])["status"] == "sending"
+    assert len(carrier.dials) == 1
+
+
 @pytest.mark.parametrize(
     "event,state",
     [
