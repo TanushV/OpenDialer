@@ -5,6 +5,7 @@ from datetime import timedelta
 
 import pytest
 from app.db import update
+from conftest import disposition_body
 from test_grounding_review import review_response
 from test_postcall_completion import ConversationProvider, setup_analysis
 from test_remediation_rep_workflow import p
@@ -193,7 +194,11 @@ async def test_reviewed_observations_survive_expiry_without_raw_text_and_feed_da
     # An observed right-party call is not yet a conversion; a later confirmed label is separate.
     c, h = workspace["client"], workspace["headers"]
     assert (
-        c.post(f"/v1/calls/{call['id']}/disposition", headers=h, json={"outcome": "right_party"}).status_code
+        c.post(
+            f"/v1/calls/{call['id']}/disposition",
+            headers=h,
+            json=disposition_body(c, h, call["id"], **{"outcome": "right_party"}),
+        ).status_code
         == 200
     )
     clock.now += timedelta(minutes=6)

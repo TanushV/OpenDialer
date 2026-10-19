@@ -3,7 +3,7 @@ from datetime import timedelta
 import pytest
 from app.ml.training import promotion_allowed, train_challenger
 from app.scheduling.policy import choose_action, delayed_reward, eligible_features, rank_candidates
-from conftest import start
+from conftest import disposition_body, start
 
 
 def test_callback_and_coverage_beat_propensity(clock):
@@ -147,7 +147,11 @@ def test_metrics_keep_original_cohort_denominator(workspace):
     before = c.get("/v1/metrics", headers=h).json()
     call = start(workspace)
     c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
-    c.post(f"/v1/calls/{call['id']}/disposition", headers=h, json={"outcome": "voicemail"})
+    c.post(
+        f"/v1/calls/{call['id']}/disposition",
+        headers=h,
+        json=disposition_body(c, h, call["id"], **{"outcome": "voicemail"}),
+    )
     after = c.get("/v1/metrics", headers=h).json()
     assert before["original_cohort"] == after["original_cohort"]
     assert after["right_party_unique"] == 0

@@ -112,6 +112,15 @@ def start(workspace, key="call-key-001"):
     return r.json()
 
 
+def disposition_body(client, headers, call_id, **values):
+    """Explicit modern edit envelope for fixtures, never an HTTP-client interceptor."""
+    from uuid import uuid4
+
+    current = client.get(f"/v1/calls/{call_id}", headers=headers)
+    assert current.status_code == 200, current.text
+    return {"request_id": str(uuid4()), "expected_version": current.json()["version"], **values}
+
+
 def completed_report(workspace, *, headers=None, params=None):
     """Explicitly run the report worker for assertions about its computed evidence."""
     from functools import partial

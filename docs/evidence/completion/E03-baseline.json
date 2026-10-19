@@ -14,18 +14,26 @@
     },
     "browser_local": {
       "failed": 1
+    },
+    "browser_paired": {
+      "failed": 2,
+      "modes": [
+        "local",
+        "postgres"
+      ]
     }
   },
   "known_limitations": [
     "PostgreSQL red capture waits for the E02 runner to release the isolated unit store.",
     "Two alias cases name missing migration contract; remaining failures are behavioral/API assertions.",
     "The choice supplement rejects an accidental green caused by an unsupported request field.",
-    "Browser local failure demonstrates no replay after a committed response is lost; paired authority expansion remains pending."
+    "Browser local failure demonstrates no replay after a committed response is lost; paired authority expansion also fails with the same missing identity/retry behavior."
   ],
   "raw_logs": {
     "E03-sqlite-baseline.txt": "80f57e88dd1b1c9c3ca20014b245c962e72acfc282af2c28ccd72f4f4698148b",
     "E03-choice-red.txt": "9d5b8d6433686f3b7c36163a33f5dcb225dcd547167ed99cc9caf74a6bb3f1f2",
-    "E03-browser-red.txt": "f50fbf52b47b62179b63008e06472406a12fac3c3835a68b81cbe1116a1e0115"
+    "E03-browser-red.txt": "f50fbf52b47b62179b63008e06472406a12fac3c3835a68b81cbe1116a1e0115",
+    "E03-browser-paired-red.txt": "fac3bc7f444da852a78a629455d6d4037d9e80e19db8be628e7ee3915149cde4"
   },
   "tests": {
     "services/backend/tests/test_local_followthrough.py": "37a0e607345ea33f43f3de42110196d466f89badd1df5740cd5528419dcda7cc",

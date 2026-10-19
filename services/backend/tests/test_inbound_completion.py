@@ -4,6 +4,7 @@ import asyncio
 import base64
 import json
 from datetime import timedelta
+from uuid import uuid4
 
 import pytest
 from app.db import ActiveClaim, doc, get, put, rows, update
@@ -290,7 +291,7 @@ def test_live_callback_cannot_be_reassigned_by_task_editor(workspace, clock):
     result = workspace["client"].patch(
         f"/v1/tasks/{task['id']}",
         headers=workspace["headers"],
-        json={"expected_version": task["version"], "owner_id": peer},
+        json={"request_id": str(uuid4()), "expected_version": task["version"], "owner_id": peer},
     )
     assert result.status_code == 409
     service = workspace["client"].app.state.service

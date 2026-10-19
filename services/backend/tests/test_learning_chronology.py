@@ -1,10 +1,11 @@
 """As-of outcomes, delayed-window embargo and fitted-stage independence."""
 
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 from app.ml.training import independent_partitions, train_challenger
 from app.optimization.learning import freeze_features, training_rows
-from conftest import start
+from conftest import disposition_body, start
 from test_remediation_rep_workflow import p
 
 
@@ -246,7 +247,10 @@ def test_disposition_corrections_retain_as_of_history_without_transcripts(worksp
     c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
     path = f"/v1/calls/{call['id']}/disposition"
     first_at = clock.now
-    assert c.post(path, headers=h, json={"outcome": "right_party"}).status_code == 200
+    assert (
+        c.post(path, headers=h, json=disposition_body(c, h, call["id"], outcome="right_party")).status_code
+        == 200
+    )
     clock.now += timedelta(days=1)
     # The session remains valid for this test's one-day boundary only after login.
     login = c.post(
@@ -255,7 +259,10 @@ def test_disposition_corrections_retain_as_of_history_without_transcripts(worksp
         json={"email": "operator@example.test", "password": "a-test-only-password-123"},
     )
     h = {"Authorization": "Bearer " + login.json()["access_token"]}
-    assert c.post(path, headers=h, json={"outcome": "no_answer"}).status_code == 200
+    assert (
+        c.post(path, headers=h, json=disposition_body(c, h, call["id"], outcome="no_answer")).status_code
+        == 200
+    )
     service = app.state.service
     with service.db.transaction(False) as s:
         stored = dict(service.required(s, "call_attempts", call["id"], p(workspace)).data) | {
@@ -283,6 +290,7 @@ def test_revised_meeting_reports_keep_observation_and_retraction_history(workspa
             f"/v1/leads/{lead_id}/meeting",
             headers=h,
             json={
+                "request_id": str(uuid4()),
                 "expected_version": packet["lead"]["version"],
                 "status": status,
             },

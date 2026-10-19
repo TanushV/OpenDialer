@@ -10,7 +10,7 @@ from app.db import doc, update
 from app.optimization.numbering import capacity_forecast
 from app.providers.inference import InferenceResult
 from app.transcripts import normalize_transcription
-from conftest import start
+from conftest import disposition_body, start
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from fastapi import HTTPException
@@ -235,7 +235,11 @@ def test_new_conversion_goal_reopens_previously_completed_goal(workspace, clock)
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
     c.post("/v1/calls/" + call["id"] + "/hangup", headers=h)
-    c.post("/v1/calls/" + call["id"] + "/disposition", headers=h, json={"outcome": "meeting_held"})
+    c.post(
+        "/v1/calls/" + call["id"] + "/disposition",
+        headers=h,
+        json=disposition_body(c, h, call["id"], **{"outcome": "meeting_held"}),
+    )
     changed = c.put("/v1/admin/optimization", headers=h, json={"conversion_goal": "sale_won"})
     assert changed.status_code == 200
     lead = next(r for r in c.get("/v1/workspace", headers=h).json()["leads"] if r["id"] == call["lead_id"])

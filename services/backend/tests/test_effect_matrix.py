@@ -5,7 +5,7 @@ from datetime import timedelta
 import pytest
 from app.db import get, update
 from app.providers.simulated import UncertainCarrierResult
-from conftest import reserve, start
+from conftest import disposition_body, reserve, start
 from test_batch_recovery import batch  # noqa: F401 - pytest fixture
 from test_dnc_recovery import screening  # noqa: F401 - pytest fixture
 from test_remediation_privacy import principal
@@ -256,7 +256,9 @@ def test_local_task_edit_crash_matrix(workspace, app, clock, monkeypatch, phase)
     changed = workspace["client"].post(
         f"/v1/calls/{call['id']}/disposition",
         headers=workspace["headers"],
-        json={**body, "outcome": "no_answer"},
+        json=disposition_body(
+            workspace["client"], workspace["headers"], call["id"], **{**body, "outcome": "no_answer"}
+        ),
     )
     assert changed.status_code == 409
 

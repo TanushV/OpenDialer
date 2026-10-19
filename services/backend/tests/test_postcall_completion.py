@@ -1,10 +1,11 @@
 """Date and inferred-task contracts authored before implementation."""
 
 from datetime import UTC, datetime
+from uuid import uuid4
 
 import pytest
 from app.db import doc
-from conftest import start
+from conftest import disposition_body, start
 from test_remediation_rep_workflow import p
 
 
@@ -331,6 +332,7 @@ async def test_rephrased_commitment_updates_one_task_and_preserves_rep_edit(work
         p(workspace),
         tasks[0]["id"],
         {
+            "request_id": str(uuid4()),
             "expected_version": tasks[0]["version"],
             "due_at": "2026-10-21T21:00:00+00:00",
             "timezone": "America/Los_Angeles",
@@ -405,7 +407,11 @@ async def test_inference_never_reopens_finished_tasks(workspace, app, monkeypatc
     await service.analyze_postcall(p(workspace), call["id"])
     with service.db.transaction(False) as s:
         task = doc(service.lead_records(s, p(workspace), "followup_tasks", call["lead_id"])[0])
-    service.edit_task(p(workspace), task["id"], {"expected_version": task["version"], "status": status})
+    service.edit_task(
+        p(workspace),
+        task["id"],
+        {"request_id": str(uuid4()), "expected_version": task["version"], "status": status},
+    )
     state["body"] = analysis_body("Revisit this later")
     restate_callback(service, p(workspace), call)
     await service.analyze_postcall(p(workspace), call["id"])
@@ -426,6 +432,7 @@ async def test_source_correction_preserves_human_task_but_flags_conflict(workspa
         p(workspace),
         task["id"],
         {
+            "request_id": str(uuid4()),
             "expected_version": task["version"],
             "due_at": "2026-10-21T21:00:00+00:00",
             "timezone": "America/Los_Angeles",
@@ -511,7 +518,9 @@ async def test_postcall_disposition_race_does_not_publish_old_interpretation(wor
     service = app.state.service
 
     state["during_generation"] = lambda: service.save_disposition(
-        p(workspace), call["id"], {"outcome": "wrong_party"}
+        p(workspace),
+        call["id"],
+        disposition_body(workspace["client"], workspace["headers"], call["id"], **{"outcome": "wrong_party"}),
     )
     await service.analyze_postcall(p(workspace), call["id"])
     with service.db.transaction(False) as s:
@@ -544,7 +553,14 @@ async def test_manual_and_inferred_callback_share_one_task(workspace, app, monke
 
     def report():
         service.save_disposition(
-            p(workspace), call["id"], {"outcome": "callback_requested", "callback_at": "2026-10-21T21:00:00Z"}
+            p(workspace),
+            call["id"],
+            disposition_body(
+                workspace["client"],
+                workspace["headers"],
+                call["id"],
+                **{"outcome": "callback_requested", "callback_at": "2026-10-21T21:00:00Z"},
+            ),
         )
 
     if rep_first:
@@ -581,7 +597,12 @@ async def test_confirming_corrected_task_acknowledges_review(workspace, app, mon
     after = service.edit_task(
         p(workspace),
         task["id"],
-        {"expected_version": task["version"], "status": "open", "due_at": "2026-10-21T21:00:00+00:00"},
+        {
+            "request_id": str(uuid4()),
+            "expected_version": task["version"],
+            "status": "open",
+            "due_at": "2026-10-21T21:00:00+00:00",
+        },
     )
     assert after["review_required"] is False
     assert after["human_edited"] is True

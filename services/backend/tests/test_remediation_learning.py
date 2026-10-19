@@ -4,7 +4,7 @@ from datetime import timedelta
 
 import pytest
 from app.providers.inference import InferenceResult
-from conftest import start
+from conftest import disposition_body, start
 
 
 def test_conversation_associations_require_support_and_keep_correlation_label(clock):
@@ -101,7 +101,11 @@ def test_goal_change_preserves_booked_hold_and_optout(workspace, app):
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
     c.post("/v1/calls/" + call["id"] + "/hangup", headers=h)
-    c.post("/v1/calls/" + call["id"] + "/disposition", headers=h, json={"outcome": "meeting_booked"})
+    c.post(
+        "/v1/calls/" + call["id"] + "/disposition",
+        headers=h,
+        json=disposition_body(c, h, call["id"], **{"outcome": "meeting_booked"}),
+    )
     c.put("/v1/admin/optimization", headers=h, json={"conversion_goal": "sale_won"})
     lead = next(r for r in c.get("/v1/workspace", headers=h).json()["leads"] if r["id"] == call["lead_id"])
     assert lead["outreach_hold"] == "meeting_booked"

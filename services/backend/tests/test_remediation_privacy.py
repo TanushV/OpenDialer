@@ -5,7 +5,7 @@ from datetime import timedelta
 
 import pytest
 from app.db import MODELS, Event, Job, put, update
-from conftest import start
+from conftest import disposition_body, start
 from sqlalchemy import select
 
 RAW = "Private raw utterance ALPHA-ZULU-EPHEMERAL: our internal project is called Granite."
@@ -160,7 +160,11 @@ def test_raw_expiry_preserves_human_notes_outcome_and_optout(workspace, app, clo
     )
     assert response.status_code == 200, response.text
     c.post("/v1/calls/" + call["id"] + "/hangup", headers=h)
-    c.post("/v1/calls/" + call["id"] + "/disposition", headers=h, json={"outcome": "opt_out"})
+    c.post(
+        "/v1/calls/" + call["id"] + "/disposition",
+        headers=h,
+        json=disposition_body(c, h, call["id"], **{"outcome": "opt_out"}),
+    )
     clock.now += timedelta(seconds=301)
     review = c.get("/v1/calls/" + call["id"] + "/analysis", headers=h).json()
     assert "Rep note: follow up" in json.dumps(review)

@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from app.db import Job, put, rows, update
-from conftest import completed_report, start
+from conftest import completed_report, disposition_body, start
 from sqlalchemy import select
 
 
@@ -12,7 +12,11 @@ def auth(workspace):
 def finish(workspace, call, outcome="right_party"):
     c, h = workspace["client"], workspace["headers"]
     assert c.post(f"/v1/calls/{call['id']}/hangup", headers=h).status_code == 200
-    result = c.post(f"/v1/calls/{call['id']}/disposition", headers=h, json={"outcome": outcome})
+    result = c.post(
+        f"/v1/calls/{call['id']}/disposition",
+        headers=h,
+        json=disposition_body(c, h, call["id"], **{"outcome": outcome}),
+    )
     assert result.status_code == 200, result.text
 
 

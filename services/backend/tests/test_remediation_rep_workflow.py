@@ -1,10 +1,11 @@
 """A10/A28-A30/A36-A39/A45-A48: complete local rep continuity, authored first."""
 
 from datetime import timedelta
+from uuid import uuid4
 
 import pytest
 from app.db import update
-from conftest import start
+from conftest import disposition_body, start
 
 
 def p(w):
@@ -15,7 +16,11 @@ def finish(w, call, outcome="callback_requested", **data):
     c, h = w["client"], w["headers"]
     path = "/v1/calls/" + call["id"]
     assert c.post(path + "/hangup", headers=h).status_code == 200
-    result = c.post(path + "/disposition", headers=h, json={"outcome": outcome, **data})
+    result = c.post(
+        path + "/disposition",
+        headers=h,
+        json=disposition_body(c, h, call["id"], **{"outcome": outcome, **data}),
+    )
     assert result.status_code == 200, result.text
     return result
 
@@ -28,7 +33,7 @@ def test_repeated_wrapup_updates_one_task_and_one_outcome(workspace, clock):
     result = c.post(
         "/v1/calls/" + call["id"] + "/disposition",
         headers=h,
-        json={"outcome": "callback_requested", "callback_at": due},
+        json=disposition_body(c, h, call["id"], **{"outcome": "callback_requested", "callback_at": due}),
     )
     assert result.status_code == 200
     tasks = [t for t in c.get("/v1/workspace", headers=h).json()["tasks"] if t["call_id"] == call["id"]]
@@ -45,6 +50,7 @@ def test_reschedule_task_updates_lead_due_and_preserves_owner(workspace, clock):
         "/v1/tasks/" + task["id"],
         headers=h,
         json={
+            "request_id": str(uuid4()),
             "status": "open",
             "due_at": due,
             "timezone": "America/Los_Angeles",
@@ -67,13 +73,15 @@ def test_stale_task_edit_cannot_overwrite_newer_confirmation(workspace, clock):
         c.patch(
             "/v1/tasks/" + task["id"],
             headers=h,
-            json={"status": "completed", "expected_version": task["version"]},
+            json={"request_id": str(uuid4()), "status": "completed", "expected_version": task["version"]},
         ).status_code
         == 200
     )
     assert (
         c.patch(
-            "/v1/tasks/" + task["id"], headers=h, json={"status": "open", "expected_version": task["version"]}
+            "/v1/tasks/" + task["id"],
+            headers=h,
+            json={"request_id": str(uuid4()), "status": "open", "expected_version": task["version"]},
         ).status_code
         == 409
     )

@@ -1,6 +1,7 @@
 """Goal changes update future eligibility without silently redialing old wins."""
 
 from datetime import timedelta
+from uuid import uuid4
 
 import pytest
 from app.db import doc, put, update
@@ -16,6 +17,7 @@ def test_rep_meeting_hold_lifecycle(workspace, clock, status):
         f"/v1/leads/{lead['id']}/meeting",
         headers=h,
         json={
+            "request_id": str(uuid4()),
             "expected_version": lead["version"],
             "status": "booked",
             "due_at": (clock.now + timedelta(days=1)).isoformat(),
@@ -27,7 +29,7 @@ def test_rep_meeting_hold_lifecycle(workspace, clock, status):
     result = c.post(
         f"/v1/leads/{lead['id']}/meeting",
         headers=h,
-        json={"expected_version": current["version"], "status": status},
+        json={"request_id": str(uuid4()), "expected_version": current["version"], "status": status},
     )
     assert result.status_code == 422
     after = c.get(f"/v1/leads/{lead['id']}/packet", headers=h).json()["lead"]
@@ -141,6 +143,7 @@ def test_explicit_next_action_clears_only_the_goal_review_hold(goals, workspace)
         f"/v1/leads/{lead['id']}/outreach",
         headers=h,
         json={
+            "request_id": str(uuid4()),
             "expected_version": lead["version"],
             "next_action": "resume",
             "reason": "Rep reviewed next step",
@@ -154,6 +157,7 @@ def test_explicit_next_action_clears_only_the_goal_review_hold(goals, workspace)
             f"/v1/leads/{booked['id']}/outreach",
             headers=h,
             json={
+                "request_id": str(uuid4()),
                 "expected_version": booked["version"],
                 "next_action": "resume",
                 "reason": "Cannot bypass booking",
@@ -171,6 +175,7 @@ def test_goal_review_can_become_one_dated_callback(goals, workspace, clock):
         f"/v1/leads/{lead['id']}/outreach",
         headers=h,
         json={
+            "request_id": str(uuid4()),
             "expected_version": lead["version"],
             "next_action": "callback",
             "reason": "Agreed followup",
@@ -220,6 +225,7 @@ def test_background_script_preparation_does_not_invalidate_outreach_review(goals
         f"/v1/leads/{goals[0]}/outreach",
         headers=h,
         json={
+            "request_id": str(uuid4()),
             "expected_version": packet["lead"]["version"],
             "expected_review_token": packet.get("review_token"),
             "next_action": "resume",
@@ -246,6 +252,7 @@ def test_meaningful_change_still_invalidates_review(goals, workspace, app, chang
         f"/v1/leads/{goals[0]}/outreach",
         headers=h,
         json={
+            "request_id": str(uuid4()),
             "expected_version": packet["lead"]["version"],
             "expected_review_token": packet["review_token"],
             "next_action": "resume",
@@ -264,6 +271,7 @@ def test_background_preparation_does_not_invalidate_meeting_report(goals, worksp
         f"/v1/leads/{goals[0]}/meeting",
         headers=workspace["headers"],
         json={
+            "request_id": str(uuid4()),
             "expected_version": packet["lead"]["version"],
             "expected_review_token": packet.get("review_token"),
             "status": "booked",

@@ -5,7 +5,7 @@ import pytest
 from app.coaching.context import merge_semantic_state
 from app.coaching.engine import CardRejected
 from app.coaching.replay import evaluate
-from conftest import completed_report, start
+from conftest import completed_report, disposition_body, start
 
 
 def test_trial_denominator_includes_original_eligible_leads_before_any_are_called(workspace):
@@ -21,7 +21,11 @@ def test_a_conversion_finishes_the_current_campaign_without_deleting_history(wor
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
     c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
-    c.post(f"/v1/calls/{call['id']}/disposition", headers=h, json={"outcome": "right_party"})
+    c.post(
+        f"/v1/calls/{call['id']}/disposition",
+        headers=h,
+        json=disposition_body(c, h, call["id"], **{"outcome": "right_party"}),
+    )
     result = c.post(
         f"/v1/leads/{call['lead_id']}/conversions",
         headers=h,
@@ -47,7 +51,11 @@ def test_conversion_correction_is_audited_and_never_removes_an_optout(workspace,
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
     c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
-    c.post(f"/v1/calls/{call['id']}/disposition", headers=h, json={"outcome": "right_party"})
+    c.post(
+        f"/v1/calls/{call['id']}/disposition",
+        headers=h,
+        json=disposition_body(c, h, call["id"], **{"outcome": "right_party"}),
+    )
     event = c.post(
         f"/v1/leads/{call['lead_id']}/conversions",
         headers=h,

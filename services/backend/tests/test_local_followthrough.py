@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 from app.compliance.policy import authorize
 from app.db import Job, put
-from conftest import start
+from conftest import disposition_body, start
 from sqlalchemy import select
 from test_remediation_rep_workflow import finish, p
 
@@ -373,7 +373,7 @@ def test_duplicate_wrapup_has_one_outcome_and_does_not_reopen_completed_task(wor
         c.patch(
             "/v1/tasks/" + task["id"],
             headers=h,
-            json={"status": "completed", "expected_version": task["version"]},
+            json={"request_id": str(uuid4()), "status": "completed", "expected_version": task["version"]},
         ).status_code
         == 200
     )
@@ -381,7 +381,7 @@ def test_duplicate_wrapup_has_one_outcome_and_does_not_reopen_completed_task(wor
         c.post(
             "/v1/calls/" + call["id"] + "/disposition",
             headers=h,
-            json={"outcome": "callback_requested", "callback_at": due},
+            json=disposition_body(c, h, call["id"], **{"outcome": "callback_requested", "callback_at": due}),
         ).status_code
         == 200
     )
@@ -391,7 +391,7 @@ def test_duplicate_wrapup_has_one_outcome_and_does_not_reopen_completed_task(wor
         records = [
             r
             for r in app.state.service.scoped(s, "outcomes", p(workspace))
-            if r.data["call_id"] == call["id"]
+            if r.external_key == "disposition:" + call["id"]
         ]
         assert len(records) == 1
 
@@ -403,7 +403,9 @@ def test_terminal_task_clears_only_its_callback(workspace, app, clock, status):
     task = tasks(workspace, call)[0]
     c, h = workspace["client"], workspace["headers"]
     result = c.patch(
-        "/v1/tasks/" + task["id"], headers=h, json={"status": status, "expected_version": task["version"]}
+        "/v1/tasks/" + task["id"],
+        headers=h,
+        json={"request_id": str(uuid4()), "status": status, "expected_version": task["version"]},
     )
     assert result.status_code == 200, result.text
     packet = c.get("/v1/leads/" + call["lead_id"] + "/packet", headers=h).json()
@@ -421,7 +423,12 @@ def test_task_rescheduling_survives_duplicate_wrapup(workspace, clock):
         c.patch(
             "/v1/tasks/" + task["id"],
             headers=h,
-            json={"due_at": new_due, "timezone": "America/Los_Angeles", "expected_version": task["version"]},
+            json={
+                "request_id": str(uuid4()),
+                "due_at": new_due,
+                "timezone": "America/Los_Angeles",
+                "expected_version": task["version"],
+            },
         ).status_code
         == 200
     )
@@ -429,7 +436,9 @@ def test_task_rescheduling_survives_duplicate_wrapup(workspace, clock):
         c.post(
             "/v1/calls/" + call["id"] + "/disposition",
             headers=h,
-            json={"outcome": "callback_requested", "callback_at": old_due},
+            json=disposition_body(
+                c, h, call["id"], **{"outcome": "callback_requested", "callback_at": old_due}
+            ),
         ).status_code
         == 200
     )
@@ -453,7 +462,7 @@ def test_invalid_task_edit_leaves_state_unchanged(workspace, clock, edit):
     response = workspace["client"].patch(
         "/v1/tasks/" + task["id"],
         headers=workspace["headers"],
-        json={"status": "open", "expected_version": task["version"], **edit},
+        json={"request_id": str(uuid4()), "status": "open", "expected_version": task["version"], **edit},
     )
     assert response.status_code in {403, 404, 422}, response.text
     assert tasks(workspace, call)[0] == task
@@ -488,7 +497,7 @@ def test_assignment_keeps_callback_with_selected_rep(workspace, app, clock):
     response = workspace["client"].patch(
         "/v1/tasks/" + task["id"],
         headers=workspace["headers"],
-        json={"owner_id": rep.id, "expected_version": task["version"]},
+        json={"request_id": str(uuid4()), "owner_id": rep.id, "expected_version": task["version"]},
     )
     assert response.status_code == 200, response.text
     assert response.json()["owner_id"] == rep.id
@@ -520,6 +529,7 @@ def test_meeting_changes_require_explicit_next_action_and_are_versioned(workspac
         path + "/meeting",
         headers=h,
         json={
+            "request_id": str(uuid4()),
             "status": "no_show",
             "expected_version": lead["version"],
             "next_action": "callback",
@@ -532,7 +542,9 @@ def test_meeting_changes_require_explicit_next_action_and_are_versioned(workspac
     assert changed.json()["meeting"]["held"] is False
     assert (
         c.post(
-            path + "/meeting", headers=h, json={"status": "held", "expected_version": lead["version"]}
+            path + "/meeting",
+            headers=h,
+            json={"request_id": str(uuid4()), "status": "held", "expected_version": lead["version"]},
         ).status_code
         == 409
     )
@@ -598,7 +610,11 @@ def test_callback_assignment_is_enforced_at_submission(workspace, app, clock):
             now=clock(),
         )
     task = tasks(workspace, call)[0]
-    service.edit_task(p(workspace), task["id"], {"owner_id": rep.id, "expected_version": task["version"]})
+    service.edit_task(
+        p(workspace),
+        task["id"],
+        {"request_id": str(uuid4()), "owner_id": rep.id, "expected_version": task["version"]},
+    )
     clock.now += timedelta(days=1)
     with service.db.transaction(False) as s:
         lead = service.required(s, "leads", call["lead_id"], p(workspace))
@@ -615,7 +631,9 @@ def test_naive_callback_time_is_a_validation_error_not_server_error(workspace):
     result = c.post(
         path + "/disposition",
         headers=h,
-        json={"outcome": "callback_requested", "callback_at": "2026-10-20T12:00:00"},
+        json=disposition_body(
+            c, h, call["id"], **{"outcome": "callback_requested", "callback_at": "2026-10-20T12:00:00"}
+        ),
     )
     assert result.status_code == 422
 
@@ -629,7 +647,12 @@ def test_meeting_endpoint_rejects_unused_task_fields(workspace):
     result = c.post(
         path + "/meeting",
         headers=h,
-        json={"status": "booked", "expected_version": lead["version"], "owner_id": "ignored"},
+        json={
+            "request_id": str(uuid4()),
+            "status": "booked",
+            "expected_version": lead["version"],
+            "owner_id": "ignored",
+        },
     )
     assert result.status_code == 422
 
@@ -641,7 +664,7 @@ def test_null_task_status_cannot_remove_task_from_the_workflow(workspace, clock)
     response = workspace["client"].patch(
         "/v1/tasks/" + task["id"],
         headers=workspace["headers"],
-        json={"status": None, "expected_version": task["version"]},
+        json={"request_id": str(uuid4()), "status": None, "expected_version": task["version"]},
     )
     assert response.status_code == 422
     assert tasks(workspace, call)[0] == task
@@ -658,7 +681,7 @@ def test_explicit_new_callback_reopens_previous_meeting_task(workspace, clock):
         result = c.post(
             path + "/meeting",
             headers=h,
-            json={"status": status, "expected_version": lead["version"], **extra},
+            json={"request_id": str(uuid4()), "status": status, "expected_version": lead["version"], **extra},
         )
         assert result.status_code == 200, result.text
         return result.json()
@@ -683,11 +706,17 @@ def test_stale_disposition_cannot_overwrite_new_outcome(workspace):
     saved = c.post(
         path + "/disposition",
         headers=h,
-        json={"outcome": "meeting_booked", "expected_version": old["version"]},
+        json=disposition_body(
+            c, h, call["id"], **{"outcome": "meeting_booked", "expected_version": old["version"]}
+        ),
     )
     assert saved.status_code == 200
     stale = c.post(
-        path + "/disposition", headers=h, json={"outcome": "no_answer", "expected_version": old["version"]}
+        path + "/disposition",
+        headers=h,
+        json=disposition_body(
+            c, h, call["id"], **{"outcome": "no_answer", "expected_version": old["version"]}
+        ),
     )
     assert stale.status_code == 409
     assert c.get(path, headers=h).json()["outcome"] == "meeting_booked"

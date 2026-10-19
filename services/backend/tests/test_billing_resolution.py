@@ -4,7 +4,7 @@ from datetime import timedelta
 
 import pytest
 from app.db import get, put, update
-from conftest import start
+from conftest import disposition_body, start
 from test_context_reads import count_decrypted
 from test_remediation_privacy import principal
 from test_request_accounting import entries, receipt, reserve
@@ -287,7 +287,11 @@ def test_credit_is_used_consistently_by_metrics_and_operational_learning(workspa
     call, _ = call_hold(workspace, app)
     c, h = workspace["client"], workspace["headers"]
     c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
-    c.post(f"/v1/calls/{call['id']}/disposition", headers=h, json={"outcome": "no_answer"})
+    c.post(
+        f"/v1/calls/{call['id']}/disposition",
+        headers=h,
+        json=disposition_body(c, h, call["id"], **{"outcome": "no_answer"}),
+    )
     assert cdr(workspace, call).status_code == 200
     p = principal(workspace)
     row = next(

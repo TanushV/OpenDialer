@@ -1,7 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
-from conftest import ready, reserve, start
+from conftest import disposition_body, ready, reserve, start
 
 
 def test_health_is_redacted_and_unauthenticated_access_is_rejected(client):
@@ -143,7 +143,11 @@ def test_wrong_number_holds_endpoint_but_keeps_lead_for_correction(workspace):
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
     c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
-    r = c.post(f"/v1/calls/{call['id']}/disposition", headers=h, json={"outcome": "wrong_party"})
+    r = c.post(
+        f"/v1/calls/{call['id']}/disposition",
+        headers=h,
+        json=disposition_body(c, h, call["id"], **{"outcome": "wrong_party"}),
+    )
     assert r.status_code == 200
     lead = next(
         lead for lead in c.get("/v1/workspace", headers=h).json()["leads"] if lead["id"] == call["lead_id"]
@@ -156,7 +160,11 @@ def test_optout_disposition_creates_authoritative_suppression(workspace):
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
     c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
-    response = c.post(f"/v1/calls/{call['id']}/disposition", headers=h, json={"outcome": "opt_out"})
+    response = c.post(
+        f"/v1/calls/{call['id']}/disposition",
+        headers=h,
+        json=disposition_body(c, h, call["id"], **{"outcome": "opt_out"}),
+    )
     assert response.status_code == 200
     lead = next(
         lead for lead in c.get("/v1/workspace", headers=h).json()["leads"] if lead["id"] == call["lead_id"]

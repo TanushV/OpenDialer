@@ -3,7 +3,7 @@
 from datetime import timedelta
 
 from app.db import put, update
-from conftest import completed_home_metrics, completed_report, start
+from conftest import completed_home_metrics, completed_report, disposition_body, start
 
 
 def principal(workspace):
@@ -346,7 +346,11 @@ def test_home_metrics_use_the_same_funnel_and_later_conversion_evidence(workspac
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
     c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
-    c.post(f"/v1/calls/{call['id']}/disposition", headers=h, json={"outcome": "qualified_conversation"})
+    c.post(
+        f"/v1/calls/{call['id']}/disposition",
+        headers=h,
+        json=disposition_body(c, h, call["id"], **{"outcome": "qualified_conversation"}),
+    )
     metrics = completed_home_metrics(workspace)
     assert metrics["human_pickups"] == 1 and metrics["right_party_unique"] == 1
     event = c.post(
