@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     mode: Literal["local", "connected"] = "local"
     database_url: str = "sqlite:///opendialer.db"
     data_dir: Path = Path("work/data")
+    backup_copy_dir: Path | None = None
     local_token: str = ""
     bootstrap_token: str = ""
     secret_key: str = ""

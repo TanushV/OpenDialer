@@ -3,8 +3,9 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import threading
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from datetime import timedelta
 from pathlib import Path
 
@@ -246,6 +247,81 @@ class Vault:
         finally:
             os.close(descriptor)
         self._sync_directory(path.parent)
+
+    def copy_recovery_bundle(self, backup, destination):
+        """Operator-owned encrypted disk copy; retain originals and publish last."""
+        destination = Path(destination).absolute()
+        if not destination.is_dir() or destination.resolve() != destination:
+            raise ValueError("Backup copy destination must be an existing non-symlink directory")
+        if os.name != "nt" and destination.stat().st_mode & 0o022:
+            raise ValueError("Backup copy destination cannot be writable by other users")
+        final = destination / backup.stem
+        temporary = destination / (".copy-" + uid())
+        temporary.mkdir(mode=0o700)
+        try:
+            with ExitStack() as locks:
+                names = ("authorization", "consent", "effects", "suppression")
+                for name in names:
+                    locks.enter_context(self._locked_journal(name))
+                checkpoints, paths = {}, [backup]
+                for name in names:
+                    # Legacy authorization is sanitized before backup, not a chained journal.
+                    if name != "authorization":
+                        _, state = self._scan_journal(name, collect=False)
+                        checkpoints[name] = {k: state[k] for k in ("sequence", "hash", "segment")}
+                    paths.extend(sorted(self.directory.parent.glob(name + "-journal*.enc")))
+                    head = self._journal_path(name, ".head")
+                    if head.exists():
+                        paths.append(head)
+                files = {}
+                for source in paths:
+                    if source.is_symlink() or not source.is_file():
+                        raise ValueError("Recovery source must be a protected regular file")
+                    digest = hashlib.sha256()
+                    target = temporary / source.name
+                    descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                    with source.open("rb") as src, os.fdopen(descriptor, "wb") as dst:
+                        while chunk := src.read(1024 * 1024):
+                            digest.update(chunk)
+                            dst.write(chunk)
+                        dst.flush()
+                        os.fsync(dst.fileno())
+                    with target.open("rb") as copied:
+                        if hashlib.file_digest(copied, "sha256").hexdigest() != digest.hexdigest():
+                            raise OSError("Recovery copy checksum mismatch")
+                    files[source.name] = digest.hexdigest()
+                manifest = self.cipher.encrypt(
+                    json.dumps(
+                        {
+                            "schema": 1,
+                            "backup_id": backup.stem,
+                            "files": files,
+                            "journal_checkpoints": checkpoints,
+                        },
+                        sort_keys=True,
+                    ).encode()
+                )
+                descriptor = os.open(temporary / "manifest.enc", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(descriptor, "wb") as stream:
+                    stream.write(manifest)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                self._sync_directory(temporary)
+                if final.exists():
+                    raise FileExistsError("An archive with this backup identity already exists")
+                temporary.rename(final)
+                self._sync_directory(destination)
+            return {
+                "verified": True,
+                "manifest_sha256": hashlib.sha256(manifest).hexdigest(),
+                "files": len(files),
+                "separate_device": destination.stat().st_dev != backup.stat().st_dev,
+                "off_host_verified": False,
+            }
+        finally:
+            # Only our unpublished staging directory; accepted archives and source stay intact.
+            if temporary.exists():
+                shutil.rmtree(temporary)
 
     def sanitize_legacy_authorization(self):
         """Retain the installed format's recovery IDs, never its old full call body."""

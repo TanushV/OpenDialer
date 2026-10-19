@@ -430,6 +430,7 @@ class Dialer(
 
         directory = self.settings.data_dir / "backups"
         directory.mkdir(exist_ok=True, mode=0o700)
+        self.vault.sanitize_legacy_authorization()
         checkpoints = {
             name: self.vault.journal_checkpoint(name) for name in ("effects", "consent", "suppression")
         }
@@ -467,7 +468,19 @@ class Dialer(
             f.write(blob)
             f.flush()
             os.fsync(f.fileno())
-        return {"backup_id": backup_id, "checksum": hashlib.sha256(blob).hexdigest(), "encrypted": True}
+        self.vault._sync_directory(directory)
+        copied = (
+            self.vault.copy_recovery_bundle(path, self.settings.backup_copy_dir)
+            if self.settings.backup_copy_dir
+            else None
+        )
+        return {
+            "backup_id": backup_id,
+            "checksum": hashlib.sha256(blob).hexdigest(),
+            "encrypted": True,
+            "journal_retention": "retain_all_no_automatic_pruning",
+            "copy": copied,
+        }
 
     def restore(self, p, backup_id):
         from app.compliance.consent import journal_entries, replay_in
@@ -781,6 +794,26 @@ class Dialer(
                 .limit(1)
             ):
                 fail(409, "A live call obligation remains; reconcile before resuming")
+            for kind, condition in (
+                (
+                    "call_legs",
+                    MODELS["call_legs"].op_status.not_in({"ended", "cancelled", "failed", *TERMINAL}),
+                ),
+                ("followup_tasks", MODELS["followup_tasks"].op_active.is_(True)),
+            ):
+                model = MODELS[kind]
+                if session.scalar(
+                    select(model.id)
+                    .where(
+                        model.tenant_id == p["tenant_id"],
+                        model.seller_id == p["seller_id"],
+                        condition,
+                    )
+                    .limit(1)
+                ):
+                    fail(
+                        409, "An agent or inbound leg remains; verify or stop it in Recovery before resuming"
+                    )
             revocations = journal_entries(self)
             verify_recovery(self, session, p, revocations)
             replay_suppressions_in(self, session, p=p)

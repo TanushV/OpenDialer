@@ -13,6 +13,68 @@ from sqlalchemy import inspect, text
 from test_remediation_privacy import RAW, persisted_content, principal
 
 
+def test_empty_business_authority_restores_without_resurrecting_auth(workspace, app, tmp_path):
+    import shutil
+
+    from app.db import MODELS
+    from app.main import create_app
+    from sqlalchemy import select
+
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    backup = service.backup(p)
+    service.suppress(p, "+14155550177", "opt_out")
+    root = tmp_path / "separate-recovery-authority"
+    root.mkdir(mode=0o700)
+    (root / "backups").mkdir(mode=0o700)
+    name = backup["backup_id"] + ".backup"
+    shutil.copyfile(service.settings.data_dir / "backups" / name, root / "backups" / name)
+    for source in service.settings.data_dir.glob("*-journal*"):
+        if source.suffix in {".enc", ".head"}:
+            shutil.copyfile(source, root / source.name)
+    target_app = create_app(
+        service.settings.model_copy(
+            update={
+                "data_dir": root,
+                "database_url": "sqlite:///" + str(root / "restored.db"),
+            }
+        ),
+        clock=service.clock,
+    )
+    target = target_app.state.service
+    with target.db.transaction() as s:
+        put(s, "tenants", p["tenant_id"], "", {"name": "Current authority"}, object_id=p["tenant_id"])
+        put(
+            s,
+            "users",
+            p["tenant_id"],
+            p["seller_id"],
+            {"role": "admin", "password_hash": "current-not-backup-password"},
+            object_id=p["user_id"],
+        )
+        put(
+            s,
+            "sessions",
+            p["tenant_id"],
+            p["seller_id"],
+            {"user_id": p["user_id"], "revoked": False},
+            object_id="new-approved-session",
+        )
+    result = target.restore(p, backup["backup_id"])
+    assert result["outbound_paused"] and result["recovered_records"] > 0
+    with target.db.transaction(False) as s:
+        assert get(s, "call_attempts", call["id"]).data["provider_id"] == call["provider_id"]
+        assert get(s, "users", p["user_id"]).data["password_hash"] == "current-not-backup-password"
+        assert [r.id for r in s.scalars(select(MODELS["sessions"]))] == ["new-approved-session"]
+        assert any(
+            r.data.get("phone") == "+14155550177" and r.data.get("active")
+            for r in target.scoped(s, "suppressions", p)
+        )
+        assert s.execute(text("PRAGMA integrity_check")).scalar() == "ok"
+        assert s.execute(text("PRAGMA foreign_key_check")).all() == []
+    target.db.engine.dispose()
+
+
 def test_sanitation_commits_bounded_pages_and_resumes(workspace, app, monkeypatch):
     import app.privacy as privacy
     from app.db import MODELS
