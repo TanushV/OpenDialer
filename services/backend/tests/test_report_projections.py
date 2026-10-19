@@ -280,6 +280,8 @@ def test_concurrent_report_views_share_the_same_job(workspace, app):
 
 
 def test_historical_cohort_is_loaded_through_a_separate_projection(workspace, app):
+    from conftest import completed_report
+
     service, p = app.state.service, principal(workspace)
     service.refresh_optimization(p)
     epoch = read(workspace)["trial"]["epoch"]
@@ -287,9 +289,10 @@ def test_historical_cohort_is_loaded_through_a_separate_projection(workspace, ap
         "/v1/admin/optimization", headers=workspace["headers"], json={"conversion_goal": "sale_won"}
     )
     assert changed.status_code == 200
-    service.rebuild_optimization_report(p, epoch)
-    past = service.cached_optimization_report(p, epoch)
+    assert service.rebuild_optimization_report(p, epoch)["status"] == "pending"
+    past = completed_report(workspace, params={"epoch": epoch}).json()
     assert past["trial"]["epoch"] == epoch
+    assert past["trial"]["goal"] == "meeting_held"
     assert past["projection"]["status"] == "ready"
     assert service.cached_optimization_report(p)["projection"]["status"] == "pending"
 

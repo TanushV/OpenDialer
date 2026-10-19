@@ -4,12 +4,12 @@ from datetime import timedelta
 
 import pytest
 from app.db import doc, put
-from conftest import completed_report, ready, start
+from conftest import completed_metrics, completed_report, ready, start
 from test_remediation_rep_workflow import p
 
 
 def metrics(w):
-    return w["client"].get("/v1/metrics", headers=w["headers"]).json()
+    return completed_metrics(w)
 
 
 def heartbeat(w, activity="ready"):

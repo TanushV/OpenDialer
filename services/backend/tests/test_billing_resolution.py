@@ -4,7 +4,7 @@ from datetime import timedelta
 
 import pytest
 from app.db import get, put, update
-from conftest import disposition_body, start
+from conftest import completed_metrics, disposition_body, start
 from test_context_reads import count_decrypted
 from test_remediation_privacy import principal
 from test_request_accounting import entries, receipt, reserve
@@ -303,7 +303,7 @@ def test_credit_is_used_consistently_by_metrics_and_operational_learning(workspa
         ).status_code
         == 200
     )
-    metrics = app.state.service.metrics(p)
+    metrics = completed_metrics(workspace)
     assert metrics["gross_cost_usd"] == 0.02 and metrics["credited_cost_usd"] == 0.01
     assert metrics["verified_cost_usd"] == 0.01
     with app.state.db.transaction(False) as s:

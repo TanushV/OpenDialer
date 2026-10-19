@@ -60,7 +60,9 @@ def test_interrupted_inactive_rebuild_replays_concurrent_dirty_units(workspace, 
             if page["published"]:
                 break
         assert page["published"], "Resume must converge from the saved cursor and dirty watermark"
-        final = client.get("/v1/optimization", headers=workspace["headers"]).json()
+        # Namespace activation is atomic; the saved UI report is published by
+        # its own bounded job after that activation, not by a GET/rebuild scan.
+        final = completed_report({**workspace, "client": client}).json()
         assert final["metrics"]["imported_leads"] == 504
         assert final["metrics"]["unique_conversions"] == 1
         assert final["projection"]["source_watermark"] >= first["source_watermark"]
@@ -876,3 +878,70 @@ def test_expired_rebuild_owner_cannot_advance_saved_cursor(workspace, app, clock
     assert result["status"] == "lost_lease" and not result["published"]
     with service.db.transaction(False) as session:
         assert session.get(Job, identity).payload == saved
+
+
+def test_retired_cleanup_is_bounded_scoped_and_never_deletes_active_buckets(workspace, app, clock):
+    from app.db import put
+    from app.optimization import projections
+
+    service, p = app.state.service, principal(workspace)
+    project_pending(service, p)
+    old_pointer, _ = active_total(service, p)
+    definition = old_pointer["active_definition"]
+    old_namespace = old_pointer["active_namespace"]
+    with service.db.transaction() as session:
+        for i in range(501):
+            data = {
+                "campaign_id": workspace["campaign_id"],
+                "definition_version": definition,
+                "namespace": old_namespace,
+                "source_kind": "help",
+                "source_id": f"obsolete-{i}",
+                "source_version": 1,
+                "values": {},
+                "groups": [],
+            }
+            put(
+                session,
+                "metric_contributions",
+                p["tenant_id"],
+                p["seller_id"],
+                data,
+                key=projections.unit_key(definition, old_namespace, "help", f"obsolete-{i}"),
+                now=clock.now,
+            )
+        foreign = put(
+            session,
+            "metric_contributions",
+            p["tenant_id"],
+            "different-seller",
+            data,
+            key=projections.unit_key(definition, old_namespace, "help", "foreign"),
+            now=clock.now,
+        )
+        foreign_id = foreign.id
+    projections.rebuild_page(service, p, start=True)
+    finish_rebuild(service, p)
+    current, values = active_total(service, p)
+    assert values["original_cohort"] == 3
+    payload = {
+        "campaign_id": workspace["campaign_id"],
+        "definition": definition,
+        "namespace": old_namespace,
+        "table": "metric_contributions",
+    }
+    first = projections.cleanup_page(service, p, payload)
+    assert first["processed"] == 500 and first["status"] == "pending"
+    second = projections.cleanup_page(service, p, payload)
+    assert second["processed"] == 4 and second["status"] == "ready"
+    assert (
+        projections.cleanup_page(service, p, {**payload, "namespace": current["active_namespace"]})["status"]
+        == "protected"
+    )
+    assert active_total(service, p)[1] == values
+    from app.db import get
+
+    with service.db.transaction(False) as session:
+        assert get(session, "metric_contributions", foreign_id) is not None
+    assert projections.cleanup_page(service, p, {**payload, "table": "metric_buckets"})["status"] == "ready"
+    assert active_total(service, p)[1] == values

@@ -134,6 +134,21 @@ def completed_report(workspace, *, headers=None, params=None):
     pytest.fail(f"Background report did not finish: {response.json().get('projection')}")
 
 
+def completed_metrics(workspace):
+    """Read the public saved-metrics endpoint and explicitly advance its worker."""
+    from functools import partial
+
+    client = workspace["client"]
+    for _ in range(8):
+        response = client.get("/v1/metrics", headers=workspace["headers"])
+        assert response.status_code == 200, response.text
+        metrics = response.json()
+        if metrics["projection"]["status"] == "ready":
+            return metrics
+        client.portal.call(partial(client.app.state.service.run_jobs, queues=["ml"]))
+    pytest.fail(f"Background metric projection did not finish: {metrics['projection']}")
+
+
 def completed_home_metrics(workspace):
     """Wait for saved home evidence before asserting corrected historical totals."""
     from functools import partial

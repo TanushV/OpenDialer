@@ -7,7 +7,7 @@ from datetime import timedelta
 import pytest
 from app.db import doc, update
 from app.research.validation import ValidationFailure, validate_script
-from conftest import save_operating_policy, start
+from conftest import completed_metrics, save_operating_policy, start
 
 
 def principal(w):
@@ -102,7 +102,7 @@ def test_no_new_generic_coaching_cards_are_published_as_seller_approved_knowledg
 def test_practice_uses_knowledge_but_does_not_create_calls_or_outcomes(workspace):
     c, h = workspace["client"], workspace["headers"]
     before = c.get("/v1/workspace", headers=h).json()
-    attempts = c.get("/v1/metrics", headers=h).json()["attempts"]
+    attempts = completed_metrics(workspace)["attempts"]
     response = c.post(
         "/v1/coaching/practice",
         headers=h,
@@ -113,7 +113,7 @@ def test_practice_uses_knowledge_but_does_not_create_calls_or_outcomes(workspace
     assert response.json()["status"] in {"ready", "unconfigured"}
     after = c.get("/v1/workspace", headers=h).json()
     assert before["calls"] == after["calls"]
-    assert c.get("/v1/metrics", headers=h).json()["attempts"] == attempts
+    assert completed_metrics(workspace)["attempts"] == attempts
 
 
 def test_configuration_rejects_silent_paid_or_non_zdr_fallback(workspace):
@@ -140,10 +140,11 @@ def test_default_maintenance_runs_without_training_queue(workspace, app, monkeyp
     assert "recovery" in seen
 
 
-def test_transcript_correction_marks_derived_feature_observation_stale(workspace, app):
-    call = start(workspace)
+async def test_transcript_correction_marks_derived_feature_observation_stale(workspace, app, monkeypatch):
+    from test_live_memory import setup
+
+    call, p, _, _ = setup(workspace, app, monkeypatch)
     service = app.state.service
-    p = principal(workspace)
     c, h = workspace["client"], workspace["headers"]
     path = "/v1/calls/" + call["id"] + "/transcript"
     initial = {
@@ -154,20 +155,25 @@ def test_transcript_correction_marks_derived_feature_observation_stale(workspace
         "text": "We need a new supplier.",
     }
     assert c.post(path, headers=h, json=initial).status_code == 200
-    with service.db.transaction() as s:
-        state = next(r for r in service.scoped(s, "conversation_states", p) if r.external_key == call["id"])
-        update(
-            state,
-            observations=[{"concept": "Changing supplier", "source_segment_id": "correction", "revision": 1}],
-        )
+    await service.coach_turn(p, call["id"], urgent=True)
+    with service.db.transaction(False) as session:
+        state = service._by_key(session, p, "conversation_states", call["id"])
+        assert state.data["observations"], "Exercise actual derived state before correction"
+        identities = {item["id"] for item in state.data["observations"]}
     assert (
         c.post(
             path, headers=h, json={**initial, "revision": 2, "text": "We do not need a new supplier."}
         ).status_code
         == 200
     )
-    result = c.get("/v1/calls/" + call["id"], headers=h).json()
-    assert not result["conversation_state"].get("observations")
+    with service.db.transaction(False) as session:
+        state = service._by_key(session, p, "conversation_states", call["id"])
+        assert all(
+            item["state"] == "stale" and item["invalidated_at"]
+            for item in state.data["observations"]
+            if item["id"] in identities
+        )
+        assert {item["id"] for item in state.data["observations"]} >= identities
 
 
 def test_inventory_sync_reconciles_existing_provider_configuration(workspace, app, carrier, monkeypatch):

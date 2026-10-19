@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 from app.db import update
-from conftest import disposition_body, save_operating_policy, start
+from conftest import completed_metrics, disposition_body, save_operating_policy, start
 
 
 def p(w):
@@ -208,14 +208,14 @@ def test_metrics_measure_actual_work_time_not_attempt_elapsed(workspace, clock):
     c.post(
         "/v1/rep/presence", headers=h, json={"status": "paused", "audio_ready": True, "telephony_ready": True}
     )
-    metrics = c.get("/v1/metrics", headers=h).json()
+    metrics = completed_metrics(workspace)
     assert metrics["rep_work_seconds"] == 1800
     clock.now += timedelta(minutes=10)
-    assert c.get("/v1/metrics", headers=h).json()["rep_work_seconds"] == 1800
+    assert completed_metrics(workspace)["rep_work_seconds"] == 1800
 
 
 def test_dashboard_health_distinguishes_unknown_from_bad(workspace):
-    result = workspace["client"].get("/v1/metrics", headers=workspace["headers"]).json()
+    result = completed_metrics(workspace)
     assert result["health"]["connect_rate"]["status"] == "insufficient_data"
     assert result["health"]["connect_rate"]["samples"] == 0
     assert result["warnings"] == []
