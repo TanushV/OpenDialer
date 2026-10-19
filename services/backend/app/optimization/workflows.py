@@ -348,15 +348,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
     def selection_profile(self, s, p, statistics, config):
         from app.optimization.learning import distribution_from_counts
 
-        campaign = s.scalar(
-            select(MODELS["campaigns"])
-            .where(
-                MODELS["campaigns"].tenant_id == p["tenant_id"],
-                MODELS["campaigns"].seller_id == p["seller_id"],
-            )
-            .order_by(MODELS["campaigns"].created_at)
-            .limit(1)
-        )
+        campaign = self.selected_campaign(s, p)
         actions = [
             r.id
             for r in self.scoped(s, "treatment_variants", p)

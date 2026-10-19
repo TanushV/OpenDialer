@@ -5,7 +5,9 @@ import math
 from collections import defaultdict
 from datetime import timedelta
 
-from app.db import doc, put
+from sqlalchemy import func, select
+
+from app.db import MODELS, doc, put
 from app.optimization.learning import (
     conversion_at,
     derive_labels,
@@ -104,20 +106,24 @@ def observed_strategy_uses(observations, event_id):
     ]
 
 
-def assign_arm(family, epoch, lead_id, stratum, assignments):
+def assign_arm(family, epoch, lead_id, stratum, assignments=(), *, prior_count=None):
+    position = 0
     if family == "number_allocation":
         unit = stratum
     else:
         prior = [a for a in assignments if a["family"] == family and a.get("rep_id") == stratum]
-        block, position = divmod(len(prior), 2)
+        block, position = divmod(len(prior) if prior_count is None else prior_count, 2)
         unit = stratum + ":" + str(block)
-        if position:
+        if position and prior_count is None:
             return "candidate" if prior[-1]["arm"] == "control" else "control"
-    return (
+    first = (
         "candidate"
         if int(hashlib.sha256((epoch + ":" + unit).encode()).hexdigest()[:8], 16) % 2
         else "control"
     )
+    # Both positions derive the same block coin; timestamp ties cannot select
+    # the wrong preceding row. Existing saved assignments are returned unchanged.
+    return ("control" if first == "candidate" else "candidate") if position else first
 
 
 def call_goal_events(calls, goal, *, now):
@@ -452,20 +458,23 @@ class ComparisonWorkflows:
                 if persist
                 else values
             )
-        assignments = [
-            r
-            for r in self.scoped(s, "experiment_assignments", p)
-            if r.data.get("comparison_id") == study["id"]
-        ]
-        existing = next((r for r in assignments if r.external_key == key), None)
-        if existing:
-            return doc(existing)
         if family == "coaching" and not rep_id:
             return None
         stratum = lead.data.get("region") or "general" if family == "number_allocation" else rep_id
-        prior = [r.data for r in assignments]
-        arm = assign_arm(family, study["id"], lead.id, stratum, prior)
-        rep_count = sum(r.get("rep_id") == rep_id for r in prior)
+        rep_count = 0
+        if family == "coaching":
+            model = MODELS["experiment_assignments"]
+            rep_count = s.scalar(
+                select(func.count())
+                .select_from(model)
+                .where(
+                    model.tenant_id == p["tenant_id"],
+                    model.seller_id == p["seller_id"],
+                    model.external_key.startswith(study["id"] + ":", autoescape=True),
+                    model.op_owner_id == rep_id,
+                )
+            )
+        arm = assign_arm(family, study["id"], lead.id, stratum, prior_count=rep_count)
         if not persist:
             return {"comparison_id": study["id"], "arm": arm, "family": family}
         result = put(
