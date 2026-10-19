@@ -2,6 +2,8 @@
 
 from datetime import timedelta
 
+import pytest
+
 from app.db import get, put, update
 from conftest import completed_report, start
 from test_optimization_workflows import finish
@@ -236,3 +238,125 @@ def test_dataset_summary_does_not_decrypt_saved_training_payloads(workspace, app
         "as_of": saved["as_of"],
         "goal": saved["goal"],
     }
+
+
+def test_drift_sufficient_statistics_preserve_paired_strata_and_missingness():
+    from app.optimization import learning
+
+    def period(human, hours):
+        counts = {}
+        for hour in hours:
+            vector = learning.drift_values(
+                {
+                    "features": {"local_hour": hour},
+                    "human": human,
+                    "p_human": 0.8,
+                    "right_party": None,
+                    "conversion": None,
+                }
+            )
+            for key, value in vector.items():
+                counts[key] = counts.get(key, 0) + value
+        return counts
+
+    key = ("model-v2", "campaign", "meeting_held", 2, "segment", 0)
+    ref = {key: period(1, [10] * 20), None: {"rows": 3}}
+    recent = {key: period(0, [None] * 20), ("unpaired",): {"rows": 7}}
+    report = learning.drift_from_counts(ref, recent)
+    assert report["reference_rows"] == 23 and report["recent_rows"] == 27
+    assert report["excluded_reference"] == 3 and report["excluded_recent"] == 7
+    assert report["stage_support"]["human"]["paired_support"] == 20
+    assert report["reference_brier"] == pytest.approx(0.04)
+    assert report["recent_brier"] == pytest.approx(0.64)
+    assert report["drift_detected"] and report["missingness_shift"]
+    assert report["features"]["local_hour"]["reference_mean"] == 10
+    assert report["features"]["local_hour"]["recent_missing"] == 20
+    assert report["stage_support"]["right_party"]["paired_support"] == 0
+
+
+def test_drift_projection_corrects_and_expires_without_source_reads(workspace, app, clock):
+    from app.optimization import projections
+    from sqlalchemy import event
+    from test_projection_replay import project_pending
+
+    service, p = app.state.service, principal(workspace)
+    calls = []
+    with service.db.transaction() as session:
+        lead = service.scoped(session, "leads", p)[0]
+        for days, model, outcome in (
+            (8, "model-v2", "right_party"),
+            (1, "model-v2", "no_answer"),
+            (1, None, "no_answer"),
+        ):
+            at = (clock.now - timedelta(days=days)).isoformat()
+            snapshot = put(
+                session,
+                "feature_snapshots",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    "lead_id": lead.id,
+                    "as_of": at,
+                    "features": {
+                        "feature_schema_version": 2,
+                        "segment": "s",
+                        "attempt_count": 0,
+                        "local_hour": 10,
+                    },
+                    "predictions": {"p_human": 0.8, "model_version": model},
+                },
+                now=clock.now,
+            )
+            call = put(
+                session,
+                "call_attempts",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    "lead_id": lead.id,
+                    "campaign_id": workspace["campaign_id"],
+                    "rep_id": p["user_id"],
+                    "started_at": at,
+                    "submitted_at": at,
+                    "ended_at": at,
+                    "state": "FINALIZED",
+                    "outcome": outcome,
+                    "outcome_available_at": at,
+                    "outcome_source": "rep_reported",
+                    "feature_snapshot_id": snapshot.id,
+                },
+                now=clock.now,
+            )
+            calls.append(call.id)
+    project_pending(service, p)
+
+    def read():
+        def reject(connection, cursor, statement, parameters, context, many):
+            assert not any(
+                "FROM " + name in statement
+                for name in ("call_attempts", "feature_snapshots", "conversion_events")
+            )
+
+        event.listen(service.db.engine, "before_cursor_execute", reject)
+        try:
+            return projections.read_drift_metrics(service, p)
+        finally:
+            event.remove(service.db.engine, "before_cursor_execute", reject)
+
+    report = read()
+    assert report["reference_rows"] == 1 and report["recent_rows"] == 2
+    assert report["excluded_recent"] == 1
+    assert report["stage_support"]["human"]["recent"] == 1
+    with service.db.transaction() as session:
+        update(get(session, "call_attempts", calls[1]), outcome="temporary_failure")
+    project_pending(service, p)
+    assert read()["stage_support"]["human"]["recent"] == 0
+    clock.now += timedelta(days=8)
+    projections.refresh_due(service, p)
+    project_pending(service, p)
+    assert read()["reference_rows"] == 3 and read()["recent_rows"] == 0
+    clock.now += timedelta(days=28)
+    projections.refresh_due(service, p)
+    project_pending(service, p)
+    report = read()
+    assert report["reference_rows"] == report["recent_rows"] == 0
