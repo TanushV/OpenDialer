@@ -97,3 +97,44 @@ def test_unchanged_refresh_does_not_queue_another_whole_list_plan(workspace, app
     clock.now += timedelta(seconds=60)
     second = service.refresh_optimization(p)
     assert second["jobs"] == first["jobs"]
+
+
+@pytest.mark.asyncio
+async def test_dirty_lead_worker_updates_only_that_plan(workspace, app, monkeypatch):
+    from test_projection_replay import project_pending
+
+    service, p = app.state.service, principal(workspace)
+    project_pending(service, p)
+    service.refresh_schedule_plans(p, workspace["campaign_id"])
+    project_pending(service, p)
+    with service.db.transaction() as s:
+        chosen = service.scoped(s, "leads", p)[0]
+        identity = chosen.id
+        update(chosen, outreach_hold={"kind": "human_booked"})
+
+    def no_whole_list(*args, **kwargs):
+        raise AssertionError("Dirty work cannot recalculate a whole-list proposal")
+
+    monkeypatch.setattr("app.optimization.workflows.capacity_forecast", no_whole_list)
+    await service.run_jobs(p["tenant_id"], ["ml"])
+    with service.db.transaction(False) as s:
+        row = service._by_key(s, p, "scheduling_plans", "current:" + identity)
+        assert row.data["status"] == "unavailable"
+        assert row.data["source_lead_version"] == get(s, "leads", identity).version
+
+
+def test_explicit_forecast_publishes_schedule_from_one_calculation(workspace, app, monkeypatch):
+    import app.optimization.workflows as workflows
+
+    service, p = app.state.service, principal(workspace)
+    original, calls = workflows.capacity_forecast, []
+
+    def once(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(workflows, "capacity_forecast", once)
+    result = service.build_forecast(p, workspace["campaign_id"])
+    assert result["status"] == "ready" and len(calls) == 1
+    with service.db.transaction(False) as s:
+        assert len(service.scoped(s, "scheduling_plans", p)) == 3
