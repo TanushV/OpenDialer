@@ -254,8 +254,13 @@ export class Telephony {
       this.selected(id) ||
       (id === this.expectedReturn ? this.pending.get(id) : null);
     if (!call) return;
-    this.closeIdentity(providerId(call)!);
     if (!ended(call)) await call.hangup();
+    const identity = providerId(call)!;
+    const wasAgent = identity === this.expectedAgent;
+    this.closeIdentity(identity);
+    if (this.agent?.remoteStream && this.audio)
+      this.audio.srcObject = this.agent.remoteStream;
+    this.report(wasAgent ? "agent-disconnected" : "return-ended");
   }
   disconnect() {
     ++this.session;

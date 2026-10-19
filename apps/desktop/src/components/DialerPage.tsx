@@ -81,6 +81,15 @@ export function DialerPage() {
     (t) =>
       t.inbound && t.routed_rep_id === w.user.id && t.inbound_state !== "ended",
   );
+  const returnProvider = inbound?.routing_attempts
+    ?.slice()
+    .reverse()
+    .find(
+      (attempt) =>
+        attempt.rep_id === w.user.id &&
+        !["ended", "failed", "cancelled"].includes(attempt.state),
+    )?.provider_id;
+  const incomingAudio = telephony.current.hasIncoming;
   const selectedLead = packet?.lead;
 
   async function reloadCall(id: string) {
@@ -148,7 +157,14 @@ export function DialerPage() {
   useEffect(() => {
     telephony.current.onStatus = (status) => {
       setAudioStatus(status);
-      if (status === "agent-disconnected" || status === "reconnecting")
+      if (
+        [
+          "agent-disconnected",
+          "reconnecting",
+          "disconnected",
+          "return-ended",
+        ].includes(status)
+      )
         void api("/v1/rep/presence", "POST", {
           status: "paused",
           audio_ready: false,
@@ -156,6 +172,9 @@ export function DialerPage() {
         }).catch(() => {});
     };
   }, [api]);
+  useEffect(() => {
+    if (returnProvider) telephony.current.expectReturnLeg(returnProvider);
+  }, [returnProvider]);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "F2") {
@@ -224,6 +243,10 @@ export function DialerPage() {
     return () => window.removeEventListener("online", handler);
   }, [journalReady]);
   async function goReady() {
+    if (inbound || telephony.current.hasIncoming)
+      throw new Error(
+        "Complete the incoming call before becoming ready for outbound calls.",
+      );
     if (!journalReady)
       throw new Error("Wait for the protected opt-out journal to open.");
     await syncOptouts();
@@ -239,12 +262,12 @@ export function DialerPage() {
         "POST",
       );
       await telephony.current.connect(result.token, audio.current!);
-      telephony.current.expectAgentLeg();
       const leg = await api<{ agent_call_control_id: string }>(
         "/v1/telephony/agent",
         "POST",
       );
       agent = leg.agent_call_control_id;
+      telephony.current.expectAgentLeg(agent);
       let answered = false;
       for (let i = 0; i < 60; i++) {
         const status = await api<{ state: string }>(
@@ -278,6 +301,10 @@ export function DialerPage() {
     await refresh();
   }
   async function getNext() {
+    if (inbound || telephony.current.hasIncoming)
+      throw new Error(
+        "Complete the incoming call before selecting another lead.",
+      );
     if (pendingOptouts)
       throw new Error(
         "A pending opt-out must synchronize before another call.",
@@ -295,6 +322,10 @@ export function DialerPage() {
     setMute(false);
   }
   async function startCall() {
+    if (inbound || telephony.current.hasIncoming)
+      throw new Error(
+        "Complete the incoming call before starting an outbound call.",
+      );
     if (!reservation || dialing || pendingOptouts) return;
     setDialing(true);
     try {
@@ -362,9 +393,28 @@ export function DialerPage() {
       <audio ref={audio} autoPlay />
       {inbound && (
         <InboundCall
+          key={inbound.id + ":" + (returnProvider || "waiting")}
           task={inbound}
-          mute={() => telephony.current.mute()}
-          localHangup={() => telephony.current.emergencyHangup()}
+          canAccept={Boolean(
+            returnProvider &&
+            telephony.current.incoming?.providerId === returnProvider,
+          )}
+          accept={async () => {
+            if (!returnProvider)
+              throw new Error("Wait for the verified return-call identity.");
+            await telephony.current.acceptIncoming(returnProvider);
+          }}
+          audioActive={Boolean(
+            (w.simulation && inbound.inbound_state === "connected") ||
+            (returnProvider && telephony.current.returnActive(returnProvider)),
+          )}
+          mute={() => {
+            if (returnProvider) telephony.current.mute(returnProvider);
+          }}
+          localHangup={async () => {
+            if (returnProvider)
+              await telephony.current.emergencyHangup(returnProvider);
+          }}
         />
       )}
       <LiveCoach
@@ -1031,7 +1081,9 @@ export function DialerPage() {
           ) : reservation && !call ? (
             <button
               className="primary dial-button"
-              disabled={dialing || pendingOptouts}
+              disabled={
+                dialing || pendingOptouts || Boolean(inbound) || incomingAudio
+              }
               onClick={() => void run(startCall)}
             >
               {dialing ? (
@@ -1045,7 +1097,11 @@ export function DialerPage() {
             <button
               className="primary dial-button"
               disabled={
-                !ready || pendingOptouts || !journalReady || Boolean(inbound)
+                !ready ||
+                pendingOptouts ||
+                !journalReady ||
+                Boolean(inbound) ||
+                incomingAudio
               }
               onClick={() => void run(getNext)}
             >

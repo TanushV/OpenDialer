@@ -37,6 +37,12 @@ export interface FollowupTask {
   inbound?: boolean;
   inbound_state?: string;
   routed_rep_id?: string | null;
+  routing_attempts?: {
+    id: string;
+    rep_id?: string | null;
+    provider_id?: string | null;
+    state: string;
+  }[];
   callback_phone?: string | null;
   route?: string;
   recovery_reason?: string;

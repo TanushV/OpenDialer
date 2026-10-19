@@ -1,6 +1,10 @@
 import { expect, test } from "@playwright/test";
 import { isolatedSimulationWorkspace } from "./simulation";
 
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: "wait" });
+});
+
 test("callback fallback settings survive reload and explain offline routing", async ({
   page,
 }) => {
