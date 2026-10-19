@@ -1,0 +1,98 @@
+{
+  "step_id": "E08",
+  "source_commit": "a64242f21ce156ec1ac0bf38bc2196238ca9e9fb",
+  "result": "29 missing or failing contracts; 132 passing in each database",
+  "case_ids": [
+    "C030",
+    "C031",
+    "C032",
+    "C033",
+    "C034"
+  ],
+  "external_calls": false,
+  "installed_app_changed": false,
+  "runs": [
+    {
+      "mode": "sqlite",
+      "failed_cases": [
+        "services.backend.tests.test_optimization_learning::test_nullable_labels_and_pooled_counts[None-None-None]",
+        "services.backend.tests.test_optimization_learning::test_nullable_labels_and_pooled_counts[temporary_failure-None-None]",
+        "services.backend.tests.test_optimization_learning::test_nullable_labels_and_pooled_counts[invalid_endpoint-None-None]",
+        "services.backend.tests.test_optimization_learning::test_nullable_labels_and_pooled_counts[callback_requested-True-None]",
+        "services.backend.tests.test_optimization_learning::test_nullable_labels_and_pooled_counts[opt_out-True-None]",
+        "services.backend.tests.test_optimization_learning::test_nullable_labels_and_pooled_counts[not_interested-True-None]",
+        "services.backend.tests.test_optimization_learning::test_nullable_labels_and_pooled_counts[no_answer-False-None]",
+        "services.backend.tests.test_optimization_learning::test_nullable_labels_and_pooled_counts[busy-False-None]",
+        "services.backend.tests.test_optimization_learning::test_nullable_labels_and_pooled_counts[voicemail-False-None]",
+        "services.backend.tests.test_optimization_learning::test_nullable_labels_and_pooled_counts[screening-False-None]",
+        "services.backend.tests.test_optimization_learning::test_sparse_prior_excludes_cell_and_uses_circular_hour",
+        "services.backend.tests.test_optimization_learning::test_ambiguous_import_does_not_invent_target_contact[callback_requested]",
+        "services.backend.tests.test_optimization_learning::test_ambiguous_import_does_not_invent_target_contact[meeting_booked]",
+        "services.backend.tests.test_optimization_learning::test_ambiguous_import_does_not_invent_target_contact[meeting_held]",
+        "services.backend.tests.test_optimization_learning::test_ambiguous_import_does_not_invent_target_contact[sale_won]",
+        "services.backend.tests.test_optimization_learning::test_one_goal_evidence_cannot_prove_another_goal",
+        "services.backend.tests.test_optimization_learning::test_conditional_estimates_use_only_known_conditioning_labels_and_no_double_prior",
+        "services.backend.tests.test_optimization_learning::test_prior_intervals_stay_unknown_and_custom_work_prior_is_visible",
+        "services.backend.tests.test_optimization_learning::test_attempt_work_unions_phases_and_excludes_detached_playback",
+        "services.backend.tests.test_optimization_learning::test_estimate_policy_is_validated_and_returned_by_the_single_settings_owner",
+        "services.backend.tests.test_learning_chronology::test_rolling_asof_entity_embargo",
+        "services.backend.tests.test_learning_chronology::test_feature_vocabulary_is_fitted_only_in_each_training_partition",
+        "services.backend.tests.test_model_serving_bounds::test_v1_v2_model_compatibility[2]",
+        "services.backend.tests.test_conversation_features::test_prior_observation_features_only[prior-expected0]",
+        "services.backend.tests.test_conversation_features::test_prior_observation_features_only[future-expected1]",
+        "services.backend.tests.test_conversation_features::test_prior_observation_features_only[provisional-expected2]",
+        "services.backend.tests.test_conversation_features::test_prior_observation_features_only[current-expected3]",
+        "services.backend.tests.test_conversation_features::test_prior_observation_features_only[foreign-expected4]",
+        "services.backend.tests.test_strategy_exposure::test_displayed_guidance_is_not_assumed_used_or_converted"
+      ],
+      "counts": {
+        "failed": 29,
+        "passed": 132
+      },
+      "raw_log_sha256": "b9069dc9b96520d78844ffbb5b3268a1183729c6a3b65b8c10b9ac4b636fd5d2"
+    },
+    {
+      "mode": "postgres",
+      "failed_cases": [
+        "services.backend.tests.test_optimization_learning::test_nullable_labels_and_pooled_counts[None-None-None]",
+        "services.backend.tests.test_optimization_learning::test_nullable_labels_and_pooled_counts[temporary_failure-None-None]",
+        "services.backend.tests.test_optimization_learning::test_nullable_labels_and_pooled_counts[invalid_endpoint-None-None]",
+        "services.backend.tests.test_optimization_learning::test_nullable_labels_and_pooled_counts[callback_requested-True-None]",
+        "services.backend.tests.test_optimization_learning::test_nullable_labels_and_pooled_counts[opt_out-True-None]",
+        "services.backend.tests.test_optimization_learning::test_nullable_labels_and_pooled_counts[not_interested-True-None]",
+        "services.backend.tests.test_optimization_learning::test_nullable_labels_and_pooled_counts[no_answer-False-None]",
+        "services.backend.tests.test_optimization_learning::test_nullable_labels_and_pooled_counts[busy-False-None]",
+        "services.backend.tests.test_optimization_learning::test_nullable_labels_and_pooled_counts[voicemail-False-None]",
+        "services.backend.tests.test_optimization_learning::test_nullable_labels_and_pooled_counts[screening-False-None]",
+        "services.backend.tests.test_optimization_learning::test_sparse_prior_excludes_cell_and_uses_circular_hour",
+        "services.backend.tests.test_optimization_learning::test_ambiguous_import_does_not_invent_target_contact[callback_requested]",
+        "services.backend.tests.test_optimization_learning::test_ambiguous_import_does_not_invent_target_contact[meeting_booked]",
+        "services.backend.tests.test_optimization_learning::test_ambiguous_import_does_not_invent_target_contact[meeting_held]",
+        "services.backend.tests.test_optimization_learning::test_ambiguous_import_does_not_invent_target_contact[sale_won]",
+        "services.backend.tests.test_optimization_learning::test_one_goal_evidence_cannot_prove_another_goal",
+        "services.backend.tests.test_optimization_learning::test_conditional_estimates_use_only_known_conditioning_labels_and_no_double_prior",
+        "services.backend.tests.test_optimization_learning::test_prior_intervals_stay_unknown_and_custom_work_prior_is_visible",
+        "services.backend.tests.test_optimization_learning::test_attempt_work_unions_phases_and_excludes_detached_playback",
+        "services.backend.tests.test_optimization_learning::test_estimate_policy_is_validated_and_returned_by_the_single_settings_owner",
+        "services.backend.tests.test_learning_chronology::test_rolling_asof_entity_embargo",
+        "services.backend.tests.test_learning_chronology::test_feature_vocabulary_is_fitted_only_in_each_training_partition",
+        "services.backend.tests.test_model_serving_bounds::test_v1_v2_model_compatibility[2]",
+        "services.backend.tests.test_conversation_features::test_prior_observation_features_only[prior-expected0]",
+        "services.backend.tests.test_conversation_features::test_prior_observation_features_only[future-expected1]",
+        "services.backend.tests.test_conversation_features::test_prior_observation_features_only[provisional-expected2]",
+        "services.backend.tests.test_conversation_features::test_prior_observation_features_only[current-expected3]",
+        "services.backend.tests.test_conversation_features::test_prior_observation_features_only[foreign-expected4]",
+        "services.backend.tests.test_strategy_exposure::test_displayed_guidance_is_not_assumed_used_or_converted"
+      ],
+      "counts": {
+        "failed": 29,
+        "passed": 132
+      },
+      "raw_log_sha256": "1cfdc2cec27597d8df3dde2eda99abbb2d9d05455b3c3708fc8aa83115ad159a"
+    }
+  ],
+  "known_limitations": [
+    "The earlier SQLite fixture error for no-show is corrected to include the required next action; this capture excludes that setup error.",
+    "API contract absence is distinct from behavioral failures; E08 remains in progress."
+  ]
+}

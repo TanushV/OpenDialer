@@ -293,6 +293,7 @@ def test_revised_meeting_reports_keep_observation_and_retraction_history(workspa
                 "request_id": str(uuid4()),
                 "expected_version": packet["lead"]["version"],
                 "status": status,
+                **({"next_action": "keep_hold"} if status == "no_show" else {}),
             },
         )
         assert result.status_code == 200, result.text

@@ -514,7 +514,9 @@
         "services/backend/tests/test_conversation_features.py",
         "services/backend/tests/test_strategy_exposure.py"
       ],
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E08-contracts-red.json"
+      ],
       "planned_case_ids": [
         "C030",
         "C031",

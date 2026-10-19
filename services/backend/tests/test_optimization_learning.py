@@ -77,6 +77,135 @@ def test_sparse_prior_excludes_cell_and_uses_circular_hour():
     assert predicted["expected_rep_seconds"] == pytest.approx((80 + 5 * 120) / 6)
 
 
+@pytest.mark.parametrize("outcome", ["callback_requested", "meeting_booked", "meeting_held", "sale_won"])
+def test_ambiguous_import_does_not_invent_target_contact(outcome):
+    labels = derive_labels({"outcome": outcome, "outcome_source": "imported", "contact_role": "unknown"})
+    assert labels["human"] is True and labels["right_party"] is None
+    confirmed = derive_labels(
+        {"outcome": outcome, "outcome_source": "rep_reported", "contact_role": "right_party"}
+    )
+    assert confirmed["right_party"] is True
+    provisional = derive_labels({"outcome": outcome, "outcome_source": "llm_provisional"})
+    assert provisional["human"] is None and provisional["right_party"] is None
+
+
+def test_one_goal_evidence_cannot_prove_another_goal():
+    assert derive_labels("sale_won")["meeting_held"] is False
+    assert derive_labels("meeting_booked")["qualified"] is False
+    assert derive_labels("meeting_held")["qualified"] is False
+
+
+def test_conditional_estimates_use_only_known_conditioning_labels_and_no_double_prior():
+    from app.optimization.learning import funnel_predictions
+
+    rows = [
+        {
+            "segment": "a",
+            "local_hour": 23,
+            "local_weekday": 1,
+            "human": True,
+            "right_party": True,
+            "conversion": 1,
+            "window_status": "resolved",
+        },
+        {
+            "segment": "a",
+            "local_hour": 0,
+            "local_weekday": 2,
+            "human": True,
+            "right_party": None,
+            "conversion": None,
+        },
+        {
+            "segment": "b",
+            "local_hour": 10,
+            "local_weekday": 2,
+            "human": True,
+            "right_party": False,
+            "conversion": None,
+        },
+        {
+            "segment": "b",
+            "local_hour": 10,
+            "local_weekday": 2,
+            "human": False,
+            "right_party": None,
+            "conversion": None,
+        },
+        {
+            "segment": "a",
+            "local_hour": 0,
+            "local_weekday": 2,
+            "human": None,
+            "right_party": None,
+            "conversion": None,
+        },
+    ]
+    result = funnel_predictions(rows, {"segment": "a", "local_hour": 0, "local_weekday": 2})
+    assert result["p_human"] == pytest.approx((2 + 10 * (3 / 12)) / 12)
+    assert result["p_right_party_given_human"] == pytest.approx((1 + 10 * (1 / 4)) / 11)
+    assert result["p_conversion_given_right_party"] == pytest.approx((1 + 10 * (1 / 4)) / 11)
+    assert result["stage_support"]["human"]["cell_known"] == 2
+    assert result["stage_support"]["right_party"]["cell_known"] == 1
+    assert result["stage_support"]["conversion"]["cell_known"] == 1
+    assert result["stage_support"]["human"]["cell_unknown"] == 1
+    assert result["expected_attempt_cost_usd"] is None
+
+
+def test_prior_intervals_stay_unknown_and_custom_work_prior_is_visible():
+    from app.optimization.learning import funnel_predictions
+
+    value = funnel_predictions(
+        [],
+        {"segment": "unknown", "local_hour": None},
+        handling_seconds=180,
+        estimate_policy={"human_prior": [1, 1], "work_prior": 2},
+    )
+    assert value["p_human"] == 0.5 and value["expected_rep_seconds"] == 180
+    assert value["estimate_level"] == "pooled"
+    assert value["stage_support"]["human"]["observed_interval"] == [0, 1]
+    assert value["prior_only"] is True
+    assert value["estimate_policy_version"]
+
+
+def test_attempt_work_unions_phases_and_excludes_detached_playback(clock):
+    from app.scheduling.models import attempt_work_seconds
+
+    at = clock.now
+    stamp = lambda sec: (at + timedelta(seconds=sec)).isoformat()
+    call = {
+        "submitted_at": stamp(0),
+        "ended_at": stamp(120),
+        "detached": True,
+        "rep_released_at": stamp(40),
+        "rep_work_intervals": [
+            {"started_at": stamp(35), "ended_at": stamp(50)},
+            {"started_at": stamp(45), "ended_at": stamp(55)},
+        ],
+    }
+    assert attempt_work_seconds(call) == 55
+    assert attempt_work_seconds({"detached": True, "duration_seconds": 120}) is None
+    assert attempt_work_seconds({"duration_seconds": float("nan")}) is None
+
+
+def test_estimate_policy_is_validated_and_returned_by_the_single_settings_owner(workspace):
+    c, h = workspace["client"], workspace["headers"]
+    value = c.get("/v1/optimization", headers=h).json()["settings"]
+    assert value["estimate_policy"]["human_prior"] == [2, 8]
+    assert (
+        c.put("/v1/admin/optimization", headers=h, json={"estimate_policy": {"work_prior": 3}}).status_code
+        == 200
+    )
+    value = c.get("/v1/optimization", headers=h).json()["settings"]
+    assert value["estimate_policy"]["work_prior"] == 3
+    assert (
+        c.put(
+            "/v1/admin/optimization", headers=h, json={"estimate_policy": {"human_prior": [0, 8]}}
+        ).status_code
+        == 422
+    )
+
+
 def test_snapshot_only_has_information_known_before_the_call(clock):
     lead = {
         "segment": "roofing",
