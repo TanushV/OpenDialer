@@ -1,0 +1,64 @@
+{
+  "step_id": "E00",
+  "source_commit": "7508200460b74ed08135881d01a54237c6fa04a6",
+  "fixture_seed": 20261018,
+  "browser": {
+    "mode": [
+      "local",
+      "postgres"
+    ],
+    "command": "OPENDIALER_E2E_DATABASE_URL=<guarded-disposable-browser-url> npm run test:e2e -- tests/completion.spec.ts",
+    "result_counts": {
+      "passed": 0,
+      "failed": 6
+    },
+    "failures": [
+      {
+        "case": "authority_switch_scope",
+        "modes": [
+          "local",
+          "postgres"
+        ],
+        "assertion": "Sign out must be disabled during an active call; current button is enabled"
+      },
+      {
+        "case": "small_window_keyboard_journey",
+        "modes": [
+          "local",
+          "postgres"
+        ],
+        "widths": [
+          1024,
+          1280
+        ],
+        "assertion": "Opening Private help must focus its input; current input stays inactive"
+      }
+    ],
+    "evidence": {
+      "path": "work/remediation/completion/E00-browser.txt",
+      "sha256": "0f69b908d0ac268232e0fab5aefd69ba005b437edde631f09e9242360d313fd3"
+    }
+  },
+  "native": {
+    "command": "cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked",
+    "result": "contract_absence",
+    "missing_symbols": [
+      "WebhookTunnelConfig",
+      "webhook_ssh_args",
+      "webhook_retry_delay",
+      "OwnedWebhookTunnel"
+    ],
+    "diagnostics": 9,
+    "evidence": {
+      "path": "work/remediation/completion/native-contract-initial.txt",
+      "sha256": "12b103912c42d59a44d7713465127dc93f13b8d305d50953742c75d1f7033a4e"
+    }
+  },
+  "known_limitations": [
+    "Browser cases stop at first failing assertion; later journey assertions remain pending after repair.",
+    "Native compile absence does not certify lifecycle behavior.",
+    "Actual installed Mac/Windows updates, hardware and live providers are separate gates."
+  ],
+  "external_calls": false,
+  "installed_app_changed": false
+}
