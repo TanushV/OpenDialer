@@ -256,6 +256,32 @@ def test_periodic_work_addresses_each_campaign_without_crossing_settings(workspa
     assert wanted <= actual
 
 
+def test_selection_profile_uses_selected_campaign_treatments(workspace, app, clock):
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        first = service.required(s, "campaigns", workspace["campaign_id"], p)
+        second = put(
+            s,
+            "campaigns",
+            p["tenant_id"],
+            p["seller_id"],
+            {"name": "Other", "policy_id": first.data["policy_id"]},
+            now=clock.now + timedelta(microseconds=1),
+        )
+        action = put(
+            s,
+            "treatment_variants",
+            p["tenant_id"],
+            p["seller_id"],
+            {"campaign_id": second.id, "approved": True},
+            now=clock.now,
+        )
+        selected = {**p, "campaign_id": second.id}
+        statistics = {"total": {}, "retry_observations": [], "treatment_counts": {"pooled": {}}}
+        profile = service.selection_profile(s, selected, statistics, service.optimization_config(s, selected))
+        assert {r["action"] for r in profile["treatments"]["pooled"]} == {action.id}
+
+
 def test_legacy_long_work_span_enqueues_bounded_days_and_resumes(workspace, app, clock):
     from app.optimization.projections import refresh_unit
     from test_projection_replay import dirty_jobs
