@@ -1,0 +1,69 @@
+{
+  "step_id": "E09",
+  "stage": "projected-estimate-serving-and-explicit-learning",
+  "source_commit": "acd14121072df527f41c251dc89eb6f964808e1e",
+  "production_tree_digest": "15ac3a137a9dc5469fbd7aac0ed89b68f0d7f8f4f047a4d503a5964bca44e9d9",
+  "test_tree_digest": "2b74c46849218136ee271b838dc931c9b9e75ab3c34075e1a0ab1a8bcc296b2a",
+  "digest_method": "SHA256 git ls-tree -r of named backend product and test roots",
+  "case_ids": [
+    "C035",
+    "C037",
+    "C038"
+  ],
+  "mode": [
+    "sqlite",
+    "postgresql"
+  ],
+  "fixture_seed": 20261018,
+  "commands": [
+    ".venv/bin/pytest services/backend/tests/test_incremental_estimates.py -q --tb=short",
+    ".venv/bin/pytest services/backend/tests/test_incremental_estimates.py services/backend/tests/test_optimization_workflows.py services/backend/tests/test_unified_planning.py -q --tb=short",
+    "OPENDIALER_TEST_POSTGRES_URL=<documented-disposable> .venv/bin/pytest services/backend/tests/test_incremental_estimates.py services/backend/tests/test_optimization_workflows.py services/backend/tests/test_unified_planning.py -q --tb=short"
+  ],
+  "environment": {
+    "python": "3.12.13",
+    "postgresql": "17 disposable loopback authority",
+    "installed_app_changed": false
+  },
+  "started_at": null,
+  "finished_at": "2026-10-19T18:39:06.763148+00:00",
+  "timestamp_note": "Receipt recorded now; exact run start times not retained. Durations are runner outputs.",
+  "result_counts": {
+    "sqlite_planning_scope": {
+      "passed": 96,
+      "seconds": 49.12,
+      "scope_note": "Run began before final snapshot-race regression was added. That regression is included in the separate 14-case estimate run."
+    },
+    "sqlite_final_estimate_contracts": {
+      "passed": 14,
+      "seconds": 10.06
+    },
+    "postgresql_combined_scope": {
+      "passed": 97,
+      "seconds": 197.75
+    }
+  },
+  "failed_cases": [],
+  "raw_log_sha256": {
+    "E09-estimate-serving-red.txt": "821d8991553c10ff846090239780b37e2803f3ee43c57c28cbe12624f07bba3f",
+    "E09-bounded-learning-red.txt": "c855c57d44abc62ffacf25af757b4cdc76f47e4fe8dcd296482b74c8178515c8",
+    "E09-usage-call-index-red.txt": "228d6282e3fc748b3b4ae988bea0e42838dde95584d3e3bc2ca7bf488a819794",
+    "E09-learning-coalescing-red.txt": "7682646eaa6434eae110691b980a60ea185ac2b63d14b90feb1cf480b7439daa",
+    "E09-slot-estimates-red.txt": "a3707900261a0d0034d4ee0d4ad3dda38b7a5576e588e6f41157568ccd6c0892",
+    "E09-dataset-fence-red.txt": "bb8e14d7220b3fbdee2394db3bae514d69519613a203e64e17ad4bca3c76847c",
+    "E09-estimate-serving-green.txt": "899a67499d0fde2ca611463bebdfc2570761f6b02f7d5472f10efabcb9dec9cc",
+    "E09-estimate-planning-sqlite.txt": "da6452d7db5af349ec5c6e48753f0acbf7eab930feaf2a8ddd1e863da3afceb5",
+    "E09-estimate-planning-postgres.txt": "1ab32114e8540a70133c18f3c3b4bacef0902903a900f8905483c73583b0f81c"
+  },
+  "retired_paths": [
+    "Routine full historical dataset construction",
+    "Repeated snapshot construction for association and training",
+    "Historical receipt scan in explicit training snapshot",
+    "Precomputed time-grid predictions from historical rows"
+  ],
+  "known_limitations": [
+    "This accepts the named estimate/learning contracts, not E09 in full. Changed-lead planning and later source/namespace review remain active.",
+    "No live inference, installed update, E13 load or full-suite acceptance."
+  ],
+  "external_calls": false
+}

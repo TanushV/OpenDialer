@@ -592,7 +592,8 @@
         "services/backend/tests/test_migrations.py",
         "services/backend/tests/test_metric_readiness.py",
         "services/backend/tests/test_incremental_reports.py",
-        "services/backend/tests/test_incremental_estimates.py"
+        "services/backend/tests/test_incremental_estimates.py",
+        "services/backend/tests/test_incremental_planning.py"
       ],
       "receipts": [
         "docs/evidence/completion/E09-contracts-red.json",
@@ -606,7 +607,8 @@
         "docs/evidence/completion/E09-trial-counts.json",
         "docs/evidence/completion/E09-comparison-health.json",
         "docs/evidence/completion/E09-report-readers.json",
-        "docs/evidence/completion/E09-estimate-counts.json"
+        "docs/evidence/completion/E09-estimate-counts.json",
+        "docs/evidence/completion/E09-estimate-serving.json"
       ],
       "planned_case_ids": [
         "C035",
@@ -622,7 +624,7 @@
         "A50",
         "A51"
       ],
-      "checkpoint": "7405dbf sparse counts86 SQLite/108 PostgreSQL; corrected job finish and comparison removal accepted at their exact sources. f4b29f3/1bcec09 serving/cost/treatment/bounded explicit-data contracts red; implement them, then changed-lead planning and final E09 acceptance.",
+      "checkpoint": "acd1412 estimate/learning serving: 96 scoped SQLite + final14 estimate contracts;97 PostgreSQL. c5989b6 bounded changed-lead planning and shared full forecast passes75 SQLite; broader maintenance verification running. Next: source/namespace edge cases and final E09 acceptance.",
       "implementation_todos": [
         {
           "id": "E09.admission",
@@ -666,7 +668,7 @@
         },
         {
           "id": "E09.maintenance",
-          "status": "open",
+          "status": "in-progress",
           "work": "Dirty estimate and retry planning, explicit bounded dataset work, maintenance independent of training"
         },
         {
@@ -696,7 +698,7 @@
         },
         {
           "id": "E09.estimate_serving",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Projected selection profile, pooled complete-cost disclosure, treatment rewards, ordinary refresh without history, explicit bounded learning snapshots"
         }
       ]
