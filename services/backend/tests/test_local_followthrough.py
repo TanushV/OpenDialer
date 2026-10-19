@@ -86,6 +86,52 @@ def test_wrapup_replay_has_one_outcome_one_task_and_does_not_repeat_preparation(
         assert len(outcomes) == 1 and outcomes[0].data["contact_role"] == "right_party"
 
 
+def test_wrapup_note_is_saved_as_human_context_without_waiting_for_inference(workspace):
+    call = start(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
+    result = c.post(
+        f"/v1/calls/{call['id']}/disposition",
+        headers=h,
+        json=disposition_body(
+            c, h, call["id"], outcome="right_party", callback_note="Rep confirmed the purchasing owner."
+        ),
+    )
+    assert result.status_code == 200, result.text
+    analysis = c.get(f"/v1/calls/{call['id']}/analysis", headers=h).json()
+    assert analysis["human_notes"] == "Rep confirmed the purchasing owner."
+    brief = c.get(f"/v1/leads/{call['lead_id']}/packet", headers=h).json()["prospect_brief"]
+    assert brief["human_notes"][0]["text"] == analysis["human_notes"]
+
+
+def test_alias_reconciliation_retains_human_note_and_protection_on_survivor(workspace, app, clock):
+    call = start(workspace)
+    finish(workspace, call, callback_at=(clock.now + timedelta(days=1)).isoformat())
+    original = tasks(workspace, call)[0]
+    service, who = app.state.service, p(workspace)
+    with service.db.transaction() as s:
+        duplicate = put(
+            s,
+            "followup_tasks",
+            who["tenant_id"],
+            who["seller_id"],
+            {
+                **{k: v for k, v in original.items() if k not in {"id", "version"}},
+                "human_edited": True,
+                "note": "Do not change the date the rep confirmed.",
+            },
+            key="legacy-human-note",
+            now=clock() + timedelta(seconds=1),
+        )
+        alias_id = duplicate.id
+    service.migrate_followthrough()
+    survivor = tasks(workspace, call)[0]
+    assert survivor["human_edited"]
+    assert survivor["retained_notes"] == [
+        {"task_id": alias_id, "text": "Do not change the date the rep confirmed."}
+    ]
+
+
 def test_meeting_report_replays_without_repeating_outcome_or_clearing_newer_hold(workspace):
     call = start(workspace)
     finish(workspace, call, "meeting_booked")
@@ -111,6 +157,8 @@ def test_meeting_report_replays_without_repeating_outcome_or_clearing_newer_hold
     assert replay.json()["meeting"]["status"] == "no_show"
     assert replay.json()["outreach_hold"] == "meeting_next_action"
     assert replay.json()["edit_receipt"] == first.json()["edit_receipt"]
+    assert replay.json()["outcome_id"] == first.json()["outcome_id"]
+    assert replay.json()["packet_version"] == changed.json()["packet_version"]
 
 
 def test_continuity_refresh_coalesces_and_retains_running_owner(workspace, app):
@@ -204,6 +252,37 @@ def test_task_replay_still_rechecks_current_account_authority(workspace, app, cl
     assert denied.value.status_code in {403, 404}
 
 
+def test_task_owner_is_read_after_authorization_fence(workspace, app, clock, monkeypatch):
+    from app.db import update
+    from fastapi import HTTPException
+
+    call = start(workspace)
+    finish(workspace, call, callback_at=(clock.now + timedelta(days=1)).isoformat())
+    task = tasks(workspace, call)[0]
+    service, who = app.state.service, p(workspace)
+    who = {**who, "role": "rep"}
+    original = service.db.authorize_stream
+
+    def reassign_at_fence(session, principal):
+        original(session, principal)
+        row = service.required(session, "followup_tasks", task["id"], principal)
+        update(row, owner_id="another-rep")
+        session.flush()
+
+    monkeypatch.setattr(service.db, "authorize_stream", reassign_at_fence)
+    with pytest.raises(HTTPException) as denied:
+        service.edit_task(
+            who,
+            task["id"],
+            {
+                "request_id": str(uuid4()),
+                "expected_version": task["version"],
+                "note": "Stale owner must not edit",
+            },
+        )
+    assert denied.value.status_code == 403
+
+
 def test_callback_time_and_snooze(workspace, clock):
     """C011: a reminder date cannot silently replace the promised callback."""
     from uuid import uuid4
@@ -288,8 +367,70 @@ def tasks(w, call):
     ]
 
 
+def test_followthrough_backfill_resumes_after_committed_page_without_reediting_human_tasks(
+    workspace, app, clock, monkeypatch
+):
+    from contextlib import contextmanager
+
+    from app.db import MODELS
+
+    service, who = app.state.service, p(workspace)
+    with service.db.transaction() as s:
+        for index in range(503):
+            put(
+                s,
+                "followup_tasks",
+                who["tenant_id"],
+                who["seller_id"],
+                {
+                    "kind": "callback",
+                    "lead_id": f"legacy-{index}",
+                    "status": "open",
+                    "owner_id": who["user_id"],
+                    "due_at": clock().isoformat(),
+                    "human_edited": True,
+                    "note": f"Human note {index}",
+                },
+                object_id=f"legacy-{index:04d}",
+                now=clock(),
+            )
+    original = service.db.transaction
+    calls = 0
+
+    @contextmanager
+    def interrupted(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            raise RuntimeError("Synthetic restart after committed page")
+        with original(*args, **kwargs) as session:
+            yield session
+
+    monkeypatch.setattr(service.db, "transaction", interrupted)
+    with pytest.raises(RuntimeError, match="committed page"):
+        service.migrate_followthrough()
+    monkeypatch.setattr(service.db, "transaction", original)
+    with original(False) as s:
+        marker = service.required(s, "sellers", who["seller_id"], who).data["completion_contracts"][
+            "followthrough"
+        ]
+        assert marker["last_id"] == "legacy-0499" and not marker["completed_at"]
+    service.migrate_followthrough()
+    with original(False) as s:
+        before = {r.id: (r.version, dict(r.data)) for r in s.scalars(select(MODELS["followup_tasks"]))}
+        assert len(before) == 503
+        assert all(v[1]["confirmation_state"] == "confirmed" for v in before.values())
+        assert all(v[1]["note"] == f"Human note {int(k[-4:])}" for k, v in before.items())
+    service.migrate_followthrough()
+    with original(False) as s:
+        assert {
+            r.id: (r.version, dict(r.data)) for r in s.scalars(select(MODELS["followup_tasks"]))
+        } == before
+
+
 def test_next_call_brief_reuses_prior_answers_questions_and_exposes_expired_gaps(workspace, app, clock):
     from app.coaching.context import upgrade_state
+    from app.postcall.rubrics import effective
     from test_live_memory import turn
 
     service, who = app.state.service, p(workspace)
@@ -320,6 +461,7 @@ def test_next_call_brief_reuses_prior_answers_questions_and_exposes_expired_gaps
                 ],
             },
             call_id=call["id"],
+            rubric=effective(row.data),
         )
         state["coverage"] = {"unavailable_segments": 1}
         state["finalization"] = {"status": "partial", "reason": "raw_expired_before_interpretation"}

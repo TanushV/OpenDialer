@@ -73,7 +73,7 @@ for (const connected of [false, true]) {
       .getByRole("button", { name: "Snooze reminder", exact: true })
       .click();
     const result = await (await snoozed).json();
-    expect(result.due_at).toBe(requests[0].due_at);
+    expect(Date.parse(result.due_at)).toBe(Date.parse(String(requests[0].due_at)));
     expect(result.snoozed_until).not.toBe(result.due_at);
     await page.reload();
     await page

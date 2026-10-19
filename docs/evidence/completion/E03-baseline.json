@@ -30,13 +30,24 @@
       "failed": 39,
       "passed": 1,
       "seconds": 117.54
+    },
+    "migration_resume_contract": {
+      "failed": 1,
+      "reason": "missing migration interface"
+    },
+    "human_continuity": {
+      "failed": 2
+    },
+    "current_view_authority": {
+      "failed": 2
     }
   },
   "known_limitations": [
     "PostgreSQL baseline includes updated identified/versioned edit fixtures. Most downstream cases stop at the old API envelope rejection; rerun individually after the shared contract repair.",
     "Two alias cases name missing migration contract; remaining failures are behavioral/API assertions.",
     "The choice supplement rejects an accidental green caused by an unsupported request field.",
-    "Browser local failure demonstrates no replay after a committed response is lost; paired authority expansion also fails with the same missing identity/retry behavior."
+    "Browser local failure demonstrates no replay after a committed response is lost; paired authority expansion also fails with the same missing identity/retry behavior.",
+    "Brief fixture now includes the actual frozen rubric; otherwise the shared reader correctly resets finalization to pending. Browser callback comparison now compares UTC instants, not equivalent ISO formatting. Neither change weakens the behavior assertion."
   ],
   "raw_logs": {
     "E03-sqlite-baseline.txt": "80f57e88dd1b1c9c3ca20014b245c962e72acfc282af2c28ccd72f4f4698148b",
@@ -44,7 +55,10 @@
     "E03-browser-red.txt": "f50fbf52b47b62179b63008e06472406a12fac3c3835a68b81cbe1116a1e0115",
     "E03-browser-paired-red.txt": "fac3bc7f444da852a78a629455d6d4037d9e80e19db8be628e7ee3915149cde4",
     "E03-local-edits-unit-red.txt": "f863a26899b2b026f0bd9328796903711bcd1445c47ea475c335c93ef6d0d4fc",
-    "E03-postgres-baseline.txt": "5bd409cf61674647276ef9876b26cd76ac1ad5aca3ffc70c07b86c11bd4324ce"
+    "E03-postgres-baseline.txt": "5bd409cf61674647276ef9876b26cd76ac1ad5aca3ffc70c07b86c11bd4324ce",
+    "E03-migration-red.txt": "b50ada85bf49a00d2d8d3dd10596e897809567d315b99bb2ba8dcd328612c8ed",
+    "E03-human-continuity-red.txt": "96c3d58ce80934d45aa59ea70bababe2126b0ce8a05483a145c6baf1223249f9",
+    "E03-current-view-red.txt": "c57da97bd73aea8b065098a8e04d695b3c347a773f06a407e6b915a67cb8d431"
   },
   "tests": {
     "services/backend/tests/test_local_followthrough.py": "37a0e607345ea33f43f3de42110196d466f89badd1df5740cd5528419dcda7cc",
