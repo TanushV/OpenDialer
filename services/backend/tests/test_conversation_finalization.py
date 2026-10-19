@@ -10,6 +10,217 @@ from test_remediation_privacy import persisted_content
 
 
 @pytest.mark.asyncio
+async def test_only_one_canonical_state_is_written_and_legacy_arrays_are_read_views(
+    workspace, app, clock, monkeypatch
+):
+    from test_live_memory import turn
+
+    call, p, _, _ = setup(workspace, app, monkeypatch)
+    service = app.state.service
+    turn(service, p, call, "canonical")
+    await service.coach_turn(p, call["id"], urgent=True)
+    with service.db.transaction(False) as s:
+        state = service._by_key(s, p, "conversation_states", call["id"]).data
+        assert state.get("schema_version") == 2
+        assert "rundown_points" not in state, "Compatibility views must not become duplicate writers"
+        assert state["observations"][0]["epistemic_status"] == "model_interpreted"
+        assert state["observations"][0]["sources"][0]["id"] == "canonical"
+        assert state["purpose"] and state["rubric_items"]
+    assert service.analysis(p, call["id"])["call_memory"]["rundown_points"]
+
+
+def conversation_fixture():
+    from datetime import UTC, datetime
+
+    from app.coaching.context import build_context
+
+    at = datetime(2026, 10, 18, 18, tzinfo=UTC)
+    segment = {
+        "segment_id": "source",
+        "revision": 1,
+        "side": "remote",
+        "is_final": True,
+        "text": "We need to reduce the approval delay for our purchasing team.",
+        "server_received_at": at.isoformat(),
+        "raw_expires_at": (at + timedelta(seconds=300)).isoformat(),
+    }
+    state = build_context([segment], version=1, facts=[], commitments=[])
+    state["call_id"] = "01a13df6-144b-7d51-98d9-4067607f313e"
+    return state, segment, at
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("verdict", ["SUPPORTED", "CONTRADICTED", "UNCERTAIN"])
+async def test_live_commitment_stays_provisional_until_selective_review(
+    workspace, app, clock, monkeypatch, verdict
+):
+    from test_grounding_review import review_response
+    from test_live_memory import turn
+
+    call, p, _, _ = setup(workspace, app, monkeypatch)
+    service, seen = app.state.service, []
+
+    class Provider:
+        last_usage, last_request_id = {}, None
+        last_provider, last_model = "Cerebras", "fixture"
+
+        async def suggest(self, request, **kwargs):
+            seen.append("generation")
+            self.last_usage, self.last_request_id = {"cost": 0.001}, "promise-generation"
+            segment = request["recent_dialogue"][-1]
+            source = {"kind": "segment", "id": segment["segment_id"], "version": segment["revision"]}
+            return {
+                "state_version": request["state_version"],
+                "context_fingerprint": request["context_fingerprint"],
+                "guidance": None,
+                "field_audit": [],
+                "state_delta": {
+                    "stage": "next_step",
+                    "observations": [
+                        {
+                            "kind": "commitment",
+                            "text": "The rep should reconnect about procurement.",
+                            "state": "confirmed",
+                            "sources": [source],
+                            "replaces": [],
+                            "quote": segment["text"],
+                            "commitment": {
+                                "kind": "callback",
+                                "owner": "rep",
+                                "due_at": "2026-10-20T21:00:00+00:00",
+                                "needs_time_confirmation": False,
+                                "verbatim_time_expression": "October 20, 2026 at 2 PM Pacific time",
+                            },
+                        }
+                    ],
+                    "rubric_items": [],
+                    "tracker_matches": [],
+                    "interpreted_segments": [source],
+                },
+            }
+
+        async def review(self, request, **kwargs):
+            seen.append("review")
+            assert request["kind"] == "conversation"
+            assert len(request["fields"]) <= 20
+            self.last_usage, self.last_request_id = {"cost": 0.002}, "promise-review"
+            return review_response(request, verdict=verdict)
+
+    monkeypatch.setattr(service, "configured_coach", lambda _: (Provider(), "openrouter"))
+    turn(service, p, call, "promise", text="Please call me on October 20, 2026 at 2 PM Pacific time.")
+    await service.coach_turn(p, call["id"], urgent=True)
+    with service.db.transaction(False) as s:
+        memory = service._by_key(s, p, "conversation_states", call["id"]).data
+        assert memory["observations"][0]["review_status"] == "pending"
+        assert not service.lead_records(s, p, "followup_tasks", call["lead_id"])
+    clock.now += timedelta(seconds=31)
+    await service.run_jobs(p["tenant_id"], queues=["postcall"])
+    assert seen == ["generation", "review"]
+    with service.db.transaction(False) as s:
+        tasks = service.lead_records(s, p, "followup_tasks", call["lead_id"])
+        charges = [
+            r.data
+            for r in service.scoped(s, "usage_ledger", p)
+            if r.data.get("work_kind") in {"live_coach", "conversation_review"}
+        ]
+        assert len(charges) == 2 and sum(r["cost_usd"] for r in charges) == pytest.approx(0.003)
+        assert bool(tasks) is (verdict == "SUPPORTED")
+        if tasks:
+            assert len(tasks) == 1 and tasks[0].data["status"] == "open"
+            assert tasks[0].data["due_at"] == "2026-10-20T21:00:00+00:00"
+
+
+def test_observation_ids_do_not_depend_on_paraphrase_and_replay_is_a_noop():
+    from uuid import UUID
+
+    from app.coaching.context import merge_semantic_state, persistent_state
+
+    state, segment, at = conversation_fixture()
+    delta = {
+        "stage": "discovery",
+        "rundown_points": [
+            {
+                "text": "Procurement is delayed by approval steps.",
+                "quote": segment["text"],
+                "evidence_segment_ids": ["source"],
+                "status": "confirmed",
+            }
+        ],
+    }
+    merged = merge_semantic_state(state, delta, [segment], request_id="fixed-request", at=at)
+    observation = persistent_state(merged)["observations"][0]
+    assert str(UUID(observation["id"])) == observation["id"]
+    delta["rundown_points"][0]["text"] = "The buyer wants a faster procurement process."
+    alternate = merge_semantic_state(state, delta, [segment], request_id="fixed-request", at=at)
+    assert persistent_state(alternate)["observations"][0]["id"] == observation["id"]
+    replay = merge_semantic_state(merged, delta, [segment], request_id="fixed-request", at=at)
+    assert persistent_state(replay) == persistent_state(merged)
+
+
+def test_conversation_global_bound_preserves_promises_and_reports_omissions():
+    from app.coaching.context import merge_semantic_state, persistent_state
+
+    state, segment, at = conversation_fixture()
+    keys = ("needs", "business_impact", "objections", "answered_questions", "buying_signals", "commitments")
+    for batch in range(12):
+        delta = {"stage": "discovery"}
+        for key in keys:
+            delta[key] = [
+                {
+                    "text": f"Derived {key} observation number {batch}.",
+                    "quote": segment["text"],
+                    "evidence_segment_ids": ["source"],
+                    "status": "open",
+                }
+            ]
+        state = merge_semantic_state(state, delta, [segment], request_id=f"bounded-{batch}", at=at)
+    stored = persistent_state(state)
+    assert len(stored["observations"]) <= 48
+    assert len(json.dumps(stored).encode()) <= 65536
+    assert sum(i["kind"] == "commitment" for i in stored["observations"]) == 12
+    assert stored["coverage"]["omitted_items"] >= 24
+    assert segment["text"] not in json.dumps(stored)
+
+
+@pytest.mark.parametrize("replacement", ["foreign", "forward"])
+def test_replacement_requires_an_existing_scoped_observation(replacement):
+    from app.coaching.context import merge_semantic_state
+    from app.coaching.engine import CardRejected
+
+    state, segment, at = conversation_fixture()
+    delta = {
+        "stage": "discovery",
+        "needs": [
+            {
+                "text": "Approval delay remains unresolved.",
+                "quote": segment["text"],
+                "evidence_segment_ids": ["source"],
+                "status": "open",
+                "replaces": [replacement],
+            }
+        ],
+    }
+    with pytest.raises(CardRejected, match="replacement|reference"):
+        merge_semantic_state(state, delta, [segment], request_id="invalid", at=at)
+
+
+@pytest.mark.asyncio
+async def test_no_provider_finalization_is_partial_and_never_fabricates_scores(
+    workspace, app, carrier, monkeypatch
+):
+    call, p, _, _ = setup(workspace, app, monkeypatch)
+    service = app.state.service
+    monkeypatch.setattr(service, "carrier", lambda _: carrier)
+    monkeypatch.setattr(service, "configured_coach", lambda _: (None, "unavailable"))
+    workspace["client"].post(f"/v1/calls/{call['id']}/hangup", headers=workspace["headers"])
+    await service.analyze_postcall(p, call["id"])
+    view = service.analysis(p, call["id"])
+    assert view.get("finalization", {}).get("status") in {"partial", "unavailable"}
+    assert all(item["score"] is None for item in view["scorecard"]["items"])
+    assert not view["notes"]["commitments"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("raw_at_hangup", [False, True])
 async def test_early_context_survives_ttl(workspace, app, clock, carrier, monkeypatch, raw_at_hangup):
     call, p, requests, changes = setup(workspace, app, monkeypatch)
