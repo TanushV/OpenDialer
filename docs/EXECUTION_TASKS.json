@@ -371,7 +371,8 @@
         "services/backend/tests/test_unified_planning.py"
       ],
       "receipts": [
-        "docs/evidence/completion/E06-baseline.json"
+        "docs/evidence/completion/E06-baseline.json",
+        "docs/evidence/completion/E06-publication.json"
       ],
       "planned_case_ids": [
         "C022",

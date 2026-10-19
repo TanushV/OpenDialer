@@ -1,0 +1,93 @@
+{
+  "step_id": "E06",
+  "scope": "Scored slots, input batching, background proposal publication/recovery, staffing and expansion advice; partial step receipt",
+  "source_commit": "776f4f343ed7e11c2b15952f8bf8e3f3f8a4696a",
+  "production_tree_digest": "3ad46b7ff6f8bc9e5c9108d05ff473888a1b285be059c39f4ac7c58b807eba4c",
+  "test_tree_digest": "030043f4a81b066060b8ff32c2f18847ba75e3ef7ae401a1f756f75d75f4ee3a",
+  "digest_method": "SHA256 of git ls-tree -r at named commit with the listed roots",
+  "case_ids": [
+    "C022",
+    "C023",
+    "C024",
+    "C025"
+  ],
+  "mode": [
+    "sqlite",
+    "postgresql",
+    "browser-local",
+    "browser-postgresql"
+  ],
+  "fixture_seed": 20261018,
+  "environment": {
+    "system": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+    "python": "3.12.13",
+    "databases": "guarded disposable unit database; separate real PostgreSQL browser database"
+  },
+  "commands": [
+    "pytest test_unified_planning.py test_time_capacity.py test_owner_capacity.py test_capacity_conservation.py test_research_and_jobs.py -q --tb=short (SQLite, then OPENDIALER_TEST_POSTGRES_URL guarded PostgreSQL)",
+    "pytest test_number_orders.py test_scheduling_and_numbers.py -q --tb=short (both databases)",
+    "npm --prefix apps/desktop run test:e2e -- tests/numbers.spec.ts (OPENDIALER_E2E_DATABASE_URL)",
+    "npm --prefix apps/desktop run typecheck",
+    "ruff check/format --check touched Python",
+    "git diff --check"
+  ],
+  "started_at": "2026-10-19T11:33:19.832412+00:00",
+  "finished_at": "2026-10-19T11:49:22.306784+00:00",
+  "timestamp_boundary": "Retained log modification times bound this slice; individual JUnit start times and durations remain in protected logs.",
+  "result_counts": {
+    "sqlite": {
+      "passed": 127,
+      "failed": 0,
+      "errors": 0,
+      "seconds": 16.391
+    },
+    "pg": {
+      "passed": 127,
+      "failed": 0,
+      "errors": 0,
+      "seconds": 71.66
+    },
+    "browser": {
+      "passed": 8,
+      "seconds": 25.0
+    },
+    "compatibility_sqlite": {
+      "passed": 19,
+      "seconds": 6.97
+    },
+    "compatibility_postgresql": {
+      "passed": 19,
+      "seconds": 30.99
+    }
+  },
+  "failed_cases": [],
+  "raw_log_sha256": {
+    "E06-proposal-red.txt": "e8d9d1da3524676bb93d7f1fb97c9ab99e003a6ba2f0121c4c02525d51b10e5a",
+    "E06-publication-red.txt": "807a40baa7fe8c43a3775198ee84366d65ab5927f9c1291f49ad144e8a45f932",
+    "E06-wiring-first.txt": "edd556ad4cf6d1f56c3f4b803cb6de006f43dee89f57bada7f84ee3d71e40ee8",
+    "E06-burst-quote-red.txt": "9f35e56d7c7441fb0e3aab20942bc773006583c010d01ba5acc9784365cc3922",
+    "E06-job-red.txt": "fb4eaa82183d7878d24046886210909f0901652c54a1165ba8c746463160ba21",
+    "E06-expansion-red.txt": "c359adfa1afc9be8ca958e39f3502039e85cafc299e016034a5fa85b206b5ff5",
+    "E06-ui-red.txt": "44b6aaedfe95120c29dfd56907414df2f7edfa8d357f91f7de404034642878eb",
+    "E06-expansion-ui-red.txt": "f5c493b58dfddce4d0bbdb439d7c374d147d9add6c7e8ac62cf0d64e97562a05",
+    "E06-wiring-sqlite.txt": "43014eed221d05780a07b605a1631fa0bdd7c222d33bd18ce82646e6e40b0383",
+    "E06-wiring-pg.txt": "ae264340dca78b7d23aef7654d2fbb8633b807e9e4cf9432cefd9d608fcf86a6",
+    "E06-ui-green.txt": "86b11b34712bb23851fe2b547561afd05813d762abef6e4c9123ed98202c1cac",
+    "E06-proposal-compat-sqlite.txt": "899a9b71946301f09ea9cd2c2592369b5c857a8ba487e5003c6ba971710e9ef3",
+    "E06-proposal-compat-pg.txt": "99fec84ec6e99488f8a0cfc1a830bdf51859330dc3231f3739de0a37229e99fb"
+  },
+  "retired_paths": [
+    "Inline calculation in numbers proposal route",
+    "Per-lead suppression reads in forecast input",
+    "Unknown quote treated as zero for candidate ordering",
+    "Per-lead duplicate estimate dictionaries"
+  ],
+  "known_limitations": [
+    "E06 remains open: shared future-slot publication, observed retry inputs and contingent-capacity scenarios need completion.",
+    "E09 replaces broad report generations and historical metric rebuilds.",
+    "No installed update or live provider call.",
+    "Initial supplemental command referenced nonexistent test_jobs.py; it is excluded from behavioral evidence.",
+    "Red UI selectors and new method contracts establish missing surfaces; they are not provider failures."
+  ],
+  "external_calls": false
+}
