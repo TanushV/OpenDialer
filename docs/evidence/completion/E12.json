@@ -1,0 +1,256 @@
+{
+  "step_id": "E12",
+  "stage": "accepted-scoped-software",
+  "profiles": [
+    {
+      "mode": "sqlite-setup-control",
+      "source_commit": "e0eed893098cc1c0f80ab724ff289c7173c7bf43",
+      "production_tree_digest": "6b01b0efeb330b5e285933e9959926528114a3aabf34cc292c33de9ae0b1a704",
+      "test_tree_digest": "e359ca22ce8bad368079ce09d83bf4d215fb56cd258155b395540af8962d69b3",
+      "result_counts": {
+        "passed": 205,
+        "skipped": 3,
+        "seconds": 169.48
+      },
+      "log": "E12-final-sqlite.txt",
+      "raw_log_sha256": "ee2f2e2adac1dccd2969da619b56cd5b5e2c82b9b3497da3e2f00a34add03e84",
+      "commands": [
+        "See retained E12-final-sqlite.txt and STATUS.md scoped commands; no installed data or external provider traffic."
+      ]
+    },
+    {
+      "mode": "postgresql-setup-control",
+      "source_commit": "e0eed893098cc1c0f80ab724ff289c7173c7bf43",
+      "production_tree_digest": "6b01b0efeb330b5e285933e9959926528114a3aabf34cc292c33de9ae0b1a704",
+      "test_tree_digest": "e359ca22ce8bad368079ce09d83bf4d215fb56cd258155b395540af8962d69b3",
+      "result_counts": {
+        "passed": 208,
+        "skipped": 0,
+        "seconds": 989.56
+      },
+      "log": "E12-final-postgres-locks.txt",
+      "raw_log_sha256": "e4eef182514fb5ca0b4fe62d37fdb890fe2a1c07a642d76690af9efaf0a94866",
+      "commands": [
+        "See retained E12-final-postgres-locks.txt and STATUS.md scoped commands; no installed data or external provider traffic."
+      ]
+    },
+    {
+      "mode": "sqlite-denial-privacy",
+      "source_commit": "4453c40bdee576385e384a8152875ed3dd583c9d",
+      "production_tree_digest": "285b365e6a35c3659f8a1ac650e8ad65ab7d102778c924fa4b446c054353dbf2",
+      "test_tree_digest": "dbe118995f16eeed3f78de075b1053ae457407ff112401816f20c97a3c382b05",
+      "result_counts": {
+        "passed": 88,
+        "skipped": 4,
+        "seconds": 72.28
+      },
+      "log": "E12-denial-privacy-sqlite.txt",
+      "raw_log_sha256": "4d90e124aa66f9f3db1682971efcadba768d1930258b8ddba8d2fd357a157c73",
+      "commands": [
+        "See retained E12-denial-privacy-sqlite.txt and STATUS.md scoped commands; no installed data or external provider traffic."
+      ]
+    },
+    {
+      "mode": "postgresql-denial-privacy",
+      "source_commit": "4453c40bdee576385e384a8152875ed3dd583c9d",
+      "production_tree_digest": "285b365e6a35c3659f8a1ac650e8ad65ab7d102778c924fa4b446c054353dbf2",
+      "test_tree_digest": "dbe118995f16eeed3f78de075b1053ae457407ff112401816f20c97a3c382b05",
+      "result_counts": {
+        "passed": 92,
+        "skipped": 0,
+        "seconds": 385.29
+      },
+      "log": "E12-denial-privacy-postgres.txt",
+      "raw_log_sha256": "809399c29f093b48aa0205f5cffa96b22605fc247faa80d8b7ad91bff6e68b03",
+      "commands": [
+        "See retained E12-denial-privacy-postgres.txt and STATUS.md scoped commands; no installed data or external provider traffic."
+      ]
+    },
+    {
+      "mode": "sqlite-deployment-security",
+      "source_commit": "4c1534fdb2422d0bc102301d863fb3ccaa563c2d",
+      "production_tree_digest": "285b365e6a35c3659f8a1ac650e8ad65ab7d102778c924fa4b446c054353dbf2",
+      "test_tree_digest": "0a23841b844313edbc36495d16db3c54db1ef2fa4a2732cdd05cccb8aebf9b21",
+      "result_counts": {
+        "passed": 57,
+        "skipped": 0,
+        "seconds": 16.35
+      },
+      "log": "E12-deployment-security-sqlite.txt",
+      "raw_log_sha256": "6a0f5dc2c115c81d01a0e78fedfffc6945be39344224360c5d682a35a542b846",
+      "commands": [
+        "See retained E12-deployment-security-sqlite.txt and STATUS.md scoped commands; no installed data or external provider traffic."
+      ]
+    },
+    {
+      "mode": "postgresql-deployment-security",
+      "source_commit": "4c1534fdb2422d0bc102301d863fb3ccaa563c2d",
+      "production_tree_digest": "285b365e6a35c3659f8a1ac650e8ad65ab7d102778c924fa4b446c054353dbf2",
+      "test_tree_digest": "0a23841b844313edbc36495d16db3c54db1ef2fa4a2732cdd05cccb8aebf9b21",
+      "result_counts": {
+        "passed": 57,
+        "skipped": 0,
+        "seconds": 124.48
+      },
+      "log": "E12-deployment-security-postgres.txt",
+      "raw_log_sha256": "13d7c5713b4fef29ff23dcd1fb96a0574f2e0bff6b09df14f434586fa74b6bc4",
+      "commands": [
+        "See retained E12-deployment-security-postgres.txt and STATUS.md scoped commands; no installed data or external provider traffic."
+      ]
+    },
+    {
+      "mode": "browser-local-shared",
+      "source_commit": "692e771822207131a552ca1c2664ace4a6f608dc",
+      "production_tree_digest": "ba51bf99d6bb576f228db9ffa031534dc2c231db38522a8c8d007a7311f978b9",
+      "test_tree_digest": "c489a3b8160158e628411d5f5248c1286d131617842a8b92bac9998ca5de3942",
+      "result_counts": {
+        "passed": 30,
+        "skipped": 0,
+        "seconds": 108
+      },
+      "log": "E12-ui-priority.txt",
+      "raw_log_sha256": "4b9a6f25f43af06163c9cad825a423150ebcd74e2127b717b8a9d3f013ff8db8",
+      "commands": [
+        "See retained E12-ui-priority.txt and STATUS.md scoped commands; no installed data or external provider traffic."
+      ]
+    },
+    {
+      "mode": "browser-final-privacy-delta",
+      "source_commit": "4c1534fdb2422d0bc102301d863fb3ccaa563c2d",
+      "production_tree_digest": "285b365e6a35c3659f8a1ac650e8ad65ab7d102778c924fa4b446c054353dbf2",
+      "test_tree_digest": "0a23841b844313edbc36495d16db3c54db1ef2fa4a2732cdd05cccb8aebf9b21",
+      "result_counts": {
+        "passed": 17,
+        "skipped": 0,
+        "seconds": 66
+      },
+      "log": "E12-privacy-ui.txt",
+      "raw_log_sha256": "2d4f50a71e3498ed4d768a8c58dcc94fb82dca1ca98ba739b9a277e571b0c172",
+      "commands": [
+        "See retained E12-privacy-ui.txt and STATUS.md scoped commands; no installed data or external provider traffic."
+      ]
+    },
+    {
+      "mode": "native-boundaries",
+      "source_commit": "e0eed893098cc1c0f80ab724ff289c7173c7bf43",
+      "production_tree_digest": "6b01b0efeb330b5e285933e9959926528114a3aabf34cc292c33de9ae0b1a704",
+      "test_tree_digest": "e359ca22ce8bad368079ce09d83bf4d215fb56cd258155b395540af8962d69b3",
+      "result_counts": {
+        "passed": 17,
+        "skipped": 0,
+        "seconds": null
+      },
+      "log": "E12-native-final.txt",
+      "raw_log_sha256": "527bafcc445f40948721b3579c9e4ff265b4977a475d66c8126b2af400fde20b",
+      "commands": [
+        "See retained E12-native-final.txt and STATUS.md scoped commands; no installed data or external provider traffic."
+      ]
+    },
+    {
+      "mode": "frontend-boundaries",
+      "source_commit": "692e771822207131a552ca1c2664ace4a6f608dc",
+      "production_tree_digest": "ba51bf99d6bb576f228db9ffa031534dc2c231db38522a8c8d007a7311f978b9",
+      "test_tree_digest": "c489a3b8160158e628411d5f5248c1286d131617842a8b92bac9998ca5de3942",
+      "result_counts": {
+        "passed": 22,
+        "skipped": 0,
+        "seconds": 0.631
+      },
+      "log": "E12-client-recheck.txt",
+      "raw_log_sha256": "cf5fa850006e6fa3a9589cb963585774226684f234fa55b1efe87a34cf30319d",
+      "commands": [
+        "See retained E12-client-recheck.txt and STATUS.md scoped commands; no installed data or external provider traffic."
+      ]
+    }
+  ],
+  "case_ids": [
+    "C040",
+    "C047",
+    "C048",
+    "C049",
+    "C050",
+    "C058"
+  ],
+  "fixture_seed": 20261018,
+  "environment": {
+    "python": "3.12.13",
+    "postgresql": "17; guarded separate unit/browser loopback stores",
+    "installed_version": "0.2.1 unchanged"
+  },
+  "started_at": null,
+  "finished_at": "2026-10-19T22:01:17.401456+00:00",
+  "timestamp_note": "Original durations retained; browser CLI reports rounded minute durations. C054 release-version contract deliberately belongs to E14 and is not claimed by E12. Earlier source boundaries are scoped retained evidence, not final-system acceptance.",
+  "failed_cases": [],
+  "retired_paths": [
+    "Monolithic SettingsPage form state replaced by focused existing form owners",
+    "Dialer call-control and wrap-up JSX consolidated in CallControls and WrapUp",
+    "Duplicate UI defaults removed in favor of serialized domain definitions",
+    "Unsupported subscription/recording/messaging controls removed",
+    "Obsolete initial preparation settings responses cannot overwrite an active edit",
+    "Current call writes lock sources before report invalidation; no catch-and-ignore stale-write path"
+  ],
+  "known_limitations": [
+    "E13 whole-system coverage, load and independent review remain open.",
+    "E14 installed Mac/Windows update and native computer-use acceptance remain open.",
+    "Local offline carrier fallback requires an existing verified business arrangement or always-on connected authority.",
+    "Provider keys, account privacy, funded traffic and publisher trust remain external gates."
+  ],
+  "external_calls": false,
+  "red_log_sha256": {
+    "E12-pause-audio-red.txt": "36658573f30a2866fd8064eaaf777d64d3de7942c3923cda5201845662bd3990",
+    "E12-setup-ui-red.txt": "748fa7c60fc1899ff4e808c91864f290ace79de4b144578f3b5ec7ae4f4756c6",
+    "E12-seller-edit-red.txt": "3f5b8b11da8b341aa37f674abe5b470e7687dd76c113b08197e4bbe81ac019e6",
+    "E12-update-denials-red.txt": "ce4f330e708961d33235d1569906e2e7cefe255cc353ccb481cce197a045a9e2",
+    "E12-native-binding-red.txt": "0a6f763703dc634b4252edf636c910a2e41d4178256fc2c358a27579d33dade0",
+    "E12-wrapup-lock-red.txt": "09f732d74edc8d5589e13f8f766e7333e69a4872cf636f572c4621b46e1c1e0d",
+    "E12-browser-red.txt": "6a74fdaedb5f43efb29aaab262df57f56788806399b894abe1ca5097e3a136dc",
+    "E12-admission-red.txt": "b2c7988385369f707af167a5a56516eaa56ba47bf669f225913743fa4fb2c03b",
+    "E12-control-race-red.txt": "af3e44bd37a1deef07810cf7f197f4ef89552e282d554978ae49cc119a744306",
+    "E12-caddy-red.txt": "ca2763cf761c04a0c61e38ceafe146e94b425732251783dc35ff94415729bb0e",
+    "E12-settings-red.txt": "c9298525b951726a3313a06d6693244bbfcd7e58d163b51481530a5d6bd7005f",
+    "E12-settings-load-red.txt": "c4d9761a292a7fe804435ef6709038e765335e64b96d14dc2cde8d8c1d7f7ede",
+    "E12-navigation-red.txt": "fe4dc12a7d13f2701e767bf35017f9bb946054a49b8f94b46eb917d8dc66ca8e",
+    "E12-navigation-call-red.txt": "1f6886f9b90b2684c691e7456a233e9d4f784bcb448fb469f166b589ac47673d",
+    "E12-authority-red.txt": "513f6a0035e86527da7b8b101469f1bd58bb331ae973b5c70b7110d77a912fae",
+    "E12-logout-cleanup-red.txt": "758e8e4891326f52c5a3784ea8a3f0bae7ae948265693cad95796046fa11c9a7",
+    "E12-home-priority-red.txt": "349f3e5ba3bde1ea99e39746301adea9f806e4dd533b382ae893e38fe215b3ea",
+    "E12-defaults-red.txt": "eb4f65bea25ddbbf07fd8644927163324601f58bceaffeb4a6ee99b4dc5e99e8",
+    "E12-inbound-navigation-red.txt": "035fabab61936a0e88d4129ef48d3053561672a18b5f0fec3926a5c896e212ca",
+    "E12-event-lock-red.txt": "6e9be33daa2dc65f33b1590ccb0842066c93760231573f6806e2fd568d168db1",
+    "E12-readiness-red.txt": "7284ab73a477839e3bcb6f666192aa7040e6a7d927ab7ae6555433521d9679df",
+    "E12-protected-input-red.txt": "ad312ba5a84085af3f246df661bd1e00840e39a5a22301b1f27fc492f916eeb0",
+    "E12-source-lock-red.txt": "c63ac898ce447650d6a7fd8a54f0250c94fd2652281a01794cf45554d6273be4",
+    "E12-source-fence-red.txt": "4a555435fcbc652f50aa155a58bb3283c6d5e5757223c4f58bc0d10b407c25af",
+    "E12-switch-red.txt": "c7bee723ff5e4840104e33833c05ee6d9c29737cd4f5e22278295c0e9fa89e8d",
+    "E12-native-red.txt": "6bd434a47638b4f12ca3c11f9f6d6107ada0a7bf623bd98b4f448a2ec0d4631e",
+    "E12-readiness-expanded-red.txt": "5e8796e68f03ecc692b75ff779845cde184c326733607b185451cf0742d13e45",
+    "E12-transcript-lock-red.txt": "0bd6dd3e8b772ba441dd1952bbb2dd29399e4449c61d3f0a151512de848e6807",
+    "E12-public-host-red.txt": "c247618200883325c838acea028eba1121c89c56690b4b943130c695e3f8c932",
+    "E12-budget-red.txt": "6df6af5687ccd0504ccb2486d6649867bbfacb20f57dd66b53fab626bdebcd6b"
+  },
+  "additional_checks": {
+    "typecheck": "passed",
+    "focused_format": "passed",
+    "frontend_unit_tests": 22,
+    "actual_caddy_proxy_log": "E12-caddy-final-actual.txt",
+    "actual_caddy_proxy_sha256": "6829fa80b30fec2c0a69700c49f0be74628eb4e2f303d1939cc7686e1d4db6e1",
+    "ast_source_sha256": "dcb72c723cf4cef28963082cd077732b4d921d2ec999206a5d6afaf14f4bd87b",
+    "ast_log_sha256": "eba4470dc5e0ca0753fcfdc30ab3fbde92cd0c00dee5428b6f17ec4c624ed241",
+    "python_files": 89,
+    "typescript_files": 49,
+    "parse_errors": 0
+  },
+  "digest_roots": {
+    "production": [
+      "services/backend/app",
+      "services/backend/migrations",
+      "apps/desktop/src",
+      "apps/desktop/src-tauri/src"
+    ],
+    "tests": [
+      "services/backend/tests",
+      "apps/desktop/tests",
+      "tests"
+    ]
+  }
+}

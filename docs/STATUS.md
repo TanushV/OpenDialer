@@ -1,6 +1,8 @@
 # Execution log and continuation state
 
-**Current checkpoint — E12 active:** E00–E11 pass their scoped software contracts. Continue E12–E15 in order. Installed Mac remains0.2.1; no update, reinstall, funded request or purchase occurred. Whole-system, load, native and live acceptance remain open.
+**Current checkpoint — E13 active:** E00–E12 pass their scoped software contracts. Continue whole-system coverage/mutation/load/resource acceptance and source freeze, then E14–E15 delivery. Installed Mac remains0.2.1; no update, reinstall, funded request or purchase occurred. Native and live acceptance remain open.
+
+2026-10-19 E12 EXIT / E13 ACTIVE. [E12 scoped receipt](evidence/completion/E12.json): final denial/privacy88 SQLite passes/four PG-only skips and92 PostgreSQL passes; deployment/security57 per database;17 final local/shared UI journeys; retained30 broader UI,17 Rust and22 frontend units. Actual Caddy boundary repeats two passes (2.12s); AST parses89 Python/49 TS files. Source4453c40 repairs the last four call-lock interleavings. E13 tools enforce separate90/80 floors and source-bound receipts; load/shift/resource/native and full frozen suites remain open. No installed change.
 
 2026-10-19 E12 SOURCE SERIALIZATION. Final setup/control scope passed208 PostgreSQL checks (989.56s), and all30 affected browser journeys passed (1.8min). Three additional concurrent transcript/opt-out/consent cases then reproduced stale writes or a report/call deadlock. Allfour source-lock cases now pass (13.65s) after locking current calls before shared report invalidation and retaining authorization-before-call order. Broader denial/privacy scope is running in both databases. Frontend22 units, typecheck and focused format pass. Installed0.2.1 remains untouched. E13 coverage/receipt/mutation-anchor tool regressions were recorded before tooling changes; no whole-system or delivery acceptance claimed.
 

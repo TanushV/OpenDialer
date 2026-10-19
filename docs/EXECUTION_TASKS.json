@@ -6,7 +6,7 @@
   "status": "implementation-authorized; E00-E11 scoped software accepted; E12 in progress",
   "requirements_source": "docs/REMEDIATION_PLAN.md",
   "implementation_source": "docs/EXECUTION_SPEC.md",
-  "next_step": "E12",
+  "next_step": "E13",
   "receipt_rule": "No inherited checkbox or planned node is a current passing receipt. Update by actual source-bound evidence.",
   "steps": [
     {
@@ -872,7 +872,7 @@
     {
       "id": "E12",
       "title": "Finish setup, rep surfaces and deployment without more product machinery",
-      "status": "in-progress",
+      "status": "accepted-software",
       "depends_on": [
         "E11"
       ],
@@ -893,7 +893,9 @@
         "apps/desktop/tests/callback-routing.spec.ts",
         "apps/desktop/src-tauri/src/lib.rs"
       ],
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E12.json"
+      ],
       "planned_case_ids": [
         "C047",
         "C048",
@@ -913,54 +915,54 @@
         "A52",
         "A55"
       ],
-      "checkpoint": "208 PostgreSQL setup/control checks and30 browser journeys passed. New transcript/denial source-lock regressions red, then4 PostgreSQL passes. Broader denial/privacy checks running; native17 and frontend22 pass. E12 receipt/exit pending.",
+      "checkpoint": "Scoped source-bound E12 receipt accepted: final denial/privacy88 SQLite and92 PostgreSQL; deployment/security57 per database;17 final UI journeys; retained30 broader UI,17 Rust and22 frontend units. Installed-update/native-provider gates remain E14/X.",
       "todos": [
         {
           "id": "E12.1",
           "task": "Shared capability/default and public ingress proof contracts",
-          "status": "implemented; broader final scope pending"
+          "status": "accepted-scoped-software; see E12.json"
         },
         {
           "id": "E12.2",
           "task": "Versioned provider saves and native protected credential input",
-          "status": "native transport14 checks; UI contract passed; OS dialog acceptance pending"
+          "status": "accepted-scoped-software; see E12.json"
         },
         {
           "id": "E12.3",
           "task": "Owned SSH supervisor, exact Caddy boundary and deployment runbook",
-          "status": "owned SSH and actual Caddy HTTP boundary passed; runbook written"
+          "status": "accepted-scoped-software; see E12.json"
         },
         {
           "id": "E12.4",
           "task": "Quiescent authority switch, logout and native cleanup",
-          "status": "switch/reservation backend and native binding checks pass; pending opt-out checks shared with update"
+          "status": "accepted-scoped-software; see E12.json"
         },
         {
           "id": "E12.5",
           "task": "CallControls and WrapUp ownership; focused settings sections",
-          "status": "CallControls/WrapUp extracted; Settings form ownership implemented"
+          "status": "accepted-scoped-software; see E12.json"
         },
         {
           "id": "E12.6",
           "task": "Setup UI, shared defaults, accessible1024 controls and degraded states",
-          "status": "capability/protected entry/saved-budget browser passes; final journeys pending"
+          "status": "accepted-scoped-software; see E12.json"
         },
         {
           "id": "E12.7",
           "task": "Dual-database, affected browser/native/type checks and deletion review",
-          "status": "final affected dual-database/UI/native scope in progress"
+          "status": "accepted-scoped-software; see E12.json"
         },
         {
           "id": "E12.8",
           "task": "Source-bound receipt and E12 exit; advance E13",
-          "status": "open"
+          "status": "accepted-scoped-software; see E12.json"
         }
       ]
     },
     {
       "id": "E13",
       "title": "Freeze and prove the whole software system",
-      "status": "open",
+      "status": "in-progress",
       "depends_on": [
         "E12"
       ],
@@ -981,6 +983,48 @@
         "A28",
         "A50",
         "A56"
+      ],
+      "todos": [
+        {
+          "id": "E13.1",
+          "task": "Coverage and source-bound receipt tooling",
+          "status": "implemented; parser47 checks and CI floor contracts pass"
+        },
+        {
+          "id": "E13.2",
+          "task": "Mutation evidence on disposable source copies",
+          "status": "8 detected; two anchors need precise replacement"
+        },
+        {
+          "id": "E13.3",
+          "task": "Complete performance/load/shift/resource runner",
+          "status": "in progress; request fixture and guard contracts pass, duration/native gates remain open"
+        },
+        {
+          "id": "E13.4",
+          "task": "Frozen semantic120-case matrix and independent review",
+          "status": "open; independent reviewer environment not available"
+        },
+        {
+          "id": "E13.5",
+          "task": "Version-consistent candidate and full SQLite/PostgreSQL coverage",
+          "status": "open"
+        },
+        {
+          "id": "E13.6",
+          "task": "All frontend/native/security/license/secret/build checks",
+          "status": "open"
+        },
+        {
+          "id": "E13.7",
+          "task": "Full resource/performance targets and repairs",
+          "status": "open"
+        },
+        {
+          "id": "E13.8",
+          "task": "Final exact-source receipts and freeze",
+          "status": "open"
+        }
       ]
     },
     {
@@ -1760,16 +1804,19 @@
       "id": "M2.10",
       "requirement": "Remove superseded readers, duplicate config/metrics helpers and unused dependencies after compatibility gates.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "in-progress",
       "primary_step": "E12",
       "supporting_steps": [
         "E09"
       ],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E12.json"
+      ],
       "verification_steps": [
         "E13"
-      ]
+      ],
+      "checkpoint": "E12 scoped software accepted; final E13 verification retained."
     },
     {
       "id": "M3.01",
@@ -2718,11 +2765,13 @@
       ],
       "acceptance_gate": "software",
       "receipts": [
-        "docs/evidence/completion/E03.json"
+        "docs/evidence/completion/E03.json",
+        "docs/evidence/completion/E12.json"
       ],
       "verification_steps": [
         "E13"
-      ]
+      ],
+      "checkpoint": "E12 scoped software accepted; final E13 verification retained."
     },
     {
       "id": "M7.01",
@@ -2947,40 +2996,49 @@
       "id": "M8.01",
       "requirement": "Finish first-run/provider/integration diagnostics, tasks/timeline/exception UX and keyboard/small-window accessibility.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "in-progress",
       "primary_step": "E12",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E12.json"
+      ],
       "verification_steps": [
         "E13"
-      ]
+      ],
+      "checkpoint": "E12 scoped software accepted; final E13 verification retained."
     },
     {
       "id": "M8.02",
       "requirement": "Remove misleading checked-complete docs, unused settings, duplicate modules and placeholder connector/health states.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "in-progress",
       "primary_step": "E12",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E12.json"
+      ],
       "verification_steps": [
         "E13"
-      ]
+      ],
+      "checkpoint": "E12 scoped software accepted; final E13 verification retained."
     },
     {
       "id": "M8.03",
       "requirement": "Complete local HTTPS ingress recipe and connected default deployment with always-on maintenance.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "in-progress",
       "primary_step": "E12",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E12.json"
+      ],
       "verification_steps": [
         "E13"
-      ]
+      ],
+      "checkpoint": "E12 scoped software accepted; final E13 verification retained."
     },
     {
       "id": "M8.04",
@@ -4726,7 +4784,12 @@
     {
       "id": "AR01",
       "finding": "Shared inherited service coupling",
-      "step": "E12"
+      "step": "E12",
+      "status": "accepted-scoped-software",
+      "receipts": [
+        "docs/evidence/completion/E12.json"
+      ],
+      "note": "Facade retained; no added mixins. Pure ownership, focused screens and managed random-port tunnel covered. Final resource/AST review E13."
     },
     {
       "id": "AR02",
@@ -4786,7 +4849,12 @@
     {
       "id": "AR13",
       "finding": "Installed local runtime port changes each launch; fixed-port webhook recipe cannot provide continuity",
-      "step": "E12"
+      "step": "E12",
+      "status": "accepted-scoped-software",
+      "receipts": [
+        "docs/evidence/completion/E12.json"
+      ],
+      "note": "Facade retained; no added mixins. Pure ownership, focused screens and managed random-port tunnel covered. Final resource/AST review E13."
     },
     {
       "id": "AR14",
@@ -6433,14 +6501,15 @@
       "step": "E10",
       "planned_node": "services/backend/tests/test_inbound_completion.py::test_online_callback_and_offline_capability",
       "expected": "Owner, teammate, busy, ambiguous caller and external destination paths retain leg/task; offline local is unavailable without actual compatible proof.",
-      "status": "partial-E12-capability-and-external-offline-gate",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
       "green_receipts": [
-        "docs/evidence/completion/E10.json"
+        "docs/evidence/completion/E10.json",
+        "docs/evidence/completion/E12.json"
       ],
       "actual_nodes": [
         "services/backend/tests/test_inbound_completion.py::test_default_fallback_answers_then_speaks_and_ends_without_losing_task",
@@ -6659,18 +6728,24 @@
       "step": "E12",
       "planned_node": "services/backend/tests/test_ingress_boundary.py::test_exact_public_route_allowlist",
       "expected": "Only signed webhook POST and active nonce GET pass; other methods/paths denied; arbitrary/private probe target refused.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E12.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_ingress_boundary.py::test_exact_public_route_allowlist",
         "services/backend/tests/test_ingress_boundary.py::test_unconfigured_ingress_returns_an_actionable_capability",
         "services/backend/tests/test_ingress_boundary.py::test_ingress_check_is_admin_authenticated",
-        "services/backend/tests/test_ingress_boundary.py::test_active_challenge_is_one_time_content_free_and_source_fenced"
+        "services/backend/tests/test_ingress_boundary.py::test_active_challenge_is_one_time_content_free_and_source_fenced",
+        "services/backend/tests/test_ingress_boundary.py::test_probe_rejects_unsafe_saved_endpoint_without_network",
+        "services/backend/tests/test_ingress_boundary.py::test_ingress_network_failure_is_actionable_and_closes_challenge",
+        "services/backend/tests/test_ingress_boundary.py::test_route_proof_response_replays_without_another_network_request",
+        "services/backend/tests/test_ingress_boundary.py::test_consumed_challenge_retains_admission_and_rejected_probe_has_no_pending_intent"
       ]
     },
     {
@@ -6678,20 +6753,29 @@
       "step": "E12",
       "planned_node": "services/backend/tests/test_capability_consistency.py::test_configured_vs_verified_capabilities",
       "expected": "All UI/API capabilities reflect same evidence/source versions; missing keys/privacy/coverage remain actionable; GET never charges.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E12.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_capability_consistency.py::test_configured_vs_verified_capabilities",
         "services/backend/tests/test_operating_validation.py::test_runtime_limits_have_one_validated_nested_configuration",
         "services/backend/tests/test_operating_validation.py::test_invalid_runtime_limits_fail_startup",
         "services/backend/tests/test_operating_validation.py::test_dnc_settings_validate_source_shape_before_saving",
         "services/backend/tests/test_operating_validation.py::test_partial_privacy_update_uses_existing_evidence",
-        "services/backend/tests/test_operating_validation.py::test_legacy_operating_coach_setting_cannot_override_the_actual_provider"
+        "services/backend/tests/test_operating_validation.py::test_legacy_operating_coach_setting_cannot_override_the_actual_provider",
+        "services/backend/tests/test_capability_consistency.py::test_versioned_provider_edit_replays_without_overwriting_newer_config",
+        "services/backend/tests/test_capability_consistency.py::test_provider_edit_requires_identity_and_version_together",
+        "services/backend/tests/test_capability_consistency.py::test_settings_serialize_domain_defaults_and_never_secret_values",
+        "services/backend/tests/test_capability_consistency.py::test_settings_load_the_saved_budget_instead_of_replacing_it_with_ui_defaults",
+        "services/backend/tests/test_capability_consistency.py::test_lightweight_readiness_reuses_saved_no_charge_capabilities",
+        "services/backend/tests/test_capability_consistency.py::test_capability_cache_is_bounded_across_sellers",
+        "services/backend/tests/test_capability_consistency.py::test_settings_expose_effective_provider_defaults_used_by_runtime"
       ]
     },
     {
@@ -6699,13 +6783,15 @@
       "step": "E12",
       "planned_node": "services/backend/tests/test_connected_security.py::test_authority_switch_scope",
       "expected": "Switch held during active effects; no cross-authority cache/session or seller leakage; connected fixtures use real PostgreSQL.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E12.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_connected_security.py::test_connected_never_grants_loopback_auth_bypass",
         "services/backend/tests/test_connected_security.py::test_login_logout_revocation_and_no_default_password",
@@ -6721,13 +6807,15 @@
       "step": "E12",
       "planned_node": "apps/desktop/tests/completion.spec.ts::small_window_keyboard_journey",
       "expected": "1024x720 and1280x720 helper/script/hangup visible; F1/Escape/focus/opt-out work during AI failure and reconnect.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E12.json"
+      ],
       "actual_nodes": [
         "apps/desktop/tests/completion.spec.ts::small_window_keyboard_journey"
       ]
@@ -6881,13 +6969,15 @@
       "step": "E12",
       "planned_node": "apps/desktop/src-tauri/src/lib.rs::tests::webhook_tunnel_owned_runtime_lifecycle",
       "expected": "Validated argument arrays target the managed random loopback port; reconnect, missing SSH, mode switch and updater stop only the owned child; no token persisted.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E12.json"
+      ],
       "actual_nodes": [
         "apps/desktop/src-tauri/src/lib.rs::tests::webhook_tunnel_owned_runtime_lifecycle"
       ]
