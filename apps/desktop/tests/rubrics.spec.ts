@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { prepareSimulationCall } from "./simulation";
 
 test("campaign scoring anchors persist and a rep can correct the call purpose", async ({
   page,
@@ -65,7 +66,7 @@ test("campaign scoring anchors persist and a rep can correct the call purpose", 
     editor.getByLabel("Clearly demonstrated anchor", { exact: true }).first(),
   ).toHaveValue("Confirmed the buyer's workflow and constraints.");
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
-  await page.getByRole("button", { name: "Go ready", exact: true }).click();
+  await prepareSimulationCall(page, "Rubric Fixture", "+14155550176");
   const reserved = page.waitForResponse(
     (response) =>
       response.url().endsWith("/v1/queue/next") &&

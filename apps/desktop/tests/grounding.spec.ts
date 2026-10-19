@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { prepareSimulationCall } from "./simulation";
 
 test("a failed evidence review is visible without overwriting the rep note", async ({
   page,
@@ -32,7 +33,7 @@ test("a failed evidence review is visible without overwriting the rep note", asy
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
-  await page.getByRole("button", { name: "Go ready", exact: true }).click();
+  await prepareSimulationCall(page, "Grounding Fixture", "+14155550174");
   await page
     .getByRole("button", { name: "Get next lead", exact: true })
     .click();
