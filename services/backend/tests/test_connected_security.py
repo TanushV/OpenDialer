@@ -16,7 +16,7 @@ def connected(tmp_path, clock, app):
             else f"sqlite:///{tmp_path}/connected-test.db"
         ),
         data_dir=tmp_path,
-        secret_key="a" * 64,
+        secret_key=app.state.service.settings.secret_key if not app.state.db.sqlite else "a" * 64,
         bootstrap_token="bootstrap-123456789",
         worker_enabled=False,
     )
