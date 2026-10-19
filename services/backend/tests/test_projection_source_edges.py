@@ -279,7 +279,7 @@ def test_selection_profile_uses_selected_campaign_treatments(workspace, app, clo
         selected = {**p, "campaign_id": second.id}
         statistics = {"total": {}, "retry_observations": [], "treatment_counts": {"pooled": {}}}
         profile = service.selection_profile(s, selected, statistics, service.optimization_config(s, selected))
-        assert {r["action"] for r in profile["treatments"]["pooled"]} == {action.id}
+        assert set(profile["treatments"]["pooled"]["probabilities"]) == {action.id}
 
 
 def test_legacy_long_work_span_enqueues_bounded_days_and_resumes(workspace, app, clock):
