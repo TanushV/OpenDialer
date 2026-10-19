@@ -437,7 +437,7 @@ def test_supported_adaptive_policy_retains_exact_mixture_and_unknown_use(clock):
 def test_finite_report_preserves_assigned_denominator_and_display_use_distinctions(clock):
     from datetime import timedelta
 
-    from app.optimization.experiments import comparison_report
+    from comparison_oracle import comparison_report
 
     at = (clock() - timedelta(days=30)).isoformat()
     study = {
@@ -545,7 +545,9 @@ def test_invalid_saved_strategy_mixture_cannot_assign(probabilities):
 
 def test_report_keeps_reviewed_speech_metadata_after_context_trim_and_corrects_it(workspace, app, clock):
     from app.coaching.context import upgrade_state
-    from app.db import doc, get, put
+    from app.db import get, put
+    from app.optimization.projections import read_comparison_metrics
+    from test_projection_replay import project_pending
 
     response, body, call, p = strategy_protocol(workspace, app)
     assert response.status_code == 200, response.text
@@ -567,9 +569,11 @@ def test_report_keeps_reviewed_speech_metadata_after_context_trim_and_corrects_i
             },
             now=clock(),
         )
-        record = get(s, "call_attempts", call["id"])
-        state = upgrade_state({}, call_id=call["id"])
-        for revision, invalid in ((1, False), (2, True)):
+        card_id = card.id
+    state = upgrade_state({}, call_id=call["id"])
+    for revision, invalid in ((1, False), (2, True)):
+        with service.db.transaction() as s:
+            record = get(s, "call_attempts", call["id"])
             state["_lineage_updates"] = [
                 {
                     "id": "reviewed-match",
@@ -577,7 +581,7 @@ def test_report_keeps_reviewed_speech_metadata_after_context_trim_and_corrects_i
                     "kind": "approach",
                     "sources": [],
                     "state": "retracted" if invalid else "confirmed",
-                    "observed_guidance_id": card.id,
+                    "observed_guidance_id": card_id,
                     "strategy_id": body["strategy_ids"][1],
                     "review_status": "reviewed",
                     "epistemic_status": "model_reviewed",
@@ -586,11 +590,10 @@ def test_report_keeps_reviewed_speech_metadata_after_context_trim_and_corrects_i
                 }
             ]
             service._store_conversation(s, p, record, state)
-            report = service.comparison_reports(
-                s, p, get(s, "campaigns", workspace["campaign_id"]), [record], [], [], [doc(card)]
-            )[0]
-            assert report["strategy_exposure"]["observed_in_speech"] == int(not invalid)
-            assert report["strategy_exposure"]["use_unknown"] == 1
+        project_pending(service, p)
+        report = read_comparison_metrics(service, p)[0]
+        assert report["strategy_exposure"]["observed_in_speech"] == int(not invalid)
+        assert report["strategy_exposure"]["use_unknown"] == 1
 
 
 def test_adaptive_protocol_accepts_only_current_matching_owned_trial_receipt(workspace, app, clock):
@@ -724,7 +727,7 @@ def test_speech_reviewer_receives_the_reviewed_approach_meaning_not_only_an_id(w
 def test_strategy_report_uses_disposition_known_at_report_time(clock, correction):
     from datetime import timedelta
 
-    from app.optimization.experiments import comparison_report
+    from comparison_oracle import comparison_report
 
     start = clock() - timedelta(days=30)
     known = (start + timedelta(days=1)).isoformat()
@@ -820,7 +823,7 @@ def test_adaptive_seed_includes_confirmed_call_only_goal_evidence(workspace, app
             },
             now=clock(),
         )
-        call = put(
+        put(
             s,
             "call_attempts",
             p["tenant_id"],
@@ -836,7 +839,11 @@ def test_adaptive_seed_includes_confirmed_call_only_goal_evidence(workspace, app
             },
             now=clock(),
         )
-        reports = service.comparison_reports(s, p, campaign, [call], [], [])
+    from app.optimization.projections import read_comparison_metrics
+    from test_projection_replay import project_pending
+
+    project_pending(service, p)
+    reports = read_comparison_metrics(service, p)
     prior, ongoing = [r["strategy_policy_snapshot"] for r in reports]
     assert prior["observations"]["approach"] == ongoing["observations"]["approach"] == 1
     assert ongoing["estimates"]["approach"] == prior["estimates"]["approach"], (

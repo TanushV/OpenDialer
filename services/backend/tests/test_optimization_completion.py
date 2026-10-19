@@ -302,7 +302,7 @@ def test_baseline_calling_and_planning_do_not_import_the_optional_ml_runtime(wor
 
 
 def test_comparison_keeps_its_declared_goal_when_the_campaign_goal_later_changes(clock):
-    from app.optimization.experiments import comparison_report
+    from comparison_oracle import comparison_report
 
     assigned_at = (clock.now - timedelta(days=3)).isoformat()
     ended_at = (clock.now - timedelta(days=2)).isoformat()
