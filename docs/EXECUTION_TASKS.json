@@ -1003,7 +1003,7 @@
         {
           "id": "E13.4",
           "task": "Frozen semantic120-case matrix and independent review",
-          "status": "open; independent reviewer environment not available"
+          "status": "Frozen120 distinct synthetic cases and 30-case independent human overlap contract; 20 transport/blinding checks pass. Human/model quality and independent code review remain unaccepted"
         },
         {
           "id": "E13.5",

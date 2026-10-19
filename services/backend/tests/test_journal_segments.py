@@ -116,7 +116,7 @@ for n in range(int(sys.argv[2]),int(sys.argv[2])+20): vault.append_journal('effe
 """
     env = {**os.environ, "PYTHONPATH": str(Path(__file__).parents[1])}
     workers = [
-        subprocess.Popen(
+        subprocess.Popen(  # noqa: S603 - fixed repository-owned synthetic journal writer
             [sys.executable, "-c", code, str(tmp_path), str(i * 20)],
             env=env,
             stdout=subprocess.DEVNULL,

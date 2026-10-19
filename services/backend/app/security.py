@@ -42,9 +42,11 @@ class Vault:
             receipts = dict(current.get("_config_receipts", {}))
             if edit is not None:
                 request_id, expected_version = edit
-                digest = hmac.new(self._config_digest_key,
-                                  json.dumps([expected_version, values], sort_keys=True).encode(),
-                                  hashlib.sha256).hexdigest()
+                digest = hmac.new(
+                    self._config_digest_key,
+                    json.dumps([expected_version, values], sort_keys=True).encode(),
+                    hashlib.sha256,
+                ).hexdigest()
                 if request_id in receipts:
                     if receipts[request_id] != digest:
                         raise HTTPException(409, "Provider request identity has different input")

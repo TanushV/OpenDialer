@@ -68,8 +68,8 @@ def test_event_and_job_metadata_drop_unknown_content(workspace, app):
 
 
 def test_usage_receipts_keep_metering_without_provider_extensions(workspace, app):
-    from app.providers.inference import InferenceResult
     from app.db import get
+    from app.providers.inference import InferenceResult
 
     service, p = app.state.service, principal(workspace)
     service.reserve_optional_budget(p, "private-meter", 0.01, object_id="call", work_kind="live_coach")

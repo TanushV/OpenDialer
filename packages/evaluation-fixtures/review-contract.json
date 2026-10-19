@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "synthetic": true,
+  "quality_status": "not_reviewed",
+  "required_independent_reviewers": 2,
+  "overlap_case_ids": [
+    "existing-provider",
+    "ordinary-03",
+    "ordinary-07",
+    "unfamiliar_objection-02",
+    "unfamiliar_objection-06",
+    "qualified-refusal",
+    "negation-02",
+    "negation-06",
+    "false_premise-02",
+    "false_premise-06",
+    "unknown-pricing",
+    "missing_fact-04",
+    "missing_fact-08",
+    "numeric-03",
+    "numeric-07",
+    "changed-interest",
+    "changed_answer-04",
+    "changed_answer-08",
+    "partial_stt-02",
+    "partial_stt-06",
+    "source_correction-01",
+    "source_correction-05",
+    "source_correction-09",
+    "opt_out-02",
+    "opt_out-06",
+    "wrong_party-01",
+    "wrong_party-05",
+    "wrong_party-09",
+    "short_noop-02",
+    "short_noop-06"
+  ],
+  "dimensions": {
+    "groundedness": "0 unsupported or contradicted; 1 qualified uncertainty; 2 supported or appropriately nonassertive",
+    "usefulness": "0 misses opportunity; 1 partly useful; 2 directly helps current opportunity",
+    "distraction": "0 disruptive; 1 marginal or repetitive; 2 timely or appropriately quiet",
+    "correct_silence": "0 wrong intervention or silence; 1 ambiguous; 2 correct according to the actual context",
+    "timing": "0 expired or late; 1 borderline; 2 useful before the opportunity passed; unavailable when no valid timestamps"
+  },
+  "procedure": [
+    "Freeze fixture, provider, prompt and source hashes before inference. Withhold all target and reviewer fields from the generator and model reviewer.",
+    "Two independent humans review the same 30 overlap cases blind to each other and to claimed aggregate results. Retain separate 0/1/2 or unavailable ratings and reasons.",
+    "Publish agreement counts, weighted agreement and disagreements; an independent adjudication may resolve them but must not overwrite either original rating.",
+    "Publish per-category and per-dimension counts with Wilson intervals for predeclared score-2 proportions, unavailable denominators, all timeout/failure counts and timing percentiles.",
+    "Synthetic fixture transport passes do not certify funded model semantics, live speech timing or business uplift. No human ratings are supplied in this file."
+  ]
+}

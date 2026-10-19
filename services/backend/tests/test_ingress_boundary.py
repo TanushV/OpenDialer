@@ -201,6 +201,9 @@ def test_consumed_challenge_retains_admission_and_rejected_probe_has_no_pending_
         service._ingress_start(p, {"request_id": str(uuid4()), "expected_version": 0})
     assert denied.value.status_code == 409
     with service.db.transaction(False) as s:
-        pending = [r for r in service.scoped(s, "outcomes", p)
-                   if r.data.get("kind") == "ingress_check" and r.data["status"] == "pending"]
+        pending = [
+            r
+            for r in service.scoped(s, "outcomes", p)
+            if r.data.get("kind") == "ingress_check" and r.data["status"] == "pending"
+        ]
         assert [r.id for r in pending] == [first["id"]]
