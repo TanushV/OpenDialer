@@ -1670,7 +1670,29 @@ def _rebuild_control(service, p, *, start, lease=None):
         if lease and not _rebuild_owned(job, lease, service.clock()):
             return state, "lost_lease"
         pointer = dict(campaign.data.get("metric_projection", {}))
-        if start and (not state or state.get("state") != "building" or state["definition"] != definition):
+        # Restore omits disposable buckets. A retained partially advanced job
+        # cannot resume without its seed/earlier pages, even if its definition
+        # is unchanged. Start a new namespace rather than publish partial totals.
+        missing_build = bool(state.get("state") == "building") and not service._by_key(
+            session,
+            p,
+            "metric_buckets",
+            _group_key(
+                service,
+                {
+                    "bucket_kind": "total",
+                    "bucket_day": None,
+                    "campaign_id": campaign.id,
+                    "definition_version": state["definition"],
+                    "namespace": state["namespace"],
+                },
+            ),
+        )
+        if (
+            missing_build
+            or start
+            and (not state or state.get("state") != "building" or state["definition"] != definition)
+        ):
             namespace = uid()
             state = {
                 "kind": "metric_rebuild",
