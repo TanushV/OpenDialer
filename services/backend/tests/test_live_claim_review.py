@@ -25,11 +25,13 @@ def context():
 
 
 def test_review_has_identified_context_without_promoting_model_memory_to_fact():
-    from app.coaching.context import guidance_review_request
+    from app.coaching.context import guidance_review_request, upgrade_state
 
     request = {
         **context(),
-        "state": {"version": 7, "needs": [{"id": "need-1", "text": "A workflow concern.", "status": "open"}]},
+        "state": upgrade_state(
+            {"version": 7, "needs": [{"id": "need-1", "text": "A workflow concern.", "status": "open"}]}
+        ),
         "prior_call_context": [
             {
                 "call_id": "prior",

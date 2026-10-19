@@ -30,7 +30,8 @@ def test_state_tracks_evidence_questions_negation_and_resolved_objections():
         segment("s2", "Actually the budget has been approved. Can we arrange a meeting?"),
     ]
     state = build_context(dialogue, version=3, facts=[], commitments=[])
-    assert state["version"] == 3 and state["trigger"] == "conversation"
+    assert state["transcript_version"] == 3 and state["trigger"] == "conversation"
+    assert state["version"] == 0, "Receipt count is distinct from interpreted state version"
     assert state["asked_questions"] and not state["buying_signals"]
     # Interpretation comes from the model, rather than preset local phrase rules.
     interpreted = merge_semantic_state(
@@ -153,7 +154,7 @@ def test_call_state_and_quality_feedback_are_persisted_and_scoped(workspace, clo
     assert c.post("/v1/admin/jobs/run", headers=h, json={"queues": ["live_coach"]}).status_code == 200
     live = c.get(f"/v1/calls/{call['id']}", headers=h).json()
     assert live["conversation_state"]["trigger"] == "conversation"
-    assert live["conversation_state"]["version"] == 1
+    assert live["conversation_state"]["transcript_version"] == 1
     assert live["coach"] is not None
     feedback = c.post(
         f"/v1/calls/{call['id']}/coach/feedback",

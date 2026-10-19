@@ -443,7 +443,9 @@ async def test_processed_nearly_expired_raw_does_not_starve_the_new_turn(workspa
     changes["during"] = lambda: setattr(clock, "now", clock.now + timedelta(seconds=2))
     await service.coach_turn(p, call["id"])
     assert "old" not in {item["segment_id"] for item in requests[-1]["recent_dialogue"]}
-    assert requests[-1]["state"]["rundown_points"], "Retain the old meaning without near-expiry raw text"
+    assert any(i["kind"] == "rundown" for i in requests[-1]["state"]["observations"]), (
+        "Retain the old meaning without near-expiry raw text"
+    )
     assert service.analysis(p, call["id"])["interpretation_coverage"]["interpreted_segments"] == 2
 
 

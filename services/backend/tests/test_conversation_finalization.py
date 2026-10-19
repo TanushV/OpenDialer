@@ -29,6 +29,31 @@ async def test_only_one_canonical_state_is_written_and_legacy_arrays_are_read_vi
     assert service.analysis(p, call["id"])["call_memory"]["rundown_points"]
 
 
+@pytest.mark.asyncio
+async def test_provider_context_contains_one_bounded_schema_without_flattened_legacy_views(
+    workspace, app, monkeypatch
+):
+    from app.coaching.context import STATE_FIELDS
+    from app.coaching.contracts import ConversationStateV2
+    from test_live_memory import turn
+
+    call, p, requests, _ = setup(workspace, app, monkeypatch)
+    service = app.state.service
+    turn(service, p, call, "prior")
+    await service.coach_turn(p, call["id"], urgent=True)
+    turn(service, p, call, "current")
+    await service.coach_turn(p, call["id"], urgent=True)
+    contexts = [requests[-1]] + [
+        service._conversation_context(p, call["id"], mode) for mode in ("finalize", "review")
+    ]
+    for request in contexts:
+        state = request["state"]
+        assert state["observations"], "Retained context must still reach each model role"
+        assert not set(STATE_FIELDS).intersection(state), "Compatibility arrays duplicate model context"
+        assert set(state) == set(ConversationStateV2.model_fields)
+        assert len(json.dumps(state, separators=(",", ":")).encode()) <= 65536
+
+
 def conversation_fixture():
     from datetime import UTC, datetime
 
