@@ -106,6 +106,56 @@ def test_absent_concept_is_unknown_even_when_another_concept_was_observed():
     assert values == [0, 1, 0, 1]
 
 
+def test_missing_label_availability_is_never_assigned_to_the_decision_time(tmp_path):
+    rows = timeline(500, gap_days=2)
+    for row in rows:
+        del row["outcome_available_at"]
+    result = train_challenger(rows, tmp_path)
+    assert result.get("pooled_stages") == ["human", "right_party_given_human", "conversion_given_right_party"]
+    assert result.get("reviewable") is False
+
+
+def test_evaluation_does_not_use_a_label_received_after_its_asof_cutoff(tmp_path):
+    rows = timeline(500, gap_days=2)
+    for row in rows[300:]:
+        row["outcome_available_at"] = "2040-01-01T00:00:00+00:00"
+    result = train_challenger(rows, tmp_path)
+    assert result.get("reviewable") is False
+    for fold in result.get("rolling_evaluations", []):
+        for stage in fold["stages"].values():
+            if stage["status"] == "fitted":
+                assert stage["validation_labels_through"] < fold["evaluation_cutoff"]
+
+
+def test_paired_bootstrap_preserves_linked_entities_and_zero_effect():
+    from app.ml.training import paired_bootstrap
+
+    # Four attempts, two linked businesses. Every attempt within a business is
+    # resampled together; identical alternatives have exactly zero difference.
+    result = paired_bootstrap([0.1, 0.7, 0.3, 0.4], [0.1, 0.7, 0.3, 0.4], ["a", "a", "b", "b"])
+    assert result["groups"] == 2 and result["resamples"] == 1000
+    assert result["mean_difference"] == 0 and result["interval"] == [0, 0]
+    improved = paired_bootstrap([0.1] * 4, [0.6] * 4, ["a", "a", "b", "b"])
+    assert improved["interval"] == [-0.5, -0.5]
+    assert improved == paired_bootstrap([0.1] * 4, [0.6] * 4, ["a", "a", "b", "b"])
+
+
+def test_unreviewable_v2_candidate_cannot_activate_with_legacy_brier_fields():
+    from app.ml.training import promotion_allowed
+
+    assert not promotion_allowed(
+        {
+            "feature_schema_version": 2,
+            "reviewable": False,
+            "manual_approved": True,
+            "online_trial_passed": True,
+            "coverage_delta": 0,
+            "policy_violations": 0,
+            "metrics": {"brier": 0.01, "pooled_baseline_brier": 0.3},
+        }
+    )
+
+
 def test_each_fitting_partition_purges_labels_crossing_its_next_boundary():
     source = timeline()
     # A very late observation must be purged even though its outcome window closed.
