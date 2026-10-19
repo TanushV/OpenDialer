@@ -422,3 +422,62 @@ def test_building_conflict_cannot_partially_commit_active_namespace(workspace, a
     assert {k: v for k, v in after.items() if v[1]["namespace"] == "initial"} == {
         k: v for k, v in before.items() if v[1]["namespace"] == "initial"
     }
+
+
+def test_changed_namespace_and_expired_worker_cannot_publish(workspace, app, clock, monkeypatch):
+    from datetime import timedelta
+
+    from app.db import Job, get
+    from app.optimization import projections
+
+    service, p = app.state.service, principal(workspace)
+    project_pending(service, p)
+    with service.db.transaction() as session:
+        lead = service.scoped(session, "leads", p)[0]
+        identity = lead.id
+        update(lead, status="needs_review")
+    pending = dirty_jobs(service, p)[f"projection:{p['seller_id']}:lead:{identity}"]
+    with service.db.transaction() as session:
+        job = session.get(Job, pending["id"])
+        job.status, job.lease_owner = "running", "old-worker"
+        job.lease_expires_at = clock.now - timedelta(seconds=1)
+    payload = {**pending["payload"], "job_id": pending["id"], "lease_owner": "old-worker"}
+    before = vectors(service, p, "metric_contributions")
+    assert projections.refresh_unit(service, p, payload)["status"] == "lost_lease"
+    assert vectors(service, p, "metric_contributions") == before
+    original = projections.lead_values
+
+    def switch(lead, *args, **kwargs):
+        result = original(lead, *args, **kwargs)
+        with service.db.transaction() as session:
+            update(
+                get(session, "campaigns", workspace["campaign_id"]),
+                metric_projection={"active_namespace": "replacement"},
+            )
+        return result
+
+    monkeypatch.setattr(projections, "lead_values", switch)
+    assert projections.refresh_unit(service, p, pending["payload"])["status"] == "superseded"
+    assert vectors(service, p, "metric_contributions") == before
+
+
+def test_one_batch_coalesces_many_dirty_ids_without_per_unit_reads(workspace, app):
+    from app.optimization.projections import enqueue_units
+    from sqlalchemy import event
+
+    service, p = app.state.service, principal(workspace)
+    reads = []
+
+    def record(connection, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT") and "jobs" in statement:
+            reads.append(statement)
+
+    event.listen(service.db.engine, "before_cursor_execute", record)
+    try:
+        units = {(p["tenant_id"], p["seller_id"], "lead", f"bulk-{i}"): False for i in range(100)}
+        for _ in range(2):
+            with service.db.transaction() as session:
+                enqueue_units(session, units)
+        assert len(reads) <= 2, "One indexed job lookup per100 changed source IDs"
+    finally:
+        event.remove(service.db.engine, "before_cursor_execute", record)
