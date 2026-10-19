@@ -1412,7 +1412,12 @@ def refresh_unit(service, p, payload):
                     "active_config": snapshot["config"],
                 },
             }
-        return {"status": "ready" if changed else "unchanged"}
+        return {
+            "status": "ready" if changed else "unchanged",
+            "planning": {"campaign_id": snapshot["row"]["campaign_id"], "lead_id": identity}
+            if kind == "lead" and snapshot["row"].get("campaign_id")
+            else None,
+        }
 
 
 def refresh_due(service, p, *, limit=100):

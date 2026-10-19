@@ -498,7 +498,9 @@ class OptimizationWorkflows(ComparisonWorkflows):
             calls=calls if calls is not None else [doc(c) for c in self.scoped(s, "call_attempts", p)],
         )
 
-    def forecast_input(self, s, p, *, campaign_id=None, capacity=None):
+    def forecast_input(self, s, p, *, campaign_id=None, capacity=None, lead_ids=None):
+        if lead_ids is not None and len(lead_ids) > 100:
+            raise ValueError("At most100 changed leads per planning page")
         config = self.optimization_config(s, p, campaign_id)
         campaign = (
             self.required(s, "campaigns", campaign_id, p)
@@ -564,6 +566,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                         model.tenant_id == p["tenant_id"],
                         model.seller_id == p["seller_id"],
                         model.op_campaign_id == campaign.id,
+                        *([model.id.in_(lead_ids)] if lead_ids is not None else []),
                         *([model.id > cursor] if cursor else []),
                     )
                     .order_by(model.id)
@@ -709,9 +712,30 @@ class OptimizationWorkflows(ComparisonWorkflows):
             current, _, _, _ = self.report_scope(s, p)
             if current["role"] != "admin":
                 fail(403, "Administrator access is required to plan inventory")
-            inputs, metadata = self.forecast_input(s, current, campaign_id=campaign_id, capacity=capacity)
             generation = self.report_revision(s, current)
-        result = {**capacity_forecast(**inputs), **metadata}
+            inputs, metadata = self.forecast_input(s, current, campaign_id=campaign_id, capacity=capacity)
+            config = self.optimization_config(s, current, campaign_id)
+            campaign = self.required(s, "campaigns", campaign_id, current)
+            profile = campaign.data.get("selection_profile", {})
+            if not profile_current(profile, config):
+                profile = {}
+        result = {**capacity_forecast(**inputs, schedule_row_limit=None), **metadata}
+        if capacity is None:
+            plans = self._publish_schedule_plans(p, campaign_id, inputs, result, config, profile, generation)
+            if plans["status"] != "ready":
+                return {"status": "superseded"}
+            generation = plans["source_revision"]
+        # Retain bounded display detail; per-lead plans above preserve all scheduled work.
+        omitted = max(0, len(result["expanded_schedule"]) - 1000)
+        for field in (
+            "existing_schedule",
+            "expanded_schedule",
+            "hypothetical_added_schedule",
+            "conditional_pending_schedule",
+        ):
+            result[field] = result[field][:1000]
+        result["schedule_rows_omitted"] = omitted
+        result["omitted_rows"]["schedule"] = omitted
         with self.db.transaction() as s:
             user, _, _, _ = self.report_scope(s, p)
             if user["role"] != "admin" or self.report_revision(s, user, lock=True) != generation:
@@ -1000,25 +1024,110 @@ class OptimizationWorkflows(ComparisonWorkflows):
         )
         return {"status": job["status"], "rows": len(data), "job_id": job["id"], "dataset_id": dataset["id"]}
 
-    def refresh_schedule_plans(self, p, campaign_id, dataset_id=None):
-        """Publish the shared whole-list schedule in source-fenced pages of 100."""
-        from zoneinfo import ZoneInfo
-
+    def refresh_schedule_plans(self, p, campaign_id, dataset_id=None, *, lead_ids=None, internal=False):
+        """Use the common allocator; changed pages retain other saved allocations."""
+        from app.optimization.capacity import plan_changed
         from app.service import fail
 
         with self.db.transaction(False) as s:
-            user, _, _, _ = self.report_scope(s, p)
-            if user["role"] != "admin":
-                fail(403, "Administrator access required to refresh retry plans")
-            inputs, _ = self.forecast_input(s, p, campaign_id=campaign_id)
+            if not internal:
+                user, _, _, _ = self.report_scope(s, p)
+                if user["role"] != "admin":
+                    fail(403, "Administrator access required to refresh retry plans")
             generation = self.report_revision(s, p)
+            inputs, _ = self.forecast_input(s, p, campaign_id=campaign_id, lead_ids=lead_ids)
             config = self.optimization_config(s, p, campaign_id)
             campaign = self.required(s, "campaigns", campaign_id, p)
             profile = campaign.data.get("selection_profile", {})
             if not profile_current(profile, config):
                 profile = {}
-            estimates = {**profile.get("predictions", {}), "pooled": saved_prediction(profile, {}, config)}
-        forecast = capacity_forecast(**inputs, schedule_row_limit=None)
+            fixed = []
+            if lead_ids is not None:
+                plans, leads = MODELS["scheduling_plans"], MODELS["leads"]
+                saved = list(
+                    s.execute(
+                        select(plans, leads.version)
+                        .join(
+                            leads,
+                            (leads.id == plans.op_lead_id)
+                            & (leads.tenant_id == plans.tenant_id)
+                            & (leads.seller_id == plans.seller_id),
+                        )
+                        .where(
+                            plans.tenant_id == p["tenant_id"],
+                            plans.seller_id == p["seller_id"],
+                            plans.op_status == "ready",
+                            plans.op_lead_id.not_in(lead_ids),
+                        )
+                        .limit(10001)
+                    )
+                )
+                if len(saved) > 10000:
+                    return {
+                        "status": "limited",
+                        "saved": 0,
+                        "superseded": 0,
+                        "unchanged": 0,
+                        "reason": "saved_allocation_limit",
+                        "omitted_schedule_rows": None,
+                    }
+                for record, version in saved:
+                    value = record.data
+                    if (
+                        value.get("source_lead_version") == version
+                        and (timestamp(value.get("expires_at")) or inputs["now"]) > inputs["now"]
+                        and value.get("selected")
+                    ):
+                        fixed.append(value["selected"])
+        forecast = (
+            plan_changed(
+                **{
+                    k: v
+                    for k, v in inputs.items()
+                    if k
+                    not in {
+                        "daily_capacity_per_number",
+                        "additional_ready_after_hours",
+                        "retry_observations",
+                    }
+                },
+                fixed_schedule=fixed,
+            )
+            if lead_ids is not None
+            else capacity_forecast(**inputs, schedule_row_limit=None)
+        )
+        return self._publish_schedule_plans(
+            p,
+            campaign_id,
+            inputs,
+            forecast,
+            config,
+            profile,
+            generation,
+            dataset_id=dataset_id,
+            internal=internal,
+            lead_ids=lead_ids,
+        )
+
+    def _publish_schedule_plans(
+        self,
+        p,
+        campaign_id,
+        inputs,
+        forecast,
+        config,
+        profile,
+        generation,
+        *,
+        dataset_id=None,
+        internal=False,
+        lead_ids=None,
+    ):
+        from zoneinfo import ZoneInfo
+
+        from app.service import fail
+
+        estimates = {**profile.get("predictions", {}), "pooled": saved_prediction(profile, {}, config)}
         selected = {row["lead_id"]: row for row in forecast["existing_schedule"]}
         saved, superseded, unchanged = 0, 0, 0
         common = {k: v for k, v in inputs.items() if k not in {"now", "leads"}}
@@ -1123,29 +1232,31 @@ class OptimizationWorkflows(ComparisonWorkflows):
                         "reason": "requested_callback"
                         if choice["callback"]
                         else "shared_capacity_and_expected_conversion",
-                        "constraint_scope": "whole_list_schedule",
+                        "constraint_scope": forecast.get("constraint_scope", "whole_list_schedule"),
                     }
                 computed.append((lead, choice, alternatives))
             if not computed:
                 continue
             with self.db.transaction() as s:
-                user, _, _, _ = self.report_scope(s, p)
-                if user["role"] != "admin":
-                    fail(403, "Planning owner no longer has administrator access")
+                if not internal:
+                    user, _, _, _ = self.report_scope(s, p)
+                    if user["role"] != "admin":
+                        fail(403, "Planning owner no longer has administrator access")
                 if self.report_revision(s, p, lock=True) != generation:
                     superseded += len(inputs["leads"]) - offset
-                    self.jobs.enqueue_in(
-                        s,
-                        "ml",
-                        {
-                            "kind": "retry_plan_refresh",
-                            "seller_id": p["seller_id"],
-                            "user_id": p["user_id"],
-                            "campaign_id": campaign_id,
-                        },
-                        f"retry-plans:{campaign_id}:{self.report_revision(s, p)}",
-                        tenant_id=p["tenant_id"],
-                    )
+                    if lead_ids is None:
+                        self.jobs.enqueue_in(
+                            s,
+                            "ml",
+                            {
+                                "kind": "retry_plan_refresh",
+                                "seller_id": p["seller_id"],
+                                "user_id": p["user_id"],
+                                "campaign_id": campaign_id,
+                            },
+                            f"retry-plans:{campaign_id}:{self.report_revision(s, p)}",
+                            tenant_id=p["tenant_id"],
+                        )
                     break
                 model, plans = MODELS["leads"], MODELS["scheduling_plans"]
                 current = {
@@ -1182,6 +1293,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                         update(lead, next_attempt_at=choice["at"])
                         old = {**old, "next_attempt_at": choice["at"], "version": lead.version}
                     value = {
+                        "campaign_id": campaign_id,
                         "lead_id": lead.id,
                         "selected": choice,
                         "alternatives": alternatives,
@@ -1210,6 +1322,8 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 s.flush()
                 generation = self.report_revision(s, p)
         return {
+            "status": "superseded" if superseded else "ready",
+            "source_revision": generation,
             "saved": saved,
             "superseded": superseded,
             "unchanged": unchanged,
@@ -1356,7 +1470,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
             campaign = self.required(s, "campaigns", campaign_id, p)
             update(campaign, selection_profile=profile)
             jobs = []
-            for kind in ("health_refresh", "retry_plan_refresh", "forecast_refresh", "learning_refresh"):
+            for kind in ("health_refresh", "forecast_refresh", "learning_refresh"):
                 key = (
                     "operational-train:snapshot:"
                     if kind == "learning_refresh"

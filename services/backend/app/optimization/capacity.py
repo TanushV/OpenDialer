@@ -460,7 +460,7 @@ class Assignment:
             if available:
                 yield (available & -available).bit_length() - 1
 
-    def solve(self, inventory, *, ignore_bindings=False, alternatives=0):
+    def solve(self, inventory, *, ignore_bindings=False, alternatives=0, fixed_schedule=()):
         end = self.starts[-1] + timedelta(seconds=self.seconds) if self.starts else self.now
         all_numbers = [
             n if isinstance(n, NumberCapacity) else number_input(n, self.now, end) for n in inventory
@@ -488,6 +488,30 @@ class Assignment:
             )
         account_blocked = sum(1 << i for i, count in account_count.items() if count >= account_limit)
         assigned, work_used, start_times = [], 0, defaultdict(list)
+        fixed_endpoints = set()
+        for row in fixed_schedule:
+            start, finish = timestamp(row["at"]), timestamp(row["end_at"])
+            if finish <= self.now or start >= end:
+                continue
+            fixed_endpoints.add(row["endpoint_id"])
+            identifier, rep = row["number_id"], row["rep_slot"]
+            first = bisect_right(self.starts, start - timedelta(seconds=self.seconds))
+            last = bisect_left(self.starts, finish)
+            rep_used[rep] |= ((1 << max(0, last - first)) - 1) << first
+            day_used[identifier, start.astimezone(UTC).date().isoformat()] += 1
+            start_times[identifier].append(start)
+            work_used += max(0, (min(end, finish) - max(self.now, start)).total_seconds())
+            for i in range(first, last):
+                if not self.budget.spend():
+                    # Incomplete occupancy cannot authorize another assignment.
+                    return [], False
+                number_used[identifier][i] += 1
+                account_count[i] += 1
+        for identifier, n in numbers.items():
+            number_blocked[identifier] = sum(
+                1 << i for i, count in number_used[identifier].items() if count >= n.concurrent_limit
+            )
+        account_blocked = sum(1 << i for i, count in account_count.items() if count >= account_limit)
         compatible = []
         for w in self.work:
             if w.bound_number_id and not ignore_bindings and not w.reassignment_approved:
@@ -501,6 +525,8 @@ class Assignment:
 
         def options(index):
             w, length = self.work[index], self.lengths[index]
+            if w.endpoint_id in fixed_endpoints:
+                return
             previous = endpoints.get(w.endpoint_id)
             if w.previous_attempt_index is not None:
                 if not previous or (
@@ -1083,6 +1109,53 @@ def retry_capacity(
         if not complete:
             result["status"] = "limited"
     return result
+
+
+def plan_changed(
+    leads,
+    inventory,
+    *,
+    now,
+    horizon_hours,
+    rep_minutes,
+    handling_seconds,
+    policy,
+    staffed_windows,
+    fixed_schedule=(),
+    rep_busy_until=None,
+):
+    """Assign one changed page around saved work using the same feasibility engine.
+
+    This preserves previous feasible allocations; a separately requested full
+    forecast can rebalance the entire list and compute hypothetical additions.
+    """
+    if len(leads) > 100:
+        raise ValueError("At most100 changed leads per planning page")
+    if len(fixed_schedule) > 10000:
+        raise ValueError("At most10000 saved allocations per horizon")
+    end = now + timedelta(hours=horizon_hours)
+    work, _ = work_items(leads, now, end, policy, handling_seconds)
+    windows = normalize_availability(staffed_windows, now, end, rep_minutes, policy)
+    grid = max(30, math.ceil((end - now).total_seconds() / (MAX_SLOTS * 30)) * 30)
+    slots, owners, limited = staffed_slots(windows, now, end, grid, rep_busy_until)
+    assignment = Assignment(work, slots, now, policy, grid, len(work), owners, work_budget=rep_minutes * 60)
+    chosen, exact = assignment.solve(inventory, fixed_schedule=fixed_schedule)
+    fingerprint = hashlib.sha256(
+        json.dumps(
+            [leads, inventory, now, policy, windows, fixed_schedule, rep_busy_until],
+            sort_keys=True,
+            default=str,
+        ).encode()
+    ).hexdigest()
+    return {
+        "existing_schedule": chosen,
+        "planning_limited": limited or assignment.exhausted,
+        "input_fingerprint": fingerprint,
+        "schedule_rows_omitted": 0,
+        "search_operations": assignment.steps,
+        "proven_on_declared_grid": exact and not limited,
+        "constraint_scope": "saved_allocations_and_changed_page",
+    }
 
 
 def time_forecast(
