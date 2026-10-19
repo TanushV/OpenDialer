@@ -213,3 +213,26 @@ def test_help_quantiles_use_bounded_counts_include_unknown_and_overflow(clock):
     assert report["p95_stt_ms"] is None and report["latency_support"]["stt_ms"] == 0
     overflow = projections.help_values({"latency": {"inference_ms": 1e9}}, None, now=clock.now)
     assert projections.coaching_from_counts(overflow)["p95_inference_ms"] is None
+
+
+def test_dataset_summary_does_not_decrypt_saved_training_payloads(workspace, app):
+    from app.optimization import projections
+    from sqlalchemy import event
+
+    service, p = app.state.service, principal(workspace)
+    saved = service.save_operational_dataset(p)
+
+    def reject_training_payload(connection, cursor, statement, parameters, context, many):
+        assert "FROM learning_datasets" not in statement, "Summary metadata cannot reload training payloads"
+
+    event.listen(service.db.engine, "before_cursor_execute", reject_training_payload)
+    try:
+        report = projections.read_dataset_metrics(service, p)
+    finally:
+        event.remove(service.db.engine, "before_cursor_execute", reject_training_payload)
+    assert report["snapshots"][-1] == {
+        "id": saved["id"],
+        "rows": len(saved["rows"]),
+        "as_of": saved["as_of"],
+        "goal": saved["goal"],
+    }
