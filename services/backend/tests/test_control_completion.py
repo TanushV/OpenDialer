@@ -28,6 +28,69 @@ def command_for(service, p, call_id, kind="dial"):
         )
 
 
+@pytest.mark.parametrize("operation", ["claim", "event", "status", "presence"])
+def test_agent_identity_paths_do_not_decrypt_terminal_history(workspace, app, monkeypatch, operation):
+    from test_context_reads import count_decrypted
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        for index in range(120):
+            put(
+                s,
+                "call_legs",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    "kind": "agent",
+                    "rep_id": p["user_id"],
+                    "state": "ended",
+                    "provider_id": f"old-{index}",
+                },
+            )
+        active = put(
+            s,
+            "call_legs",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "kind": "agent",
+                "rep_id": p["user_id"],
+                "state": "answered",
+                "provider_id": "active-agent",
+            },
+        )
+        identity = active.id
+    decoded = count_decrypted(app, monkeypatch)
+    if operation == "claim":
+        row, created = service._claim_agent(p, "new-agent", "new-owner")
+        assert row["id"] == identity and not created
+    elif operation == "event":
+        assert service.agent_event(p["tenant_id"], {"call_control_id": "active-agent"}, "call.answered")
+    elif operation == "status":
+        response = workspace["client"].get("/v1/telephony/agent/active-agent", headers=workspace["headers"])
+        assert response.status_code == 200 and response.json()["state"] == "answered"
+    else:
+        service.settings.simulation = False
+        service.presence(
+            p,
+            {
+                "status": "ready",
+                "agent_call_control_id": "active-agent",
+                "audio_ready": True,
+                "telephony_ready": True,
+            },
+        )
+    assert len(decoded) < 30, f"Agent {operation} decrypted {len(decoded)} records for one identity"
+
+
+def test_agent_identity_lookups_have_matching_indexes(app):
+    from sqlalchemy import inspect
+
+    indexes = {tuple(item["column_names"]) for item in inspect(app.state.db.engine).get_indexes("call_legs")}
+    assert ("tenant_id", "op_provider_id") in indexes
+    assert ("tenant_id", "seller_id", "op_owner_id", "op_status") in indexes
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("operation", ["control", "hangup", "reconcile"])
 async def test_effect_publication_requires_unexpired_ownership(
