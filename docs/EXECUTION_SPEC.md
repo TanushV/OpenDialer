@@ -724,10 +724,10 @@ These boxes are deliberately open. This planning pass does not perform implement
 - [x] E08 Sparse baselines, as-of learning, strategy exposure and manual reviewed model control pass.
 - [x] E09 Incremental metrics, bounded job claims and short writes pass; full-history hot readers removed.
 - [x] E10 Every external-operation crash/recovery case and local online callback journey passes; offline gate accurately recorded.
-- [ ] E11 Actual installed-copy migration, raw sanitation, independent journal and restore pass.
+- [x] E11 Actual installed-copy migration, raw sanitation, independent journal and restore pass.
 - [ ] E12 Complete rep/admin/setup/deployment journeys and ownership simplification pass.
 - [ ] E13 Frozen full suites, coverage, mutation, semantic harness, independent review and load/resource targets pass.
 - [ ] E14 Exact Mac/Windows artifacts accepted, existing installations updated and native use recorded.
 - [ ] E15 Accurate docs, remaining external gates, final preflight and scoped cleanup complete; source/artifact/remote match.
 
-**Next action on implementation resumption:** E11. Scoped E10 is accepted in STATUS/E10.json. Finish independent journals, privacy-safe installed migration and disaster recovery, then E12–E15. Preserve E13 full-system and all native/live gates.
+**Next action on implementation resumption:** E12. Scoped E11 is accepted in STATUS/E11.json with actual installed-copy and empty-authority restoration receipts. Finish setup/UI ownership/ingress/native boundaries, then E13–E15. Preserve full-system and native/live gates.

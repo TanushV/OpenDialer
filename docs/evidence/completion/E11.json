@@ -1,0 +1,113 @@
+{
+  "step_id": "E11",
+  "stage": "accepted-scoped-software",
+  "profiles": [
+    {
+      "mode": "sqlite-recovery-migration",
+      "source_commit": "7a9cac288cf23c7dea05e2f211214b62434aba64",
+      "production_tree_digest": "fa85a1f2e16e45932a74170497e82e33988f2126ebc55db9536e91b71968c8ee",
+      "test_tree_digest": "674e7cea3c5c52134f76fa45f7941599b599ebeb79aadbf47724c07f17665513",
+      "result_counts": {
+        "passed": 47,
+        "skipped": 2,
+        "seconds": 59.17
+      },
+      "log": "E11-final-restore.txt",
+      "raw_log_sha256": "62ae81e10d0d493195d28182f159b38656604f9a487c8862bbcc5a44fd736190"
+    },
+    {
+      "mode": "sqlite-accounting-admission",
+      "source_commit": "7a9cac288cf23c7dea05e2f211214b62434aba64",
+      "production_tree_digest": "fa85a1f2e16e45932a74170497e82e33988f2126ebc55db9536e91b71968c8ee",
+      "test_tree_digest": "674e7cea3c5c52134f76fa45f7941599b599ebeb79aadbf47724c07f17665513",
+      "result_counts": {
+        "passed": 45,
+        "skipped": 1,
+        "seconds": 40.41
+      },
+      "log": "E11-final-accounting-admission.txt",
+      "raw_log_sha256": "03e783782ae6cd8865b95203e66652dc2662f6b4a448982007e407605fe25854"
+    },
+    {
+      "mode": "postgresql-final-delta",
+      "source_commit": "7a9cac288cf23c7dea05e2f211214b62434aba64",
+      "production_tree_digest": "fa85a1f2e16e45932a74170497e82e33988f2126ebc55db9536e91b71968c8ee",
+      "test_tree_digest": "674e7cea3c5c52134f76fa45f7941599b599ebeb79aadbf47724c07f17665513",
+      "result_counts": {
+        "passed": 93,
+        "skipped": 2,
+        "seconds": 286.33
+      },
+      "log": "E11-final-postgres.txt",
+      "raw_log_sha256": "fe65753d293399251ffbc55f467746d5dd0aa69df73c9c55d8accea92987f835"
+    },
+    {
+      "mode": "sqlite-metered-metadata",
+      "source_commit": "699ab70934e9f12859e9fb5a39aad1575ad4355c",
+      "production_tree_digest": "ed6fc495d1b7c40916a0881680225fd5ddae7d269b9bdffe53e738a006874d62",
+      "test_tree_digest": "6ab6fa163f00280905fc7b671bd1a3bfbec9dd50d8296e703242130ef1b241d8",
+      "result_counts": {
+        "passed": 80,
+        "skipped": 0,
+        "seconds": 58.57
+      },
+      "log": "E11-usage-metadata-green.txt",
+      "raw_log_sha256": "d92d7dc766c6c26437c5fad7143d5bc8232fa814f10cf560d77cba58dd5fb3b7"
+    },
+    {
+      "mode": "frontend-expiry-cache",
+      "source_commit": "9967a9bc49e217ecb750ca50d4eb54be642a685b",
+      "production_tree_digest": "3d308279f603949a915464c66a9744d5b44b18f65bc7def5c9dbec1ef071c422",
+      "test_tree_digest": "6769d96dbd210fe99cf052a6bb4e32b876f3b301c50c315b5b3a3984207a4ec2",
+      "result_counts": {
+        "passed": 4,
+        "skipped": 0,
+        "seconds": 1.75
+      },
+      "log": "E11-frontend.txt",
+      "raw_log_sha256": "480d8b6437b89d472ddb74e573b3787ceeab5a967e14ce6824d5380ea28831f2"
+    }
+  ],
+  "case_ids": [
+    "C043",
+    "C044",
+    "C045",
+    "C046"
+  ],
+  "fixture_seed": 20261018,
+  "environment": {
+    "python": "3.12.13",
+    "postgresql": "17; guarded disposable loopback",
+    "native_installed": "0.2.1 unchanged"
+  },
+  "started_at": null,
+  "finished_at": "2026-10-19T20:31:14.335639+00:00",
+  "timestamp_note": "Log durations preserved. Source digest hashes tracked Git tree entries. Earlier broad suites:187 passed/one invalid synthetic payload fixture failure each; real-contract fixture and all affected paths pass final scopes. Native-only skips remain E14. Earlier journal/denial and privacy receipts remain in STATUS.",
+  "failed_cases": [],
+  "red_log_sha256": {
+    "E11-effect-expanded-red.txt": "75244f7d3f0ae934514620976bd8732093e1b06a69b926a6ff788bf3958793dd",
+    "E11-privacy-red.txt": "7c4bdd1465f39c71175bc92a20f86c783f220cb7f33b4daf842a31a2018b136a",
+    "E11-checkpoint-order-red.txt": "4d6d8ee94dd12ab63a4096cd89ad8570a62490567f00a802c843df173c62c361",
+    "E11-segment-red.txt": "a54eb67894ca24d5192d24875ffc942fe4bd427848bc5cdd56781090a39957b1",
+    "E11-accounting-red.txt": "549f09c4a61127e76ba3a332000f94c5bc0d367fcf94af5a270e5fe7e90e4005",
+    "E11-usage-metadata-red.txt": "8d99d16907857935e421c0eecf1cb54a452e42d519b47762e4e11420ccbf4262",
+    "E11-archive-red.txt": "04e762cb547eb85d152d829a2853c7e22b7a4c7330575b8eb7e48e1aa7ef8189",
+    "E11-effect-targets-red.txt": "b903282b55f0a78dee22157c8680ca116eaed37d3456067f6b6745bdfb7f2260",
+    "E11-reconcile-target-red.txt": "a37bdcafba02772bdc196af18b743d66baac5c67519d55ecd8c12c47b3044255",
+    "E11-final-effects-red.txt": "aabd3780aa6155947d5b1ec6483267029cafc4a0c8c857ae497e90b015a8046d"
+  },
+  "installed_copy_receipt": "docs/evidence/completion/E11-installed-copy.json",
+  "retired_paths": [
+    "full-call legacy authorization writer",
+    "unbounded legacy raw sanitation transaction",
+    "opaque provider/event/job/usage metadata persistence"
+  ],
+  "known_limitations": [
+    "No automatic journal pruning; complete segments retained.",
+    "Configured disk copy does not establish off-host storage or cadence.",
+    "Installed-update and platform-device acceptance remain E14/X06.",
+    "Provider retention and actual account behavior remain X01-X05/X07.",
+    "Whole-system coverage/load validation remains E13."
+  ],
+  "external_calls": false
+}

@@ -6,7 +6,7 @@
   "status": "implementation-authorized; E00-E09 scoped software accepted; E10 in progress",
   "requirements_source": "docs/REMEDIATION_PLAN.md",
   "implementation_source": "docs/EXECUTION_SPEC.md",
-  "next_step": "E11",
+  "next_step": "E12",
   "receipt_rule": "No inherited checkbox or planned node is a current passing receipt. Update by actual source-bound evidence.",
   "steps": [
     {
@@ -790,7 +790,7 @@
     {
       "id": "E11",
       "title": "Privacy-safe migration, backups and disaster recovery",
-      "status": "in-progress",
+      "status": "accepted-software",
       "depends_on": [
         "E10"
       ],
@@ -809,7 +809,10 @@
         "services/backend/tests/test_effect_journal.py",
         "services/backend/tests/test_installed_copy_migration.py"
       ],
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E11.json",
+        "docs/evidence/completion/E11-installed-copy.json"
+      ],
       "planned_case_ids": [
         "C043",
         "C044",
@@ -827,41 +830,41 @@
         "A53",
         "A54"
       ],
-      "checkpoint": "Actual installed-copy migration and separate empty-business restore pass with original identities/human notes and current authentication. Final effect/restore SQLite47 pass,2 native-only skips; usage80 passes; frontend4 passes. Earlier broad run exposed a fixture field removed by the new privacy allowlist; corrected real-contract fixture passes. Final PostgreSQL delta and E11 exit pending.",
+      "checkpoint": "Final SQLite recovery47/accounting-admission45 and PostgreSQL93 pass; native-only skips retained. Actual installed migration and separate empty restore preserve business identities/human notes/current authentication. Complete archive retention and configured protected-copy receipts accepted; E13/E14/X remain distinct.",
       "implementation_todos": [
         {
           "id": "E11.segments",
-          "status": "implemented-focused-verified",
+          "status": "accepted-software",
           "work": "Chained encrypted8MiB journal segments, bounded append, checkpoint and loss/corruption tests"
         },
         {
           "id": "E11.effects",
-          "status": "implemented-awaiting-final-verification",
+          "status": "accepted-software",
           "work": "Typed intent/submission/receipt integration across all paid and customer-visible effects; safe stops retain access"
         },
         {
           "id": "E11.restore",
-          "status": "implemented-awaiting-final-verification",
+          "status": "accepted-software",
           "work": "Missing-store effect/accounting recovery and protected backup checkpoints without replacing current state"
         },
         {
           "id": "E11.migration",
-          "status": "implemented-awaiting-final-verification",
+          "status": "accepted-software",
           "work": "Resumable500-row raw sanitation and actual installed0.2.1 copy with allowed-data continuity"
         },
         {
           "id": "E11.privacy",
-          "status": "implemented-awaiting-final-verification",
+          "status": "accepted-software",
           "work": "All raw boundaries, provider capability and frontend expiry/restart tests"
         },
         {
           "id": "E11.acceptance",
-          "status": "open",
+          "status": "accepted-software",
           "work": "Both database scopes, copied-store recovery, receipt/todo updates; native delivery remainsE14"
         },
         {
           "id": "E11.copy",
-          "status": "implemented-awaiting-final-verification",
+          "status": "accepted-software",
           "work": "Optional operator-owned encrypted backup/journal archive with flushed hash receipt; retain all segments, no automatic pruning or off-host claim"
         }
       ]
@@ -869,7 +872,7 @@
     {
       "id": "E12",
       "title": "Finish setup, rep surfaces and deployment without more product machinery",
-      "status": "open",
+      "status": "in-progress",
       "depends_on": [
         "E11"
       ],
@@ -909,7 +912,8 @@
         "A51",
         "A52",
         "A55"
-      ]
+      ],
+      "checkpoint": "Setup capability/default/ingress expanded baseline16 failures; corrected async fixture reveals public-host boundary and network-error gaps before repair. Backend implementation active; UI ownership/native ingress/protected input remain."
     },
     {
       "id": "E13",
@@ -6511,13 +6515,15 @@
       "step": "E11",
       "planned_node": "services/backend/tests/test_installed_copy_migration.py::test_legacy_copy_allowlist_continuity",
       "expected": "Copied actual schema authenticates; raw canaries removed before retained backup; IDs, human notes, denials and effect identities unchanged.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E11.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_installed_copy_migration.py::test_legacy_copy_allowlist_continuity",
         "services/backend/tests/test_installed_copy_migration.py::test_actual_update_allowed_data"
@@ -6528,13 +6534,15 @@
       "step": "E11",
       "planned_node": "services/backend/tests/test_remediation_privacy.py::test_all_boundaries_original_ttl",
       "expected": "299/300/301 seconds, retries/revisions/clock changes/wake/restart never extend raw life in any durable or transient boundary.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E11.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_remediation_privacy.py::test_all_boundaries_original_ttl",
         "services/backend/tests/test_remediation_privacy.py::test_raw_content_never_enters_permanent_database",
@@ -6559,13 +6567,15 @@
       "step": "E11",
       "planned_node": "services/backend/tests/test_effect_journal.py::test_lost_store_and_flush_failure",
       "expected": "Replay typed encrypted effects/denials from independent journal; truncation, wrong key, fsync/disk-full and missing segments hold new effects.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E11.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_effect_journal.py::test_lost_store_and_flush_failure",
         "services/backend/tests/test_effect_journal.py::test_journal_failure_cannot_block_stopping_an_existing_leg",
@@ -6578,13 +6588,15 @@
       "step": "E11",
       "planned_node": "services/backend/tests/test_restore_effects.py::test_restore_preserves_newer_state",
       "expected": "Current effects/liabilities/human edits/auth win; conflicting identity aborts; old backups cannot resurrect revoked access.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E11.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_restore_effects.py::test_restore_keeps_a_call_submitted_after_the_backup_and_its_live_claim",
         "services/backend/tests/test_restore_effects.py::test_restore_does_not_resurrect_a_finished_call_or_completed_command",
