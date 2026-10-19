@@ -296,6 +296,21 @@ def dirty_source_units(changed, session):
             for key in ("optimization_trial", "controlled_comparisons")
         ):
             units[(*scope, "campaign-leads", row.id)] = deleted
+        if table == "outcomes" and row.data.get("kind") == "conversation_lineage":
+            # A retraction need not repeat the old guidance link. Its stable
+            # observation identity still invalidates that exposure contribution.
+            model = MODELS["outcomes"]
+            prior = session.scalars(
+                select(model.data).where(
+                    model.tenant_id == scope[0],
+                    model.seller_id == scope[1],
+                    model.ctx_key == row.data.get("call_id"),
+                    model.ctx_status == "conversation_lineage",
+                )
+            )
+            for value in prior:
+                if value.get("id") == row.data.get("id") and value.get("observed_guidance_id"):
+                    units[(*scope, "help", value["observed_guidance_id"])] = False
         for value in [row.data, *([previous] if previous else [])]:
             if table in {
                 "call_attempts",
@@ -322,6 +337,8 @@ def dirty_source_units(changed, session):
                     units[(*scope, "endpoint-leads", endpoint)] = False
             if table == "coaching_feedback" and value.get("coach_event_id"):
                 units[(*scope, "help", value["coach_event_id"])] = False
+            if table == "outcomes" and value.get("observed_guidance_id"):
+                units[(*scope, "help", value["observed_guidance_id"])] = False
             if table not in {"work_intervals", "call_attempts"} or not value.get("rep_id"):
                 continue
             if table == "call_attempts":
@@ -405,7 +422,7 @@ def definition_version(config, epoch):
     return hashlib.sha256(
         json.dumps(
             {
-                "metrics": "cohort-work-v8",
+                "metrics": "cohort-work-v9",
                 "epoch": epoch,
                 "goal": config["conversion_goal"],
                 "window_days": config["window_days"],
@@ -455,7 +472,11 @@ def _unit_snapshot(service, p, payload):
         )
         row = doc(source) if source else {}
         calls, events, intervals, feedback, suppressed, feature = [], [], [], None, False, None
-        assignments, features, decisions, studies = [], [], [], {}
+        assignments, features, decisions, studies, observations = [], [], [], {}, []
+        comparisons = [
+            {k: v for k, v in item.items() if k != "population"}
+            for item in campaign.data.get("controlled_comparisons", [])
+        ]
         if kind == "lead" and row:
             calls = [
                 doc(r)
@@ -561,6 +582,29 @@ def _unit_snapshot(service, p, payload):
                 row["rep_id"] = rep
                 record = service._by_key(session, p, "coaching_feedback", identity + ":" + rep)
                 feedback = doc(record) if record else None
+            if call:
+                calls = [doc(call)]
+                assignments = [
+                    doc(r)
+                    for r in session.scalars(
+                        _scoped_query(p, "experiment_assignments").where(
+                            MODELS["experiment_assignments"].op_lead_id == call.data.get("lead_id")
+                        )
+                    )
+                ]
+                latest = {}
+                for record in service.context_rows(
+                    session,
+                    p,
+                    "outcomes",
+                    call.id,
+                    MODELS["outcomes"].ctx_status == "conversation_lineage",
+                    limit=None,
+                ):
+                    value = record.data
+                    if value["version"] >= latest.get(value["id"], {}).get("version", 0):
+                        latest[value["id"]] = dict(value)
+                observations = list(latest.values())
         previous = {
             ns: service._by_key(
                 session, p, "metric_contributions", unit_key(targets[ns]["definition"], ns, kind, identity)
@@ -587,6 +631,8 @@ def _unit_snapshot(service, p, payload):
         "features": features,
         "decisions": decisions,
         "studies": studies,
+        "comparisons": comparisons,
+        "observations": observations,
         "suppressed": suppressed,
         "campaign_id": campaign.id,
         "config": config,
@@ -617,6 +663,8 @@ def _unit_snapshot(service, p, payload):
                     definition,
                     suppressed,
                     studies,
+                    comparisons,
+                    observations,
                 ],
                 sort_keys=True,
             ).encode()
@@ -829,10 +877,117 @@ def _trial_groups(snapshot, now, namespace):
     return groups
 
 
+def _comparison_groups(snapshot, now, namespace):
+    from app.optimization.experiments import (
+        call_goal_events,
+        exposure_values,
+        reward_values,
+        strategy_rewards,
+    )
+
+    assignments = {}
+    for item in sorted(snapshot["assignments"], key=lambda r: (r["assigned_at"], r["id"])):
+        if item.get("comparison_id"):
+            assignments.setdefault(item["comparison_id"], item)
+    studies = {r["id"]: r for r in snapshot["comparisons"]}
+    decisions = {r["id"]: r for r in snapshot["decisions"]}
+    groups = []
+
+    def add(study, values, stratum=None, rep_id=None):
+        if not values:
+            return
+        groups.append(
+            (
+                {
+                    "bucket_kind": "comparison",
+                    "bucket_day": None,
+                    "campaign_id": snapshot["campaign_id"],
+                    "definition_version": snapshot["definition"],
+                    "namespace": namespace,
+                    "comparison_id": study["id"],
+                    "stratum": stratum,
+                    "rep_id": rep_id,
+                },
+                values,
+            )
+        )
+
+    for identity, study in studies.items():
+        assignment = assignments.get(identity)
+        values = {}
+        if snapshot["kind"] == "lead":
+            goal, days = study["goal"], study["window_days"]
+            events = snapshot["events"] + call_goal_events(snapshot["calls"], goal, now=now)
+            if assignment:
+                start, due = (
+                    timestamp(assignment["assigned_at"]),
+                    timestamp(assignment.get("coverage_due_at")),
+                )
+                attempts = [
+                    r
+                    for r in snapshot["calls"]
+                    if r.get("submitted_at") and start <= timestamp(r["started_at"]) <= now
+                ]
+                evidence = [decisions.get(r.get("submission_decision_id"), {}) for r in attempts]
+                values = trial_values(
+                    {
+                        **assignment,
+                        "covered": any(not due or timestamp(r["started_at"]) <= due for r in attempts),
+                        "policy_unknown": sum(r.get("allowed") is None for r in evidence),
+                        "policy_violations": sum(r.get("allowed") is False for r in evidence),
+                    },
+                    events,
+                    now=now,
+                    goal=goal,
+                    window_days=days,
+                )
+                field = "cluster" if study["family"] == "number_allocation" else "rep_id"
+                add(study, dict(values), assignment.get(field) or "unknown")
+            if study.get("strategy_ids"):
+                prior = studies.get(study.get("evidence_comparison_id"))
+                seed = (
+                    strategy_rewards(
+                        prior,
+                        snapshot["assignments"],
+                        snapshot["events"] + call_goal_events(snapshot["calls"], prior["goal"], now=now),
+                        now=now,
+                    )
+                    if prior
+                    else []
+                )
+                rewards = seed or strategy_rewards(study, snapshot["assignments"], events, now=now)
+                if rewards:
+                    values.update(reward_values(rewards[0]))
+        else:
+            feedback, row = snapshot["feedback"], snapshot["row"]
+            if assignment and feedback:
+                prefix = f"quality:{assignment['arm']}:"
+                values[prefix + "reviewed_cards"] = 1
+                for key in ("useful", "grounded", "timely", "distracting"):
+                    values[prefix + key + "_count"] = int(isinstance(feedback.get(key), bool))
+                    values[prefix + key + "_true"] = int(feedback.get(key) is True)
+            if (
+                study.get("strategy_ids")
+                and row.get("strategy_exposure", {}).get("comparison_id") == identity
+            ):
+                values.update(
+                    {
+                        "exposure:" + k: v
+                        for k, v in exposure_values(row, snapshot["observations"], now=now).items()
+                    }
+                )
+        add(study, values)
+        if snapshot["kind"] == "help" and snapshot["row"].get("rep_id"):
+            add(study, values, rep_id=snapshot["row"]["rep_id"])
+    return groups
+
+
 def _detail_groups(snapshot, now, namespace):
     """Per-call statistics grouped independently of the workspace totals."""
     if snapshot["kind"] == "lead" and snapshot["row"]:
-        return _trial_groups(snapshot, now, namespace)
+        return _trial_groups(snapshot, now, namespace) + _comparison_groups(snapshot, now, namespace)
+    if snapshot["kind"] == "help" and snapshot["row"]:
+        return _comparison_groups(snapshot, now, namespace)
     if snapshot["kind"] != "call" or not snapshot["row"]:
         return []
     config, row = snapshot["config"], snapshot["row"]
@@ -984,9 +1139,13 @@ def refresh_unit(service, p, payload):
                     "group_key": group_key.rsplit(":", 1)[-1],
                     "values": total,
                 }
-                empty_detail = (value["bucket_kind"] == "drift" and total.get("rows", 0) == 0) or (
-                    value["bucket_kind"] == "trial"
-                    and total.get("control:leads", 0) + total.get("candidate:leads", 0) == 0
+                empty_detail = (
+                    (value["bucket_kind"] == "drift" and total.get("rows", 0) == 0)
+                    or (
+                        value["bucket_kind"] == "trial"
+                        and total.get("control:leads", 0) + total.get("candidate:leads", 0) == 0
+                    )
+                    or (value["bucket_kind"] == "comparison" and not any(total.values()))
                 )
                 if empty_detail:
                     if bucket:
@@ -1562,6 +1721,62 @@ def read_drift_metrics(service, p, *, limit=1000):
         "as_of": service.clock().isoformat(),
         "windows": "Latest 7 days versus preceding 21 days",
     }
+
+
+def read_comparison_metrics(service, p):
+    from app.optimization.experiments import comparison_from_counts
+
+    with service.db.transaction(False) as session:
+        _, group, _ = _total_in(service, session, p)
+        campaign = session.scalar(
+            _scoped_query(p, "campaigns").where(MODELS["campaigns"].id == group["campaign_id"])
+        )
+        studies = campaign.data.get("controlled_comparisons", [])
+        prefix = f"v{group['definition_version']}:{group['namespace']}:"
+        model = MODELS["metric_buckets"]
+        buckets = [
+            dict(r.data)
+            for r in session.scalars(
+                _scoped_query(p, "metric_buckets")
+                .where(
+                    model.external_key >= prefix,
+                    model.external_key < prefix + "~",
+                    model.bucket_kind == "comparison",
+                )
+                .order_by(model.external_key)
+                .limit(1001)
+            )
+        ]
+    if len(buckets) > 1000:
+        raise ValueError("Comparison strata exceed the bounded report; no partial inference is published")
+    counts, strata, private = {}, {}, {}
+    for bucket in buckets:
+        meta = bucket["group"]
+        if meta.get("rep_id"):
+            if meta["rep_id"] == p["user_id"]:
+                private[meta["comparison_id"]] = bucket["values"]
+        elif meta["stratum"] is None:
+            counts[meta["comparison_id"]] = bucket["values"]
+        else:
+            strata.setdefault(meta["comparison_id"], {})[meta["stratum"]] = bucket["values"]
+    if p.get("role") == "rep":
+        counts = {
+            study["id"]: {
+                **{
+                    k: v
+                    for k, v in counts.get(study["id"], {}).items()
+                    if not k.startswith(("quality:", "exposure:"))
+                },
+                **private.get(study["id"], {}),
+            }
+            for study in studies
+        }
+    return [
+        comparison_from_counts(
+            study, counts.get(study["id"], {}), strata.get(study["id"], {}), now=service.clock()
+        )
+        for study in studies
+    ]
 
 
 def read_trial_metrics(service, p, *, epoch=None):

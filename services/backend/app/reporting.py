@@ -79,6 +79,15 @@ REPORT_FIELDS = {
     },
     "coaching_feedback": None,
     "coach_events": {"call_id", "rep_id", "action", "latency", "strategy_exposure"},
+    "outcomes": {
+        "observed_guidance_id",
+        "state",
+        "review_status",
+        "epistemic_status",
+        "review_receipt_id",
+        "invalidated_at",
+        "version",
+    },
     "work_intervals": {"rep_id", "started_at", "ended_at", "lease_until"},
     "experiment_assignments": None,
     "compliance_decisions": None,
@@ -136,6 +145,12 @@ def invalidate_reports(session):
         if row not in session.new and row not in session.deleted and not history.has_changes():
             continue
         previous = history.deleted[0] if history.deleted else None
+        if table == "outcomes" and (
+            row.data.get("kind") != "conversation_lineage"
+            or row.data.get("observation_kind") != "approach"
+            and not row.data.get("observed_guidance_id")
+        ):
+            continue
         if previous is None and row not in session.new:
             # MutableDict in-place edits do not retain their former value in
             # attribute history. Read this one source, not its surrounding history.

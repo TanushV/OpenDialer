@@ -9,9 +9,10 @@ from app.db import doc, put
 from app.optimization.learning import (
     conversion_at,
     derive_labels,
-    learn_distribution,
+    distribution_from_counts,
     outcome_at,
-    trial_report,
+    trial_from_counts,
+    trial_values,
 )
 from app.optimization.numbering import timestamp
 
@@ -145,70 +146,65 @@ def call_goal_events(calls, goal, *, now):
     return result
 
 
-def comparison_report(
-    study,
-    assignments,
-    calls,
-    events,
-    feedback,
-    *,
-    now,
-    goal,
-    window_days,
-    exposures=(),
-    seed_rewards=(),
-    observations=(),
-):
-    events = events + call_goal_events(calls, goal, now=now)
-    if study.get("strategy_ids"):
-        events = [
-            known
-            for event in events
-            if event.get("id")
-            and (known := conversion_at(event, now))
-            and known["timing_known"]
-            and not known["retracted"]
-        ]
-    selected = [a for a in assignments if a.get("comparison_id") == study["id"]]
-    by_lead = defaultdict(list)
-    for call in calls:
-        by_lead[call["lead_id"]].append(call)
-    enriched = []
-    for item in selected:
-        attempts = [
-            c
-            for c in by_lead[item["lead_id"]]
-            if timestamp(c["started_at"]) >= timestamp(item["assigned_at"]) and c.get("submitted_at")
-        ]
-        due = timestamp(item.get("coverage_due_at"))
-        enriched.append(
-            {
-                **item,
-                "covered": any(not due or timestamp(c["started_at"]) <= due for c in attempts),
-                "policy_unknown": sum(c.get("submission_allowed") is None for c in attempts),
-                "policy_violations": sum(c.get("submission_allowed") is False for c in attempts),
-            }
-        )
-    result = trial_report(enriched, events, now=now, goal=goal, window_days=window_days)
+def reward_values(reward):
+    if reward.get("window_status") != "matured" or reward.get("conversion") is None:
+        return {}
+    weight = min(20.0, 1 / max(0.01, float(reward.get("propensity") or 1)))
+    return {
+        f"reward:{reward['action']}:{key}": value
+        for key, value in {
+            "all_n": 1,
+            "n": 1,
+            "all_success": reward["conversion"],
+            "weight": weight,
+            "weighted_success": weight * reward["conversion"],
+        }.items()
+    }
+
+
+def exposure_values(event, observations, *, now):
+    exposure = event.get("strategy_exposure", {})
+    shown = timestamp(exposure.get("displayed_at"))
+    displayed = bool(shown and shown <= now)
+    used = exposure.get("used_by_rep") if displayed else None
+    return {
+        "generated": 1,
+        "displayed": int(displayed),
+        "reported_used": int(used is True),
+        "reported_not_used": int(used is False),
+        "use_unknown": int(used is None),
+        "observed_in_speech": int(
+            displayed
+            and bool(
+                observed_strategy_uses(
+                    [r for r in observations if r.get("call_id") == event["call_id"]], event["id"]
+                )
+            )
+        ),
+    }
+
+
+def comparison_from_counts(study, values, grouped, *, now):
+    """One inference policy over unique-lead, stratum, exposure and quality totals."""
+    goal, window_days = study["goal"], study["window_days"]
+    result = trial_from_counts(values, goal=goal, window_days=window_days)
+    assigned = sum(result["arms"][a]["leads"] for a in ("control", "candidate"))
     result.update(
         **study,
         original_eligible_leads=len(study["population"]),
-        assigned_leads=len(selected),
-        unassigned_leads=len(study["population"]) - len(selected),
+        assigned_leads=assigned,
+        unassigned_leads=len(study["population"]) - assigned,
         rep_strata=[],
         cluster_count=0,
     )
     result.pop("population", None)
-    grouped = defaultdict(list)
     field = "cluster" if study["family"] == "number_allocation" else "rep_id"
-    for item in enriched:
-        grouped[item.get(field, "unknown")].append(item)
     strata = [
-        {"id": key, **trial_report(values, events, now=now, goal=goal, window_days=window_days)}
-        for key, values in grouped.items()
+        {"id": key, **trial_from_counts(counts, goal=goal, window_days=window_days)}
+        for key, counts in sorted(grouped.items(), key=lambda item: str(item[0]))
     ]
     if field == "cluster":
-        result["cluster_count"] = len(grouped)
+        result["cluster_count"] = len(strata)
         summaries = {}
         for arm in ("control", "candidate"):
             rates = [r["arms"][arm]["rate"] for r in strata if r["arms"][arm]["rate"] is not None]
@@ -249,54 +245,108 @@ def comparison_report(
             if study.get("strategy_ids")
             else "lead; randomized two-lead blocks within rep"
         )
-    arm_by_call = {c["id"]: a["arm"] for a in selected for c in by_lead[a["lead_id"]]}
     result["coaching_quality"] = {}
     for arm in ("control", "candidate"):
-        reviews = [r for r in feedback if arm_by_call.get(r["call_id"]) == arm]
-        result["coaching_quality"][arm] = {"reviewed_cards": len(reviews)}
+        prefix = f"quality:{arm}:"
+        quality = {"reviewed_cards": values.get(prefix + "reviewed_cards", 0)}
         for key in ("useful", "grounded", "timely", "distracting"):
-            known = [r[key] for r in reviews if r.get(key) is not None]
-            result["coaching_quality"][arm][key + "_fraction"] = sum(known) / len(known) if known else None
+            n = values.get(prefix + key + "_count", 0)
+            quality[key + "_fraction"] = values.get(prefix + key + "_true", 0) / n if n else None
+        result["coaching_quality"][arm] = quality
     if now < timestamp(study["ends_at"]) + timedelta(days=window_days):
         result["sufficient_evidence"] = False
     if study.get("strategy_ids"):
-        rewards = strategy_rewards(study, selected, events, now=now)
-        # Earlier approved evidence and current intent-to-treat rewards share one
-        # lead unit; retries/re-enrolment cannot manufacture extra support.
-        unique = {}
-        for reward in [*seed_rewards, *rewards]:
-            unique.setdefault(reward["lead_id"], reward)
-        result["strategy_policy_snapshot"] = learn_distribution(
-            study["strategy_ids"], list(unique.values()), exploration=0.1
-        )
-        cards = [r for r in exposures if r.get("strategy_exposure", {}).get("comparison_id") == study["id"]]
-        shown = [r["strategy_exposure"] for r in cards]
-        by_call = defaultdict(list)
-        for item in observations:
-            by_call[item.get("call_id")].append(item)
+        result["strategy_policy_snapshot"] = distribution_from_counts(study["strategy_ids"], values)
         result["strategy_exposure"] = {
-            "generated": len(shown),
-            "displayed": sum(bool(r.get("displayed_at")) for r in shown),
-            "reported_used": sum(r.get("used_by_rep") is True for r in shown),
-            "reported_not_used": sum(r.get("used_by_rep") is False for r in shown),
-            "use_unknown": sum(r.get("used_by_rep") is None for r in shown),
-            "observed_in_speech": sum(
-                bool(r["strategy_exposure"].get("displayed_at"))
-                and bool(observed_strategy_uses(by_call[r["call_id"]], r["id"]))
-                for r in cards
-            ),
+            **{
+                key: values.get("exposure:" + key, 0)
+                for key in (
+                    "generated",
+                    "displayed",
+                    "reported_used",
+                    "reported_not_used",
+                    "use_unknown",
+                    "observed_in_speech",
+                )
+            },
             "scope": "Assignment, authenticated display, reported use and reviewed matching speech are separate; none proves adoption or conversion",
         }
         result["allocation_policy"] = study["strategy_policy"]
         if study["strategy_policy"] == "adaptive":
-            # This descriptive adaptive policy report is not a new fixed-arm
-            # confirmation experiment or authorization for another promotion.
             result["sufficient_evidence"] = False
             result["inference_unit"] += "; adaptive rewards, not fixed-arm causal evidence"
     result["evidence_scope"] = (
         "Reviewed controlled software protocol; absent outcomes and unassigned leads remain visible"
     )
     return result
+
+
+def comparison_report(
+    study,
+    assignments,
+    calls,
+    events,
+    feedback,
+    *,
+    now,
+    goal,
+    window_days,
+    exposures=(),
+    seed_rewards=(),
+    observations=(),
+):
+    """Bounded offline adapter. Operational publication reads persisted contributions."""
+    events = events + call_goal_events(calls, goal, now=now)
+    selected = {}
+    for row in sorted(assignments, key=lambda r: (r["assigned_at"], r.get("id", ""))):
+        if row.get("comparison_id") == study["id"]:
+            selected.setdefault(row["lead_id"], row)
+    values, grouped = {}, {}
+
+    def add(target, vector):
+        for key, value in vector.items():
+            target[key] = target.get(key, 0) + value
+
+    for lead_id, item in selected.items():
+        attempts = [
+            r
+            for r in calls
+            if r["lead_id"] == lead_id
+            and r.get("submitted_at")
+            and timestamp(item["assigned_at"]) <= timestamp(r["started_at"]) <= now
+        ]
+        due = timestamp(item.get("coverage_due_at"))
+        enriched = {
+            **item,
+            "covered": any(not due or timestamp(r["started_at"]) <= due for r in attempts),
+            "policy_unknown": sum(r.get("submission_allowed") is None for r in attempts),
+            "policy_violations": sum(r.get("submission_allowed") is False for r in attempts),
+        }
+        vector = trial_values(enriched, events, now=now, goal=goal, window_days=window_days)
+        add(values, vector)
+        field = "cluster" if study["family"] == "number_allocation" else "rep_id"
+        add(grouped.setdefault(item.get(field, "unknown"), {}), vector)
+    arm_by_call = {r["id"]: selected[r["lead_id"]]["arm"] for r in calls if r["lead_id"] in selected}
+    for row in feedback:
+        arm = arm_by_call.get(row["call_id"])
+        if arm is None:
+            continue
+        vector = {f"quality:{arm}:reviewed_cards": 1}
+        for key in ("useful", "grounded", "timely", "distracting"):
+            vector[f"quality:{arm}:{key}_count"] = int(isinstance(row.get(key), bool))
+            vector[f"quality:{arm}:{key}_true"] = int(row.get(key) is True)
+        add(values, vector)
+    unique = {}
+    for reward in [*seed_rewards, *strategy_rewards(study, list(selected.values()), events, now=now)]:
+        unique.setdefault(reward["lead_id"], reward)
+    for reward in unique.values():
+        add(values, reward_values(reward))
+    for row in exposures:
+        if row.get("strategy_exposure", {}).get("comparison_id") == study["id"]:
+            add(values, {"exposure:" + k: v for k, v in exposure_values(row, observations, now=now).items()})
+    return comparison_from_counts(
+        {**study, "goal": goal, "window_days": window_days}, values, grouped, now=now
+    )
 
 
 class ComparisonWorkflows:

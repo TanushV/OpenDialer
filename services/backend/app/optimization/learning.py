@@ -285,6 +285,27 @@ def retry_statistics(rows, leads, *, now, max_attempts):
 
 
 def learn_distribution(actions, history, *, segment=None, exploration=0.1, control=False, urgent=False):
+    counts = {}
+    for row in history:
+        if (
+            row.get("window_status") != "matured"
+            or row.get("conversion") is None
+            or row.get("action") not in actions
+        ):
+            continue
+        action = row["action"]
+        weight = min(20.0, 1 / max(0.01, float(row.get("propensity") or 1)))
+        vector = {"all_n": 1, "all_success": row["conversion"]}
+        if segment is None or row.get("segment") == segment:
+            vector.update(n=1, weight=weight, weighted_success=weight * row["conversion"])
+        for key, value in vector.items():
+            name = f"reward:{action}:{key}"
+            counts[name] = counts.get(name, 0) + value
+    return distribution_from_counts(actions, counts, exploration=exploration, control=control, urgent=urgent)
+
+
+def distribution_from_counts(actions, counts, *, exploration=0.1, control=False, urgent=False):
+    """The same finite strategy estimate for incremental and offline evidence."""
     if not actions or len(actions) != len(set(actions)) or not 0 <= exploration <= 0.3:
         raise ValueError("Unique approved actions and exploration between zero and 0.3 required")
     if control or urgent:
@@ -294,23 +315,15 @@ def learn_distribution(actions, history, *, segment=None, exploration=0.1, contr
             "policy_version": "protected-default-v2",
             "observations": 0,
         }
-    mature = [
-        r
-        for r in history
-        if r.get("window_status") == "matured"
-        and r.get("conversion") is not None
-        and r.get("action") in actions
-    ]
     estimates, observations = {}, {}
     for action in actions:
-        all_rows = [r for r in mature if r["action"] == action]
-        local = [r for r in all_rows if segment is None or r.get("segment") == segment]
-        prior = (sum(r["conversion"] for r in all_rows) + 1) / (len(all_rows) + 5)
-        weights = [min(20.0, 1 / max(0.01, float(r.get("propensity") or 1))) for r in local]
-        estimates[action] = (
-            sum(w * r["conversion"] for w, r in zip(weights, local, strict=True)) + 10 * prior
-        ) / (sum(weights) + 10)
-        observations[action] = len(local)
+        values = {
+            k: counts.get(f"reward:{action}:{k}", 0)
+            for k in ("all_n", "all_success", "n", "weight", "weighted_success")
+        }
+        prior = (values["all_success"] + 1) / (values["all_n"] + 5)
+        estimates[action] = (values["weighted_success"] + 10 * prior) / (values["weight"] + 10)
+        observations[action] = values["n"]
     # Sparse data retains the reviewed default; exploration collects support for other approved actions.
     supported = [a for a in actions if observations[a] >= 10]
     best = max(supported, key=lambda a: estimates[a]) if supported else actions[0]

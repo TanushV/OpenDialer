@@ -811,6 +811,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
     def optimization_report(self, p, epoch=None):
         from app.optimization.projections import (
             read_coaching_metrics,
+            read_comparison_metrics,
             read_dataset_metrics,
             read_drift_metrics,
             read_trial_metrics,
@@ -821,23 +822,8 @@ class OptimizationWorkflows(ComparisonWorkflows):
             config = self.optimization_config(s, p)
             data = self.operational_dataset(s, p, config)
             leads = self.scoped(s, "leads", p)
-            calls = self.scoped(s, "call_attempts", p)
-            known_calls = {c.id for c in calls if p["role"] != "rep" or c.data["rep_id"] == p["user_id"]}
-            events = [doc(r) for r in self.scoped(s, "conversion_events", p)]
-            feedback = [
-                r.data for r in self.scoped(s, "coaching_feedback", p) if r.data["call_id"] in known_calls
-            ]
-            coach_events = [
-                doc(r) for r in self.scoped(s, "coach_events", p) if r.data["call_id"] in known_calls
-            ]
-            campaign = self.scoped(s, "campaigns", p)[0]
-            from app.optimization.experiments import call_goal_events
-
             trial = read_trial_metrics(self, p, epoch=epoch)
             cohort_history = trial.pop("cohort_history")
-            derived_events = events + call_goal_events(
-                [doc(c) for c in calls], trial["goal"], now=self.clock()
-            )
             decision_rows = self.scoped(s, "policy_decisions", p)
             decisions = [
                 doc(r) for r in decision_rows if p["role"] != "rep" or r.data.get("rep_id") == p["user_id"]
@@ -872,9 +858,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
             measured = self.metrics(p)
             return {
                 "settings": config,
-                "comparisons": self.comparison_reports(
-                    s, p, campaign, calls, derived_events, feedback, coach_events
-                ),
+                "comparisons": read_comparison_metrics(self, p),
                 "cohort_history": cohort_history,
                 "forecast": self.forecast(s, p),
                 "numbers": self.inventory_evidence(s, p),
