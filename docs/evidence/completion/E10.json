@@ -1,0 +1,122 @@
+{
+  "step_id": "E10",
+  "stage": "accepted-scoped-software",
+  "profiles": [
+    {
+      "mode": "recovery-sqlite",
+      "source_commit": "f31bdb29145c48f22004eb1134585c522628ccd9",
+      "production_tree_digest": "18fcc34d8edc5b93660376e21271ca39595dc445086ab04ed5860415d4410cd9",
+      "test_tree_digest": "0458f64bf8f3262e8fca518974eac1252dbb052c96de8053e28f999526f32f15",
+      "result_counts": {
+        "passed": 349,
+        "seconds": 212.87
+      },
+      "raw_log_sha256": "a88fc037061a4c63bcaada96952c69ef2ab1ac7b6520cc164cd353e1fe4df897",
+      "log": "E10-recovery-sqlite.txt"
+    },
+    {
+      "mode": "recovery-postgresql",
+      "source_commit": "f31bdb29145c48f22004eb1134585c522628ccd9",
+      "production_tree_digest": "18fcc34d8edc5b93660376e21271ca39595dc445086ab04ed5860415d4410cd9",
+      "test_tree_digest": "0458f64bf8f3262e8fca518974eac1252dbb052c96de8053e28f999526f32f15",
+      "result_counts": {
+        "passed": 349,
+        "seconds": 974.29
+      },
+      "raw_log_sha256": "5d14bacf9d7c36885f1828377fe2ef7cf2da63f503d64e12cb9b2ddf46f2f1db",
+      "log": "E10-recovery-postgres.txt"
+    },
+    {
+      "mode": "agent-indexed-sqlite",
+      "source_commit": "9cee5a854a25e120aec9e9075baea5e9bf77f166",
+      "production_tree_digest": "012ebb4a9659c0a6d84740dd740adb1e78a74cccb68cb150280bd2ecf53b7971",
+      "test_tree_digest": "c10a41db43894952ca43b159f3188a00443edeaac90746065d79e19977157699",
+      "result_counts": {
+        "passed": 120,
+        "seconds": 70.72
+      },
+      "raw_log_sha256": "1c08d54900148c787063a67ae13708d33f39a77447105d031c2cba261491d112",
+      "log": "E10-agent-indexed-sqlite.txt"
+    },
+    {
+      "mode": "agent-indexed-postgresql",
+      "source_commit": "f1a812816a6b9dad0a8ca5a54f74f930205c9c0d",
+      "production_tree_digest": "1705188da1dfcc481679fb7a6cec7a73b41527420d13f80deab8a54b8d570a7d",
+      "test_tree_digest": "63a298c0e68250108c386bd5da523aeea6e049f2cfa7c080981e19d010c51610",
+      "result_counts": {
+        "passed": 120,
+        "seconds": 294.03
+      },
+      "raw_log_sha256": "ddae7cc465329361da0dc92796f3e60cd3ecdedb0b4825bd0938242489c6e802",
+      "log": "E10-agent-indexed-postgres.txt"
+    },
+    {
+      "mode": "frontend-unit",
+      "source_commit": "157129e9948b0fcf3160beb447cade54ee99d80f",
+      "production_tree_digest": "34ed32a398344fe834ee8e522e4b31c316d38078ae3c0433a82865e6ea6937cd",
+      "test_tree_digest": "18ef0f1dee599c7be70da55393eff57e6da4cbf187a290fc18b21731782d7dbb",
+      "result_counts": {
+        "passed": 40,
+        "seconds": null
+      },
+      "raw_log_sha256": "fff249bfecb487d12aa4fd7cee1619e421150b9d4e9ea063f342a7904ce0e3b5",
+      "log": "E10-frontend-unit.txt"
+    },
+    {
+      "mode": "browser-local-and-connected-postgresql",
+      "source_commit": "157129e9948b0fcf3160beb447cade54ee99d80f",
+      "production_tree_digest": "34ed32a398344fe834ee8e522e4b31c316d38078ae3c0433a82865e6ea6937cd",
+      "test_tree_digest": "18ef0f1dee599c7be70da55393eff57e6da4cbf187a290fc18b21731782d7dbb",
+      "result_counts": {
+        "passed": 5,
+        "seconds": 15.7
+      },
+      "raw_log_sha256": "30151af64ae870ced5d3e0ca1c43bc6bf0710fc8ea4f0a85b728e90661ff4adf",
+      "log": "E10-recovery-browser-final.txt"
+    }
+  ],
+  "case_ids": [
+    "C039",
+    "C040",
+    "C041",
+    "C042"
+  ],
+  "fixture_seed": 20261018,
+  "environment": {
+    "python": "3.12.13",
+    "postgresql": "17;guarded disposable loopback;separate browser database"
+  },
+  "started_at": null,
+  "finished_at": "2026-10-19T19:52:05.787286+00:00",
+  "timestamp_note": "Profile runner durations retained; exact start timestamps unavailable. Indexed PG loaded the security source later committed as f1a8128; its test files were unchanged.",
+  "failed_cases": [],
+  "red_log_sha256": {
+    "E10-publication-ownership-red.txt": "463180514adf1e5b071464769135959275a3987a9e79f1ee5cd00e411b77cdf2",
+    "E10-late-dial-red.txt": "b96f0bd0111070cab2fb5a1d62f6cd0299f01ca19201ecc0e2cb1e9d2a6f136c",
+    "E10-policy-agent-red.txt": "01f76d9e96f4df1c96ee0e37526f8e5f7b5fe30d7bc520a7192a2d83779c3068",
+    "E10-sdk-lifecycle-red.txt": "fcc42be8ad51dc31f793842e9d4da4b8683db076f4dcbae5390052200a4542bf",
+    "E10-sdk-stop-red.txt": "a329bfcd25cdc72cd1e8196409dcd8a505cea90aaa058299c38e24ce85985de0",
+    "E10-inbound-ui-red-fixed-fixture.txt": "2c6fffca74fa1d4440492d26e6a15e963ab050930aff008ae3ed984f86971f5f",
+    "E10-agent-indexed-red.txt": "254262b965dc5b2626d034217c23f9385b8b73418dc98cb4fb3347660e28b435"
+  },
+  "commands": {
+    "recovery": ".venv/bin/python -m pytest services/backend/tests/test_{control_completion,webhook_completion,remediation_recovery,keypad_recovery,recovery_actions,inbound_completion,final_attempt_voicemail,billing_resolution,request_accounting,restore_effects,effect_matrix,recovery_due}.py -q --tb=short",
+    "agent-indexed": ".venv/bin/python -m pytest services/backend/tests/test_{control_completion,recovery_actions,recovery_due,migrations,inbound_completion}.py -q --tb=short",
+    "browser": "npm --prefix apps/desktop run test:e2e -- tests/callback-routing.spec.ts tests/recovery.spec.ts",
+    "frontend": "npm --prefix apps/desktop test"
+  },
+  "retired_paths": [
+    "Expired lease publication despite matching owner",
+    "Unrecovered expired agent setup",
+    "History scans for agent setup/status/presence/events",
+    "Unscoped SDK auto-answer and current-call control handle",
+    "Duplicate safe-stop and command-window definitions"
+  ],
+  "known_limitations": [
+    "C040 typed shared capability contract remains E12; offline local callback gate remains external.",
+    "E13 revalidates E11 onward changes; these profile receipts are exact scoped source evidence.",
+    "Frontend unit coverage12.36% statements/10.44% branches over all production; browser evidence is separate.",
+    "Native SDK/audio/update acceptance remains E14/X01/X06; installed Mac0.2.1 untouched."
+  ],
+  "external_calls": false
+}

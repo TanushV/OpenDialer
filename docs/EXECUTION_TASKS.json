@@ -6,7 +6,7 @@
   "status": "implementation-authorized; E00-E09 scoped software accepted; E10 in progress",
   "requirements_source": "docs/REMEDIATION_PLAN.md",
   "implementation_source": "docs/EXECUTION_SPEC.md",
-  "next_step": "E10",
+  "next_step": "E11",
   "receipt_rule": "No inherited checkbox or planned node is a current passing receipt. Update by actual source-bound evidence.",
   "steps": [
     {
@@ -708,7 +708,7 @@
     {
       "id": "E10",
       "title": "Complete recovery, callbacks and accounting",
-      "status": "in-progress",
+      "status": "accepted-software",
       "depends_on": [
         "E09"
       ],
@@ -726,7 +726,9 @@
         "services/backend/tests/test_restore_effects.py",
         "services/backend/tests/test_effect_matrix.py"
       ],
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "planned_case_ids": [
         "C039",
         "C040",
@@ -751,39 +753,44 @@
         "A49",
         "A54"
       ],
-      "checkpoint": "349 SQLite recovery checks,40 frontend units and five browser journeys passed; broad PostgreSQL is still running. Final indexed agent readers pass120 SQLite checks; matching PostgreSQL remains.",
+      "checkpoint": "349 recovery checks and120 final indexed-agent checks per database;40 frontend units andfive browser journeys. E12 owns shared capabilities; E13 revalidation andE14/native/live gates remain.",
       "implementation_todos": [
         {
           "id": "E10.contracts",
-          "status": "implemented-awaiting-final-verification",
-          "work": "Record operation matrix, expired publication and actual SDK identity regression evidence before repairs"
+          "status": "accepted-software",
+          "work": "Record operation matrix, expired publication and actual SDK identity regression evidence before repairs",
+          "receipt": "docs/evidence/completion/E10.json"
         },
         {
           "id": "E10.ownership",
-          "status": "implemented-awaiting-final-verification",
-          "work": "Fence completion/failure by current unexpired lease; recover interrupted agents without another dial"
+          "status": "accepted-software",
+          "work": "Fence completion/failure by current unexpired lease; recover interrupted agents without another dial",
+          "receipt": "docs/evidence/completion/E10.json"
         },
         {
           "id": "E10.callbacks",
-          "status": "implemented-awaiting-final-verification",
-          "work": "Exact SDK identities, explicit inbound accept/mute/hangup, stale-session isolation and conflicting outbound prevention"
+          "status": "accepted-software",
+          "work": "Exact SDK identities, explicit inbound accept/mute/hangup, stale-session isolation and conflicting outbound prevention",
+          "receipt": "docs/evidence/completion/E10.json"
         },
         {
           "id": "E10.matrix",
-          "status": "implemented-awaiting-final-verification",
-          "work": "One machine-readable operation policy selects existing operation-specific handlers and retry boundaries"
+          "status": "accepted-software",
+          "work": "One machine-readable operation policy selects existing operation-specific handlers and retry boundaries",
+          "receipt": "docs/evidence/completion/E10.json"
         },
         {
           "id": "E10.acceptance",
-          "status": "open",
-          "work": "Full E10 crash, callback, final-attempt voicemail/accounting scopes in both databases and affected browser/native contracts"
+          "status": "accepted-software",
+          "work": "Full E10 crash, callback, final-attempt voicemail/accounting scopes in both databases and affected browser/native contracts",
+          "receipt": "docs/evidence/completion/E10.json"
         }
       ]
     },
     {
       "id": "E11",
       "title": "Privacy-safe migration, backups and disaster recovery",
-      "status": "open",
+      "status": "in-progress",
       "depends_on": [
         "E10"
       ],
@@ -820,16 +827,16 @@
         "A53",
         "A54"
       ],
-      "checkpoint": "Baseline:8 failures,101 passes,two native receipt skips. New segment regressions:6 fail,one pass before implementation. No E11 production changes yet.",
+      "checkpoint": "Chained segment/denial scope60 SQLite passes; initial17 effect tests green, four new target/repair/configuration/screening regressions red. Journal integration, installed copy and fullE11 still active.",
       "implementation_todos": [
         {
           "id": "E11.segments",
-          "status": "open",
+          "status": "implemented-awaiting-postgresql",
           "work": "Chained encrypted8MiB journal segments, bounded append, checkpoint and loss/corruption tests"
         },
         {
           "id": "E11.effects",
-          "status": "open",
+          "status": "in-progress",
           "work": "Typed intent/submission/receipt integration across all paid and customer-visible effects; safe stops retain access"
         },
         {
@@ -1074,7 +1081,9 @@
       "primary_step": "E10",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1087,7 +1096,9 @@
       "primary_step": "E10",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1100,7 +1111,9 @@
       "primary_step": "E10",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1109,11 +1122,13 @@
       "id": "M1.04",
       "requirement": "Complete leased/fenced recovery for every control command, not only dial/hangup; wire heartbeats where needed.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "retained-needs-revalidation",
       "primary_step": "E10",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1126,7 +1141,9 @@
       "primary_step": "E10",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1139,7 +1156,9 @@
       "primary_step": "E10",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1152,7 +1171,9 @@
       "primary_step": "E10",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1165,7 +1186,9 @@
       "primary_step": "E10",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1178,7 +1201,9 @@
       "primary_step": "E10",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1191,7 +1216,9 @@
       "primary_step": "E10",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1200,11 +1227,13 @@
       "id": "M1.06",
       "requirement": "Repair usage-hold settlement and uncertain liability; deduplicate provider receipts.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "retained-needs-revalidation",
       "primary_step": "E10",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1217,7 +1246,9 @@
       "primary_step": "E10",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1230,7 +1261,9 @@
       "primary_step": "E10",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1239,11 +1272,13 @@
       "id": "M1.07",
       "requirement": "Verify opt-out/start ordering, active claims, detached obligations and orphan-call safeguards.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "retained-needs-revalidation",
       "primary_step": "E10",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1256,7 +1291,9 @@
       "primary_step": "E10",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1280,11 +1317,13 @@
       "id": "M1.08",
       "requirement": "Add actionable recovery/dead-letter status; no ordinary recovery requires editing database rows manually.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "retained-needs-revalidation",
       "primary_step": "E10",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1297,7 +1336,9 @@
       "primary_step": "E10",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1310,7 +1351,9 @@
       "primary_step": "E10",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1440,7 +1483,9 @@
         "E09"
       ],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -2421,13 +2466,15 @@
       "id": "M5.09",
       "requirement": "Finish actual inbound fallback and callback completion with ownership and local-offline behavior.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "retained-needs-revalidation",
       "primary_step": "E10",
       "supporting_steps": [
         "E12"
       ],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -2440,7 +2487,9 @@
       "primary_step": "E10",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -3095,13 +3144,15 @@
       "id": "X01",
       "requirement": "Telnyx approved traffic, real authorized caller ID, bridge/bypass prevention, inbound callback and billing receipts.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "retained-needs-revalidation",
       "primary_step": "E10",
       "supporting_steps": [
         "E14"
       ],
       "acceptance_gate": "external",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "verification_steps": []
     },
     {
@@ -6306,13 +6357,15 @@
       "step": "E10",
       "planned_node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases",
       "expected": "Each E10 operation times each five crash boundaries has original identity, fenced owner, cost state and meaningful next action; no blind repeat.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_effect_matrix.py::test_inference_attempt_crash_matrix",
         "services/backend/tests/test_effect_matrix.py::test_deferred_script_crash_matrix",
@@ -6329,13 +6382,15 @@
       "step": "E10",
       "planned_node": "services/backend/tests/test_inbound_completion.py::test_online_callback_and_offline_capability",
       "expected": "Owner, teammate, busy, ambiguous caller and external destination paths retain leg/task; offline local is unavailable without actual compatible proof.",
-      "status": "baseline-recorded",
+      "status": "partial-E12-capability-and-external-offline-gate",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_inbound_completion.py::test_default_fallback_answers_then_speaks_and_ends_without_losing_task",
         "services/backend/tests/test_inbound_completion.py::test_duplicate_provider_call_with_different_event_ids_has_one_task_and_effect",
@@ -6370,13 +6425,15 @@
       "step": "E10",
       "planned_node": "services/backend/tests/test_final_attempt_voicemail.py::test_permission_allowance_topology",
       "expected": "Greatest declared allowance, actual submissions, late human, no beep, full mailbox, opt-out and detached restart preserve correct obligation.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_final_attempt_voicemail.py::test_reducing_attempt_policy_does_not_enable_early_voicemail",
         "services/backend/tests/test_final_attempt_voicemail.py::test_first_call_is_final_only_when_original_policy_allows_one_attempt",
@@ -6397,13 +6454,15 @@
       "step": "E10",
       "planned_node": "services/backend/tests/test_billing_resolution.py::test_every_effect_cost_and_credit",
       "expected": "All actual legs/reviews/transfers and uncertain amounts reconcile once; credit period retained; optional budget cannot prevent stop.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E10.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_billing_resolution.py::test_partial_carrier_receipt_does_not_clear_other_leg_liability",
         "services/backend/tests/test_billing_resolution.py::test_same_carrier_receipt_cannot_change_attribution",

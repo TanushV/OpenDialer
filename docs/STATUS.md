@@ -1,6 +1,8 @@
 # Execution log and continuation state
 
-**Current checkpoint — E10 active:** E00–E09 pass their scoped software contracts. Continue E10–E15 in order. Installed Mac remains0.2.1; no update, reinstall, funded request or purchase occurred. Whole-system, load, native and live acceptance remain open.
+**Current checkpoint — E11 active:** E00–E10 pass their scoped software contracts. Continue E11–E15 in order. Installed Mac remains0.2.1; no update, reinstall, funded request or purchase occurred. Whole-system, load, native and live acceptance remain open.
+
+2026-10-19 E10 EXIT / E11 ACTIVE. Recovery:349 passes per database; final indexed agent reads:120 per database. Forty frontend units andfive callback/recovery browser journeys passed. Exact sources and timings in [E10 receipt](evidence/completion/E10.json). C040 shared capability verification remains E12; offline/native/live gates stay open. E11 chained8MiB journals pass60 SQLite checks; first17 effect/recovery checks pass at8134c00. Four new target-identity, repair and missing operation-metadata regressions are red before repair. No installed change or spending.
 
 2026-10-19 E09 EXIT. Product2472c64 final maintenance scope:158 SQLite passes/one PG-only skip (79.13s),159 PostgreSQL passes (309.39s),seven browser workflows (24.2s). Incremental readers/estimates, changed planning, inactive rebuild/replay, shared admission and current source/lease/role publication are accepted at this boundary. [Receipt](evidence/completion/E09.json). E10 initial scope:326 passes/six failures; four stale fixtures corrected separately (six focused passes), two interrupted-agent defects remain. New expiry and SDK identity regressions are red before product changes. E13 full/load and E14 updates remain open.
 

@@ -2,6 +2,8 @@
 
 import pytest
 from conftest import reserve, start
+from test_batch_recovery import batch  # noqa: F401 - pytest fixture
+from test_dnc_recovery import screening  # noqa: F401 - pytest fixture
 from test_remediation_privacy import principal
 
 
@@ -194,3 +196,67 @@ async def test_control_receipts_never_persist_text_or_digits(workspace, app):
     assert "PRIVATE_SPEECH_CANARY" not in str(records)
     with service.db.transaction(False) as s:
         assert get(s, "command_outbox", identity).data["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_other_leg_control_never_replaces_recovered_prospect_identity(workspace, app):
+    from app.db import get
+
+    service, p = app.state.service, principal(workspace)
+    backup = service.backup(p)
+    call = start(workspace)
+    with service.db.transaction() as s:
+        action = service.control_intent(s, p, call["id"], "answer", {}, target="distinct-agent-leg")
+    await service.dispatch_controls(p, command_id=action.id)
+    with service.db.transaction() as s:
+        s.delete(get(s, "call_attempts", call["id"]))
+    service.restore(p, backup["backup_id"])
+    with service.db.transaction(False) as s:
+        assert get(s, "call_attempts", call["id"]).data["provider_id"] == call["provider_id"]
+
+
+def test_repaired_journal_can_release_its_explicit_hold(workspace, app, monkeypatch):
+    from fastapi import HTTPException
+
+    service, p = app.state.service, principal(workspace)
+    original = service.vault.append_journal
+    monkeypatch.setattr(service.vault, "append_journal", lambda *_: (_ for _ in ()).throw(OSError("full")))
+    with pytest.raises(HTTPException):
+        service.reserve_optional_budget(p, "interrupted", 0.01, object_id="object", work_kind="live_coach")
+    monkeypatch.setattr(service.vault, "append_journal", original)
+    response = workspace["client"].post(
+        "/v1/admin/restore/reconcile",
+        headers=workspace["headers"],
+        json={"review_reference": "Recovered original local journal storage"},
+    )
+    assert response.status_code == 200, response.text
+    assert "EFFECT_JOURNAL_RECOVERY_REQUIRED" not in service.preflight(p)["blockers"]
+    assert service.vault.read_journal("effects"), "Repair must persist the original pending metadata"
+
+
+def test_original_paid_intents_are_journaled_for_configuration_and_batch(workspace, app, batch):  # noqa: F811
+    from test_batch_recovery import submit
+    from test_number_reconciliation import configure_fixture
+
+    service, p, number = configure_fixture(workspace, app)
+    config, _ = service._claim_number_configuration(p, number, "desired")
+    assert submit(workspace, batch).status_code == 503
+    entries = service.vault.read_journal("effects")
+    assert any(r["kind"] == "number_configure" and r["phase"] == "submitted" for r in entries)
+    commands = [e for r in entries for e in r["entities"] if e["table"] == "command_outbox"]
+    assert any(e["id"] == config["id"] for e in commands)
+    assert any(e["data"]["kind"] == "script_batch" and e["data"].get("request_digest") for e in commands)
+
+
+def test_prepaid_screen_journal_keeps_exact_attempt_without_its_secret(workspace, screening):  # noqa: F811
+    from test_dnc_recovery import screen
+
+    service, p, *_ = screening
+    assert screen(workspace).status_code == 200
+    entries = service.vault.read_journal("effects")
+    assert any(
+        e["table"] == "registry_snapshots" and e["data"].get("request_key")
+        for r in entries
+        for e in r["entities"]
+    )
+    assert "synthetic-private-key" not in str(entries)
