@@ -3,7 +3,6 @@
 from datetime import timedelta
 
 import pytest
-
 from app.db import get, put, update
 from conftest import completed_report, start
 from test_optimization_workflows import finish
@@ -513,11 +512,149 @@ def test_trial_study_metadata_change_refreshes_enrolled_leads(workspace, app, cl
     assert sum(a["leads"] for a in current["trial"]["arms"].values()) == 3
 
 
+def test_health_counts_keep_residual_uncertainty_and_missing_labels(clock):
+    from app.optimization import numbering
+    from app.optimization.api import HealthPolicy
+
+    policy = HealthPolicy().model_dump()
+    at = (clock.now - timedelta(days=1)).isoformat()
+    rows = [
+        {
+            "started_at": at,
+            "outcome": "no_answer",
+            "outcome_source": "rep",
+            "outcome_available_at": at,
+            "expected_human": 0.8,
+            "prediction_at": at,
+            "feature_schema_version": 2,
+            "connected_seconds": 0,
+        }
+        for _ in range(40)
+    ]
+    rows += [{"started_at": at, "outcome": "unclassified", "expected_human": 0.8}]
+    counts = {}
+    for row in rows:
+        for key, value in numbering.health_values(row, now=clock.now, policy=policy).items():
+            counts[key] = counts.get(key, 0) + value
+    result = numbering.health_from_counts(counts, now=clock.now, policy=policy, comparison_strata=1)
+    assert result["samples"] == 41 and result["human_classified_samples"] == 40
+    assert result["human_unknown_samples"] == result["excluded_comparison_samples"] == 1
+    assert result["comparable_samples"] == 40
+    assert result["expected_human_answers"] == pytest.approx(32)
+    assert result["case_mix_residual_mean"] == pytest.approx(-0.8)
+    assert result["case_mix_interval"] == pytest.approx([-0.8, -0.8], abs=1e-7)
+    assert result["short_connected_calls"] == result["connected_duration_samples"] == 40
+    assert result["delivery_failures"] == 0
+    assessed = numbering.assess_number_health(result, {"as_of": clock.now.isoformat()}, None, policy)
+    assert assessed["status"] == "investigating"
+    assert "case_mix_pickup_drop" in assessed["reason_codes"]
+    assert assessed["spam_label_confirmed"] is False
+
+
+def test_number_health_projection_corrects_and_expires_without_call_history(workspace, app, clock):
+    from app.optimization import projections
+    from sqlalchemy import event
+    from test_projection_replay import project_pending
+
+    service, p = app.state.service, principal(workspace)
+    began = clock.now - timedelta(days=89)
+    at = began.isoformat()
+    with service.db.transaction() as s:
+        lead = service.scoped(s, "leads", p)[0]
+        number = service.scoped(s, "number_inventory", p)[0]
+        number_id = number.id
+        feature = put(
+            s,
+            "feature_snapshots",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "lead_id": lead.id,
+                "as_of": at,
+                "feature_schema_version": 2,
+                "features": {"segment": "example", "local_hour": 10, "source": "import", "attempt_count": 1},
+                "predictions": {"p_human": 0.2},
+            },
+            now=began,
+        )
+        call = put(
+            s,
+            "call_attempts",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "lead_id": lead.id,
+                "campaign_id": workspace["campaign_id"],
+                "rep_id": p["user_id"],
+                "number_id": number_id,
+                "started_at": at,
+                "submitted_at": at,
+                "ended_at": at,
+                "state": "ended",
+                "outcome": "right_party",
+                "outcome_source": "rep",
+                "outcome_available_at": at,
+                "feature_snapshot_id": feature.id,
+                "connected_seconds": 5,
+            },
+            now=began,
+        )
+        call_id = call.id
+        callback = put(
+            s,
+            "followup_tasks",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "inbound": True,
+                "number_id": number_id,
+                "lead_id": lead.id,
+                "status": "open",
+                "occurred_at": at,
+            },
+            now=began,
+        )
+        callback_id = callback.id
+    project_pending(service, p)
+
+    def read():
+        def reject(connection, cursor, statement, parameters, context, many):
+            assert not any(
+                "FROM " + t in statement for t in ("call_attempts", "feature_snapshots", "followup_tasks")
+            )
+
+        event.listen(service.db.engine, "before_cursor_execute", reject)
+        try:
+            return projections.read_number_health_metrics(service, p).get(number_id)
+        finally:
+            event.remove(service.db.engine, "before_cursor_execute", reject)
+
+    result = read()
+    assert result["samples"] == result["human_answers"] == result["comparable_samples"] == 1
+    assert result["short_connected_calls"] == result["callbacks"] == result["comparison_strata"] == 1
+    assert result["expected_human_answers"] == 0.2
+    with service.db.transaction() as s:
+        update(
+            get(s, "call_attempts", call_id),
+            outcome="no_answer",
+            connected_seconds=20,
+            outcome_available_at=clock.now.isoformat(),
+        )
+        s.delete(get(s, "followup_tasks", callback_id))
+    project_pending(service, p)
+    result = read()
+    assert result["samples"] == 1
+    assert result["human_answers"] == result["short_connected_calls"] == result["callbacks"] == 0
+    clock.now += timedelta(days=2)
+    projections.refresh_due(service, p)
+    project_pending(service, p)
+    assert not read() or read()["samples"] == 0
+
+
 @pytest.mark.parametrize("family", ["coaching", "number_allocation", "strategy"])
 def test_comparison_buckets_keep_strata_feedback_seed_and_corrected_speech(workspace, app, clock, family):
-    from sqlalchemy import event
-
     from app.optimization import projections
+    from sqlalchemy import event
     from test_projection_replay import project_pending
 
     service, p = app.state.service, principal(workspace)
