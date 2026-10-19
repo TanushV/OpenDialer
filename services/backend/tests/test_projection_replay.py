@@ -630,3 +630,198 @@ def test_dependent_expansion_locks_parent_and_children_in_source_order(workspace
         "Expansion cannot lock its parent before a lower-sorted child; source writers acquire the opposite order"
     )
     assert "ORDER BY jobs.key" in reads[0][0]
+
+
+def active_total(service, p):
+    from app.db import MODELS
+    from app.optimization.projections import _group_key, definition_version
+    from sqlalchemy import select
+
+    with service.db.transaction(False) as session:
+        campaign = service.scoped(session, "campaigns", p)[0]
+        pointer = campaign.data.get("metric_projection", {})
+        definition = pointer.get("active_definition") or definition_version(
+            service.optimization_config(session, p, campaign.id),
+            campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2"),
+        )
+        group = {
+            "bucket_kind": "total",
+            "bucket_day": None,
+            "namespace": pointer.get("active_namespace", "initial"),
+            "campaign_id": campaign.id,
+            "definition_version": definition,
+        }
+        row = session.scalar(
+            select(MODELS["metric_buckets"]).where(
+                MODELS["metric_buckets"].tenant_id == p["tenant_id"],
+                MODELS["metric_buckets"].seller_id == p["seller_id"],
+                MODELS["metric_buckets"].external_key == _group_key(service, group),
+            )
+        )
+        return dict(pointer), dict(row.data["values"]) if row else {}
+
+
+def finish_rebuild(service, p):
+    from app.optimization.projections import rebuild_page
+
+    for _ in range(30):
+        result = rebuild_page(service, p)
+        assert result["processed"] <= 500
+        if result["published"]:
+            return result
+    raise AssertionError(f"Rebuild failed to converge: {result}")
+
+
+def test_rebuild_keeps_active_totals_and_recovers_a_partially_written_page(
+    workspace, app, clock, monkeypatch
+):
+    from app.db import put
+    from app.optimization import projections
+
+    service, p = app.state.service, principal(workspace)
+    project_pending(service, p)
+    original_pointer, original_values = active_total(service, p)
+    with service.db.transaction() as session:
+        sample = service.scoped(session, "leads", p)[0]
+        for i in range(501):
+            put(
+                session,
+                "leads",
+                p["tenant_id"],
+                p["seller_id"],
+                dict(sample.data),
+                key=f"rebuild-page:{i}",
+                now=clock.now,
+            )
+    seen = []
+    original = projections.refresh_unit
+
+    def interrupted(*args, **kwargs):
+        result = original(*args, **kwargs)
+        seen.append(True)
+        if len(seen) == 17:
+            raise RuntimeError("Synthetic interruption after committed source delta")
+        return result
+
+    with monkeypatch.context() as patch:
+        patch.setattr(projections, "refresh_unit", interrupted)
+        import pytest
+
+        with pytest.raises(RuntimeError, match="Synthetic interruption"):
+            projections.rebuild_page(service, p, start=True)
+    pointer, values = active_total(service, p)
+    assert pointer["building_namespace"] != pointer["active_namespace"]
+    assert pointer["active_namespace"] == original_pointer.get("active_namespace", "initial")
+    assert values == original_values, "Inactive replay must not change the old consistent namespace"
+    result = finish_rebuild(service, p)
+    assert result["status"] == "ready"
+    pointer, values = active_total(service, p)
+    assert not pointer.get("building_namespace")
+    assert values["original_cohort"] == 504
+    assert values["eligible_now"] == 504
+    before = vectors(service, p, "metric_contributions")
+    assert projections.rebuild_page(service, p)["published"]
+    assert vectors(service, p, "metric_contributions") == before
+
+
+def test_rebuild_catches_backdated_insert_deletion_and_rep_day_union(workspace, app, clock):
+    from datetime import timedelta
+
+    from app.db import get, put
+    from app.optimization import projections
+
+    service, p = app.state.service, principal(workspace)
+    project_pending(service, p)
+    first = projections.rebuild_page(service, p, start=True)
+    assert not first["published"]
+    with service.db.transaction() as session:
+        lead = service.scoped(session, "leads", p)[0]
+        removed = lead.id
+        source = dict(lead.data)
+        session.delete(lead)
+        inserted = put(
+            session,
+            "leads",
+            p["tenant_id"],
+            p["seller_id"],
+            source,
+            object_id="00000000-0000-0000-0000-000000000001",
+            now=clock.now - timedelta(days=300),
+        )
+        for i in range(2):
+            put(
+                session,
+                "work_intervals",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    "rep_id": p["user_id"],
+                    "started_at": (clock.now - timedelta(minutes=30)).isoformat(),
+                    "ended_at": clock.now.isoformat(),
+                },
+                key=f"overlap-rebuild:{i}",
+                now=clock.now,
+            )
+        put(
+            session,
+            "conversion_events",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "lead_id": inserted.id,
+                "kind": "meeting_held",
+                "status": "confirmed",
+                "occurred_at": clock.now.isoformat(),
+                "label_available_at": clock.now.isoformat(),
+            },
+            now=clock.now,
+        )
+    finish_rebuild(service, p)
+    pointer, values = active_total(service, p)
+    assert values["original_cohort"] == 3
+    assert values["unique_conversions"] == 1
+    assert values["rep_work_seconds"] == 1800
+    with service.db.transaction(False) as session:
+        assert get(session, "leads", removed) is None
+    assert pointer["source_watermark"] >= first["source_watermark"]
+
+
+def test_rebuild_goal_change_cannot_activate_a_stale_definition(workspace, app, clock):
+    from app.db import get, put
+    from app.optimization import projections
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as session:
+        lead = service.scoped(session, "leads", p)[0]
+        put(
+            session,
+            "conversion_events",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "lead_id": lead.id,
+                "kind": "meeting_held",
+                "status": "confirmed",
+                "occurred_at": clock.now.isoformat(),
+                "label_available_at": clock.now.isoformat(),
+            },
+            now=clock.now,
+        )
+    project_pending(service, p)
+    initial = active_total(service, p)[1]
+    assert initial["unique_conversions"] == 1
+    projections.rebuild_page(service, p, start=True)
+    with service.db.transaction() as session:
+        campaign = get(session, "campaigns", workspace["campaign_id"])
+        update(
+            campaign,
+            optimization={**campaign.data.get("optimization", {}), "conversion_goal": "sale_won"},
+            optimization_epoch="changed-goal",
+        )
+    result = projections.rebuild_page(service, p)
+    assert result["status"] == "superseded" and not result["published"]
+    assert active_total(service, p)[1] == initial
+    projections.rebuild_page(service, p, start=True)
+    finish_rebuild(service, p)
+    assert active_total(service, p)[1]["unique_conversions"] == 0
+    assert active_total(service, p)[1]["held_meetings"] == 1
