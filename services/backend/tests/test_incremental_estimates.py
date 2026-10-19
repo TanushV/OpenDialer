@@ -284,3 +284,68 @@ def test_projected_treatment_rewards_keep_global_and_local_support(workspace, ap
     result = distribution_from_counts([action], rewards[segment])
     assert result["observations"][action] == 1
     assert result["estimates"][action] < 0.2
+
+
+def test_explicit_snapshot_bounds_attempts_before_loading_related_content(workspace, app, clock, monkeypatch):
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    finish(workspace, call)
+    identities = []
+    with service.db.transaction() as s:
+        original = dict(get(s, "call_attempts", call["id"]).data)
+        for i in range(9):
+            row = put(
+                s,
+                "call_attempts",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    **original,
+                    "started_at": (clock.now + timedelta(seconds=i + 1)).isoformat(),
+                    "submitted_at": (clock.now + timedelta(seconds=i + 1)).isoformat(),
+                },
+                now=clock.now,
+            )
+            identities.append(row.id)
+    clock.now += timedelta(minutes=1)
+
+    def no_history(*args, **kwargs):
+        raise AssertionError("Even explicit training must bound records before decrypting history")
+
+    monkeypatch.setattr(service, "scoped", no_history)
+    with service.db.transaction(False) as s:
+        actual = service.operational_dataset(s, p, limit=2)
+    assert {r["call_id"] for r in actual} == set(identities[-2:])
+
+
+def test_explicit_learning_snapshot_is_outside_writer_and_reuses_one_dataset(workspace, app, monkeypatch):
+    from contextlib import contextmanager
+
+    service, p = app.state.service, principal(workspace)
+    learn = getattr(service, "refresh_learning", None)
+    assert callable(learn), "Dataset/association work needs its separate bounded job"
+    transaction, original = service.db.transaction, service.operational_dataset
+    writes, snapshots = [], []
+
+    @contextmanager
+    def traced(write=True):
+        writes.append(write)
+        try:
+            with transaction(write) as s:
+                yield s
+        finally:
+            writes.pop()
+
+    def observed(*args, **kwargs):
+        assert not any(writes), "Training snapshot construction held an operational writer"
+        snapshots.append(True)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(service.db, "transaction", traced)
+    monkeypatch.setattr(service, "operational_dataset", observed)
+    result = learn(p)
+    assert len(snapshots) == 1
+    assert result["training"]["status"] == "insufficient_data"
+    with service.db.transaction(False) as s:
+        campaign = service.scoped(s, "campaigns", p)[0]
+        assert campaign.data["conversation_report"]["patterns"] == []
