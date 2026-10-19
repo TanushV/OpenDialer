@@ -29,7 +29,7 @@ EFFECT_FIELDS = {
         "kind phone request_key status started_at authority_stamp checked_at expires_at listed estimate_usd previous_attempts".split()
     ),
     "followup_tasks": frozenset(
-        "kind lead_id endpoint_id number_id owner_id provider_id caller_provider_id inbound_state inbound_deadline status created_at due_at".split()
+        "kind lead_id endpoint_id number_id owner_id provider_id caller_provider_id inbound_state inbound_deadline status created_at due_at inbound caller_ended called_phone callback_phone previous_call_id responsible_rep_id routed_rep_id route routing_attempts routing_config ended_at".split()
     ),
     "audit_events": frozenset({"actor_id", "action", "target_id", "detail"}),
 }
@@ -42,6 +42,23 @@ def effect_entity(row):
         data["command_id"] = row.data.get("payload", {}).get("command_id") or row.external_key
     if kind == "usage_ledger" and data.get("call_id") and not data.get("object_id"):
         data["object_id"] = data["call_id"]
+    if kind == "followup_tasks":
+        if "routing_attempts" in data:
+            data["routing_attempts"] = [
+                {
+                    k: v
+                    for k, v in a.items()
+                    if k
+                    in {"id", "rep_id", "kind", "target", "state", "provider_id", "started_at", "ended_at"}
+                }
+                for a in data["routing_attempts"][:4]
+            ]
+        if "routing_config" in data:
+            data["routing_config"] = {
+                k: v
+                for k, v in data["routing_config"].items()
+                if k in {"version", "destination", "ring_seconds"}
+            }
     if kind == "audit_events":
         detail = data.get("detail", {})
         result = detail.get("result", {})
@@ -101,6 +118,7 @@ class RequestAccounting:
             ):
                 raise ValueError("Repair the original effect journal before new work")
             self.vault.append_journal("effects", entry)
+            return hashlib.sha256(json.dumps(entry, sort_keys=True).encode()).hexdigest()
         except Exception:
             self._effect_journal_fault = True
             # Persist after the caller releases its writer. Emergency stops still run.

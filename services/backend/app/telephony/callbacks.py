@@ -309,6 +309,7 @@ class InboundCallbacks:
             update(task, inbound_state="ended", ended_at=self.clock().isoformat())
             self._release_inbound_claim(s, task)
         emit(s, p["tenant_id"], "task.updated", task, self.clock())
+        self.journal_effect_in(s, p, "inbound", task.id, "receipt", (task,), emergency=True)
 
     def inbound_event(self, tenant_id, payload, event_type, *, session=None, receipt=None):
         with self.db.transaction(session=session) as s:

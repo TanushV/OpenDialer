@@ -765,6 +765,7 @@ class SpeechPrivacy:
                 if len(page) < 500:
                     state.update(phase=phase + 1, last_id=None)
                 marker.data = state
+        self.vault.sanitize_legacy_authorization()
         if self.db.sqlite:
             with self.db.engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
                 connection.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")

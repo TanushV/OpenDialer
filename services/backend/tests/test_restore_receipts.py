@@ -70,9 +70,8 @@ def test_new_journal_entry_during_restore_keeps_outbound_held(workspace, app, ca
     service, p, call = held_call(workspace, app)
 
     async def reconcile(*args):
-        service.journal_authorization(
-            p, {**call, "id": "new-pending-call"}, {"command_id": "new-pending-call"}
-        )
+        with service.db.transaction() as s:
+            service.journal_effect_in(s, p, "dial", "new-pending-call", "submitted")
         return {"call_control_id": call["provider_id"], "is_alive": False}
 
     monkeypatch.setattr(carrier, "reconcile", reconcile)

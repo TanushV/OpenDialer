@@ -248,6 +248,7 @@ class TelephonyWorkflows:
         for lease in self.scoped(s, "number_leases", p):
             if lease.data.get("call_id") == call.id and lease.data.get("active"):
                 update(lease, active=False)
+        return self.journal_effect_in(s, p, "call_state", call.id, "receipt", (call,), emergency=True)
 
     def voicemail_reasons(self, s, p, call, asset, detach=False):
         lead = self.required(s, "leads", call.data["lead_id"], p)
@@ -656,4 +657,14 @@ class TelephonyWorkflows:
                     update(
                         user, presence={"status": "paused", "audio_ready": False, "telephony_ready": False}
                     )
+            self.journal_effect_in(
+                s,
+                {"tenant_id": tenant_id, "seller_id": leg.seller_id},
+                "agent",
+                leg.id,
+                "receipt",
+                (leg,),
+                provider_id=provider_id,
+                emergency=True,
+            )
             return True

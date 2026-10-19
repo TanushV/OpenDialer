@@ -4,7 +4,6 @@ import hashlib
 import hmac
 import json
 import logging
-import os
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -1155,22 +1154,3 @@ class Service(ReservationPlanner):
                 update(call, state=target)
                 emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": target})
             return {"duplicate": False, "event_id": event_id, "state": target}
-
-    def journal_authorization(self, p, call, payload, provider_id=None):
-        record = {
-            "call_id": call["id"],
-            "tenant_id": p["tenant_id"],
-            "seller_id": p["seller_id"],
-            "user_id": p["user_id"],
-            "at": self.clock().isoformat(),
-            "provider_id": provider_id,
-            "intent": {k: v for k, v in call.items() if k not in {"id", "tenant_id", "seller_id", "version"}},
-            "command_id": payload["command_id"],
-            "command_hash": hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest(),
-        }
-        path = self.settings.data_dir / "authorization-journal.enc"
-        descriptor = os.open(path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
-        with os.fdopen(descriptor, "ab") as journal:
-            journal.write(self.vault.cipher.encrypt(json.dumps(record).encode()) + b"\n")
-            journal.flush()
-            os.fsync(journal.fileno())

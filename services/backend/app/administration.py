@@ -618,7 +618,7 @@ class Dialer(
         if user.data.get("disabled") or user.data.get("role") not in {"owner", "admin"}:
             fail(403, "Current administrator authority is required for restore")
 
-    def _restore_journal(self, p):
+    def _restore_journal(self, p, *, confirmed_receipts=()):
         from app.compliance.consent import journal_entries
         from app.compliance.suppressions import journal_entries as suppression_entries
 
@@ -643,12 +643,17 @@ class Dialer(
         for entry in self.effect_entries():
             if (entry["tenant_id"], entry["seller_id"]) != (p["tenant_id"], p["seller_id"]):
                 continue
-            fingerprint.update(json.dumps(entry, sort_keys=True).encode())
+            encoded = json.dumps(entry, sort_keys=True).encode()
+            if hashlib.sha256(encoded).hexdigest() not in confirmed_receipts:
+                fingerprint.update(encoded)
             for entity in entry.get("entities", []):
                 if entity["table"] != "call_attempts":
                     continue
                 previous = records.get(entity["id"], {})
+                if previous.get("version", 0) > entity["version"]:
+                    continue
                 records[entity["id"]] = {
+                    "version": entity["version"],
                     "call_id": entity["id"],
                     "tenant_id": p["tenant_id"],
                     "seller_id": p["seller_id"],
@@ -747,10 +752,12 @@ class Dialer(
                     object_id=entry["call_id"],
                     now=self.clock(),
                 )
-            self.finish_call(session, p, current, "restored_provider_terminal_receipt")
-        return True
+            receipt_digest = self.finish_call(session, p, current, "restored_provider_terminal_receipt")
+        return receipt_digest or True
 
-    def _restore_release(self, p, fingerprint, seller_version, review_reference, count):
+    def _restore_release(
+        self, p, fingerprint, seller_version, review_reference, count, confirmed_receipts=()
+    ):
         from app.compliance.consent import journal_entries, replay_in, verify_recovery
         from app.compliance.suppressions import replay_in as replay_suppressions_in
 
@@ -758,7 +765,10 @@ class Dialer(
             self.db.authorize_stream(session, p)
             self._restore_operator(session, p)
             seller = self.required(session, "sellers", p["seller_id"], p)
-            if seller.version != seller_version or self._restore_journal(p)[1] != fingerprint:
+            if (
+                seller.version != seller_version
+                or self._restore_journal(p, confirmed_receipts=confirmed_receipts)[1] != fingerprint
+            ):
                 fail(409, "Restore or authorization journal changed; reconcile again before resuming")
             calls = MODELS["call_attempts"]
             if session.scalar(
@@ -802,17 +812,26 @@ class Dialer(
         pending, records, fingerprint, seller_version = await asyncio.to_thread(
             self._restore_snapshot, p, provider_ids or {}
         )
-        unresolved = []
+        unresolved, confirmed_receipts = [], set()
         for item in pending:
             try:
                 provider = await asyncio.to_thread(self.carrier, p["tenant_id"])
                 receipt = await provider.reconcile(item["entry"]["call_id"], item["target"])
             except Exception:
                 receipt = None
-            if not await asyncio.to_thread(self._restore_terminal, p, item, receipt):
+            confirmed = await asyncio.to_thread(self._restore_terminal, p, item, receipt)
+            if isinstance(confirmed, str):
+                confirmed_receipts.add(confirmed)
+            if not confirmed:
                 unresolved.append(item["entry"]["call_id"])
         if unresolved:
             fail(409, {"code": "AUTHORIZATION_RECONCILIATION_PENDING", "call_ids": unresolved})
         return await asyncio.to_thread(
-            self._restore_release, p, fingerprint, seller_version, review_reference, len(records)
+            self._restore_release,
+            p,
+            fingerprint,
+            seller_version,
+            review_reference,
+            len(records),
+            confirmed_receipts,
         )

@@ -247,6 +247,54 @@ class Vault:
             os.close(descriptor)
         self._sync_directory(path.parent)
 
+    def sanitize_legacy_authorization(self):
+        """Retain the installed format's recovery IDs, never its old full call body."""
+        from app.accounting import EFFECT_FIELDS
+
+        with self._locked_journal("authorization"):
+            path = self._journal_path("authorization")
+            if not path.exists():
+                return
+            temp = path.with_name(path.name + ".sanitizing")
+            if temp.is_symlink():
+                raise HTTPException(409, "Legacy journal output path is not protected")
+            fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            try:
+                with os.fdopen(fd, "wb") as output, path.open("rb") as source:
+                    while line := source.readline(1_000_001):
+                        if len(line) > 1_000_000 or not line.endswith(b"\n"):
+                            raise ValueError("Incomplete legacy authorization record")
+                        entry = json.loads(self.cipher.decrypt(line.strip()))
+                        if not all(entry.get(k) for k in ("tenant_id", "seller_id", "call_id")):
+                            raise ValueError("Legacy authorization record lacks scope")
+                        clean = {
+                            k: v
+                            for k, v in entry.items()
+                            if k
+                            in {
+                                "call_id",
+                                "tenant_id",
+                                "seller_id",
+                                "user_id",
+                                "at",
+                                "provider_id",
+                                "command_id",
+                                "command_hash",
+                            }
+                        }
+                        clean["intent"] = {
+                            k: v
+                            for k, v in entry.get("intent", {}).items()
+                            if k in EFFECT_FIELDS["call_attempts"]
+                        }
+                        output.write(self.cipher.encrypt(json.dumps(clean).encode()) + b"\n")
+                    output.flush()
+                    os.fsync(output.fileno())
+                temp.replace(path)
+                self._sync_directory(path.parent)
+            finally:
+                temp.unlink(missing_ok=True)
+
 
 def issue_session(s, settings, user, now):
     session_id = uid()
