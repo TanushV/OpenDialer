@@ -553,6 +553,9 @@ class NumberOperations:
                     s, "command_outbox", p["tenant_id"], p["seller_id"], values, key=key, now=self.clock()
                 )
             update(number, configuration_status="pending", identity_configured=False, callback_tested=False)
+            if not reconcile:
+                for phase in ("intent", "submitted"):
+                    self.journal_effect_in(s, p, "number_configure", action.external_key, phase, [action])
             return {**doc(action), "reconcile": reconcile, "number_version": number.version}, None
 
     def _allow_configuration_retry(self, p, intent):
@@ -574,6 +577,7 @@ class NumberOperations:
                 verified_retry_count=action.data.get("verified_retry_count", 0) + 1,
                 verified_retry_at=self.clock().isoformat(),
             )
+            self.journal_effect_in(s, p, "number_configure", action.external_key, "submitted", [action])
             return {**intent, "version": action.version}
 
     async def configure_owned_number(self, p, number_id, body=None):
@@ -729,6 +733,9 @@ class NumberOperations:
                 recovery_reason=None
                 if confirmed and not stale
                 else "Verify the original number, active route and disabled recording in the carrier account; this check never resubmits configuration.",
+            )
+            self.journal_effect_in(
+                s, p, "number_configure", action.external_key, "receipt", [action], emergency=True
             )
             if confirmed and not stale:
                 lifecycle = number.data["lifecycle"]

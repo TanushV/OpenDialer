@@ -200,6 +200,8 @@ def claim(service, p, phone=None, identity=None, retry=None, *, refresh=None):
             service.clock(),
             {"request_key": key, "explicit_retry": retry is not None},
         )
+        for phase in ("intent", "submitted"):
+            service.journal_effect_in(s, p, "dnc_screen", key, phase, [row])
         return doc(row), None, config
 
 
@@ -256,6 +258,7 @@ def finish(service, p, intent, result):
                 else "Lookup result was lost or invalid; a previous charge may remain. Another query requires an explicit choice.",
             )
         saved = view(service, row, config, max_age)
+        service.journal_effect_in(s, p, "dnc_screen", intent["request_key"], "receipt", [row], emergency=True)
     if rejected:
         fail(409, "DNC_AUTHORITY_CHANGED_NO_CLEARANCE")
     return saved

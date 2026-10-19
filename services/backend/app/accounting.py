@@ -145,7 +145,12 @@ class RequestAccounting:
                 key = (*scope, entity["table"], entity["id"])
                 old = latest.get(key, {})
                 latest[key] = {**entity, "data": {**old.get("data", {}), **entity["data"]}}
-                if entry.get("provider_id") and entity["table"] in {"call_attempts", "call_legs"}:
+                if entry.get("provider_id") and (
+                    entry["kind"] == "dial"
+                    and entity["table"] == "call_attempts"
+                    or entry["kind"] == "agent"
+                    and entity["table"] == "call_legs"
+                ):
                     latest[key]["data"]["provider_id"] = entry["provider_id"]
         recovered = 0
         for (tenant, seller_id, kind, identity), entity in latest.items():
@@ -206,6 +211,25 @@ class RequestAccounting:
             # Keep the app available for stopping/recovery; new effects are denied.
             self._effect_journal_fault = True
 
+    def repair_effect_journal(self, p):
+        """Explicit storage recovery only; never resubmit the represented effects."""
+        self.effect_entries()  # Cannot append through truncated or missing segments.
+        with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
+            self._restore_operator(s, p)
+            seller = self.required(s, "sellers", p["seller_id"], p)
+            if seller.data.get("effect_journal_gap"):
+                raise HTTPException(
+                    409, "Effect journal gap requires original carrier/account reconciliation"
+                )
+            pending = seller.data.get("effect_journal_pending", {})
+            for entry in pending.values():
+                self.vault.append_journal("effects", entry)
+            self.vault.journal_checkpoint("effects")
+            if pending:
+                update(seller, effect_journal_pending={})
+        self._effect_journal_fault = False
+
     def _request_hold(self, s, p, request_key):
         model = MODELS["usage_ledger"]
         return s.scalar(
@@ -234,6 +258,13 @@ class RequestAccounting:
             raise ValueError("Optional work requires a request identity and positive reserved estimate")
         # Serialize only this seller's budget/authorization stream, never provider I/O.
         self.db.authorize_stream(s, p)
+        seller = get(s, "sellers", p["seller_id"], p["tenant_id"])
+        if (
+            getattr(self, "_effect_journal_fault", False)
+            or seller
+            and seller.data.get("effect_journal_pending")
+        ):
+            raise HTTPException(503, "EFFECT_JOURNAL_RECOVERY_REQUIRED")
         prior = self._request_hold(s, p, request_key)
         if prior:
             data = prior.data

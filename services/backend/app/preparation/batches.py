@@ -163,6 +163,10 @@ def register_batches(app, service, administrator):
                 key=key,
                 now=clock(),
             )
+            for phase in ("intent", "submitted"):
+                service.journal_effect_in(
+                    s, p, "script_batch", key, phase, [row], source=row.data["request_digest"]
+                )
             return {**doc(row), "request_key": key}, None
 
     def save_submission(p, intent, result=None):
@@ -205,6 +209,16 @@ def register_batches(app, service, administrator):
                 **({"provider_batch_id": result["id"]} if result and not conflict else {}),
                 lease_owner=None,
                 lease_until=None,
+            )
+            service.journal_effect_in(
+                s,
+                p,
+                "script_batch",
+                intent["request_key"],
+                "receipt",
+                [row],
+                provider_id=result["id"] if result else None,
+                emergency=True,
             )
             saved = view(service, row)
         if not permitted:

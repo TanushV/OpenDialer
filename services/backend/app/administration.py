@@ -649,7 +649,7 @@ class Dialer(
                     "tenant_id": p["tenant_id"],
                     "seller_id": p["seller_id"],
                     "intent": {**previous.get("intent", {}), **entity["data"]},
-                    "provider_id": entry.get("provider_id")
+                    "provider_id": (entry.get("provider_id") if entry["kind"] == "dial" else None)
                     or entity["data"].get("provider_id")
                     or previous.get("provider_id"),
                 }
@@ -794,6 +794,7 @@ class Dialer(
     async def reconcile_restore(self, p, review_reference, provider_ids=None):
         if not review_reference:
             fail(422, "A reviewed carrier and authorization-journal reconciliation reference is required")
+        await asyncio.to_thread(self.repair_effect_journal, p)
         pending, records, fingerprint, seller_version = await asyncio.to_thread(
             self._restore_snapshot, p, provider_ids or {}
         )
