@@ -355,9 +355,12 @@ def test_other_seller_revocation_is_not_replayed_into_this_restore(workspace, ap
     assert submit(workspace, body).status_code == 200
     path = service.settings.data_dir / "consent-journal.enc"
     assert path.exists()
-    row = json.loads(service.vault.cipher.decrypt(path.read_bytes().splitlines()[0]))
+    row = service.vault.read_journal("consent")[0]
     row["seller_id"] = "different-seller"
+    # Import an authentic legacy foreign-seller fixture, not a mutation outside
+    # the new chained record envelope (which leaves the actual record unchanged).
     path.write_bytes(service.vault.cipher.encrypt(json.dumps(row).encode()) + b"\n")
+    (service.settings.data_dir / "consent-journal.head").unlink(missing_ok=True)
     with service.db.transaction() as s:
         s.execute(delete(MODELS["consent_evidence"]))
     service.restore(p, backup["backup_id"])
