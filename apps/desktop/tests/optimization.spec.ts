@@ -16,6 +16,41 @@ async function simulation(page: import("@playwright/test").Page) {
     await page.getByRole("button", { name: "Pause dialing" }).click();
 }
 
+test("missing and stale capacity estimates are explicit", async ({ page }) => {
+  await simulation(page);
+  let state = "pending";
+  await page.route("**/v1/optimization", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    if (body.forecast) {
+      body.forecast = {
+        regions: [],
+        capacity_shortfall: null,
+        staffing_shortfall: null,
+        number_shortfall: null,
+        projection: { status: state, as_of: null },
+      };
+    }
+    await route.fulfill({ response, json: body });
+  });
+  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await expect(
+    page.getByText(
+      "Capacity estimate pending. Refresh learning and capacity to prepare it.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  state = "stale";
+  await page.reload();
+  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await expect(
+    page.getByText(
+      "Capacity estimate is out of date. Refresh before acting on it.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+});
+
 test("optimization goals, forecast, learning state and provider settings persist", async ({
   page,
 }) => {
