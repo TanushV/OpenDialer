@@ -68,6 +68,10 @@ class OperatingPolicy(BaseModel):
         for component, rate in self.account_rates.items():
             if component not in RATE_FIELDS or not set(rate.values) <= set(RATE_FIELDS[component]):
                 raise ValueError("Use an advertised component and rate unit")
+            if any(value < RATE_MINIMUMS.get(component, 0) for value in rate.values.values()):
+                raise ValueError(
+                    "Prepaid query admission needs a positive estimate; settle zero charges by receipt"
+                )
         return self
 
 
@@ -190,6 +194,7 @@ RATE_FIELDS = {
     "preparation": ["input_per_million_usd", "output_per_million_usd"],
     "finalization": ["input_per_million_usd", "output_per_million_usd"],
 }
+RATE_MINIMUMS = {"dnc": Decimal("0.000000001")}
 
 # Dated reference rates, not actual invoices. Existing aliases remain for ledger consumers.
 for _name, _unit, _classification, _url, _funding in (
@@ -235,6 +240,7 @@ def cost_register(policy):
         name: {
             **rate,
             "rate_fields": RATE_FIELDS.get(name, []),
+            "minimum_rate": str(RATE_MINIMUMS.get(name, 0)),
             "account_rate_override": policy.get("account_rates", {}).get(name),
         }
         for name, rate in COSTS.items()
@@ -245,6 +251,24 @@ def authority_stamp(config):
     return hashlib.sha256(
         json.dumps(config.get("dnc_seller_authorization", {}), sort_keys=True).encode()
     ).hexdigest()
+
+
+def source_expiry(data, now, max_age, timestamp="refreshed_at"):
+    """Original source/access deadlines, shared by required state and national lists."""
+    try:
+        at = dt(data[timestamp])
+        if (
+            not at
+            or at.tzinfo is None
+            or at > now + timedelta(seconds=60 if timestamp == "checked_at" else 0)
+        ):
+            return None
+        return min(
+            [at + timedelta(days=min(31, max(1, max_age)))]
+            + [dt(data[k]) for k in ("expires_at", "authorization_expires_at") if data.get(k)]
+        )
+    except (ValueError, TypeError, KeyError):
+        return None
 
 
 def screening_capability(snapshot, endpoint=None):
@@ -277,20 +301,7 @@ def screening_capability(snapshot, endpoint=None):
         return {**base, "decision": "blocked", "reason_codes": ["INTERNAL_SUPPRESSION"]}
 
     def expiry(data, timestamp):
-        try:
-            at = dt(data[timestamp])
-            if (
-                not at
-                or at > now + timedelta(seconds=60 if timestamp == "checked_at" else 0)
-                or at.tzinfo is None
-            ):
-                return None
-            return min(
-                [at + timedelta(days=max_age)]
-                + [dt(data[k]) for k in ("expires_at", "authorization_expires_at") if data.get(k)]
-            )
-        except (ValueError, TypeError, KeyError):
-            return None
+        return source_expiry(data, now, max_age, timestamp)
 
     sources, stale, covered, invalid = [], False, False, False
     for data in national:

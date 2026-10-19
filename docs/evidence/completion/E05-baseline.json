@@ -28,7 +28,10 @@
     "E05-legacy-chunks-red.txt": "5c8302980bea55e846fa961afaaa48fb455d08920c5697144201a73a00f40258",
     "E05-retired-replay-red.txt": "184f37ef37c6ff4ed0c2c08aadf6a05260d79e72259b1d36f23513e54199ca04",
     "E05-registry-ui-red.txt": "0f07721234cf30147f2750f34991214ed04949709ed12864e4ed213aba15c070",
-    "E05-postgres-isolation-red.txt": "26c2cb986001278027aef7ad470059304b2881e739dafa2ebc8c3f2fe2d7a8d5"
+    "E05-postgres-isolation-red.txt": "26c2cb986001278027aef7ad470059304b2881e739dafa2ebc8c3f2fe2d7a8d5",
+    "E05-refresh-horizon-red.txt": "68f221fb749d7d70e346e7a8d914424fc2d91dad82ec2b3387246637379f8bf6",
+    "E05-rate-admission-red.txt": "d7119429d0eaedbb99aa7cbfc0de90c8c11ed9d713d02302e490e53241d11861",
+    "E05-state-expiry-red.txt": "ebac62c9ee272dc0f7e75a4153e050860f9cb1ad29b2f7105f0d61f11e3a5052"
   },
-  "supplement_boundary": "New source/readiness/cost/legacy chunk/import recovery counterexamples retained before repair. PostgreSQL isolation receipt is a fixture ordering error, not a relaxed production corruption check."
+  "supplement_boundary": "New source/readiness/cost/legacy chunk/import recovery counterexamples retained before repair. PostgreSQL isolation receipt is a fixture ordering error, not a relaxed production corruption check. Final state-source receipt contains four behavioral failures plus one misplaced valid-case fixture assertion, repaired without relaxing the four expiry checks. An initial supplement command used the wrong database environment name and ran SQLite; only E05-supplement-pg-verified is the PostgreSQL supplement."
 }

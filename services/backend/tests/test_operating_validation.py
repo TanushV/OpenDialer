@@ -135,6 +135,7 @@ def test_account_rate_override_has_provenance_and_does_not_rewrite_reference(wor
         {"values": {"made_up_unit": "1"}},
         {"values": {"estimated_per_query_usd": "NaN"}},
         {"values": {"estimated_per_query_usd": "-1"}},
+        {"values": {"estimated_per_query_usd": "0"}},
     ],
 )
 def test_invalid_account_rates_are_not_saved(workspace, patch):

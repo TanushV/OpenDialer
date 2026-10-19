@@ -16,6 +16,7 @@ type Cost = {
   classification: string;
   minimum_funding_usd: number | null;
   rate_fields: string[];
+  minimum_rate: string;
   basis?: string;
   account_rate_override: AccountRate | null;
 };
@@ -433,7 +434,7 @@ export function OperatingPolicySettings() {
                   {label(field)}
                   <input
                     type="number"
-                    min="0"
+                    min={policy.costs[rateComponent].minimum_rate}
                     step="0.000000001"
                     value={rateDraft.values[field] ?? ""}
                     onChange={(e) =>

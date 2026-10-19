@@ -511,6 +511,7 @@ class Service(ReservationPlanner):
         endpoint = self.required(s, "phone_endpoints", lead.data["endpoint_id"], p)
         user = self.required(s, "users", p["user_id"], p)
         config, presence = policy.data, user.data.get("presence", {})
+        from app.compliance.operating import screening_max_age, source_expiry
         from app.compliance.registry import published_snapshots, registry_contains
 
         internal_suppressed = self.suppressed(s, p, lead.data["phone"])
@@ -525,7 +526,8 @@ class Service(ReservationPlanner):
             for r in state
             if (self.settings.simulation or not r.data.get("synthetic"))
             and lead.data["phone"][2:5] in r.data.get("npas", [])
-            and (self.clock() - dt(r.data["refreshed_at"])).total_seconds() <= 31 * 86400
+            and (expiry := source_expiry(r.data, self.clock(), screening_max_age(self, s, p)))
+            and self.clock() < expiry
         ]
         try:
             state_listed = any(registry_contains(s, r, lead.data["phone"]) for r in state)

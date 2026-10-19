@@ -302,7 +302,7 @@ def schedule_refresh(service, p):
         window = int(service.clock().timestamp()) // (policy.interval_hours * 3600)
         version = seller.data.get("operating_policy_version", 1)
         key = f"dnc-refresh:{p['seller_id']}:{version}:{window}"
-        horizon = service.clock() + timedelta(days=1)
+        horizon = service.clock() + timedelta(hours=service.optimization_config(s, p)["horizon_hours"])
         return service.jobs.enqueue_in(
             s,
             "research",
@@ -404,6 +404,9 @@ def refresh_progress(
 async def refresh_screening(service, p, job, worker_id):
     page = await asyncio.to_thread(refresh_page, service, p, job["id"], worker_id)
     if page is None:
+        await asyncio.to_thread(
+            refresh_progress, service, job["id"], worker_id, finish=True, reason="DNC_REFRESH_CHANGED"
+        )
         return
     refresh = {"job_id": job["id"], "worker_id": worker_id}
 

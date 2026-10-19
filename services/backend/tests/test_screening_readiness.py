@@ -239,3 +239,50 @@ def test_corrupt_required_state_registry_blocks_without_crashing(workspace, app,
     assert response.status_code == 200
     assert not response.json()["ready_to_call"]
     assert "STATE_REGISTRY_MISSING" in response.json()["blockers"]
+
+
+@pytest.mark.parametrize("boundary", ["expired", "access_expired", "future", "malformed", "valid"])
+def test_state_source_honors_original_access_and_freshness(workspace, app, clock, boundary):
+    from datetime import timedelta
+
+    from app.db import put
+    from test_remediation_privacy import principal
+
+    service, p = app.state.service, principal(workspace)
+    ready(workspace)
+    data = {
+        "kind": "state",
+        "jurisdiction": "CA",
+        "npas": ["415", "212", "512"],
+        "refreshed_at": clock.now.isoformat(),
+        "published": True,
+        "subscription_reference": "state-authority",
+        "listed_numbers": [],
+    }
+    if boundary == "expired":
+        data["expires_at"] = clock.now.isoformat()
+    elif boundary == "access_expired":
+        data["authorization_expires_at"] = clock.now.isoformat()
+    elif boundary == "future":
+        data["refreshed_at"] = (clock.now + timedelta(seconds=1)).isoformat()
+    elif boundary == "malformed":
+        data["expires_at"] = "not-a-date"
+    with service.db.transaction() as s:
+        campaign = service.required(s, "campaigns", workspace["campaign_id"], p)
+        update(
+            service.required(s, "policy_versions", campaign.data["policy_id"], p),
+            state_registry_required=True,
+        )
+        for lead in service.scoped(s, "leads", p):
+            update(lead, jurisdiction="CA")
+        put(s, "registry_snapshots", p["tenant_id"], p["seller_id"], data, now=clock.now)
+        lead = service.scoped(s, "leads", p)[0]
+        number = service.scoped(s, "number_inventory", p)[0]
+        decision = authorize(service.context(s, p, lead, number))
+        assert decision.allowed is (boundary == "valid")
+        if boundary != "valid":
+            assert "STATE_REGISTRY_MISSING" in decision.reasons
+    response = workspace["client"].get("/v1/admin/preflight", headers=workspace["headers"])
+    assert response.status_code == 200
+    # Two fixture leads are inside their current calling windows.
+    assert response.json()["screening"]["dialable_queue_count"] == (2 if boundary == "valid" else 0)

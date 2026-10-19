@@ -11,6 +11,41 @@ from test_dnc_recovery import PHONE, screening  # noqa: F401 - pytest fixture
 
 
 @pytest.mark.asyncio
+async def test_refresh_uses_preparation_horizon_and_names_a_changed_policy_stop(workspace, screening, clock):  # noqa: F811
+    from app.compliance.screening import schedule_refresh
+
+    service, p, calls, _, _ = screening
+    with service.db.transaction() as s:
+        campaign = service.required(s, "campaigns", workspace["campaign_id"], p)
+        update(campaign, optimization={**campaign.data.get("optimization", {}), "horizon_hours": 72})
+    enabled = save_operating_policy(
+        workspace["client"],
+        "/v1/admin/operating-policy",
+        headers=workspace["headers"],
+        json={"dnc_refresh": {"enabled": True, "max_run_usd": 1, "max_day_usd": 1}},
+    )
+    assert enabled.status_code == 200
+    schedule_refresh(service, p)
+    with service.db.transaction(False) as s:
+        job = next(j for j in s.scalars(select(Job)) if j.payload.get("kind") == "dnc_refresh")
+        assert job.payload["horizon"] == (clock.now + timedelta(hours=72)).isoformat()
+    assert (
+        save_operating_policy(
+            workspace["client"],
+            "/v1/admin/operating-policy",
+            headers=workspace["headers"],
+            json={"dnc_refresh": {"enabled": False}},
+        ).status_code
+        == 200
+    )
+    await service.run_jobs(p["tenant_id"], queues=["research"])
+    result = workspace["client"].get("/v1/admin/dnc/screens", headers=workspace["headers"]).json()
+    assert result["refresh"]["complete"] is True
+    assert result["refresh"]["reason"] == "DNC_REFRESH_CHANGED"
+    assert not calls
+
+
+@pytest.mark.asyncio
 async def test_bounded_paid_refresh(workspace, app, clock, screening):  # noqa: F811 - fixture
     service, p, calls, _, config = screening
     service.vault.write(
@@ -84,7 +119,10 @@ def test_screening_refresh_disabled_default_is_visible(workspace):
 
 @pytest.mark.asyncio
 async def test_refresh_budget_is_atomic_and_uncertain_query_is_not_automatically_recharged(
-    workspace, screening, clock, monkeypatch
+    workspace,
+    screening,  # noqa: F811
+    clock,
+    monkeypatch,
 ):  # noqa: F811
     from app.providers.dnc import DNCError, PrepaidDNC
 
