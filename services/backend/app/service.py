@@ -46,6 +46,10 @@ class Service(ReservationPlanner):
         from app.coaching.engine import CoachEngine
 
         self.coach = CoachEngine(settings.runtime_limits)
+        self.preparation_capacity = asyncio.Semaphore(settings.runtime_limits.company_units)
+        self.research_capacity = asyncio.Semaphore(settings.runtime_limits.company_units)
+        self.script_capacity = asyncio.Semaphore(settings.runtime_limits.script_generations)
+        self.research_flights = {}
 
     def required(self, s, kind, object_id, p):
         obj = get(s, kind, object_id, p["tenant_id"])

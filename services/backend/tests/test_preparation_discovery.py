@@ -7,6 +7,7 @@ import pytest
 from app.db import update
 from app.providers.inference import InferenceResult
 from app.research.fetch import SafeFetcher
+from test_grounding_review import review_response
 from test_remediation_privacy import principal
 
 
@@ -41,6 +42,8 @@ async def test_official_discovery_bounds(workspace, app, monkeypatch, link_varia
 
     class Extract:
         async def complete(self, instructions, context, schema):
+            if "fingerprint" in context:
+                return InferenceResult(review_response(context), {"cost": 0.001}, "discovery-review")
             inputs.append(context)
             sources = [s for s in context["sources"] if s["url"].endswith("/services")]
             return InferenceResult(
@@ -98,6 +101,8 @@ async def test_duplicate_company_waits_for_single_current_research(workspace, ap
 
     class Extract:
         async def complete(self, instructions, context, schema):
+            if "fingerprint" in context:
+                return InferenceResult(review_response(context), {"cost": 0.001}, "singleflight-review")
             requests.append(context)
             entered.set()
             await release.wait()
@@ -141,6 +146,8 @@ async def test_research_publication_requires_current_company_lease(
 
     class Extract:
         async def complete(self, instructions, context, schema):
+            if "fingerprint" in context:
+                return InferenceResult(review_response(context), {"cost": 0.001}, "fenced-review")
             with service.db.transaction() as s:
                 company = service._by_key(s, p, "companies", domain)
                 update(

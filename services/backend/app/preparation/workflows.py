@@ -1,7 +1,10 @@
 """Advance preparation using the existing queue and bounded, versioned lead packets."""
 
+import asyncio
+import contextlib
 import hashlib
 import json
+from contextlib import asynccontextmanager
 from datetime import timedelta
 
 from sqlalchemy import select
@@ -10,12 +13,77 @@ from app.db import MODELS, Job, doc, uid, update
 from app.preparation.templates import PreparationPolicy, in_window, policy_values, render, template_version
 from app.service import dt
 
+LEASE_HEARTBEAT_SECONDS = 20
+
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
 class Preparation:
+    @asynccontextmanager
+    async def preparation_heartbeat(self, p, kind, identity, owner):
+        """Renew only a running unit, never queued work or another owner's lease."""
+
+        def renew():
+            with self.db.transaction() as s:
+                self.db.authorize_stream(s, p)
+                row = self.required(s, kind, identity, p)
+                if not self._coach_authority(s, p):
+                    return False
+                if kind == "leads":
+                    lease = row.data.get("preparation_lease") or {}
+                    if (
+                        lease.get("owner") != owner
+                        or not lease.get("expires_at")
+                        or dt(lease["expires_at"]) <= self.clock()
+                    ):
+                        return False
+                    update(
+                        row,
+                        preparation_lease={
+                            **lease,
+                            "expires_at": (self.clock() + timedelta(minutes=5)).isoformat(),
+                        },
+                    )
+                else:
+                    if (
+                        row.data.get("lease_owner") != owner
+                        or not row.data.get("lease_until")
+                        or dt(row.data["lease_until"]) <= self.clock()
+                    ):
+                        return False
+                    update(row, lease_until=(self.clock() + timedelta(minutes=3)).isoformat())
+                return True
+
+        parent = asyncio.current_task()
+        lost = False
+
+        async def heartbeat():
+            nonlocal lost
+            while True:
+                await asyncio.sleep(LEASE_HEARTBEAT_SECONDS)
+                try:
+                    owned = await asyncio.to_thread(renew)
+                except Exception:
+                    owned = False
+                if not owned:
+                    lost = True
+                    parent.cancel()
+                    return
+
+        pulse = asyncio.create_task(heartbeat())
+        try:
+            yield
+        except asyncio.CancelledError:
+            if lost:
+                raise RuntimeError("Preparation lease was lost") from None
+            raise
+        finally:
+            pulse.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await pulse
+
     def preparation_context(self, s, p):
         key = ("preparation_context", p["tenant_id"], p["seller_id"])
         if key not in s.info:

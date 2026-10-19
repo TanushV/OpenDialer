@@ -93,6 +93,10 @@ async def test_research_provider_publishes_and_settles_off_the_live_loop(workspa
 
     class Provider:
         async def complete(self, prompt, context, schema):
+            if "fingerprint" in context:
+                from test_grounding_review import review_response
+
+                return InferenceResult(review_response(context), {"cost": 0.001}, "off-loop-research-review")
             source = context["sources"][0]
             return InferenceResult(
                 {

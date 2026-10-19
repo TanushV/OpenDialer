@@ -97,6 +97,69 @@ async def test_concurrent_preparation_jobs_share_authority_capacity(workspace, a
 
 
 @pytest.mark.asyncio
+async def test_running_preparation_renews_active_lease_and_cancellation_releases_it(
+    workspace, app, clock, monkeypatch
+):
+    import app.preparation.workflows as workflows
+
+    service = app.state.service
+    lead_id = workspace["client"].get("/v1/workspace", headers=workspace["headers"]).json()["leads"][0]["id"]
+    entered, wait = asyncio.Event(), asyncio.Event()
+    monkeypatch.setattr(workflows, "LEASE_HEARTBEAT_SECONDS", 0.01, raising=False)
+
+    async def prepare(principal, identity, owner):
+        entered.set()
+        await wait.wait()
+        return True
+
+    monkeypatch.setattr(service, "prepare_one", prepare)
+    task = asyncio.create_task(service.prepare(p(workspace), [lead_id]))
+    await asyncio.wait_for(entered.wait(), 3)
+    try:
+        clock.now += timedelta(minutes=4)
+        await asyncio.sleep(0.1)
+        with service.db.transaction(False) as s:
+            lease = service.required(s, "leads", lead_id, p(workspace)).data["preparation_lease"]
+            assert datetime.fromisoformat(lease["expires_at"]) > clock() + timedelta(minutes=4)
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    with service.db.transaction(False) as s:
+        assert service.required(s, "leads", lead_id, p(workspace)).data.get("preparation_lease") is None
+
+
+@pytest.mark.asyncio
+async def test_lost_preparation_lease_is_failed_work_and_preserves_new_owner(workspace, app, monkeypatch):
+    import app.preparation.workflows as workflows
+
+    service = app.state.service
+    lead_id = workspace["client"].get("/v1/workspace", headers=workspace["headers"]).json()["leads"][0]["id"]
+    monkeypatch.setattr(workflows, "LEASE_HEARTBEAT_SECONDS", 0.01, raising=False)
+
+    async def prepare(principal, identity, owner):
+        with service.db.transaction() as s:
+            lead = service.required(s, "leads", identity, principal)
+            update(
+                lead,
+                preparation_lease={
+                    "owner": "replacement",
+                    "expires_at": (service.clock() + timedelta(minutes=5)).isoformat(),
+                },
+            )
+        await asyncio.sleep(0.15)
+        return True
+
+    monkeypatch.setattr(service, "prepare_one", prepare)
+    with pytest.raises(RuntimeError, match="1 objects"):
+        await service.prepare(p(workspace), [lead_id])
+    with service.db.transaction(False) as s:
+        assert (
+            service.required(s, "leads", lead_id, p(workspace)).data["preparation_lease"]["owner"]
+            == "replacement"
+        )
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("change", ["withdraw", "statement", "delete"])
 async def test_immediate_publication_rechecks_fact_after_inference(workspace, app, monkeypatch, change):
     configure(workspace)
