@@ -7,7 +7,6 @@ from datetime import timedelta
 from sqlalchemy import func, or_, select
 
 from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, update
-from app.measurement import cohort_metrics
 from app.optimization.experiments import ComparisonWorkflows
 from app.optimization.learning import (
     derive_labels,
@@ -998,19 +997,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 )
                 > self.clock()
             ]
-            call_rows = [doc(c) for c in calls]
-            blocked = {
-                r.data["phone"] for r in self.scoped(s, "suppressions", p) if r.data.get("active", True)
-            }
-            measured = cohort_metrics(
-                [doc(r) for r in leads],
-                call_rows,
-                events,
-                blocked,
-                self.work_in(s, p, call_rows),
-                config,
-                now=self.clock(),
-            )
+            measured = self.metrics(p)
             return {
                 "settings": config,
                 "comparisons": self.comparison_reports(

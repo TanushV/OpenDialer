@@ -41,7 +41,11 @@ def upgrade():
             sa.Column("id", sa.String(36), primary_key=True),
             sa.Column("tenant_id", sa.String(36), nullable=False),
             sa.Column("seller_id", sa.String(36), nullable=False),
-            sa.Column("external_key", sa.String(512), nullable=True),
+            sa.Column(
+                "external_key",
+                sa.String(512).with_variant(sa.String(512, collation="C"), "postgresql"),
+                nullable=True,
+            ),
             sa.Column("data", sa.JSON(), nullable=False),
             sa.Column("version", sa.Integer(), nullable=False),
             sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),

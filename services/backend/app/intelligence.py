@@ -1300,7 +1300,18 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 elif lane == "live_coach":
                     await self.coach_turn(p, job["payload"]["call_id"])
                 elif lane == "ml":
-                    if job["payload"].get("kind") == "metric_rebuild":
+                    if job["payload"].get("kind") == "metric_cleanup":
+                        from app.optimization.projections import cleanup_page
+
+                        receipt = await asyncio.to_thread(
+                            cleanup_page, self, p, job["payload"], lease=(job["id"], worker_id)
+                        )
+                        if receipt["status"] == "lost_lease":
+                            return 0
+                        if receipt["status"] == "pending":
+                            await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
+                            return 0
+                    elif job["payload"].get("kind") == "metric_rebuild":
                         from app.optimization.projections import rebuild_page
 
                         receipt = await asyncio.to_thread(rebuild_page, self, p, lease=(job["id"], worker_id))
@@ -1336,14 +1347,14 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                             job["payload"]["campaign_id"],
                             job["payload"].get("capacity"),
                         )
-                        if receipt["status"] == "superseded":
+                        if receipt["status"] in {"superseded", "pending"}:
                             await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
                             return 0
                     elif job["payload"].get("kind") == "home_refresh":
                         receipt = await asyncio.to_thread(
                             self.rebuild_home_metrics, {**p, "role": job["payload"].get("role", "rep")}
                         )
-                        if receipt["status"] == "superseded":
+                        if receipt["status"] in {"superseded", "pending"}:
                             await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
                             return 0
                     elif job["payload"].get("kind") == "report_refresh":
@@ -1354,6 +1365,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                         )
                         if receipt["status"] == "superseded":
                             raise RuntimeError("Report source changed during calculation")
+                        if receipt["status"] == "pending":
+                            await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
+                            return 0
                     elif job["payload"].get("kind") == "optimization_refresh":
                         await asyncio.to_thread(self.refresh_optimization_job, p)
                     elif job["payload"].get("kind") == "retry_plan_refresh":

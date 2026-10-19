@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app.db import MODELS, audit, doc, put, update
 from app.operational_schema import call_work_bounds
-from app.optimization.learning import conversion_at, derive_labels, outcome_at
+from app.optimization.learning import derive_labels, outcome_at
 from app.optimization.numbering import timestamp, wilson
 from app.service import fail
 from app.telephony.reducer import TERMINAL
@@ -77,9 +77,24 @@ def connect_health(calls, *, now, min_support=30):
             unknown += at >= now - timedelta(days=1)
             continue
         (current if at >= now - timedelta(days=1) else reference).append(label)
-    count, base = len(current), len(reference)
-    low, high = wilson(sum(current), count)
-    ref_low, ref_high = wilson(sum(reference), base)
+    return connect_health_counts(
+        {
+            "connect_recent_n": len(current),
+            "connect_recent_s": sum(current),
+            "connect_recent_unknown": unknown,
+            "connect_reference_n": len(reference),
+            "connect_reference_s": sum(reference),
+        },
+        min_support=min_support,
+    )
+
+
+def connect_health_counts(values, *, min_support=30):
+    count, base = values.get("connect_recent_n", 0), values.get("connect_reference_n", 0)
+    successes, reference = values.get("connect_recent_s", 0), values.get("connect_reference_s", 0)
+    unknown = values.get("connect_recent_unknown", 0)
+    low, high = wilson(successes, count)
+    ref_low, ref_high = wilson(reference, base)
     supported = count >= min_support and base >= min_support
     return {
         "status": "warning"
@@ -90,89 +105,14 @@ def connect_health(calls, *, now, min_support=30):
         "samples": count,
         "unknown": unknown,
         "reference_samples": base,
-        "rate": sum(current) / count if count else None,
-        "all_attempt_rate": sum(current) / (count + unknown) if count + unknown else None,
+        "rate": successes / count if count else None,
+        "all_attempt_rate": successes / (count + unknown) if count + unknown else None,
         "confidence_low": low,
         "confidence_high": high,
         "reference_low": ref_low,
         "reference_high": ref_high,
-        "reference_rate": sum(reference) / base if base else None,
+        "reference_rate": reference / base if base else None,
         "comparison": "Last 24 hours versus preceding 27 days; 95% Wilson intervals. Descriptive, not adjusted for changes in the list or proof of a spam label.",
-    }
-
-
-def cohort_metrics(leads, calls, events, blocked, work, config, *, now):
-    original = {r["id"] for r in leads if r.get("originally_eligible", True)}
-    eligible = [
-        r
-        for r in leads
-        if r.get("status") == "eligible" and r["phone"] not in blocked and not r.get("outreach_hold")
-    ]
-    labels = {c["id"]: derive_labels(outcome_at(c, now) or {}) for c in calls}
-    goal = config["conversion_goal"]
-    label = "qualified" if goal == "qualified_conversation" else goal
-    right = {c["lead_id"] for c in calls if labels[c["id"]]["right_party"]} & original
-    held = {c["lead_id"] for c in calls if labels[c["id"]]["meeting_held"]}
-    converted = {c["lead_id"] for c in calls if labels[c["id"]][label]}
-    for event in events:
-        known = conversion_at(event, now)
-        if known and not known["retracted"]:
-            if derive_labels(known["kind"])[label]:
-                converted.add(event["lead_id"])
-            if known["kind"] == "meeting_held":
-                held.add(event["lead_id"])
-    converted &= original
-    held &= original
-    overdue = sum(
-        bool(
-            timestamp(r.get("coverage_due_at"))
-            and timestamp(r["coverage_due_at"]) < now
-            and not r.get("attempt_count")
-        )
-        for r in eligible
-    )
-    capacity = int(config["rep_minutes"] * 60 / config["handling_seconds"])
-    health = connect_health(calls, now=now)
-    warnings = (
-        [
-            "Human pickup declined versus the prior observed period. Review list mix, calling times and number health."
-        ]
-        if health["status"] == "warning"
-        else []
-    )
-    return {
-        "definition_version": "cohort-work-v3",
-        "as_of": now.isoformat(),
-        "original_cohort": len(leads),
-        "original_eligible_denominator": len(original),
-        "eligible_now": len(eligible),
-        "suppressed": sum(r["phone"] in blocked for r in leads),
-        "attempts": len(calls),
-        "human_pickups": sum(row["human"] is True for row in labels.values()),
-        "human_classified_attempts": sum(row["human"] is not None for row in labels.values()),
-        "human_unknown_attempts": sum(row["human"] is None for row in labels.values()),
-        "right_party_unique": len(right),
-        "held_meetings": len(held),
-        "unique_conversions": len(converted),
-        "unique_reach_per_original_lead": len(right) / len(original) if original else 0,
-        "held_meetings_per_original_lead": len(held) / len(original) if original else 0,
-        "conversion_per_original_eligible_lead": len(converted) / len(original) if original else None,
-        "rep_work_seconds": work["seconds"],
-        "work_time": work,
-        "conversions_per_rep_hour": len(converted) * 3600 / work["seconds"] if work["seconds"] else None,
-        "outcome_goal": goal,
-        "outcome_window_days": config["window_days"],
-        "coverage_overdue": overdue,
-        "coverage_shortfall": max(0, overdue - capacity),
-        "coverage_capacity_assumption": "Declared rep minutes and handling time; number/window feasibility is shown in the allocation proposal.",
-        "pending_outcome_windows": sum(
-            timestamp(c["started_at"])
-            <= now
-            < timestamp(c["started_at"]) + timedelta(days=config["window_days"])
-            for c in calls
-        ),
-        "health": {"connect_rate": health},
-        "warnings": warnings,
     }
 
 

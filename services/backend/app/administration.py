@@ -9,7 +9,7 @@ from sqlalchemy import delete, func, or_, select
 
 from app.db import DERIVED_TABLES, MODELS, audit, doc, emit, get, put, rows, uid, update
 from app.intelligence import Application
-from app.measurement import Measurement, cohort_metrics
+from app.measurement import Measurement
 from app.number_operations import NumberOperations
 from app.optimization.workflows import OptimizationWorkflows
 from app.rep_workflows import RepWorkflows
@@ -39,35 +39,9 @@ class Dialer(
     Application,
 ):
     def metrics(self, p):
-        with self.db.transaction(False) as s:
-            leads = [doc(r) for r in self.scoped(s, "leads", p)]
-            calls = [doc(r) for r in self.scoped(s, "call_attempts", p)]
-            events = [doc(r) for r in self.scoped(s, "conversion_events", p)]
-            blocked = {
-                r.data["phone"] for r in self.scoped(s, "suppressions", p) if r.data.get("active", True)
-            }
-            costs = [r.data for r in self.scoped(s, "usage_ledger", p)]
-            return {
-                **cohort_metrics(
-                    leads,
-                    calls,
-                    events,
-                    blocked,
-                    self.work_in(s, p, calls),
-                    self.optimization_config(s, p),
-                    now=self.clock(),
-                ),
-                "reserved_cost_usd": sum(r.get("reserved_usd", 0) for r in costs),
-                "verified_cost_usd": sum(
-                    (r.get("cost_usd") or 0) - r.get("credited_usd", 0)
-                    for r in costs
-                    if r.get("billing_verified")
-                ),
-                "gross_cost_usd": sum(r.get("cost_usd") or 0 for r in costs if r.get("billing_verified")),
-                "credited_cost_usd": sum(r.get("credited_usd", 0) for r in costs),
-                "billing_verified": bool(costs) and all(r.get("billing_verified") for r in costs),
-                "simulation": self.settings.simulation,
-            }
+        from app.optimization.projections import read_metrics
+
+        return read_metrics(self, p)
 
     def preflight(self, p, *, full=True):
         if not full:

@@ -90,6 +90,34 @@ REPORT_FIELDS = {
 REPORT_TTL_SECONDS = 600
 
 
+def snapshot_fresh(saved, revision, pointer, now):
+    return bool(
+        saved
+        and saved["source_revision"] == revision
+        and dt(saved["expires_at"]) > now
+        and not pointer.get("building_namespace")
+        and saved.get("definition_version") == pointer.get("active_definition")
+        and saved.get("namespace") == pointer.get("active_namespace")
+    )
+
+
+def snapshot_status(saved, revision, fresh, job, now):
+    return {
+        "status": "ready" if fresh else "stale" if saved else "pending",
+        "as_of": saved.get("as_of"),
+        "definition_version": saved.get("definition_version"),
+        "source_watermark": saved.get("source_revision"),
+        "source_revision": saved.get("source_revision"),
+        "current_revision": revision,
+        "refresh_lag_seconds": max(0, (now - dt(saved["as_of"])).total_seconds())
+        if saved.get("as_of")
+        else None,
+        "job_id": job["id"] if job else None,
+        "refresh_status": job["status"] if job else None,
+        "refresh_error": job["error"] if job else None,
+    }
+
+
 def invalidate_reports(session):
     changed = []
     for row in session.new | session.dirty | session.deleted:
@@ -143,6 +171,62 @@ def invalidate_reports(session):
 
 
 class ReportProjections:
+    def prepare_metric_read(self, p):
+        from app.optimization.projections import (
+            _group_key,
+            _rebuild_catchup,
+            _rebuild_control,
+            definition_version,
+            refresh_due,
+        )
+
+        refresh_due(self, p)
+        _rebuild_catchup(self, p)
+        with self.db.transaction(False) as session:
+            campaign = self.scoped(session, "campaigns", p)[0]
+            config = self.optimization_config(session, p, campaign.id)
+            definition = definition_version(
+                config, campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
+            )
+            pointer = campaign.data.get("metric_projection", {})
+            group = {
+                "bucket_kind": "total",
+                "bucket_day": None,
+                "campaign_id": campaign.id,
+                "definition_version": definition,
+                "namespace": pointer.get("active_namespace", "initial"),
+            }
+            missing = not self._by_key(session, p, "metric_buckets", _group_key(self, group))
+            needs_rebuild = definition != pointer.get("active_definition") or missing
+            pending = session.scalar(
+                select(Job.status)
+                .where(
+                    Job.tenant_id == p["tenant_id"],
+                    Job.key.startswith(f"projection:{p['seller_id']}:", autoescape=True),
+                    Job.status.in_(["queued", "running", "dead"]),
+                )
+                .order_by(Job.status)
+                .limit(1)
+            )
+            model = MODELS["metric_contributions"]
+            prefix = f"v{pointer.get('active_definition')}:{pointer.get('active_namespace')}:"
+            remaining_due = session.scalar(
+                select(model.id)
+                .where(
+                    model.tenant_id == p["tenant_id"],
+                    model.seller_id == p["seller_id"],
+                    model.external_key >= prefix,
+                    model.external_key < prefix + "~",
+                    model.next_refresh_at <= self.clock(),
+                )
+                .limit(1)
+            )
+        if pending == "dead":
+            raise RuntimeError("Metric source requires recovery before current totals can publish")
+        if needs_rebuild:
+            _rebuild_control(self, p, start=True)
+        return not (needs_rebuild or pending or remaining_due or pointer.get("building_namespace"))
+
     def report_revision(self, s, p, *, lock=False):
         query = select(ReportRevision.generation).where(
             ReportRevision.tenant_id == p["tenant_id"],
@@ -241,24 +325,20 @@ class ReportProjections:
             row = self._by_key(s, p, "report_projections", key)
             saved = dict(row.data) if row else {}
             settings = self.optimization_config(s, p, campaign.id)
-        fresh = bool(saved and saved["source_revision"] == current and dt(saved["expires_at"]) > self.clock())
+        fresh = snapshot_fresh(saved, current, campaign.data.get("metric_projection", {}), self.clock())
         job = None if fresh else self.enqueue_report(p, key, current, epoch)
         return {
             **saved.get("report", {}),
             "settings": settings,
             "projection": {
-                "status": "ready" if fresh else "stale" if saved else "pending",
-                "as_of": saved.get("as_of"),
+                **snapshot_status(saved, current, fresh, job, self.clock()),
                 "calculated_settings": saved.get("report", {}).get("settings"),
-                "source_revision": saved.get("source_revision"),
-                "current_revision": current,
-                "job_id": job["id"] if job else None,
-                "refresh_status": job["status"] if job else None,
-                "refresh_error": job["error"] if job else None,
             },
         }
 
     def rebuild_optimization_report(self, p, epoch=None):
+        if not self.prepare_metric_read(p):
+            return {"status": "pending"}
         with self.db.transaction(False) as s:
             p, _, epoch, key = self.report_scope(s, p, epoch)
             generation = self.report_revision(s, p)
@@ -274,8 +354,15 @@ class ReportProjections:
             value = {
                 "report": report,
                 "source_revision": generation,
+                "definition_version": report["metrics"]["definition_version"],
+                "namespace": report["metrics"]["projection_namespace"],
                 "as_of": report["as_of"],
-                "expires_at": (self.clock() + timedelta(seconds=REPORT_TTL_SECONDS)).isoformat(),
+                "expires_at": min(
+                    self.clock() + timedelta(seconds=REPORT_TTL_SECONDS),
+                    dt(report["metrics"]["next_refresh_at"])
+                    if report["metrics"].get("next_refresh_at")
+                    else self.clock() + timedelta(seconds=REPORT_TTL_SECONDS),
+                ).isoformat(),
                 "epoch": epoch,
                 "owner_id": p["user_id"],
                 "role": p["role"],
@@ -292,29 +379,24 @@ class ReportProjections:
 
     def cached_home_metrics(self, p):
         with self.db.transaction(False) as s:
-            p, _, epoch, identity = self.report_scope(s, p)
+            p, campaign, epoch, identity = self.report_scope(s, p)
             key = "home:" + identity
             revision = self.report_revision(s, p)
             row = self._by_key(s, p, "report_projections", key)
             saved = dict(row.data) if row else {}
-        fresh = bool(
-            saved and saved["source_revision"] == revision and dt(saved["expires_at"]) > self.clock()
-        )
+        fresh = snapshot_fresh(saved, revision, campaign.data.get("metric_projection", {}), self.clock())
         job = None if fresh else self.enqueue_report(p, key, revision, epoch, home=True)
         return {
             **saved.get("report", {}),
             "projection": {
-                "status": "ready" if fresh else "stale" if saved else "pending",
-                "as_of": saved.get("as_of"),
-                "source_revision": saved.get("source_revision"),
-                "current_revision": revision,
-                "job_id": job["id"] if job else None,
-                "refresh_status": job["status"] if job else None,
+                **snapshot_status(saved, revision, fresh, job, self.clock()),
                 "refresh_error": "Workspace totals need recovery" if job and job["error"] else None,
             },
         }
 
     def rebuild_home_metrics(self, p):
+        if not self.prepare_metric_read(p):
+            return {"status": "pending"}
         with self.db.transaction(False) as s:
             p, _, epoch, identity = self.report_scope(s, p)
             revision = self.report_revision(s, p)
@@ -328,8 +410,15 @@ class ReportProjections:
             values = {
                 "report": report,
                 "source_revision": revision,
+                "definition_version": report["definition_version"],
+                "namespace": report["projection_namespace"],
                 "as_of": report["as_of"],
-                "expires_at": (self.clock() + timedelta(seconds=60)).isoformat(),
+                "expires_at": min(
+                    self.clock() + timedelta(seconds=60),
+                    dt(report["next_refresh_at"])
+                    if report.get("next_refresh_at")
+                    else self.clock() + timedelta(seconds=60),
+                ).isoformat(),
                 "epoch": epoch,
                 "owner_id": p["user_id"],
                 "role": p["role"],

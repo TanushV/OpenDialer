@@ -12,7 +12,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 
 from app.db import MODELS, Job, doc, put, uid, update
 from app.operational_schema import call_work_bounds
@@ -79,6 +79,11 @@ def call_values(call, *, config, now):
             "right_party_conditioning_count",
             "right_party_successes",
             "pending_outcome_windows",
+            "connect_recent_n",
+            "connect_recent_s",
+            "connect_recent_unknown",
+            "connect_reference_n",
+            "connect_reference_s",
         ),
         0,
     )
@@ -94,6 +99,17 @@ def call_values(call, *, config, now):
         right_party_successes=int(labels["human"] is True and labels["right_party"] is True),
         pending_outcome_windows=int(now < submitted + timedelta(days=config["window_days"])),
     )
+    if submitted >= now - timedelta(days=1):
+        values.update(
+            connect_recent_n=int(labels["human"] is not None),
+            connect_recent_s=int(labels["human"] is True),
+            connect_recent_unknown=int(labels["human"] is None),
+        )
+    elif submitted >= now - timedelta(days=28):
+        values.update(
+            connect_reference_n=int(labels["human"] is not None),
+            connect_reference_s=int(labels["human"] is True),
+        )
     return values
 
 
@@ -297,7 +313,7 @@ def definition_version(config, epoch):
     return hashlib.sha256(
         json.dumps(
             {
-                "metrics": "cohort-work-v4",
+                "metrics": "cohort-work-v5",
                 "epoch": epoch,
                 "goal": config["conversion_goal"],
                 "window_days": config["window_days"],
@@ -466,6 +482,12 @@ def _calculate_unit(snapshot, now):
             for t in (start, start + timedelta(days=config["window_days"]) if start else None)
             if t and t > now
         )
+        if start:
+            refresh.extend(
+                boundary
+                for days in (1, 28)
+                if (boundary := start + timedelta(days=days, microseconds=1)) > now
+            )
     elif kind == "usage" and row:
         values = usage_values(row)
     elif kind == "help" and row:
@@ -515,6 +537,9 @@ def _groups(snapshot, namespace):
         groups.append({"bucket_kind": "daily", "bucket_day": day})
     if kind == "rep-day":
         groups.append(
+            {"bucket_kind": "rep_total", "bucket_day": None, "rep_id": snapshot["identity"].rsplit(":", 1)[0]}
+        )
+        groups.append(
             {"bucket_kind": "rep", "bucket_day": day, "rep_id": snapshot["identity"].rsplit(":", 1)[0]}
         )
     return [
@@ -529,11 +554,12 @@ def _groups(snapshot, namespace):
 
 
 def _group_key(service, group):
-    return hmac.new(
+    digest = hmac.new(
         service.db.identity_key,
         json.dumps(group, sort_keys=True, separators=(",", ":")).encode(),
         hashlib.sha256,
     ).hexdigest()
+    return f"v{group['definition_version']}:{group['namespace']}:{digest}"
 
 
 def refresh_unit(service, p, payload):
@@ -552,6 +578,10 @@ def refresh_unit(service, p, payload):
         # Match originating writes' short revision -> job -> data lock order.
         # This is the existing seller watermark row, never an advisory/global lock.
         service.report_revision(session, p, lock=True)
+        if rebuild_lease := payload.get("rebuild_lease"):
+            owner = session.get(Job, rebuild_lease[0], with_for_update=True)
+            if not _rebuild_owned(owner, rebuild_lease, service.clock()):
+                return {"status": "lost_lease"}
         job = session.scalar(
             select(Job)
             .where(
@@ -637,7 +667,7 @@ def refresh_unit(service, p, payload):
                 value = {
                     **(new_groups.get(group_key) or old_groups[group_key]),
                     "group": new_groups.get(group_key) or old_groups[group_key],
-                    "group_key": group_key,
+                    "group_key": group_key.rsplit(":", 1)[-1],
                     "values": total,
                 }
                 if bucket:
@@ -697,6 +727,17 @@ def refresh_due(service, p, *, limit=100):
         raise ValueError("At most100 due contributions per sweep")
     with service.db.transaction(False) as session:
         model = MODELS["metric_contributions"]
+        campaign = session.scalar(
+            _scoped_query(p, "campaigns").order_by(MODELS["campaigns"].created_at).limit(1)
+        )
+        pointer = campaign.data.get("metric_projection", {})
+        prefixes = [
+            f"v{pointer[k + '_definition']}:{pointer[k + '_namespace']}:"
+            for k in ("active", "building")
+            if pointer.get(k + "_definition")
+        ]
+        if not prefixes:
+            return {"processed": 0}
         sources = list(
             session.execute(
                 select(model.source_kind, model.source_id)
@@ -704,6 +745,9 @@ def refresh_due(service, p, *, limit=100):
                     model.tenant_id == p["tenant_id"],
                     model.seller_id == p["seller_id"],
                     model.next_refresh_at <= service.clock(),
+                    or_(
+                        *((model.external_key >= key) & (model.external_key < key + "~") for key in prefixes)
+                    ),
                 )
                 .order_by(model.next_refresh_at, model.id)
                 .limit(limit)
@@ -832,6 +876,8 @@ def _rebuild_control(service, p, *, start, lease=None):
                 "cursor": {"phase": 0, "after_id": "", "after_at": None, "day": None},
                 "source_watermark": watermark,
                 "processed": 0,
+                "desired_generation": state.get("desired_generation", 0) + 1,
+                "claimed_generation": state.get("claimed_generation", 0),
             }
             pointer = {
                 **pointer,
@@ -843,6 +889,29 @@ def _rebuild_control(service, p, *, start, lease=None):
                 "building_config": config,
             }
             campaign.data = {**campaign.data, "metric_projection": pointer}
+            group = {
+                "bucket_kind": "total",
+                "bucket_day": None,
+                "campaign_id": campaign.id,
+                "definition_version": definition,
+                "namespace": namespace,
+            }
+            group_key = _group_key(service, group)
+            put(
+                session,
+                "metric_buckets",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    **group,
+                    "group": group,
+                    "group_key": group_key.rsplit(":", 1)[1],
+                    "values": {"original_cohort": 0},
+                    "as_of": service.clock().isoformat(),
+                },
+                key=group_key,
+                now=service.clock(),
+            )
             if job:
                 job.payload = state
                 if job.status != "running":
@@ -856,7 +925,7 @@ def _rebuild_control(service, p, *, start, lease=None):
                     queue="ml",
                     key=key,
                     payload=state,
-                    priority=5,
+                    priority=20,
                     attempts=0,
                     max_attempts=3,
                     status="queued",
@@ -866,7 +935,7 @@ def _rebuild_control(service, p, *, start, lease=None):
         return state, definition
 
 
-def _rebuild_source_page(service, p, state):
+def _rebuild_source_page(service, p, state, lease=None):
     """At most500 indexed source identities; work spans resume within a row."""
     from sqlalchemy import and_, or_
 
@@ -901,6 +970,7 @@ def _rebuild_source_page(service, p, state):
                         "source_kind": "rep-day",
                         "source_id": rep + ":" + day.isoformat(),
                         "target_namespace": state["namespace"],
+                        "rebuild_lease": lease,
                     },
                 )
                 if result["status"] not in {"ready", "unchanged"}:
@@ -909,7 +979,14 @@ def _rebuild_source_page(service, p, state):
                 day += timedelta(days=1)
         else:
             result = refresh_unit(
-                service, p, {"source_kind": kind, "source_id": row.id, "target_namespace": state["namespace"]}
+                service,
+                p,
+                {
+                    "source_kind": kind,
+                    "source_id": row.id,
+                    "target_namespace": state["namespace"],
+                    "rebuild_lease": lease,
+                },
             )
             if result["status"] not in {"ready", "unchanged"}:
                 return state["cursor"], processed
@@ -980,7 +1057,7 @@ def rebuild_page(service, p, *, start=False, lease=None):
     cursor = state["cursor"]
     scanning = cursor["phase"] < len(_REBUILD_SOURCES)
     if scanning:
-        next_cursor, processed = _rebuild_source_page(service, p, state)
+        next_cursor, processed = _rebuild_source_page(service, p, state, lease)
     else:
         next_cursor, processed = cursor, _rebuild_catchup(service, p)
     result = {**empty, "processed": processed, "cursor": next_cursor, "status": "pending"}
@@ -1044,8 +1121,218 @@ def rebuild_page(service, p, *, start=False, lease=None):
             )
             campaign.data = {**campaign.data, "metric_projection": pointer}
             state.update(state="ready", source_watermark=watermark)
+            for retired_namespace in retired:
+                if retired_namespace["definition"] != definition:
+                    continue  # Keep frozen historical definitions; retire only redundant copies.
+                for table in ("metric_contributions", "metric_buckets"):
+                    self_key = f"metric-cleanup:{p['seller_id']}:{definition}:{retired_namespace['namespace']}:{table}"
+                    service.jobs.enqueue_in(
+                        session,
+                        "ml",
+                        {
+                            "kind": "metric_cleanup",
+                            "seller_id": p["seller_id"],
+                            "campaign_id": campaign.id,
+                            **retired_namespace,
+                            "table": table,
+                        },
+                        self_key,
+                        tenant_id=p["tenant_id"],
+                        priority=1,
+                    )
             if job.status != "running":
                 job.status = "completed"
             result.update(published=True, status="ready", source_watermark=watermark)
         job.payload = state
     return result
+
+
+def read_metrics(service, p):
+    """One total plus bounded rep totals; never source history or a training dataset."""
+    from app.measurement import connect_health_counts, work_summary
+
+    with service.db.transaction(False) as session:
+        campaign = session.scalar(
+            _scoped_query(p, "campaigns").order_by(MODELS["campaigns"].created_at).limit(1)
+        )
+        pointer = campaign.data.get("metric_projection", {})
+        config = pointer.get("active_config") or service.optimization_config(session, p, campaign.id)
+        definition = pointer.get("active_definition") or definition_version(
+            config, campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
+        )
+        namespace = pointer.get("active_namespace", "initial")
+        group = {
+            "bucket_kind": "total",
+            "bucket_day": None,
+            "campaign_id": campaign.id,
+            "definition_version": definition,
+            "namespace": namespace,
+        }
+        bucket = service._by_key(session, p, "metric_buckets", _group_key(service, group))
+        values = dict(bucket.data["values"]) if bucket else {}
+        prefix = f"v{definition}:{namespace}:"
+        contributions = MODELS["metric_contributions"]
+        next_refresh = session.scalar(
+            select(func.min(contributions.next_refresh_at)).where(
+                contributions.tenant_id == p["tenant_id"],
+                contributions.seller_id == p["seller_id"],
+                contributions.external_key >= prefix,
+                contributions.external_key < prefix + "~",
+            )
+        )
+        model = MODELS["metric_buckets"]
+        reps = list(
+            session.scalars(
+                _scoped_query(p, "metric_buckets")
+                .where(
+                    model.external_key >= prefix,
+                    model.external_key < prefix + "~",
+                    model.bucket_kind == "rep_total",
+                )
+                .order_by(model.external_key)
+                .limit(501)
+            )
+        )
+    counts = {
+        key: values.get(key, 0)
+        for key in (
+            "original_cohort",
+            "original_eligible_denominator",
+            "eligible_now",
+            "suppressed",
+            "attempts",
+            "human_pickups",
+            "human_classified_attempts",
+            "human_unknown_attempts",
+            "right_party_conditioning_count",
+            "right_party_successes",
+            "right_party_unique",
+            "held_meetings",
+            "unique_conversions",
+            "coverage_overdue",
+            "pending_outcome_windows",
+        )
+    }
+    work = work_summary([], [], now=service.clock())
+    work.update(
+        seconds=values.get("rep_work_seconds", 0) if values.get("work_evidence_count") else None,
+        by_rep={
+            r.data["group"]["rep_id"]: r.data["values"]["rep_work_seconds"]
+            for r in reps[:500]
+            if r.data["values"].get("work_evidence_count")
+        },
+        stale_intervals=values.get("stale_intervals", 0),
+        rep_details_complete=len(reps) <= 500,
+    )
+    health = connect_health_counts(values)
+    denominator = counts["original_eligible_denominator"]
+    return {
+        **counts,
+        "definition_version": definition,
+        "projection_namespace": namespace,
+        "next_refresh_at": timestamp(next_refresh).isoformat() if next_refresh else None,
+        "as_of": service.clock().isoformat(),
+        "unique_reach_per_original_lead": counts["right_party_unique"] / denominator if denominator else 0,
+        "held_meetings_per_original_lead": counts["held_meetings"] / denominator if denominator else 0,
+        "conversion_per_original_eligible_lead": counts["unique_conversions"] / denominator
+        if denominator
+        else None,
+        "rep_work_seconds": work["seconds"],
+        "work_time": work,
+        "conversions_per_rep_hour": counts["unique_conversions"] * 3600 / work["seconds"]
+        if work["seconds"]
+        else None,
+        "outcome_goal": config["conversion_goal"],
+        "outcome_window_days": config["window_days"],
+        "coverage_shortfall": max(
+            0, counts["coverage_overdue"] - int(config["rep_minutes"] * 60 / config["handling_seconds"])
+        ),
+        "coverage_capacity_assumption": "Declared rep minutes and handling time; number/window feasibility is shown in the allocation proposal.",
+        "health": {"connect_rate": health},
+        "warnings": [
+            "Human pickup declined versus the prior observed period. Review list mix, calling times and number health."
+        ]
+        if health["status"] == "warning"
+        else [],
+        **{
+            name + "_cost_usd": values.get(key + "_microusd", 0) / 1_000_000
+            for name, key in [
+                ("reserved", "reserved"),
+                ("verified", "verified"),
+                ("gross", "gross"),
+                ("credited", "credited"),
+            ]
+        },
+        "billing_verified": bool(values.get("usage_count")) and not values.get("unverified_usage_count"),
+        "simulation": service.settings.simulation,
+    }
+
+
+def cleanup_page(service, p, payload, *, lease=None):
+    """Delete at most500 obsolete derived rows by indexed namespace, never source data."""
+    table = payload["table"]
+    if table not in {"metric_contributions", "metric_buckets"}:
+        raise ValueError("Only derived metric namespaces may be removed")
+    definition, namespace = payload["definition"], payload["namespace"]
+    # The same identity validation as source writes, with no content-derived path.
+    unit_key(definition, namespace, "lead", "validation")
+    with service.db.transaction() as session:
+        service.report_revision(session, p, lock=True)
+        if lease:
+            job = session.get(Job, lease[0], with_for_update=True)
+            if not _rebuild_owned(job, lease, service.clock()):
+                return {"status": "lost_lease", "processed": 0}
+        campaign = session.scalar(
+            _scoped_query(p, "campaigns")
+            .where(MODELS["campaigns"].id == payload["campaign_id"])
+            .with_for_update()
+        )
+        pointer = dict(campaign.data.get("metric_projection", {})) if campaign else {}
+        if (
+            namespace in {pointer.get("active_namespace"), pointer.get("building_namespace")}
+            or definition != pointer.get("active_definition")
+            or {"namespace": namespace, "definition": definition} not in pointer.get("retired", [])
+        ):
+            return {"status": "protected", "processed": 0}
+        prefix = f"v{definition}:{namespace}:"
+        model = MODELS[table]
+        ids = list(
+            session.scalars(
+                select(model.id)
+                .where(
+                    model.tenant_id == p["tenant_id"],
+                    model.seller_id == p["seller_id"],
+                    model.external_key >= prefix,
+                    model.external_key < prefix + "~",
+                )
+                .order_by(model.external_key)
+                .limit(500)
+            )
+        )
+        if ids:
+            from sqlalchemy import delete
+
+            session.execute(delete(model).where(model.id.in_(ids)))
+        remaining = False
+        for name in ("metric_contributions", "metric_buckets"):
+            derived = MODELS[name]
+            remaining |= bool(
+                session.scalar(
+                    select(derived.id)
+                    .where(
+                        derived.tenant_id == p["tenant_id"],
+                        derived.seller_id == p["seller_id"],
+                        derived.external_key >= prefix,
+                        derived.external_key < prefix + "~",
+                    )
+                    .limit(1)
+                )
+            )
+        if not remaining:
+            pointer["retired"] = [
+                item
+                for item in pointer["retired"]
+                if item != {"namespace": namespace, "definition": definition}
+            ]
+            campaign.data = {**campaign.data, "metric_projection": pointer}
+    return {"status": "pending" if len(ids) == 500 else "ready", "processed": len(ids)}

@@ -24,6 +24,11 @@ METRIC_TABLES = {"metric_contributions", "metric_buckets"}
 
 def metric_columns(kind):
     return {
+        # Namespace/hash keys are ASCII identifiers, not language-sensitive text.
+        # The scoped unique index must support identical prefix ranges on both DBs.
+        "external_key": Column(
+            String(512).with_variant(String(512, collation="C"), "postgresql"), nullable=True
+        ),
         "campaign_id": Column(String(36), nullable=True),
         "definition_version": Column(String(64), nullable=False),
         **(

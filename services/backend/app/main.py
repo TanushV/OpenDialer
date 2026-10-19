@@ -408,7 +408,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.get("/v1/metrics")
     def metrics(p=Depends(principal)):
-        return service.metrics(p)
+        return service.cached_home_metrics(p)
 
     @app.post("/v1/simulation/seed")
     def seed(p=Depends(administrator)):
