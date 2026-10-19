@@ -16,7 +16,7 @@ from app.optimization.learning import (
     stable_control,
 )
 from app.optimization.numbering import select_number, timestamp
-from app.scheduling.models import company_group, saved_prediction
+from app.scheduling.models import company_group, profile_current, saved_prediction
 from app.scheduling.policy import queue_decision, rank_candidates
 
 
@@ -147,7 +147,7 @@ class ReservationPlanner:
             config = self.optimization_config(s, p, campaign_id)
             # The normal queue reads the latest compact learning projection, never a training corpus.
             profile = campaign.data.get("selection_profile", {})
-            if profile.get("goal") != config["conversion_goal"]:
+            if not profile_current(profile, config):
                 profile = {}
             inventory = self.inventory_evidence(s, p, fast=True)
             claims = s.info["active_claims"]
@@ -457,6 +457,8 @@ class ReservationPlanner:
                     "goal": config["conversion_goal"],
                     "goal_version": campaign.data.get("optimization_epoch", "conversion-v2"),
                     "outcome_window_days": config["window_days"],
+                    "estimate_policy": config["estimate_policy"],
+                    "work_assumption_seconds": config["handling_seconds"],
                     "policy_version": campaign.data["policy_id"],
                     "model_version": plan["prediction"]["model_version"],
                     "allowed_actions": choice["eligible_actions"],

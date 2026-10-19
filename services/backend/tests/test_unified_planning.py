@@ -528,6 +528,7 @@ def test_forecast_uses_the_saved_work_estimate_and_prior_versions(workspace, app
             campaign,
             selection_profile={
                 "goal": "meeting_held",
+                "window_days": 14,
                 "version": "observed-v3",
                 "estimate_policy_version": EstimatePolicy().version,
                 "work_assumption_seconds": 120,

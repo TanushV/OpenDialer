@@ -246,6 +246,8 @@ def test_active_packet_uses_frozen_selection_prediction_and_policy(workspace, ap
     brief = service.packet(p, call["lead_id"])["statistical_guidance"]
     assert brief["human_probability"] == 0.87
     assert brief["model_version"] == "owned-reviewed-model"
+    assert brief["estimate_basis"] == "reviewed_model"
+    assert "pooled comparison" in brief["uncertainty"]
     assert brief["estimate_policy"] == policy
     assert brief["conversion_goal"] == "meeting_held"
     assert brief["work_assumption_seconds"] == 120

@@ -18,7 +18,7 @@ from app.optimization.learning import (
     trial_report,
 )
 from app.optimization.numbering import capacity_forecast, number_health, timestamp
-from app.scheduling.models import EstimatePolicy, prediction_key, saved_prediction
+from app.scheduling.models import EstimatePolicy, prediction_key, profile_current, saved_prediction
 
 DEFAULTS = {
     "conversion_goal": "meeting_held",
@@ -408,6 +408,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
             "as_of": self.clock().isoformat(),
             "goal": config["conversion_goal"],
             "samples": len(data),
+            "window_days": config["window_days"],
             "estimate_policy_version": EstimatePolicy.model_validate(config["estimate_policy"]).version,
             "work_assumption_seconds": config["handling_seconds"],
             "retry_observations": retry_statistics(
@@ -540,7 +541,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
         )
         policy_row = self.required(s, "policy_versions", campaign.data["policy_id"], p)
         profile = campaign.data.get("selection_profile", {})
-        if profile.get("goal") != config["conversion_goal"]:
+        if not profile_current(profile, config):
             profile = {}
         policy = {
             **policy_row.data,
@@ -1199,13 +1200,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
             config = self.optimization_config(s, p, campaign_id)
             campaign = self.required(s, "campaigns", campaign_id, p)
             profile = campaign.data.get("selection_profile", {})
-            if profile.get("goal") != config["conversion_goal"]:
-                profile = {}
-            if (
-                profile.get("estimate_policy_version")
-                != EstimatePolicy.model_validate(config["estimate_policy"]).version
-                or profile.get("work_assumption_seconds") != config["handling_seconds"]
-            ):
+            if not profile_current(profile, config):
                 profile = {}
             estimates = {**profile.get("predictions", {}), "pooled": saved_prediction(profile, {}, config)}
         forecast = capacity_forecast(**inputs, schedule_row_limit=None)

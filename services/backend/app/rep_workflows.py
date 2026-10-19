@@ -350,7 +350,7 @@ class RepWorkflows:
             emit(s, p["tenant_id"], "lead.goal_updated", lead, self.clock())
             return {**doc(lead), "edit_receipt": self.local_edit_receipt(s, p, identity, lead)}
 
-    def prospect_context_in(self, s, p, lead, calls, commitments, tasks):
+    def prospect_context_in(self, s, p, lead, calls, commitments, tasks, *, decision=None):
         from app.optimization.conversations import active_observations
         from app.optimization.learning import freeze_features
         from app.scheduling.models import saved_prediction
@@ -362,6 +362,17 @@ class RepWorkflows:
         if profile.get("goal") != config["conversion_goal"]:
             profile = {}
         prediction = saved_prediction(profile, features, config)
+        if decision:
+            prediction = {
+                **decision["predictions"],
+                "as_of": decision.get("decision_at") or decision.get("as_of"),
+            }
+            config = {
+                **config,
+                "conversion_goal": decision.get("goal", config["conversion_goal"]),
+                "estimate_policy": decision.get("estimate_policy"),
+                "handling_seconds": decision.get("work_assumption_seconds"),
+            }
         recent = sorted(calls, key=lambda c: c.get("started_at", ""))[-10:]
         model = MODELS["notes"]
         notes = (
@@ -464,11 +475,18 @@ class RepWorkflows:
                 "estimate_policy": config["estimate_policy"],
                 "estimate_policy_version": prediction.get("estimate_policy_version"),
                 "work_assumption_seconds": config["handling_seconds"],
-                "uncertainty": "Sparse evidence; pooled starting estimates, not individual guarantees."
+                "estimate_basis": "pooled"
+                if prediction["model_version"].startswith("pooled-")
+                else "reviewed_model",
+                "uncertainty": "Reviewed model estimates; history counts describe the pooled comparison, not confidence about this prospect."
+                if not prediction["model_version"].startswith("pooled-")
+                else "Sparse evidence; pooled starting estimates, not individual guarantees."
                 if samples < 30
                 else "Pooled estimates; conditional outcomes have separate sample support.",
                 "model_version": prediction["model_version"],
-                "as_of": profile.get("as_of"),
+                "as_of": prediction.get("as_of"),
+                "source": decision["source"] if decision else "current_pooled_estimate",
+                "decision_id": decision["id"] if decision else None,
                 "why_now": why,
             },
         }

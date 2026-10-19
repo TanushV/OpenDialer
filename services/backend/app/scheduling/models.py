@@ -91,19 +91,28 @@ def company_group(lead):
     return None
 
 
+def profile_current(profile, config):
+    policy = EstimatePolicy.model_validate(config.get("estimate_policy", {}))
+    return (
+        profile.get("goal") == config.get("conversion_goal")
+        and profile.get("window_days") == config.get("window_days", 14)
+        and profile.get("estimate_policy_version") == policy.version
+        and profile.get("work_assumption_seconds") == config.get("handling_seconds", 120)
+    )
+
+
 def saved_prediction(profile, features, config):
     """A stale configuration never silently supplies a differently defined prior."""
     policy = EstimatePolicy.model_validate(config.get("estimate_policy", {}))
     work = config.get("handling_seconds", 120)
-    if (
-        profile.get("goal") == config.get("conversion_goal")
-        and profile.get("estimate_policy_version") == policy.version
-        and profile.get("work_assumption_seconds") == work
-    ):
+    if profile_current(profile, config):
         found = profile.get("predictions", {}).get(prediction_key(features)) or profile.get("pooled")
         if found:
-            return dict(found)
-    return pooled_predictions([], features=features, handling_seconds=work, estimate_policy=policy)
+            return {**found, "as_of": profile.get("as_of")}
+    return {
+        **pooled_predictions([], features=features, handling_seconds=work, estimate_policy=policy),
+        "as_of": None,
+    }
 
 
 def derive_labels(value):

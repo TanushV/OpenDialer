@@ -73,6 +73,9 @@ for (const connected of [false, true]) {
       .click();
     await page.getByText("Estimates & uncertainty", { exact: true }).click();
     await expect(
+      page.getByText("Estimates frozen at this selection.", { exact: true }),
+    ).toBeVisible();
+    await expect(
       page.getByText(
         "Observed-rate intervals describe classified history, not certainty about this prospect.",
       ),
@@ -95,6 +98,9 @@ for (const connected of [false, true]) {
     await page
       .getByRole("button", { name: "Save optimization settings", exact: true })
       .click();
+    await expect(
+      page.getByText("Optimization settings saved", { exact: true }),
+    ).toBeVisible();
     await page
       .getByRole("combobox", { name: "Pilot candidate", exact: true })
       .selectOption("review-fixture");

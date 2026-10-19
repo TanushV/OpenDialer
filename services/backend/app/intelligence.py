@@ -199,6 +199,20 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             )
             if active_calls and active_calls[0].data.get("script_snapshot"):
                 script = dict(active_calls[0].data["script_snapshot"])
+            decision = None
+            owner = next((c for c in active_calls if c.data.get("rep_id") == p["user_id"]), None)
+            origin = "frozen_call_decision"
+            if not owner and reservations:
+                candidate = reservations[0]
+                if (
+                    candidate.data.get("status") == "reserved"
+                    and dt(candidate.data["expires_at"]) > self.clock()
+                ):
+                    owner, origin = candidate, "frozen_reservation_decision"
+            if owner and owner.data.get("feature_snapshot_id"):
+                row = self.required(s, "feature_snapshots", owner.data["feature_snapshot_id"], p)
+                if row.data.get("lead_id") == lead.id and row.data.get("predictions"):
+                    decision = {**doc(row), "source": origin}
             facts = list({f["id"]: f for f in [*facts, *self.script_evidence(s, p, lead, script)]}.values())
             source_model = MODELS["research_sources"]
             sources = [
@@ -253,7 +267,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     )
                 )
             return {
-                **self.prospect_context_in(s, p, lead, calls, commitments, history["followup_tasks"]),
+                **self.prospect_context_in(
+                    s, p, lead, calls, commitments, history["followup_tasks"], decision=decision
+                ),
                 "lead": {**doc(lead), "suppressed": self.suppressed(s, p, lead.data["phone"])},
                 "script": script,
                 "preparation": preparation,

@@ -411,6 +411,7 @@ def test_forecast_shares_weekday_and_attempt_estimates_with_selection(workspace,
             campaign,
             selection_profile={
                 "goal": "meeting_held",
+                "window_days": 14,
                 "estimate_policy_version": EstimatePolicy().version,
                 "work_assumption_seconds": 120,
                 "pooled": base,

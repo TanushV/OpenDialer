@@ -568,7 +568,7 @@
           "work": "Dual-database and browser evidence, superseded paths removed and mapping updated"
         }
       ],
-      "checkpoint": "Scoped SQLite 382 passes (121.03s) for strategy/model-control/drift integration. PostgreSQL and UI running. Remaining E08: as-of call-derived rewards, exact scoped receipt and deletion check; then E09 incremental projections."
+      "checkpoint": "Final integration: 235 affected SQLite passes, seven browser passes. Matching PostgreSQL running; earlier source had 382 passes per authority. Commit final receipt and close E08 after green; next E09 removes broad report invalidation/history rebuilds."
     },
     {
       "id": "E09",

@@ -34,13 +34,21 @@ export function ProspectBrief({
             <p className="muted">{stats.why_now}</p>
             <details>
               <summary>Estimates &amp; uncertainty</summary>
+              <p>
+                {stats.source === "frozen_call_decision" ||
+                stats.source === "frozen_reservation_decision"
+                  ? "Estimates frozen at this selection."
+                  : "Current pooled estimate for a future selection."}
+              </p>
               <p>{stats.uncertainty}</p>
               {stats.stage_support && (
                 <>
                   <p>
-                    {stats.prior_only
-                      ? "Starting priors; no observed support yet."
-                      : `Estimate level: ${label(stats.estimate_level || "pooled")}.`}
+                    {stats.estimate_basis === "reviewed_model"
+                      ? "Reviewed model estimate; counts below describe the pooled baseline."
+                      : stats.prior_only
+                        ? "Starting priors; no observed support yet."
+                        : `Estimate level: ${label(stats.estimate_level || "pooled")}.`}
                   </p>
                   <table aria-label="Conditional estimate support">
                     <thead>

@@ -6,7 +6,13 @@ from collections import defaultdict
 from datetime import timedelta
 
 from app.db import doc, put
-from app.optimization.learning import conversion_at, derive_labels, learn_distribution, trial_report
+from app.optimization.learning import (
+    conversion_at,
+    derive_labels,
+    learn_distribution,
+    outcome_at,
+    trial_report,
+)
 from app.optimization.numbering import timestamp
 
 
@@ -114,6 +120,31 @@ def assign_arm(family, epoch, lead_id, stratum, assignments):
     )
 
 
+def call_goal_events(calls, goal, *, now):
+    """One as-of disposition source for both trial totals and adaptive seeds."""
+    result = []
+    for call in calls:
+        known = outcome_at(call, now)
+        at = timestamp(call.get("ended_at") or call.get("started_at"))
+        if (
+            known
+            and known["timing_known"]
+            and at
+            and at <= now
+            and derive_labels(known).get("qualified" if goal == "qualified_conversation" else goal)
+        ):
+            result.append(
+                {
+                    "id": "call:" + call["id"],
+                    "lead_id": call["lead_id"],
+                    "kind": goal,
+                    "occurred_at": at.isoformat(),
+                    "label_available_at": known["outcome_available_at"],
+                }
+            )
+    return result
+
+
 def comparison_report(
     study,
     assignments,
@@ -128,17 +159,7 @@ def comparison_report(
     seed_rewards=(),
     observations=(),
 ):
-    events = events + [
-        {
-            "id": "call:" + call["id"],
-            "lead_id": call["lead_id"],
-            "kind": goal,
-            "occurred_at": call.get("ended_at") or call["started_at"],
-            "label_available_at": call.get("outcome_available_at"),
-        }
-        for call in calls
-        if derive_labels(call).get("qualified" if goal == "qualified_conversation" else goal)
-    ]
+    events = events + call_goal_events(calls, goal, now=now)
     if study.get("strategy_ids"):
         events = [
             known
@@ -539,7 +560,12 @@ class ComparisonWorkflows:
                     r
                     for prior in studies
                     if prior["id"] == study.get("evidence_comparison_id")
-                    for r in strategy_rewards(prior, assignments, events, now=self.clock())
+                    for r in strategy_rewards(
+                        prior,
+                        assignments,
+                        events + call_goal_events(observed_calls, prior["goal"], now=self.clock()),
+                        now=self.clock(),
+                    )
                 ],
             )
             for study in studies

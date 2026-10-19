@@ -243,9 +243,15 @@ export interface Packet {
     conversion_samples: number;
     prior_only?: boolean;
     estimate_level?: string;
-    estimate_policy?: EstimatePolicy;
+    estimate_policy?: EstimatePolicy | null;
+    estimate_basis?: "pooled" | "reviewed_model";
+    source?:
+      | "frozen_call_decision"
+      | "frozen_reservation_decision"
+      | "current_pooled_estimate";
+    decision_id?: string | null;
     estimate_policy_version?: string;
-    work_assumption_seconds?: number;
+    work_assumption_seconds?: number | null;
     stage_support?: Record<
       string,
       {
