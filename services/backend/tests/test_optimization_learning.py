@@ -688,3 +688,28 @@ def test_training_rows_retain_each_actual_frozen_stage_prediction(clock):
     )
     for key, value in predictions.items():
         assert rows[0].get(key) == value
+
+
+@pytest.mark.parametrize("window", [None, 30])
+def test_saved_sparse_profile_requires_the_same_outcome_window(window):
+    from app.scheduling.models import EstimatePolicy, pooled_predictions, saved_prediction
+
+    policy = EstimatePolicy()
+    config = {
+        "conversion_goal": "meeting_held",
+        "window_days": 14,
+        "handling_seconds": 120,
+        "estimate_policy": policy.model_dump(),
+    }
+    historical = {**pooled_predictions([], features={}), "p_human": 0.99}
+    profile = {
+        "goal": "meeting_held",
+        "window_days": window,
+        "estimate_policy_version": policy.version,
+        "work_assumption_seconds": 120,
+        "pooled": historical,
+        "as_of": "2026-10-01T00:00:00Z",
+    }
+    value = saved_prediction(profile, {}, config)
+    assert value["p_human"] == 0.2
+    assert value.get("as_of") is None
