@@ -686,7 +686,7 @@ Primary provider references above were checked October 18, 2026. They inform ada
 These boxes are deliberately open. This planning pass does not perform implementation or certify new binaries.
 
 - [x] E00 All remaining cases authored, real baseline red/green captured, traceability committed before product changes. See E00 receipts in STATUS.md; baseline failures do not accept product behavior.
-- [ ] E01 Freeform live help and selective whole-field review pass; lexical semantic gates deleted.
+- [x] E01 Freeform live help and selective whole-field review pass; lexical semantic gates deleted.
 - [ ] E02 Shared conversation state, long-call continuity and finalization pass; duplicate extraction removed.
 - [ ] E03 One complete local rep/task/meeting/next-call journey passes in both authorities.
 - [ ] E04 Bounded discovery, prepared queue, off-hours batches and partial recovery pass.
@@ -702,4 +702,4 @@ These boxes are deliberately open. This planning pass does not perform implement
 - [ ] E14 Exact Mac/Windows artifacts accepted, existing installations updated and native use recorded.
 - [ ] E15 Accurate docs, remaining external gates, final preflight and scoped cleanup complete; source/artifact/remote match.
 
-**Next action on implementation resumption:** E01. E00 contract baselines are committed; retain all failures and implement freeform live help, complete field audits, selective review, shared deadlines/accounting and final-prospect debounce before advancing to E02. Do not start another general audit, rewrite the stack, add CRM/calendar scope or package a new release before the integrated workflow and acceptance gates close.
+**Next action on implementation resumption:** E02. E01 selective-review, timing, accounting and UI contracts pass in both authorities; receipts are in STATUS.md. Implement one bounded conversation state and finalizer, retaining all existing source/expiry/correction contracts. Do not start another general audit, rewrite the stack, add CRM/calendar scope or package a new release before the integrated workflow and acceptance gates close.

@@ -3,10 +3,10 @@
   "written_at": "2026-10-18",
   "baseline_commit": "63f4d4242f60672777f596177fe98fe57f715bf9",
   "baseline_product_test_commit": "6611d3c2fb486b0aac65df2bb42e20663457552a",
-  "status": "implementation-authorized; E00 contracts captured; E01 in progress",
+  "status": "implementation-authorized; E01 software boundary accepted; E02 in progress",
   "requirements_source": "docs/REMEDIATION_PLAN.md",
   "implementation_source": "docs/EXECUTION_SPEC.md",
-  "next_step": "E01",
+  "next_step": "E02",
   "receipt_rule": "No inherited checkbox or planned node is a current passing receipt. Update by actual source-bound evidence.",
   "steps": [
     {
@@ -89,7 +89,7 @@
     {
       "id": "E01",
       "title": "Freeform live guidance without lexical truth rules",
-      "status": "in-progress",
+      "status": "accepted-software",
       "depends_on": [
         "E00"
       ],
@@ -103,7 +103,9 @@
         "services/backend/tests/test_openrouter_coach.py",
         "apps/desktop/tests/helper-ui.spec.ts"
       ],
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E01.json"
+      ],
       "planned_case_ids": [
         "C001",
         "C002",
@@ -123,7 +125,7 @@
     {
       "id": "E02",
       "title": "One conversation state through long calls and finalization",
-      "status": "open",
+      "status": "in-progress",
       "depends_on": [
         "E01"
       ],
@@ -1282,14 +1284,16 @@
       "id": "M3.01",
       "requirement": "Build versioned seller/product/lead/history context and bounded incremental conversation memory.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "in-progress",
       "primary_step": "E01",
       "supporting_steps": [
         "E02",
         "E04"
       ],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E01.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1324,13 +1328,15 @@
       "id": "M3.01c",
       "requirement": "Add versioned product/pricing/claim-limit authoring with conflict/lost-response recovery, indexed current knowledge and content-free live invalidation. Preserve active scripts and historical knowledge; both database modes, additive migration and 12 browser checks pass in STATUS.md. Full context load and semantic-quality acceptance remain open.",
       "baseline_checked": true,
-      "execution_status": "retained-needs-revalidation",
+      "execution_status": "in-progress",
       "primary_step": "E01",
       "supporting_steps": [
         "E04"
       ],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E01.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1339,11 +1345,13 @@
       "id": "M3.02",
       "requirement": "Remove exact sentence validation and fixed topic/regex semantic authority; retain factual/permission boundaries.",
       "baseline_checked": true,
-      "execution_status": "retained-needs-revalidation",
+      "execution_status": "accepted-software",
       "primary_step": "E01",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E01.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1352,11 +1360,13 @@
       "id": "M3.03",
       "requirement": "Implement generated contextual suggestions and private manual questions without requiring matching cards.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "accepted-software",
       "primary_step": "E01",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E01.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1365,11 +1375,13 @@
       "id": "M3.04",
       "requirement": "Support concise primary help, expandable analysis, evidence and unknown-fact responses; no arbitrary wording straitjacket.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "accepted-software",
       "primary_step": "E01",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E01.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1378,11 +1390,13 @@
       "id": "M3.05",
       "requirement": "Add bounded cross-call concurrency, per-call ordering, latest-state replacement, cancellation, fairness and backpressure.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "accepted-software",
       "primary_step": "E01",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E01.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1391,11 +1405,13 @@
       "id": "M3.05a",
       "requirement": "Verify bounded per-rep admission, thread-safe cancellation and current call/authority/source publication; settle submitted costs and release only proven-unsent holds.",
       "baseline_checked": true,
-      "execution_status": "retained-needs-revalidation",
+      "execution_status": "accepted-software",
       "primary_step": "E01",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E01.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1404,11 +1420,13 @@
       "id": "M3.06a",
       "requirement": "Complete private request identity, lost-response replay, cancel-before-delivery, visible Cancel/F1 and original-expiry handling without changing call-control versions; retain progressive-answer work under M3.06.",
       "baseline_checked": true,
-      "execution_status": "retained-needs-revalidation",
+      "execution_status": "accepted-software",
       "primary_step": "E01",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E01.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1417,11 +1435,13 @@
       "id": "M3.06b",
       "requirement": "Publish validated complete primary fields before the explanation finishes, update one receipt, and withdraw interrupted/corrected/cancelled results. Bound current display reads and give private answers precedence over older pinned tips. Separate first-answer/connect/full deadlines and reject conflicting stream receipts. Dual-database/browser evidence is in STATUS.md; funded endpoint quality/latency and broad concurrency remain separate gates.",
       "baseline_checked": true,
-      "execution_status": "retained-needs-revalidation",
+      "execution_status": "accepted-software",
       "primary_step": "E01",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E01.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1430,11 +1450,13 @@
       "id": "M3.06",
       "requirement": "Implement endpoint-capability-checked streaming/nonstreaming paths, meaningful deadlines and complete error handling.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "accepted-software",
       "primary_step": "E01",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E01.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1443,11 +1465,13 @@
       "id": "M3.07",
       "requirement": "Verify actual Cerebras routing, context/request/usage receipts and budget settlement in contract tests.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "accepted-software",
       "primary_step": "E01",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E01.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1456,11 +1480,13 @@
       "id": "M3.08",
       "requirement": "Add mute/pin/dismiss/help hotkey and feedback; manual help remains available when automatic tips are muted.",
       "baseline_checked": true,
-      "execution_status": "retained-needs-revalidation",
+      "execution_status": "accepted-software",
       "primary_step": "E01",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E01.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -4157,14 +4183,16 @@
       "step": "E01",
       "planned_node": "services/backend/tests/test_live_claim_review.py::test_complete_field_audit",
       "expected": "Suggestion, reason, alternative and implied premise each receive a current source-bound verdict; unsupported fields cannot stream.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-group1.json",
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E01.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_live_claim_review.py::test_word_overlap_or_a_question_mark_cannot_certify_a_novel_claim",
         "services/backend/tests/test_live_claim_review.py::test_a_novel_nonassertive_question_keeps_the_single_request_path",
@@ -4184,14 +4212,16 @@
       "step": "E01",
       "planned_node": "services/backend/tests/test_coach_admission.py::test_prospect_debounce_and_rate_limit",
       "expected": "300-ms debounce admits latest prospect context without an eight-second wait; rep-only refresh remains paced; every limited opportunity counted.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-group1.json",
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E01.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_coach_admission.py::test_prospect_debounce_and_rate_limit",
         "services/backend/tests/test_coach_admission.py::test_provider_ignoring_cancel_cannot_publish_obsolete_same_version_advice",
@@ -4212,13 +4242,15 @@
       "step": "E01",
       "planned_node": "services/backend/tests/test_helper_progress.py::test_review_cost_cancellation",
       "expected": "Generation/review have distinct ledger keys; source change or cancel withholds output and preserves submitted liability.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E01.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_helper_progress.py::test_complete_primary_answer_is_visible_before_explanation_and_one_receipt_is_updated",
         "services/backend/tests/test_helper_progress.py::test_partial_help_is_withdrawn_at_a_changed_boundary",
@@ -4241,13 +4273,15 @@
       "step": "E01",
       "planned_node": "services/backend/tests/test_coach_stream.py::test_reviewed_progress_identity",
       "expected": "Complete reviewed primary field may display; partial factual field may not; conflicting receipt withdraws exactly one card.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E01.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_coach_stream.py::test_manual_help_uses_streaming_schema_and_preserves_final_usage",
         "services/backend/tests/test_coach_stream.py::test_manual_stream_errors_never_publish_partial_content",
