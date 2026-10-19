@@ -599,7 +599,8 @@
         "docs/evidence/completion/E09-vectors-red.json",
         "docs/evidence/completion/E09-contributions.json",
         "docs/evidence/completion/E09-publication.json",
-        "docs/evidence/completion/E09-dependents.json"
+        "docs/evidence/completion/E09-dependents.json",
+        "docs/evidence/completion/E09-core-readers.json"
       ],
       "planned_case_ids": [
         "C035",
@@ -615,7 +616,7 @@
         "A50",
         "A51"
       ],
-      "checkpoint": "Shared home metrics and resumable rebuild implemented; SQLite183 affected checks pass, then PostgreSQL exposes locale-sensitive namespace range errors. New restore/empty/maturation/dead-source regressions precede repairs. Targeted dual-database revalidation underway; secondary report readers and routine-history retirement remain open.",
+      "checkpoint": "4c3c3ea: core saved metric readers and rebuild readiness accepted by focused SQLite27+78 and PostgreSQL28+78 checks. Continue secondary reports and incremental maintenance; parent E09 remains open.",
       "implementation_todos": [
         {
           "id": "E09.admission",
@@ -644,12 +645,12 @@
         },
         {
           "id": "E09.core_readers",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Shared home/count/work/cost/rolling-connect totals; inactive rebuild, retirement, restore and locale-safe range reads"
         },
         {
           "id": "E09.secondary_readers",
-          "status": "open",
+          "status": "in-progress",
           "work": "Incremental dataset, coaching, health, trial/strategy and drift reports; no historical source scans"
         },
         {

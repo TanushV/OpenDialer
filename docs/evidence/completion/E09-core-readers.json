@@ -1,0 +1,81 @@
+{
+  "step_id": "E09",
+  "stage": "core-readers-and-resumable-rebuild",
+  "source_commit": "4c3c3eae37515f5ee378580129d410ae3aa2079d",
+  "production_tree_digest": "e0fffcd2882f65629ed8df2d17379b033aa67f724bbda3ac68c22e3dba42e122",
+  "test_tree_digest": "d932e77b1287ab9fc7e8de6760a5c452c86f7a852aaff11750d706c62e33d55a",
+  "digest_method": "SHA256 git ls-tree -r for named production/test roots",
+  "case_ids": [
+    "C035",
+    "C036",
+    "C038"
+  ],
+  "mode": [
+    "sqlite",
+    "postgresql"
+  ],
+  "fixture_seed": 20261018,
+  "commands": [
+    "pytest test_metric_readiness.py test_migrations.py test_projection_replay.py -k \"not interrupted_inactive and not rebuild_keeps\" -q --tb=short",
+    "pytest test_incremental_metrics.py test_report_projections.py test_work_measurement.py -k \"not normal_correction\" -q --tb=short"
+  ],
+  "environment": {
+    "python": "3.12.13",
+    "postgresql": "17; default en_US.utf8 locale",
+    "installed_app_changed": false
+  },
+  "started_at": null,
+  "finished_at": "2026-10-19T16:52:13.046060+00:00",
+  "timestamp_note": "Exact start not captured; full runner durations retained.",
+  "result_counts": {
+    "readiness_sqlite": {
+      "passed": 27,
+      "skipped": 1,
+      "deselected": 3,
+      "seconds": 12.97
+    },
+    "readiness_postgres": {
+      "passed": 28,
+      "deselected": 3,
+      "seconds": 77.93
+    },
+    "readers_sqlite": {
+      "passed": 78,
+      "deselected": 1,
+      "seconds": 29.5
+    },
+    "readers_postgres": {
+      "passed": 78,
+      "deselected": 1,
+      "seconds": 160.51
+    }
+  },
+  "failed_cases": [],
+  "raw_log_sha256": {
+    "E09-rebuild-storage-red.txt": "4b073ae82a8707a256783f477ea88c2cbe843453ab3374cefcbe5f9f62f93d1f",
+    "E09-rebuild-claim-red.txt": "b5343ddccd4073d468cd4a60eb575f8dee3fb73e389bf96ffb8a9ba3bd2c1de7",
+    "E09-rebuild-runner-red.txt": "d0822b7275997d6e3f47fa24d8b522e2a02a30c7ae87fda47d832ecb3f3ed7ea",
+    "E09-shared-reader-red.txt": "a1697a6579c1b158dd436eebea32dbf6d82bdf71fbbc6081f88f2cc257fc804b",
+    "E09-cleanup-red.txt": "acdbcfda7ae7b6b46c1a2cda2fb6f428e7de92363ceef2b1395da0a308c855cc",
+    "E09-rebuild-races-red.txt": "dcc4e41884bc9851fdcc6d8353d5b72ca32a29facd5e8744c142c76ec3dc7b3e",
+    "E09-readiness-red-sqlite.txt": "f550d06b29c890b8b7f2c01559d2830fb93ab8444988acb29699bd3417f4e7f5",
+    "E09-readiness-red-postgres.txt": "48aff57048f6b4aeaef23ed7216084a2720f6c2376f183eeee6a4b9d4bdb0b4c",
+    "E09-readiness-dead-red.txt": "14393efd4f5b381ef5e3b1f5991ac1821a35608ec28c7197ccc3211c0fd2bc31",
+    "E09-readiness-sqlite.txt": "f2391d2e8eecaf84d1f02b3809002cfe4ef15bea65463de330d46e9a3aa83cd3",
+    "E09-readiness-postgres.txt": "ce792cd267e7495e2379b302401720c0eae24af4446320f55ae37bd17234ac64",
+    "E09-readers-final-sqlite.txt": "13c98d05131c7a18e356059fce0277822605a8f9f74b7d9804a5bb2e2a4c7021",
+    "E09-readers-final-postgres.txt": "e17e91f2aef0d47bef93d80641fa846faf28ea759c4a1f48e79f6515471a00da"
+  },
+  "retired_paths": [
+    "administration.metrics full-source cohort scan",
+    "measurement.cohort_metrics duplicate definitions",
+    "GET /v1/metrics direct calculation"
+  ],
+  "known_limitations": [
+    "Parent E09 remains open: secondary history readers, incremental estimates/health/planning and training isolation.",
+    "The two large interruption/replay tests passed before final namespace-collation/readiness changes; they remain for subsequent full E09 acceptance.",
+    "A broader pre-fix PostgreSQL run was interrupted after locale-sensitive failures and is not an accepted receipt.",
+    "No live/provider or installed native acceptance."
+  ],
+  "external_calls": false
+}
