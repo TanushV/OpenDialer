@@ -209,12 +209,13 @@ class JobQueue:
 
     def _finish(self, job_id, worker, error=None, retry_seconds=0, *, coalesced=False):
         with self.db.transaction() as s:
-            job = s.get(Job, job_id)
+            job = s.get(Job, job_id, with_for_update=True)
             if (
                 not job
                 or job.status != "running"
                 or job.lease_owner != worker
-                or aware(job.lease_expires_at) < self.clock()
+                or not job.lease_expires_at
+                or aware(job.lease_expires_at) <= self.clock()
             ):
                 raise ValueError("Job lease is not owned by this worker")
             if coalesced:
@@ -254,19 +255,24 @@ class JobQueue:
 
     def heartbeat(self, job_id, worker, seconds=60):
         with self.db.transaction() as s:
-            job = s.get(Job, job_id)
+            job = s.get(Job, job_id, with_for_update=True)
             if (
                 not job
                 or job.lease_owner != worker
                 or job.status != "running"
-                or aware(job.lease_expires_at) < self.clock()
+                or not job.lease_expires_at
+                or aware(job.lease_expires_at) <= self.clock()
             ):
                 raise ValueError("Lost job lease")
             job.lease_expires_at = self.clock() + timedelta(seconds=seconds)
 
     def recover_expired(self):
         with self.db.transaction() as s:
-            jobs = s.scalars(select(Job).where(Job.status == "running", Job.lease_expires_at < self.clock()))
+            jobs = s.scalars(
+                select(Job)
+                .where(Job.status == "running", Job.lease_expires_at <= self.clock())
+                .with_for_update(skip_locked=True)
+            )
             for job in jobs:
                 job.status = (
                     "reconcile"

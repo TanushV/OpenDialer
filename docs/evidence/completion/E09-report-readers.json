@@ -76,7 +76,7 @@
   "known_limitations": [
     "Routine refresh still constructs historical dataset; its contract deliberately remains red",
     "Scoped source receipts do not close full E09 replay, maintenance, index/load or E13 acceptance",
-    "Browser output includes expected unavailable conversation finalization in no-provider simulation; no funded inference is certified",
+    "Browser output includes unavailable conversation finalization in no-provider simulation; no funded inference is certified",
     "Native app remains0.2.1; E10-E15 and all external gates remain open"
   ],
   "external_calls": false
