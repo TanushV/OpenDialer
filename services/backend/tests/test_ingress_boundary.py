@@ -100,6 +100,7 @@ def test_active_challenge_is_one_time_content_free_and_source_fenced(
         "http://127.0.0.1/webhooks/telnyx",
         "https://public.example.test/health",
         "https://public.example.test/webhooks/telnyx?key=value",
+        "https://public.example.test:bad/webhooks/telnyx",
     ],
 )
 def test_probe_rejects_unsafe_saved_endpoint_without_network(workspace, monkeypatch, url):
@@ -183,3 +184,23 @@ def test_route_proof_response_replays_without_another_network_request(workspace,
         ).status_code
         == 409
     )
+
+
+def test_consumed_challenge_retains_admission_and_rejected_probe_has_no_pending_intent(workspace, app):
+    from fastapi import HTTPException
+    from test_remediation_privacy import principal
+
+    service, p = app.state.service, principal(workspace)
+    service.vault.write(p["tenant_id"], {"webhook_url": "https://owned.example.test/webhooks/telnyx"})
+    first = service._ingress_start(p, {"request_id": str(uuid4()), "expected_version": 0})
+    assert service.ingress_challenge(first["nonce"]).endswith(first["nonce"])
+    with pytest.raises(HTTPException) as duplicate:
+        service.ingress_challenge(first["nonce"])
+    assert duplicate.value.status_code == 404
+    with pytest.raises(HTTPException) as denied:
+        service._ingress_start(p, {"request_id": str(uuid4()), "expected_version": 0})
+    assert denied.value.status_code == 409
+    with service.db.transaction(False) as s:
+        pending = [r for r in service.scoped(s, "outcomes", p)
+                   if r.data.get("kind") == "ingress_check" and r.data["status"] == "pending"]
+        assert [r.id for r in pending] == [first["id"]]

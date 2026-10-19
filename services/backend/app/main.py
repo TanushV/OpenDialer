@@ -755,9 +755,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
         if "chatgpt_access_token" in values:
             service.vault.write("plan-" + p["user_id"], {"access_token": values.pop("chatgpt_access_token")})
         # The provider config has one source version for challenge and UI freshness.
-        with service.vault._journal_lock:
-            current = service.vault.read(p["tenant_id"])
-            service.vault.write(p["tenant_id"], {**values, "version": current.get("version", 0) + 1})
+        service.vault.write(p["tenant_id"], values, advance_version=True)
         service.capability_cache.clear()
         with db.transaction() as s:
             audit(

@@ -32,6 +32,15 @@ def test_lightweight_readiness_reuses_saved_no_charge_capabilities(workspace, ap
     assert small.get("capabilities_as_of") == full.get("capabilities_as_of")
 
 
+def test_capability_cache_is_bounded_across_sellers(workspace, app):
+    from test_remediation_privacy import principal
+
+    service = app.state.service
+    service.capability_cache.update({("fixture", str(i)): {} for i in range(128)})
+    service.preflight(principal(workspace))
+    assert len(service.capability_cache) <= 128
+
+
 @pytest.mark.parametrize("simulation", [True, False])
 def test_configured_vs_verified_capabilities(workspace, app, carrier, monkeypatch, simulation):
     monkeypatch.setattr(app.state.service.settings, "simulation", simulation)

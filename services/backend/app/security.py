@@ -34,16 +34,26 @@ class Vault:
         path = self.directory / (tenant_id + ".enc")
         return json.loads(self.cipher.decrypt(path.read_bytes())) if path.exists() else {}
 
-    def write(self, tenant_id, values):
-        path = self.directory / (tenant_id + ".enc")
-        data = {**self.read(tenant_id), **{k: v for k, v in values.items() if v is not None}}
-        temp = path.with_suffix(".tmp")
-        fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "wb") as f:
-            f.write(self.cipher.encrypt(json.dumps(data).encode()))
-            f.flush()
-            os.fsync(f.fileno())
-        temp.replace(path)
+    def write(self, tenant_id, values, *, expected=None, advance_version=False):
+        with self._locked_journal("provider-config"):
+            current = self.read(tenant_id)
+            if expected is not None and any(current.get(k) != v for k, v in expected.items()):
+                raise HTTPException(409, "Provider configuration changed before publication")
+            data = {**current, **{k: v for k, v in values.items() if v is not None}}
+            if advance_version:
+                data["version"] = current.get("version", 0) + 1
+            path = self.directory / (tenant_id + ".enc")
+            temp = path.with_suffix("." + uid() + ".tmp")
+            fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            try:
+                with os.fdopen(fd, "wb") as f:
+                    f.write(self.cipher.encrypt(json.dumps(data).encode()))
+                    f.flush()
+                    os.fsync(f.fileno())
+                temp.replace(path)
+                self._sync_directory(self.directory)
+            finally:
+                temp.unlink(missing_ok=True)
 
     def _journal_path(self, name, suffix=".enc"):
         if not re.fullmatch(r"[a-z][a-z_-]{0,31}", name):

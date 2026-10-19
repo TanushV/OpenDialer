@@ -339,6 +339,7 @@ class Dialer(
         digest = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
         key = "ingress-check:" + data["request_id"]
         with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
             self._restore_operator(s, p)
             prior = self._by_key(s, p, "outcomes", key)
             if prior:
@@ -403,6 +404,7 @@ class Dialer(
         from app.providers.telnyx import verify_webhook
 
         with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
             self._restore_operator(s, p)
             current = self.vault.read(p["tenant_id"])
             if (
@@ -441,9 +443,22 @@ class Dialer(
                 "endpoint_digest": hashlib.sha256(item["endpoint"].encode()).hexdigest(),
             }
             update(self.required(s, "outcomes", item["id"], p), status="completed", receipt=receipt)
-            self.vault.write(p["tenant_id"], {"ingress_evidence": receipt})
+            self.vault.write(
+                p["tenant_id"],
+                {"ingress_evidence": receipt},
+                expected={
+                    "version": current.get("version"),
+                    "webhook_url": current.get("webhook_url"),
+                },
+            )
             self.capability_cache.clear()
             return receipt
+
+    def _ingress_failed(self, p, identity):
+        with self.db.transaction() as s:
+            row = self.required(s, "outcomes", identity, p)
+            if row.data.get("status") == "pending":
+                update(row, status="failed", reason="route_check_incomplete")
 
     async def check_ingress(self, p, data):
         from app.research.fetch import SafeFetcher
@@ -464,6 +479,7 @@ class Dialer(
         finally:
             with self.ingress_lock:
                 self.ingress_challenges.pop(item["nonce"], None)
+            await asyncio.to_thread(self._ingress_failed, p, item["id"])
 
     def publish(self, p, policy_id, body):
         now = self.clock()
