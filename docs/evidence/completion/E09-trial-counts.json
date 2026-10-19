@@ -1,0 +1,74 @@
+{
+  "step_id": "E09",
+  "stage": "basic-trial-counts-and-source-churn",
+  "source_commit": "9dc6466a36d332f339288e59ce50afd621660de4",
+  "production_tree_digest": "dd766c3254457ece73d16eec4ab83db2f9cfd4784a5a0c83488fbdccd843faa8",
+  "test_tree_commit": "718a9a2a7c4f9c98410b2c17af207bcfa89de077",
+  "test_tree_digest": "f06dbbaf2f029a1f3914baa6810d74535a052c68cf8f7f55abe2f78dbc6aa606",
+  "digest_method": "SHA256 git ls-tree -r of named roots",
+  "case_ids": [
+    "C035",
+    "C036",
+    "C037",
+    "C038"
+  ],
+  "mode": [
+    "sqlite",
+    "postgresql",
+    "browser"
+  ],
+  "fixture_seed": 20261018,
+  "commands": [
+    "pytest test_incremental_reports.py test_report_projections.py test_projection_replay.py -q --tb=short -k \"not report_publication_reads_bucket and not ordinary_refresh and not interrupted_inactive and not rebuild_churn and not expired_rebuild\"",
+    "playwright test tests/optimization.spec.ts"
+  ],
+  "environment": {
+    "python": "3.12.13",
+    "postgresql": "17 disposable loopback authority",
+    "installed_app_changed": false
+  },
+  "started_at": null,
+  "finished_at": "2026-10-19T17:30:32.306762+00:00",
+  "timestamp_note": "Start not retained; durations reported by runners",
+  "result_counts": {
+    "sqlite": {
+      "passed": 54,
+      "skipped": 1,
+      "deselected": 5,
+      "seconds": 38.61
+    },
+    "postgresql": {
+      "passed": 55,
+      "deselected": 5,
+      "seconds": 194.35
+    },
+    "browser": {
+      "passed": 2,
+      "seconds": 16.1
+    }
+  },
+  "failed_cases": [],
+  "historical_intermediate_results": {
+    "browser": "d1b50b9: one comparison refresh failure, one pass; superseded report incorrectly used ten-second error backoff",
+    "source_churn": "One behavioral red; source correction must coalesce without failure attempts"
+  },
+  "raw_log_sha256": {
+    "E09-source-churn-red.txt": "9da15b13baa281dcc0d302a4483492c19d5dd51bccfb85e5460ae42a121dde45",
+    "E09-trial-recheck-sqlite.txt": "68cf5ca1eea22af923f165a108a7d73c688dd7cab58b71c8fa0ace173855401c",
+    "E09-trial-recheck-postgres.txt": "1679c6f57194403162e6a52fec786cd43f0d8cf4a0fe182e656ac3fc4fcfc29f",
+    "E09-trial-ui.txt": "20c08a6b23adef1738ae10a46536873cc8209d6dabf9626fd73579deed90a5aa",
+    "E09-trial-ui-recheck.txt": "7794dc90e653c58e10d0bdffce6ab813a17601a8abbf0c0e244f109351f303ec",
+    "E09-trial-metadata-red.txt": "3f89ab264b1de8a4c09462dfaa05f7cbcc45b3cf81ef8be17c8823f75afe15b2"
+  },
+  "retired_paths": [
+    "Optimization trial assignment/call/history scan in report publication",
+    "Treating superseded report publication as a failed attempt"
+  ],
+  "known_limitations": [
+    "Controlled-comparison contribution implementation active; only three initial SQLite cases so far",
+    "Health, cost detail, plans and ordinary refresh still require historical reader removal",
+    "Five slow rebuild/known unfinished cases not included in this scoped run; full E09/E13 checks remain",
+    "Native updates and external gates remain open"
+  ],
+  "external_calls": false
+}

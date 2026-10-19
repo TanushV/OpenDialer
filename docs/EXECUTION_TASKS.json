@@ -3,7 +3,7 @@
   "written_at": "2026-10-18",
   "baseline_commit": "63f4d4242f60672777f596177fe98fe57f715bf9",
   "baseline_product_test_commit": "6611d3c2fb486b0aac65df2bb42e20663457552a",
-  "status": "implementation-authorized; E00-E07 scoped software accepted; E08 in progress",
+  "status": "implementation-authorized; E00-E08 scoped software accepted; E09 in progress",
   "requirements_source": "docs/REMEDIATION_PLAN.md",
   "implementation_source": "docs/EXECUTION_SPEC.md",
   "next_step": "E09",
@@ -601,7 +601,8 @@
         "docs/evidence/completion/E09-publication.json",
         "docs/evidence/completion/E09-dependents.json",
         "docs/evidence/completion/E09-core-readers.json",
-        "docs/evidence/completion/E09-secondary-counts.json"
+        "docs/evidence/completion/E09-secondary-counts.json",
+        "docs/evidence/completion/E09-trial-counts.json"
       ],
       "planned_case_ids": [
         "C035",
@@ -617,7 +618,7 @@
         "A50",
         "A51"
       ],
-      "checkpoint": "0571839: bounded dataset/coaching/drift counters accepted at focused boundaries (129 SQLite and129 PostgreSQL); CPU/admission/freshness30 perDB plus optimization browser1 at6e671a2. Trial aggregate implementation is active; remaining health/planning/history-reader removal stays open.",
+      "checkpoint": "9dc6466: basic trial aggregates, campaign metadata corrections and source-churn coalescing pass54 SQLite+one skip/55 PostgreSQL/two browser checks. Controlled comparison counts are being implemented; health, cost, plans and routine maintenance remain open.",
       "implementation_todos": [
         {
           "id": "E09.admission",
@@ -668,6 +669,11 @@
           "id": "E09.acceptance",
           "status": "open",
           "work": "Dual-database corrections, churn, work union, scaling and affected UI; retired paths and receipt"
+        },
+        {
+          "id": "E09.trial_counts",
+          "status": "accepted-software",
+          "work": "Basic optimization cohort contributions, frozen goal/window, metadata fanout, zero-bucket retirement and source-churn coalescing; E09-trial-counts receipt"
         }
       ]
     },
