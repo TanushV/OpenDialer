@@ -11,7 +11,11 @@ from test_dnc_recovery import PHONE, screening  # noqa: F401 - pytest fixture
 
 @pytest.mark.asyncio
 async def test_bounded_paid_refresh(workspace, app, clock, screening):  # noqa: F811 - fixture
-    service, p, calls, _, _ = screening
+    service, p, calls, _, config = screening
+    service.vault.write(
+        p["tenant_id"],
+        {"dnc_seller_authorization": {**config["dnc_seller_authorization"], "npas": ["415", "212", "512"]}},
+    )
     c, h = workspace["client"], workspace["headers"]
     c.post("/v1/suppressions", headers=h, json={"phone": PHONE, "reason": "opt_out"})
     enabled = c.put(
@@ -75,7 +79,12 @@ def test_screening_refresh_disabled_default_is_visible(workspace):
 
 @pytest.mark.asyncio
 async def test_whole_list_refresh_resumes_after_one_500_endpoint_page(
-    workspace, app, clock, carrier, screening, monkeypatch  # noqa: F811 - imported fixture
+    workspace,
+    app,
+    clock,
+    carrier,
+    screening,  # noqa: F811 - imported fixture
+    monkeypatch,
 ):
     from app.main import create_app
     from app.providers.dnc import PrepaidDNC

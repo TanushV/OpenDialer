@@ -1,0 +1,17 @@
+{
+  "step_id": "E05",
+  "source_commit": "04b47e1",
+  "external_calls": false,
+  "mode": "sqlite",
+  "result_counts": {
+    "failed": 12,
+    "passed": 16,
+    "deselected": 1,
+    "seconds": 15.71
+  },
+  "raw_log_sha256": {
+    "E05-readiness-baseline.txt": "bfb633a1686917799d21e08363aae4d5c183bd950229b9026a8113bf9707b009",
+    "E05-contract-red.txt": "df5ce49ba1451e14ca30886c9c2513e15bd974d75ecd7ee1308b3edbeeb722f1"
+  },
+  "boundary": "Before E05 production edits. Earlier E00 contract receipts retained. Corrected refresh fixture to authorize its two non-suppressed NPAs; no production change. New edit cases expose absent version/identity contract; they are not three independently observed paid effects."
+}
