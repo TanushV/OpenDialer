@@ -1,6 +1,8 @@
 # Execution log and continuation state
 
-**Current checkpoint — E04 active:** E00–E03 software steps pass their recorded scoped contracts. Continue E04–E15 in order. Installed Mac remains 0.2.1; no update, reinstall, funded request or purchase occurred. E13 retains the backlog/load discrepancy; whole-system acceptance is still open.
+**Current checkpoint — E05 active:** E00–E04 software steps pass their recorded scoped contracts. Continue E05–E15 in order. Installed Mac remains 0.2.1; no update, reinstall, funded request or purchase occurred. E13 retains the backlog/load discrepancy; whole-system acceptance is still open.
+
+2026-10-19 E04 EXIT. Source 04b47e1 passes 208 SQLite checks (78.390s) and 208 PostgreSQL checks (416.001s), plus seven preparation browser journeys. Exact-source synthetic 100-lead preparation: 2.877s SQLite / 7.402s PostgreSQL, with health p95 5.73ms / 10.31ms. Removed homepage-only/serial research, inline deferred reviews, template keyword bans and completed-batch identity reuse. [Receipt](evidence/completion/E04.json). Preparation remains explicitly bounded to inspected candidates; whole-list planning/mixed-load/native/live gates remain separate. E05 is now the cursor.
 
 2026-10-19 E05 RED SUPPLEMENT. SQLite screening/readiness/policy/chunk selection has 12 failures and 16 passes before E05 production changes (15.71s). Captures shorter source freshness, changed authorization, prepaid-only readiness, cost metadata, explicit refresh, unversioned edits and per-NPA cache. Corrected refresh fixture coverage; its initial uncovered-NPA setup is not a product defect. [Baseline](evidence/completion/E05-baseline.json). E04 remains the cursor until its running PostgreSQL exit.
 

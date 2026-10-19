@@ -6,7 +6,7 @@
   "status": "implementation-authorized; E00-E03 software boundaries accepted; E04 in progress",
   "requirements_source": "docs/REMEDIATION_PLAN.md",
   "implementation_source": "docs/EXECUTION_SPEC.md",
-  "next_step": "E04",
+  "next_step": "E05",
   "receipt_rule": "No inherited checkbox or planned node is a current passing receipt. Update by actual source-bound evidence.",
   "steps": [
     {
@@ -207,7 +207,7 @@
     {
       "id": "E04",
       "title": "Bounded useful research and advance preparation",
-      "status": "in-progress",
+      "status": "accepted-software",
       "depends_on": [
         "E03"
       ],
@@ -223,7 +223,8 @@
         "services/backend/tests/test_preparation_discovery.py"
       ],
       "receipts": [
-        "docs/evidence/completion/E04-baseline.json"
+        "docs/evidence/completion/E04-baseline.json",
+        "docs/evidence/completion/E04.json"
       ],
       "planned_case_ids": [
         "C014",
@@ -240,7 +241,7 @@
       "implementation_todos": [
         {
           "id": "E04.discovery",
-          "status": "accepted-software-slice",
+          "status": "accepted-software",
           "work": "Bounded official discovery, reviewed facts, shared capacities and active heartbeats",
           "receipts": [
             "E04-discovery-context.txt",
@@ -249,7 +250,7 @@
         },
         {
           "id": "E04.search",
-          "status": "accepted-software-slice",
+          "status": "accepted-software",
           "work": "Explicit optional metered search; official identity and page/request bounds",
           "receipts": [
             "E04-search-pages-green.txt",
@@ -259,22 +260,22 @@
         },
         {
           "id": "E04.runway",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Used-fact freshness, staffing cap, horizon, runway and empty-company cache; finish supplemental dual-database proof"
         },
         {
           "id": "E04.deferred",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "24-hour deadline, per-result bounded review jobs, original receipt and source/owner fences"
         },
         {
           "id": "E04.template",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Seller expiry, conflict state and current approved final-attempt voicemail reference"
         },
         {
           "id": "E04.acceptance",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Complete focused suites on both databases, browser surfaces, throughput/query bounds, deletions and final step receipt"
         }
       ]
@@ -282,7 +283,7 @@
     {
       "id": "E05",
       "title": "National DNC, costs and honest readiness",
-      "status": "open",
+      "status": "in-progress",
       "depends_on": [
         "E04"
       ],
@@ -296,7 +297,9 @@
         "services/backend/tests/test_policy.py",
         "services/backend/tests/test_operating_validation.py"
       ],
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E05-baseline.json"
+      ],
       "planned_case_ids": [
         "C018",
         "C019",
@@ -310,6 +313,43 @@
         "A40",
         "A45",
         "A49"
+      ],
+      "implementation_todos": [
+        {
+          "id": "E05.capability",
+          "status": "open",
+          "work": "Shared endpoint/preflight freshness, authorization and no-charge coverage"
+        },
+        {
+          "id": "E05.edits",
+          "status": "open",
+          "work": "Versioned policy edits and explicit refresh budgets"
+        },
+        {
+          "id": "E05.refresh",
+          "status": "open",
+          "work": "One daily resumable prepaid cursor and charged uncertainty control"
+        },
+        {
+          "id": "E05.chunks",
+          "status": "open",
+          "work": "Per-NPA atomic publication and bounded scoped LRU"
+        },
+        {
+          "id": "E05.costs",
+          "status": "open",
+          "work": "Dated single cost register and source/account provenance"
+        },
+        {
+          "id": "E05.ui",
+          "status": "open",
+          "work": "Actionable screening/funding/readiness surfaces"
+        },
+        {
+          "id": "E05.acceptance",
+          "status": "open",
+          "work": "Focused dual-database/browser checks and retire duplicate preflight rule"
+        }
       ]
     },
     {
@@ -1805,11 +1845,13 @@
       "id": "M5.01",
       "requirement": "Complete evidence-backed preparation, company caching and every-field personalization validation.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "accepted-software",
       "primary_step": "E04",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E04.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -2027,14 +2069,15 @@
       "id": "M5.08",
       "requirement": "Automatically refresh next-call context and display prior needs/promises/reasons beside the dialer.",
       "baseline_checked": false,
-      "execution_status": "in-progress",
+      "execution_status": "accepted-software",
       "primary_step": "E03",
       "supporting_steps": [
         "E04"
       ],
       "acceptance_gate": "software",
       "receipts": [
-        "docs/evidence/completion/E03.json"
+        "docs/evidence/completion/E03.json",
+        "docs/evidence/completion/E04.json"
       ],
       "verification_steps": [
         "E13"

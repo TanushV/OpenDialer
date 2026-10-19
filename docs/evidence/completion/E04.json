@@ -1,0 +1,140 @@
+{
+  "step_id": "E04",
+  "source_commit": "04b47e1420d6f14d9d0c27ab954e6996341b41bb",
+  "digest_roots": {
+    "production": [
+      "services/backend/app",
+      "services/backend/migrations",
+      "apps/desktop/src",
+      "apps/desktop/src-tauri/src"
+    ],
+    "tests": [
+      "services/backend/tests",
+      "apps/desktop/tests",
+      "tests"
+    ]
+  },
+  "digest_method": "SHA256 of git ls-tree -r at named source; later E05 tests excluded",
+  "case_ids": [
+    "C014",
+    "C015",
+    "C016",
+    "C017"
+  ],
+  "mode": [
+    "sqlite",
+    "postgresql",
+    "browser-local"
+  ],
+  "fixture_seed": 20261018,
+  "commands": {
+    "sqlite": [
+      ".venv/bin/pytest",
+      "services/backend/tests/test_preparation_completion.py",
+      "services/backend/tests/test_research_and_jobs.py",
+      "services/backend/tests/test_fetch_boundaries.py",
+      "services/backend/tests/test_script_grounding.py",
+      "services/backend/tests/test_batch_grounding.py",
+      "services/backend/tests/test_preparation_batch_completion.py",
+      "services/backend/tests/test_batch_recovery.py",
+      "services/backend/tests/test_preparation_discovery.py",
+      "services/backend/tests/test_grounding_review.py",
+      "services/backend/tests/test_batch_workflow.py",
+      "services/backend/tests/test_batch_provider_recovery.py",
+      "services/backend/tests/test_providers.py",
+      "services/backend/tests/test_product_knowledge.py",
+      "-q",
+      "--tb=short",
+      "--junitxml=work/remediation/completion/E04-sqlite-accepted.xml",
+      "-o",
+      "junit_family=legacy"
+    ],
+    "postgres": [
+      ".venv/bin/pytest",
+      "services/backend/tests/test_preparation_completion.py",
+      "services/backend/tests/test_research_and_jobs.py",
+      "services/backend/tests/test_fetch_boundaries.py",
+      "services/backend/tests/test_script_grounding.py",
+      "services/backend/tests/test_batch_grounding.py",
+      "services/backend/tests/test_preparation_batch_completion.py",
+      "services/backend/tests/test_batch_recovery.py",
+      "services/backend/tests/test_preparation_discovery.py",
+      "services/backend/tests/test_grounding_review.py",
+      "services/backend/tests/test_batch_workflow.py",
+      "services/backend/tests/test_batch_provider_recovery.py",
+      "services/backend/tests/test_providers.py",
+      "services/backend/tests/test_product_knowledge.py",
+      "-q",
+      "--tb=short",
+      "--junitxml=work/remediation/completion/E04-postgres-accepted.xml",
+      "-o",
+      "junit_family=legacy"
+    ],
+    "browser": [
+      "npm --prefix apps/desktop run test:e2e -- tests/batch-recovery.spec.ts tests/remediation.spec.ts --grep deferred|fixed script|batch script|metered research",
+      "npm --prefix apps/desktop run test:e2e -- tests/batch-recovery.spec.ts --grep confirmed completed"
+    ]
+  },
+  "environment": {
+    "system": "macOS-26.5.1-arm64-arm-64bit",
+    "python": "3.12.13",
+    "postgres": "17.11 guarded disposable unit database"
+  },
+  "result_counts": {
+    "sqlite": {
+      "passed": 208,
+      "failed": 0,
+      "seconds": 78.39
+    },
+    "postgres": {
+      "passed": 208,
+      "failed": 0,
+      "seconds": 416.001
+    },
+    "browser": {
+      "passed": 7,
+      "failed": 0,
+      "runs_seconds": [
+        13.4,
+        10.2
+      ]
+    }
+  },
+  "failed_cases": [],
+  "measurement": {
+    "sqlite": {
+      "preparation_100_seconds": 2.876925374963321,
+      "health_p95_seconds": 0.005733042024075985,
+      "health_samples": 85.0
+    },
+    "postgres": {
+      "preparation_100_seconds": 7.40199704200495,
+      "health_p95_seconds": 0.010306166019290686,
+      "health_samples": 197.0
+    }
+  },
+  "raw_log_sha256": {
+    "E04-sqlite-accepted.txt": "4260911fdbd22666e241f869fee4e60b37bb2f471ad34aa381a33f895c2ade42",
+    "E04-postgres-accepted.txt": "f3862419d8e0e1081c16869c64c9db4bab8d4a3e4e9f963a06019707098aa42a",
+    "E04-browser-final.txt": "91ffda7a04bf9d2e88f1eb13038a49f5083f1f2b72f4ce6133345504cba99cbe",
+    "E04-next-batch-green.txt": "162f411e21742c1dd6627e20d9483c27de960d481f497a81761a37de41f73434"
+  },
+  "retired_paths": [
+    "Homepage-only discovery and serial preparation per lead",
+    "Exact sentence/keyword bans for personalized template slots and approved seller knowledge",
+    "Repeated deferred-result meaning review inside status reconciliation",
+    "Unbounded per-job company/script concurrency and unreconciled lease publication",
+    "Reused UI request identity after a confirmed completed batch"
+  ],
+  "known_limitations": [
+    "No installed/native change or funded provider request; semantic reviewer fixtures do not certify actual model quality.",
+    "Prepared runway reports a bounded 500-candidate inspected horizon and omitted rows; whole-list planning/coverage and mixed-load acceptance remain E06/E13.",
+    "E13 retains the earlier live-memory backlog discrepancy under concurrent browser load.",
+    "Current exact-source full suites, coverage, resources and native delivery remain E13/E14."
+  ],
+  "external_calls": false,
+  "production_tree_digest": "293b740d55c5a154707bdbc0c37d460ac1ecdb6799ba7fd54b6c019b57956d79",
+  "tests_tree_digest": "719d0531ca947eb1c282e61d8d0f2b19c54cac1252f0671e750d6a92dc90dcc9",
+  "started_at": "2026-10-19T03:19:42.158491-07:00",
+  "finished_at": "2026-10-19T03:28:24.395572-07:00"
+}
