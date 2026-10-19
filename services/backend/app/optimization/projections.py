@@ -23,6 +23,8 @@ from app.optimization.learning import (
     drift_values,
     outcome_at,
     training_rows,
+    trial_from_counts,
+    trial_values,
 )
 from app.optimization.numbering import timestamp
 from app.scheduling.models import derive_labels
@@ -289,8 +291,19 @@ def dirty_source_units(changed, session):
         }.get(table)
         if kind:
             units[(*scope, kind, row.id)] = deleted
+        if table == "campaigns" and any(
+            row.data.get(key) != (previous or {}).get(key)
+            for key in ("optimization_trial", "controlled_comparisons")
+        ):
+            units[(*scope, "campaign-leads", row.id)] = deleted
         for value in [row.data, *([previous] if previous else [])]:
-            if table in {"call_attempts", "conversion_events"} and value.get("lead_id"):
+            if table in {
+                "call_attempts",
+                "conversion_events",
+                "experiment_assignments",
+                "feature_snapshots",
+                "compliance_decisions",
+            } and value.get("lead_id"):
                 units[(*scope, "lead", value["lead_id"])] = False
             if table in {"conversion_events", "feature_snapshots"} and value.get("lead_id"):
                 units[(*scope, "lead-calls", value["lead_id"])] = False
@@ -354,7 +367,9 @@ def enqueue_units(session, units):
         key = f"projection:{seller}:{kind}:{identity}"
         job = pending.get((tenant, key))
         payload = {
-            "kind": "metric_dependents" if kind in {"endpoint-leads", "lead-calls"} else "metric_refresh",
+            "kind": "metric_dependents"
+            if kind in {"endpoint-leads", "lead-calls", "campaign-leads"}
+            else "metric_refresh",
             "seller_id": seller,
             "source_kind": kind,
             "source_id": identity,
@@ -390,7 +405,7 @@ def definition_version(config, epoch):
     return hashlib.sha256(
         json.dumps(
             {
-                "metrics": "cohort-work-v7",
+                "metrics": "cohort-work-v8",
                 "epoch": epoch,
                 "goal": config["conversion_goal"],
                 "window_days": config["window_days"],
@@ -440,6 +455,7 @@ def _unit_snapshot(service, p, payload):
         )
         row = doc(source) if source else {}
         calls, events, intervals, feedback, suppressed, feature = [], [], [], None, False, None
+        assignments, features, decisions, studies = [], [], [], {}
         if kind == "lead" and row:
             calls = [
                 doc(r)
@@ -455,6 +471,48 @@ def _unit_snapshot(service, p, payload):
                     )
                 )
             ]
+            assignments = [
+                doc(r)
+                for r in session.scalars(
+                    _scoped_query(p, "experiment_assignments").where(
+                        MODELS["experiment_assignments"].op_lead_id == identity
+                    )
+                )
+            ]
+            features = (
+                [
+                    doc(r)
+                    for r in session.scalars(
+                        _scoped_query(p, "feature_snapshots").where(
+                            MODELS["feature_snapshots"].id.in_([r.get("feature_snapshot_id") for r in calls])
+                        )
+                    )
+                ]
+                if calls
+                else []
+            )
+            decisions = (
+                [
+                    doc(r)
+                    for r in session.scalars(
+                        _scoped_query(p, "compliance_decisions").where(
+                            MODELS["compliance_decisions"].id.in_(
+                                [r.get("submission_decision_id") for r in calls]
+                            )
+                        )
+                    )
+                ]
+                if calls
+                else []
+            )
+            for model_id in {a.get("trial_model_id") for a in assignments} - {None}:
+                model = session.scalar(
+                    _scoped_query(p, "model_versions").where(MODELS["model_versions"].id == model_id)
+                )
+                if model and model.data.get("trial_epoch"):
+                    studies[model.data["trial_epoch"]] = model.data.get("trial_study", {})
+            epoch = campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
+            studies[epoch] = campaign.data.get("optimization_trial") or {}
             phone = row.get("phone")
             if phone:
                 key = hmac.new(service.db.identity_key, phone.encode(), hashlib.sha256).hexdigest()
@@ -525,6 +583,10 @@ def _unit_snapshot(service, p, payload):
         "intervals": intervals,
         "feedback": feedback,
         "feature": feature,
+        "assignments": assignments,
+        "features": features,
+        "decisions": decisions,
+        "studies": studies,
         "suppressed": suppressed,
         "campaign_id": campaign.id,
         "config": config,
@@ -539,11 +601,22 @@ def _unit_snapshot(service, p, payload):
                 [
                     sorted(
                         (r.get("id"), r.get("version"))
-                        for r in [row, *calls, *events, *intervals, feedback or {}, feature or {}]
+                        for r in [
+                            row,
+                            *calls,
+                            *events,
+                            *intervals,
+                            *assignments,
+                            *features,
+                            *decisions,
+                            feedback or {},
+                            feature or {},
+                        ]
                         if r.get("id")
                     ),
                     definition,
                     suppressed,
+                    studies,
                 ],
                 sort_keys=True,
             ).encode()
@@ -566,6 +639,11 @@ def _calculate_unit(snapshot, now):
         due = timestamp(row.get("coverage_due_at"))
         if due and due >= now:
             refresh.append(due + timedelta(microseconds=1))
+        for assignment in snapshot["assignments"]:
+            if at := timestamp(assignment.get("assigned_at")):
+                boundary = at + timedelta(days=assignment.get("outcome_window_days", config["window_days"]))
+                if boundary > now:
+                    refresh.append(boundary)
     elif kind == "call" and row:
         values = call_values(row, config=config, now=now)
         values.update(training_values(row, snapshot["feature"], snapshot["events"], config=config, now=now))
@@ -672,8 +750,89 @@ def _group_key(service, group):
     return f"v{group['definition_version']}:{group['namespace']}:{digest}"
 
 
+def _trial_groups(snapshot, now, namespace):
+    from app.optimization.experiments import call_goal_events
+
+    earliest = {}
+    for item in sorted(snapshot["assignments"], key=lambda r: (r["assigned_at"], r["id"])):
+        if item.get("family", "optimization") == "optimization" and item.get("epoch"):
+            earliest.setdefault(item["epoch"], item)
+    decisions = {r["id"]: r for r in snapshot["decisions"]}
+    features = {r["id"]: r for r in snapshot["features"]}
+    events = [
+        known
+        for event in snapshot["events"]
+        if (known := conversion_at(event, now)) and known["timing_known"] and not known["retracted"]
+    ]
+    groups = []
+    for epoch, assignment in earliest.items():
+        goal = assignment.get("goal", snapshot["config"]["conversion_goal"])
+        days = assignment.get("outcome_window_days", snapshot["config"]["window_days"])
+        start, due = timestamp(assignment["assigned_at"]), timestamp(assignment.get("coverage_due_at"))
+        attempts = [
+            r
+            for r in snapshot["calls"]
+            if (r.get("submitted_at") or r.get("provider_id"))
+            and (at := timestamp(r.get("started_at")))
+            and start <= at <= now
+        ]
+        evidence = [decisions.get(r.get("submission_decision_id")) for r in attempts]
+        values = trial_values(
+            {
+                **assignment,
+                "covered": any(not due or timestamp(r["started_at"]) <= due for r in attempts),
+                "policy_unknown": sum(r is None for r in evidence),
+                "policy_violations": sum(r is not None and not r.get("allowed", False) for r in evidence),
+            },
+            events + call_goal_events(snapshot["calls"], goal, now=now),
+            now=now,
+            goal=goal,
+            window_days=days,
+        )
+        study = snapshot["studies"].get(epoch, {})
+        for call in attempts:
+            if (
+                not study
+                or not call.get("submitted_at")
+                or timestamp(call["started_at"]) > timestamp(study["ends_at"])
+            ):
+                continue
+            actual = (
+                features.get(call.get("feature_snapshot_id"), {}).get("predictions", {}).get("model_version")
+            )
+            tested = actual == study["model_id"]
+            key = (
+                ("candidate_tested_model_attempts" if tested else "candidate_other_model_attempts")
+                if assignment["arm"] == "candidate"
+                else "control_tested_model_attempts"
+                if tested
+                else None
+            )
+            if key:
+                values[key] = values.get(key, 0) + 1
+        groups.append(
+            (
+                {
+                    "bucket_kind": "trial",
+                    "bucket_day": None,
+                    "campaign_id": snapshot["campaign_id"],
+                    "definition_version": snapshot["definition"],
+                    "namespace": namespace,
+                    "epoch": epoch,
+                    "goal": goal,
+                    "window_days": days,
+                    "study": study,
+                },
+                values,
+            )
+        )
+    return groups
+
+
 def _detail_groups(snapshot, now, namespace):
     """Per-call statistics grouped independently of the workspace totals."""
+    if snapshot["kind"] == "lead" and snapshot["row"]:
+        return _trial_groups(snapshot, now, namespace)
     if snapshot["kind"] != "call" or not snapshot["row"]:
         return []
     config, row = snapshot["config"], snapshot["row"]
@@ -706,7 +865,7 @@ def _detail_groups(snapshot, now, namespace):
 
 def refresh_unit(service, p, payload):
     """Compute outside writes, then replace one source vector under a generation fence."""
-    if payload["source_kind"] in {"endpoint-leads", "lead-calls"}:
+    if payload["source_kind"] in {"endpoint-leads", "lead-calls", "campaign-leads"}:
         return expand_dependents(service, p, payload)
     snapshot = _unit_snapshot(service, p, payload)
     if not snapshot["namespaces"]:
@@ -825,7 +984,11 @@ def refresh_unit(service, p, payload):
                     "group_key": group_key.rsplit(":", 1)[-1],
                     "values": total,
                 }
-                if value["bucket_kind"] == "drift" and total.get("rows", 0) == 0:
+                empty_detail = (value["bucket_kind"] == "drift" and total.get("rows", 0) == 0) or (
+                    value["bucket_kind"] == "trial"
+                    and total.get("control:leads", 0) + total.get("candidate:leads", 0) == 0
+                )
+                if empty_detail:
                     if bucket:
                         session.delete(bucket)
                 elif bucket:
@@ -923,6 +1086,7 @@ def expand_dependents(service, p, payload):
     table, field, target_kind = {
         "endpoint-leads": ("leads", "op_endpoint_id", "lead"),
         "lead-calls": ("call_attempts", "op_lead_id", "call"),
+        "campaign-leads": ("leads", "op_campaign_id", "lead"),
     }[kind]
     key = f"projection:{p['seller_id']}:{kind}:{identity}"
     with service.db.transaction(False) as session:
@@ -1398,6 +1562,78 @@ def read_drift_metrics(service, p, *, limit=1000):
         "as_of": service.clock().isoformat(),
         "windows": "Latest 7 days versus preceding 21 days",
     }
+
+
+def read_trial_metrics(service, p, *, epoch=None):
+    with service.db.transaction(False) as session:
+        config, group, _ = _total_in(service, session, p)
+        campaign = session.scalar(
+            _scoped_query(p, "campaigns").where(MODELS["campaigns"].id == group["campaign_id"])
+        )
+        current = campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
+        prefix = f"v{group['definition_version']}:{group['namespace']}:"
+        model = MODELS["metric_buckets"]
+        buckets = [
+            dict(r.data)
+            for r in session.scalars(
+                _scoped_query(p, "metric_buckets")
+                .where(
+                    model.external_key >= prefix,
+                    model.external_key < prefix + "~",
+                    model.bucket_kind == "trial",
+                )
+                .order_by(model.external_key)
+                .limit(1001)
+            )
+        ]
+    if len(buckets) > 1000:
+        raise ValueError(
+            "Trial history exceeds the bounded report; explicit historical pagination is required"
+        )
+    epoch = epoch or current
+    selected = [b for b in buckets if b["group"]["epoch"] == epoch]
+    if not selected and epoch != current:
+        from app.service import fail
+
+        fail(404, "Controlled cohort not found")
+    if len(selected) > 1:
+        raise ValueError("Cohort definition changed without a new epoch; rebuild required")
+    meta = (
+        selected[0]["group"]
+        if selected
+        else {
+            "goal": config["conversion_goal"],
+            "window_days": config["window_days"],
+            "study": campaign.data.get("optimization_trial") or {},
+        }
+    )
+    values = selected[0]["values"] if selected else {}
+    result = trial_from_counts(values, goal=meta["goal"], window_days=meta["window_days"])
+    study = meta["study"]
+    exposure = {
+        key: values.get(key, 0)
+        for key in (
+            "candidate_tested_model_attempts",
+            "candidate_other_model_attempts",
+            "control_tested_model_attempts",
+        )
+    }
+    result.update(
+        epoch=epoch,
+        trial_model_id=study.get("model_id"),
+        study=study,
+        model_exposure=exposure,
+        cohort_history=sorted({b["group"]["epoch"] for b in buckets}),
+    )
+    result["sufficient_evidence"] &= (
+        bool(study)
+        and exposure["candidate_tested_model_attempts"] > 0
+        and exposure["candidate_other_model_attempts"] == exposure["control_tested_model_attempts"] == 0
+    )
+    if study and service.clock() < timestamp(study["ends_at"]) + timedelta(days=meta["window_days"]):
+        result["sufficient_evidence"] = False
+        result["analysis_status"] = "Enrollment and all predeclared outcome windows must close"
+    return result
 
 
 def read_metrics(service, p):

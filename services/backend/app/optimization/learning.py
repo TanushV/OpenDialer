@@ -621,40 +621,47 @@ def drift_report(reference, recent):
     return drift_from_counts(*groups)
 
 
-def trial_report(assignments, events, *, now, goal, window_days=14, baseline_rate=0.1, minimum_effect=0.05):
-    unique = {}
-    for assignment in sorted(assignments, key=lambda a: a.get("assigned_at", "")):
-        unique.setdefault(assignment["lead_id"], assignment)
-    events_by_lead = {}
-    for event in events:
-        if event.get("kind") == goal and not event.get("retracted"):
-            events_by_lead.setdefault(event.get("lead_id"), []).append(timestamp(event["occurred_at"]))
+def trial_values(assignment, events, *, now, goal, window_days):
+    start = timestamp(assignment["assigned_at"])
+    end = start + timedelta(days=window_days)
+    converted = any(
+        event.get("lead_id") == assignment["lead_id"]
+        and event.get("kind") == goal
+        and not event.get("retracted")
+        and (at := timestamp(event.get("occurred_at")))
+        and start <= at <= min(now, end)
+        for event in events
+    )
+    matured = end <= now
+    prefix = assignment["arm"] + ":"
+    return {
+        prefix + "leads": 1,
+        prefix + "matured_leads": int(matured),
+        prefix + "conversions": int(converted),
+        prefix + "matured_conversions": int(matured and converted),
+        prefix + "covered_matured": int(matured and bool(assignment.get("covered"))),
+        "policy_unknown": assignment.get("policy_unknown", 1),
+        "policy_violations": assignment.get("policy_violations", 0),
+    }
+
+
+def trial_from_counts(values, *, goal, window_days=14, baseline_rate=0.1, minimum_effect=0.05):
     arms, pending = {}, 0
     for arm in ("control", "candidate"):
-        selected = [a for a in unique.values() if a["arm"] == arm]
-        matured = [a for a in selected if timestamp(a["assigned_at"]) + timedelta(days=window_days) <= now]
-
-        def converted(assignment):
-            start = timestamp(assignment["assigned_at"])
-            return any(
-                start <= at <= min(now, start + timedelta(days=window_days))
-                for at in events_by_lead.get(assignment["lead_id"], [])
-            )
-
-        total_positive = sum(converted(a) for a in selected)
-        positive = sum(converted(a) for a in matured)
-        low, high = wilson(positive, len(matured))
+        counts = {
+            key: values.get(arm + ":" + key, 0)
+            for key in ("leads", "matured_leads", "conversions", "matured_conversions", "covered_matured")
+        }
+        matured = counts["matured_leads"]
+        low, high = wilson(counts["matured_conversions"], matured)
         arms[arm] = {
-            "leads": len(selected),
-            "matured_leads": len(matured),
-            "conversions": total_positive,
-            "matured_conversions": positive,
-            "rate": positive / len(matured) if matured else None,
+            **{key: value for key, value in counts.items() if key != "covered_matured"},
+            "rate": counts["matured_conversions"] / matured if matured else None,
             "confidence_low": low,
             "confidence_high": high,
-            "coverage_rate": sum(bool(a.get("covered")) for a in matured) / len(matured) if matured else None,
+            "coverage_rate": counts["covered_matured"] / matured if matured else None,
         }
-        pending += len(selected) - len(matured)
+        pending += counts["leads"] - matured
     base = min(0.95, max(0.01, baseline_rate))
     target = min(0.99, base + minimum_effect)
     pooled = (base + target) / 2
@@ -674,8 +681,8 @@ def trial_report(assignments, events, *, now, goal, window_days=14, baseline_rat
         "high": b["confidence_high"] - a["confidence_low"],
     }
     sufficient = min(a["matured_leads"], b["matured_leads"]) >= required and difference["low"] > 0
-    policy_unknown = sum(a.get("policy_unknown", 1) for a in unique.values())
-    violations = sum(a.get("policy_violations", 0) for a in unique.values())
+    policy_unknown = values.get("policy_unknown", 0)
+    violations = values.get("policy_violations", 0)
     coverage_delta = (b["coverage_rate"] or 0) - (a["coverage_rate"] or 0)
     sufficient = sufficient and policy_unknown == 0 and violations == 0 and coverage_delta >= 0
     return {
@@ -693,6 +700,23 @@ def trial_report(assignments, events, *, now, goal, window_days=14, baseline_rat
         "policy_unknown": policy_unknown,
         "evidence_scope": "observed controlled cohort; no automatic causal guarantee",
     }
+
+
+def trial_report(assignments, events, *, now, goal, window_days=14, baseline_rate=0.1, minimum_effect=0.05):
+    """Offline/cohort-unit adapter using the same count definitions as projections."""
+    unique, by_lead, counts = {}, {}, {}
+    for assignment in sorted(assignments, key=lambda a: a.get("assigned_at", "")):
+        unique.setdefault(assignment["lead_id"], assignment)
+    for event in events:
+        by_lead.setdefault(event.get("lead_id"), []).append(event)
+    for assignment in unique.values():
+        for key, value in trial_values(
+            assignment, by_lead.get(assignment["lead_id"], []), now=now, goal=goal, window_days=window_days
+        ).items():
+            counts[key] = counts.get(key, 0) + value
+    return trial_from_counts(
+        counts, goal=goal, window_days=window_days, baseline_rate=baseline_rate, minimum_effect=minimum_effect
+    )
 
 
 def stable_control(lead_id):
