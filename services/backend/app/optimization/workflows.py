@@ -349,16 +349,41 @@ class OptimizationWorkflows(ComparisonWorkflows):
         calls = [doc(c) for c in self.scoped(s, "call_attempts", p)]
         snapshots = [doc(r) for r in self.scoped(s, "feature_snapshots", p)]
         events = [doc(r) for r in self.scoped(s, "conversion_events", p)]
+        from app.coaching.context import lineage_key
         from app.optimization.conversations import active_observations
+        from app.postcall.analysis import learning_observations
 
         notes = {r.data["call_id"]: r for r in self.scoped(s, "notes", p)}
+        memories = {
+            r.data["call_id"]: r.data
+            for r in self.scoped(s, "conversation_states", p)
+            if r.data.get("schema_version") == 2
+        }
+        # This explicit historical dataset is replaced by projections in E09.
+        # Fetch its metadata once, never one query for each previous call.
+        lineage = {}
+        model = MODELS["outcomes"]
+        for row in s.scalars(
+            select(model).where(
+                model.tenant_id == p["tenant_id"],
+                model.seller_id == p["seller_id"],
+                model.ctx_status == "conversation_lineage",
+            )
+        ):
+            lineage.setdefault(row.data["call_id"], {})[lineage_key(row.data["id"], row.data["version"])] = (
+                row.data
+            )
         lead_campaigns = {r.id: r.data["campaign_id"] for r in self.scoped(s, "leads", p)}
         for call in calls:
             call["campaign_id"] = lead_campaigns.get(call["lead_id"])
             note = notes.get(call["id"])
-            call["observations"] = (
-                active_observations(note.data.get("observations", []), self.clock()) if note else []
+            memory = memories.get(call["id"])
+            observed = (
+                learning_observations(memory["observations"], lineage.get(call["id"]))
+                if memory
+                else (note.data.get("observations", []) if note else [])
             )
+            call["observations"] = active_observations(observed, self.clock())
         costs = {}
         for record in self.scoped(s, "usage_ledger", p):
             if (

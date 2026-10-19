@@ -8,14 +8,13 @@ from app.db import emit, put, update
 ACTIVE = {"open", "snoozed", "needs_confirmation"}
 
 
-def publish(service, s, p, call, items, segments, *, retract_omitted=False):
+def publish(service, s, p, call, items, *, retracted_observations=()):
     lead = service.required(s, "leads", call.data["lead_id"], p)
     records = [
         r for r in service.lead_records(s, p, "commitments", lead.id) if r.data.get("call_id") == call.id
     ]
     tasks = service.lead_records(s, p, "followup_tasks", lead.id)
     seen, identities = set(), set()
-    source_ids = {segment["segment_id"] for segment in segments}
     for item in items:
         identity = (item["kind"], item["owner"], tuple(sorted(set(item["evidence"]))))
         if identity in identities:
@@ -93,11 +92,9 @@ def publish(service, s, p, call, items, segments, *, retract_omitted=False):
             update(task, **task_values)
         update(record, task_id=task.id, task_status=task.data["status"])
         emit(s, p["tenant_id"], "task.updated", task, service.clock())
-    # Omission only retracts an item whose complete evidence was reinterpreted now.
-    # Older expired chunks are deliberately unavailable, not evidence of cancellation.
-    for record in records if retract_omitted else []:
-        evidence = set(record.data.get("evidence", []))
-        if record.id in seen or not evidence or not evidence.issubset(source_ids):
+    # Only explicit, independently reviewed retraction may remove a promise.
+    for record in records:
+        if record.data.get("observation_id") not in retracted_observations:
             continue
         update(
             record, status="retracted", source_retracted=True, source_version=call.data["transcript_version"]

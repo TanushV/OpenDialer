@@ -624,6 +624,56 @@ class SpeechPrivacy:
                 now=self.clock(),
             )
 
+    def migrate_conversation_states(self):
+        """Resumable payload migration; original record IDs and visible versions survive."""
+        from sqlalchemy import select
+
+        from app.coaching.context import lineage_metadata, upgrade_state
+        from app.db import MODELS, get
+        from app.postcall.rubrics import effective
+
+        with self.db.transaction(False) as s:
+            scopes = [(r.tenant_id, r.id) for r in s.scalars(select(MODELS["sellers"]))]
+        for tenant, seller_id in scopes:
+            p = {"tenant_id": tenant, "seller_id": seller_id}
+            while True:
+                with self.db.transaction() as s:
+                    seller = get(s, "sellers", seller_id, tenant)
+                    marker = seller.data.get("completion_contracts", {}).get("conversation", {})
+                    if marker.get("completed_at"):
+                        break
+                    model = MODELS["conversation_states"]
+                    batch = list(
+                        s.scalars(
+                            select(model)
+                            .where(
+                                model.tenant_id == tenant,
+                                model.seller_id == seller_id,
+                                model.id > marker.get("last_id", ""),
+                            )
+                            .order_by(model.id)
+                            .limit(500)
+                        )
+                    )
+                    for row in batch:
+                        call = get(s, "call_attempts", row.data.get("call_id"), tenant)
+                        if not call or call.seller_id != seller_id or row.data.get("schema_version") == 2:
+                            continue
+                        state = upgrade_state(row.data, call_id=call.id, rubric=effective(call.data))
+                        state["_lineage_updates"] = [lineage_metadata(i) for i in state["observations"]]
+                        version = row.version
+                        self._store_conversation(s, p, call, state, row)
+                        row.version = version
+                    contracts = dict(seller.data.get("completion_contracts", {}))
+                    contracts["conversation"] = {
+                        "schema_version": 2,
+                        "phase": "conversation",
+                        "last_table": "conversation_states",
+                        "last_id": batch[-1].id if batch else marker.get("last_id", ""),
+                        "completed_at": self.clock().isoformat() if len(batch) < 500 else None,
+                    }
+                    seller.data = {**seller.data, "completion_contracts": contracts}
+
 
 def retained_analysis(value, segments):
     if isinstance(value, dict):

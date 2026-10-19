@@ -5,9 +5,8 @@ from datetime import timedelta
 
 import pytest
 from app.db import update
-from app.providers.inference import InferenceResult
 from test_grounding_review import review_response
-from test_postcall_completion import setup_analysis
+from test_postcall_completion import ConversationProvider, setup_analysis
 from test_remediation_rep_workflow import p
 
 
@@ -278,23 +277,18 @@ async def test_source_correction_invalidates_observations_and_cached_guidance(wo
 
 @pytest.mark.asyncio
 async def test_observations_are_in_meaning_review_and_rejected_as_a_unit(workspace, app, monkeypatch):
-    call, _ = observed_call(workspace, app, monkeypatch)
+    call, state = observed_call(workspace, app, monkeypatch)
     seen = []
 
-    class Rejecting:
-        async def complete(self, prompt, context, schema):
-            if "fingerprint" in context:
-                seen.extend(item["field"] for item in context["fields"])
-                reply = review_response(context)
-                for verdict in reply["verdicts"]:
-                    if verdict["field"].startswith("observations/"):
-                        verdict["verdict"] = "CONTRADICTED"
-                return InferenceResult(reply, {}, "reject-observation-review")
-            return InferenceResult(observed_body(), {}, "observation-extract")
+    class Rejecting(ConversationProvider):
+        async def review(self, context, **kwargs):
+            seen.extend(item["field"] for item in context["fields"])
+            self.last_usage, self.last_request_id = {"cost": 0.001}, "reject-observation-review"
+            return review_response(context, verdict="CONTRADICTED")
 
-    monkeypatch.setattr(app.state.service, "inference", lambda *args: Rejecting())
+    monkeypatch.setattr(app.state.service, "configured_coach", lambda *args: (Rejecting(state), "openrouter"))
     await app.state.service.analyze_postcall(p(workspace), call["id"])
-    assert "observations/0" in seen
+    assert any(i.startswith("observations/") for i in seen)
     assert app.state.service.analysis(p(workspace), call["id"])["observations"] == []
 
 
@@ -528,20 +522,11 @@ async def test_retracted_conversion_marks_old_guidance_stale(workspace, app, mon
 async def test_interpretation_does_not_receive_outcomes_as_evidence_of_the_response(
     workspace, app, monkeypatch
 ):
-    call, _ = observed_call(workspace, app, monkeypatch)
-    contexts = []
-
-    class Provider:
-        async def complete(self, prompt, context, schema):
-            if "fingerprint" in context:
-                return InferenceResult(review_response(context), {}, "independent-context-review")
-            contexts.append(context)
-            return InferenceResult(observed_body(), {}, "unprimed-extraction")
-
-    monkeypatch.setattr(app.state.service, "inference", lambda *args: Provider())
+    call, state = observed_call(workspace, app, monkeypatch)
     await app.state.service.analyze_postcall(p(workspace), call["id"])
+    contexts = state["contexts"]
     assert contexts
-    assert "outcome" not in contexts[0]
+    assert not any(i["kind"] == "outcome" and i["id"] == call["id"] for i in contexts[0]["evidence_catalog"])
 
 
 @pytest.mark.asyncio

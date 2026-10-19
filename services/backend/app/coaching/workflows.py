@@ -575,7 +575,7 @@ class LiveHelper:
             )
             note_model = MODELS["notes"]
             notes = {
-                r.data["call_id"]: doc(r)
+                r.data["call_id"]: self.note_view_in(s, p, r)
                 for r in s.scalars(
                     select(note_model).where(
                         note_model.tenant_id == p["tenant_id"],

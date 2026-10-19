@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import timedelta
 
 import pytest
-from app.coaching.context import build_context, merge_semantic_state, persistent_state
+from app.coaching.context import build_context, merge_semantic_state, persistent_state, state_view
 from app.db import get, update
 from conftest import start
 from test_remediation_coach import ordinary_advice
@@ -101,7 +101,7 @@ async def test_muting_tips_keeps_context_current_without_displaying_a_card(works
     assert result["action"] == "NO_ACTION"
     with service.db.transaction(False) as s:
         state = service._by_key(s, p, "conversation_states", call["id"])
-        assert state.data["rundown_points"]
+        assert state_view(state.data)["rundown_points"]
         assert not service.scoped(s, "coach_events", p)
 
 
@@ -204,9 +204,12 @@ def test_new_evidence_can_resolve_prior_open_memory_without_leaving_contradictor
         },
         [memory_source()],
     )
-    assert len(result["objections"]) == 1
-    assert result["objections"][0]["status"] == "resolved"
-    assert result["objections"][0]["evidence_revisions"] == {"old": 1, "new": 1}
+    assert len(result["objections"]) == 2, (
+        "A proposed resolution cannot erase the prior concern before review"
+    )
+    candidate = result["objections"][-1]
+    assert candidate["status"] == "resolved" and candidate["review_status"] == "pending"
+    assert candidate["evidence_revisions"] == {"old": 1, "new": 1}
     # A correction to either supporting source invalidates the merged interpretation.
     corrected = build_context([memory_source("old", 2)], version=3, facts=[], commitments=[], prior=result)
     assert not corrected["objections"]
@@ -239,7 +242,7 @@ def test_authoritative_commitments_are_not_copied_into_generated_call_memory():
         facts=[],
         commitments=[{"id": "prior-task", "action": "Return call", "status": "confirmed"}],
     )
-    assert not persistent_state(state)["commitments"], (
+    assert not state_view(persistent_state(state))["commitments"], (
         "Prior tasks already have a current authoritative context field; copying them keeps stale promises"
     )
 
@@ -280,8 +283,8 @@ def test_memory_bounds_keep_unresolved_context_and_report_compression():
         }
         for i in range(20)
     ]
-    stored = persistent_state(
-        {"version": 1, "stage": "discovery", "trigger": "conversation", "objections": items}
+    stored = state_view(
+        persistent_state({"version": 1, "stage": "discovery", "trigger": "conversation", "objections": items})
     )
     assert len(stored["objections"]) <= 12
     assert any(item["id"] == "0" for item in stored["objections"])

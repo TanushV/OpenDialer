@@ -1,12 +1,9 @@
 """Semantic trackers share the reviewed analysis and cannot outlive corrected evidence."""
 
-from copy import deepcopy
 from datetime import timedelta
 
 import pytest
 from app.db import get, update
-from app.providers.inference import InferenceResult
-from test_grounding_review import review_response
 from test_postcall_completion import setup_analysis
 from test_remediation_rep_workflow import p
 
@@ -82,23 +79,7 @@ def setup(workspace, app, monkeypatch):
     assert result.status_code == 200, result.text
     tracker = result.json()
     state["body"]["tracker_matches"] = [{"tracker_id": tracker["id"], "evidence": ["s"]}]
-    requests = []
-
-    class Provider:
-        async def complete(self, instructions, context, schema):
-            requests.append(deepcopy(context))
-            if "fingerprint" in context:
-                if state.get("during_review"):
-                    state["during_review"]()
-                return InferenceResult(review_response(context), {"cost": 0.001}, "tracker-review")
-            # Accommodate the old standalone path so the regression detects its extra request.
-            if "rubric" not in context:
-                return InferenceResult(
-                    {"matches": state["body"]["tracker_matches"]}, {"cost": 0.001}, "extra-tracker"
-                )
-            return InferenceResult(state["body"], {"cost": 0.001}, "tracker-extract")
-
-    monkeypatch.setattr(app.state.service, "inference", lambda *_: Provider())
+    requests = state["contexts"] = []
     return call, tracker, state, requests
 
 
@@ -111,7 +92,7 @@ async def test_tracker_shares_one_extraction_and_meaning_review_with_original_ve
     await service.analyze_postcall(p(workspace), call["id"])
     assert len(requests) == 2, "Tracker detection must not add another inference round trip"
     assert requests[0]["trackers"][0]["id"] == tracker["id"]
-    assert any(item["field"] == "tracker_matches/0" for item in requests[1]["fields"])
+    assert any(item["field"] == "tracker_matches/" + tracker["id"] for item in requests[1]["fields"])
     assert requests[1]["context"]["rubric"]["dimensions"], "Meaning review needs the actual scoring anchors"
     result = service.analysis(p(workspace), call["id"])["trackers"]
     assert len(result) == 1

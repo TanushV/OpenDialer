@@ -4,9 +4,8 @@ from copy import deepcopy
 
 import pytest
 from app.db import doc, get, update
-from app.providers.inference import InferenceResult
 from conftest import start
-from test_grounding_review import review_response
+from test_postcall_completion import ConversationProvider, conversation_turn
 from test_remediation_rep_workflow import p
 
 
@@ -27,7 +26,7 @@ async def test_complete_rubric_once_per_call(workspace, app, clock, monkeypatch)
     view = service.analysis(who, call["id"])
     items = view["call_memory"].get("rubric_items", [])
     expected = {row["id"] for row in call["rubric_snapshot"]["dimensions"]}
-    assert {row["id"] for row in items} == expected
+    assert {row["dimension"] for row in items} == expected
     assert len(items) == len(expected)
     assert all(row["status"] in {"unassessed", "insufficient", "not_applicable", "scored"} for row in items)
     assert all(row.get("score") is None for row in items), "Ordinary transcript chunks are not scored calls"
@@ -206,16 +205,17 @@ async def test_model_uses_selected_dimensions_weights_and_rejects_obsolete_rubri
     )
     requests = []
 
-    class Provider:
-        async def complete(self, instructions, context, schema):
+    state = {"requests": 0, "contexts": requests}
+
+    class Provider(ConversationProvider):
+        async def suggest(self, context, **kwargs):
             requests.append(deepcopy(context))
-            if "fingerprint" in context:
-                return InferenceResult(review_response(context), {"cost": 0.001}, "rubric-review")
             if change_during_request:
                 with service.db.transaction(False) as s:
                     current = doc(get(s, "call_attempts", call["id"]))
                 assert choose(workspace, current, "follow_up").status_code == 200
-            return InferenceResult(
+            self.last_usage, self.last_request_id = {"cost": 0.001}, "rubric-interpretation"
+            return conversation_turn(
                 {
                     "summary": "The buyer described decentralized internal approvals.",
                     "summary_evidence": ["discovery-source"],
@@ -225,23 +225,22 @@ async def test_model_uses_selected_dimensions_weights_and_rejects_obsolete_rubri
                     "unknowns": [],
                     "score_items": [
                         {
-                            "dimension": dim["dimension"],
+                            "dimension": dim["id"],
                             "score": 2 if i == 0 else 0,
                             "status": "SCORED",
                             "evidence": ["discovery-source"],
                             "explanation": "Reviewed against the observed opportunity",
                         }
-                        for i, dim in enumerate(context["rubric"])
+                        for i, dim in enumerate(context["rubric"]["dimensions"])
                     ],
                 },
-                {"cost": 0.001},
-                "rubric-extraction",
+                context,
             )
 
-    monkeypatch.setattr(service, "inference", lambda *_: Provider())
+    monkeypatch.setattr(service, "configured_coach", lambda *_: (Provider(state), "openrouter"))
     await service.analyze_postcall(p(workspace), call["id"])
-    assert requests[0]["call_type"] == "discovery"
-    assert requests[0]["rubric"][0]["anchors"]["2"] == "Explored their workflow"
+    assert requests[0]["rubric"]["call_type"] == "discovery"
+    assert requests[0]["rubric"]["dimensions"][0]["anchors"]["2"] == "Explored their workflow"
     result = service.analysis(p(workspace), call["id"])["scorecard"]
     if change_during_request:
         assert result["call_type"] == "follow_up" and result["overall"]["score"] is None

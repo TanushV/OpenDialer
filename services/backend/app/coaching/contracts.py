@@ -73,6 +73,8 @@ class ObservationDelta(StrictModel):
     replaces: list[str] = Field(max_length=12)
     quote: str = Field(max_length=400)
     commitment: ProposedCommitment | None
+    review_required: bool = False
+    approach: ShortText | None = None
 
 
 class RubricDelta(StrictModel):
@@ -113,6 +115,9 @@ class Observation(StrictModel):
     review_status: Literal["pending", "not_required", "reviewed", "unavailable", "rejected"]
     lineage_depth: int = Field(ge=0, le=8)
     commitment: dict | None = None
+    approach: ShortText | None = None
+    reviewer_id: str | None = None
+    reviewed_at: str | None = None
 
 
 class ConversationStateV2(StrictModel):

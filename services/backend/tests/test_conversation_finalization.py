@@ -79,7 +79,7 @@ async def pending_review(workspace, app, clock, monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("change", ["expiry", "lease", "note", "purpose", "ownership", "revision"])
+@pytest.mark.parametrize("change", ["expiry", "lease", "note", "purpose", "ownership", "revision", "capture"])
 async def test_review_publication_rechecks_sources_and_owner_inside_commit(
     workspace, app, clock, monkeypatch, change
 ):
@@ -97,6 +97,8 @@ async def test_review_publication_rechecks_sources_and_owner_inside_commit(
                 update(
                     service._by_key(s, p, "notes", call["id"]), human_text="Rep correction takes priority."
                 )
+            elif change == "capture":
+                update(service.required(s, "call_attempts", call["id"], p), transcription_disabled=True)
             elif change == "purpose":
                 update(service.required(s, "call_attempts", call["id"], p), rubric_revision="new-purpose")
             else:
@@ -286,6 +288,106 @@ def test_conversation_global_bound_preserves_promises_and_reports_omissions():
     assert segment["text"] not in json.dumps(stored)
 
 
+def test_reviewed_checkpoint_keeps_early_lineage_for_correction_without_unbounded_direct_refs():
+    from app.coaching.context import (
+        invalidate_state,
+        lineage_key,
+        lineage_metadata,
+        merge_semantic_state,
+        segment_revisions,
+    )
+
+    state, segment, at = conversation_fixture()
+    previous = None
+    for i in range(12):
+        source = {**segment, "segment_id": f"turn-{i}"}
+        state = merge_semantic_state(
+            state,
+            {
+                "stage": "discovery",
+                "needs": [
+                    {
+                        "text": f"The review process has unresolved dependency {i}.",
+                        "quote": "",
+                        "status": "open",
+                        "evidence_segment_ids": [source["segment_id"]],
+                        "replaces": [previous] if previous else [],
+                    }
+                ],
+            },
+            [source],
+            request_id=f"checkpoint-{i}",
+            at=at,
+        )
+        item = state["observations"][-1]
+        item.update(
+            epistemic_status="model_reviewed", review_status="reviewed", review_receipt_id=f"review-{i}"
+        )
+        state["_lineage"][lineage_key(item["id"], item["version"])] = lineage_metadata(item)
+        previous = item["id"]
+        state["observations"] = [item]
+        assert len(item["sources"]) <= 32 and item["lineage_depth"] <= 8
+    assert set(segment_revisions(item, state["_lineage"])) == {f"turn-{i}" for i in range(12)}
+    corrected = invalidate_state(state, "turn-0", 2, at=at, lineage=state["_lineage"])
+    assert corrected["observations"][0]["state"] == "stale"
+    again = invalidate_state(corrected, "turn-0", 2, at=at, lineage=state["_lineage"])
+    assert again["version"] == corrected["version"], "Reading an already invalidated observation is a no-op"
+
+
+@pytest.mark.asyncio
+async def test_review_cannot_turn_unknown_speaker_into_an_automatic_callback(workspace, app, monkeypatch):
+    from test_postcall_completion import setup_analysis
+    from test_remediation_privacy import principal
+
+    call, _ = setup_analysis(workspace, app, monkeypatch)
+    service, p = app.state.service, principal(workspace)
+    service._receive_transcript(
+        p,
+        call["id"],
+        {
+            "segment_id": "s",
+            "revision": 2,
+            "side": "unknown",
+            "is_final": True,
+            "text": "Please call me on October 20, 2026 at 2 PM Pacific time. The speaker attribution is unclear.",
+        },
+        None,
+        True,
+    )
+    await service.analyze_postcall(p, call["id"])
+    with service.db.transaction(False) as s:
+        tasks = service.lead_records(s, p, "followup_tasks", call["lead_id"])
+        assert tasks and all(t.data["status"] == "needs_confirmation" for t in tasks)
+        assert not service.required(s, "leads", call["lead_id"], p).data.get("callback_due_at")
+
+
+def test_observed_approach_needs_rep_evidence_not_only_a_suggestion():
+    from app.coaching.context import merge_semantic_state
+    from app.coaching.engine import CardRejected
+
+    state, segment, at = conversation_fixture()
+    delta = {
+        "stage": "discovery",
+        "observations": [
+            {
+                "kind": "approach",
+                "text": "Approval complexity",
+                "approach": "Clarify who approves",
+                "state": "confirmed",
+                "sources": [{"kind": "segment", "id": "source", "version": 1}],
+                "replaces": [],
+                "quote": "",
+                "commitment": None,
+            }
+        ],
+        "rubric_items": [],
+        "tracker_matches": [],
+        "interpreted_segments": [],
+    }
+    with pytest.raises(CardRejected, match="rep"):
+        merge_semantic_state(state, delta, [segment], request_id="unsupported-use", at=at)
+
+
 @pytest.mark.parametrize("replacement", ["foreign", "forward"])
 def test_replacement_requires_an_existing_scoped_observation(replacement):
     from app.coaching.context import merge_semantic_state
@@ -306,6 +408,68 @@ def test_replacement_requires_an_existing_scoped_observation(replacement):
     }
     with pytest.raises(CardRejected, match="replacement|reference"):
         merge_semantic_state(state, delta, [segment], request_id="invalid", at=at)
+
+
+def test_v1_migration_preserves_ids_sources_and_human_notes_without_fabricated_review(workspace, app):
+    from app.db import put
+    from conftest import start
+    from test_remediation_privacy import principal
+
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    with service.db.transaction() as s:
+        old = put(
+            s,
+            "conversation_states",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "privacy_contract": 1,
+                "call_id": call["id"],
+                "version": 4,
+                "stage": "discovery",
+                "needs": [
+                    {
+                        "id": "existing-interpretation",
+                        "text": "Procurement needs less delay.",
+                        "status": "open",
+                        "evidence_segment_ids": ["early"],
+                        "evidence_revisions": {"early": 3},
+                    }
+                ],
+            },
+            key=call["id"],
+            now=service.clock(),
+        )
+        identity, version = old.id, old.version
+        note = put(
+            s,
+            "notes",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "call_id": call["id"],
+                "privacy_contract": 1,
+                "human_text": "Keep my correction.",
+                "status": "human_confirmed",
+                "notes": {"summary": "", "transcript_version": 4},
+            },
+            key=call["id"],
+            now=service.clock(),
+        )
+        note_identity = note.id
+    service.migrate_conversation_states()
+    service.migrate_conversation_states()
+    with service.db.transaction(False) as s:
+        row = service._by_key(s, p, "conversation_states", call["id"])
+        assert (row.id, row.version) == (identity, version)
+        assert row.data["schema_version"] == 2 and "needs" not in row.data
+        item = row.data["observations"][0]
+        assert item["id"] == "existing-interpretation" and item["sources"][0]["version"] == 3
+        assert item["review_receipt_id"] is None and item["epistemic_status"] == "model_interpreted"
+        assert service._conversation_lineage(s, p, call["id"])
+        note = service._by_key(s, p, "notes", call["id"])
+        assert note.id == note_identity and note.data["human_text"] == "Keep my correction."
 
 
 @pytest.mark.asyncio
@@ -440,3 +604,66 @@ async def test_merge_correction_and_missing_source(workspace, app, clock, monkey
     assert corrected.get("source_conflicts"), (
         "Correction must expose an actionable conflict after evidence expires"
     )
+
+
+@pytest.mark.asyncio
+async def test_finalization_cannot_be_completed_by_an_expired_owner(workspace, app, clock, monkeypatch):
+    call, p, _, _ = setup(workspace, app, monkeypatch)
+    service = app.state.service
+    owner = service._begin_finalization(p, call["id"])
+    clock.now += timedelta(seconds=31)
+    service._finish_finalization(p, call["id"], owner, True)
+    with service.db.transaction(False) as s:
+        final = service._by_key(s, p, "conversation_states", call["id"]).data["finalization"]
+        assert final.get("completed_fingerprint") is None
+        assert final["status"] != "ready"
+
+
+@pytest.mark.asyncio
+async def test_review_cannot_certify_a_changed_derived_source(workspace, app, clock, monkeypatch):
+    from app.coaching.context import lineage_metadata, merge_semantic_state
+    from app.grounding import accept_review
+    from test_grounding_review import review_response
+
+    service, call, p, _, first_owner, first_receipt = await pending_review(workspace, app, clock, monkeypatch)
+    first_request = service._conversation_context(p, call["id"], "review")
+    service._publish_state_review(p, call["id"], first_request, first_owner, first_receipt)
+    with service.db.transaction() as s:
+        row = service._by_key(s, p, "conversation_states", call["id"])
+        state = row.data
+        prior = state["observations"][0]
+        old_id = prior["id"]
+        delta = {
+            "stage": "next_step",
+            "observations": [
+                {
+                    "kind": "commitment",
+                    "text": "A further evaluation discussion remains due.",
+                    "state": "confirmed",
+                    "sources": [{"kind": "observation", "id": old_id, "version": 1}],
+                    "replaces": [],
+                    "quote": "",
+                    "commitment": None,
+                }
+            ],
+            "rubric_items": [],
+            "tracker_matches": [],
+            "interpreted_segments": [],
+        }
+        state = merge_semantic_state(state, delta, [], request_id="derived-review", at=clock.now)
+        service._store_conversation(s, p, service.required(s, "call_attempts", call["id"], p), state, row)
+    request = service._conversation_context(p, call["id"], "review")
+    owner, review = service._state_review_snapshot(p, call["id"], request)
+    receipt = accept_review(review, review_response(review), "second-review")
+    with service.db.transaction() as s:
+        row = service._by_key(s, p, "conversation_states", call["id"])
+        state = row.data
+        prior = next(i for i in state["observations"] if i["id"] == old_id)
+        prior.update(state="retracted", version=2, epistemic_status="human_confirmed")
+        state["version"] += 1
+        state["_lineage_updates"] = [lineage_metadata(prior)]
+        service._store_conversation(s, p, service.required(s, "call_attempts", call["id"], p), state, row)
+    service._publish_state_review(p, call["id"], request, owner, receipt)
+    with service.db.transaction(False) as s:
+        state = service._by_key(s, p, "conversation_states", call["id"]).data
+        assert not any(i.get("review_receipt_id") == "second-review" for i in state["observations"])

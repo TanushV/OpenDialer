@@ -212,26 +212,41 @@ def register_optimization(app, service, principal, administrator):
 
     @app.post("/v1/calls/{call_id}/observations/{observation_id}/review")
     def review_observation(call_id: str, observation_id: str, body: ObservationReview, p=Depends(principal)):
+        from app.coaching.context import lineage_metadata, upgrade_state
         from app.optimization.conversations import invalidate_report
+        from app.postcall.analysis import learning_observations
 
         with service.db.transaction() as s:
             call = service.required(s, "call_attempts", call_id, p)
+            s.refresh(call, with_for_update=True)
             note = service._by_key(s, p, "notes", call_id)
-            values = [dict(v) for v in note.data.get("observations", [])] if note else []
-            observation = next((v for v in values if v["id"] == observation_id), None)
+            memory = service._by_key(s, p, "conversation_states", call_id)
+            if not memory or memory.data.get("schema_version") != 2:
+                fail(409, "Conversation migration required before reviewing")
+            if not service._coach_authority(s, p, call):
+                fail(403, "Conversation review is no longer authorized")
+            state = upgrade_state(memory.data, call_id=call_id)
+            observation = next(
+                (v for v in state["observations"] if v["id"] == observation_id and v["kind"] == "approach"),
+                None,
+            )
             if not observation:
                 fail(404, "Observation not found")
             if observation["version"] != body.expected_version:
                 fail(409, "Observation changed; refresh before reviewing")
             observation.update(
-                status="active" if body.decision == "confirm" else "retracted",
-                review_status="human_confirmed",
+                state="confirmed" if body.decision == "confirm" else "retracted",
+                review_status="reviewed",
+                epistemic_status="human_confirmed",
                 reviewer_id=p["user_id"],
                 reviewed_at=service.clock().isoformat(),
-                observed_at=service.clock().isoformat(),
+                available_at=service.clock().isoformat(),
                 version=observation["version"] + 1,
             )
-            update(note, observations=values)
+            state["version"] += 1
+            state["finalization"]["status"] = "pending"
+            state["_lineage_updates"] = [lineage_metadata(observation)]
+            service._store_conversation(s, p, call, state, memory)
             lead = service.required(s, "leads", call.data["lead_id"], p)
             invalidate_report(service, s, p, lead.data["campaign_id"])
             service.refresh_packet_in(s, p, lead)
@@ -245,8 +260,8 @@ def register_optimization(app, service, principal, administrator):
                 service.clock(),
                 {"reason": body.reason, "decision": body.decision, "call_id": call_id},
             )
-            emit(s, p["tenant_id"], "analysis.ready", note, service.clock())
-            return observation
+            emit(s, p["tenant_id"], "analysis.ready", note or memory, service.clock())
+            return learning_observations([observation], service._conversation_lineage(s, p, call_id))[0]
 
     @app.get("/v1/optimization")
     def report(epoch: str | None = None, p=Depends(principal)):

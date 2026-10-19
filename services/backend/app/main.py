@@ -258,6 +258,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
     db = Database(settings.database_url, encryption_key=settings.secret_key)
     service = Dialer(db, settings, clock, carrier)
     service.privacy_cutover()
+    service.migrate_conversation_states()
     try:
         from app.compliance.suppressions import replay as replay_suppressions
 

@@ -1,10 +1,9 @@
 """A39: human ratings remain separate, versioned and recoverable after AI revisions."""
 
-from copy import deepcopy
 from datetime import timedelta
 
 import pytest
-from app.db import get, update
+from app.db import get
 from conftest import start
 from test_call_rubrics import choose
 from test_remediation_rep_workflow import p
@@ -54,10 +53,21 @@ def test_human_score_is_separate_from_ai_and_survives_reanalysis_and_raw_expiry(
     assert result.status_code == 200, result.text
     service = app.state.service
     with service.db.transaction() as s:
-        card = get(s, "scorecards", a["scorecard_id"])
-        items = deepcopy(card.data["items"])
-        items[2].update(score=0, status="SCORED", evidence=["review-source"], explanation="New AI assessment")
-        update(card, items=items)
+        from app.coaching.context import upgrade_state
+        from app.postcall.rubrics import effective
+
+        call = get(s, "call_attempts", a["call"]["id"])
+        state = upgrade_state({}, call_id=call.id, rubric=effective(call.data))
+        state["rubric_items"][2].update(
+            score=0,
+            status="scored",
+            review_status="reviewed",
+            review_receipt_id="independent-review",
+            sources=[{"kind": "segment", "id": "review-source", "version": 1}],
+            explanation="New AI assessment",
+        )
+        state["version"] += 1
+        service._store_conversation(s, p(workspace), call, state)
     clock.now += timedelta(seconds=301)
     after = service.analysis(p(workspace), a["call"]["id"])
     assert after["scorecard"]["items"][2]["score"] == 0, "Never overwrite the AI record with a human score"

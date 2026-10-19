@@ -4,7 +4,6 @@ No taxonomy, sentence bandit, or automatic policy changes. One independent conta
 contributes once; discovery precedes a later, label-embargoed comparison period.
 """
 
-import hashlib
 import re
 import unicodedata
 from collections import Counter, defaultdict
@@ -211,46 +210,6 @@ def conversation_associations(rows, *, as_of, min_support=10, vocabulary=None):
         "limitations": "Descriptive association, not causal lift. Approximate intervals; no adjustment for unmeasured account/rep differences. Repeated report views are not independent experiments.",
         "automatic_policy_change": False,
     }
-
-
-def publish_observations(note, items, segments, *, now, call_id, review_id):
-    sources = {s["segment_id"]: s for s in segments}
-    previous = {i["id"]: dict(i) for i in note.data.get("observations", [])}
-    published = set()
-    for item in items:
-        ids = sorted(set(item["evidence"]))
-        identity = hashlib.sha256((call_id + ":" + ":".join(ids)).encode()).hexdigest()[:32]
-        published.add(identity)
-        old = previous.get(identity, {})
-        if old.get("reviewer_id"):
-            continue
-        values = {
-            "id": identity,
-            "concept": item["concept"],
-            "approach": item.get("approach"),
-            "evidence": ids,
-            "source_revisions": {i: sources[i].get("revision", 1) for i in ids},
-            "status": "active",
-            "review_status": "model_reviewed",
-            "review_request_id": review_id,
-        }
-        same = all(
-            old.get(key) == values[key] for key in ("concept", "approach", "source_revisions", "status")
-        )
-        previous[identity] = {
-            **values,
-            "version": old.get("version", 0) + (0 if same else 1),
-            "observed_at": old["observed_at"] if same else now.isoformat(),
-        }
-    for identity, old in previous.items():
-        if (
-            identity not in published
-            and old.get("status") == "active"
-            and not old.get("reviewer_id")
-            and set(old.get("evidence", [])) <= set(sources)
-        ):
-            old.update(status="retracted", version=old["version"] + 1, changed_at=now.isoformat())
-    return list(previous.values())[-24:]
 
 
 def invalidate_report(service, s, p, campaign_id):

@@ -691,30 +691,59 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             ), "openrouter"
         return None, "approved_static"
 
-    def analysis(self, p, call_id, *, force=False):
+    def conversation_view_in(self, s, p, call, memory=None):
         from app.coaching.context import state_view, upgrade_state
+        from app.postcall.rubrics import effective
+
+        memory = memory or self._by_key(s, p, "conversation_states", call.id)
+        lineage = self._conversation_lineage(s, p, call.id)
+        derived = state_view(
+            upgrade_state(memory.data if memory else {}, call_id=call.id, rubric=effective(call.data)),
+            lineage=lineage,
+        )
+        generated = build_analysis(
+            call.id,
+            [],
+            outcome=call.data.get("outcome"),
+            derived=derived,
+            transcript_version=call.data["transcript_version"],
+            rubric=effective(call.data),
+            lineage=lineage,
+        )
+        return derived, generated
+
+    def note_view_in(self, s, p, note, call=None):
+        """Read compatibility view; new derived narrative is owned only by the conversation."""
+        call = call or self.required(s, "call_attempts", note.data["call_id"], p)
+        memory = self._by_key(s, p, "conversation_states", call.id)
+        if not memory or memory.data.get("schema_version") != 2:
+            return doc(note)
+        _, generated = self.conversation_view_in(s, p, call, memory)
+        return {
+            **doc(note),
+            **{k: generated[k] for k in ("notes", "observations", "semantic_trackers", "grounding_status")},
+        }
+
+    def analysis(self, p, call_id, *, force=False):
         from app.postcall.analysis import behavioral_metrics, reviewed_tracker_matches
         from app.postcall.review import reviewed_view
-        from app.postcall.rubrics import effective
 
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
             metadata = self.transcript_metadata(s, p, call_id)
             segments = self.transcript_rows(s, p, call_id, metadata=metadata)
             memory = self._by_key(s, p, "conversation_states", call_id)
-            derived = state_view(
-                upgrade_state(memory.data if memory else {}, call_id=call_id, rubric=effective(call.data)),
-                lineage=self._conversation_lineage(s, p, call_id),
-            )
-            memory_revision = memory.version if memory else 0
-            generated = build_analysis(
-                call_id,
-                segments,
-                outcome=call.data.get("outcome"),
-                derived=derived,
-                transcript_version=call.data["transcript_version"],
-                rubric=effective(call.data),
-            )
+            derived, generated = self.conversation_view_in(s, p, call, memory)
+            memory_revision = derived["version"]
+            note_metadata = {k: generated["notes"][k] for k in ("call_id", "transcript_version", "outcome")}
+            card_metadata = {
+                **generated["scorecard"],
+                "derived_state_revision": memory_revision,
+                "items": [
+                    {**i, "explanation": "Read the current conversation view."}
+                    for i in generated["scorecard"]["items"]
+                ],
+            }
             note = self._by_key(s, p, "notes", call_id)
             card = self._by_key(s, p, "scorecards", call_id)
             if not note:
@@ -726,10 +755,11 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     {
                         "call_id": call_id,
                         "privacy_contract": 1,
-                        "notes": generated["notes"],
+                        "notes": note_metadata,
                         "human_text": None,
                         "status": "ai_finalized" if force else "draft",
                         "suggested_update": None,
+                        "grounding_status": generated["grounding_status"],
                         "derived_state_revision": memory_revision,
                     },
                     key=call_id,
@@ -738,19 +768,20 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             elif (
                 note.data["notes"]["transcript_version"] != call.data["transcript_version"]
                 or note.data["notes"].get("outcome") != (call.data.get("outcome") or "unconfirmed")
-                or (
-                    note.data.get("grounding_status") != "model_reviewed"
-                    and note.data.get("derived_state_revision", 0) != memory_revision
-                )
+                or note.data.get("derived_state_revision", 0) != memory_revision
             ):
                 update(
                     note,
-                    notes=generated["notes"],
+                    notes=note_metadata,
                     privacy_contract=1,
                     stale=False,
-                    grounding_status="unreviewed",
-                    status="ai_finalized" if force else "draft",
-                    suggested_update=generated["notes"] if note.data.get("human_text") is not None else None,
+                    grounding_status=generated["grounding_status"],
+                    status="human_confirmed"
+                    if note.data.get("human_text") is not None
+                    else "ai_finalized"
+                    if force
+                    else "draft",
+                    suggested_update=bool(note.data.get("human_text")),
                     derived_state_revision=memory_revision,
                 )
             elif force and note.data["status"] == "draft":
@@ -761,7 +792,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     "scorecards",
                     p["tenant_id"],
                     p["seller_id"],
-                    {"call_id": call_id, "privacy_contract": 1, **generated["scorecard"]},
+                    {"call_id": call_id, "privacy_contract": 1, **card_metadata},
                     key=call_id,
                     now=self.clock(),
                 )
@@ -769,8 +800,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 card.data.get("stale")
                 or card.data.get("transcript_version") != call.data["transcript_version"]
                 or card.data.get("rubric_version") != generated["scorecard"]["rubric_version"]
+                or card.data.get("derived_state_revision", 0) != memory_revision
             ):
-                update(card, **generated["scorecard"], stale=False, privacy_contract=1)
+                update(card, **card_metadata, stale=False, privacy_contract=1)
             reviews = [doc(r) for r in self.context_rows(s, p, "reviews", card.id, limit=None)]
             comments = [doc(r) for r in self.context_rows(s, p, "comments", call_id, limit=None)]
             trackers = [doc(r) for r in self.scoped(s, "trackers", p) if r.data["kind"] == "semantic"]
@@ -788,12 +820,12 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 for item in stable_metadata
             )
             reviewed_card, reviews = reviewed_view(
-                card.data, reviews, revisions, {item["segment_id"] for item in segments}
+                generated["scorecard"], reviews, revisions, {item["segment_id"] for item in segments}
             )
             return {
                 "call": doc(call),
                 "lead_timezone": self.required(s, "leads", call.data["lead_id"], p).data.get("timezone"),
-                "notes": note.data["notes"],
+                "notes": generated["notes"],
                 "call_memory": derived,
                 "finalization": derived["finalization"],
                 "source_conflicts": derived["source_conflicts"],
@@ -806,13 +838,13 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 },
                 "notes_version": note.version,
                 "human_notes": note.data.get("human_text"),
-                "suggested_update": note.data.get("suggested_update"),
+                "suggested_update": generated["notes"] if note.data.get("suggested_update") else None,
                 "status": note.data["status"],
-                "grounding_status": note.data.get("grounding_status", "unreviewed"),
-                "observations": note.data.get("observations", []),
+                "grounding_status": generated["grounding_status"],
+                "observations": generated["observations"],
                 "scorecard_id": card.id,
                 "scorecard_version": card.version,
-                "scorecard": card.data,
+                "scorecard": generated["scorecard"],
                 "reviewed_scorecard": reviewed_card,
                 "reviews": reviews,
                 "transcript": segments,
@@ -825,7 +857,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 "tracker_definitions_omitted": max(0, len(trackers) - 20),
                 "trackers": self.tracker_matches(s, p, segments)
                 + reviewed_tracker_matches(
-                    note.data, trackers, revisions, {item["segment_id"] for item in segments}
+                    generated, trackers, revisions, {item["segment_id"] for item in segments}
                 ),
             }
 
@@ -1165,6 +1197,8 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 call_at=call.data.get("started_at"),
                 prospect_timezone=self.required(s, "leads", call.data["lead_id"], p).data.get("timezone"),
                 human_note=note.data.get("human_text") if note else None,
+                human_note_id=note.id if note else None,
+                human_note_version=note.version if note else None,
                 human_note_hash=digest(note.data.get("human_text") if note else None),
                 call_outcome=call.data.get("outcome"),
                 rubric_revision=call.data.get("rubric_revision"),
@@ -1397,9 +1431,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     if (
                         not refs
                         or not all(supported)
-                        or any(
-                            i["kind"] == "observation"
-                            and i.get("epistemic_status") not in {"model_reviewed", "human_confirmed"}
+                        or not any(
+                            i["kind"] != "observation"
+                            or i.get("epistemic_status") in {"model_reviewed", "human_confirmed"}
                             for i in supported
                         )
                         or group == "tracker_matches"
@@ -1418,6 +1452,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                                 for k in (
                                     "text",
                                     "state",
+                                    "approach",
                                     "commitment",
                                     "score",
                                     "status",
@@ -1492,7 +1527,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             owned_finalization = self._conversation_signature(s, p, call, state) == state["finalization"].get(
                 "input_fingerprint"
             )
-            changed, promises, retired = [], [], set()
+            changed, promises, retired, retractions = [], [], set(), set()
             history = self._conversation_lineage(s, p, call_id)
             for target in active["targets"]:
                 item = next(
@@ -1511,6 +1546,8 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     if target["group"] == "observations":
                         retired.update(item["replaces"])
                         changed.append(lineage_metadata(item))
+                        if item["kind"] == "commitment" and item["state"] == "retracted":
+                            retractions.update(item["replaces"])
                         if (
                             item["kind"] == "commitment"
                             and item.get("commitment")
@@ -1519,6 +1556,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                             promises.append(
                                 {
                                     **item["commitment"],
+                                    "observation_id": item["id"],
                                     "action": item["text"],
                                     "evidence": list(segment_revisions(item, history)),
                                 }
@@ -1532,8 +1570,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             state["_lineage_updates"] = changed
             self._store_conversation(s, p, call, state, row)
             update(row, review_work={"owner": None})
-            if promises:
-                publish(self, s, p, call, promises, request["recent_dialogue"], retract_omitted=False)
+            if promises or retractions:
+                publish(self, s, p, call, promises, retracted_observations=retractions)
+            self._queue_conversation_review(s, p, call, state)
             emit(s, p["tenant_id"], "conversation.updated", call, self.clock())
 
     async def review_conversation(self, p, call_id):

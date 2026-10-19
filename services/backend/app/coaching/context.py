@@ -166,8 +166,11 @@ def guidance_sources(request):
                 }
             )
     state = request.get("state", {})
-    for key in STATE_FIELDS:
-        for item in state.get(key, [])[:12]:
+    for item in state.get("observations", []):
+        if item.get("state") not in {"stale", "retracted"} and item.get("review_status") not in {
+            "rejected",
+            "unavailable",
+        }:
             if item.get("id"):
                 result.append(
                     {
@@ -175,7 +178,7 @@ def guidance_sources(request):
                         "id": item["id"],
                         "version": item.get("version", state.get("version", 0)),
                         "text": item.get("text", ""),
-                        "status": item.get("status"),
+                        "status": item.get("state"),
                         "epistemic_status": item.get("epistemic_status", "model_interpreted"),
                     }
                 )
@@ -200,6 +203,16 @@ def guidance_sources(request):
                     "epistemic_status": "human_confirmed",
                 }
             )
+    if request.get("human_note") and request.get("human_note_id"):
+        result.append(
+            {
+                "kind": "human_note",
+                "id": request["human_note_id"],
+                "version": request["human_note_version"],
+                "text": request["human_note"],
+                "epistemic_status": "human_confirmed",
+            }
+        )
     return result
 
 
@@ -409,20 +422,16 @@ def lineage_metadata(item):
 
 def segment_revisions(item, lineage=None):
     history, result, seen = lineage or {}, {}, set()
-
-    def visit(refs, depth):
-        if depth > 8:
-            return
-        for ref in refs:
-            if ref["kind"] == "segment":
-                result[ref["id"]] = ref["version"]
-            elif ref["kind"] == "observation":
-                key = lineage_key(ref["id"], ref["version"])
-                if key not in seen:
-                    seen.add(key)
-                    visit(history.get(key, {}).get("sources", []), depth + 1)
-
-    visit(item.get("sources", []), 0)
+    pending = list(item.get("sources", []))
+    while pending:
+        ref = pending.pop()
+        if ref["kind"] == "segment":
+            result[ref["id"]] = max(result.get(ref["id"], 0), ref["version"])
+        elif ref["kind"] == "observation":
+            key = lineage_key(ref["id"], ref["version"])
+            if key not in seen:
+                seen.add(key)
+                pending.extend(history.get(key, {}).get("sources", []))
     return result
 
 
@@ -432,7 +441,11 @@ def state_view(state, *, lineage=None):
     for key, kind in KINDS.items():
         value[key] = []
         for item in value["observations"]:
-            if item["kind"] != kind or item["state"] in {"stale", "retracted"}:
+            if (
+                item["kind"] != kind
+                or item["state"] in {"stale", "retracted"}
+                or item["review_status"] in {"rejected", "unavailable"}
+            ):
                 continue
             revisions = segment_revisions(item, history)
             value[key].append(
@@ -640,6 +653,11 @@ def merge_semantic_state(
             raise CardRejected("State evidence is absent")
         if not paraphrased(item["text"], segments):
             continue
+        if item.get("approach") and (
+            not paraphrased(item["approach"], segments)
+            or not any(r["kind"] == "segment" and live[r["id"]].get("side") == "rep" for r in refs)
+        ):
+            raise CardRejected("An observed approach requires actual rep speech, not suggested advice")
         depths = [prior[r["id"]]["lineage_depth"] for r in refs if r["kind"] == "observation"]
         depth = 1 + max(depths, default=-1)
         if depth > 8:
@@ -654,6 +672,7 @@ def merge_semantic_state(
             item["kind"] in {"commitment", "approach"}
             or item["state"] in {"resolved", "retracted"}
             or depth == 8
+            or item["review_required"]
         )
         status = item["state"]
         if status == "confirmed" and any(
@@ -670,6 +689,8 @@ def merge_semantic_state(
             if promise["verbatim_time_expression"].casefold() not in source_text.casefold():
                 raise CardRejected("Commitment time expression is absent")
             normalized = resolve_time(promise, call_at=call_at, timezone=timezone)
+            if status != "confirmed":
+                normalized.update(due_at=None, needs_time_confirmation=True)
             commitment = {k: v for k, v in normalized.items() if k != "verbatim_time_expression"}
         obs = dict(
             id=identity,
@@ -687,6 +708,7 @@ def merge_semantic_state(
             review_status="pending" if material else "not_required",
             lineage_depth=depth,
             commitment=commitment,
+            approach=item.get("approach"),
         )
         if not material:
             for old in replacement:
@@ -789,7 +811,9 @@ def invalidate_state(state, source_id, revision, *, at, lineage=None):
 
     conflicts = []
     for item in [*value["observations"], *value["rubric_items"], *value["tracker_matches"]]:
-        if affected(item):
+        if affected(item) and (
+            item.get("review_status") != "unavailable" or "state" in item and item["state"] != "stale"
+        ):
             if "state" in item:
                 item["state"] = "stale"
                 item["invalidated_at"] = at.isoformat()
@@ -808,4 +832,9 @@ def invalidate_state(state, source_id, revision, *, at, lineage=None):
         value["source_conflicts"] = (value["source_conflicts"] + conflicts)[-96:]
         value["version"] += 1
         value["finalization"]["status"] = "pending"
+    value["_lineage_updates"] = [
+        dict(history[key], invalidated_at=at.isoformat(), review_status="unavailable")
+        for key in invalid
+        if not history[key].get("invalidated_at")
+    ]
     return value

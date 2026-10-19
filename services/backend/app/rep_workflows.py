@@ -163,7 +163,8 @@ class RepWorkflows:
             if recent
             else []
         )
-        current = next((n.data["notes"] for n in notes if not n.data.get("stale")), {})
+        note_views = [self.note_view_in(s, p, n) for n in notes]
+        current = next((n["notes"] for n in note_views if not n.get("stale")), {})
         if lead.data.get("outreach_hold"):
             why = "Outreach paused: " + lead.data["outreach_hold"].replace("_", " ")
         elif lead.data.get("callback_due_at"):
@@ -186,7 +187,7 @@ class RepWorkflows:
                 "unresolved": current.get("objections", []),
                 "unknowns": current.get("unknowns", []),
                 "observations": active_observations(
-                    [item for note in notes for item in note.data.get("observations", [])], self.clock()
+                    [item for note in note_views for item in note.get("observations", [])], self.clock()
                 )[:12],
                 "commitments": commitments,
                 "human_notes": [

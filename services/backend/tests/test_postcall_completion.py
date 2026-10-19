@@ -4,7 +4,6 @@ from datetime import UTC, datetime
 
 import pytest
 from app.db import doc
-from app.providers.inference import InferenceResult
 from conftest import start
 from test_remediation_rep_workflow import p
 
@@ -114,6 +113,138 @@ def analysis_body(action="Call back"):
     }
 
 
+def conversation_turn(body, context):
+    """Translate retained scenario data to the sole production interpretation transport."""
+    revisions = {i["segment_id"]: i["revision"] for i in context["recent_dialogue"]}
+
+    def refs(ids):
+        return [
+            {"kind": "segment", "id": identity, "version": revisions.get(identity, 1)} for identity in ids
+        ]
+
+    observations = []
+    for kind, values in (
+        (
+            "rundown",
+            [{"text": body["summary"], "evidence": body["summary_evidence"], "review_required": True}],
+        ),
+        ("need", body.get("problems", [])),
+        ("objection", body.get("objections", [])),
+        ("commitment", body.get("commitments", [])),
+        ("approach", body.get("observations", [])),
+    ):
+        for item in values:
+            observations.append(
+                {
+                    "kind": kind,
+                    "text": item.get("text", item.get("action", item.get("concept"))),
+                    "state": item.get("state", "confirmed"),
+                    "sources": refs(item["evidence"]),
+                    "replaces": item.get("replaces", []),
+                    "quote": item.get("quote", ""),
+                    "review_required": item.get("review_required", False),
+                    "approach": item.get("approach"),
+                    "commitment": {
+                        k: item[k]
+                        for k in (
+                            "kind",
+                            "owner",
+                            "due_at",
+                            "verbatim_time_expression",
+                            "needs_time_confirmation",
+                        )
+                    }
+                    if kind == "commitment" and item.get("state") != "retracted"
+                    else None,
+                }
+            )
+    definitions = {i["id"]: i["version"] for i in context["trackers"]}
+    return {
+        "state_version": context["state_version"],
+        "context_fingerprint": context["context_fingerprint"],
+        "guidance": None,
+        "field_audit": [],
+        "state_delta": {
+            "stage": "next_step",
+            "observations": observations,
+            "rubric_items": [
+                {
+                    "dimension": i["dimension"],
+                    "score": i["score"],
+                    "status": {
+                        "SCORED": "scored",
+                        "N/A": "not_applicable",
+                        "INSUFFICIENT_EVIDENCE": "insufficient",
+                    }[i["status"]],
+                    "sources": refs(i["evidence"]),
+                    "explanation": i["explanation"],
+                }
+                for i in body.get("score_items", [])
+            ],
+            "tracker_matches": [
+                {
+                    "tracker_id": i["tracker_id"],
+                    "definition_version": definitions.get(i["tracker_id"], 1),
+                    "sources": refs(i["evidence"]),
+                }
+                for i in body.get("tracker_matches", [])
+            ],
+            "interpreted_segments": refs(list(revisions)),
+        },
+    }
+
+
+class ConversationProvider:
+    last_usage, last_request_id = {}, None
+    last_provider, last_model = "Cerebras", "fixture"
+
+    def __init__(self, state):
+        self.state = state
+
+    async def suggest(self, context, **kwargs):
+        from copy import deepcopy
+
+        self.state["requests"] += 1
+        self.state.setdefault("contexts", []).append(deepcopy(context))
+        if callback := self.state.get("during_generation"):
+            callback()
+        self.last_usage, self.last_request_id = {"cost": 0.001}, f"interpretation-{self.state['requests']}"
+        return conversation_turn(self.state["body"], context)
+
+    async def review(self, request, **kwargs):
+        from copy import deepcopy
+
+        from test_grounding_review import review_response
+
+        self.state["requests"] += 1
+        self.state.setdefault("contexts", []).append(deepcopy(request))
+        if callback := self.state.get("during_review"):
+            callback()
+        self.last_usage = {"cost": 0.002}
+        self.last_request_id = (
+            "review-receipt" if self.state["requests"] == 2 else f"review-receipt-{self.state['requests']}"
+        )
+        if self.state.get("missing_review"):
+            raise ValueError("Review capability unavailable")
+        return review_response(request, verdict=self.state.get("verdict", "SUPPORTED"))
+
+
+def restate_callback(service, who, call, *, revision=2):
+    service._receive_transcript(
+        who,
+        call["id"],
+        {
+            "segment_id": "s",
+            "revision": revision,
+            "is_final": True,
+            "side": "remote",
+            "text": "Please call me on October 20, 2026 at 2 PM Pacific time. I still want to discuss procurement.",
+        },
+        None,
+        True,
+    )
+
+
 def setup_analysis(workspace, app, monkeypatch):
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
@@ -131,22 +262,9 @@ def setup_analysis(workspace, app, monkeypatch):
     c.post("/v1/calls/" + call["id"] + "/hangup", headers=h)
     state = {"body": analysis_body(), "requests": 0}
 
-    class Provider:
-        async def complete(self, *args):
-            state["requests"] += 1
-            if "fingerprint" in args[1]:
-                from test_grounding_review import review_response
-
-                return InferenceResult(
-                    review_response(args[1]), {}, "fixture-review-" + str(state["requests"])
-                )
-            return InferenceResult(
-                state["body"],
-                {"input_tokens": 30, "output_tokens": 30},
-                "fixture-interpretation-" + str(state["requests"]),
-            )
-
-    monkeypatch.setattr(app.state.service, "inference", lambda *args: Provider())
+    monkeypatch.setattr(
+        app.state.service, "configured_coach", lambda *args: (ConversationProvider(state), "openrouter")
+    )
     return call, state
 
 
@@ -170,6 +288,7 @@ async def test_rephrased_commitment_updates_one_task_and_preserves_rep_edit(work
         },
     )
     state["body"] = analysis_body("Reconnect with the prospect")
+    restate_callback(service, p(workspace), call)
     await service.analyze_postcall(p(workspace), call["id"])
     with service.db.transaction(False) as s:
         tasks2 = [doc(t) for t in service.lead_records(s, p(workspace), "followup_tasks", call["lead_id"])]
@@ -239,6 +358,7 @@ async def test_inference_never_reopens_finished_tasks(workspace, app, monkeypatc
         task = doc(service.lead_records(s, p(workspace), "followup_tasks", call["lead_id"])[0])
     service.edit_task(p(workspace), task["id"], {"expected_version": task["version"], "status": status})
     state["body"] = analysis_body("Revisit this later")
+    restate_callback(service, p(workspace), call)
     await service.analyze_postcall(p(workspace), call["id"])
     with service.db.transaction(False) as s:
         after = service.lead_records(s, p(workspace), "followup_tasks", call["lead_id"])
@@ -285,13 +405,43 @@ async def test_source_correction_preserves_human_task_but_flags_conflict(workspa
 
 
 @pytest.mark.asyncio
-async def test_new_interpretation_retracts_only_still_available_sources(workspace, app, monkeypatch, clock):
+async def test_omission_preserves_promise_and_explicit_reviewed_retraction_closes_it(
+    workspace, app, monkeypatch, clock
+):
     from datetime import timedelta
 
     call, state = setup_analysis(workspace, app, monkeypatch)
     service = app.state.service
     await service.analyze_postcall(p(workspace), call["id"])
     state["body"]["commitments"] = []
+    await service.analyze_postcall(p(workspace), call["id"])
+    with service.db.transaction(False) as s:
+        task = service.lead_records(s, p(workspace), "followup_tasks", call["lead_id"])[0]
+        assert task.data["status"] == "open", "Omission is not evidence of cancellation"
+        memory = service._by_key(s, p(workspace), "conversation_states", call["id"]).data
+        old = next(i for i in memory["observations"] if i["kind"] == "commitment")
+    service._receive_transcript(
+        p(workspace),
+        call["id"],
+        {
+            "segment_id": "cancel",
+            "revision": 1,
+            "is_final": True,
+            "side": "remote",
+            "text": "Cancel the procurement callback we previously arranged.",
+        },
+        None,
+        True,
+    )
+    state["body"]["summary_evidence"] = ["cancel"]
+    state["body"]["commitments"] = [
+        {
+            "action": "The previously arranged procurement follow-up is withdrawn.",
+            "state": "retracted",
+            "evidence": ["cancel"],
+            "replaces": [old["id"]],
+        }
+    ]
     await service.analyze_postcall(p(workspace), call["id"])
     with service.db.transaction(False) as s:
         task = service.lead_records(s, p(workspace), "followup_tasks", call["lead_id"])[0]
@@ -311,12 +461,9 @@ async def test_postcall_disposition_race_does_not_publish_old_interpretation(wor
     call, state = setup_analysis(workspace, app, monkeypatch)
     service = app.state.service
 
-    class RacingProvider:
-        async def complete(self, *args):
-            service.save_disposition(p(workspace), call["id"], {"outcome": "wrong_party"})
-            return InferenceResult(state["body"], {}, "racing-result")
-
-    monkeypatch.setattr(service, "inference", lambda *args: RacingProvider())
+    state["during_generation"] = lambda: service.save_disposition(
+        p(workspace), call["id"], {"outcome": "wrong_party"}
+    )
     await service.analyze_postcall(p(workspace), call["id"])
     with service.db.transaction(False) as s:
         assert not service.lead_records(s, p(workspace), "followup_tasks", call["lead_id"])

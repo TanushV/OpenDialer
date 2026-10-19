@@ -1,6 +1,5 @@
 """Publication requires independent meaning review, not just a matching quote."""
 
-from copy import deepcopy
 from datetime import timedelta
 
 import pytest
@@ -8,7 +7,7 @@ from app.db import doc
 from app.postcall.inference import validate_analysis
 from app.preparation.templates import ScriptTemplate, fill
 from app.providers.inference import InferenceResult
-from test_postcall_completion import analysis_body, setup_analysis
+from test_postcall_completion import ConversationProvider, analysis_body, conversation_turn, setup_analysis
 from test_remediation_rep_workflow import p
 
 
@@ -162,40 +161,29 @@ async def test_postcall_review_controls_publication_tasks_and_its_own_usage(
 ):
     call, state = setup_analysis(workspace, app, monkeypatch)
     service = app.state.service
-    requests = []
-
-    class Reviewer:
-        async def complete(self, instructions, context, schema):
-            requests.append((instructions, deepcopy(context)))
-            return InferenceResult(
-                review_response(context, verdict=verdict), {"cost": 0.002}, "review-receipt"
-            )
-
-    extractor = service.inference
-    monkeypatch.setattr(
-        service,
-        "inference",
-        lambda tenant, role, user=None: (
-            Reviewer() if role == "scorecard_review" else extractor(tenant, role, user)
-        ),
-    )
+    state["verdict"] = verdict
     await service.analyze_postcall(p(workspace), call["id"])
+    requests = [r for r in state["contexts"] if "fingerprint" in r]
     assert len(requests) == 1
-    assert "contradict" in requests[0][0].lower()
+    assert requests[0]["kind"] == "conversation"
+    view = service.analysis(p(workspace), call["id"])
     with service.db.transaction(False) as s:
         tasks = service.lead_records(s, p(workspace), "followup_tasks", call["lead_id"])
         note = service._by_key(s, p(workspace), "notes", call["id"])
         assert bool(tasks) is (verdict == "SUPPORTED")
         if verdict == "SUPPORTED":
-            assert note.data["notes"]["summary"] == state["body"]["summary"]
-            assert note.data["notes"]["grounding"]["status"] == "model_reviewed"
+            assert view["notes"]["summary"] == state["body"]["summary"]
+            assert view["grounding_status"] == "model_reviewed"
         else:
-            assert note.data["notes"]["summary"] != state["body"]["summary"]
-            assert note.data["grounding_status"] == "review_required"
+            assert view["notes"]["summary"] != state["body"]["summary"]
+            assert view["grounding_status"] == "review_required"
+        assert state["body"]["summary"] not in str(note.data), (
+            "Derived prose lives once in conversation state"
+        )
         usage = [
             doc(r)
             for r in service.scoped(s, "usage_ledger", p(workspace))
-            if r.data.get("work_kind") == "grounding_review"
+            if r.data.get("work_kind") == "conversation_review"
         ]
     assert len(usage) == 1
     assert usage[0]["request_id"] == "review-receipt"
@@ -205,14 +193,9 @@ async def test_postcall_review_controls_publication_tasks_and_its_own_usage(
 
 @pytest.mark.asyncio
 async def test_missing_review_provider_cannot_create_inferred_task(workspace, app, monkeypatch):
-    call, _ = setup_analysis(workspace, app, monkeypatch)
+    call, state = setup_analysis(workspace, app, monkeypatch)
     service = app.state.service
-    extractor = service.inference
-    monkeypatch.setattr(
-        service,
-        "inference",
-        lambda tenant, role, user=None: None if role == "scorecard_review" else extractor(tenant, role, user),
-    )
+    state["missing_review"] = True
     await service.analyze_postcall(p(workspace), call["id"])
     with service.db.transaction(False) as s:
         assert not service.lead_records(s, p(workspace), "followup_tasks", call["lead_id"])
@@ -220,21 +203,19 @@ async def test_missing_review_provider_cannot_create_inferred_task(workspace, ap
 
 @pytest.mark.asyncio
 async def test_review_completion_cannot_extend_raw_lifetime(workspace, app, monkeypatch, clock):
-    call, _ = setup_analysis(workspace, app, monkeypatch)
+    call, state = setup_analysis(workspace, app, monkeypatch)
     service = app.state.service
-    extractor = service.inference
 
-    class SlowReview:
-        async def complete(self, instructions, context, schema):
+    class SlowReview(ConversationProvider):
+        async def review(self, context, **kwargs):
             clock.now += timedelta(seconds=301)
-            return InferenceResult(review_response(context), {"cost": 0.003}, "late-review")
+            self.last_usage, self.last_request_id = {"cost": 0.003}, "late-review"
+            return review_response(context)
 
     monkeypatch.setattr(
         service,
-        "inference",
-        lambda tenant, role, user=None: (
-            SlowReview() if role == "scorecard_review" else extractor(tenant, role, user)
-        ),
+        "configured_coach",
+        lambda *args: (SlowReview(state), "openrouter"),
     )
     await service.analyze_postcall(p(workspace), call["id"])
     with service.db.transaction(False) as s:
@@ -250,7 +231,7 @@ async def test_review_completion_cannot_extend_raw_lifetime(workspace, app, monk
 
 @pytest.mark.asyncio
 async def test_source_correction_invalidates_the_review_status(workspace, app, monkeypatch):
-    call, _ = setup_analysis(workspace, app, monkeypatch)
+    call, state = setup_analysis(workspace, app, monkeypatch)
     service = app.state.service
     await service.analyze_postcall(p(workspace), call["id"])
     assert service.analysis(p(workspace), call["id"])["grounding_status"] == "model_reviewed"
@@ -276,23 +257,23 @@ async def test_extraction_deadline_cannot_outlive_original_evidence_expiry(
     import asyncio
     import time
 
-    call, _ = setup_analysis(workspace, app, monkeypatch)
+    call, state = setup_analysis(workspace, app, monkeypatch)
     service = app.state.service
     clock.now += timedelta(seconds=299.95)
     cancelled = []
 
-    class SlowExtractor:
-        async def complete(self, *args):
+    class SlowExtractor(ConversationProvider):
+        async def suggest(self, context, **kwargs):
             try:
                 await asyncio.sleep(0.7)
-                return InferenceResult(analysis_body(), {}, "too-late")
+                return conversation_turn(analysis_body(), context)
             finally:
                 cancelled.append(True)
 
     monkeypatch.setattr(
         service,
-        "inference",
-        lambda tenant, role, user=None: SlowExtractor() if role == "postcall_extract" else None,
+        "configured_coach",
+        lambda *args: (SlowExtractor(state), "openrouter"),
     )
     started = time.monotonic()
     await service.analyze_postcall(p(workspace), call["id"])
@@ -302,7 +283,7 @@ async def test_extraction_deadline_cannot_outlive_original_evidence_expiry(
         usage = [
             r.data
             for r in service.scoped(s, "usage_ledger", p(workspace))
-            if r.data.get("work_kind") == "postcall_extract"
+            if r.data.get("work_kind") == "conversation_finalize"
         ]
     assert len(usage) == 1 and usage[0]["status"] == "uncertain"
 

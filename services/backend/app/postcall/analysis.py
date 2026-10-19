@@ -25,27 +25,6 @@ def reviewed_tracker_matches(note, definitions, source_revisions, live_ids):
     return result
 
 
-def tracker_results(matches, original, current, segments, previous):
-    """Retain reviewed old chunks, replace current evidence, and reject changed definitions."""
-    versions = {t["id"]: t for t in original}
-    current_versions = {t["id"]: t["version"] for t in current}
-    source = {s["segment_id"]: s for s in segments}
-    retained = [m for m in previous if not set(m.get("evidence", [])) <= set(source)]
-    for item in matches:
-        definition = versions[item["tracker_id"]]
-        if current_versions.get(item["tracker_id"]) == definition["version"]:
-            retained.append(
-                {
-                    **item,
-                    "name": definition["name"],
-                    "kind": "semantic",
-                    "version": definition["version"],
-                    "evidence_revisions": {i: source[i].get("revision", 1) for i in item["evidence"]},
-                }
-            )
-    return retained[-100:]
-
-
 def score_summary(items, dimensions=None):
     if dimensions is None:
         dimensions = DIMENSIONS if any("dimension" in i for i in items) else None
@@ -145,16 +124,65 @@ def behavioral_metrics(segments):
     }
 
 
-def build_analysis(call_id, segments, *, outcome=None, transcript_version=1, derived=None, rubric=None):
+def learning_observations(observations, lineage=None):
+    """Compatibility view over reviewed canonical observations; no second writer."""
+    from app.coaching.context import segment_revisions
+
+    return [
+        {
+            "id": i["id"],
+            "version": i["version"],
+            "concept": i["text"],
+            "approach": i.get("approach"),
+            "evidence": list(segment_revisions(i, lineage)),
+            "source_revisions": segment_revisions(i, lineage),
+            "status": "invalidated"
+            if i["state"] == "stale"
+            else "retracted"
+            if i["state"] == "retracted"
+            else "active",
+            "review_status": i["epistemic_status"] if i["review_status"] == "reviewed" else "unreviewed",
+            "review_request_id": i["review_receipt_id"],
+            "observed_at": i["available_at"],
+            "reviewer_id": i.get("reviewer_id"),
+        }
+        for i in observations
+        if i["kind"] == "approach" and i["epistemic_status"] in {"model_reviewed", "human_confirmed"}
+    ]
+
+
+def build_analysis(
+    call_id, segments, *, outcome=None, transcript_version=1, derived=None, rubric=None, lineage=None
+):
+    from app.coaching.context import segment_revisions
     from app.postcall.rubrics import effective
 
     rubric = rubric or effective({"outcome": outcome})
     stable = [s for s in segments if s.get("is_final") and not s.get("system_audio")]
     derived = derived or {}
-    objections = derived.get("objections", [])
-    commitments = derived.get("commitments", [])
-    problems = derived.get("needs", [])
-    # Conservative extraction-only baseline. No manufactured ratings when an evaluated inference model is absent.
+
+    def visible(key):
+        return [
+            i
+            for i in derived.get(key, [])
+            if i.get("review_status", "not_required") in {"not_required", "reviewed"}
+        ]
+
+    observations = derived.get("observations", [])
+    active = [i for i in observations if i.get("state") not in {"stale", "retracted"}]
+    grounding = (
+        "review_required"
+        if any(i.get("review_status") in {"pending", "rejected", "unavailable"} for i in active)
+        else (
+            "model_reviewed"
+            if active
+            and all(i.get("epistemic_status") in {"model_reviewed", "human_confirmed"} for i in active)
+            else "unreviewed"
+        )
+    )
+    assessed = {
+        i["dimension"]: i for i in derived.get("rubric_items", []) if i.get("review_status") == "reviewed"
+    }
     items = [
         {
             "dimension": d["id"],
@@ -171,19 +199,47 @@ def build_analysis(call_id, segments, *, outcome=None, transcript_version=1, der
         }
         for d in rubric["dimensions"]
     ]
+    for item in items:
+        current = assessed.get(item["dimension"])
+        if current and current["status"] != "unassessed":
+            revisions = segment_revisions(current, lineage)
+            item.update(
+                score=current["score"],
+                status={"scored": "SCORED", "not_applicable": "N/A", "insufficient": "INSUFFICIENT_EVIDENCE"}[
+                    current["status"]
+                ],
+                explanation=current["explanation"],
+                evidence=list(revisions),
+                evidence_revisions=revisions,
+                source_references=current["sources"],
+                review_receipt_id=current["review_receipt_id"],
+            )
+    semantic_trackers = []
+    for item in derived.get("tracker_matches", []):
+        if item.get("review_status") == "reviewed":
+            revisions = segment_revisions(item, lineage)
+            semantic_trackers.append(
+                {
+                    "tracker_id": item["tracker_id"],
+                    "version": item["definition_version"],
+                    "kind": "semantic",
+                    "evidence": list(revisions),
+                    "evidence_revisions": revisions,
+                    "review_receipt_id": item["review_receipt_id"],
+                }
+            )
     return {
         "notes": {
             "call_id": call_id,
             "transcript_version": transcript_version,
-            "summary": derived.get("summary")
-            or "\n".join(item["text"] for item in derived.get("rundown_points", []))[:2400]
+            "summary": "\n".join(item["text"] for item in visible("rundown_points"))[:2400]
             or "No model rundown is available. Review the recorded outcome and your notes.",
             "outcome": outcome or "unconfirmed",
-            "problems": problems,
-            "objections": objections,
-            "commitments": commitments,
+            "problems": visible("needs"),
+            "objections": visible("objections"),
+            "commitments": visible("commitments"),
             "unknowns": ["Uninterpreted conversation details remain unknown"],
-            "review_required": True,
+            "review_required": grounding != "model_reviewed",
         },
         "scorecard": {
             "rubric_version": rubric["rubric_version"],
@@ -197,4 +253,7 @@ def build_analysis(call_id, segments, *, outcome=None, transcript_version=1, der
         },
         "metrics": behavioral_metrics(stable),
         "provider": "derived_state_or_unavailable",
+        "grounding_status": grounding,
+        "observations": learning_observations(observations, lineage),
+        "semantic_trackers": semantic_trackers,
     }
