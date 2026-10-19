@@ -34,7 +34,7 @@ def test_ingress_check_is_admin_authenticated(workspace):
     assert result.status_code in {401, 403}
 
 
-@pytest.mark.parametrize("boundary", ["current", "expiry", "changed_source"])
+@pytest.mark.parametrize("boundary", ["current", "expiry", "changed_source", "revoked_role", "replay"])
 def test_active_challenge_is_one_time_content_free_and_source_fenced(
     workspace, app, clock, monkeypatch, boundary
 ):
@@ -68,6 +68,13 @@ def test_active_challenge_is_one_time_content_free_and_source_fenced(
             service.vault.write(
                 workspace["tenant_id"], {"webhook_url": "https://replacement.example.test/webhooks/telnyx"}
             )
+        if boundary == "revoked_role":
+            from app.db import get, update
+
+            with service.db.transaction() as s:
+                update(get(s, "users", workspace["user_id"]), role="rep")
+        if boundary == "replay":
+            assert c.get(parsed.path).status_code == 404
         return {"url": url, "title": "", "text": response.text}
 
     monkeypatch.setattr(SafeFetcher, "fetch", challenge)
@@ -77,10 +84,38 @@ def test_active_challenge_is_one_time_content_free_and_source_fenced(
         json={"request_id": str(uuid4()), "expected_version": saved.json().get("version", 1)},
     )
     assert len(requests) == 1, "One route proof must use the bounded SSRF-safe fetch path"
-    if boundary == "current":
+    if boundary in {"current", "replay"}:
         assert response.status_code == 200, response.text
         assert response.json()["routing"] == "software_verified"
         assert response.json()["last_real_provider_event"] is None
     else:
-        assert response.status_code in {409, 502, 503}
+        assert response.status_code in {403, 409, 502, 503}
     assert c.get(urlsplit(requests[0]).path).status_code == 404
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1/webhooks/telnyx",
+        "https://public.example.test/health",
+        "https://public.example.test/webhooks/telnyx?key=value",
+    ],
+)
+def test_probe_rejects_unsafe_saved_endpoint_without_network(workspace, monkeypatch, url):
+    from app.research.fetch import SafeFetcher
+
+    async def forbidden(*args):
+        pytest.fail("Invalid endpoint must fail before network admission")
+
+    monkeypatch.setattr(SafeFetcher, "fetch", forbidden)
+    c, h = workspace["client"], workspace["headers"]
+    saved = c.put("/v1/admin/settings", headers=h, json={"webhook_url": url})
+    if saved.status_code == 200:
+        response = c.post(
+            "/v1/admin/ingress-check",
+            headers=h,
+            json={"request_id": str(uuid4()), "expected_version": saved.json().get("version", 1)},
+        )
+        assert response.status_code == 422
+    else:
+        assert saved.status_code == 422
