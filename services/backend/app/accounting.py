@@ -352,9 +352,11 @@ class RequestAccounting:
         return True
 
     def usage(self, p, provider, kind, result, *, object_id, request_key, reserved=0.01, session=None):
+        from app.privacy import usage_metadata
+
         if not isinstance(request_key, str) or not request_key:
             raise ValueError("Usage must identify its original local request")
-        usage = result.usage or {}
+        usage = usage_metadata(result.usage)
         cost = usage.get("cost", usage.get("cost_usd"))
         if (
             isinstance(cost, bool)

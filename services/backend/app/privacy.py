@@ -3,6 +3,7 @@
 import base64
 import copy
 import json
+import math
 import re
 import threading
 import time
@@ -10,6 +11,46 @@ from collections import OrderedDict
 from datetime import timedelta
 
 RAW_TTL_SECONDS = 300
+
+
+def usage_metadata(value):
+    """Retain finite meter readings, never arbitrary provider response fields."""
+    fields = {
+        "cost",
+        "cost_usd",
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+        "prompt_tokens",
+        "completion_tokens",
+        "cached_tokens",
+        "reasoning_tokens",
+        "audio_tokens",
+        "cache_write_tokens",
+        "cache_read_tokens",
+        "web_search_calls",
+        "accepted_prediction_tokens",
+        "rejected_prediction_tokens",
+    }
+    details = {
+        "input_tokens_details",
+        "output_tokens_details",
+        "prompt_tokens_details",
+        "completion_tokens_details",
+    }
+    if not isinstance(value, dict):
+        return {}
+    return {
+        k: usage_metadata(v) if k in details else v
+        for k, v in value.items()
+        if k in details
+        and isinstance(v, dict)
+        or k in fields
+        and isinstance(v, (int, float))
+        and not isinstance(v, bool)
+        and math.isfinite(v)
+        and v >= 0
+    }
 
 
 class EphemeralBuffer:
@@ -249,6 +290,8 @@ def paraphrased(text, segments):
 def persistent_document(kind, data, *, legacy=False):
     """The explicit boundary for existing stores and content-free backup/restore."""
     data = copy.deepcopy(data)
+    if kind == "usage_ledger" and "usage" in data:
+        data["usage"] = usage_metadata(data["usage"])
     if kind in {"transcript_segments", "transcript_revisions"}:
         return {
             k: v
