@@ -326,6 +326,9 @@ class ReservationPlanner:
                 fail(409, "RESERVATION_EXISTS")
             if any(c.endpoint_id == lead.data["endpoint_id"] for c in s.info["active_claims"]):
                 raise SelectionChanged()
+            current_binding = next(iter(self.scoped(s, "lead_number_bindings", p)), None)
+            if current_binding and current_binding.data["number_id"] != plan["allocation"]["number_id"]:
+                raise SelectionChanged()
             allocation = select_number(doc(lead), inventory, bound_id=plan["allocation"]["number_id"])
             if (
                 lead.data["status"] != "eligible"
@@ -437,6 +440,8 @@ class ReservationPlanner:
                 {
                     "lead_id": lead.id,
                     "as_of": now.isoformat(),
+                    "feature_schema_version": 2,
+                    "campaign_id": campaign_id,
                     "features": plan["features"],
                     "predictions": plan["prediction"],
                     "propensity": choice["propensity"],

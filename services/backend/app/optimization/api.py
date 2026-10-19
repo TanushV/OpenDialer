@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime
 from typing import Annotated, Literal
+from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import Depends
@@ -14,6 +15,14 @@ from app.service import fail
 
 class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class HealthPolicy(Strict):
+    min_comparable: int = Field(default=30, ge=10, le=1000, strict=True)
+    material_drop: float = Field(default=0.20, gt=0, lt=1, allow_inf_nan=False)
+    confidence: float = Field(default=0.95, ge=0.8, le=0.999, allow_inf_nan=False)
+    window_days: int = Field(default=90, ge=1, le=365, strict=True)
+    callback_proof_days: int = Field(default=30, ge=1, le=90, strict=True)
 
 
 class StaffedWindow(Strict):
@@ -58,6 +67,7 @@ class OptimizationSettings(Strict):
     )
     account_channel_limit: int | None = Field(default=None, ge=1, le=1000)
     minimum_expansion_age_hours: int | None = Field(default=None, ge=1, le=168)
+    health_policy: HealthPolicy | None = None
 
     @model_validator(mode="after")
     def distinct_windows(self):
@@ -94,6 +104,8 @@ class Conversion(Strict):
 
 
 class NumberReview(Strict):
+    request_id: UUID | None = None
+    expected_version: int | None = Field(default=None, ge=1, strict=True)
     decision: Literal["increase", "reduce", "pause", "resume"]
     review_reference: str = Field(min_length=3, max_length=1000)
     daily_limit: int | None = Field(default=None, ge=1, le=1000)
@@ -692,21 +704,41 @@ def register_optimization(app, service, principal, administrator):
             emit(s, p["tenant_id"], "conversion.recorded", lead, service.clock(), {"retracted": True})
             return doc(result)
 
+    @app.get("/v1/admin/numbers/{number_id}/review")
+    def number_evidence(number_id: str, lead_id: str | None = None, p=Depends(administrator)):
+        return service.number_review_view(p, number_id, lead_id)
+
     @app.post("/v1/admin/numbers/{number_id}/review")
     def review_number(number_id: str, body: NumberReview, p=Depends(administrator)):
+        data = body.model_dump(mode="json", exclude_none=True)
         with service.db.transaction() as s:
+            service.db.authorize_stream(s, p)
+            service._configuration_actor(s, p)
             number = service.required(s, "number_inventory", number_id, p)
-            view = next(n for n in service.inventory_evidence(s, p) if n["id"] == number_id)
+            emergency = body.decision == "pause" and body.request_id is None and body.daily_limit is None
+            identity = (
+                None
+                if emergency
+                else service.local_edit_in(s, p, "number_review", number_id, number, data, "owner_id")
+            )
+            if identity and identity[2]:
+                return {**doc(number), "receipt": identity[2]}
+            if identity:
+                service.check_edit_version(number, data)
+            view = next(n for n in service.inventory_evidence(s, p, fast=True) if n["id"] == number_id)
+            config = service.optimization_config(s, p)
             limit = body.daily_limit or number.data.get("daily_limit", 5)
             if body.decision in {"increase", "resume"}:
-                if not number.data.get("identity_configured") or not number.data.get("callback_tested"):
-                    fail(409, "Identity and observed callback evidence are required")
-                if body.decision == "increase" and (
-                    view["health"]["samples"] < 5 or view["health"]["status"] == "investigating"
-                ):
-                    fail(409, "Review observed legitimate use before increasing number workload")
-                if limit > service.optimization_config(s, p)["daily_capacity_per_number"]:
-                    fail(409, "Requested limit exceeds the reviewed per-number planning ceiling")
+                if not number.data.get("identity_configured") or view["configuration_errors"]:
+                    fail(409, "Confirmed owned identity and disabled recording are required")
+                if not view["callback_evidence_current"]:
+                    fail(409, "Current connected callback evidence is required")
+                if view["health"]["status"] in {"blocked", "investigating"}:
+                    fail(409, "Resolve the recorded health evidence before increasing or resuming")
+                if limit > service.number_workload_ceiling(config):
+                    fail(409, "Requested limit exceeds reviewed ceiling or available staff capacity")
+                if body.decision == "increase" and limit <= number.data["daily_limit"]:
+                    fail(422, "Increase must raise the existing limit")
                 lifecycle = "limited_real_use"
             elif body.decision == "pause":
                 lifecycle = "paused_for_outbound"
@@ -714,12 +746,25 @@ def register_optimization(app, service, principal, administrator):
                 lifecycle = number.data["lifecycle"]
                 if limit >= number.data.get("daily_limit", 5):
                     fail(422, "Reduction must lower the existing daily limit")
+            evidence = {
+                "decision": body.decision,
+                "reference": body.review_reference,
+                "previous_limit": number.data["daily_limit"],
+                "new_limit": limit,
+                "health_samples": view["health"]["samples"],
+                "health_policy_version": view["health"].get("policy_version"),
+                "health_as_of": view["health"].get("as_of"),
+                "callback_proof": number.data.get("callback_proof"),
+                "reviewed_at": service.clock().isoformat(),
+                "actor_id": p["user_id"],
+            }
             update(
                 number,
                 lifecycle=lifecycle,
                 daily_limit=limit,
                 inbound_retained=True,
                 real_use_review_reference=body.review_reference,
+                workload_review=evidence,
             )
             audit(
                 s,
@@ -729,14 +774,13 @@ def register_optimization(app, service, principal, administrator):
                 "number.evidence_reviewed",
                 number.id,
                 service.clock(),
-                {
-                    "decision": body.decision,
-                    "reference": body.review_reference,
-                    "health_samples": view["health"]["samples"],
-                },
+                evidence,
             )
             emit(s, p["tenant_id"], "number.updated", number, service.clock())
-            return doc(number)
+            return {
+                **doc(number),
+                **({"receipt": service.local_edit_receipt(s, p, identity, number)} if identity else {}),
+            }
 
     @app.post("/v1/calls/{call_id}/coach/feedback")
     def feedback(call_id: str, body: Feedback, p=Depends(principal)):

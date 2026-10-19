@@ -103,8 +103,13 @@ def test_allocation_retains_binding_and_explains_health_reassignment():
     choice = select_number(
         lead, [number("bound", lifecycle="paused_for_outbound"), number("other")], bound_id="bound"
     )
-    assert choice["number_id"] == "other"
-    assert choice["reassignment_reason"] and choice["previous_number_id"] == "bound"
+    assert choice["number_id"] is None
+    assert choice["reason_code"] == "reassignment_required"
+    # The versioned API changes the binding before the pure selector uses it.
+    approved = select_number(
+        lead, [number("bound", lifecycle="paused_for_outbound"), number("other")], bound_id="other"
+    )
+    assert approved["number_id"] == "other" and approved["reason"] == "existing_binding"
 
 
 def test_allocation_never_falls_back_to_an_unrelated_region_and_honors_detached_lease():
@@ -252,6 +257,7 @@ def test_health_missing_or_future_predictions_are_excluded_not_reconstructed(clo
 
 def test_health_residual_interval_accounts_for_variance_and_policy_version(clock):
     import statistics
+
     from app.optimization import numbering
 
     assess = getattr(numbering, "assess_number_health", None)

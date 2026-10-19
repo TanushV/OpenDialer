@@ -162,9 +162,17 @@ class TelnyxCarrier:
     async def configure_number(self, number_id, connection_id):
         from urllib.parse import quote
 
-        return await self.request(
+        # Absolute idempotent settings only. Never enable forwarding, screening,
+        # CNAM subscriptions or recording while onboarding an already-owned DID.
+        await self.request(
+            "PATCH",
+            f"/phone_numbers/{quote(number_id, safe='')}/voice",
+            {"call_recording": {"inbound_call_recording_enabled": False}},
+        )
+        await self.request(
             "PATCH", f"/phone_numbers/{quote(number_id, safe='')}", {"connection_id": connection_id}
         )
+        return await self.get_number(number_id)
 
     async def get_number(self, number_id):
         from urllib.parse import quote

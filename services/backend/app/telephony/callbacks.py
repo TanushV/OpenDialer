@@ -13,6 +13,7 @@ from sqlalchemy import delete, select
 
 from app.compliance.operating import COSTS
 from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, rows, uid, update
+from app.optimization.numbering import route_fingerprint
 from app.service import dt, fail
 
 DEFAULT_MESSAGE = (
@@ -85,6 +86,14 @@ class InboundCallbacks:
             if values["destination"] in {n.data["phone"] for n in self.scoped(s, "number_inventory", p)}:
                 fail(422, "Fallback cannot loop back to this seller's inbound numbers")
             update(seller, callback_routing=values)
+            for number in self.scoped(s, "number_inventory", p):
+                update(
+                    number,
+                    callback_tested=False,
+                    callback_review_reason="Callback route changed; verify a connected receipt",
+                    inbound_retained=True,
+                )
+                emit(s, p["tenant_id"], "number.updated", number, self.clock())
             audit(
                 s, p["tenant_id"], p["seller_id"], p["user_id"], "callback.routing", seller.id, self.clock()
             )
@@ -167,6 +176,7 @@ class InboundCallbacks:
                 "id": identity,
                 "rep_id": rep.id if rep else None,
                 "kind": route,
+                "target": target,
                 "state": "prepared",
                 "provider_id": None,
             }
@@ -223,7 +233,7 @@ class InboundCallbacks:
     async def inbound_callback(self, tenant_id, payload, event_id):
         return await asyncio.to_thread(self._receive_inbound, tenant_id, payload, event_id)
 
-    def _receive_inbound(self, tenant_id, payload, event_id, *, session=None):
+    def _receive_inbound(self, tenant_id, payload, event_id, *, session=None, receipt=None):
         if not payload.get("call_control_id"):
             fail(422, "Inbound call identity is missing")
         with self.db.transaction(session=session) as s:
@@ -277,6 +287,10 @@ class InboundCallbacks:
                     "due_at": self.clock().isoformat(),
                     "event_id": event_id,
                     "routing_config": self.callback_config(s, p),
+                    "number_route_fingerprint": route_fingerprint(
+                        doc(number), self.callback_config(s, p)["version"]
+                    ),
+                    "inbound_verified": bool(receipt and receipt.get("signature_verified")),
                     "routing_attempts": [],
                     "inbound_deadline": (self.clock() + timedelta(seconds=40)).isoformat(),
                 },
@@ -296,7 +310,7 @@ class InboundCallbacks:
             self._release_inbound_claim(s, task)
         emit(s, p["tenant_id"], "task.updated", task, self.clock())
 
-    def inbound_event(self, tenant_id, payload, event_type, *, session=None):
+    def inbound_event(self, tenant_id, payload, event_type, *, session=None, receipt=None):
         with self.db.transaction(session=session) as s:
             tasks = [t for t in rows(s, "followup_tasks", tenant_id) if t.data.get("inbound")]
             task = next(
@@ -370,6 +384,29 @@ class InboundCallbacks:
                             self.clock() + timedelta(seconds=self.settings.max_call_seconds)
                         ).isoformat(),
                     )
+                    if receipt and (
+                        self.settings.simulation
+                        or (receipt.get("signature_verified") and task.data.get("inbound_verified"))
+                    ):
+                        proof_days = self.optimization_config(s, p)["health_policy"]["callback_proof_days"]
+                        observed_at = (
+                            dt(receipt.get("occurred_at") or receipt.get("received_at")) or self.clock()
+                        )
+                        if observed_at <= self.clock():
+                            update(
+                                task,
+                                callback_evidence={
+                                    "number_id": task.data["number_id"],
+                                    "route_version": task.data["routing_config"]["version"],
+                                    "route_fingerprint": task.data["number_route_fingerprint"],
+                                    "inbound_event_id": task.data["event_id"],
+                                    "bridge_event_id": receipt["event_id"],
+                                    "destination": attempt["target"],
+                                    "observed_at": observed_at.isoformat(),
+                                    "expires_at": (observed_at + timedelta(days=proof_days)).isoformat(),
+                                    "simulated": self.settings.simulation,
+                                },
+                            )
                     if (
                         attempt.get("rep_id")
                         and not task.data.get("human_edited")

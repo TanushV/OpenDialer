@@ -469,27 +469,27 @@
         },
         {
           "id": "E07.health",
-          "status": "open",
+          "status": "in-progress",
           "work": "One pure versioned assessment with comparable support and explicit unknowns"
         },
         {
           "id": "E07.onboarding",
-          "status": "open",
+          "status": "in-progress",
           "work": "Owned inventory/configuration and current signed callback proof"
         },
         {
           "id": "E07.identity",
-          "status": "open",
+          "status": "in-progress",
           "work": "Explicit source-fenced reassignment retaining inbound identity"
         },
         {
           "id": "E07.ui",
-          "status": "open",
+          "status": "in-progress",
           "work": "Combined ready/health/capacity status and actionable reviewed workload"
         },
         {
           "id": "E07.acceptance",
-          "status": "open",
+          "status": "in-progress",
           "work": "Dual database, affected browser, API contract and deletion receipts"
         }
       ]

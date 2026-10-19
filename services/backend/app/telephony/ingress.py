@@ -15,15 +15,15 @@ from app.transcripts import normalize_transcription
 
 
 class WebhookIngress:
-    async def accept_webhook(self, tenant_id, event, body_hash):
+    async def accept_webhook(self, tenant_id, event, body_hash, *, verified=False):
         # Receipt I/O is synchronous; it must never occupy the control event-loop thread.
         try:
-            return await asyncio.to_thread(self._receive_webhook, tenant_id, event, body_hash)
+            return await asyncio.to_thread(self._receive_webhook, tenant_id, event, body_hash, verified)
         except IntegrityError:
             # A concurrent identical receipt may win the unique insert. Reload and compare its hash.
-            return await asyncio.to_thread(self._receive_webhook, tenant_id, event, body_hash)
+            return await asyncio.to_thread(self._receive_webhook, tenant_id, event, body_hash, verified)
 
-    def _receive_webhook(self, tenant_id, event, body_hash):
+    def _receive_webhook(self, tenant_id, event, body_hash, verified=False):
         if (
             not isinstance(event, dict)
             or not all(isinstance(event.get(k), str) and event[k] for k in ("id", "event_type"))
@@ -53,6 +53,7 @@ class WebhookIngress:
                         "event_type": event["event_type"],
                         "payload": event_metadata(event["payload"]),
                         "hash": body_hash,
+                        "signature_verified": verified,
                         "status": "received",
                         "received_at": self.clock().isoformat(),
                         "occurred_at": event.get("occurred_at"),
@@ -205,10 +206,10 @@ class WebhookIngress:
         event_type, event_id = receipt["event_type"], receipt["event_id"]
         if self.agent_event(tenant_id, payload, event_type, session=s):
             return {"received": True, "agent_event": True}
-        if self.inbound_event(tenant_id, payload, event_type, session=s):
+        if self.inbound_event(tenant_id, payload, event_type, session=s, receipt=receipt):
             return {"received": True, "inbound_event": True}
         if event_type == "call.initiated" and payload.get("direction") == "incoming":
-            return self._receive_inbound(tenant_id, payload, event_id, session=s)
+            return self._receive_inbound(tenant_id, payload, event_id, session=s, receipt=receipt)
         call = self._webhook_call(s, tenant_id, payload)
         if not call:
             return {"received": True, "unmatched": True}

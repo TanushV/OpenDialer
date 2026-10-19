@@ -64,6 +64,23 @@ export interface FollowupTask {
 }
 export interface NumberRecord {
   id: string;
+  version: number;
+  outbound_ready?: boolean;
+  callback_evidence_current?: boolean;
+  synthetic?: boolean;
+  callback_proof?: {
+    simulated: boolean;
+    observed_at: string;
+    expires_at: string;
+    destination: string;
+  };
+  external_reputation?: {
+    source: string;
+    observed_at: string;
+    expires_at: string;
+    ownership_reference: string;
+    spam_label: string | null;
+  };
   phone: string;
   region: string;
   lifecycle: string;

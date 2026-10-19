@@ -282,36 +282,66 @@ class Dialer(
             return doc(number)
 
     def edit_number(self, p, number_id, body):
+        from pydantic import ValidationError
+
+        from app.number_operations import ExternalReputation
+
+        if "reassignment" in body:
+            if set(body) != {"reassignment", "request_id", "expected_version"}:
+                fail(422, "Reassignment must be a separate identified edit")
+            return self.reassign_number(p, number_id, body)
         for key, ceiling in (("daily_limit", 10000), ("capacity", 20)):
             if key in body and (type(body[key]) is not int or not 1 <= body[key] <= ceiling):
                 fail(422, "Positive integer workload limits are required")
+        if any(type(body[k]) is not bool for k in ("identity_configured", "callback_tested") if k in body):
+            fail(422, "Identity evidence flags must be booleans")
+        if "external_reputation" in body:
+            try:
+                evidence = ExternalReputation.model_validate(body["external_reputation"])
+            except ValidationError:
+                fail(422, "Imported health requires source, ownership, nullable label and valid dates")
+            if evidence.observed_at > self.clock():
+                fail(422, "Imported health cannot be from the future")
         with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
+            self._configuration_actor(s, p)
             number = self.required(s, "number_inventory", number_id, p)
+            emergency = body.get("lifecycle") == "paused_for_outbound" and set(body) <= {
+                "lifecycle",
+                "reason",
+            }
+            identity = (
+                None if emergency else self.local_edit_in(s, p, "number", number_id, number, body, "owner_id")
+            )
+            if identity and identity[2]:
+                return {**doc(number), "receipt": identity[2]}
+            if identity:
+                self.check_edit_version(number, body)
+            if body.get("identity_configured") is True and not number.data.get("identity_configured"):
+                fail(409, "Configure the owned carrier route; an operator note cannot verify identity")
+            if body.get("callback_tested") is True and not body.get("callback_task_id"):
+                fail(409, "Select a matching inbound callback receipt; a note is not evidence")
+            if "callback_task_id" in body:
+                if not number.data.get("identity_configured"):
+                    fail(409, "Configure identity before verifying a callback")
+                self.confirm_callback_in(s, p, number, body["callback_task_id"])
             next_state = body.get("lifecycle", number.data["lifecycle"])
             order = ["purchased", "identity_configured", "callback_tested", "limited_real_use", "healthy"]
             if next_state in order:
                 old = number.data["lifecycle"]
                 if old in order and order.index(next_state) > order.index(old) + 1:
-                    fail(409, "Warmup stages require identity and real callback evidence")
-                merged = {**number.data, **body}
+                    fail(409, "Onboarding requires identity and current callback evidence")
+                if next_state in order[1:] and not number.data.get("identity_configured"):
+                    fail(409, "Confirm the owned carrier connection before promotion")
                 if (
-                    not self.settings.simulation
-                    and next_state in order[1:]
-                    and merged.get("configuration_status") != "confirmed"
+                    next_state in order[2:]
+                    and not self.number_readiness_in(s, p, number)["callback_evidence_current"]
                 ):
-                    fail(409, "Confirm the owned carrier connection before promoting number identity")
-                if next_state in {"callback_tested", "limited_real_use", "healthy"} and not merged.get(
-                    "identity_configured"
+                    fail(409, "Current inbound callback proof is required")
+                if next_state in order[3:] and (
+                    next_state != old or any(k in body for k in ("daily_limit", "capacity"))
                 ):
-                    fail(409, "Seller identity must be configured")
-                if next_state in {"limited_real_use", "healthy"} and not merged.get("callback_tested"):
-                    fail(409, "Inbound callback test evidence is required")
-                if (
-                    not self.settings.simulation
-                    and next_state == "healthy"
-                    and not merged.get("real_use_review_reference")
-                ):
-                    fail(409, "Review of legitimate limited real use is required")
+                    fail(409, "Use the evidence and workload review to approve limited use")
             elif next_state not in {
                 "investigating",
                 "paused_for_outbound",
@@ -319,7 +349,21 @@ class Dialer(
                 "retired_callback_only",
             }:
                 fail(422, "Invalid lifecycle")
-            update(number, **body)
+            values = {
+                k: v
+                for k, v in body.items()
+                if k
+                not in {
+                    "expected_version",
+                    "request_id",
+                    "callback_task_id",
+                    "identity_configured",
+                    "callback_tested",
+                }
+            }
+            if "daily_limit" in values and values["daily_limit"] > number.data["daily_limit"]:
+                fail(409, "Use the evidence and workload review before increasing capacity")
+            update(number, **values, inbound_retained=True)
             audit(
                 s,
                 p["tenant_id"],
@@ -328,9 +372,13 @@ class Dialer(
                 "number.updated",
                 number.id,
                 self.clock(),
-                {"reason": body.get("reason", "")},
+                {"reason": body.get("reason", ""), "fields": sorted(values)},
             )
-            return doc(number)
+            emit(s, p["tenant_id"], "number.updated", number, self.clock())
+            return {
+                **doc(number),
+                **({"receipt": self.local_edit_receipt(s, p, identity, number)} if identity else {}),
+            }
 
     def proposal(self, p, campaign_id, capacity=None):
         if capacity is not None and (type(capacity) is not int or not 1 <= capacity <= 10000):

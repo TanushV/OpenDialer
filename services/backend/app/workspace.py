@@ -107,6 +107,8 @@ class WorkspaceReads:
                     if value.get("disabled"):
                         continue
                     value = {"id": row.id, "name": value["name"]}
+                if section == "numbers":
+                    value.update(self.number_readiness_in(s, p, row))
                 if section == "registries":
                     value = {k: v for k, v in value.items() if k in REGISTRY_FIELDS}
                 selected.append(value)

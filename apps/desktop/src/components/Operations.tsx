@@ -462,9 +462,9 @@ export function NumbersPage() {
         <div className="card">
           <ShieldCheck size={23} />
           <strong>
-            {history.items.filter((n) => n.lifecycle === "healthy").length}
+            {history.items.filter((n) => n.outbound_ready).length}
           </strong>
-          <p>Healthy in displayed inventory</p>
+          <p>Ready in displayed inventory</p>
         </div>
         <div className="card">
           <RefreshCw size={23} />
@@ -867,6 +867,42 @@ export function NumbersPage() {
     </>
   );
 }
+interface NumberEvidence {
+  number: NumberRecord;
+  health: {
+    status: string;
+    samples: number;
+    comparable_samples?: number;
+    human_classified_samples?: number;
+    human_unknown_samples?: number;
+    reason: string;
+    as_of?: string;
+    case_mix_residual_mean?: number | null;
+    case_mix_interval?: [number, number] | null;
+    policy_version?: string;
+    external_fresh?: boolean;
+  };
+  workload: {
+    current_limit: number;
+    maximum_reviewed_limit: number;
+    recommended_limit: number;
+    reason: string;
+  };
+  callback_candidates: {
+    id: string;
+    callback_evidence: {
+      destination: string;
+      observed_at: string;
+      simulated: boolean;
+    };
+  }[];
+  binding: {
+    id: string;
+    version: number;
+    lead_id: string;
+    number_id: string;
+  } | null;
+}
 function NumberRow({
   number,
   onSaved,
@@ -874,91 +910,87 @@ function NumberRow({
   number: NumberRecord;
   onSaved: (number: NumberRecord) => void;
 }) {
-  const { api, refresh, run, notice } = useWorkspace();
-  const [editing, setEditing] = useState(false);
+  const { api, refresh, run, notice, snapshot: w } = useWorkspace();
+  const [view, setView] = useState<NumberEvidence | null>(null);
   const [reference, setReference] = useState("");
-  const stages = [
-    "purchased",
-    "identity_configured",
-    "callback_tested",
-    "limited_real_use",
-    "healthy",
-  ];
-  const next = stages[stages.indexOf(number.lifecycle) + 1];
+  const [limit, setLimit] = useState(String(number.daily_limit));
+  const [decision, setDecision] = useState("resume");
+  const [leadId, setLeadId] = useState("");
+  const [targetId, setTargetId] = useState("");
+  const [external, setExternal] = useState("");
+  const [busy, setBusy] = useState(false);
+  const request = useRef<{ fingerprint: string; id: string } | null>(null);
+  async function load(id = leadId) {
+    const result = await api<NumberEvidence>(
+      `/v1/admin/numbers/${number.id}/review${id ? "?lead_id=" + encodeURIComponent(id) : ""}`,
+    );
+    setView(result);
+    onSaved(result.number);
+    setLimit(String(result.number.daily_limit));
+  }
+  async function save(
+    path: string,
+    method: string,
+    body: Record<string, unknown>,
+    version: number,
+  ) {
+    setBusy(true);
+    const value = { ...body, expected_version: version };
+    const fingerprint = JSON.stringify([path, value]);
+    if (request.current?.fingerprint !== fingerprint)
+      request.current = { fingerprint, id: crypto.randomUUID() };
+    try {
+      await api<NumberRecord>(path, method, {
+        ...value,
+        request_id: request.current.id,
+      });
+      request.current = null;
+      await load();
+      await refresh();
+      notice("Number evidence saved. Inbound identity retained.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  const current = view?.number ?? number;
   return (
-    <tr>
-      <td>
-        <strong>{number.phone}</strong>
-        <small>
-          {number.callback_tested
-            ? "Callbacks tested"
-            : "Callback test pending"}
-        </small>
-      </td>
-      <td>{number.region}</td>
-      <td>
-        <span
-          className={`pill ${number.lifecycle === "healthy" ? "green" : "subtle"}`}
-        >
-          {label(number.lifecycle)}
-        </span>
-      </td>
-      <td>{number.daily_limit}</td>
-      <td>{number.capacity} concurrent</td>
-      <td>
-        {editing ? (
-          <div className="input-row">
-            <input
-              aria-label={`Evidence for ${number.phone}`}
-              placeholder="Evidence reference"
-              value={reference}
-              onChange={(e) => setReference(e.target.value)}
-            />
-            <button
-              className="secondary small"
-              disabled={!reference}
-              onClick={() =>
-                void run(async () => {
-                  const saved = await api<NumberRecord>(
-                    `/v1/admin/numbers/${number.id}`,
-                    "PATCH",
-                    {
-                      lifecycle: next,
-                      reason: reference,
-                      identity_configured: true,
-                      callback_tested: stages.indexOf(next) >= 2,
-                      registration_reference: reference,
-                      callback_test_reference: reference,
-                      real_use_review_reference: reference,
-                    },
-                  );
-                  onSaved(saved);
-                  await refresh();
-                  setEditing(false);
-                  notice("Number lifecycle updated");
-                })
-              }
-            >
-              Save
-            </button>
-          </div>
-        ) : (
+    <>
+      <tr>
+        <td>
+          <strong>{number.phone}</strong>
+          <small>
+            {number.callback_evidence_current
+              ? "Current callback evidence"
+              : "Callback verification required"}
+          </small>
+        </td>
+        <td>{number.region}</td>
+        <td>
+          <span className="pill subtle">{label(number.lifecycle)}</span>
+        </td>
+        <td>{number.daily_limit}</td>
+        <td>{number.capacity} concurrent</td>
+        <td>
           <div className="button-row">
             {number.provider_id && (
               <button
                 className="text-button small"
-                disabled={number.provider_present === false}
+                disabled={busy || number.provider_present === false}
                 onClick={() =>
                   void run(async () => {
-                    const saved = await api<NumberRecord>(
-                      `/v1/admin/numbers/${number.id}/configure`,
-                      "POST",
-                    );
-                    onSaved(saved);
-                    await refresh();
-                    notice(
-                      "Voice connection confirmed. A new callback test is still required.",
-                    );
+                    setBusy(true);
+                    try {
+                      onSaved(
+                        await api<NumberRecord>(
+                          `/v1/admin/numbers/${number.id}/configure`,
+                          "POST",
+                        ),
+                      );
+                      await load();
+                      await refresh();
+                    } finally {
+                      setBusy(false);
+                    }
                   })
                 }
               >
@@ -967,40 +999,341 @@ function NumberRow({
                   : "Configure voice route"}
               </button>
             )}
-            {number.configuration_status && (
-              <small>{label(number.configuration_status)}</small>
-            )}
-            {next && (
-              <button
-                className="text-button small"
-                onClick={() => setEditing(true)}
-              >
-                Advance stage
-              </button>
-            )}
+            <button
+              className="text-button small"
+              onClick={() => void run(() => load())}
+            >
+              Review number evidence
+            </button>
             <button
               className="text-button small"
               onClick={() =>
-                void run(async () => {
-                  const saved = await api<NumberRecord>(
+                void run(() =>
+                  save(
                     `/v1/admin/numbers/${number.id}`,
                     "PATCH",
                     {
                       lifecycle: "paused_for_outbound",
                       reason: "Operator paused outbound; inbound retained",
                     },
-                  );
-                  onSaved(saved);
-                  await refresh();
-                })
+                    current.version,
+                  ),
+                )
               }
             >
               Pause outbound
             </button>
           </div>
-        )}
-      </td>
-    </tr>
+        </td>
+      </tr>
+      {view && (
+        <tr>
+          <td colSpan={6}>
+            <section
+              className="card padded"
+              aria-label={`Evidence for ${number.phone}`}
+            >
+              <div className="button-row">
+                <h3>Number evidence and workload</h3>
+                <button onClick={() => setView(null)}>
+                  Close number review
+                </button>
+                <button onClick={() => void run(() => load())}>
+                  Reload evidence
+                </button>
+              </div>
+              <p>
+                {current.outbound_ready
+                  ? "Ready for reviewed outbound use"
+                  : "Outbound setup or evidence needs attention"}{" "}
+                · {current.synthetic ? "Simulation evidence" : "Live workspace"}
+              </p>
+              <dl className="stats-grid">
+                <div>
+                  <dt>Observed health</dt>
+                  <dd>{label(view.health.status)}</dd>
+                </div>
+                <div>
+                  <dt>Comparable classified attempts</dt>
+                  <dd>{view.health.comparable_samples ?? 0}</dd>
+                </div>
+                <div>
+                  <dt>Unknown contact outcomes</dt>
+                  <dd>{view.health.human_unknown_samples ?? 0}</dd>
+                </div>
+                <div>
+                  <dt>Evidence as of</dt>
+                  <dd>{date(view.health.as_of)}</dd>
+                </div>
+              </dl>
+              <p>{label(view.health.reason)}</p>
+              {view.health.case_mix_interval && (
+                <p>
+                  Pickup difference versus frozen expectations:{" "}
+                  {(100 * (view.health.case_mix_residual_mean ?? 0)).toFixed(1)}{" "}
+                  percentage points; approximate interval{" "}
+                  {view.health.case_mix_interval
+                    .map((v) => (100 * v).toFixed(1))
+                    .join(" to ")}
+                  . This is an investigation signal.
+                </p>
+              )}
+              <p>
+                {current.external_reputation?.spam_label
+                  ? `Imported external label: ${current.external_reputation.spam_label}`
+                  : "External label unknown"}
+              </p>
+              {current.external_reputation && (
+                <p className="fine">
+                  Source: {current.external_reputation.source} · observed{" "}
+                  {date(current.external_reputation.observed_at)} · expires{" "}
+                  {date(current.external_reputation.expires_at)}. Imported
+                  observation, not a live carrier certification.
+                </p>
+              )}
+              {current.configuration_status === "uncertain" && (
+                <div className="button-row">
+                  <p className="fine">
+                    An uncertain configuration is read first. This explicit
+                    retry reapplies only disabled recording and the saved voice
+                    connection after verifying the same owned number.
+                  </p>
+                  <button
+                    disabled={busy}
+                    onClick={() =>
+                      void run(async () => {
+                        setBusy(true);
+                        try {
+                          await api(
+                            `/v1/admin/numbers/${number.id}/configure`,
+                            "POST",
+                            {
+                              expected_version: current.version,
+                              retry_after_verification: true,
+                            },
+                          );
+                          await load();
+                          await refresh();
+                        } finally {
+                          setBusy(false);
+                        }
+                      })
+                    }
+                  >
+                    Verify and reapply saved configuration
+                  </button>
+                </div>
+              )}
+              <p>A note alone cannot verify a callback.</p>
+              {current.callback_proof && (
+                <p className="fine">
+                  {current.callback_proof.simulated
+                    ? "Simulated"
+                    : "Signed provider"}{" "}
+                  callback to {current.callback_proof.destination} · expires{" "}
+                  {date(current.callback_proof.expires_at)}
+                </p>
+              )}
+              <div className="button-row">
+                {view.callback_candidates.map((t) => (
+                  <button
+                    key={t.id}
+                    disabled={busy}
+                    onClick={() =>
+                      void run(() =>
+                        save(
+                          `/v1/admin/numbers/${number.id}`,
+                          "PATCH",
+                          { callback_task_id: t.id },
+                          current.version,
+                        ),
+                      )
+                    }
+                  >
+                    Verify{" "}
+                    {t.callback_evidence.simulated ? "simulated" : "signed"}{" "}
+                    callback · {date(t.callback_evidence.observed_at)} ·{" "}
+                    {t.callback_evidence.destination}
+                  </button>
+                ))}
+              </div>
+              {!view.callback_candidates.length && (
+                <p className="fine">
+                  No recent connected callback receipt. Complete an authorized
+                  inbound test on this route, then reload evidence.
+                </p>
+              )}
+              <fieldset disabled={busy}>
+                <div className="optimization-fields">
+                  <label>
+                    Number review decision
+                    <select
+                      value={decision}
+                      onChange={(e) => setDecision(e.target.value)}
+                    >
+                      <option value="resume">
+                        Start or resume limited use
+                      </option>
+                      <option value="increase">
+                        Increase reviewed workload
+                      </option>
+                      <option value="reduce">Reduce workload</option>
+                      <option value="pause">Pause outbound</option>
+                    </select>
+                  </label>
+                  <label>
+                    Reviewed daily limit
+                    <input
+                      type="number"
+                      min={1}
+                      value={limit}
+                      onChange={(e) => setLimit(e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Number review reference
+                    <input
+                      value={reference}
+                      maxLength={500}
+                      onChange={(e) => setReference(e.target.value)}
+                    />
+                  </label>
+                </div>
+                <p className="fine">
+                  Available staffed capacity and approved ceiling permit at most{" "}
+                  {view.workload.maximum_reviewed_limit} attempts per day.
+                  Sparse evidence is unknown; it does not require a fixed number
+                  of warmup calls.
+                </p>
+                <button
+                  disabled={!reference.trim()}
+                  onClick={() =>
+                    void run(() =>
+                      save(
+                        `/v1/admin/numbers/${number.id}/review`,
+                        "POST",
+                        {
+                          decision,
+                          review_reference: reference,
+                          daily_limit: Number(limit),
+                        },
+                        current.version,
+                      ),
+                    )
+                  }
+                >
+                  Apply number review
+                </button>
+                <details>
+                  <summary>Review an existing lead assignment</summary>
+                  <label>
+                    Lead to reassign
+                    <select
+                      value={leadId}
+                      onChange={(e) => {
+                        setLeadId(e.target.value);
+                        void run(() => load(e.target.value));
+                      }}
+                    >
+                      <option value="">Choose a displayed lead</option>
+                      {w.leads.map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {l.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {view.binding ? (
+                    <>
+                      <p>
+                        Current number:{" "}
+                        {w.numbers.find((n) => n.id === view.binding?.number_id)
+                          ?.phone ?? view.binding.number_id}
+                      </p>
+                      <label>
+                        Replacement owned number
+                        <select
+                          value={targetId}
+                          onChange={(e) => setTargetId(e.target.value)}
+                        >
+                          <option value="">Choose replacement</option>
+                          {w.numbers
+                            .filter((n) => n.id !== view.binding?.number_id)
+                            .map((n) => (
+                              <option key={n.id} value={n.id}>
+                                {n.phone} · {label(n.lifecycle)}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                      <button
+                        disabled={!reference.trim() || !targetId}
+                        onClick={() =>
+                          void run(() =>
+                            save(
+                              `/v1/admin/numbers/${targetId}`,
+                              "PATCH",
+                              {
+                                reassignment: {
+                                  lead_id: leadId,
+                                  old_number_id: view.binding!.number_id,
+                                  reason: reference,
+                                },
+                              },
+                              view.binding!.version,
+                            ),
+                          )
+                        }
+                      >
+                        Approve identity reassignment
+                      </button>
+                    </>
+                  ) : (
+                    <p>
+                      No existing binding selected. Initial assignment uses
+                      available inventory.
+                    </p>
+                  )}
+                </details>
+                <details>
+                  <summary>
+                    Import authorized external reputation evidence
+                  </summary>
+                  <p className="fine">
+                    JSON with source, ownership_reference, observed_at,
+                    expires_at and nullable spam_label. No provider request or
+                    enrollment.
+                  </p>
+                  <label>
+                    External reputation evidence
+                    <textarea
+                      rows={4}
+                      value={external}
+                      onChange={(e) => setExternal(e.target.value)}
+                    />
+                  </label>
+                  <button
+                    disabled={!external.trim()}
+                    onClick={() =>
+                      void run(() =>
+                        save(
+                          `/v1/admin/numbers/${number.id}`,
+                          "PATCH",
+                          { external_reputation: JSON.parse(external) },
+                          current.version,
+                        ),
+                      )
+                    }
+                  >
+                    Save imported observation
+                  </button>
+                </details>
+              </fieldset>
+            </section>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 export function IntelligencePage() {

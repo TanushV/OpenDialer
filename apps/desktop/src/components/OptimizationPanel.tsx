@@ -154,10 +154,6 @@ export function OptimizationPanel({
   const [settings, setSettings] = useState<OptimizationSettings | null>(null);
   const dirty = useRef(false);
   const [goalPreview, setGoalPreview] = useState<GoalPreview | null>(null);
-  const [numberId, setNumberId] = useState("");
-  const [reviewDecision, setReviewDecision] = useState("pause");
-  const [reviewReference, setReviewReference] = useState("");
-  const [reviewLimit, setReviewLimit] = useState("5");
   const [replay, setReplay] = useState("");
   const [replayReference, setReplayReference] = useState("");
   const [replayResult, setReplayResult] = useState<string | null>(null);
@@ -172,8 +168,6 @@ export function OptimizationPanel({
     if (version !== requestVersion.current) return;
     setResponse(next);
     if (!dirty.current) setSettings(next.settings);
-    if ("numbers" in next)
-      setNumberId((value) => value || next.numbers[0]?.id || "");
   }, [api]);
   useEffect(() => {
     void run(load);
@@ -210,7 +204,6 @@ export function OptimizationPanel({
     setGoalPreview(null);
     setSettings({ ...settings, [key]: value });
   };
-  const selected = report?.numbers.find((n) => n.id === numberId);
   return (
     <>
       {!numbersOnly && <ConversationLearning />}
@@ -553,7 +546,7 @@ export function OptimizationPanel({
               </p>
             )
           )}
-          <h3>Number evidence and workload</h3>
+          <h3>Observed inventory snapshot</h3>
           <div className="optimization-table">
             <table>
               <thead>
@@ -584,90 +577,10 @@ export function OptimizationPanel({
             Health uses first-party delivery and adjusted answer evidence. A low
             pickup rate is not proof of a carrier spam label.
           </p>
-          {numbersOnly && admin && (
-            <details>
-              <summary>Review number workload</summary>
-              <div className="optimization-fields">
-                <label>
-                  Number to review
-                  <select
-                    value={numberId}
-                    onChange={(e) => {
-                      setNumberId(e.target.value);
-                      setReviewLimit(
-                        String(
-                          report.numbers.find((n) => n.id === e.target.value)
-                            ?.daily_limit || 5,
-                        ),
-                      );
-                    }}
-                  >
-                    {report.numbers.map((n) => (
-                      <option key={n.id} value={n.id}>
-                        {n.phone}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Number review decision
-                  <select
-                    value={reviewDecision}
-                    onChange={(e) => setReviewDecision(e.target.value)}
-                  >
-                    <option value="pause">
-                      Pause outbound; retain callbacks
-                    </option>
-                    <option value="reduce">Reduce workload</option>
-                    <option value="increase">
-                      Increase after observed use
-                    </option>
-                    <option value="resume">Resume limited use</option>
-                  </select>
-                </label>
-                <label>
-                  Reviewed daily limit
-                  <input
-                    type="number"
-                    min={1}
-                    value={reviewLimit}
-                    onChange={(e) => setReviewLimit(e.target.value)}
-                  />
-                </label>
-                <label>
-                  Number review reference
-                  <input
-                    value={reviewReference}
-                    onChange={(e) => setReviewReference(e.target.value)}
-                  />
-                </label>
-              </div>
-              <button
-                className="secondary"
-                disabled={!selected || !reviewReference}
-                onClick={() =>
-                  void run(async () => {
-                    await api(
-                      "/v1/admin/numbers/" + numberId + "/review",
-                      "POST",
-                      {
-                        decision: reviewDecision,
-                        review_reference: reviewReference,
-                        daily_limit: Number(reviewLimit),
-                      },
-                    );
-                    await load();
-                    await refresh();
-                    notice(
-                      "Number workload reviewed; inbound callbacks retained",
-                    );
-                  })
-                }
-              >
-                Apply number review
-              </button>
-            </details>
-          )}
+          <p className="fine">
+            Open a number’s evidence review in Numbers to verify callbacks or
+            change workload.
+          </p>
         </section>
       )}
       {!numbersOnly && report && (

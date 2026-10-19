@@ -538,7 +538,7 @@ class Service(ReservationPlanner):
         from app.compliance.consent import permission_state
 
         granted, revoked = permission_state(self, s, p, endpoint.id, permission)
-        healthy = number and number.data["lifecycle"] in {"healthy", "limited_real_use"}
+        healthy = number and self.number_readiness_in(s, p, number)["outbound_ready"]
         authorized_number = bool(
             number
             and number.seller_id == p["seller_id"]

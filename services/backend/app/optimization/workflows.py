@@ -227,16 +227,21 @@ class OptimizationWorkflows(ComparisonWorkflows):
             )
 
     def optimization_config(self, s, p, campaign_id=None):
+        from app.optimization.api import HealthPolicy
+
         campaign = (
             self.required(s, "campaigns", campaign_id, p)
             if campaign_id
             else self.scoped(s, "campaigns", p)[0]
         )
-        return {**DEFAULTS, **campaign.data.get("optimization", {})}
+        config = {**DEFAULTS, **campaign.data.get("optimization", {})}
+        config["health_policy"] = HealthPolicy.model_validate(config.get("health_policy", {})).model_dump()
+        return config
 
     def inventory_evidence(self, s, p, fast=False):
         if fast:
             return self.inventory_capacity(s, p)
+        config = self.optimization_config(s, p)
         calls = [doc(c) for c in self.scoped(s, "call_attempts", p)]
         snapshots = {r.id: r.data for r in self.scoped(s, "feature_snapshots", p)}
         attempts = []
@@ -247,10 +252,16 @@ class OptimizationWorkflows(ComparisonWorkflows):
             }:
                 continue
             at, ended = timestamp(call.get("started_at")), timestamp(call.get("ended_at"))
-            predicted = snapshots.get(call.get("feature_snapshot_id"), {}).get("predictions", {})
+            snapshot = snapshots.get(call.get("feature_snapshot_id"), {})
+            predicted = snapshot.get("predictions", {})
             attempts.append(
                 {
+                    **snapshot.get("features", {}),
                     **call,
+                    "feature_schema_version": snapshot.get(
+                        "feature_schema_version", snapshot.get("features", {}).get("feature_schema_version")
+                    ),
+                    "prediction_at": snapshot.get("as_of"),
                     "duration_seconds": max(0, (ended - at).total_seconds()) if at and ended else 0,
                     "connected_seconds": call.get("connected_seconds"),
                     "delivery_failed": call.get("end_reason") in {"provider_failure", "route_failure"},
@@ -270,10 +281,14 @@ class OptimizationWorkflows(ComparisonWorkflows):
         callbacks = [r.data for r in self.scoped(s, "followup_tasks", p) if r.data.get("inbound")]
         inventory = []
         for number in self.scoped(s, "number_inventory", p):
+            readiness = self.number_readiness_in(s, p, number)
             health = number_health(
                 [a for a in attempts if a.get("number_id") == number.id],
                 pooled_attempts=attempts,
                 now=self.clock(),
+                external=number.data.get("external_reputation"),
+                policy=config["health_policy"],
+                configuration_errors=readiness["configuration_errors"],
             )
             health["callbacks"] = sum(c.get("number_id") == number.id for c in callbacks)
             used = sum(
@@ -283,6 +298,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
             inventory.append(
                 {
                     **doc(number),
+                    **readiness,
                     "health": health,
                     "used_today": used,
                     "reserved_attempts": sum(c.number_id == number.id and not c.call_id for c in claims),
@@ -319,11 +335,20 @@ class OptimizationWorkflows(ComparisonWorkflows):
             ).all()
         )
         health = {r.data["number_id"]: dict(r.data) for r in self.scoped(s, "number_health", p)}
+        config = self.optimization_config(s, p)
         leases = [r.data for r in self.scoped(s, "number_leases", p) if r.data.get("active")]
         return [
             {
                 **doc(n),
-                "health": health.get(n.id) or number_health([], pooled_attempts=[], now=self.clock()),
+                **self.number_readiness_in(s, p, n),
+                "health": number_health(
+                    health.get(n.id) or [],
+                    pooled_attempts=[],
+                    now=self.clock(),
+                    external=n.data.get("external_reputation"),
+                    policy=config["health_policy"],
+                    configuration_errors=self.number_readiness_in(s, p, n)["configuration_errors"],
+                ),
                 "used_today": used.get(n.id, 0),
                 "reserved_attempts": sum(c.number_id == n.id and not c.call_id for c in claims),
                 "active_obligations": sum(c.number_id == n.id for c in claims)
@@ -1292,17 +1317,16 @@ class OptimizationWorkflows(ComparisonWorkflows):
                         key=number["id"],
                         now=self.clock(),
                     )
-                if (
-                    number["health"]["samples"] >= 20
-                    and number["health"].get("delivery_success_rate", 1) < 0.7
-                    and number["lifecycle"] in {"healthy", "limited_real_use"}
-                ):
+                if number["health"]["status"] in {"blocked", "investigating"} and number["lifecycle"] in {
+                    "healthy",
+                    "limited_real_use",
+                }:
                     record = self.required(s, "number_inventory", number["id"], p)
                     update(
                         record,
                         lifecycle="investigating",
                         inbound_retained=True,
-                        health_review_reason="Repeated observed delivery failures; review required",
+                        health_review_reason=number["health"]["reason"],
                     )
                     audit(
                         s,
@@ -1312,7 +1336,11 @@ class OptimizationWorkflows(ComparisonWorkflows):
                         "number.delivery_hold",
                         record.id,
                         self.clock(),
-                        {"samples": number["health"]["samples"]},
+                        {
+                            "samples": number["health"]["samples"],
+                            "policy_version": number["health"]["policy_version"],
+                            "reason_codes": number["health"]["reason_codes"],
+                        },
                     )
             campaign = self.scoped(s, "campaigns", p)[0]
             update(campaign, selection_profile=self.selection_profile(s, p, dataset["rows"], config))

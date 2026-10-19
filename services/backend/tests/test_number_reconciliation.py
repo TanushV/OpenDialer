@@ -228,7 +228,7 @@ def number_edit(workspace, number_id, **changes):
 
 
 def connected_callback(workspace, carrier, *, before_bridge=None):
-    from test_inbound_completion import configure, incoming, dispatch, target_payload, webhook, saved
+    from test_inbound_completion import configure, dispatch, incoming, saved, target_payload, webhook
 
     configure(workspace, destination="sip:reception@example.test")
     task = incoming(workspace)
@@ -285,6 +285,11 @@ def test_callback_proof_is_current_scoped_identified_and_simulated(workspace, ap
         == 409
     )
     clock.now += timedelta(days=31)
+    login = c.post(
+        "/v1/auth/session", json={"email": "operator@example.test", "password": "a-test-only-password-123"}
+    )
+    assert login.status_code == 200, login.text
+    h = {"Authorization": "Bearer " + login.json()["access_token"]}
     response = c.post(
         f"/v1/admin/numbers/{identifier}/review",
         headers=h,
@@ -519,3 +524,220 @@ def test_health_policy_is_validated_and_exposed_from_one_owner(workspace):
         c.put("/v1/admin/optimization", headers=h, json={"health_policy": {"min_comparable": 0}}).status_code
         == 422
     )
+
+
+def test_selection_cannot_overwrite_a_newly_approved_binding(workspace, app):
+    from app.db import ActiveClaim, put
+    from app.scheduling.queue import SelectionChanged
+    from conftest import ready
+    from sqlalchemy import select
+
+    service, p = app.state.service, principal(workspace)
+    ready(workspace)
+    plan = service._selection(p, workspace["campaign_id"])
+    with service.db.transaction() as s:
+        lead_id = plan["selection"]["lead_id"]
+        replacement = next(
+            n for n in service.scoped(s, "number_inventory", p) if n.id != plan["allocation"]["number_id"]
+        )
+        put(
+            s,
+            "lead_number_bindings",
+            p["tenant_id"],
+            p["seller_id"],
+            {"lead_id": lead_id, "number_id": replacement.id},
+            key=lead_id,
+            now=service.clock(),
+        )
+    with pytest.raises(SelectionChanged):
+        service._claim_selection(p, workspace["campaign_id"], plan)
+    with service.db.transaction(False) as s:
+        assert not list(s.scalars(select(ActiveClaim)))
+        assert service._by_key(s, p, "lead_number_bindings", lead_id).data["number_id"] == replacement.id
+
+
+def test_actual_decision_keeps_health_comparison_inputs(workspace, app):
+    from conftest import disposition_body, start
+
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
+    assert (
+        c.post(
+            f"/v1/calls/{call['id']}/disposition",
+            headers=h,
+            json=disposition_body(c, h, call["id"], outcome="no_answer"),
+        ).status_code
+        == 200
+    )
+    with service.db.transaction(False) as s:
+        result = next(n for n in service.inventory_evidence(s, p) if n["id"] == call["number_id"])
+    assert result["health"]["comparable_samples"] == 1
+    assert result["health"]["human_classified_samples"] == 1
+
+
+def test_new_external_flag_is_current_on_read_without_paid_refresh(workspace, app, clock):
+    service, p, identifier = configure_fixture(workspace, app)
+    evidence = {
+        "source": "authorized report",
+        "ownership_reference": "owned",
+        "observed_at": clock.now.isoformat(),
+        "expires_at": (clock.now + timedelta(days=1)).isoformat(),
+        "spam_label": "flagged",
+    }
+    c, h = workspace["client"], workspace["headers"]
+    response = c.patch(
+        f"/v1/admin/numbers/{identifier}",
+        headers=h,
+        json=number_edit(workspace, identifier, external_reputation=evidence),
+    )
+    assert response.status_code == 200, response.text
+    view = c.get(f"/v1/admin/numbers/{identifier}/review", headers=h)
+    assert view.status_code == 200, view.text
+    assert view.json()["health"]["external"] == evidence
+    assert view.json()["health"]["status"] == "investigating"
+    assert view.json()["number"]["outbound_ready"] is False
+
+
+def test_legacy_saved_health_remains_readable_but_not_a_current_certificate(workspace, app):
+    from app.db import put
+
+    service, p, identifier = configure_fixture(workspace, app)
+    with service.db.transaction() as s:
+        put(
+            s,
+            "number_health",
+            p["tenant_id"],
+            p["seller_id"],
+            {"number_id": identifier, "score": 0.9, "samples": 50, "status": "observed"},
+            key=identifier,
+            now=service.clock(),
+        )
+    response = workspace["client"].get(f"/v1/admin/numbers/{identifier}/review", headers=workspace["headers"])
+    assert response.status_code == 200, response.text
+    assert response.json()["health"]["status"] == "unknown"
+    assert response.json()["health"]["refresh_required"] is True
+
+
+def test_partial_configuration_requires_verified_explicit_retry(workspace, app, carrier, monkeypatch):
+    service, p, identifier = configure_fixture(workspace, app)
+    sent = []
+
+    async def configure(number, connection):
+        sent.append(number)
+        if len(sent) == 1:
+            raise TimeoutError("Recording disabled; connection result unknown")
+        return {"id": number, "connection_id": connection}
+
+    async def retrieve(number):
+        with service.db.transaction(False) as s:
+            phone = service.required(s, "number_inventory", identifier, p).data["phone"]
+        return {
+            "id": number,
+            "phone_number": phone,
+            "status": "active",
+            "connection_id": "old",
+            "call_recording_enabled": False,
+        }
+
+    monkeypatch.setattr(carrier, "configure_number", configure)
+    monkeypatch.setattr(carrier, "get_number", retrieve)
+    c, h, path = workspace["client"], workspace["headers"], f"/v1/admin/numbers/{identifier}/configure"
+    assert c.post(path, headers=h).status_code == 503
+    assert c.post(path, headers=h).status_code == 503
+    assert len(sent) == 1
+    version = number_edit(workspace, identifier)["expected_version"]
+    result = c.post(path, headers=h, json={"retry_after_verification": True, "expected_version": version})
+    assert result.status_code == 200, result.text
+    assert len(sent) == 2
+    with service.db.transaction(False) as s:
+        assert (
+            len(
+                [
+                    x
+                    for x in service.scoped(s, "command_outbox", p)
+                    if x.data.get("kind") == "number_configure"
+                ]
+            )
+            == 1
+        )
+    assert not carrier.purchases
+
+
+def test_live_callback_requires_two_signed_processed_events(workspace, app, carrier, clock, monkeypatch):
+    import base64
+    import json
+
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+    from test_inbound_completion import configure, dispatch, target_payload
+
+    service, p = app.state.service, principal(workspace)
+    private = Ed25519PrivateKey.generate()
+    service.vault.write(
+        p["tenant_id"],
+        {
+            "telnyx_public_key": base64.b64encode(
+                private.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+            ).decode()
+        },
+    )
+    configure(workspace, destination="sip:reception@example.test")
+    with service.db.transaction() as s:
+        number = next(
+            n for n in service.scoped(s, "number_inventory", p) if n.data["phone"] == "+14155550100"
+        )
+        update(
+            number,
+            provider_id="owned",
+            provider_present=True,
+            provider_status="active",
+            connection_id="route",
+            configuration_status="confirmed",
+            provider_recording_enabled=False,
+            synthetic=False,
+        )
+        identifier = number.id
+    monkeypatch.setattr(service.settings, "simulation", False)
+    c, h = workspace["client"], workspace["headers"]
+    monkeypatch.setattr(service, "carrier", lambda tenant: carrier)
+
+    def signed(event_id, event_type, payload):
+        body = json.dumps({"data": {"id": event_id, "event_type": event_type, "payload": payload}}).encode()
+        stamp = str(int(clock.now.timestamp()))
+        headers = {
+            "telnyx-timestamp": stamp,
+            "telnyx-signature-ed25519": base64.b64encode(private.sign(stamp.encode() + b"|" + body)).decode(),
+        }
+        result = c.post("/webhooks/telnyx", headers=headers, content=body)
+        assert result.status_code == 200, result.text
+        c.portal.call(service.process_webhook, p["tenant_id"], result.json()["receipt_id"])
+
+    signed(
+        "live-incoming",
+        "call.initiated",
+        {
+            "call_control_id": "live-inbound",
+            "direction": "incoming",
+            "to": "+14155550100",
+            "from": "+14155550101",
+        },
+    )
+    dispatch(workspace)
+    signed("live-bridge", "call.bridged", target_payload(carrier))
+    view = c.get(f"/v1/admin/numbers/{identifier}/review", headers=h).json()
+    proof = view["callback_candidates"][0]
+    assert proof["callback_evidence"]["simulated"] is False
+    body = number_edit(workspace, identifier, callback_task_id=proof["id"])
+    result = c.patch(f"/v1/admin/numbers/{identifier}", headers=h, json=body)
+    assert result.status_code == 200, result.text
+    with service.db.transaction() as s:
+        event = service._by_key(s, {**p, "seller_id": ""}, "webhook_inbox", "live-bridge")
+        update(event, signature_verified=False)
+    denied = c.patch(
+        f"/v1/admin/numbers/{identifier}",
+        headers=h,
+        json=number_edit(workspace, identifier, callback_task_id=proof["id"]),
+    )
+    assert denied.status_code == 409

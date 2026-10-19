@@ -44,6 +44,30 @@ RIGHT = {
 NEXT = {"callback_requested", "meeting_booked", "meeting_held", "qualified_conversation", "sale_won"}
 
 
+def contact_labels(row):
+    """Nullable first-party contact evidence; provisional/unknown speech is not a failure."""
+    if row.get("source") == "llm_provisional" or row.get("outcome_source") == "llm_provisional":
+        return None, None
+    outcome = row.get("outcome")
+    human = (
+        1
+        if outcome in HUMAN
+        else 0
+        if outcome in {"no_answer", "busy", "voicemail", "screening", "ivr"}
+        else None
+    )
+    role = row.get("contact_role")
+    right = (
+        1
+        if role == "right_party"
+        or outcome in {"right_party", "meeting_booked", "meeting_held", "qualified_conversation", "sale_won"}
+        else 0
+        if role in {"wrong_party", "gatekeeper"} or outcome in {"wrong_party", "gatekeeper"}
+        else None
+    )
+    return human, right if human == 1 else None
+
+
 def pooled_predictions(history, *, segment, hour):
     # Segment/time evidence is shrunk toward pooled counts; a few missed calls cannot create a confident exclusion.
     observed = [r for r in history if r.get("outcome")]

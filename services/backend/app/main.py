@@ -765,6 +765,11 @@ def create_app(settings=None, *, clock=None, carrier=None):
             "registration_reference",
             "callback_test_reference",
             "real_use_review_reference",
+            "request_id",
+            "expected_version",
+            "callback_task_id",
+            "external_reputation",
+            "reassignment",
         }
         if set(data) - allowed:
             fail(422, "Unrecognized number settings")
@@ -779,8 +784,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
         return await service.sync_numbers(p)
 
     @app.post("/v1/admin/numbers/{number_id}/configure")
-    async def configure_number(number_id: str, p=Depends(administrator)):
-        return await service.configure_owned_number(p, number_id)
+    async def configure_number(number_id: str, data: dict | None = None, p=Depends(administrator)):
+        return await service.configure_owned_number(p, number_id, data)
 
     @app.post("/v1/admin/numbers/search")
     async def search_numbers(data: dict, p=Depends(administrator)):
@@ -1042,7 +1047,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
             event = json.loads(body)["data"]
         except (ValueError, KeyError, TypeError):
             fail(422, "Invalid provider event")
-        return await service.accept_webhook(tenant_id, event, hashlib.sha256(body).hexdigest())
+        return await service.accept_webhook(tenant_id, event, hashlib.sha256(body).hexdigest(), verified=True)
 
     @app.post("/v1/admin/registry/import")
     def registry_import(data: dict, p=Depends(administrator)):
