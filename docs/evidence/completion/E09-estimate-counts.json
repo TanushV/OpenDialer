@@ -1,0 +1,80 @@
+{
+  "step_id": "E09",
+  "stage": "corrected-estimate-counts-and-job-finish-fence",
+  "source_commit": "7405dbff7e3cf044724240bb361a9d75dfd4e83a",
+  "production_tree_digest": "38b1a2b5b481625e7bc8a907888dbe94c55ec356ff05c08d686700b59888dc64",
+  "test_tree_digest": "b4e545a06ed934546f22af072901c484bc1c7c8fe41e37cd0e53f1ee217db674",
+  "digest_method": "SHA256 git ls-tree -r of listed product/test roots",
+  "case_ids": [
+    "C035",
+    "C037",
+    "C038"
+  ],
+  "mode": [
+    "sqlite",
+    "postgresql"
+  ],
+  "fixture_seed": 20261018,
+  "commands": [
+    "pytest services/backend/tests/test_incremental_estimates.py services/backend/tests/test_optimization_learning.py services/backend/tests/test_learning_chronology.py -q --tb=short",
+    "OPENDIALER_TEST_POSTGRES_URL=<documented-disposable> pytest services/backend/tests/test_incremental_estimates.py services/backend/tests/test_optimization_learning.py services/backend/tests/test_learning_chronology.py services/backend/tests/test_incremental_reports.py -q --tb=short -k \"not ordinary_refresh\"",
+    "pytest services/backend/tests/test_strategy_exposure.py services/backend/tests/test_optimization_completion.py services/backend/tests/test_incremental_reports.py -q --tb=short -k \"not ordinary_refresh\""
+  ],
+  "environment": {
+    "python": "3.12.13",
+    "postgresql": "17 disposable loopback authority",
+    "installed_app_changed": false
+  },
+  "started_at": null,
+  "finished_at": "2026-10-19T18:14:40.438885+00:00",
+  "timestamp_note": "Start not retained; durations from runner logs",
+  "result_counts": {
+    "estimates_7405dbf": {
+      "sqlite_passed": 86,
+      "sqlite_seconds": 8.59,
+      "postgresql_passed": 108,
+      "postgresql_deselected": 1,
+      "postgresql_seconds": 87.12,
+      "scope_note": "PostgreSQL adds incremental report cases; SQLite scope differs"
+    },
+    "comparison_removal_9f26a00": {
+      "sqlite_passed": 67,
+      "sqlite_seconds": 25.52,
+      "postgresql_passed": 67,
+      "postgresql_seconds": 140.24,
+      "deselected_each": 1
+    },
+    "job_finish_a8ecb06": {
+      "sqlite_passed": 54,
+      "sqlite_pg_only_skip": 1,
+      "sqlite_seconds": 22.4,
+      "postgresql_passed": 55,
+      "postgresql_seconds": 107.87,
+      "command_note": "Exact prior scoped command not retained; raw logs retain result and failing node details"
+    }
+  },
+  "failed_cases": [],
+  "raw_log_sha256": {
+    "E09-finish-race-red.txt": "17d6a41874295d0b24848dea62c09f5bb8bb14f5f5f02e0563dc3032804eb712",
+    "E09-finish-race-sqlite.txt": "a24ab8d7e07b6c46a4d09604137a7f68610cc02609fb9c017e9dce50fc399e59",
+    "E09-finish-race-postgres.txt": "df15a231d08a0d10fdcf4e042f842e4f011390615fb467362efce5306e1ebb3f",
+    "E09-comparison-removal-sqlite.txt": "1c1067d0ee2059e57ebddf00392fd6b85b5c189b2a14f13243818a4c4200e28a",
+    "E09-comparison-removal-postgres.txt": "71e57b54899575a0525b95c0d27a4581c67a3e72d733b109603bdc0e4cb66d21",
+    "E09-estimates-red.txt": "74dfc4449da6fe035b48980ef56f7d2c34f1302f109183dce1a2989975ab44a7",
+    "E09-estimates-first-green.txt": "95be68fe90f896716c124a65dd0fb259419692741c4ed9ed8f37430d628e7845",
+    "E09-estimates-postgres.txt": "6a78672760528c8a8af884c9fa7023a76675526ee1db4c8635756687463e9519",
+    "E09-estimate-serving-red.txt": "821d8991553c10ff846090239780b37e2803f3ee43c57c28cbe12624f07bba3f",
+    "E09-bounded-learning-red.txt": "c855c57d44abc62ffacf25af757b4cdc76f47e4fe8dcd296482b74c8178515c8"
+  },
+  "retired_paths": [
+    "Historical comparison I/O and batch comparison implementation; fixtures only in tests/comparison_oracle.py",
+    "Duplicate sparse inference arithmetic; historical and projected inputs share one reducer"
+  ],
+  "known_limitations": [
+    "Routine refresh and bounded explicit dataset serving contracts remain red at f4b29f3 and1bcec09; implementation ongoing",
+    "No full E09 or E13 acceptance; no native change or live provider call",
+    "Job receipts and comparison removal refer to their earlier exact sources, not changed estimate product",
+    "Missing outcome observations remain excluded from training datasets; serving statistics count submitted unclassified observations explicitly"
+  ],
+  "external_calls": false
+}

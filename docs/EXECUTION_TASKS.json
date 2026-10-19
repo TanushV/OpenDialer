@@ -591,7 +591,8 @@
         "services/backend/tests/test_work_measurement.py",
         "services/backend/tests/test_migrations.py",
         "services/backend/tests/test_metric_readiness.py",
-        "services/backend/tests/test_incremental_reports.py"
+        "services/backend/tests/test_incremental_reports.py",
+        "services/backend/tests/test_incremental_estimates.py"
       ],
       "receipts": [
         "docs/evidence/completion/E09-contracts-red.json",
@@ -604,7 +605,8 @@
         "docs/evidence/completion/E09-secondary-counts.json",
         "docs/evidence/completion/E09-trial-counts.json",
         "docs/evidence/completion/E09-comparison-health.json",
-        "docs/evidence/completion/E09-report-readers.json"
+        "docs/evidence/completion/E09-report-readers.json",
+        "docs/evidence/completion/E09-estimate-counts.json"
       ],
       "planned_case_ids": [
         "C035",
@@ -620,7 +622,7 @@
         "A50",
         "A51"
       ],
-      "checkpoint": "023916a backend87 perDB; cost75 perDB; final four browser workflows pass with draft-preservation fix. Ordinary refresh still rebuilds history. Continue changed-unit estimates/plans and explicit bounded datasets, then final E09 acceptance.",
+      "checkpoint": "7405dbf sparse counts86 SQLite/108 PostgreSQL; corrected job finish and comparison removal accepted at their exact sources. f4b29f3/1bcec09 serving/cost/treatment/bounded explicit-data contracts red; implement them, then changed-lead planning and final E09 acceptance.",
       "implementation_todos": [
         {
           "id": "E09.admission",
@@ -686,6 +688,16 @@
           "id": "E09.bounded_reports",
           "status": "accepted-software",
           "work": "Saved forecast freshness, bounded current plans/recent scoped decisions, complete-attributed cost and comparison draft preservation; E09-report-readers receipt"
+        },
+        {
+          "id": "E09.estimate_counts",
+          "status": "accepted-software",
+          "work": "Shared sparse sufficient statistics, corrected wrap-up work, provisional unknowns and per-lead retries; E09-estimate-counts receipt"
+        },
+        {
+          "id": "E09.estimate_serving",
+          "status": "in-progress",
+          "work": "Projected selection profile, pooled complete-cost disclosure, treatment rewards, ordinary refresh without history, explicit bounded learning snapshots"
         }
       ]
     },
