@@ -384,3 +384,40 @@ def test_attributed_usage_index_backfills_without_rewriting_the_receipt(workspac
         row["name"]: row["column_names"] for row in inspect(service.db.engine).get_indexes("usage_ledger")
     }
     assert indexes["ix_usage_ledger_call"] == ["tenant_id", "seller_id", "op_call_id"]
+
+
+def test_unchanged_ticks_and_changed_counts_keep_one_pending_learning_job(workspace, app, clock):
+    from app.db import Job
+    from conftest import completed_report
+    from sqlalchemy import select
+
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    finish(workspace, call)
+    completed_report(workspace)
+    service.refresh_optimization(p)
+
+    def learning_jobs():
+        with service.db.transaction(False) as s:
+            return [
+                (j.id, j.payload.get("desired_generation"))
+                for j in s.scalars(
+                    select(Job).where(
+                        Job.tenant_id == p["tenant_id"],
+                        Job.key.startswith("operational-train:snapshot:", autoescape=True),
+                    )
+                )
+            ]
+
+    first = learning_jobs()
+    assert len(first) == 1
+    clock.now += timedelta(seconds=30)
+    service.refresh_optimization(p)
+    assert learning_jobs() == first, "Passing time alone must not create another historical learning job"
+    with service.db.transaction() as s:
+        update(get(s, "call_attempts", call["id"]), outcome="gatekeeper")
+    project_pending(service, p)
+    service.refresh_optimization(p)
+    updated = learning_jobs()
+    assert len(updated) == 1 and updated[0][0] == first[0][0]
+    assert updated[0][1] > first[0][1]
