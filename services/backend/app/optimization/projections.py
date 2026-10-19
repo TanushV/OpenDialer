@@ -171,6 +171,52 @@ def usage_values(row):
     }
 
 
+def observed_call_cost(values):
+    """A complete call is one eligible attempt with a checked receipt set."""
+    eligible = bool(values.get("eligible"))
+    complete = eligible and values.get("verified_sets", 0) > 0 and not values.get("incomplete")
+    return {
+        "observed_call_cost_microusd": values.get("settled_microusd", 0) if complete else 0,
+        "observed_cost_calls": int(bool(complete)),
+        "unknown_cost_calls": int(eligible and not complete),
+    }
+
+
+def _call_cost_group(snapshot, values, namespace):
+    kind, row = snapshot["kind"], snapshot["row"]
+    if kind == "call" and row and not row.get("inbound"):
+        identity, counts = row["id"], {"eligible": values.get("dataset_rows", 0)}
+    elif kind == "usage" and row:
+        identity = row.get("call_id") or row.get("object_id")
+        if not identity or row.get("status") == "released":
+            return []
+        settled = row.get("status") == "settled" and row.get("cost_usd") is not None
+        counts = {
+            "incomplete": int(not settled),
+            "verified_sets": int(
+                bool(settled and row.get("kind") == "call_authorization" and row.get("billing_verified"))
+            ),
+            "settled_microusd": (_microusd(row["cost_usd"]) - _microusd(row.get("credited_usd", 0)))
+            if settled
+            else 0,
+        }
+    else:
+        return []
+    return [
+        (
+            {
+                "bucket_kind": "call_cost",
+                "bucket_day": None,
+                "campaign_id": snapshot["campaign_id"],
+                "definition_version": snapshot["definition"],
+                "namespace": namespace,
+                "call_id": identity,
+            },
+            counts,
+        )
+    ]
+
+
 def rep_day_values(intervals, calls, *, rep_id, day, now):
     from app.measurement import work_summary
 
@@ -424,7 +470,7 @@ def definition_version(config, epoch):
     return hashlib.sha256(
         json.dumps(
             {
-                "metrics": "cohort-work-v10",
+                "metrics": "cohort-work-v11",
                 "epoch": epoch,
                 "goal": config["conversion_goal"],
                 "window_days": config["window_days"],
@@ -1090,6 +1136,34 @@ def _detail_groups(snapshot, now, namespace):
     ]
 
 
+def _apply_bucket_delta(service, session, p, group, delta, fields=()):
+    key = _group_key(service, group)
+    model = MODELS["metric_buckets"]
+    bucket = session.scalar(
+        _scoped_query(p, "metric_buckets").where(model.external_key == key).with_for_update()
+    )
+    previous = bucket.data.get("values", {}) if bucket else {}
+    total = {**dict.fromkeys(fields, 0), **previous, **{k: previous.get(k, 0) + v for k, v in delta.items()}}
+    value = {**group, "group": group, "group_key": key.rsplit(":", 1)[-1], "values": total}
+    kind = group["bucket_kind"]
+    empty = (
+        (kind == "drift" and total.get("rows", 0) == 0)
+        or (kind == "trial" and total.get("control:leads", 0) + total.get("candidate:leads", 0) == 0)
+        or (
+            kind in {"comparison", "number_health", "number_health_stratum", "call_cost"}
+            and not any(total.values())
+        )
+    )
+    if empty:
+        if bucket:
+            session.delete(bucket)
+    elif bucket:
+        update(bucket, **value)
+    else:
+        put(session, "metric_buckets", p["tenant_id"], p["seller_id"], value, key=key, now=service.clock())
+    return previous, total
+
+
 def refresh_unit(service, p, payload):
     """Compute outside writes, then replace one source vector under a generation fence."""
     if payload["source_kind"] in {"endpoint-leads", "lead-calls", "campaign-leads"}:
@@ -1162,6 +1236,7 @@ def refresh_unit(service, p, payload):
         for namespace, previous in current.items():
             target = snapshot["targets"][namespace]
             values, due, details = calculated[namespace]
+            details = details + _call_cost_group({**snapshot, **target}, values, namespace)
             key = unit_key(target["definition"], namespace, kind, identity)
             saved = previous.data if previous else {}
             groups = (_groups({**snapshot, **target}, namespace) if values else []) + [g for g, _ in details]
@@ -1184,6 +1259,7 @@ def refresh_unit(service, p, payload):
                 continue
             old_groups = {_group_key(service, g): g for g in saved.get("groups", [])}
             new_groups = {_group_key(service, g): g for g in groups}
+            cost_delta = {}
             for group_key in sorted(old_groups.keys() | new_groups.keys()):
                 delta = delta_values(
                     saved.get("group_values", {}).get(group_key, saved.get("values", {}))
@@ -1193,50 +1269,21 @@ def refresh_unit(service, p, payload):
                 )
                 if not delta:
                     continue
-                bucket_model = MODELS["metric_buckets"]
-                bucket = session.scalar(
-                    _scoped_query(p, "metric_buckets")
-                    .where(bucket_model.external_key == group_key)
-                    .with_for_update()
+                group = new_groups.get(group_key) or old_groups[group_key]
+                before, after = _apply_bucket_delta(
+                    service, session, p, group, delta, group_values.get(group_key, values)
                 )
-                old_values = bucket.data.get("values", {}) if bucket else {}
-                total = {
-                    **dict.fromkeys(group_values.get(group_key, values), 0),
-                    **old_values,
-                    **{k: old_values.get(k, 0) + v for k, v in delta.items()},
-                }
-                value = {
-                    **(new_groups.get(group_key) or old_groups[group_key]),
-                    "group": new_groups.get(group_key) or old_groups[group_key],
-                    "group_key": group_key.rsplit(":", 1)[-1],
-                    "values": total,
-                }
-                empty_detail = (
-                    (value["bucket_kind"] == "drift" and total.get("rows", 0) == 0)
-                    or (
-                        value["bucket_kind"] == "trial"
-                        and total.get("control:leads", 0) + total.get("candidate:leads", 0) == 0
-                    )
-                    or (
-                        value["bucket_kind"] in {"comparison", "number_health", "number_health_stratum"}
-                        and not any(total.values())
-                    )
-                )
-                if empty_detail:
-                    if bucket:
-                        session.delete(bucket)
-                elif bucket:
-                    update(bucket, **value)
-                else:
-                    put(
-                        session,
-                        "metric_buckets",
-                        p["tenant_id"],
-                        p["seller_id"],
-                        value,
-                        key=group_key,
-                        now=service.clock(),
-                    )
+                if group["bucket_kind"] == "call_cost":
+                    for name, change in delta_values(
+                        observed_call_cost(before), observed_call_cost(after)
+                    ).items():
+                        cost_delta[name] = cost_delta.get(name, 0) + change
+            if cost_delta:
+                # Same short seller watermark fence as the source replacement.
+                # Receipt and eligibility changes update the total atomically,
+                # without reading the call's ledger history or another job.
+                total_group = _groups({**snapshot, **target}, namespace)[0]
+                _apply_bucket_delta(service, session, p, total_group, cost_delta)
             value = {
                 "source_kind": kind,
                 "source_id": identity,
@@ -2078,6 +2125,11 @@ def read_metrics(service, p):
                 ("credited", "credited"),
             ]
         },
+        "observed_cost_usd": values.get("observed_call_cost_microusd", 0) / 1_000_000
+        if values.get("observed_cost_calls")
+        else None,
+        "observed_cost_calls": values.get("observed_cost_calls", 0),
+        "unknown_cost_calls": values.get("unknown_cost_calls", 0),
         "billing_verified": bool(values.get("usage_count")) and not values.get("unverified_usage_count"),
         "simulation": service.settings.simulation,
     }
