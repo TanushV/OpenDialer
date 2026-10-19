@@ -89,8 +89,9 @@ def verify(path):
         ):
             error("receipt_outside_scope", owner, "Receipt is outside the evidence or manifest directory")
             return None
-        if candidate in cache:
-            return cache[candidate]
+        cache_key = (candidate, current)
+        if cache_key in cache:
+            return cache[cache_key]
         try:
             data = json.loads(candidate.read_text())
             if not isinstance(data, dict):
@@ -98,7 +99,7 @@ def verify(path):
         except (OSError, ValueError):
             error("missing_receipt", owner, reference)
             return None
-        cache[candidate] = data
+        cache[cache_key] = data
         profiles = data.get("profiles", [data])
         for profile in profiles:
             for key, roots in (("production_tree_digest", PRODUCTION), ("test_tree_digest", TESTS)):

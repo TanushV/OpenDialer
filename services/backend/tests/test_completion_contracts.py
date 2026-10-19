@@ -115,6 +115,57 @@ def test_mutation_inventory_names_real_assertions_and_disposable_execution():
     assert data["success_requires"] == "unmutated_pass_and_designated_mutated_assertion_failure"
 
 
+def test_ci_enforces_each_database_statement_and_branch_floor():
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+    for mode in ("sqlite", "postgres"):
+        assert f"--cov-report=json:work/remediation/completion/{mode}-coverage.json" in workflow
+        assert f"--junitxml=work/remediation/completion/{mode}-junit.xml" in workflow
+    assert workflow.count("--cov=app --cov-branch") == 2
+    assert "check_completion_coverage.py --statements 90 --branches 80" in workflow
+    assert "name: software-acceptance-receipts" in workflow
+    assert "if: always()" in workflow
+
+
+def test_historical_receipt_cache_cannot_bypass_final_source_check(tmp_path, monkeypatch):
+    from scripts import completion_acceptance as acceptance
+
+    current, old = "a" * 40, "b" * 40
+    monkeypatch.setattr(
+        acceptance, "tree_digest", lambda commit, roots: "1" * 64 if commit == current else "2" * 64
+    )
+    receipt = tmp_path / "history.json"
+    receipt.write_text(
+        json.dumps(
+            {
+                "source_commit": old,
+                "production_tree_digest": "2" * 64,
+                "test_tree_digest": "2" * 64,
+                "result_counts": {"passed": 1},
+                "raw_log_sha256": "3" * 64,
+                "external_calls": False,
+            }
+        )
+    )
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "source_commit": current,
+                "production_tree_digest": "1" * 64,
+                "test_tree_digest": "1" * 64,
+                "steps": [
+                    {"id": identity, "status": "accepted-software", "receipts": [str(receipt)]}
+                    for identity in ("E00", "E13")
+                ],
+            }
+        )
+    )
+    result = acceptance.verify(manifest)
+    assert any(e["code"] == "stale_source" and e["target"] == str(receipt) for e in result["errors"]), (
+        "A receipt first seen as history still needs current-source validation at the freeze gate"
+    )
+
+
 def test_bounded_acceptance_tools(tmp_path):
     unsafe = Path.home() / "Library/Application Support/com.opendialer.desktop/local"
     result = run_tool("measure_completion.py", "--profile", "all", "--seed", 20261018, "--output-dir", unsafe)

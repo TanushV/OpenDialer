@@ -29,10 +29,20 @@ jobs:
           version: '0.10.12'
       - run: uv sync --frozen --python 3.12
       - run: uv run ruff check services/backend/app services/backend/tests tests scripts deploy/backup
-      - run: uv run pytest --cov=app --cov-report=xml -q
-      - run: uv run pytest services/backend/tests -q
+      - run: uv run ruff format --check services/backend/app services/backend/tests tests scripts deploy/backup
+      - run: mkdir -p work/remediation/completion
+      - run: uv run pytest services/backend/tests tests -q --cov=app --cov-branch --cov-report=json:work/remediation/completion/sqlite-coverage.json --junitxml=work/remediation/completion/sqlite-junit.xml
+      - run: uv run pytest services/backend/tests tests -q --cov=app --cov-branch --cov-report=json:work/remediation/completion/postgres-coverage.json --junitxml=work/remediation/completion/postgres-junit.xml
         env:
           OPENDIALER_TEST_POSTGRES_URL: postgresql+psycopg://postgres:disposable_ci_test@localhost:5432/opendialer_test
+      - run: uv run python scripts/check_completion_coverage.py --statements 90 --branches 80 work/remediation/completion/sqlite-coverage.json work/remediation/completion/postgres-coverage.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: software-acceptance-receipts
+          path: |
+            work/remediation/completion/*-coverage.json
+            work/remediation/completion/*-junit.xml
       - run: uv run pip-audit --disable-pip --no-deps -r <(uv export --frozen --no-dev --no-hashes --no-emit-project)
         shell: bash
       - uses: actions/setup-node@v4
@@ -42,7 +52,7 @@ jobs:
           cache-dependency-path: apps/desktop/package-lock.json
       - run: npm ci
         working-directory: apps/desktop
-      - run: npm run build && npm test && npm audit --audit-level=moderate
+      - run: npm run typecheck && npm run format:check && npm run build && npm test && npm audit --audit-level=moderate
         working-directory: apps/desktop
       - run: npx playwright install --with-deps chromium
         working-directory: apps/desktop
@@ -81,4 +91,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: uv run python scripts/build_sidecar.py
       - run: cargo fmt --check && cargo test --locked
+        working-directory: apps/desktop/src-tauri
+      - run: cargo clippy --locked --all-targets -- -D warnings
         working-directory: apps/desktop/src-tauri

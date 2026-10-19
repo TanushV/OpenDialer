@@ -39,8 +39,8 @@
     {
       "id": "general_capacity",
       "source": "services/backend/app/optimization/capacity.py",
-      "find": "if daily_use[(identity, day)] + debit >= limit:",
-      "replace": "if daily_use[(identity, day)] + debit >= (limit * 2 if number.get(\"region\") == \"general\" else limit):",
+      "find": "return values.get(day, values.get(\"default\", 0))",
+      "replace": "return values.get(day, values.get(\"default\", 0)) * (2 if self.region == \"general\" else 1)",
       "designated_test": "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle",
       "status": "planned-not-executed"
     },
@@ -55,16 +55,16 @@
     {
       "id": "future_label",
       "source": "services/backend/app/ml/training.py",
-      "find": "timestamp(row.get(\"label_available_at\")) or at,",
-      "replace": "at,",
+      "find": "return max(at, observed, available, end) if available and end else datetime.max.replace(tzinfo=UTC)",
+      "replace": "return max(at, observed, end) if available and end else datetime.max.replace(tzinfo=UTC)",
       "designated_test": "services/backend/tests/test_learning_chronology.py::test_each_fitting_partition_purges_labels_crossing_its_next_boundary",
       "status": "planned-not-executed"
     },
     {
       "id": "unreviewed_stream",
       "source": "services/backend/app/coaching/workflows.py",
-      "find": "ground_guidance(result, request)",
-      "replace": "None if progressive else ground_guidance(result, request)",
+      "find": "ground_guidance(result, request, cached=source == \"cached_knowledge\", progressive=progressive)",
+      "replace": "None if progressive else ground_guidance(result, request, cached=source == \"cached_knowledge\")",
       "designated_test": "services/backend/tests/test_live_claim_review.py::test_early_factual_stream_is_not_displayed_before_meaning_review",
       "status": "planned-not-executed"
     },
