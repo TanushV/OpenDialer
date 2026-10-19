@@ -19,6 +19,41 @@ def no_calculation(*args, **kwargs):
     raise AssertionError("Report view reconstructed historical analysis")
 
 
+def test_home_snapshot_runs_after_metric_sources_but_before_unrelated_planning(workspace, app):
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        for job in s.scalars(select(Job)):
+            job.status = "completed"
+    planning = service.jobs.enqueue(
+        "ml",
+        {"kind": "retry_plan_refresh", "seller_id": p["seller_id"]},
+        "planning-backlog",
+        tenant_id=p["tenant_id"],
+        priority=15,
+    )
+    source = service.jobs.enqueue(
+        "ml",
+        {"kind": "metric_refresh", "seller_id": p["seller_id"]},
+        "metric-source",
+        tenant_id=p["tenant_id"],
+        priority=30,
+    )
+    rebuild = service.jobs.enqueue(
+        "ml",
+        {"kind": "metric_rebuild", "seller_id": p["seller_id"]},
+        "metric-rebuild",
+        tenant_id=p["tenant_id"],
+        priority=20,
+    )
+    home = service.enqueue_report(p, "fair-home", 1, None, home=True)
+    claimed = []
+    for _ in range(4):
+        job = service.jobs.claim("ml", "fair-reader", tenant_id=p["tenant_id"])
+        claimed.append(job["id"])
+        service.jobs.complete(job["id"], "fair-reader")
+    assert claimed == [source["id"], rebuild["id"], home["id"], planning["id"]]
+
+
 def test_saved_report_does_not_rebuild_history_on_view(workspace, app, monkeypatch):
     service, p = app.state.service, principal(workspace)
     service.refresh_optimization(p)

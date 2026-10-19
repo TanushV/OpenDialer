@@ -338,7 +338,9 @@ class ReportProjections:
                     },
                     identity,
                     tenant_id=p["tenant_id"],
-                    priority=10,
+                    # Source deltas (30) and rebuild (20) precede this small view;
+                    # unrelated retry planning (15) must not strand first-run totals.
+                    priority=18 if home else 10,
                 )
         except IntegrityError:
             # Concurrent viewers share the original job; a failed enqueue is rolled back.
