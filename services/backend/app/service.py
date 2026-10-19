@@ -631,20 +631,35 @@ class Service(ReservationPlanner):
             now=self.clock(),
         )
 
+    def agent_leg_in(self, s, p, *, provider_id=None, leg_id=None, rep_id=None, active=False):
+        model = MODELS["call_legs"]
+        query = select(model).where(model.tenant_id == p["tenant_id"])
+        if p.get("seller_id"):
+            query = query.where(model.seller_id == p["seller_id"])
+        if rep_id:
+            query = query.where(model.op_owner_id == rep_id)
+        if provider_id:
+            query = query.where(model.op_provider_id == provider_id)
+        elif leg_id:
+            query = query.where(model.id == leg_id)
+        elif active and rep_id:
+            query = query.where(model.op_status.in_(["submitting", "uncertain", "ringing", "answered"]))
+        else:
+            raise ValueError("Agent lookup requires a provider, local identity or active rep")
+        candidates = list(s.scalars(query.limit(2)))
+        if len(candidates) > 1:
+            fail(409, "Multiple agent identities need review before another setup")
+        return next((row for row in candidates if row.data.get("kind") == "agent"), None)
+
     def presence(self, p, data):
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             user = self.required(s, "users", p["user_id"], p)
             if not self.settings.simulation and data.get("agent_call_control_id"):
-                verified = [
-                    r
-                    for r in self.scoped(s, "call_legs", p)
-                    if r.data.get("provider_id") == data["agent_call_control_id"]
-                    and r.data.get("rep_id") == p["user_id"]
-                    and r.data.get("state") == "answered"
-                    and r.data.get("kind") == "agent"
-                ]
-                if not verified:
+                verified = self.agent_leg_in(
+                    s, p, provider_id=data["agent_call_control_id"], rep_id=p["user_id"]
+                )
+                if not verified or verified.data.get("state") != "answered":
                     fail(403, "Agent leg must be established and verified by the server")
             if data.get("status") == "paused":
                 self.pause_work_in(s, p)

@@ -1175,16 +1175,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.get("/v1/telephony/agent/{provider_id:path}")
     def agent_status(provider_id: str, p=Depends(principal)):
         with db.transaction(False) as session:
-            leg = next(
-                (
-                    r
-                    for r in service.scoped(session, "call_legs", p)
-                    if r.data.get("kind") == "agent"
-                    and r.data.get("rep_id") == p["user_id"]
-                    and r.data.get("provider_id") == provider_id
-                ),
-                None,
-            )
+            leg = service.agent_leg_in(session, p, provider_id=provider_id, rep_id=p["user_id"])
             if not leg:
                 fail(404, "Verified agent leg not found")
             return {"state": leg.data["state"], "agent_call_control_id": provider_id}

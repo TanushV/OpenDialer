@@ -224,6 +224,14 @@ def columns(kind):
 def indexes(name):
     return (
         *(
+            (
+                Index("ix_call_legs_provider_identity", "tenant_id", "op_provider_id"),
+                Index("ix_call_legs_rep_state", "tenant_id", "seller_id", "op_owner_id", "op_status"),
+            )
+            if name == "call_legs"
+            else ()
+        ),
+        *(
             (Index("ix_leads_endpoint", "tenant_id", "seller_id", "op_endpoint_id", "id"),)
             if name == "leads"
             else ()

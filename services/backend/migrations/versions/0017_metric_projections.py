@@ -59,6 +59,10 @@ def upgrade():
         for scope in ("tenant_id", "seller_id"):
             op.create_index(f"ix_{name}_{scope}", name, [scope])
     indexes = {
+        "call_legs": {
+            "ix_call_legs_provider_identity": ["tenant_id", "op_provider_id"],
+            "ix_call_legs_rep_state": ["tenant_id", "seller_id", "op_owner_id", "op_status"],
+        },
         "usage_ledger": {"ix_usage_ledger_call": ["tenant_id", "seller_id", "op_call_id"]},
         "leads": {"ix_leads_endpoint": ["tenant_id", "seller_id", "op_endpoint_id", "id"]},
         "work_intervals": {

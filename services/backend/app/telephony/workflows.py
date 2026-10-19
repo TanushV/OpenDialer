@@ -7,7 +7,7 @@ from datetime import timedelta
 from sqlalchemy import delete, select
 
 from app.compliance.policy import authorize
-from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, rows, uid, update
+from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, uid, update
 from app.service import dt, fail
 from app.telephony.recovery import safe_stop, within_command_window
 from app.telephony.reducer import TERMINAL, owns_effect
@@ -501,16 +501,7 @@ class TelephonyWorkflows:
     def _claim_agent(self, p, leg_id, owner):
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
-            prior = next(
-                (
-                    r
-                    for r in self.scoped(s, "call_legs", p)
-                    if r.data.get("kind") == "agent"
-                    and r.data.get("rep_id") == p["user_id"]
-                    and r.data.get("state") in {"submitting", "uncertain", "ringing", "answered"}
-                ),
-                None,
-            )
+            prior = self.agent_leg_in(s, p, rep_id=p["user_id"], active=True)
             if prior:
                 if prior.data.get("provider_id"):
                     return doc(prior), False
@@ -601,29 +592,13 @@ class TelephonyWorkflows:
         if not isinstance(provider_id, str) or not provider_id:
             return False
         with self.db.transaction(session=session) as s:
-            legs = rows(s, "call_legs", tenant_id)
-            leg = next(
-                (
-                    r
-                    for r in legs
-                    if r.data.get("kind") == "agent"
-                    and r.data.get("provider_id") == payload.get("call_control_id")
-                ),
-                None,
-            )
+            leg = self.agent_leg_in(s, {"tenant_id": tenant_id}, provider_id=provider_id)
             if not leg:
                 try:
                     context = json.loads(base64.b64decode(payload.get("client_state", "")))
                     if not isinstance(context, dict) or context.get("tenant_id") != tenant_id:
                         return False
-                    leg = next(
-                        (
-                            r
-                            for r in legs
-                            if r.id == context.get("agent_leg_id") and r.data.get("kind") == "agent"
-                        ),
-                        None,
-                    )
+                    leg = self.agent_leg_in(s, {"tenant_id": tenant_id}, leg_id=context.get("agent_leg_id"))
                 except (ValueError, TypeError):
                     return False
             if not leg or leg.data.get("provider_id") not in {None, provider_id}:
@@ -642,7 +617,7 @@ class TelephonyWorkflows:
                 else leg.data["state"],
             )
             if event_type == "call.hangup":
-                user = next((u for u in rows(s, "users", tenant_id) if u.id == leg.data["rep_id"]), None)
+                user = get(s, "users", leg.data["rep_id"], tenant_id)
                 if user and user.data.get("presence", {}).get("agent_call_control_id") in {None, provider_id}:
                     update(
                         user, presence={"status": "paused", "audio_ready": False, "telephony_ready": False}
