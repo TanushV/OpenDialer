@@ -567,6 +567,8 @@ class Service(ReservationPlanner):
             seller_approved=seller.data.get("approved", False),
             authorization_reconciled=not seller.data.get("restore_hold", False),
             journal_reconciled=not seller.data.get("journal_recovery_required", False)
+            and not seller.data.get("effect_journal_pending")
+            and not getattr(self, "_effect_journal_fault", False)
             and (p["tenant_id"], p["seller_id"]) not in self.__dict__.get("_journal_faults", set()),
             policy_published=config.get("approved", False)
             and (self.settings.simulation or not config.get("synthetic")),
@@ -840,7 +842,6 @@ class Service(ReservationPlanner):
                 self.finish_call(s, p, call, "policy_cancelled")
                 return
             payload = command.data["payload"]
-            self.journal_authorization(p, doc(call), payload)
             update(
                 command,
                 status="sending",
@@ -874,6 +875,9 @@ class Service(ReservationPlanner):
                     self.clock() + timedelta(seconds=policy.data.get("min_retry_seconds", 3600))
                 ).isoformat(),
             )
+            records = [call, command, self._by_key(s, p, "usage_ledger", "call:" + call.id)]
+            self.journal_effect_in(s, p, "dial", call.id, "intent", records, source=payload)
+            self.journal_effect_in(s, p, "dial", call.id, "submitted", records, source=payload)
             return command.id, doc(call), lead.data["phone"], payload
 
     def _dial_failed(self, p, call_id, command_id, owner, exc):
@@ -898,12 +902,22 @@ class Service(ReservationPlanner):
 
     def _dial_completed(self, p, call_id, claimed, owner, receipt):
         command_id, call_data, phone, payload = claimed
-        self.journal_authorization(p, call_data, payload, provider_id=receipt["call_control_id"])
         cancel = False
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
             current = self.required(s, "command_outbox", command_id, p)
             s.refresh(current, with_for_update=True)
+            self.journal_effect_in(
+                s,
+                p,
+                "dial",
+                call_id,
+                "receipt",
+                [call, current],
+                provider_id=receipt["call_control_id"],
+                source=payload,
+                emergency=True,
+            )
             if current.data["status"] != "completed":
                 if current.data["status"] != "sending" or not owns_effect(current.data, owner, self.clock()):
                     return
@@ -1034,6 +1048,16 @@ class Service(ReservationPlanner):
                 else "Await the signed dial receipt or attach a verified carrier call reference",
             )
             update(call, state="ENDING")
+            self.journal_effect_in(
+                s,
+                p,
+                "hangup",
+                command_id,
+                "submitted",
+                [existing, call],
+                provider_id=provider_id,
+                emergency=True,
+            )
             self.coach.cancel(call.id)
             emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": "ENDING"})
             return doc(call), {"id": existing.id, "provider_id": provider_id, "command_id": command_id}
@@ -1052,6 +1076,7 @@ class Service(ReservationPlanner):
                     self.finish_call(
                         s, p, self.required(s, "call_attempts", call_id, p), "simulated_hangup_receipt"
                     )
+            self.journal_effect_in(s, p, "hangup", current.external_key, "receipt", [current], emergency=True)
 
     def _hangup_result(self, p, call_id):
         with self.db.transaction() as s:

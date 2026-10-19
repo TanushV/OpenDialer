@@ -254,6 +254,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
         replay_suppressions(service)
         replay_consent(service)
+        service.replay_effects()
     except Exception:
         db.engine.dispose()
         raise

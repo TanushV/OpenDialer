@@ -1,14 +1,211 @@
 """One budget liability per provider attempt, settled by an attributable receipt."""
 
+import hashlib
+import hmac
+import json
+import logging
 import math
+from datetime import datetime
 
+from fastapi import HTTPException
 from sqlalchemy import select
 
-from app.db import MODELS, put, update
+from app.db import MODELS, get, put, update
 from app.operational_schema import receipt_key
+
+# Explicit recovery metadata, never payloads, scripts, prompts, questions or speech.
+EFFECT_FIELDS = {
+    "call_attempts": frozenset(
+        "rep_id lead_id endpoint_id number_id reservation_id state started_at submitted_at ended_at max_call_seconds provider_id detached attempt_ordinal attempt_allowance synthetic outcome".split()
+    ),
+    "call_legs": frozenset("kind rep_id call_id provider_id state command_id started_at ended_at".split()),
+    "command_outbox": frozenset(
+        "kind action call_id rep_id number_id provider_id target inbound inbound_attempt status command_id submitted_at sent_at expires_at started_at connection_id phone lead_ids ready_at model request_digest provider_batch_id provider_order_id".split()
+    ),
+    "usage_ledger": frozenset(
+        "kind work_kind provider object_id call_id callback_id user_id request_key request_id provider_record_id provider_record_ids receipt_id at received_at submitted_at reserved_usd estimate_usd cost_usd credited_usd credit_received_at billing_verified status synthetic reconciled_to_provider_records duration_seconds leg_id".split()
+    ),
+    "registry_snapshots": frozenset(
+        "kind phone request_key status started_at authority_stamp checked_at expires_at listed estimate_usd previous_attempts".split()
+    ),
+    "followup_tasks": frozenset(
+        "kind lead_id endpoint_id number_id owner_id provider_id caller_provider_id inbound_state inbound_deadline status created_at due_at".split()
+    ),
+}
+
+
+def effect_entity(row):
+    kind = row.__tablename__
+    data = {k: v for k, v in row.data.items() if k in EFFECT_FIELDS[kind]}
+    if kind == "command_outbox":
+        data["command_id"] = row.data.get("payload", {}).get("command_id") or row.external_key
+    if kind == "usage_ledger" and data.get("call_id") and not data.get("object_id"):
+        data["object_id"] = data["call_id"]
+    return {
+        "table": kind,
+        "id": row.id,
+        "external_key": row.external_key,
+        "created_at": row.created_at.isoformat(),
+        "version": row.version,
+        "data": data,
+    }
 
 
 class RequestAccounting:
+    def journal_effect_in(
+        self, s, p, kind, identity, phase, records=(), *, provider_id=None, source=None, emergency=False
+    ):
+        """A durable boundary before effects; this does not execute or retry them."""
+        if phase not in {"intent", "submitted", "receipt"} or not identity or not kind:
+            raise ValueError("Typed effect identity and phase required")
+        entities = [effect_entity(row) for row in records if row is not None]
+        entry = {
+            "schema_version": 1,
+            "operation_id": identity,
+            "kind": kind,
+            "phase": phase,
+            "tenant_id": p["tenant_id"],
+            "seller_id": p["seller_id"],
+            "user_id": p.get("user_id"),
+            "at": self.clock().isoformat(),
+            "provider_id": provider_id,
+            "entities": entities,
+            "source_digest": hmac.new(
+                self.db.identity_key,
+                json.dumps(source if source is not None else entities, sort_keys=True, default=str).encode(),
+                hashlib.sha256,
+            ).hexdigest(),
+        }
+        try:
+            seller = get(s, "sellers", p["seller_id"], p["tenant_id"])
+            if not emergency and (
+                getattr(self, "_effect_journal_fault", False)
+                or seller
+                and seller.data.get("effect_journal_pending")
+            ):
+                raise ValueError("Repair the original effect journal before new work")
+            self.vault.append_journal("effects", entry)
+        except Exception:
+            self._effect_journal_fault = True
+            # Persist after the caller releases its writer. Emergency stops still run.
+            s.info.setdefault("after_transaction", []).append(lambda: self._save_effect_fault(p, entry))
+            if not emergency:
+                raise HTTPException(503, "EFFECT_JOURNAL_RECOVERY_REQUIRED") from None
+
+    def _save_effect_fault(self, p, entry):
+        try:
+            with self.db.transaction() as s:
+                self.db.authorize_stream(s, p)
+                seller = get(s, "sellers", p["seller_id"], p["tenant_id"])
+                if seller:
+                    pending = dict(seller.data.get("effect_journal_pending", {}))
+                    key = hashlib.sha256(json.dumps(entry, sort_keys=True).encode()).hexdigest()
+                    # Once held, only stop/receipt metadata can add further entries.
+                    if len(pending) < 128:
+                        pending[key] = entry
+                    update(
+                        seller,
+                        effect_journal_pending=pending,
+                        restore_hold=True,
+                        effect_journal_gap=len(pending) >= 128
+                        or seller.data.get("effect_journal_gap", False),
+                    )
+        except Exception as exc:
+            logging.getLogger(__name__).error("Effect journal hold unavailable: %s", type(exc).__name__)
+
+    def effect_entries(self):
+        entries = self.vault.read_journal("effects")
+        for entry in entries:
+            if (
+                entry.get("schema_version") != 1
+                or entry.get("phase") not in {"intent", "submitted", "receipt"}
+                or not all(
+                    isinstance(entry.get(k), str) and entry[k]
+                    for k in ("operation_id", "kind", "tenant_id", "seller_id", "at", "source_digest")
+                )
+            ):
+                raise HTTPException(409, "Effect journal has invalid metadata")
+            for row in entry.get("entities", []):
+                if (
+                    row.get("table") not in EFFECT_FIELDS
+                    or not row.get("id")
+                    or set(row.get("data", {})) - EFFECT_FIELDS[row["table"]]
+                ):
+                    raise HTTPException(409, "Effect journal has invalid recovery fields")
+        return entries
+
+    def replay_effects_in(self, s, *, p=None, entries):
+        """Fill missing metadata only. Existing state and authorization always win."""
+        latest = {}
+        for entry in entries:
+            scope = (entry["tenant_id"], entry["seller_id"])
+            if p and scope != (p["tenant_id"], p["seller_id"]):
+                continue
+            for entity in entry.get("entities", []):
+                key = (*scope, entity["table"], entity["id"])
+                old = latest.get(key, {})
+                latest[key] = {**entity, "data": {**old.get("data", {}), **entity["data"]}}
+                if entry.get("provider_id") and entity["table"] in {"call_attempts", "call_legs"}:
+                    latest[key]["data"]["provider_id"] = entry["provider_id"]
+        recovered = 0
+        for (tenant, seller_id, kind, identity), entity in latest.items():
+            seller = get(s, "sellers", seller_id, tenant)
+            if not seller:
+                continue  # Replayed after the scoped backup creates its seller.
+            existing = get(s, kind, identity)
+            if existing:
+                if (existing.tenant_id, existing.seller_id, existing.external_key) != (
+                    tenant,
+                    seller_id,
+                    entity["external_key"],
+                ):
+                    raise HTTPException(409, "Effect recovery identity conflicts with current data")
+                continue
+            scope = {"tenant_id": tenant, "seller_id": seller_id}
+            if entity["external_key"] and self._by_key(s, scope, kind, entity["external_key"]):
+                raise HTTPException(409, "Effect recovery request conflicts with current data")
+            data = dict(entity["data"])
+            if kind == "command_outbox":
+                data.update(
+                    status="review_required",
+                    restore_hold=True,
+                    payload={"command_id": data.get("command_id")},
+                    recovery_reason="Recovered original effect; verify before any repeat",
+                )
+            elif kind in {"call_attempts", "call_legs"} and data.get("state") not in {
+                "ENDED",
+                "FINALIZED",
+                "ended",
+            }:
+                data["state"] = "RECONCILING" if kind == "call_attempts" else "uncertain"
+            elif kind == "usage_ledger" and data.get("status") not in {"settled", "released"}:
+                data["status"] = "uncertain"
+            elif kind == "registry_snapshots":
+                data.update(status="review_required", published=False, listed=None)
+            put(
+                s,
+                kind,
+                tenant,
+                seller_id,
+                data,
+                object_id=identity,
+                key=entity["external_key"],
+                now=datetime.fromisoformat(entity["created_at"]),
+            )
+            update(seller, restore_hold=True)
+            recovered += 1
+        return recovered
+
+    def replay_effects(self):
+        try:
+            entries = self.effect_entries()
+            if entries:
+                with self.db.transaction() as s:
+                    self.replay_effects_in(s, entries=entries)
+        except Exception:
+            # Keep the app available for stopping/recovery; new effects are denied.
+            self._effect_journal_fault = True
+
     def _request_hold(self, s, p, request_key):
         model = MODELS["usage_ledger"]
         return s.scalar(
@@ -51,7 +248,7 @@ class RequestAccounting:
         s.info.pop(("budget_totals", p["tenant_id"], p["seller_id"]), None)
         if not self.budget_ok(s, p, estimate_usd):
             return False
-        put(
+        hold = put(
             s,
             "usage_ledger",
             p["tenant_id"],
@@ -72,6 +269,10 @@ class RequestAccounting:
             key="optional:" + request_key,
             now=self.clock(),
         )
+        self.journal_effect_in(s, p, work_kind or "optional_work", request_key, "intent", [hold])
+        # Admission precedes every possible submission; a crash may happen on either side
+        # of the network write. Only release_unsubmitted_budget proves it stayed unsent.
+        self.journal_effect_in(s, p, work_kind or "optional_work", request_key, "submitted", [hold])
         return True
 
     def usage(self, p, provider, kind, result, *, object_id, request_key, reserved=0.01, session=None):
@@ -162,6 +363,9 @@ class RequestAccounting:
                     key="optional:" + request_key,
                     now=self.clock(),
                 )
+            self.journal_effect_in(
+                s, p, kind, request_key, "receipt", [target], provider_id=result.request_id, emergency=True
+            )
             return target.id
 
     def release_unsubmitted_budget(self, p, request_key):
@@ -171,3 +375,12 @@ class RequestAccounting:
             target = self._request_hold(s, p, request_key)
             if target and target.data.get("status") == "reserved" and not target.data.get("request_id"):
                 update(target, status="released", cost_usd=0, reserved_usd=0, billing_verified=False)
+                self.journal_effect_in(
+                    s,
+                    p,
+                    target.data.get("work_kind") or "optional_work",
+                    request_key,
+                    "receipt",
+                    [target],
+                    emergency=True,
+                )

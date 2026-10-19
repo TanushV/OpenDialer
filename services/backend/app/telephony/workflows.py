@@ -406,6 +406,18 @@ class TelephonyWorkflows:
                 sent_at=current.data.get("sent_at") or self.clock().isoformat(),
                 lease_until=(self.clock() + timedelta(seconds=30)).isoformat(),
             )
+            for phase in ("intent", "submitted"):
+                self.journal_effect_in(
+                    s,
+                    p,
+                    command["action"],
+                    current.external_key,
+                    phase,
+                    [current, call],
+                    provider_id=target,
+                    source=command["payload"],
+                    emergency=safe_stop(command["action"]),
+                )
             return command, call.id, inbound, target, owner, call.data.get("provider_id")
 
     def _control_completed(self, p, claimed, error=None):
@@ -434,6 +446,16 @@ class TelephonyWorkflows:
                 self.finish_call(
                     s, p, self.required(s, "call_attempts", call_id, p), "simulated_control_hangup"
                 )
+            self.journal_effect_in(
+                s,
+                p,
+                command["action"],
+                current.external_key,
+                "receipt",
+                [current],
+                provider_id=target,
+                emergency=True,
+            )
 
     async def dispatch_controls(self, p, *, command_id=None):
         commands, orphan_vms = (
@@ -523,6 +545,8 @@ class TelephonyWorkflows:
                 object_id=leg_id,
                 now=self.clock(),
             )
+            for phase in ("intent", "submitted"):
+                self.journal_effect_in(s, p, "agent", leg.id, phase, [leg])
         return doc(leg), True
 
     def _agent_failed(self, p, leg_id, owner):
@@ -540,6 +564,16 @@ class TelephonyWorkflows:
             s.refresh(current, with_for_update=True)
             if current.data.get("provider_id") not in {None, receipt["call_control_id"]}:
                 fail(409, "Carrier returned a conflicting agent leg reference")
+            self.journal_effect_in(
+                s,
+                p,
+                "agent",
+                leg_id,
+                "receipt",
+                [current],
+                provider_id=receipt["call_control_id"],
+                emergency=True,
+            )
             # Signed events can establish or end the leg before the HTTP response.
             if current.data.get("provider_id") == receipt["call_control_id"] and not current.data.get(
                 "lease_owner"

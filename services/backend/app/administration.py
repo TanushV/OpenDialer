@@ -69,6 +69,8 @@ class Dialer(
                 blockers.append("SELLER_NOT_APPROVED")
             if seller.data.get("restore_hold"):
                 blockers.append("RESTORE_RECONCILIATION_REQUIRED")
+            if getattr(self, "_effect_journal_fault", False) or seller.data.get("effect_journal_pending"):
+                blockers.append("EFFECT_JOURNAL_RECOVERY_REQUIRED")
             if seller.data.get("journal_recovery_required") or (
                 p["tenant_id"],
                 p["seller_id"],
@@ -428,12 +430,16 @@ class Dialer(
 
         directory = self.settings.data_dir / "backups"
         directory.mkdir(exist_ok=True, mode=0o700)
+        checkpoints = {
+            name: self.vault.journal_checkpoint(name) for name in ("effects", "consent", "suppression")
+        }
         with self.db.transaction(False) as s:
             payload = {
                 "tenant_id": p["tenant_id"],
                 "seller_id": p["seller_id"],
                 "at": self.clock().isoformat(),
                 "schema": 1,
+                "journal_checkpoints": checkpoints,
                 "tables": {
                     kind: [
                         {
@@ -487,6 +493,7 @@ class Dialer(
             fail(422, "Backup is missing required source tables")
         events = suppression_entries(self)
         revoked = journal_entries(self)
+        effects = self.effect_entries()
         for kind, values in payload.get("tables", {}).items():
             if kind not in MODELS or any(
                 raw.get("tenant_id") != p["tenant_id"]
@@ -574,6 +581,7 @@ class Dialer(
                 if command.data.get("status") in {"pending", "sending"}:
                     update(command, status="uncertain", restore_hold=True)
             replay_in(self, s, p=p, entries=revoked)
+            recovered += self.replay_effects_in(s, p=p, entries=effects)
             seller = self.required(s, "sellers", p["seller_id"], p)
             update(seller, restore_hold=True)
             for user in self.scoped(s, "users", p):
@@ -628,6 +636,23 @@ class Dialer(
         for entry in [*journal_entries(self), *suppression_entries(self)]:
             if entry["tenant_id"] == p["tenant_id"] and entry["seller_id"] == p["seller_id"]:
                 fingerprint.update(json.dumps(entry, sort_keys=True).encode())
+        for entry in self.effect_entries():
+            if (entry["tenant_id"], entry["seller_id"]) != (p["tenant_id"], p["seller_id"]):
+                continue
+            fingerprint.update(json.dumps(entry, sort_keys=True).encode())
+            for entity in entry.get("entities", []):
+                if entity["table"] != "call_attempts":
+                    continue
+                previous = records.get(entity["id"], {})
+                records[entity["id"]] = {
+                    "call_id": entity["id"],
+                    "tenant_id": p["tenant_id"],
+                    "seller_id": p["seller_id"],
+                    "intent": {**previous.get("intent", {}), **entity["data"]},
+                    "provider_id": entry.get("provider_id")
+                    or entity["data"].get("provider_id")
+                    or previous.get("provider_id"),
+                }
         return records, fingerprint.hexdigest()
 
     def _restore_snapshot(self, p, provider_ids):
