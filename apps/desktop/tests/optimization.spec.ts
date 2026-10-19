@@ -89,7 +89,7 @@ test("live events deliver cached guidance and conversion recording without call 
   ).toBeVisible();
   await page.getByRole("button", { name: "Private help", exact: true }).click();
   await expect(
-    page.getByText("Cached knowledge example · AI unavailable"),
+    page.getByText("Seller-approved example · AI unavailable"),
   ).toBeVisible();
   await page
     .getByRole("button", { name: "Guidance was useful", exact: true })

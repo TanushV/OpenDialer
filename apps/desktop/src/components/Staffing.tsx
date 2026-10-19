@@ -66,81 +66,92 @@ export function Staffing({
         share one time grid; partial period edges are omitted. Existing calls
         and reservations reduce availability.
       </p>
-      <details open={!windows.length}>
-        <summary>Simple schedule (used without dated periods)</summary>
-        <div className="optimization-fields">
-          <label>
-            Staffing time zone
-            <input
-              value={simple.staffing_timezone}
-              onChange={(e) => onSimple({ staffing_timezone: e.target.value })}
-            />
-          </label>
-          <label>
-            Staffing starts (hour)
-            <input
-              type="number"
-              min={0}
-              max={23}
-              value={simple.staffing_start_hour}
-              onChange={(e) =>
-                onSimple({ staffing_start_hour: Number(e.target.value) })
-              }
-            />
-          </label>
-          <label>
-            Staffing ends (hour)
-            <input
-              type="number"
-              min={1}
-              max={24}
-              value={simple.staffing_end_hour}
-              onChange={(e) =>
-                onSimple({ staffing_end_hour: Number(e.target.value) })
-              }
-            />
-          </label>
-          <label>
-            Simple staffed reps
-            <input
-              type="number"
-              min={1}
-              max={100}
-              value={simple.staffing_reps}
-              onChange={(e) =>
-                onSimple({ staffing_reps: Number(e.target.value) })
-              }
-            />
-          </label>
-        </div>
-        <fieldset>
-          <legend>Staffed weekdays</legend>
-          {[
-            "Monday",
-            "Tuesday",
-            "Wednesday",
-            "Thursday",
-            "Friday",
-            "Saturday",
-            "Sunday",
-          ].map((day, i) => (
-            <label className="check-row" key={day}>
+      {Array.isArray(simple.staffing_weekdays) ? (
+        <details open={!windows.length}>
+          <summary>Simple schedule (used without dated periods)</summary>
+          <div className="optimization-fields">
+            <label>
+              Staffing time zone
               <input
-                type="checkbox"
-                checked={simple.staffing_weekdays.includes(i)}
+                value={simple.staffing_timezone}
                 onChange={(e) =>
-                  onSimple({
-                    staffing_weekdays: e.target.checked
-                      ? [...simple.staffing_weekdays, i].sort()
-                      : simple.staffing_weekdays.filter((value) => value !== i),
-                  })
+                  onSimple({ staffing_timezone: e.target.value })
                 }
               />
-              {day}
             </label>
-          ))}
-        </fieldset>
-      </details>
+            <label>
+              Staffing starts (hour)
+              <input
+                type="number"
+                min={0}
+                max={23}
+                value={simple.staffing_start_hour}
+                onChange={(e) =>
+                  onSimple({ staffing_start_hour: Number(e.target.value) })
+                }
+              />
+            </label>
+            <label>
+              Staffing ends (hour)
+              <input
+                type="number"
+                min={1}
+                max={24}
+                value={simple.staffing_end_hour}
+                onChange={(e) =>
+                  onSimple({ staffing_end_hour: Number(e.target.value) })
+                }
+              />
+            </label>
+            <label>
+              Simple staffed reps
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={simple.staffing_reps}
+                onChange={(e) =>
+                  onSimple({ staffing_reps: Number(e.target.value) })
+                }
+              />
+            </label>
+          </div>
+          <fieldset>
+            <legend>Staffed weekdays</legend>
+            {[
+              "Monday",
+              "Tuesday",
+              "Wednesday",
+              "Thursday",
+              "Friday",
+              "Saturday",
+              "Sunday",
+            ].map((day, i) => (
+              <label className="check-row" key={day}>
+                <input
+                  type="checkbox"
+                  checked={simple.staffing_weekdays.includes(i)}
+                  onChange={(e) =>
+                    onSimple({
+                      staffing_weekdays: e.target.checked
+                        ? [...simple.staffing_weekdays, i].sort()
+                        : simple.staffing_weekdays.filter(
+                            (value) => value !== i,
+                          ),
+                    })
+                  }
+                />
+                {day}
+              </label>
+            ))}
+          </fieldset>
+        </details>
+      ) : (
+        <p role="status">
+          Saved simple schedule unavailable. Reload settings before changing
+          availability.
+        </p>
+      )}
       {windows.map((window, i) => (
         <div className="optimization-fields" key={i}>
           <label>

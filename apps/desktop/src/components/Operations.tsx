@@ -319,6 +319,12 @@ function EndpointCorrection({
 }
 
 interface Proposal {
+  contingent_capacity?: {
+    status: string;
+    low?: RetryCapacity;
+    mean?: RetryCapacity;
+    high?: RetryCapacity;
+  };
   expansion_review?: {
     status: string;
     reason: string;
@@ -366,6 +372,15 @@ interface Proposal {
     account_channel_limit: number | null;
     additional_ready_after_hours: number;
   };
+}
+interface RetryCapacity {
+  status: string;
+  planned_attempts?: number;
+  existing_capacity?: number;
+  expanded_capacity?: number;
+  additional_numbers?: number | null;
+  unserved_attempts?: number;
+  minimum_proven_on_grid?: boolean;
 }
 interface PlanningProjection {
   status: "pending" | "stale" | "ready";
@@ -718,6 +733,59 @@ export function NumbersPage() {
               {proposal.contingent_retry_low_mean_high.omitted_leads} leads
               omitted from this bounded calculation.
             </p>
+          )}
+          {proposal.contingent_capacity && (
+            <section>
+              <h3>Later capacity scenarios</h3>
+              <p className="small muted">
+                Conditional retries use the same rep time, number limits and
+                stable caller identity. Whole attempts are rounded by segment
+                and attempt. These are scenarios, not reservations or a reason
+                to purchase numbers now. Unserved work may need more time or
+                reviewed workload; another number cannot replace a bound
+                identity.
+              </p>
+              {proposal.contingent_capacity.status === "not_needed" ? (
+                <p>No later permitted attempts in this forecast.</p>
+              ) : (
+                <table aria-label="Conditional retry capacity">
+                  <thead>
+                    <tr>
+                      <th>Scenario</th>
+                      <th>Known + later attempts</th>
+                      <th>Existing capacity</th>
+                      <th>Capacity with additions</th>
+                      <th>Additional numbers</th>
+                      <th>Unserved</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(["low", "mean", "high"] as const).map((name) => {
+                      const row = proposal.contingent_capacity?.[name];
+                      return (
+                        <tr key={name}>
+                          <td>
+                            {label(name)}
+                            {row?.status !== "ready" ? " · Incomplete" : ""}
+                          </td>
+                          <td>{row?.planned_attempts ?? "Unknown"}</td>
+                          <td>{row?.existing_capacity ?? "Unknown"}</td>
+                          <td>{row?.expanded_capacity ?? "Unknown"}</td>
+                          <td>
+                            {row?.additional_numbers ?? "Unknown"}
+                            {row?.additional_numbers != null &&
+                              (row.minimum_proven_on_grid
+                                ? " · minimum on grid"
+                                : " · best feasible")}
+                          </td>
+                          <td>{row?.unserved_attempts ?? "Unknown"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </section>
           )}
           {proposal.assumptions && (
             <p className="fine">

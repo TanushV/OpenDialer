@@ -237,6 +237,78 @@ def conversion_score(prediction):
     )
 
 
+def retry_statistics(rows, leads, *, now, max_attempts):
+    """Observed continuation decisions, not conversion-window negatives.
+
+    A subsequent submitted attempt or an explicitly pending next attempt is
+    positive. A current terminal/held lead is negative only for its last known
+    attempt. Unknown pending work contributes neither success nor failure.
+    """
+    from collections import defaultdict
+    from typing import get_args
+
+    from app.scheduling.models import OutcomeCode
+
+    current = {row["id"]: row for row in leads}
+    known, buckets = defaultdict(list), defaultdict(lambda: [0, 0])
+    for row in rows:
+        if (
+            row.get("label_timing_quality") == "observed"
+            and row.get("outcome") in get_args(OutcomeCode)
+            and timestamp(row.get("outcome_available_at"))
+            and timestamp(row["outcome_available_at"]) <= now
+            and timestamp(row.get("at"))
+            and timestamp(row["at"]) <= now
+        ):
+            known[row["lead_id"]].append(row)
+    for identity, attempts in known.items():
+        lead = current.get(identity, {})
+        attempts.sort(key=lambda row: (row["features"].get("attempt_count", 0), row["at"]))
+        last_by_index = {}
+        for row in attempts:
+            index = row["features"].get("attempt_count", 0)
+            last_by_index[index] = max(row["at"], last_by_index.get(index, row["at"]))
+        future_at, latest_at = {}, None
+        for index in sorted(last_by_index, reverse=True):
+            future_at[index] = latest_at
+            latest_at = max(latest_at or last_by_index[index], last_by_index[index])
+        for row in attempts:
+            index = row["features"].get("attempt_count", 0) + 1
+            if index >= max_attempts:
+                continue
+            next_at = future_at[index - 1]
+            subsequent = next_at is not None and next_at > row["at"]
+            terminal = bool(
+                lead.get("goal_completed")
+                or lead.get("outreach_hold")
+                or lead.get("suppressed")
+                or lead.get("status") in {"converted", "suppressed", "invalid", "exhausted"}
+            )
+            latest = lead.get("attempt_count") == index
+            pending = (
+                latest
+                and not terminal
+                and lead.get("status") == "eligible"
+                and timestamp(lead.get("next_attempt_at")) is not None
+            )
+            if not subsequent and not pending and not (latest and terminal):
+                continue
+            bucket = buckets[str(row.get("segment") or "unknown"), index]
+            bucket[0] += int(subsequent or pending)
+            bucket[1] += 1
+    return [
+        {
+            "segment": segment,
+            "attempt_index": index,
+            "needs_retry_count": values[0],
+            "classified_count": values[1],
+            "matured": True,
+            "available_at": now.isoformat(),
+        }
+        for (segment, index), values in sorted(buckets.items())
+    ]
+
+
 def learn_distribution(actions, history, *, segment=None, exploration=0.1, control=False, urgent=False):
     if not actions or len(actions) != len(set(actions)) or not 0 <= exploration <= 0.3:
         raise ValueError("Unique approved actions and exploration between zero and 0.3 required")

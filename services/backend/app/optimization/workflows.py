@@ -333,8 +333,11 @@ class OptimizationWorkflows(ComparisonWorkflows):
         ]
 
     def selection_profile(self, s, p, data, config):
-        from app.optimization.learning import funnel_predictions, learn_distribution
+        from app.optimization.learning import funnel_predictions, learn_distribution, retry_statistics
 
+        campaign = self.scoped(s, "campaigns", p)[0]
+        data = [r for r in data if r.get("campaign_id") == campaign.id]
+        policy = self.required(s, "policy_versions", campaign.data["policy_id"], p)
         segments = sorted({r.get("segment", "unknown") for r in data})
         actions = [r.id for r in self.scoped(s, "treatment_variants", p) if r.data.get("approved")] or [
             "approved-default"
@@ -343,6 +346,12 @@ class OptimizationWorkflows(ComparisonWorkflows):
             "as_of": self.clock().isoformat(),
             "goal": config["conversion_goal"],
             "samples": len(data),
+            "retry_observations": retry_statistics(
+                data,
+                [doc(r) for r in self.scoped(s, "leads", p) if r.data["campaign_id"] == campaign.id],
+                now=self.clock(),
+                max_attempts=policy.data.get("max_attempts", 4),
+            ),
             "pooled": funnel_predictions(data, {"segment": "unknown", "local_hour": 12}),
             "predictions": {
                 str(segment) + ":" + str(hour): funnel_predictions(
@@ -1068,7 +1077,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
             if profile.get("goal") != config["conversion_goal"]:
                 profile = {}
             estimates = {**profile.get("predictions", {}), "pooled": profile.get("pooled", {})}
-        forecast = capacity_forecast(**inputs)
+        forecast = capacity_forecast(**inputs, schedule_row_limit=None)
         selected = {row["lead_id"]: row for row in forecast["existing_schedule"]}
         saved, superseded, unchanged = 0, 0, 0
         common = {k: v for k, v in inputs.items() if k not in {"now", "leads"}}

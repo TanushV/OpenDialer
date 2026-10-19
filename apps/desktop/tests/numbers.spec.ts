@@ -107,6 +107,17 @@ for (const connected of [false, true]) {
         .getByText("Expansion review", { exact: true }),
     ).toBeVisible();
     await expect(
+      page.getByRole("heading", {
+        name: "Later capacity scenarios",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      page
+        .getByRole("table", { name: "Conditional retry capacity" })
+        .getByRole("row"),
+    ).toHaveCount(4);
+    await expect(
       page.getByRole("button", { name: "Buy numbers", exact: true }),
     ).toBeHidden();
   });

@@ -150,6 +150,7 @@ def test_unequal_work_occupies_consecutive_grid_buckets_and_full_windows():
         staffed_windows=[window(minutes=2)],
     )
     assert result["existing_only_capacity"] == 2
+    assert result["rep_capacity_attempts"] == 2
     rows = result["existing_schedule"]
     assert rows[0]["at"] == NOW.isoformat()
     assert rows[0]["end_at"] == (NOW + timedelta(seconds=30)).isoformat()
@@ -923,9 +924,9 @@ def test_retry_capacity_respects_cadence_occupancy_and_stable_identity():
         assert len({r["number_id"] for r in attempts}) == 1
         assert all(
             (datetime.fromisoformat(b["at"]) - datetime.fromisoformat(a["at"])).total_seconds() >= 3600
-            for a, b in zip(attempts, attempts[1:])
+            for a, b in itertools.pairwise(attempts)
         )
-    assert all(a["end_at"] <= b["at"] for a, b in zip(rows, rows[1:]))
+    assert all(a["end_at"] <= b["at"] for a, b in itertools.pairwise(rows))
 
 
 def test_retry_budget_exhaustion_cannot_erase_a_known_work_proof(monkeypatch):
@@ -957,3 +958,78 @@ def test_full_internal_schedule_does_not_truncate_retry_publication():
     full = plan(rows, [number(daily_limit=2000)], schedule_row_limit=None, **options)
     assert len(full["existing_schedule"]) == 1002
     assert full["schedule_rows_omitted"] == 0
+
+
+def test_retry_capacity_can_propose_one_shared_addition_for_unbound_work():
+    result = plan(
+        [lead("one"), lead("two")],
+        [number(daily_limit=2)],
+        daily_capacity_per_number=2,
+        staffed_windows=[window(minutes=180)],
+        rep_minutes=180,
+        policy={"max_attempts": 2, "min_retry_seconds": 3600, "local_start_hour": 9, "local_end_hour": 20},
+    )
+    high = result["contingent_capacity"]["high"]
+    assert result["minimum_additional_numbers"] == 0
+    assert high["additional_numbers"] == 1
+    assert high["expanded_capacity"] == 4
+    assert high["unserved_attempts"] == 0
+    for identity in ("one", "two"):
+        assert len({r["number_id"] for r in high["schedule"] if r["lead_id"] == identity}) == 1
+
+
+def test_runtime_retry_profile_is_used_by_capacity(workspace, app):
+    from app.db import update
+    from test_remediation_privacy import principal
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        row = service.scoped(s, "leads", p)[0]
+        update(row, attempt_count=1, next_attempt_at=service.clock().isoformat())
+        data = [
+            {
+                "lead_id": row.id,
+                "campaign_id": workspace["campaign_id"],
+                "at": (service.clock() - timedelta(days=1)).isoformat(),
+                "features": {"attempt_count": 0},
+                "segment": "services",
+                "outcome": "no_answer",
+                "outcome_available_at": service.clock().isoformat(),
+                "label_timing_quality": "observed",
+                "conversion": None,
+            }
+        ]
+        config = service.optimization_config(s, p)
+        profile = service.selection_profile(s, p, data, config)
+        assert profile["retry_observations"][0]["needs_retry_count"] == 1
+        campaign = service.required(s, "campaigns", workspace["campaign_id"], p)
+        update(campaign, selection_profile=profile)
+    with service.db.transaction(False) as s:
+        inputs, _ = service.forecast_input(s, p, campaign_id=workspace["campaign_id"])
+    assert capacity_forecast(**inputs)["contingent_retry_low_mean_high"]["support"] == 1
+
+
+def test_final_allowance_skips_redundant_retry_planning():
+    result = plan([lead("one", attempt_count=2)], [number()])
+    assert result["contingent_capacity"]["status"] == "not_needed"
+
+
+def test_pending_budget_exhaustion_does_not_publish_an_unproved_addition_count(monkeypatch):
+    import app.optimization.capacity as capacity
+
+    solve = capacity.Assignment.solve
+
+    def exhaust(self, inventory, **kwargs):
+        rows, complete = solve(self, inventory, **kwargs)
+        if any(
+            isinstance(n, dict) and n.get("id") == "waiting" and n.get("lifecycle") == "healthy"
+            for n in inventory
+        ):
+            self.budget.exhausted = True
+        return rows, complete
+
+    monkeypatch.setattr(capacity.Assignment, "solve", exhaust)
+    result = plan([lead("one")], [number("waiting", lifecycle="purchased")])
+    assert result["minimum_additional_numbers"] == 1
+    assert result["pending_planning_complete"] is False
+    assert result["proposed_additional_numbers"] is None

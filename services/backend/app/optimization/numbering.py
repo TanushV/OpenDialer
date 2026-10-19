@@ -156,6 +156,7 @@ def capacity_forecast(
     additional_ready_after_hours=0,
     rep_busy_until=None,
     retry_observations=(),
+    schedule_row_limit=1000,
 ):
     if (
         daily_capacity_per_number < 1
@@ -180,4 +181,5 @@ def capacity_forecast(
         additional_ready_after_hours=additional_ready_after_hours,
         rep_busy_until=rep_busy_until,
         retry_observations=retry_observations,
+        schedule_row_limit=schedule_row_limit,
     )

@@ -10,7 +10,7 @@ import json
 import math
 from bisect import bisect_left, bisect_right
 from collections import Counter, defaultdict
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -50,6 +50,7 @@ class AttemptWork:
     segment: str
     source_version: int = 1
     reassignment_approved: bool = False
+    previous_attempt_index: int | None = None
 
     @property
     def value(self):
@@ -370,6 +371,7 @@ class Assignment:
                 shared_estimates[item.outcome_estimates] = dict(item.outcome_estimates)
             self.estimates.append(shared_estimates[item.outcome_estimates])
         self.time_cells = {}
+        self.continuing_leads = {item.lead_id for item in work if item.previous_attempt_index is not None}
         for item in work:
             length = max(1, math.ceil(item.predicted_work_seconds / seconds))
             first = bisect_left(self.starts, item.earliest_at)
@@ -412,10 +414,11 @@ class Assignment:
         return self.budget.exhausted
 
     def objective(self, rows):
-        counts = [0, 0, 0, 0]
+        counts = [0, 0, 0, 0, 0]
         value = 0
         for index, *choice in rows:
-            counts[self.work[index].priority_class] += 1
+            item = self.work[index]
+            counts[4 if item.previous_attempt_index is not None else item.priority_class] += 1
             predicted = (
                 self.value_at(index, choice[0], self.number_regions[choice[1]])
                 if choice
@@ -464,7 +467,7 @@ class Assignment:
         ]
         numbers = {n.number_id: n for n in all_numbers if n.usable}
         self.number_regions = {identity: n.region for identity, n in numbers.items()}
-        rep_used, number_used, day_used, endpoints = defaultdict(int), defaultdict(Counter), Counter(), set()
+        rep_used, number_used, day_used, endpoints = defaultdict(int), defaultdict(Counter), Counter(), {}
         number_blocked = {}
         account_count, account_blocked = Counter(), 0
         account_limit = self.policy.get(
@@ -498,15 +501,30 @@ class Assignment:
 
         def options(index):
             w, length = self.work[index], self.lengths[index]
-            if (
-                not self.allowed[index]
-                or w.endpoint_id in endpoints
-                or work_used + length * self.seconds > self.work_budget
-            ):
+            previous = endpoints.get(w.endpoint_id)
+            if w.previous_attempt_index is not None:
+                if not previous or (
+                    self.work[previous[-1][0]].lead_id != w.lead_id
+                    or self.work[previous[-1][0]].next_attempt_index != w.previous_attempt_index
+                ):
+                    return
+                parent, parent_start, parent_number = previous[-1]
+                earliest = self.starts[parent_start] + timedelta(
+                    seconds=max(
+                        self.lengths[parent] * self.seconds, self.policy.get("min_retry_seconds", 3600)
+                    )
+                )
+            else:
+                if previous:
+                    return
+                earliest, parent_number = w.earliest_at, None
+            if not self.allowed[index] or work_used + length * self.seconds > self.work_budget:
                 return
             reps = [w.owner_id] if w.owner_id else sorted(self.rep_masks)
             candidates = []
             for n in compatible[index]:
+                if parent_number and not ignore_bindings and n.number_id != parent_number:
+                    continue
                 if not self.budget.spend():
                     return
                 available_days = 0
@@ -526,6 +544,7 @@ class Assignment:
                     & run_starts(self.all_mask & ~number_blocked[n.number_id], length)
                 )
                 mask &= run_starts(self.all_mask & ~account_blocked, length)
+                mask &= ~((1 << bisect_left(self.starts, earliest)) - 1)
                 if n.available_at:
                     mask &= ~((1 << bisect_left(self.starts, n.available_at)) - 1)
                 if n.burst_limit and start_times[n.number_id]:
@@ -554,6 +573,17 @@ class Assignment:
                     -self.value_at(index, c[0], numbers[c[1]].region),
                     c[0],
                     numbers[c[1]].region == "general",
+                    -(
+                        numbers[c[1]].limit(self.starts[c[0]].date().isoformat())
+                        - day_used[c[1], self.starts[c[0]].date().isoformat()]
+                        - (
+                            numbers[c[1]].consumed_attempts + numbers[c[1]].pending_reservations
+                            if self.starts[c[0]].date() == self.now.date()
+                            else 0
+                        )
+                    )
+                    if w.lead_id in self.continuing_leads and w.previous_attempt_index is None
+                    else 0,
                     numbers[c[1]].proposed,
                     c[1],
                     c[2],
@@ -571,12 +601,15 @@ class Assignment:
             day = self.starts[start].astimezone(UTC).date().isoformat()
             if delta > 0:
                 rep_used[rep] |= mask
-                endpoints.add(self.work[index].endpoint_id)
+                endpoints.setdefault(self.work[index].endpoint_id, []).append((index, start, identifier))
                 assigned.append((index, start, identifier, rep))
                 start_times[identifier].append(self.starts[start])
             else:
                 rep_used[rep] &= ~mask
-                endpoints.remove(self.work[index].endpoint_id)
+                chain = endpoints[self.work[index].endpoint_id]
+                chain.pop()
+                if not chain:
+                    del endpoints[self.work[index].endpoint_id]
                 assigned.pop()
                 start_times[identifier].pop()
             work_used += delta * length * self.seconds
@@ -618,6 +651,12 @@ class Assignment:
                 item.owner_id,
                 item.bound_number_id if not ignore_bindings and not item.reassignment_approved else None,
             )
+            if item.previous_attempt_index is not None:
+                # Parent choice is not known yet. Treat this as an upper bound,
+                # never exclude all future attempts when proving a count ceiling.
+                if self.allowed[i] and compatible[i]:
+                    individually_feasible.append(i)
+                continue
             if key not in feasible_cache:
                 feasible_cache[key] = next(options(i), None) is not None
             if feasible_cache[key]:
@@ -681,9 +720,14 @@ class Assignment:
                 ),
             )
         bound = min(len(individually_feasible), time_ceiling, inventory_ceiling)
-        top = sorted(individually_feasible, key=lambda i: (self.work[i].priority_class, -self.work[i].value))[
-            :bound
-        ]
+        top = sorted(
+            individually_feasible,
+            key=lambda i: (
+                self.work[i].previous_attempt_index is not None,
+                self.work[i].priority_class,
+                -self.work[i].value,
+            ),
+        )[:bound]
         ceiling = self.objective([(i,) for i in top])
         exact = self.objective(best) == ceiling
         if exact_branch and not exact and not self.exhausted:
@@ -728,6 +772,7 @@ class Assignment:
                 "proposed": numbers[identifier].proposed,
                 "callback": self.work[i].priority_class == 0,
                 "priority_class": self.work[i].priority_class,
+                "contingent": self.work[i].previous_attempt_index is not None,
                 "predicted_conversions": self.value_at(i, start, numbers[identifier].region),
             }
             for i, start, identifier, rep in selected
@@ -737,7 +782,8 @@ class Assignment:
 
 def schedule_value(rows):
     return (
-        *(sum(r["priority_class"] == k for r in rows) for k in range(4)),
+        *(sum(r["priority_class"] == k and not r.get("contingent") for r in rows) for k in range(4)),
+        sum(bool(r.get("contingent")) for r in rows),
         sum(round(r["predicted_conversions"] * 1000000) for r in rows),
     )
 
@@ -747,16 +793,26 @@ def contingent_retries(work, history, now, end, policy, budget):
     for row in history:
         if (
             not row.get("matured")
-            or type(row.get("needs_retry")) is not bool
             or not timestamp(row.get("available_at"))
             or timestamp(row["available_at"]) > now
         ):
             continue
+        if type(row.get("needs_retry")) is bool:
+            successes, count = int(row["needs_retry"]), 1
+        else:
+            successes, count = row.get("needs_retry_count"), row.get("classified_count")
+            if (
+                type(successes) is not int
+                or type(count) is not int
+                or not 0 <= successes <= count
+                or count <= 0
+            ):
+                continue
         index, segment = row["attempt_index"], str(row.get("segment") or "unknown")
         for bucket in (cells[segment, index], pooled[index]):
-            bucket[0] += row["needs_retry"]
-            bucket[1] += 1
-        accepted += 1
+            bucket[0] += successes
+            bucket[1] += count
+        accepted += count
     totals, by_day, omitted = [0.0, 0.0, 0.0], defaultdict(lambda: [0.0, 0.0, 0.0]), 0
     estimates = {}
     for w in work:
@@ -809,7 +865,224 @@ def contingent_retries(work, history, now, end, policy, budget):
             for (day, region), values in sorted(by_day.items())
         ],
         "definition": "Conditional later attempts after an observed outcome; never a reservation or permission",
+        "estimates": [
+            {
+                "segment": segment,
+                "attempt_index": index,
+                "low": values[0],
+                "mean": values[1],
+                "high": values[2],
+            }
+            for (segment, index), values in sorted(estimates.items())
+        ],
     }
+
+
+def additional_capacity(
+    assignment, base, initial, target, classes, ready_at, daily_capacity_per_number, *, existing_exact=False
+):
+    """The same bounded count search for known work and contingent scenarios."""
+    work, slots, budget = assignment.work, assignment.slots, assignment.budget
+
+    def candidate(kind, count):
+        return {
+            "lifecycle": "healthy",
+            "capacity": 1,
+            **kind,
+            "id": f"proposed:{kind['id']}:{count}",
+            "proposed": True,
+            "ready_at": max(ready_at, timestamp(kind.get("ready_at")) or ready_at).isoformat(),
+        }
+
+    best, chosen, complete = initial, [], True
+    if schedule_value(initial) >= schedule_value(target):
+        return best, chosen, True
+    exact = len(work) <= 8 and len(slots) <= 8 and len(classes) <= 4
+    if exact:
+        for count in range(1, len(work) + 1):
+            found = []
+            for mix in itertools.combinations_with_replacement(range(len(classes)), count):
+                if not budget.spend(node=True):
+                    return best, chosen, False
+                extra = [candidate(classes[k], i) for i, k in enumerate(mix)]
+                rows, proof = assignment.solve([*base, *extra])
+                complete &= proof
+                if schedule_value(rows) > schedule_value(best):
+                    best, chosen = rows, extra
+                if schedule_value(rows) >= schedule_value(target):
+                    found.append((rows, extra))
+            if found:
+                best, chosen = min(
+                    found,
+                    key=lambda pair: (
+                        -sum(r["predicted_conversions"] for r in pair[0]),
+                        sum(c.get("quote_usd") is None for c in pair[1]),
+                        sum(c.get("quote_usd") or 0 for c in pair[1]),
+                        tuple(c["id"] for c in pair[1]),
+                    ),
+                )
+                return best, chosen, complete
+            if budget.exhausted:
+                return best, chosen, False
+        return best, chosen, False
+    while schedule_value(best) < schedule_value(target) and len(chosen) < len(work) and not budget.exhausted:
+        alternatives = []
+        for kind in classes:
+            extra = candidate(kind, len(chosen))
+            rows, _ = assignment.solve([*base, *chosen, extra])
+            if schedule_value(rows) > schedule_value(best):
+                alternatives.append((rows, extra))
+        if not alternatives:
+            break
+        rows, extra = min(
+            alternatives,
+            key=lambda pair: (
+                tuple(-v for v in schedule_value(pair[0])),
+                pair[1].get("quote_usd") is None,
+                pair[1].get("quote_usd") or 0,
+                pair[1]["id"],
+            ),
+        )
+        best, chosen = rows, [*chosen, extra]
+    # Remove redundant additions through the same feasibility engine.
+    for i in range(len(chosen) - 1, -1, -1):
+        if budget.exhausted:
+            break
+        if existing_exact:
+            candidate_max = max(
+                (
+                    c.get("daily_limit", daily_capacity_per_number) * max(1, len(assignment.days))
+                    for c in classes
+                ),
+                default=1,
+            )
+            cut = math.ceil(max(0, len(target) - len(initial)) / max(1, candidate_max))
+            if len(chosen) - 1 < cut:
+                continue  # Proven count cut prunes an impossible removal.
+        reduced = chosen[:i] + chosen[i + 1 :]
+        rows, _ = assignment.solve([*base, *reduced])
+        if schedule_value(rows) >= schedule_value(target):
+            best, chosen = rows, reduced
+    return best, chosen, False
+
+
+def retry_capacity(
+    work, retries, snapshot, slots, owners, grid, policy, classes, ready_at, daily_capacity, budget
+):
+    """Deterministic count scenarios; shared ledgers and parent-before-retry rules.
+
+    Counts round expected continuation within each segment/attempt cell. This is
+    a planning scenario, not a claim that a particular prospect will retry.
+    """
+    result = {
+        "status": "ready",
+        "definition": "Known work plus conditional later attempts; not reservations",
+        "rounding": "Nearest whole attempt per segment and generation; stable lead-ID order",
+    }
+    if not any(item.next_attempt_index < policy.get("max_attempts", 4) for item in work):
+        return {**result, "status": "not_needed"}
+    probabilities = {(r["segment"], r["attempt_index"]): r for r in retries["estimates"]}
+    for scenario in ("low", "mean", "high"):
+        if budget.exhausted:
+            result["status"] = "limited"
+            result[scenario] = {
+                "status": "unavailable",
+                "reason": "global_planning_budget",
+                "purchase_allowed": False,
+            }
+            continue
+        scenario_work, parents = list(work), list(work)
+        while parents and not budget.exhausted:
+            groups = defaultdict(list)
+            for item in parents:
+                if not budget.spend():
+                    break
+                if item.next_attempt_index < policy.get("max_attempts", 4):
+                    groups[item.segment, item.next_attempt_index].append(item)
+            parents = []
+            for key, items in sorted(groups.items()):
+                probability = probabilities.get(key, {}).get(scenario, 0)
+                count = math.floor(len(items) * probability + 0.5)
+                for item in sorted(items, key=lambda w: w.lead_id)[:count]:
+                    due = item.earliest_at + timedelta(
+                        seconds=max(item.predicted_work_seconds, policy.get("min_retry_seconds", 3600))
+                    )
+                    if due < snapshot.horizon_end:
+                        parents.append(
+                            replace(
+                                item,
+                                next_attempt_index=item.next_attempt_index + 1,
+                                previous_attempt_index=item.next_attempt_index,
+                                earliest_at=due,
+                                owner_id=None,
+                                priority_class=3,
+                                deadline=snapshot.horizon_end,
+                            )
+                        )
+            scenario_work.extend(parents)
+        if budget.exhausted:
+            result["status"] = "limited"
+            result[scenario] = {
+                "status": "unavailable",
+                "reason": "global_planning_budget",
+                "purchase_allowed": False,
+            }
+            continue
+        assignment = Assignment(
+            scenario_work,
+            slots,
+            snapshot.as_of,
+            policy,
+            grid,
+            len(scenario_work),
+            owners,
+            budget=budget,
+            work_budget=snapshot.rep_seconds,
+        )
+        existing, existing_exact = assignment.solve(snapshot.inventory)
+        unlimited = {
+            "id": "forecast-unlimited",
+            "region": "general",
+            "lifecycle": "healthy",
+            "daily_limit": len(scenario_work),
+            "capacity": max(1, len(scenario_work)),
+        }
+        staffed, _ = assignment.solve([unlimited], ignore_bindings=True)
+        bound, _ = assignment.solve([*snapshot.inventory, unlimited])
+        target, target_exact = assignment.solve(
+            [*snapshot.inventory, {**unlimited, "ready_at": ready_at.isoformat()}]
+        )
+        target = max((existing, target), key=schedule_value)
+        best, added, exact = additional_capacity(
+            assignment,
+            snapshot.inventory,
+            existing,
+            target,
+            classes,
+            ready_at,
+            daily_capacity,
+            existing_exact=existing_exact,
+        )
+        reached = schedule_value(best) >= schedule_value(target)
+        complete = not budget.exhausted
+        result[scenario] = {
+            "status": "ready" if complete else "limited",
+            "planned_attempts": len(scenario_work),
+            "retry_attempts": len(scenario_work) - len(work),
+            "existing_capacity": len(existing),
+            "expanded_capacity": len(best),
+            "additional_numbers": len(added) if reached and complete else None,
+            "minimum_proven_on_grid": bool(exact and target_exact and reached and complete),
+            "binding_shortfall": max(0, len(staffed) - len(bound)) if complete else None,
+            "staffing_shortfall": max(0, len(scenario_work) - len(staffed)) if complete else None,
+            "unserved_attempts": len(scenario_work) - len(best),
+            "schedule": best[:1000],
+            "schedule_rows_omitted": max(0, len(best) - 1000),
+            "purchase_allowed": False,
+        }
+        if not complete:
+            result["status"] = "limited"
+    return result
 
 
 def time_forecast(
@@ -826,6 +1099,7 @@ def time_forecast(
     additional_ready_after_hours,
     rep_busy_until=None,
     retry_observations=(),
+    schedule_row_limit=1000,
 ):
     end = now + timedelta(hours=horizon_hours)
     work, unknown = work_items(leads, now, end, policy, handling_seconds)
@@ -879,95 +1153,22 @@ def time_forecast(
     ]
     classes = sorted(classes, key=lambda c: c["id"])
 
-    def candidate(kind, count):
-        return {
-            **delayed,
-            **kind,
-            "id": f"proposed:{kind['id']}:{count}",
-            "proposed": True,
-            "ready_at": max(ready_at, timestamp(kind.get("ready_at")) or ready_at).isoformat(),
-        }
-
-    def additions(base, initial):
-        best, chosen, complete = initial, [], True
-        if schedule_value(initial) >= schedule_value(target):
-            return best, chosen, True
-        exact = len(work) <= 8 and len(slots) <= 8 and len(classes) <= 4
-        if exact:
-            for count in range(1, len(work) + 1):
-                found = []
-                for mix in itertools.combinations_with_replacement(range(len(classes)), count):
-                    if not budget.spend(node=True):
-                        return best, chosen, False
-                    extra = [candidate(classes[k], i) for i, k in enumerate(mix)]
-                    rows, proof = assignment.solve([*base, *extra])
-                    complete &= proof
-                    if schedule_value(rows) > schedule_value(best):
-                        best, chosen = rows, extra
-                    if schedule_value(rows) >= schedule_value(target):
-                        found.append((rows, extra))
-                if found:
-                    best, chosen = min(
-                        found,
-                        key=lambda pair: (
-                            -sum(r["predicted_conversions"] for r in pair[0]),
-                            sum(c.get("quote_usd") is None for c in pair[1]),
-                            sum(c.get("quote_usd") or 0 for c in pair[1]),
-                            tuple(c["id"] for c in pair[1]),
-                        ),
-                    )
-                    return best, chosen, complete
-                if budget.exhausted:
-                    return best, chosen, False
-            return best, chosen, False
-        while (
-            schedule_value(best) < schedule_value(target) and len(chosen) < len(work) and not budget.exhausted
-        ):
-            alternatives = []
-            for kind in classes:
-                extra = candidate(kind, len(chosen))
-                rows, _ = assignment.solve([*base, *chosen, extra])
-                if schedule_value(rows) > schedule_value(best):
-                    alternatives.append((rows, extra))
-            if not alternatives:
-                break
-            rows, extra = min(
-                alternatives,
-                key=lambda pair: (
-                    tuple(-v for v in schedule_value(pair[0])),
-                    pair[1].get("quote_usd") is None,
-                    pair[1].get("quote_usd") or 0,
-                    pair[1]["id"],
-                ),
-            )
-            best, chosen = rows, [*chosen, extra]
-        # Remove redundant additions through the same feasibility engine.
-        for i in range(len(chosen) - 1, -1, -1):
-            if budget.exhausted:
-                break
-            if base is snapshot.inventory and existing_exact:
-                candidate_max = max(
-                    (
-                        c.get("daily_limit", daily_capacity_per_number) * max(1, len(assignment.days))
-                        for c in classes
-                    ),
-                    default=1,
-                )
-                cut = math.ceil(max(0, len(target) - len(existing)) / max(1, candidate_max))
-                if len(chosen) - 1 < cut:
-                    continue  # Proven count cut prunes an impossible removal.
-            reduced = chosen[:i] + chosen[i + 1 :]
-            rows, _ = assignment.solve([*base, *reduced])
-            if schedule_value(rows) >= schedule_value(target):
-                best, chosen = rows, reduced
-        return best, chosen, False
-
-    best, added, exact_added = additions(snapshot.inventory, existing)
+    best, added, exact_added = additional_capacity(
+        assignment,
+        snapshot.inventory,
+        existing,
+        target,
+        classes,
+        ready_at,
+        daily_capacity_per_number,
+        existing_exact=existing_exact,
+    )
     days = max(1, len(assignment.days))
     max_added = max((c.get("daily_limit", daily_capacity_per_number) * days for c in classes), default=1)
     lower = math.ceil(max(0, len(target) - len(existing)) / max(1, max_added)) if existing_exact else 0
     reached = schedule_value(best) >= schedule_value(target)
     proven = bool(reached and target_exact and (exact_added or existing_exact and len(added) == lower))
+    known_limited = limited or budget.exhausted or not reached
     pending = []
     for n in inventory:
         if (
@@ -988,12 +1189,29 @@ def time_forecast(
                 }
             )
     pending_schedule, pending_add = [], added
+    pending_complete = not pending
     if pending and not budget.exhausted:
         conditional = [n for n in snapshot.inventory if n.usable] + pending
         pending_schedule, _ = assignment.solve(conditional)
-        _, pending_add, _ = additions(conditional, pending_schedule)
+        pending_best, pending_add, _ = additional_capacity(
+            assignment, conditional, pending_schedule, target, classes, ready_at, daily_capacity_per_number
+        )
+        pending_complete = not budget.exhausted and schedule_value(pending_best) >= schedule_value(target)
     retries = contingent_retries(work, retry_observations, now, end, policy, budget)
-    limited = limited or budget.exhausted or not reached
+    later = retry_capacity(
+        work,
+        retries,
+        snapshot,
+        slots,
+        owners,
+        grid,
+        policy,
+        classes,
+        ready_at,
+        daily_capacity_per_number,
+        budget,
+    )
+    limited = known_limited
     ready = {n.number_id: n for n in snapshot.inventory if n.usable}
     waiting_ids = {n["id"] for n in pending}
     regions = []
@@ -1015,7 +1233,11 @@ def time_forecast(
                 "outbound_capacity_shortfall": max(0, len(new) - len(old)),
                 "callback_demand": sum(r["callback"] for r in new),
                 "required": 0,
-                "proposed_additional": None if limited else len(pending_add) if not regions else 0,
+                "proposed_additional": None
+                if limited or not pending_complete
+                else len(pending_add)
+                if not regions
+                else 0,
                 "proposed_pool": "shared proposal",
                 "incremental_capacity_used": len(new) - len(old),
                 "reason": "Known next attempts on shared staffed, identity and workload constraints",
@@ -1049,15 +1271,19 @@ def time_forecast(
         "known_next_attempts",
         len(work),
         tuple(retries.items()),
-        tuple(existing[:1000]),
-        tuple(best[:1000]),
+        tuple(existing[:schedule_row_limit]),
+        tuple(best[:schedule_row_limit]),
         len(added) if proven and not limited else None,
         len(added),
         len(added) if proven and not limited else lower,
         proven and not limited,
         proven and not limited,
         tuple(shortfalls.items()),
-        (("work", 0), ("schedule", max(0, len(best) - 1000)), ("retry", retries["omitted_leads"])),
+        (
+            ("work", 0),
+            ("schedule", max(0, len(best) - (schedule_row_limit or len(best)))),
+            ("retry", retries["omitted_leads"]),
+        ),
         tuple(assumptions.items()),
         (
             ("policy", snapshot.policy_version),
@@ -1068,6 +1294,7 @@ def time_forecast(
     return {
         **asdict(result),
         "contingent_retry_low_mean_high": retries,
+        "contingent_capacity": later,
         "omitted_rows": dict(result.omitted_rows),
         "assumptions": assumptions,
         "source_versions": dict(result.source_versions),
@@ -1075,9 +1302,7 @@ def time_forecast(
         "regions": regions,
         "horizon_hours": horizon_hours,
         "imported_leads": len(leads),
-        "rep_capacity_attempts": int(
-            min(rep_minutes * 60, sum(count for _, count in slots) * grid) // handling_seconds
-        ),
+        "rep_capacity_attempts": len(staffed),
         "forecast_attempts": len(work),
         "existing_only_capacity": len(existing),
         "existing_plus_addition_capacity": len(best),
@@ -1088,7 +1313,8 @@ def time_forecast(
         if limited
         else sum(bool(w.owner_id) and not mask for w, mask in zip(work, assignment.allowed, strict=True)),
         "minimum_additional_numbers": result.minimum_additions,
-        "proposed_additional_numbers": None if limited else len(pending_add),
+        "proposed_additional_numbers": None if limited or not pending_complete else len(pending_add),
+        "pending_planning_complete": pending_complete,
         "best_found_additional_numbers": len(added),
         "optimality_gap": len(added) - result.lower_bound,
         "optimality": "proven_small_case" if proven and not limited else "best_feasible_found",
@@ -1098,17 +1324,17 @@ def time_forecast(
         "search_nodes": budget.nodes,
         "optimality_scope": "Minimum only when proved on declared grid, known attempts, staffing and reviewed capacity; no conversion-lift claim",
         "schedule_scope": "declared_staffed_windows" if staffed_windows else "normalized_simple_windows",
-        "existing_schedule": existing[:1000],
-        "expanded_schedule": best[:1000],
-        "conditional_pending_schedule": pending_schedule[:1000],
-        "schedule_rows_omitted": max(0, len(best) - 1000),
+        "existing_schedule": existing[:schedule_row_limit],
+        "expanded_schedule": best[:schedule_row_limit],
+        "conditional_pending_schedule": pending_schedule[:schedule_row_limit],
+        "schedule_rows_omitted": max(0, len(best) - (schedule_row_limit or len(best))),
         "purchased": False,
         "approval_required": True,
         "purchase_allowed": False,
         "purchase_blocker": "New rentals are recurring commitments",
         "estimate_requires_provider_quote": True,
         "monthly_rental_estimate_usd": sum(c["quote_usd"] for c in pending_add)
-        if not limited and all(c.get("quote_usd") is not None for c in pending_add)
+        if not limited and pending_complete and all(c.get("quote_usd") is not None for c in pending_add)
         else None,
         "estimate_note": "Account quote required; unknown price is not zero. New recurring commitments remain blocked.",
         "cold_start": not any(n.get("health", {}).get("samples", 0) for n in inventory),
