@@ -75,6 +75,37 @@ def test_feature_vocabulary_is_fitted_only_in_each_training_partition(tmp_path):
     )
 
 
+def test_linked_company_and_endpoint_chains_cannot_cross_partitions():
+    rows = timeline(150, gap_days=2)
+    # The link crosses through a second identity, not a shared literal in train/test.
+    rows[0]["company_id"] = "shared"
+    rows[99]["company_id"] = "shared"
+    rows[99]["endpoint_id"] = "bridge"
+    rows[130]["endpoint_id"] = "bridge"
+    train, calibration, validation = independent_partitions(rows, label="human")
+    assert rows[0] in train
+    assert rows[99] not in calibration and rows[130] not in validation
+
+
+def test_unknown_classification_and_unavailable_times_cannot_fit_a_stage(tmp_path):
+    rows = timeline(500, gap_days=2)
+    for r in rows:
+        r["human"] = None
+    model = train_challenger(rows, tmp_path)
+    assert model["funnel_metrics"]["human"]["status"] != "fitted"
+    assert model["reviewable"] is False
+    assert model["pooled_stages"] == ["human", "right_party_given_human", "conversion_given_right_party"]
+
+
+def test_absent_concept_is_unknown_even_when_another_concept_was_observed():
+    values = __import__("app.ml.training", fromlist=["vector_v2"]).vector_v2(
+        {"segment": "unseen", "conversation_concepts": ["another"], "conversation_evidence_missing": False},
+        ["segment:known", "segment:unknown", "concept:approval", "concept:approval:missing"],
+        {"segments": ["known"], "concepts": ["approval"]},
+    )
+    assert values == [0, 1, 0, 1]
+
+
 def test_each_fitting_partition_purges_labels_crossing_its_next_boundary():
     source = timeline()
     # A very late observation must be purged even though its outcome window closed.

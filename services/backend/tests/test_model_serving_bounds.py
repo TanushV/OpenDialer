@@ -26,6 +26,24 @@ class FeatureColumnClassifier:
         return np.column_stack((1 - probabilities, probabilities))
 
 
+def test_saved_conditional_estimators_retain_their_actual_stage_names(tmp_path):
+    path = tmp_path / "conditional.joblib"
+    joblib.dump(
+        {
+            name: FeatureColumnClassifier()
+            for name in ("human", "right_party_given_human", "conversion_given_right_party")
+        },
+        path,
+    )
+    descriptor = {
+        "artifact": str(path),
+        "checksum": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "feature_order": ["requested_contact"],
+    }
+    result = training.predict_funnel_batch(descriptor, [{"requested_contact": 1}], tmp_path)
+    assert result == [{"p_human": 1, "p_right_party_given_human": 1, "p_conversion_given_right_party": 1}]
+
+
 @pytest.mark.parametrize("version", [1, 2])
 def test_v1_v2_model_compatibility(tmp_path, version):
     """C034: a v2 vocabulary must not reinterpret a retained v1 artifact."""
