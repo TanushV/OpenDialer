@@ -1145,6 +1145,8 @@ class Service(ReservationPlanner):
                     fail(409, "Provider event ID collision")
                 return {"duplicate": True, "event_id": event_id}
             call = self.required(s, "call_attempts", call_id, p)
+            # Call writers lock the source before dirtying its shared report generation.
+            s.refresh(call, with_for_update=True)
             put(
                 s,
                 "provider_events",

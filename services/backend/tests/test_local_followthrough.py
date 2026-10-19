@@ -11,6 +11,71 @@ from sqlalchemy import select
 from test_remediation_rep_workflow import finish, p
 
 
+def test_wrapup_keeps_call_locked_through_version_check_and_commit(workspace, app, monkeypatch):
+    """Background interpretation cannot invalidate an already-checked human edit."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.db import get, update
+    from sqlalchemy import event
+
+    service, actor = app.state.service, p(workspace)
+    if service.db.sqlite:
+        pytest.skip("PostgreSQL publication interleaving")
+    call = start(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    ended = c.post(f"/v1/calls/{call['id']}/hangup", headers=h).json()
+    reached = threading.Event()
+    original = service.check_edit_version
+    futures = []
+
+    def query(connection, cursor, statement, *args):
+        if threading.current_thread().name.startswith("finalizer") and "FOR UPDATE" in statement:
+            reached.set()
+
+    def finalize():
+        with service.db.transaction() as s:
+            row = get(s, "call_attempts", call["id"])
+            s.refresh(row, with_for_update=True)
+            update(row, transcript_version=row.data["transcript_version"] + 1)
+
+    event.listen(service.db.engine, "before_cursor_execute", query)
+    try:
+        with ThreadPoolExecutor(max_workers=1, thread_name_prefix="finalizer") as pool:
+
+            def checked(row, body):
+                original(row, body)
+                futures.append(pool.submit(finalize))
+                assert reached.wait(5)
+                # Without the source lock the real publisher finishes before the edit.
+                if not service.db.sqlite:
+                    try:
+                        futures[-1].result(timeout=0.2)
+                    except TimeoutError:
+                        pass
+
+            monkeypatch.setattr(service, "check_edit_version", checked)
+            saved = service.save_disposition(
+                actor,
+                call["id"],
+                {
+                    "request_id": str(uuid4()),
+                    "expected_version": ended["version"],
+                    "outcome": "meeting_booked",
+                    "contact_role": "right_party",
+                },
+            )
+            for future in futures:
+                future.result(timeout=8)
+        assert saved["outcome"] == "meeting_booked"
+        with service.db.transaction(False) as s:
+            current = get(s, "call_attempts", call["id"])
+            assert current.data["transcript_version"] == ended["transcript_version"] + 1
+            assert current.data["outcome"] == "meeting_booked"
+    finally:
+        event.remove(service.db.engine, "before_cursor_execute", query)
+
+
 @pytest.mark.parametrize("missing", ["request_id", "expected_version"])
 def test_wrapup_requires_identified_versioned_edits_but_read_and_hangup_remain_available(workspace, missing):
     call = start(workspace)

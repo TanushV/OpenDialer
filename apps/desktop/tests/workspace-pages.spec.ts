@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test.afterEach(async ({ page }) => {
-  await page.unrouteAll({ behavior: "wait" });
+  await page.unrouteAll({ behavior: "ignoreErrors" });
 });
 
 async function enter(page: import("@playwright/test").Page) {

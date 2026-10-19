@@ -744,3 +744,45 @@ def test_database_conflict_is_not_mislabeled_as_failed_effect_journal(workspace,
     with pytest.raises(StaleDataError), service.db.transaction() as s:
         service.journal_effect_in(s, p, "hangup", "journal-conflict", "submitted", emergency=True)
     assert not getattr(service, "_effect_journal_fault", False)
+
+
+def test_event_locks_call_before_shared_report_invalidation(workspace, app):
+    """A reducer cannot hold report generation while waiting for the call owner."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from sqlalchemy import event
+
+    service, p = app.state.service, principal(workspace)
+    if service.db.sqlite:
+        pytest.skip("PostgreSQL row/report lock ordering")
+    call = start(workspace)
+    reached = threading.Event()
+
+    def query(connection, cursor, statement, *args):
+        if threading.current_thread().name.startswith("event-writer") and (
+            statement.startswith("UPDATE call_attempts")
+            or "call_attempts" in statement
+            and "FOR UPDATE" in statement
+        ):
+            reached.set()
+
+    event.listen(service.db.engine, "before_cursor_execute", query)
+    try:
+        with ThreadPoolExecutor(max_workers=1, thread_name_prefix="event-writer") as pool:
+            try:
+                with service.db.transaction() as s:
+                    row = get(s, "call_attempts", call["id"])
+                    s.refresh(row, with_for_update=True)
+                    pending = pool.submit(service.event, p, "lock-order-answer", "call.answered", call["id"])
+                    assert reached.wait(5), "Reducer did not reach its call mutation"
+                    update(row, max_call_seconds=row.data["max_call_seconds"] + 1)
+            finally:
+                result = pending.result(timeout=8)
+        assert not result["duplicate"]
+    finally:
+        event.remove(service.db.engine, "before_cursor_execute", query)
+    with service.db.transaction(False) as s:
+        row = get(s, "call_attempts", call["id"])
+        assert row.data["max_call_seconds"] == call["max_call_seconds"] + 1
+        assert row.data["answered_at"]

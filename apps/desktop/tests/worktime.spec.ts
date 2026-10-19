@@ -15,9 +15,16 @@ test("work time is visible, supported by a heartbeat and correctable after pause
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
   await isolatedSimulationWorkspace(page, "worktime");
-  await expect(
-    page.getByRole("region", { name: "Calling health" }),
-  ).toContainText("Not enough classified calls");
+  await expect(async () => {
+    const check = page.getByRole("button", {
+      name: "Check workspace totals",
+      exact: true,
+    });
+    if (await check.isVisible()) await check.click();
+    await expect(
+      page.getByRole("region", { name: "Calling health" }),
+    ).toContainText("Not enough classified calls");
+  }).toPass({ timeout: 15000 });
   if (fresh)
     await expect(
       page.getByRole("region", { name: "Calling health" }),

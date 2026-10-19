@@ -225,7 +225,7 @@ class RepWorkflows:
     def local_edit_in(self, s, p, kind, requested_id, row, data, owner_field):
         """Authorize before replay; the receipt is metadata, never a historical object view."""
         self.db.authorize_stream(s, p)
-        s.refresh(row)
+        s.refresh(row, with_for_update=True)
         owner_id = row.data.get(owner_field)
         if not self._coach_authority(s, p):
             fail(403, "Current account or session cannot edit this record")

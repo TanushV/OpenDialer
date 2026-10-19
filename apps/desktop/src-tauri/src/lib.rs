@@ -31,6 +31,7 @@ struct AuthorityBinding {
 struct AuthorityState {
     binding: Option<AuthorityBinding>,
     prompt: Option<OwnedWebhookTunnel>,
+    logout_confirmed: bool,
 }
 #[derive(Default, Clone)]
 struct NativeAuthority(Arc<Mutex<AuthorityState>>);
@@ -39,6 +40,28 @@ struct NativeAuthority(Arc<Mutex<AuthorityState>>);
 struct ConfiguredProviderState {
     version: u64,
     configured: std::collections::BTreeMap<String, bool>,
+}
+
+impl AuthorityState {
+    fn logout_once(&mut self) -> Result<(), String> {
+        if self.logout_confirmed {
+            return Ok(());
+        }
+        let binding = self.binding.as_ref().ok_or("No active native workspace")?;
+        let response = authority_client()?
+            .post(format!(
+                "{}/v1/auth/logout",
+                binding.url.trim_end_matches('/')
+            ))
+            .bearer_auth(&binding.token)
+            .send()
+            .map_err(|_| {
+                "Authority unavailable; remain in this workspace until obligations can be checked"
+            })?;
+        authority_response(response)?;
+        self.logout_confirmed = true;
+        Ok(())
+    }
 }
 
 fn guard_local_mode(binding: Option<&AuthorityBinding>, simulation: bool) -> Result<(), String> {
@@ -78,6 +101,7 @@ impl NativeAuthority {
                 let _ = prompt.stop();
             }
             state.binding = None;
+            state.logout_confirmed = false;
         }
     }
 }
@@ -179,6 +203,9 @@ async fn bind_authority(app: tauri::AppHandle, binding: AuthorityBinding) -> Res
                 || current.local != binding.local
             {
                 return Err("Sign out of the current workspace before changing authority".into());
+            }
+            if state.logout_confirmed && current != &binding {
+                return Err("Finish signing out before starting another session".into());
             }
         }
         state.binding = Some(binding);
@@ -360,17 +387,7 @@ async fn disconnect_authority(app: tauri::AppHandle) -> Result<(), String> {
                 return Err("Synchronize pending opt-outs before changing workspace".into());
             }
         }
-        let response = authority_client()?
-            .post(format!(
-                "{}/v1/auth/logout",
-                binding.url.trim_end_matches('/')
-            ))
-            .bearer_auth(&binding.token)
-            .send()
-            .map_err(|_| {
-                "Authority unavailable; remain in this workspace until obligations can be checked"
-            })?;
-        authority_response(response)?;
+        state.logout_once()?;
         if let Some(mut prompt) = state.prompt.take() {
             prompt.stop()?;
         }
@@ -388,6 +405,7 @@ async fn disconnect_authority(app: tauri::AppHandle) -> Result<(), String> {
                 .map_err(|_| "Cannot stop previous local authority")?;
         }
         state.binding = None;
+        state.logout_confirmed = false;
         Ok(())
     })
     .await
@@ -808,6 +826,37 @@ async fn webhook_tunnel_set(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn successful_logout_is_not_repeated_when_native_cleanup_needs_retry() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut bytes = [0; 4096];
+            let count = socket.read(&mut bytes).unwrap();
+            assert!(String::from_utf8_lossy(&bytes[..count]).starts_with("POST /v1/auth/logout "));
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")
+                .unwrap();
+        });
+        let mut state = AuthorityState {
+            binding: Some(AuthorityBinding {
+                url: format!("http://{address}"),
+                token: "fixture".into(),
+                tenant_id: "t".into(),
+                local: false,
+                simulation: true,
+            }),
+            ..Default::default()
+        };
+        state.logout_once().unwrap();
+        server.join().unwrap();
+        // The old session is revoked; the authority is deliberately no longer reachable.
+        // Retrying owned-child cleanup must reuse the confirmed logout, not authenticate again.
+        state.logout_once().unwrap();
+    }
     use std::time::Duration;
 
     fn fixture() -> WebhookTunnelConfig {

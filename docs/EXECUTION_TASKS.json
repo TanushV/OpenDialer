@@ -913,7 +913,7 @@
         "A52",
         "A55"
       ],
-      "checkpoint": "22 frontend units;70 PostgreSQL setup passes/one SQLite-only skip. Incoming controls and idle audio repaired. Concurrent hangup/journal counterexamples red before repair;29 UI journeys and final control/journal scope running.",
+      "checkpoint": "Call-event deadlock and wrap-up interleaving regressions red before source-lock repair; two PostgreSQL passes. Previous120 control/journal passes. Native logout retry17 passes. Final affected browser and dual-database run pending.",
       "todos": [
         {
           "id": "E12.1",
