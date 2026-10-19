@@ -159,3 +159,105 @@ def test_campaign_specific_goal_cannot_pollute_another_campaign_estimate(workspa
     assert read_estimate_statistics(service, p)["total"].get("human_known", 0) == 0
     selected = read_estimate_statistics(service, {**p, "campaign_id": campaign_id})["total"]
     assert selected["human_known"] == 1 and selected["conversion_successes"] == 1
+
+
+def test_second_campaign_rebuild_and_work_corrections_keep_selected_scope(workspace, app, clock):
+    from app.optimization.projections import read_metrics, rebuild_page
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        first = service.required(s, "campaigns", workspace["campaign_id"], p)
+        second = put(
+            s,
+            "campaigns",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "name": "Second",
+                "policy_id": first.data["policy_id"],
+            },
+            now=clock.now + timedelta(microseconds=1),
+        )
+        campaign_id = second.id
+        interval = put(
+            s,
+            "work_intervals",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "rep_id": p["user_id"],
+                "started_at": (clock.now - timedelta(seconds=60)).isoformat(),
+                "ended_at": clock.now.isoformat(),
+            },
+            now=clock.now,
+        )
+        interval_id = interval.id
+    selected = {**p, "campaign_id": campaign_id}
+    page = rebuild_page(service, selected, start=True)
+    for _ in range(40):
+        if page["published"]:
+            break
+        page = rebuild_page(service, selected)
+    assert page["published"], "A foreign-campaign source cannot strand the rebuild cursor"
+    assert read_metrics(service, selected)["original_cohort"] == 0
+    with service.db.transaction() as s:
+        update(
+            get(s, "work_intervals", interval_id), started_at=(clock.now - timedelta(seconds=120)).isoformat()
+        )
+    project_pending(service, p)
+    for who in (p, selected):
+        result = read_metrics(service, who)
+        assert result["rep_work_seconds"] == 120
+
+
+def test_periodic_work_addresses_each_campaign_without_crossing_settings(workspace, app):
+    from app.db import Job
+    from sqlalchemy import select
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        first = service.required(s, "campaigns", workspace["campaign_id"], p)
+        second = put(
+            s,
+            "campaigns",
+            p["tenant_id"],
+            p["seller_id"],
+            {"name": "Second", "policy_id": first.data["policy_id"]},
+            now=service.clock(),
+        )
+        wanted = {first.id, second.id}
+    service.schedule_optimization(p["tenant_id"])
+    with service.db.transaction(False) as s:
+        jobs = s.scalars(select(Job).where(Job.tenant_id == p["tenant_id"]))
+        actual = {
+            j.payload.get("campaign_id") for j in jobs if j.payload.get("kind") == "optimization_refresh"
+        }
+    assert wanted <= actual
+
+
+def test_legacy_long_work_span_enqueues_bounded_days_and_resumes(workspace, app, clock):
+    from app.optimization.projections import refresh_unit
+    from test_projection_replay import dirty_jobs
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        put(
+            s,
+            "work_intervals",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "rep_id": p["user_id"],
+                "started_at": (clock.now - timedelta(days=731)).isoformat(),
+                "ended_at": clock.now.isoformat(),
+            },
+            now=clock.now,
+        )
+    jobs = dirty_jobs(service, p)
+    assert len(jobs) <= 104, "One legacy interval cannot enqueue an unbounded day list inside its writer"
+    expansion = next(j for j in jobs.values() if j["payload"]["source_kind"] == "rep-days")
+    first = refresh_unit(service, p, expansion["payload"])
+    assert first["status"] == "pending" and first["processed"] == 100
+    second = refresh_unit(service, p, expansion["payload"])
+    assert second["processed"] == 100
+    assert second["cursor"] != first["cursor"]
