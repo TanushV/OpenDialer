@@ -490,6 +490,7 @@ class RepWorkflows:
         )
 
     def refresh_packet_in(self, s, p, lead):
+        self.refresh_conversation_features_in(s, p, lead)
         update(lead, preparation_revision=lead.data.get("preparation_revision", 0) + 1)
         self.jobs.coalesce_live_in(
             s,
@@ -507,6 +508,58 @@ class RepWorkflows:
             available_at=self.clock(),
         )
         emit(s, p["tenant_id"], "packet.stale", lead, self.clock())
+
+    def refresh_conversation_features_in(self, s, p, lead):
+        from app.optimization.conversations import prior_features
+
+        history = self.lead_records(
+            s,
+            p,
+            "call_attempts",
+            lead.id,
+            MODELS["call_attempts"].op_status.in_(TERMINAL),
+            limit=21,
+            newest=True,
+        )
+        calls = [doc(r) for r in history[:20]]
+        model = MODELS["conversation_states"]
+        memories = (
+            {
+                r.external_key: r.data
+                for r in s.scalars(
+                    select(model).where(
+                        model.tenant_id == p["tenant_id"],
+                        model.seller_id == p["seller_id"],
+                        model.external_key.in_([r["id"] for r in calls]),
+                    )
+                )
+            }
+            if calls
+            else {}
+        )
+        campaign = self.required(s, "campaigns", lead.data["campaign_id"], p)
+        features = prior_features(
+            {
+                **doc(lead),
+                "conversation_feature_sources": [],
+                "conversation_vocabulary": campaign.data.get("conversation_vocabulary", {"version": 1}),
+            },
+            [
+                {**call, "observations": memories.get(call["id"], {}).get("observations", [])}
+                for call in calls
+            ],
+            now=self.clock(),
+        )
+        source = {
+            "conversation_feature_sources": features["conversation_sources"],
+            "conversation_feature_scope": {
+                "calls_inspected": len(calls),
+                "older_calls_omitted": len(history) > 20,
+                "observations_omitted": features["conversation_features_omitted"],
+            },
+        }
+        if any(lead.data.get(k) != value for k, value in source.items()):
+            update(lead, **source)
 
     def _sync_callback(self, s, p, lead):
         active = [

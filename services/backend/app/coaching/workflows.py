@@ -87,6 +87,8 @@ class LiveHelper:
                 key=call.id,
                 now=self.clock(),
             )
+        if call.data["state"] in TERMINAL:
+            self.refresh_conversation_features_in(s, p, self.required(s, "leads", call.data["lead_id"], p))
         return record
 
     def _queue_conversation_review(self, s, p, call, state):

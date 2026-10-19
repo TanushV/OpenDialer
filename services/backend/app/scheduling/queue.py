@@ -282,6 +282,12 @@ class ReservationPlanner:
                     "prediction": predictions[identifier],
                     "allocation": allocations[identifier],
                     "profile": profile,
+                    "lead_version": by_id[identifier].version,
+                    "configuration": {
+                        k: config[k]
+                        for k in ("conversion_goal", "window_days", "estimate_policy", "exploration")
+                    },
+                    "policy_id": campaign.data["policy_id"],
                 },
                 None,
                 denied,
@@ -306,6 +312,8 @@ class ReservationPlanner:
         with self.db.transaction() as s, s.no_autoflush:
             self.db.authorize_stream(s, p)
             lead = self.required(s, "leads", plan["selection"]["lead_id"], p)
+            if lead.version != plan["lead_version"]:
+                raise SelectionChanged()
             self._queue_context(s, p, campaign_id, [lead])
             self._queue_presence(s, p)
             s.info["defer_flush"] = True
@@ -341,6 +349,10 @@ class ReservationPlanner:
                 fail(403, decision.reasons)
             campaign = self.required(s, "campaigns", campaign_id, p)
             config = self.optimization_config(s, p, campaign_id)
+            if campaign.data["policy_id"] != plan["policy_id"] or any(
+                config[k] != v for k, v in plan["configuration"].items()
+            ):
+                raise SelectionChanged()
             record = self.record_decision(s, p, lead, decision)
             self.comparison_assignment(s, p, campaign, lead, "number_allocation")
             coach_comparison = self.comparison_assignment(
@@ -434,7 +446,20 @@ class ReservationPlanner:
                 p["seller_id"],
                 {
                     "lead_id": lead.id,
-                    "as_of": now.isoformat(),
+                    "as_of": plan["features"]["decision_at"],
+                    "decision_at": plan["features"]["decision_at"],
+                    "source_versions": {
+                        "lead": {"id": lead.id, "version": plan["lead_version"]},
+                        "conversation": plan["features"]["conversation_sources"],
+                    },
+                    "goal": config["conversion_goal"],
+                    "goal_version": campaign.data.get("optimization_epoch", "conversion-v2"),
+                    "outcome_window_days": config["window_days"],
+                    "policy_version": campaign.data["policy_id"],
+                    "model_version": plan["prediction"]["model_version"],
+                    "allowed_actions": choice["eligible_actions"],
+                    "chosen_action": choice["action"],
+                    "action_distribution": choice["action_distribution"],
                     "feature_schema_version": 2,
                     "campaign_id": campaign_id,
                     "features": plan["features"],

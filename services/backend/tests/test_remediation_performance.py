@@ -2,6 +2,7 @@
 
 import math
 import time
+from datetime import timedelta
 
 import pytest
 from app.optimization.numbering import capacity_forecast
@@ -16,11 +17,15 @@ def test_minimum_additions_can_share_general_capacity_across_sparse_regions(cloc
         for r in range(regions)
         for i in range(demand)
     ]
+    at = clock.now.replace(hour=10)
     report = capacity_forecast(
         leads,
         [],
-        now=clock.now.replace(hour=10),
+        now=at,
         rep_minutes=1000,
+        staffed_windows=[
+            {"start_at": at.isoformat(), "end_at": (at + timedelta(hours=8)).isoformat(), "reps": 1}
+        ],
         policy={"max_attempts": 1},
         daily_capacity_per_number=capacity,
     )

@@ -4,6 +4,7 @@ No taxonomy, sentence bandit, or automatic policy changes. One independent conta
 contributes once; discovery precedes a later, label-embargoed comparison period.
 """
 
+import hashlib
 import re
 import unicodedata
 from collections import Counter, defaultdict
@@ -27,6 +28,74 @@ def aliases_for(vocabulary):
     if any((field, target) in aliases for (field, _), target in aliases.items()):
         raise ValueError("Normalization chains or cycles are not allowed")
     return aliases
+
+
+def prior_features(lead, calls, *, now):
+    """Freeze only reviewed earlier evidence; retain IDs and times, never narrative."""
+    replaced = {c["id"] for c in calls if "observations" in c}
+    sources = [v for v in lead.get("conversation_feature_sources", []) if v["call_id"] not in replaced]
+    vocabulary = lead.get("conversation_vocabulary", {"version": 1, "aliases": []})
+    aliases = aliases_for(vocabulary)
+    for call in calls:
+        at = timestamp(call.get("started_at"))
+        if (
+            call.get("lead_id") != lead.get("id")
+            or not at
+            or at >= now
+            or call["id"] == lead.get("current_call_id")
+        ):
+            continue
+        for item in call.get("observations", []):
+            available = timestamp(item.get("available_at") or item.get("observed_at"))
+            reviewed = timestamp(item.get("reviewed_at"))
+            invalid = timestamp(item.get("invalidated_at"))
+            status = item.get("epistemic_status") or item.get("review_status")
+            proof = item.get("review_receipt_id") or item.get("review_request_id")
+            if not available or max(available, reviewed or available) > now or (invalid and invalid <= now):
+                continue
+            if item.get("state", item.get("status")) in {"stale", "retracted", "invalidated"} and not invalid:
+                continue
+            if status not in {"model_reviewed", "human_confirmed"} or (
+                status == "model_reviewed" and not proof
+            ):
+                continue
+            concept = item.get("concept_id")
+            if not concept:
+                name = normalized(item.get("concept") or item.get("text"))
+                if not name:
+                    continue
+                name = aliases.get(("concept", name), name)
+                concept = "c_" + hashlib.sha256(name.encode()).hexdigest()[:24]
+                if vocabulary.get("reviewed_at"):
+                    available = max(available, timestamp(vocabulary["reviewed_at"]))
+            sources.append(
+                {
+                    "call_id": call["id"],
+                    "call_at": at.isoformat(),
+                    "observation_id": item["id"],
+                    "observation_version": item.get("version", item.get("source_version", 1)),
+                    "available_at": max(available, reviewed or available).isoformat(),
+                    "concept_id": concept,
+                    "vocabulary_version": vocabulary.get("version", 1),
+                    "epistemic_status": status,
+                    "review_receipt_id": proof,
+                }
+            )
+    current = [
+        v
+        for v in sources
+        if timestamp(v["call_at"]) < now
+        and timestamp(v["available_at"]) <= now
+        and v["call_id"] != lead.get("current_call_id")
+    ]
+    current.sort(key=lambda v: (v["available_at"], v["call_id"], v["observation_id"]), reverse=True)
+    sources = current[:64]
+    return {
+        "conversation_concepts": sorted({v["concept_id"] for v in sources}),
+        "conversation_sources": sources,
+        "conversation_evidence_missing": not bool(sources),
+        "conversation_features_omitted": max(0, len(current) - len(sources)),
+    }
 
 
 def active_observations(items, as_of, *, require_review=True):

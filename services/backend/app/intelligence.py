@@ -1972,7 +1972,11 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     continue
                 item["review_status"] = "reviewed" if receipt else "rejected"
                 if receipt:
-                    item.update(epistemic_status="model_reviewed", review_receipt_id=receipt.request_id)
+                    item.update(
+                        epistemic_status="model_reviewed",
+                        review_receipt_id=receipt.request_id,
+                        reviewed_at=self.clock().isoformat(),
+                    )
                     if target["group"] == "observations":
                         retired.update(item["replaces"])
                         changed.append(lineage_metadata(item))

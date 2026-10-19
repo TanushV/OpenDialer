@@ -75,6 +75,69 @@ def test_feature_source_invalidation_uses_the_decision_cutoff(clock, invalidatio
     assert result.get("decision_at") == at.isoformat()
 
 
+def test_review_received_after_decision_is_not_prior_knowledge(clock):
+    call = {
+        "id": "c",
+        "lead_id": "l",
+        "started_at": (clock.now - timedelta(days=1)).isoformat(),
+        "observations": [
+            {
+                "id": "o",
+                "concept_id": "approval",
+                "available_at": (clock.now - timedelta(hours=1)).isoformat(),
+                "reviewed_at": (clock.now + timedelta(minutes=1)).isoformat(),
+                "epistemic_status": "model_reviewed",
+                "review_receipt_id": "r",
+            }
+        ],
+    }
+    assert (
+        freeze_features({"id": "l"}, health={}, now=clock.now, calls=[call]).get("conversation_concepts")
+        == []
+    )
+
+
+def test_persisted_decision_owns_its_sources_goal_and_allowed_actions(workspace, app):
+    from app.db import rows
+    from conftest import start
+
+    call = start(workspace)
+    with app.state.db.transaction(False) as s:
+        frozen = next(r.data for r in rows(s, "feature_snapshots") if r.id == call["feature_snapshot_id"])
+    assert frozen["decision_at"] == frozen["as_of"]
+    assert frozen["source_versions"]["lead"]["id"] == call["lead_id"]
+    assert frozen["goal"] == "meeting_held" and frozen["outcome_window_days"] == 14
+    assert frozen["chosen_action"] in frozen["allowed_actions"]
+    assert frozen["action_distribution"][frozen["chosen_action"]] == frozen["propensity"]
+    assert frozen["policy_version"] and frozen["model_version"]
+
+
+def test_source_changed_after_scoring_is_reselected_before_snapshot(workspace, app, monkeypatch):
+    from app.db import rows, update
+    from conftest import start
+
+    service = app.state.service
+    claim = service._claim_selection
+    changed = []
+
+    def change(p, campaign_id, plan):
+        if not changed:
+            with service.db.transaction() as s:
+                lead = service.required(s, "leads", plan["selection"]["lead_id"], p)
+                update(lead, segment="corrected-before-claim")
+                changed.append(lead.id)
+        return claim(p, campaign_id, plan)
+
+    monkeypatch.setattr(service, "_claim_selection", change)
+    call = start(workspace)
+    with service.db.transaction(False) as s:
+        frozen = next(r.data for r in rows(s, "feature_snapshots") if r.id == call["feature_snapshot_id"])
+        lead = service.required(
+            s, "leads", call["lead_id"], {k: workspace[k] for k in ("tenant_id", "seller_id", "user_id")}
+        )
+        assert frozen["features"]["segment"] == lead.data["segment"]
+
+
 def test_current_review_state_and_versions_are_frozen_in_the_actual_next_decision(workspace, app, clock):
     from app.db import put, rows, update
     from conftest import disposition_body, start

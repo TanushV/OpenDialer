@@ -60,10 +60,14 @@ def conversion_at(event, now):
 
 
 def freeze_features(lead, *, health, now, calls=()):
+    from app.optimization.conversations import prior_features
+
     try:
-        local = now.astimezone(ZoneInfo(lead.get("timezone") or "UTC"))
+        local = now.astimezone(ZoneInfo(lead.get("timezone") or "unknown"))
+        time_known = True
     except ZoneInfoNotFoundError:
         local = now
+        time_known = False
     previous = [
         timestamp(c["started_at"])
         for c in calls
@@ -72,9 +76,13 @@ def freeze_features(lead, *, health, now, calls=()):
     last = max(previous, default=timestamp(lead.get("last_attempt_at")))
     created = timestamp(lead.get("source_at") or lead.get("created_at")) or now
     return {
+        "feature_schema_version": 2,
+        "decision_at": now.isoformat(),
+        "local_time_uncertain": not time_known,
+        **prior_features(lead, calls, now=now),
         "segment": lead.get("segment", "unknown"),
-        "local_hour": local.hour,
-        "local_weekday": local.weekday(),
+        "local_hour": local.hour if time_known else None,
+        "local_weekday": local.weekday() if time_known else None,
         "attempt_count": int(lead.get("attempt_count", 0)),
         "source_age_days": max(0, (now - created).total_seconds() / 86400),
         "elapsed_hours": max(0, (now - last).total_seconds() / 3600) if last else 720.0,
