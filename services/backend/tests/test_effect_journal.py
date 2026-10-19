@@ -213,6 +213,8 @@ async def test_other_leg_control_never_replaces_recovered_prospect_identity(work
     service.restore(p, backup["backup_id"])
     with service.db.transaction(False) as s:
         assert get(s, "call_attempts", call["id"]).data["provider_id"] == call["provider_id"]
+    journal, _ = service._restore_journal(p)
+    assert journal[call["id"]]["provider_id"] == call["provider_id"]
 
 
 def test_repaired_journal_can_release_its_explicit_hold(workspace, app, monkeypatch):
