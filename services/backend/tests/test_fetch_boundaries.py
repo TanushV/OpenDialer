@@ -66,3 +66,63 @@ async def test_fetch_security_rejects_unsafe_provider_responses(monkeypatch, cas
         await fetch.SafeFetcher(
             max_bytes=100, max_redirects=1, allowed_domains=["other.test"] if case == "wrong_domain" else None
         ).fetch("https://example.test/")
+
+
+@pytest.mark.asyncio
+async def test_discovery_links_are_bounded_normalized_and_same_origin(monkeypatch):
+    monkeypatch.setattr(fetch, "validate_url", lambda url: ["93.184.216.34"])
+    original = httpx.AsyncClient
+    body = """<title>Company</title><a href='/services#one'>Services</a>
+    <a href='/services#two'>Duplicate</a><a href='about'>About us</a>
+    <a href='https://other.test/product'>Wrong entity</a>
+    <a href='http://example.test/contact'>Downgrade</a>
+    <a href='https://user:pass@example.test/private'>Credentials</a>
+    <a href='javascript:alert(1)'>Script</a><a href='mailto:a@example.test'>Mail</a>
+    """ + "".join(f"<a href='/page/{i}'>Page {i}</a>" for i in range(300))
+    monkeypatch.setattr(
+        fetch.httpx,
+        "AsyncClient",
+        lambda **kw: original(
+            transport=httpx.MockTransport(
+                lambda r: httpx.Response(200, headers={"content-type": "text/html"}, text=body)
+            ),
+            **kw,
+        ),
+    )
+    result = await fetch.SafeFetcher(allowed_domains={"example.test"}).fetch("https://example.test/")
+    links = result.get("links", [])
+    assert links[:2] == [
+        {"url": "https://example.test/services", "text": "Services"},
+        {"url": "https://example.test/about", "text": "About us"},
+    ]
+    assert len(links) <= 128 and len({v["url"] for v in links}) == len(links)
+    assert all(v["url"].startswith("https://example.test/") for v in links)
+    assert result["decoded_bytes"] == len(body.encode())
+
+
+@pytest.mark.asyncio
+async def test_research_dns_does_not_block_event_loop(monkeypatch):
+    import asyncio
+    import threading
+
+    loop_thread = threading.get_ident()
+    observed = []
+
+    def resolve(url):
+        observed.append(threading.get_ident())
+        return ["93.184.216.34"]
+
+    monkeypatch.setattr(fetch, "validate_url", resolve)
+    original = httpx.AsyncClient
+    monkeypatch.setattr(
+        fetch.httpx,
+        "AsyncClient",
+        lambda **kw: original(
+            transport=httpx.MockTransport(
+                lambda r: httpx.Response(200, headers={"content-type": "text/plain"}, text="Official company")
+            ),
+            **kw,
+        ),
+    )
+    await asyncio.wait_for(fetch.SafeFetcher().fetch("https://example.test/"), 1)
+    assert observed and loop_thread not in observed, "DNS resolution must run outside the live loop"

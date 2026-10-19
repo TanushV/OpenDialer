@@ -60,6 +60,43 @@ async def test_bounded_parallel_preparation(workspace, app, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_concurrent_preparation_jobs_share_authority_capacity(workspace, app, monkeypatch):
+    service = app.state.service
+    active, peak = 0, 0
+    with service.db.transaction() as s:
+        original = service.scoped(s, "leads", p(workspace))[0]
+        ids = [
+            put(
+                s,
+                "leads",
+                original.tenant_id,
+                original.seller_id,
+                {**original.data, "domain": f"parallel-{i}.example.test"},
+                key=f"shared-cap-{i}",
+            ).id
+            for i in range(12)
+        ]
+
+    async def prepare(principal, identity, owner):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        try:
+            await asyncio.sleep(0.04)
+            return True
+        finally:
+            active -= 1
+
+    monkeypatch.setattr(service, "prepare_one", prepare)
+    await asyncio.gather(*(service.prepare(p(workspace), ids[i : i + 4]) for i in range(0, 12, 4)))
+    assert peak == 2, "Separate queued jobs must share the same authority limit"
+    with service.db.transaction(False) as s:
+        assert not any(
+            service.required(s, "leads", i, p(workspace)).data.get("preparation_lease") for i in ids
+        )
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("change", ["withdraw", "statement", "delete"])
 async def test_immediate_publication_rechecks_fact_after_inference(workspace, app, monkeypatch, change):
     configure(workspace)

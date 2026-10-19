@@ -1,0 +1,28 @@
+{
+  "step_id": "E04",
+  "phase": "tests-first",
+  "source_commit": "3d0d472ed66deb0fff6df4589f70311ac54c9fa9",
+  "created_at": "2026-10-19T09:18:11.665137+00:00",
+  "external_calls": false,
+  "results": {
+    "discovery": {
+      "failed": 8,
+      "passed": 1
+    },
+    "company_publication": {
+      "failed": 3
+    },
+    "fact_meaning_review": {
+      "failed": 2
+    }
+  },
+  "raw_logs": {
+    "E04-discovery-red.txt": "78a4b5f1ee19305d19525d6f64a5b8177f19c4a8f648f157bdaa45051a0178b7",
+    "E04-fences-red.txt": "7bad3683533ae0747213ca210bba1ff663af445c669f738c57b4b7a6a219a9da",
+    "E04-fact-review-red.txt": "77ad782e6c2769aa5ac3181b81e5476e9e22762cd32d68e77fac5b2b2828b901"
+  },
+  "known_limitations": [
+    "SQLite new regression capture; E00 includes original dual-database discovery red evidence. PostgreSQL supplement follows E03 verification. No E04 production changes yet.",
+    "Meaning-review fixtures establish review routing and publication, not actual model judgment quality."
+  ]
+}
