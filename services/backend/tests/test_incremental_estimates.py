@@ -177,3 +177,110 @@ def test_retry_statistics_follow_one_corrected_lead_without_history(workspace, a
     corrected = reader(service, p)["retry_observations"]
     assert sum(r["needs_retry_count"] for r in corrected) == 0
     assert sum(r["classified_count"] for r in corrected) == 1
+
+
+def test_complete_call_cost_is_pooled_and_reverses_a_changed_receipt_kind(workspace, app):
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    finish(workspace, call)
+    with service.db.transaction() as s:
+        hold = service._by_key(s, p, "usage_ledger", "call:" + call["id"])
+        hold_id = hold.id
+        update(hold, status="settled", cost_usd=0.25, reserved_usd=0, billing_verified=True)
+    project_pending(service, p)
+    statistics = projections.read_estimate_statistics(service, p)
+    assert statistics.get("costs") == {
+        "cost_usd": 0.25,
+        "cost_observations": 1,
+        "cost_unknown_observations": 0,
+        "level": "pooled_complete_calls",
+    }
+    with service.db.transaction() as s:
+        update(get(s, "usage_ledger", hold_id), kind="voice")
+    project_pending(service, p)
+    assert projections.read_estimate_statistics(service, p)["costs"]["cost_observations"] == 0
+
+
+def test_saved_cell_estimate_discloses_pooled_cost_support():
+    policy = models.EstimatePolicy()
+    config = {"conversion_goal": "meeting_held", "handling_seconds": 120}
+    counts = models.estimate_counts(example_rows())
+    profile = {
+        "goal": "meeting_held",
+        "window_days": 14,
+        "work_assumption_seconds": 120,
+        "estimate_policy_version": policy.version,
+        "statistics": {
+            "total": counts,
+            "cells": [],
+            "cells_complete": True,
+            "costs": {
+                "cost_usd": 0.9,
+                "cost_observations": 3,
+                "cost_unknown_observations": 1,
+                "level": "pooled_complete_calls",
+            },
+        },
+    }
+    estimate = models.saved_prediction(profile, {"segment": "new"}, config)
+    assert estimate["expected_attempt_cost_usd"] == pytest.approx(0.3)
+    assert estimate["cost_observations"] == 3 and estimate["cost_unknown_observations"] == 1
+    assert estimate.get("cost_support_level") == "pooled_complete_calls"
+
+
+def test_refresh_uses_saved_estimates_without_history_or_inline_forecast(workspace, app, clock, monkeypatch):
+    from conftest import completed_report
+
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    clock.now += timedelta(seconds=30)
+    finish(workspace, call)
+    completed_report(workspace)
+    original = service.scoped
+
+    def no_history(session, table, who):
+        assert table not in {
+            "call_attempts",
+            "feature_snapshots",
+            "conversion_events",
+            "leads",
+            "experiment_assignments",
+            "learning_datasets",
+            "notes",
+            "conversation_states",
+            "outcomes",
+            "usage_ledger",
+        }, f"Routine refresh cannot scan {table}"
+        return original(session, table, who)
+
+    def no_forecast(*args, **kwargs):
+        raise AssertionError("A maintenance tick must queue separate planning, not compute a whole horizon")
+
+    monkeypatch.setattr(service, "scoped", no_history)
+    monkeypatch.setattr(service, "forecast_input", no_forecast)
+    service.refresh_optimization(p)
+    with service.db.transaction(False) as s:
+        profile = service.scoped(s, "campaigns", p)[0].data["selection_profile"]
+        config = service.optimization_config(s, p)
+    assert profile["statistics"]["total"]["human_known"] == 1
+    assert models.saved_prediction(profile, {}, config)["expected_rep_seconds"] == pytest.approx(105)
+
+
+def test_projected_treatment_rewards_keep_global_and_local_support(workspace, app, clock):
+    from app.optimization.learning import distribution_from_counts
+
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    finish(workspace, call)
+    clock.now += timedelta(days=15)
+    project_pending(service, p)
+    stats = projections.read_estimate_statistics(service, p)
+    rewards = stats.get("treatment_counts")
+    assert rewards is not None, "Finite treatments must retain corrected mature reward counts"
+    with service.db.transaction(False) as s:
+        action = get(s, "call_attempts", call["id"]).data.get("treatment_variant_id", "approved-default")
+        feature = get(s, "feature_snapshots", call["feature_snapshot_id"]).data["features"]
+    segment = feature.get("segment", "unknown")
+    result = distribution_from_counts([action], rewards[segment])
+    assert result["observations"][action] == 1
+    assert result["estimates"][action] < 0.2
