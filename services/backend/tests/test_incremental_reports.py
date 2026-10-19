@@ -511,3 +511,208 @@ def test_trial_study_metadata_change_refreshes_enrolled_leads(workspace, app, cl
     assert current["trial"]["trial_model_id"] == "reviewed-test-model"
     assert current["trial"]["epoch"] == previous["trial"]["epoch"]
     assert sum(a["leads"] for a in current["trial"]["arms"].values()) == 3
+
+
+@pytest.mark.parametrize("family", ["coaching", "number_allocation", "strategy"])
+def test_comparison_buckets_keep_strata_feedback_seed_and_corrected_speech(workspace, app, clock, family):
+    from sqlalchemy import event
+
+    from app.optimization import projections
+    from test_projection_replay import project_pending
+
+    service, p = app.state.service, principal(workspace)
+    began = clock.now - timedelta(days=30)
+    at = (began + timedelta(minutes=10)).isoformat()
+    with service.db.transaction() as s:
+        lead = service.scoped(s, "leads", p)[0]
+        study = {
+            "id": "source-study",
+            "family": "coaching" if family == "strategy" else family,
+            "population": [lead.id, "uncalled"],
+            "goal": "meeting_held",
+            "window_days": 14,
+            "starts_at": began.isoformat(),
+            "ends_at": (began + timedelta(days=7)).isoformat(),
+        }
+        if family == "strategy":
+            study.update(
+                strategy_ids=["control", "approach"], strategy_policy="two_arm", candidate_probability=0.5
+            )
+        studies = [study]
+        if family == "strategy":
+            studies.append(
+                {
+                    **study,
+                    "id": "adaptive-study",
+                    "strategy_policy": "adaptive",
+                    "evidence_comparison_id": study["id"],
+                }
+            )
+        update(get(s, "campaigns", workspace["campaign_id"]), controlled_comparisons=studies)
+        assignment = {
+            "comparison_id": study["id"],
+            "family": study["family"],
+            "lead_id": lead.id,
+            "assigned_at": began.isoformat(),
+            "arm": "candidate",
+            "rep_id": p["user_id"],
+            "cluster": "west",
+            "goal": "meeting_held",
+            "outcome_window_days": 14,
+            "strategy_id": "approach",
+            "propensity": 0.5,
+        }
+        put(s, "experiment_assignments", p["tenant_id"], p["seller_id"], assignment, now=began)
+        if family == "strategy":
+            # The same lead's older approved reward wins over a newer enrollment.
+            put(
+                s,
+                "experiment_assignments",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    **assignment,
+                    "comparison_id": "adaptive-study",
+                    "assigned_at": (clock.now - timedelta(days=2)).isoformat(),
+                },
+                now=clock.now,
+            )
+        call = put(
+            s,
+            "call_attempts",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "lead_id": lead.id,
+                "campaign_id": workspace["campaign_id"],
+                "rep_id": p["user_id"],
+                "started_at": at,
+                "submitted_at": at,
+                "ended_at": at,
+                "state": "ended",
+                "outcome": "meeting_held",
+                "outcome_source": "rep",
+                "outcome_available_at": at,
+            },
+            now=began,
+        )
+        call_id = call.id
+        card = put(
+            s,
+            "coach_events",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "call_id": call.id,
+                "rep_id": p["user_id"],
+                "action": "SHOW_CARD",
+                "strategy_exposure": {
+                    "comparison_id": study["id"],
+                    "strategy_id": "approach",
+                    "displayed_at": at,
+                    "used_by_rep": None,
+                },
+            },
+            now=began,
+        )
+        feedback = put(
+            s,
+            "coaching_feedback",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "call_id": call.id,
+                "coach_event_id": card.id,
+                "rep_id": p["user_id"],
+                "useful": True,
+                "grounded": False,
+            },
+            key=card.id + ":" + p["user_id"],
+            now=began,
+        )
+        feedback_id = feedback.id
+        lineage = {
+            "id": "speech-match",
+            "version": 1,
+            "call_id": call.id,
+            "kind": "conversation_lineage",
+            "observation_kind": "approach",
+            "observed_guidance_id": card.id,
+            "strategy_id": "approach",
+            "state": "confirmed",
+            "review_status": "reviewed",
+            "epistemic_status": "model_reviewed",
+            "review_receipt_id": "review",
+            "available_at": at,
+        }
+        put(s, "outcomes", p["tenant_id"], p["seller_id"], lineage, now=began)
+    project_pending(service, p)
+
+    def read():
+        def reject(connection, cursor, statement, parameters, context, many):
+            assert not any(
+                "FROM " + table in statement
+                for table in (
+                    "leads",
+                    "call_attempts",
+                    "experiment_assignments",
+                    "conversion_events",
+                    "coaching_feedback",
+                    "coach_events",
+                    "outcomes",
+                    "compliance_decisions",
+                )
+            ), "Comparison reads must use aggregates, not historical sources"
+
+        event.listen(service.db.engine, "before_cursor_execute", reject)
+        try:
+            return projections.read_comparison_metrics(service, p)
+        finally:
+            event.remove(service.db.engine, "before_cursor_execute", reject)
+
+    reports = read()
+    actual = reports[0]
+    assert actual["assigned_leads"] == actual["unassigned_leads"] == 1
+    assert actual["arms"]["candidate"]["matured_conversions"] == 1
+    quality = actual["coaching_quality"]["candidate"]
+    assert quality["reviewed_cards"] == 1
+    assert quality["useful_fraction"] == 1 and quality["grounded_fraction"] == 0
+    if family == "number_allocation":
+        assert actual["cluster_count"] == 1
+        assert actual["cluster_summary"]["candidate"]["mean_cluster_conversion"] == 1
+    else:
+        assert actual["rep_strata"][0]["id"] == p["user_id"]
+    if family == "strategy":
+        assert actual["strategy_exposure"]["observed_in_speech"] == 1
+        assert actual["strategy_exposure"]["reported_used"] == 0
+        assert actual["strategy_exposure"]["use_unknown"] == 1
+        assert reports[1]["strategy_policy_snapshot"] == actual["strategy_policy_snapshot"]
+        assert actual["strategy_policy_snapshot"]["observations"]["approach"] == 1
+    assert not actual["sufficient_evidence"]
+
+    with service.db.transaction() as s:
+        update(
+            get(s, "call_attempts", call_id),
+            outcome="not_interested",
+            outcome_available_at=clock.now.isoformat(),
+        )
+        update(get(s, "coaching_feedback", feedback_id), useful=False)
+        put(
+            s,
+            "outcomes",
+            p["tenant_id"],
+            p["seller_id"],
+            {**lineage, "version": 2, "state": "retracted", "invalidated_at": clock.now.isoformat()},
+            now=clock.now,
+        )
+    project_pending(service, p)
+    corrected = read()
+    assert corrected[0]["arms"]["candidate"]["matured_conversions"] == 0
+    assert corrected[0]["coaching_quality"]["candidate"]["useful_fraction"] == 0
+    if family == "strategy":
+        assert corrected[0]["strategy_exposure"]["observed_in_speech"] == 0
+        assert corrected[1]["strategy_policy_snapshot"] == corrected[0]["strategy_policy_snapshot"]
+        assert (
+            corrected[0]["strategy_policy_snapshot"]["estimates"]["approach"]
+            < actual["strategy_policy_snapshot"]["estimates"]["approach"]
+        )
