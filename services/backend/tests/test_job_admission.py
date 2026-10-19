@@ -26,6 +26,58 @@ def test_derived_refresh_source_changes_do_not_consume_failure_attempts(workspac
     assert saved["status"] == "queued" and saved["attempts"] == 0 and saved["error"] is None
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["forecast_refresh", "health_refresh", "learning_refresh", "report_refresh"])
+async def test_expired_derived_worker_cannot_publish(workspace, app, clock, monkeypatch, kind):
+    from datetime import timedelta
+    import app.optimization.conversations as conversations
+    import app.optimization.workflows as workflows
+    from test_projection_replay import project_pending
+
+    service, p = app.state.service, principal(workspace)
+    project_pending(service, p)
+    with service.db.transaction() as s:
+        for job in s.scalars(select(Job)):
+            job.status = "completed"
+    if kind == "forecast_refresh":
+        target, name = workflows, "capacity_forecast"
+    elif kind == "learning_refresh":
+        target, name = conversations, "conversation_associations"
+    else:
+        target, name = service, "inventory_evidence" if kind == "health_refresh" else "optimization_report"
+    original = getattr(target, name)
+
+    def expires(*args, **kwargs):
+        result = original(*args, **kwargs)
+        clock.now += timedelta(seconds=61)
+        return result
+
+    monkeypatch.setattr(target, name, expires)
+    service.jobs.enqueue(
+        "ml",
+        {
+            "kind": kind,
+            "seller_id": p["seller_id"],
+            "user_id": p["user_id"],
+            "campaign_id": workspace["campaign_id"],
+            "role": "admin",
+        },
+        "expired-derived:" + kind,
+        tenant_id=p["tenant_id"],
+    )
+    await service.run_jobs(p["tenant_id"], ["ml"])
+    with service.db.transaction(False) as s:
+        if kind == "learning_refresh":
+            assert not service.required(s, "campaigns", workspace["campaign_id"], p).data.get(
+                "conversation_report"
+            )
+        else:
+            table = "number_health" if kind == "health_refresh" else "report_projections"
+            assert service.scoped(s, table, p) == []
+        if kind == "forecast_refresh":
+            assert service.scoped(s, "scheduling_plans", p) == []
+
+
 @pytest.mark.parametrize("action", ["complete", "heartbeat", "coalesce_refresh"])
 def test_job_owner_expires_at_the_deadline(workspace, app, clock, action):
     from datetime import timedelta
