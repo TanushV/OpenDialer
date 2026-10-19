@@ -595,7 +595,8 @@
         "docs/evidence/completion/E09-contracts-red.json",
         "docs/evidence/completion/E09-admission.json",
         "docs/evidence/completion/E09-vectors-red.json",
-        "docs/evidence/completion/E09-contributions.json"
+        "docs/evidence/completion/E09-contributions.json",
+        "docs/evidence/completion/E09-publication.json"
       ],
       "planned_case_ids": [
         "C035",
@@ -611,7 +612,7 @@
         "A50",
         "A51"
       ],
-      "checkpoint": "3687aac: pure vectors/additive schema/work overlap/backup contracts84 passes SQLite,53+31 PostgreSQL. Continue field-specific dirty publication, replay and reader retirement; parentE09 open.",
+      "checkpoint": "cde549a: core dirty units/source generations, work corrections, atomic delta publication and lease/pointer fences pass10 per database; affected PostgreSQL120pass. Continue dependent-source expansion (three red contracts), rebuild, complete metric readers and incremental health/planning/training separation. ParentE09 open.",
       "implementation_todos": [
         {
           "id": "E09.admission",

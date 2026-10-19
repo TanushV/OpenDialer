@@ -1,0 +1,76 @@
+{
+  "step_id": "E09",
+  "stage": "core-dirty-publication-only",
+  "source_commit": "cde549ad79a30dd172c52d8716a15f4358b5957c",
+  "production_tree_digest": "fb5a554bf81bf8dfe53a866d7e13194e9709dd9e275cd8773067eff773e79a97",
+  "test_tree_digest": "53aed73db664e8f184b49471656ed4659c52f0ce1e8c97cbfeb8ad8715e555a7",
+  "digest_method": "SHA256 git ls-tree -r for listed roots",
+  "case_ids": [
+    "C035",
+    "C036",
+    "C037",
+    "C038"
+  ],
+  "mode": [
+    "sqlite",
+    "postgresql"
+  ],
+  "fixture_seed": 20261018,
+  "commands": [
+    "Focused test_projection_replay excludes interrupted/rebuild_churn/rolled_back:10 checks per database",
+    "Affected test_incremental_metrics,test_projection_replay,test_report_projections,test_work_measurement,test_job_admission,test_billing_resolution with four incomplete contracts deselected: SQLite119pass/1legacy assertion failure plus corrected assertion1pass; PostgreSQL120pass"
+  ],
+  "environment": {
+    "python": "3.12.13",
+    "postgresql": "17",
+    "installed_app_changed": false
+  },
+  "started_at": null,
+  "finished_at": "2026-10-19T16:04:46.856372+00:00",
+  "timestamp_note": "Exact start not captured; runner durations and digests retained.",
+  "result_counts": {
+    "core_sqlite": {
+      "passed": 10,
+      "seconds": 4.07
+    },
+    "core_postgres": {
+      "passed": 10,
+      "seconds": 21.82
+    },
+    "affected_sqlite_before_fixture_correction": {
+      "passed": 119,
+      "failed": 1,
+      "seconds": 50.76
+    },
+    "corrected_sqlite_report_assertion": {
+      "passed": 1
+    },
+    "affected_postgres": {
+      "passed": 120,
+      "deselected": 4,
+      "seconds": 288.14
+    }
+  },
+  "failed_cases": [],
+  "raw_log_sha256": {
+    "E09-unit-sqlite.txt": "8695de4aabdd563876d1b9bfc7b118bfd04fe310a3dc11bb65e384ff8b20f8fe",
+    "E09-unit-postgres.txt": "f1a6047e141c3f059a8945619601efadfdccb1ff2985e0f2531047a94992d154",
+    "E09-coordinator-affected-sqlite.txt": "4786e9a0a7082041266e6d0a98458953166822c122abc79271ea1ad80b5d76ba",
+    "E09-report-jobs-sqlite.txt": "5579f9e337359f9b7aa5ae7cfebbe149fba551e9b89ff1b1a08556050ca79767",
+    "E09-coordinator-affected-postgres.txt": "e9950554883264e8981b8060975b72eb1e4665f761d28961a21a8d07ea69c520",
+    "E09-publication-race-red.txt": "ec9c0eef892c025632977805ac7aae1c3fc808948f376cffd6b1ddfd41374796",
+    "E09-owner-pointer-red.txt": "6977ccf556c70bc3e00508721fb6ac2df0a1f121d9d126b70f5ef940b0e18030",
+    "E09-dependent-units-red.txt": "db57a2edf11ccd42de4dbab3dedab359ad760b47c33eae8a438149d7ae1bd4e9"
+  },
+  "retired_paths": [
+    "Unconditional lead preparation bookkeeping invalidation",
+    "One job query per dirty unit in a transaction"
+  ],
+  "known_limitations": [
+    "ParentE09 open: suppression/conversion dependent expansion, rebuild, full report-reader retirement, incremental health/planning and training isolation remain.",
+    "Projection unit calculations/atomic deltas are tested; this is not yet a complete incremental reporting acceptance.",
+    "Three dependent-unit contracts now fail before their implementation.",
+    "The SQLite affected run is composed with the repaired report-count assertion; the complete PostgreSQL affected run passed at the committed source."
+  ],
+  "external_calls": false
+}
