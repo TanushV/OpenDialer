@@ -103,3 +103,67 @@ test("a routed inbound call has visible controls and blocks the outbound next bu
   await expect(inbound).toBeHidden();
   expect(ended).toBe(true);
 });
+
+test("ringing return call exposes explicit acceptance and waits for the matching audio leg", async ({
+  page,
+}) => {
+  await page.route("**/v1/workspace", async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.tasks.push({
+      id: "ringing-return",
+      version: 1,
+      inbound: true,
+      inbound_state: "ringing",
+      routed_rep_id: data.user.id,
+      callback_phone: "+14155550111",
+      lead_id: null,
+      status: "open",
+      due_at: null,
+      action: "Return call",
+      route: "responsible_rep",
+      routing_attempts: [
+        {
+          id: "ring-one",
+          rep_id: data.user.id,
+          state: "ringing",
+          provider_id: "verified-return-leg",
+        },
+      ],
+    });
+    await route.fulfill({ response, json: data });
+  });
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await isolatedSimulationWorkspace(page, "ringing-return-fixture");
+  const inbound = page.getByRole("region", {
+    name: "Active return call",
+    exact: true,
+  });
+  await expect(
+    inbound.getByRole("button", { name: "Accept return call", exact: true }),
+  ).toBeVisible();
+  await expect(
+    inbound.getByRole("button", { name: "Accept return call", exact: true }),
+  ).toBeDisabled();
+  await expect(inbound).toContainText(
+    "Waiting for the matching incoming audio",
+  );
+  await expect(
+    inbound.getByRole("button", { name: "Mute return call", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    inbound.getByRole("button", { name: "End return call", exact: true }),
+  ).toBeEnabled();
+  await expect(
+    page.getByRole("button", { name: "Get next lead", exact: true }),
+  ).toBeDisabled();
+});

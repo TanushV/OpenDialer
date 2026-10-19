@@ -135,3 +135,56 @@ test("a stale return-call control cannot stop a newly active agent", async () =>
   expect(agent.hangup).not.toHaveBeenCalled();
   expect(agent.toggleAudioMute).not.toHaveBeenCalled();
 });
+
+test("unverified active notifications never acquire local controls", async () => {
+  const { phone, client } = await connected();
+  const foreign = call("foreign", "active");
+  client.emit(foreign);
+  phone.mute();
+  await phone.emergencyHangup();
+  expect(foreign.toggleAudioMute).not.toHaveBeenCalled();
+  expect(foreign.hangup).not.toHaveBeenCalled();
+});
+
+test("disconnect while microphone permission is pending cannot register later", async () => {
+  let release!: (value: any) => void;
+  navigator.mediaDevices.getUserMedia = vi.fn(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  const phone = new Telephony();
+  const pending = phone.connect("synthetic-token", {} as HTMLAudioElement);
+  phone.disconnect();
+  const stop = vi.fn();
+  release({ getTracks: () => [{ stop }] });
+  await expect(pending).rejects.toThrow();
+  expect(stop).toHaveBeenCalledTimes(1);
+  expect(sdk.clients).toHaveLength(0);
+});
+
+test("reusing a ready registration does not leave a second SDK client", async () => {
+  const { phone } = await connected();
+  await phone.connect("new-short-lived-token", {} as HTMLAudioElement);
+  expect(sdk.clients).toHaveLength(1);
+});
+
+test("ending a callback preserves agent ownership and rejects a late callback active event", async () => {
+  const { phone, client } = await connected();
+  phone.expectAgentLeg("agent");
+  const agent = call("agent");
+  client.emit(agent);
+  client.emit({ ...agent, state: "active" });
+  const incoming = call("incoming");
+  client.emit(incoming);
+  phone.expectReturnLeg("incoming");
+  await phone.acceptIncoming("incoming");
+  client.emit({ ...incoming, state: "active" });
+  await phone.emergencyHangup("incoming");
+  client.emit({ ...incoming, state: "active" });
+  phone.mute();
+  expect(agent.toggleAudioMute).toHaveBeenCalledTimes(1);
+  expect(incoming.toggleAudioMute).not.toHaveBeenCalled();
+  expect(agent.hangup).not.toHaveBeenCalled();
+});
