@@ -1,0 +1,1561 @@
+{
+  "step_id": "E00",
+  "fixture_seed": 20261018,
+  "environment": {
+    "system": "macOS-26.5.1-arm64-arm-64bit",
+    "python": "3.12.13",
+    "postgres": "17.11 on exact guarded loopback unit-test identity"
+  },
+  "case_ids": [
+    "C001",
+    "C002",
+    "C003",
+    "C004",
+    "C005",
+    "C006",
+    "C007",
+    "C008",
+    "C009",
+    "C010",
+    "C011",
+    "C012",
+    "C013",
+    "C014",
+    "C015",
+    "C016",
+    "C017",
+    "C018",
+    "C019",
+    "C020",
+    "C021",
+    "C022",
+    "C023",
+    "C024",
+    "C025",
+    "C026",
+    "C027",
+    "C028",
+    "C029",
+    "C030",
+    "C031",
+    "C032",
+    "C033",
+    "C034",
+    "C035",
+    "C036",
+    "C037",
+    "C038",
+    "C039",
+    "C040",
+    "C041",
+    "C042",
+    "C043",
+    "C044",
+    "C045",
+    "C046",
+    "C047",
+    "C048",
+    "C049",
+    "C050",
+    "C051",
+    "C052",
+    "C053",
+    "C054",
+    "C055",
+    "C056",
+    "C057",
+    "C058"
+  ],
+  "runs": [
+    {
+      "source_commit": "eca49a0ba5525c7fb3cf0e8d7250402b22d50da5",
+      "production_tree_digest": "50d115cbe2757974cfd493bfb4e878a6cbba524d550963b0b0c72502b6553017",
+      "test_tree_digest": "7049ea65e5ec07f387a3b24a1fd55b532fc7ab036c6ed85e8f34641256e6c90b",
+      "command": "guarded PostgreSQL; pytest every added/changed test node against eb77aad plus retained live claim and connected security files",
+      "started_at": "2026-10-18T23:00:26.157632-07:00",
+      "finished_at": "2026-10-19T06:07:46.961809+00:00",
+      "result_counts": {
+        "passed": 138,
+        "failed": 163,
+        "error": 4,
+        "skipped": 2
+      },
+      "raw_log_sha256": "59efe5fbf9913a8d3e6af2785207e60ba14978a2d277c684b71c26daf9a433eb",
+      "junit_sha256": "211b3d7245377f639b5186a82e479df7bb77f43e449d532a6b5d897efb9d4c64",
+      "test_cases": [
+        {
+          "node": "services/backend/tests/test_call_rubrics.py::test_complete_rubric_once_per_call",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_capability_consistency.py::test_configured_vs_verified_capabilities[True]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_capability_consistency.py::test_configured_vs_verified_capabilities[False]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_coach_admission.py::test_optional_review_holds_the_original_live_capacity_slot",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_coach_admission.py::test_prospect_debounce_and_rate_limit",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_coaching_library.py::test_practice_and_rep_opportunity_limits",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_completion_contracts.py::test_coverage_receipt_parser[90-80-0]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_completion_contracts.py::test_coverage_receipt_parser[89-100-1]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_completion_contracts.py::test_coverage_receipt_parser[100-79-1]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_completion_contracts.py::test_coverage_receipt_parser[90-0-1]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_completion_contracts.py::test_missing_or_empty_coverage_cannot_certify_anything[content0]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_completion_contracts.py::test_missing_or_empty_coverage_cannot_certify_anything[content1]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_completion_contracts.py::test_missing_or_empty_coverage_cannot_certify_anything[content2]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_completion_contracts.py::test_targeted_mutation_detection[dedupe]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_completion_contracts.py::test_targeted_mutation_detection[source_version]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_completion_contracts.py::test_targeted_mutation_detection[internal_suppression]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_completion_contracts.py::test_targeted_mutation_detection[early_voicemail]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_completion_contracts.py::test_targeted_mutation_detection[general_capacity]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_completion_contracts.py::test_targeted_mutation_detection[human_note]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_completion_contracts.py::test_targeted_mutation_detection[future_label]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_completion_contracts.py::test_targeted_mutation_detection[unreviewed_stream]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_completion_contracts.py::test_targeted_mutation_detection[raw_expiry]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_completion_contracts.py::test_targeted_mutation_detection[uncertainty_hold]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_completion_contracts.py::test_mutation_inventory_names_real_assertions_and_disposable_execution",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_completion_contracts.py::test_bounded_acceptance_tools",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_completion_contracts.py::test_handoff_manifest_scope[missing_receipt]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_completion_contracts.py::test_handoff_manifest_scope[stale_source]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_completion_contracts.py::test_handoff_manifest_scope[external_without_evidence]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_completion_contracts.py::test_handoff_manifest_scope[cleanup_outside_allowlist]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_completion_journeys.py::test_full_rep_journey_both_authorities[local]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_completion_journeys.py::test_full_rep_journey_both_authorities[connected]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_conversation_features.py::test_prior_observation_features_only[prior-expected0]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_conversation_features.py::test_prior_observation_features_only[future-expected1]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_conversation_features.py::test_prior_observation_features_only[provisional-expected2]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_conversation_features.py::test_prior_observation_features_only[current-expected3]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_conversation_features.py::test_prior_observation_features_only[foreign-expected4]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_conversation_finalization.py::test_early_context_survives_ttl[False]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_conversation_finalization.py::test_early_context_survives_ttl[True]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_conversation_finalization.py::test_merge_correction_and_missing_source",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_journal.py::test_lost_store_and_flush_failure[none]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_journal.py::test_lost_store_and_flush_failure[fsync]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_journal.py::test_lost_store_and_flush_failure[partial]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_journal.py::test_lost_store_and_flush_failure[disk_full]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_journal.py::test_journal_failure_cannot_block_stopping_an_existing_leg",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_journal.py::test_lost_newer_database_rows_recover_from_effect_journal",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_journal.py::test_damaged_effect_journal_holds_new_effects[truncated]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_journal.py::test_damaged_effect_journal_holds_new_effects[wrong_key]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_journal.py::test_damaged_effect_journal_holds_new_effects[sequence_gap]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_inference_attempt_crash_matrix[before_send-live_coach]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_inference_attempt_crash_matrix[before_send-live_coach_review]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_inference_attempt_crash_matrix[after_send-live_coach]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_inference_attempt_crash_matrix[after_send-live_coach_review]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_inference_attempt_crash_matrix[before_publication-live_coach]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_inference_attempt_crash_matrix[before_publication-live_coach_review]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_inference_attempt_crash_matrix[expired_lease-live_coach]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_inference_attempt_crash_matrix[expired_lease-live_coach_review]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_inference_attempt_crash_matrix[stale_owner-live_coach]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_inference_attempt_crash_matrix[stale_owner-live_coach_review]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_deferred_script_crash_matrix[before_send]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_deferred_script_crash_matrix[after_send]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_deferred_script_crash_matrix[before_publication]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_deferred_script_crash_matrix[expired_lease]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_deferred_script_crash_matrix[stale_owner]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_prior_purchase_read_recovery_matrix[before_send]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_prior_purchase_read_recovery_matrix[after_send]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_prior_purchase_read_recovery_matrix[before_publication]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_prior_purchase_read_recovery_matrix[expired_lease]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_prior_purchase_read_recovery_matrix[stale_owner]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_local_task_edit_crash_matrix[before_send]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_local_task_edit_crash_matrix[after_send]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_local_task_edit_crash_matrix[before_publication]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_local_task_edit_crash_matrix[expired_lease]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_local_task_edit_crash_matrix[stale_owner]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_prepaid_screen_crash_matrix[before_send]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_prepaid_screen_crash_matrix[after_send]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_prepaid_screen_crash_matrix[before_publication]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_prepaid_screen_crash_matrix[expired_lease]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_prepaid_screen_crash_matrix[stale_owner]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_owned_number_configuration_crash_matrix[before_send]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_owned_number_configuration_crash_matrix[after_send]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_owned_number_configuration_crash_matrix[before_publication]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_owned_number_configuration_crash_matrix[expired_lease]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_owned_number_configuration_crash_matrix[stale_owner]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_dial_and_agent_crash_matrix[before_send-dial]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_dial_and_agent_crash_matrix[before_send-agent]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_dial_and_agent_crash_matrix[after_send-dial]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_dial_and_agent_crash_matrix[after_send-agent]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_dial_and_agent_crash_matrix[before_publication-dial]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_dial_and_agent_crash_matrix[before_publication-agent]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_dial_and_agent_crash_matrix[expired_lease-dial]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_dial_and_agent_crash_matrix[expired_lease-agent]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_dial_and_agent_crash_matrix[stale_owner-dial]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_dial_and_agent_crash_matrix[stale_owner-agent]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[before_send-answer]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[before_send-bridge]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[before_send-transfer]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[before_send-transcription_start]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[before_send-gather]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[before_send-speak]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[before_send-transcription_stop]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[before_send-playback_stop]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[before_send-record_stop]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[before_send-hangup]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[before_send-send_dtmf]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[before_send-playback_start]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[after_send-answer]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[after_send-bridge]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[after_send-transfer]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[after_send-transcription_start]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[after_send-gather]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[after_send-speak]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[after_send-transcription_stop]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[after_send-playback_stop]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[after_send-record_stop]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[after_send-hangup]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[after_send-send_dtmf]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[after_send-playback_start]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[before_publication-answer]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[before_publication-bridge]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[before_publication-transfer]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[before_publication-transcription_start]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[before_publication-gather]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[before_publication-speak]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[before_publication-transcription_stop]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[before_publication-playback_stop]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[before_publication-record_stop]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[before_publication-hangup]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[before_publication-send_dtmf]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[before_publication-playback_start]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[expired_lease-answer]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[expired_lease-bridge]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[expired_lease-transfer]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[expired_lease-transcription_start]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[expired_lease-gather]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[expired_lease-speak]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[expired_lease-transcription_stop]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[expired_lease-playback_stop]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[expired_lease-record_stop]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[expired_lease-hangup]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[expired_lease-send_dtmf]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[expired_lease-playback_start]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[stale_owner-answer]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[stale_owner-bridge]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[stale_owner-transfer]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[stale_owner-transcription_start]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[stale_owner-gather]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[stale_owner-speak]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[stale_owner-transcription_stop]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[stale_owner-playback_stop]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[stale_owner-record_stop]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[stale_owner-hangup]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[stale_owner-send_dtmf]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases[stale_owner-playback_start]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_goal_reconciliation.py::test_rep_meeting_hold_lifecycle[no_show]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_goal_reconciliation.py::test_rep_meeting_hold_lifecycle[cancelled]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_incremental_metrics.py::test_contribution_replay_oracle",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_incremental_metrics.py::test_normal_correction_does_not_rebuild_entire_operational_dataset",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_ingress_boundary.py::test_exact_public_route_allowlist[body0]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_ingress_boundary.py::test_exact_public_route_allowlist[body1]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_ingress_boundary.py::test_unconfigured_ingress_returns_an_actionable_capability",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_ingress_boundary.py::test_ingress_check_is_admin_authenticated",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_ingress_boundary.py::test_active_challenge_is_one_time_content_free_and_source_fenced[current]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_ingress_boundary.py::test_active_challenge_is_one_time_content_free_and_source_fenced[expiry]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_ingress_boundary.py::test_active_challenge_is_one_time_content_free_and_source_fenced[changed_source]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_installed_copy_migration.py::test_legacy_copy_allowlist_continuity",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_installed_copy_migration.py::test_actual_update_allowed_data[macos-aarch64]",
+          "outcome": "skipped"
+        },
+        {
+          "node": "services/backend/tests/test_installed_copy_migration.py::test_actual_update_allowed_data[windows-x86_64]",
+          "outcome": "skipped"
+        },
+        {
+          "node": "services/backend/tests/test_job_admission.py::test_claim_only_running_capacity",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_job_admission.py::test_two_workers_share_job_identity_and_global_capacity",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_learning_chronology.py::test_rolling_asof_entity_embargo",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_learning_chronology.py::test_feature_vocabulary_is_fitted_only_in_each_training_partition",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_live_memory.py::test_quiet_interval_defers_the_final_turn_instead_of_losing_it",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_local_followthrough.py::test_callback_time_and_snooze",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_local_followthrough.py::test_callback_identity_and_alias[False]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_local_followthrough.py::test_callback_identity_and_alias[True]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_model_serving_bounds.py::test_v1_v2_model_compatibility[1]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_model_serving_bounds.py::test_v1_v2_model_compatibility[2]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_openrouter_coach.py::test_independent_live_review_pins_same_route_and_records_its_own_receipt[Cerebras]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_openrouter_coach.py::test_independent_live_review_pins_same_route_and_records_its_own_receipt[Another provider]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_operating_validation.py::test_runtime_limits_have_one_validated_nested_configuration",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_operating_validation.py::test_invalid_runtime_limits_fail_startup[override0]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_operating_validation.py::test_invalid_runtime_limits_fail_startup[override1]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_operating_validation.py::test_invalid_runtime_limits_fail_startup[override2]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_operating_validation.py::test_invalid_runtime_limits_fail_startup[override3]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_operating_validation.py::test_invalid_runtime_limits_fail_startup[override4]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_operating_validation.py::test_invalid_runtime_limits_fail_startup[override5]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_operating_validation.py::test_invalid_runtime_limits_fail_startup[override6]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_operating_validation.py::test_invalid_runtime_limits_fail_startup[override7]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_operating_validation.py::test_invalid_runtime_limits_fail_startup[override8]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_operating_validation.py::test_invalid_runtime_limits_fail_startup[override9]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_operating_validation.py::test_invalid_runtime_limits_fail_startup[override10]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_operating_validation.py::test_invalid_runtime_limits_fail_startup[override11]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_operating_validation.py::test_invalid_runtime_limits_fail_startup[override12]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_operating_validation.py::test_invalid_runtime_limits_fail_startup[override13]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_operating_validation.py::test_invalid_runtime_limits_fail_startup[override14]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_optimization_learning.py::test_nullable_labels_and_pooled_counts[None-None-None]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_optimization_learning.py::test_nullable_labels_and_pooled_counts[temporary_failure-None-None]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_optimization_learning.py::test_nullable_labels_and_pooled_counts[invalid_endpoint-None-None]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_optimization_learning.py::test_nullable_labels_and_pooled_counts[callback_requested-True-None]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_optimization_learning.py::test_nullable_labels_and_pooled_counts[opt_out-True-None]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_optimization_learning.py::test_nullable_labels_and_pooled_counts[not_interested-True-None]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_optimization_learning.py::test_nullable_labels_and_pooled_counts[no_answer-False-None]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_optimization_learning.py::test_nullable_labels_and_pooled_counts[busy-False-None]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_optimization_learning.py::test_nullable_labels_and_pooled_counts[voicemail-False-None]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_optimization_learning.py::test_nullable_labels_and_pooled_counts[screening-False-None]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_optimization_learning.py::test_nullable_labels_and_pooled_counts[gatekeeper-True-False]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_optimization_learning.py::test_nullable_labels_and_pooled_counts[right_party-True-True]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_optimization_learning.py::test_sparse_prior_excludes_cell_and_uses_circular_hour",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_optimization_numbers.py::test_health_support_and_case_mix[2-unknown-no_answer-0.8]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_optimization_numbers.py::test_health_support_and_case_mix[29-unknown-no_answer-0.8]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_optimization_numbers.py::test_health_support_and_case_mix[40-investigating-no_answer-0.8]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_optimization_numbers.py::test_health_support_and_case_mix[40-observed-no_answer-0.05]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_preparation_completion.py::test_bounded_parallel_preparation",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_preparation_discovery.py::test_official_discovery_bounds[services]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_preparation_discovery.py::test_official_discovery_bounds[duplicates]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_preparation_discovery.py::test_official_discovery_bounds[foreign]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_preparation_discovery.py::test_missing_search_capability_keeps_truthful_generic_script",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_projection_replay.py::test_interrupted_inactive_rebuild_replays_concurrent_dirty_units",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_projection_replay.py::test_rebuild_churn_and_atomic_publish",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_projection_replay.py::test_rolled_back_tombstone_cannot_remove_a_live_contribution",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_registry_hotpath.py::test_npa_chunk_country_bound",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_remediation_privacy.py::test_all_boundaries_original_ttl[299-True]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_remediation_privacy.py::test_all_boundaries_original_ttl[300-False]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_remediation_privacy.py::test_all_boundaries_original_ttl[301-False]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_report_scaling.py::test_bounded_normal_reads_and_short_writes",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_screening_readiness.py::test_prepaid_preflight_authorization_agree[True]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_screening_readiness.py::test_prepaid_preflight_authorization_agree[False]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_screening_refresh.py::test_bounded_paid_refresh",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_screening_refresh.py::test_screening_refresh_requires_bounded_explicit_funding[settings0]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_screening_refresh.py::test_screening_refresh_requires_bounded_explicit_funding[settings1]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_screening_refresh.py::test_screening_refresh_requires_bounded_explicit_funding[settings2]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_screening_refresh.py::test_screening_refresh_requires_bounded_explicit_funding[settings3]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_screening_refresh.py::test_screening_refresh_disabled_default_is_visible",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_screening_refresh.py::test_whole_list_refresh_resumes_after_one_500_endpoint_page",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_strategy_exposure.py::test_finite_strategy_assignment",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_strategy_exposure.py::test_displayed_guidance_is_not_assumed_used_or_converted",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_tracker_publication.py::test_reviewed_state_sources[foreign]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_tracker_publication.py::test_reviewed_state_sources[forward]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_tracker_publication.py::test_reviewed_state_sources[cycle]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_tracker_publication.py::test_reviewed_state_sources[too_many_sources]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_tracker_publication.py::test_reviewed_state_sources[unknown_speaker]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_unified_planning.py::test_same_availability_same_demand",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_unified_planning.py::test_conservation_known_and_contingent[False]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_unified_planning.py::test_conservation_known_and_contingent[True]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle[0-0-2]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle[0-0-4]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle[0-1-2]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle[0-1-4]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle[0-2-2]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle[0-2-4]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle[1-0-2]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle[1-0-4]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle[1-1-2]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle[1-1-4]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle[1-2-2]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle[1-2-4]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle[2-0-2]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle[2-0-4]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle[2-1-2]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle[2-1-4]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle[2-2-2]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle[2-2-4]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_unified_planning.py::test_staffing_binding_and_time_constraints[20]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_unified_planning.py::test_staffing_binding_and_time_constraints[50]",
+          "outcome": "passed"
+        },
+        {
+          "node": "tests/test_disposable_database.py::test_exact_disposable_identity_is_admitted[unit-opendialer_remediation_test]",
+          "outcome": "passed"
+        },
+        {
+          "node": "tests/test_disposable_database.py::test_exact_disposable_identity_is_admitted[browser-opendialer_completion_e2e]",
+          "outcome": "passed"
+        },
+        {
+          "node": "tests/test_disposable_database.py::test_other_databases_are_refused_without_credentials_in_error[sqlite:////Users/example/Library/Application Support/OpenDialer/local.db]",
+          "outcome": "passed"
+        },
+        {
+          "node": "tests/test_disposable_database.py::test_other_databases_are_refused_without_credentials_in_error[postgresql+psycopg://opendialer:remediation-disposable-test@127.0.0.1:55439/production]",
+          "outcome": "passed"
+        },
+        {
+          "node": "tests/test_disposable_database.py::test_other_databases_are_refused_without_credentials_in_error[postgresql+psycopg://opendialer:remediation-disposable-test@127.0.0.1:55439/opendialer_completion_e2e]",
+          "outcome": "passed"
+        },
+        {
+          "node": "tests/test_disposable_database.py::test_other_databases_are_refused_without_credentials_in_error[postgresql+psycopg://opendialer:remediation-disposable-test@example.com:55439/opendialer_remediation_test]",
+          "outcome": "passed"
+        },
+        {
+          "node": "tests/test_disposable_database.py::test_other_databases_are_refused_without_credentials_in_error[postgresql+psycopg://opendialer:remediation-disposable-test@127.0.0.1:54322/opendialer_remediation_test]",
+          "outcome": "passed"
+        },
+        {
+          "node": "tests/test_disposable_database.py::test_other_databases_are_refused_without_credentials_in_error[postgresql+psycopg://opendialer:real-secret@127.0.0.1:55439/opendialer_remediation_test]",
+          "outcome": "passed"
+        },
+        {
+          "node": "tests/test_disposable_database.py::test_other_databases_are_refused_without_credentials_in_error[postgresql+psycopg://opendialer:remediation-disposable-test@127.0.0.1:55439/opendialer_remediation_test?options=-csearch_path%3Dproduction]",
+          "outcome": "passed"
+        },
+        {
+          "node": "tests/test_disposable_database.py::test_other_databases_are_refused_without_credentials_in_error[not-a-database]",
+          "outcome": "passed"
+        },
+        {
+          "node": "tests/test_disposable_database.py::test_ci_identity_requires_actual_ci_and_distinct_browser_database",
+          "outcome": "passed"
+        },
+        {
+          "node": "tests/test_disposable_database.py::test_unit_and_browser_stores_cannot_alias",
+          "outcome": "passed"
+        },
+        {
+          "node": "tests/test_distribution_contract.py::test_version_identity_artifact_contract",
+          "outcome": "failed"
+        },
+        {
+          "node": "tests/test_native_update_wait.py::test_installed_exact_backend_after_exit[None-0]",
+          "outcome": "passed"
+        },
+        {
+          "node": "tests/test_native_update_wait.py::test_installed_exact_backend_after_exit[None-1]",
+          "outcome": "passed"
+        },
+        {
+          "node": "tests/test_native_update_wait.py::test_installed_exact_backend_after_exit[None-2]",
+          "outcome": "passed"
+        },
+        {
+          "node": "tests/test_native_update_wait.py::test_installed_exact_backend_after_exit[aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-0]",
+          "outcome": "passed"
+        },
+        {
+          "node": "tests/test_native_update_wait.py::test_installed_exact_backend_after_exit[aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1]",
+          "outcome": "passed"
+        },
+        {
+          "node": "tests/test_native_update_wait.py::test_installed_exact_backend_after_exit[aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2]",
+          "outcome": "passed"
+        },
+        {
+          "node": "tests/test_native_update_wait.py::test_installed_exact_backend_after_exit[bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-0]",
+          "outcome": "passed"
+        },
+        {
+          "node": "tests/test_native_update_wait.py::test_installed_exact_backend_after_exit[bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-1]",
+          "outcome": "passed"
+        },
+        {
+          "node": "tests/test_native_update_wait.py::test_installed_exact_backend_after_exit[bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-2]",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_live_claim_review.py::test_word_overlap_or_a_question_mark_cannot_certify_a_novel_claim[say_or_ask-Our product is compatible with offline use.]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_live_claim_review.py::test_word_overlap_or_a_question_mark_cannot_certify_a_novel_claim[say_or_ask-How can our offline product support your team?]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_live_claim_review.py::test_word_overlap_or_a_question_mark_cannot_certify_a_novel_claim[reason-Our product is compatible with offline use.]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_live_claim_review.py::test_a_novel_nonassertive_question_keeps_the_single_request_path",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_live_claim_review.py::test_reviewed_freeform_paraphrase_publishes_and_keeps_separate_receipts",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_live_claim_review.py::test_review_rejects_contradiction_despite_identical_words",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_live_claim_review.py::test_ordinary_open_question_does_not_add_an_inference_request",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_live_claim_review.py::test_review_has_its_own_budget_admission",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_live_claim_review.py::test_changed_sources_during_review_cannot_publish_but_both_requests_are_settled",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_live_claim_review.py::test_early_factual_stream_is_not_displayed_before_meaning_review",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_live_claim_review.py::test_cancelled_review_retains_its_uncertain_cost_and_generation_receipt",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_live_claim_review.py::test_complete_field_audit[say_or_ask]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_live_claim_review.py::test_complete_field_audit[reason]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_live_claim_review.py::test_complete_field_audit[alternatives.0]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_live_claim_review.py::test_complete_field_audit[implied_premise]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_connected_security.py::test_connected_never_grants_loopback_auth_bypass",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_connected_security.py::test_login_logout_revocation_and_no_default_password",
+          "outcome": "error"
+        },
+        {
+          "node": "services/backend/tests/test_connected_security.py::test_rep_cannot_publish_policy_see_keys_or_promote_model",
+          "outcome": "error"
+        },
+        {
+          "node": "services/backend/tests/test_connected_security.py::test_tenant_isolation_on_reads_writes_events_and_phone_suppression",
+          "outcome": "error"
+        },
+        {
+          "node": "services/backend/tests/test_connected_security.py::test_master_keys_are_write_only_and_not_in_snapshot",
+          "outcome": "error"
+        },
+        {
+          "node": "services/backend/tests/test_connected_security.py::test_live_mode_without_provider_keys_is_fail_closed",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "source_commit": "13ac0146171110467198afc296f0bfa012c2b11f",
+      "production_tree_digest": "50d115cbe2757974cfd493bfb4e878a6cbba524d550963b0b0c72502b6553017",
+      "test_tree_digest": "6428af613a4c413e487ffdc8d9fe97817ed3de3ca68c921f67f0f850c656619d",
+      "command": "guarded PostgreSQL; pytest final seven turn/audit/coalescing cases and full connected security file",
+      "started_at": "2026-10-18T23:08:51.961649-07:00",
+      "finished_at": "2026-10-19T06:09:11.932681+00:00",
+      "result_counts": {
+        "passed": 6,
+        "failed": 7,
+        "error": 0,
+        "skipped": 0
+      },
+      "raw_log_sha256": "ffccd9a8e620b62616399ccb036096d5433fdf73808151f069cc300968ead8eb",
+      "junit_sha256": "cb18cf6659d056bde9c88123df041b834121822cf777a456d26695c757d76713",
+      "test_cases": [
+        {
+          "node": "services/backend/tests/test_coach_admission.py::test_many_final_chunks_keep_only_one_latest_pending_context",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_live_claim_review.py::test_audit_identity_and_complete_visible_coverage_are_required[missing_field]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_live_claim_review.py::test_audit_identity_and_complete_visible_coverage_are_required[duplicate]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_live_claim_review.py::test_audit_identity_and_complete_visible_coverage_are_required[unknown_source]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_live_claim_review.py::test_audit_identity_and_complete_visible_coverage_are_required[stale_context]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_live_claim_review.py::test_audit_identity_and_complete_visible_coverage_are_required[premise]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_openrouter_coach.py::test_live_transport_requests_one_typed_turn_contract",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_connected_security.py::test_connected_never_grants_loopback_auth_bypass",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_connected_security.py::test_login_logout_revocation_and_no_default_password",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_connected_security.py::test_rep_cannot_publish_policy_see_keys_or_promote_model",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_connected_security.py::test_tenant_isolation_on_reads_writes_events_and_phone_suppression",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_connected_security.py::test_master_keys_are_write_only_and_not_in_snapshot",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_connected_security.py::test_live_mode_without_provider_keys_is_fail_closed",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "source_commit": "13ac0146171110467198afc296f0bfa012c2b11f",
+      "production_tree_digest": "50d115cbe2757974cfd493bfb4e878a6cbba524d550963b0b0c72502b6553017",
+      "test_tree_digest": "6428af613a4c413e487ffdc8d9fe97817ed3de3ca68c921f67f0f850c656619d",
+      "command": "SQLite; pytest final seven turn/audit/coalescing cases and full connected security file",
+      "started_at": "2026-10-18T23:09:44.607061-07:00",
+      "finished_at": "2026-10-19T06:09:49.127980+00:00",
+      "result_counts": {
+        "passed": 6,
+        "failed": 7,
+        "error": 0,
+        "skipped": 0
+      },
+      "raw_log_sha256": "7d310eecdb5b9e7a0d51d3435186d12b260f50360b8680481748ab5cbcc5dc05",
+      "junit_sha256": "c756d89242eed63578f80b3c17092503638b7d82dc9aadbb04816cf4bb2cfefe",
+      "test_cases": [
+        {
+          "node": "services/backend/tests/test_coach_admission.py::test_many_final_chunks_keep_only_one_latest_pending_context",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_live_claim_review.py::test_audit_identity_and_complete_visible_coverage_are_required[missing_field]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_live_claim_review.py::test_audit_identity_and_complete_visible_coverage_are_required[duplicate]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_live_claim_review.py::test_audit_identity_and_complete_visible_coverage_are_required[unknown_source]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_live_claim_review.py::test_audit_identity_and_complete_visible_coverage_are_required[stale_context]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_live_claim_review.py::test_audit_identity_and_complete_visible_coverage_are_required[premise]",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_openrouter_coach.py::test_live_transport_requests_one_typed_turn_contract",
+          "outcome": "failed"
+        },
+        {
+          "node": "services/backend/tests/test_connected_security.py::test_connected_never_grants_loopback_auth_bypass",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_connected_security.py::test_login_logout_revocation_and_no_default_password",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_connected_security.py::test_rep_cannot_publish_policy_see_keys_or_promote_model",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_connected_security.py::test_tenant_isolation_on_reads_writes_events_and_phone_suppression",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_connected_security.py::test_master_keys_are_write_only_and_not_in_snapshot",
+          "outcome": "passed"
+        },
+        {
+          "node": "services/backend/tests/test_connected_security.py::test_live_mode_without_provider_keys_is_fail_closed",
+          "outcome": "passed"
+        }
+      ]
+    }
+  ],
+  "selection_manifest_sha256": "2f1eb33ecba5e5f1156cf9e7b47a54d3ab0c7ea4951de259508783f368117f11",
+  "selection_nodes": [
+    "services/backend/tests/test_call_rubrics.py::test_complete_rubric_once_per_call",
+    "services/backend/tests/test_capability_consistency.py::test_configured_vs_verified_capabilities",
+    "services/backend/tests/test_coach_admission.py::test_optional_review_holds_the_original_live_capacity_slot",
+    "services/backend/tests/test_coach_admission.py::test_prospect_debounce_and_rate_limit",
+    "services/backend/tests/test_coaching_library.py::test_practice_and_rep_opportunity_limits",
+    "services/backend/tests/test_completion_contracts.py::test_coverage_receipt_parser",
+    "services/backend/tests/test_completion_contracts.py::test_missing_or_empty_coverage_cannot_certify_anything",
+    "services/backend/tests/test_completion_contracts.py::test_targeted_mutation_detection",
+    "services/backend/tests/test_completion_contracts.py::test_mutation_inventory_names_real_assertions_and_disposable_execution",
+    "services/backend/tests/test_completion_contracts.py::test_bounded_acceptance_tools",
+    "services/backend/tests/test_completion_contracts.py::test_handoff_manifest_scope",
+    "services/backend/tests/test_completion_journeys.py::test_full_rep_journey_both_authorities",
+    "services/backend/tests/test_conversation_features.py::test_prior_observation_features_only",
+    "services/backend/tests/test_conversation_finalization.py::test_early_context_survives_ttl",
+    "services/backend/tests/test_conversation_finalization.py::test_merge_correction_and_missing_source",
+    "services/backend/tests/test_effect_journal.py::test_lost_store_and_flush_failure",
+    "services/backend/tests/test_effect_journal.py::test_journal_failure_cannot_block_stopping_an_existing_leg",
+    "services/backend/tests/test_effect_journal.py::test_lost_newer_database_rows_recover_from_effect_journal",
+    "services/backend/tests/test_effect_journal.py::test_damaged_effect_journal_holds_new_effects",
+    "services/backend/tests/test_effect_matrix.py::test_inference_attempt_crash_matrix",
+    "services/backend/tests/test_effect_matrix.py::test_deferred_script_crash_matrix",
+    "services/backend/tests/test_effect_matrix.py::test_prior_purchase_read_recovery_matrix",
+    "services/backend/tests/test_effect_matrix.py::test_local_task_edit_crash_matrix",
+    "services/backend/tests/test_effect_matrix.py::test_prepaid_screen_crash_matrix",
+    "services/backend/tests/test_effect_matrix.py::test_owned_number_configuration_crash_matrix",
+    "services/backend/tests/test_effect_matrix.py::test_dial_and_agent_crash_matrix",
+    "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases",
+    "services/backend/tests/test_goal_reconciliation.py::test_rep_meeting_hold_lifecycle",
+    "services/backend/tests/test_incremental_metrics.py::test_contribution_replay_oracle",
+    "services/backend/tests/test_incremental_metrics.py::test_normal_correction_does_not_rebuild_entire_operational_dataset",
+    "services/backend/tests/test_ingress_boundary.py::test_exact_public_route_allowlist",
+    "services/backend/tests/test_ingress_boundary.py::test_unconfigured_ingress_returns_an_actionable_capability",
+    "services/backend/tests/test_ingress_boundary.py::test_ingress_check_is_admin_authenticated",
+    "services/backend/tests/test_ingress_boundary.py::test_active_challenge_is_one_time_content_free_and_source_fenced",
+    "services/backend/tests/test_installed_copy_migration.py::test_legacy_copy_allowlist_continuity",
+    "services/backend/tests/test_installed_copy_migration.py::test_actual_update_allowed_data",
+    "services/backend/tests/test_job_admission.py::test_claim_only_running_capacity",
+    "services/backend/tests/test_job_admission.py::test_two_workers_share_job_identity_and_global_capacity",
+    "services/backend/tests/test_learning_chronology.py::test_rolling_asof_entity_embargo",
+    "services/backend/tests/test_learning_chronology.py::test_feature_vocabulary_is_fitted_only_in_each_training_partition",
+    "services/backend/tests/test_live_claim_review.py::test_a_novel_nonassertive_question_keeps_the_single_request_path",
+    "services/backend/tests/test_live_claim_review.py::test_ordinary_open_question_does_not_add_an_inference_request",
+    "services/backend/tests/test_live_claim_review.py::test_complete_field_audit",
+    "services/backend/tests/test_live_memory.py::test_quiet_interval_defers_the_final_turn_instead_of_losing_it",
+    "services/backend/tests/test_local_followthrough.py::test_callback_time_and_snooze",
+    "services/backend/tests/test_local_followthrough.py::test_callback_identity_and_alias",
+    "services/backend/tests/test_model_serving_bounds.py::test_v1_v2_model_compatibility",
+    "services/backend/tests/test_openrouter_coach.py::test_independent_live_review_pins_same_route_and_records_its_own_receipt",
+    "services/backend/tests/test_operating_validation.py::test_runtime_limits_have_one_validated_nested_configuration",
+    "services/backend/tests/test_operating_validation.py::test_invalid_runtime_limits_fail_startup",
+    "services/backend/tests/test_optimization_learning.py::test_nullable_labels_and_pooled_counts",
+    "services/backend/tests/test_optimization_learning.py::test_sparse_prior_excludes_cell_and_uses_circular_hour",
+    "services/backend/tests/test_optimization_numbers.py::test_health_support_and_case_mix",
+    "services/backend/tests/test_preparation_completion.py::test_bounded_parallel_preparation",
+    "services/backend/tests/test_preparation_discovery.py::test_official_discovery_bounds",
+    "services/backend/tests/test_preparation_discovery.py::test_missing_search_capability_keeps_truthful_generic_script",
+    "services/backend/tests/test_projection_replay.py::test_interrupted_inactive_rebuild_replays_concurrent_dirty_units",
+    "services/backend/tests/test_projection_replay.py::test_rebuild_churn_and_atomic_publish",
+    "services/backend/tests/test_projection_replay.py::test_rolled_back_tombstone_cannot_remove_a_live_contribution",
+    "services/backend/tests/test_registry_hotpath.py::test_npa_chunk_country_bound",
+    "services/backend/tests/test_remediation_privacy.py::test_all_boundaries_original_ttl",
+    "services/backend/tests/test_report_scaling.py::test_bounded_normal_reads_and_short_writes",
+    "services/backend/tests/test_screening_readiness.py::test_prepaid_preflight_authorization_agree",
+    "services/backend/tests/test_screening_refresh.py::test_bounded_paid_refresh",
+    "services/backend/tests/test_screening_refresh.py::test_screening_refresh_requires_bounded_explicit_funding",
+    "services/backend/tests/test_screening_refresh.py::test_screening_refresh_disabled_default_is_visible",
+    "services/backend/tests/test_screening_refresh.py::test_whole_list_refresh_resumes_after_one_500_endpoint_page",
+    "services/backend/tests/test_strategy_exposure.py::test_finite_strategy_assignment",
+    "services/backend/tests/test_strategy_exposure.py::test_displayed_guidance_is_not_assumed_used_or_converted",
+    "services/backend/tests/test_tracker_publication.py::test_reviewed_state_sources",
+    "services/backend/tests/test_unified_planning.py::test_same_availability_same_demand",
+    "services/backend/tests/test_unified_planning.py::test_conservation_known_and_contingent",
+    "services/backend/tests/test_unified_planning.py::test_minimum_additions_independent_oracle",
+    "services/backend/tests/test_unified_planning.py::test_staffing_binding_and_time_constraints",
+    "tests/test_disposable_database.py::test_exact_disposable_identity_is_admitted",
+    "tests/test_disposable_database.py::test_other_databases_are_refused_without_credentials_in_error",
+    "tests/test_disposable_database.py::test_ci_identity_requires_actual_ci_and_distinct_browser_database",
+    "tests/test_disposable_database.py::test_unit_and_browser_stores_cannot_alias",
+    "tests/test_distribution_contract.py::test_version_identity_artifact_contract",
+    "tests/test_native_update_wait.py::test_installed_exact_backend_after_exit",
+    "services/backend/tests/test_live_claim_review.py",
+    "services/backend/tests/test_connected_security.py"
+  ],
+  "retained_browser": {
+    "source_commit": "efa146bbbc6786db28cbfaba6c9fcfefbf0a4747",
+    "command": "npm run test:e2e -- tests/helper-ui.spec.ts tests/followthrough.spec.ts",
+    "passed": 5,
+    "failed": 0,
+    "raw_log_sha256": "5bcc8bbe37a255a85c76db42fada24d64cdd32ea89193ac39d9f037f88501622"
+  },
+  "known_limitations": [
+    "Baseline failures are expected before implementation, not completed features.",
+    "Four connected-security setup errors in the main contract run were fixture key mismatch; all six connected-security cases pass in the corrected supplement in both modes.",
+    "The interrupted redundant full PostgreSQL run is not certification; full sequential suites remain E13.",
+    "Original nine claim regressions are retained.",
+    "Native compile absence and two actual installed-update receipt skips remain explicitly E12/E14 evidence gates.",
+    "Browser completion cases stop on the first current focus or authority-switch defect; subsequent assertions must run after repair.",
+    "Software model fixtures do not certify live carrier, Cerebras semantics, external retention, DNC authority, hardware or publisher trust."
+  ],
+  "retired_paths": [],
+  "external_calls": false,
+  "installed_app_changed": false
+}

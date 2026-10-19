@@ -3,16 +3,16 @@
   "written_at": "2026-10-18",
   "baseline_commit": "63f4d4242f60672777f596177fe98fe57f715bf9",
   "baseline_product_test_commit": "6611d3c2fb486b0aac65df2bb42e20663457552a",
-  "status": "implementation-authorized; complete contract baseline running before E01",
+  "status": "implementation-authorized; E00 contracts captured; E01 in progress",
   "requirements_source": "docs/REMEDIATION_PLAN.md",
   "implementation_source": "docs/EXECUTION_SPEC.md",
-  "next_step": "E00",
+  "next_step": "E01",
   "receipt_rule": "No inherited checkbox or planned node is a current passing receipt. Update by actual source-bound evidence.",
   "steps": [
     {
       "id": "E00",
       "title": "Write and record every missing contract first",
-      "status": "in-progress",
+      "status": "accepted-software",
       "depends_on": [],
       "spec_anchor": "4-e00-write-and-record-every-missing-contract-first",
       "planned_test_files": [
@@ -20,7 +20,12 @@
         "services/backend/tests/test_completion_contracts.py",
         "apps/desktop/tests/completion.spec.ts"
       ],
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E00-harness.json",
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-surfaces.json",
+        "docs/evidence/completion/E00-contract-baselines.json"
+      ],
       "planned_case_ids": [],
       "acceptance_families": [
         "A01",
@@ -84,7 +89,7 @@
     {
       "id": "E01",
       "title": "Freeform live guidance without lexical truth rules",
-      "status": "open",
+      "status": "in-progress",
       "depends_on": [
         "E00"
       ],
@@ -4154,7 +4159,10 @@
       "expected": "Suggestion, reason, alternative and implied premise each receive a current source-bound verdict; unsupported fields cannot stream.",
       "status": "baseline-recorded",
       "red_receipts": [
-        "docs/evidence/completion/E00-group1.json"
+        "docs/evidence/completion/E00-group1.json",
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
       ],
       "green_receipts": [],
       "actual_nodes": [
@@ -4178,7 +4186,10 @@
       "expected": "300-ms debounce admits latest prospect context without an eight-second wait; rep-only refresh remains paced; every limited opportunity counted.",
       "status": "baseline-recorded",
       "red_receipts": [
-        "docs/evidence/completion/E00-group1.json"
+        "docs/evidence/completion/E00-group1.json",
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
       ],
       "green_receipts": [],
       "actual_nodes": [
@@ -4201,8 +4212,12 @@
       "step": "E01",
       "planned_node": "services/backend/tests/test_helper_progress.py::test_review_cost_cancellation",
       "expected": "Generation/review have distinct ledger keys; source change or cancel withholds output and preserves submitted liability.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_helper_progress.py::test_complete_primary_answer_is_visible_before_explanation_and_one_receipt_is_updated",
@@ -4226,8 +4241,12 @@
       "step": "E01",
       "planned_node": "services/backend/tests/test_coach_stream.py::test_reviewed_progress_identity",
       "expected": "Complete reviewed primary field may display; partial factual field may not; conflicting receipt withdraws exactly one card.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_coach_stream.py::test_manual_help_uses_streaming_schema_and_preserves_final_usage",
@@ -4263,7 +4282,10 @@
       "expected": "Twelve-minute call keeps minute-one derived need/promise after raw expiry and finalizes without an OpenAI key.",
       "status": "baseline-recorded",
       "red_receipts": [
-        "docs/evidence/completion/E00-group1.json"
+        "docs/evidence/completion/E00-group1.json",
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
       ],
       "green_receipts": [],
       "actual_nodes": [
@@ -4278,7 +4300,10 @@
       "expected": "Omitted item is not resolved; correction invalidates dependants; expired evidence yields partial rather than invented replacement.",
       "status": "baseline-recorded",
       "red_receipts": [
-        "docs/evidence/completion/E00-group1.json"
+        "docs/evidence/completion/E00-group1.json",
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
       ],
       "green_receipts": [],
       "actual_nodes": [
@@ -4291,8 +4316,12 @@
       "step": "E02",
       "planned_node": "services/backend/tests/test_call_rubrics.py::test_complete_rubric_once_per_call",
       "expected": "Each frozen dimension has scored/N-A/insufficient state; chunks are not independent calls; coverage denominator is exact.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_call_rubrics.py::test_complete_rubric_once_per_call",
@@ -4310,8 +4339,12 @@
       "step": "E02",
       "planned_node": "services/backend/tests/test_tracker_publication.py::test_reviewed_state_sources",
       "expected": "Unknown speaker, foreign IDs, reference cycles and stale review cannot publish confirmed trackers or commitments.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_tracker_publication.py::test_reviewed_state_sources",
@@ -4327,8 +4360,12 @@
       "step": "E03",
       "planned_node": "services/backend/tests/test_completion_journeys.py::test_full_rep_journey_both_authorities",
       "expected": "Import through next call, early callback, correction, restart, booking hold and cancellation yields one preserved task in local and real PostgreSQL modes.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_completion_journeys.py::test_full_rep_journey_both_authorities"
@@ -4339,8 +4376,12 @@
       "step": "E03",
       "planned_node": "services/backend/tests/test_local_followthrough.py::test_callback_identity_and_alias",
       "expected": "Lost response and repeated wrap-up resolve one canonical task; conflicting human-edited legacy duplicates remain explicit exceptions.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_local_followthrough.py::test_callback_time_and_snooze",
@@ -4368,8 +4409,12 @@
       "step": "E03",
       "planned_node": "services/backend/tests/test_local_followthrough.py::test_callback_time_and_snooze",
       "expected": "Exact zoned date schedules; vague/missing-zone/DST fold requires confirmation; snooze never rewrites promised window.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_local_followthrough.py::test_callback_time_and_snooze",
@@ -4397,8 +4442,12 @@
       "step": "E03",
       "planned_node": "services/backend/tests/test_goal_reconciliation.py::test_rep_meeting_hold_lifecycle",
       "expected": "Booked/rescheduled holds; held evidence explicit; no-show/canceled require selected next action; no calendar/network write.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_goal_reconciliation.py::test_rep_meeting_hold_lifecycle",
@@ -4420,8 +4469,12 @@
       "step": "E03",
       "planned_node": "services/backend/tests/test_coaching_library.py::test_practice_and_rep_opportunity_limits",
       "expected": "At most 20 reviewed opportunities and three goals; practice has no call outcome, training label or durable raw content.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_coaching_library.py::test_practice_and_rep_opportunity_limits",
@@ -4446,7 +4499,10 @@
       "expected": "Fact on services page succeeds; wrong-company/private redirect and injected instructions cannot; three pages/two optional searches/byte cap enforced.",
       "status": "baseline-recorded",
       "red_receipts": [
-        "docs/evidence/completion/E00-group1.json"
+        "docs/evidence/completion/E00-group1.json",
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
       ],
       "green_receipts": [],
       "actual_nodes": [
@@ -4459,8 +4515,12 @@
       "step": "E04",
       "planned_node": "services/backend/tests/test_preparation_completion.py::test_bounded_parallel_preparation",
       "expected": "Shared HTTP/company/script limits hold with 100 queued leads; two failures preserve other results; controls stay responsive.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_preparation_completion.py::test_bounded_parallel_preparation",
@@ -4487,8 +4547,12 @@
       "step": "E04",
       "planned_node": "services/backend/tests/test_preparation_completion.py::test_runway_window_wake",
       "expected": "Prepared count uses eligible inspected horizon; off-hours DST and one wake catch-up; no paid work when target satisfied.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_preparation_completion.py::test_bounded_parallel_preparation",
@@ -4515,8 +4579,12 @@
       "step": "E04",
       "planned_node": "services/backend/tests/test_preparation_batch_completion.py::test_original_batch_partial_recovery",
       "expected": "Same provider/custom IDs; only missing outputs requeued; each novel field reviewed once at its source version.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_preparation_batch_completion.py::test_delayed_request_uses_slot_schema_and_publishes_current_template",
@@ -4557,7 +4625,10 @@
       "expected": "Authorized cached prepaid-only endpoint can be ready; configured key without source/coverage cannot; preflight and dial agree.",
       "status": "baseline-recorded",
       "red_receipts": [
-        "docs/evidence/completion/E00-group1.json"
+        "docs/evidence/completion/E00-group1.json",
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
       ],
       "green_receipts": [],
       "actual_nodes": [
@@ -4569,8 +4640,12 @@
       "step": "E05",
       "planned_node": "services/backend/tests/test_screening_refresh.py::test_bounded_paid_refresh",
       "expected": "Two workers yield one submission; 500-row cursor resumes; opt-outs excluded; unknown charge prevents automatic repeat.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_screening_refresh.py::test_bounded_paid_refresh",
@@ -4584,8 +4659,12 @@
       "step": "E05",
       "planned_node": "services/backend/tests/test_registry_hotpath.py::test_npa_chunk_country_bound",
       "expected": "500 NPA chunks require only relevant membership decode within LRU; atomic publication/expiry fences survive replacement.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_registry_hotpath.py::test_npa_chunk_country_bound",
@@ -4607,8 +4686,12 @@
       "step": "E05",
       "planned_node": "services/backend/tests/test_operating_validation.py::test_literal_cost_privacy_constraints",
       "expected": "Settings merge cannot enable subscription/recording or longer raw retention; rates differ from actual charges; no paid GET.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_operating_validation.py::test_dnc_settings_validate_source_shape_before_saving",
@@ -4651,7 +4734,10 @@
       "expected": "Simple and named equivalent windows normalize identically; anonymous capacity cannot satisfy owned callback or double staff.",
       "status": "baseline-recorded",
       "red_receipts": [
-        "docs/evidence/completion/E00-group1.json"
+        "docs/evidence/completion/E00-group1.json",
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
       ],
       "green_receipts": [],
       "actual_nodes": [
@@ -4668,7 +4754,10 @@
       "expected": "80 general attempts remain 80 across regions; reservation-to-attempt replacement once; uncertain retries stay separate scenarios.",
       "status": "baseline-recorded",
       "red_receipts": [
-        "docs/evidence/completion/E00-group1.json"
+        "docs/evidence/completion/E00-group1.json",
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
       ],
       "green_receipts": [],
       "actual_nodes": [
@@ -4685,7 +4774,10 @@
       "expected": "Independent exhaustive tiny fixtures match assignment/count; larger heuristic reports valid lower bound/gap and search budget.",
       "status": "baseline-recorded",
       "red_receipts": [
-        "docs/evidence/completion/E00-group1.json"
+        "docs/evidence/completion/E00-group1.json",
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
       ],
       "green_receipts": [],
       "actual_nodes": [
@@ -4702,7 +4794,10 @@
       "expected": "240/180/140 fixture, unequal durations, DST, pending setup, detached legs and stable bound-at-limit explain distinct shortfalls.",
       "status": "baseline-recorded",
       "red_receipts": [
-        "docs/evidence/completion/E00-group1.json"
+        "docs/evidence/completion/E00-group1.json",
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
       ],
       "green_receipts": [],
       "actual_nodes": [
@@ -4717,8 +4812,12 @@
       "step": "E07",
       "planned_node": "services/backend/tests/test_number_reconciliation.py::test_inventory_and_route_proof",
       "expected": "Incomplete pagination never deletes ownership; changed configuration invalidates callback evidence; partial order stays pending.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_number_reconciliation.py::test_inventory_pages_are_complete_or_explicitly_rejected",
@@ -4738,8 +4837,12 @@
       "step": "E07",
       "planned_node": "services/backend/tests/test_optimization_numbers.py::test_health_support_and_case_mix",
       "expected": "Sparse observations stay unknown; mix shifts do not imply spam; sustained comparable residual/drop triggers supported investigation.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_optimization_numbers.py::test_number_health_unknown_is_not_a_fabricated_half",
@@ -4761,8 +4864,12 @@
       "step": "E07",
       "planned_node": "services/backend/tests/test_number_orders.py::test_no_new_rental_or_reputation",
       "expected": "Purchase/enrollment denied before provider call; old order retains original reconciliation identity.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_number_orders.py::test_lost_order_without_reference_survives_reload_with_actionable_state",
@@ -4801,8 +4908,12 @@
       "step": "E07",
       "planned_node": "services/backend/tests/test_scheduling_and_numbers.py::test_stable_identity_and_reassignment",
       "expected": "Healthy retries retain identity; approved health change retains inbound old number and invalidates capacity proposal.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_scheduling_and_numbers.py::test_callback_and_coverage_beat_propensity",
@@ -4824,7 +4935,10 @@
       "expected": "Zero/few data use displayed priors; unknown role/failure excluded correctly; leave-cell-out pooling and circular hour formula match independent arithmetic.",
       "status": "baseline-recorded",
       "red_receipts": [
-        "docs/evidence/completion/E00-group1.json"
+        "docs/evidence/completion/E00-group1.json",
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
       ],
       "green_receipts": [],
       "actual_nodes": [
@@ -4850,8 +4964,12 @@
       "step": "E08",
       "planned_node": "services/backend/tests/test_learning_chronology.py::test_rolling_asof_entity_embargo",
       "expected": "Future/corrected labels, overlapping outcomes, timestamp ties and shared entity cannot leak across training/calibration/evaluation.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_learning_chronology.py::test_rolling_asof_entity_embargo",
@@ -4880,7 +4998,10 @@
       "expected": "Training-only bounded vocabulary; current/future call or unreviewed observation excluded; missing is not absent; ablation uses same rows.",
       "status": "baseline-recorded",
       "red_receipts": [
-        "docs/evidence/completion/E00-group1.json"
+        "docs/evidence/completion/E00-group1.json",
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
       ],
       "green_receipts": [],
       "actual_nodes": [
@@ -4892,8 +5013,12 @@
       "step": "E08",
       "planned_node": "services/backend/tests/test_strategy_exposure.py::test_finite_strategy_assignment",
       "expected": "Stable approved arms, actual allowed set/mixture probability, display-use distinction and matured reward; no invented sentence propensity.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_strategy_exposure.py::test_finite_strategy_assignment",
@@ -4905,8 +5030,12 @@
       "step": "E08",
       "planned_node": "services/backend/tests/test_model_serving_bounds.py::test_v1_v2_model_compatibility",
       "expected": "Owned checksummed artifacts retain original vectorizer; stages without support fall back; baseline imports no scientific stack.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_model_serving_bounds.py::test_v1_v2_model_compatibility",
@@ -4927,8 +5056,12 @@
       "step": "E09",
       "planned_node": "services/backend/tests/test_incremental_metrics.py::test_contribution_replay_oracle",
       "expected": "Corrections/deletions/maturity/credits produce exact independent batch-oracle totals; unique leads and rep-day union not double counted.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_incremental_metrics.py::test_contribution_replay_oracle",
@@ -4940,8 +5073,12 @@
       "step": "E09",
       "planned_node": "services/backend/tests/test_projection_replay.py::test_rebuild_churn_and_atomic_publish",
       "expected": "Inactive namespace and cursor resume; concurrent dirty generations replay; same version no-op; old consistent snapshot remains available.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_projection_replay.py::test_interrupted_inactive_rebuild_replays_concurrent_dirty_units",
@@ -4954,8 +5091,12 @@
       "step": "E09",
       "planned_node": "services/backend/tests/test_job_admission.py::test_claim_only_running_capacity",
       "expected": "More pending jobs than slots cannot expire while unstarted; heartbeat on actual claim; two workers do not execute one paid job twice.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_job_admission.py::test_claim_only_running_capacity",
@@ -4967,8 +5108,12 @@
       "step": "E09",
       "planned_node": "services/backend/tests/test_report_scaling.py::test_bounded_normal_reads_and_short_writes",
       "expected": "GET/selection use scoped indexes and projections; no history-sized decryptions/global advisory lock/planning in writer.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_report_scaling.py::test_bounded_normal_reads_and_short_writes",
@@ -4980,8 +5125,12 @@
       "step": "E10",
       "planned_node": "services/backend/tests/test_effect_matrix.py::test_all_operation_crash_phases",
       "expected": "Each E10 operation times each five crash boundaries has original identity, fenced owner, cost state and meaningful next action; no blind repeat.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_effect_matrix.py::test_inference_attempt_crash_matrix",
@@ -4999,8 +5148,12 @@
       "step": "E10",
       "planned_node": "services/backend/tests/test_inbound_completion.py::test_online_callback_and_offline_capability",
       "expected": "Owner, teammate, busy, ambiguous caller and external destination paths retain leg/task; offline local is unavailable without actual compatible proof.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_inbound_completion.py::test_default_fallback_answers_then_speaks_and_ends_without_losing_task",
@@ -5036,8 +5189,12 @@
       "step": "E10",
       "planned_node": "services/backend/tests/test_final_attempt_voicemail.py::test_permission_allowance_topology",
       "expected": "Greatest declared allowance, actual submissions, late human, no beep, full mailbox, opt-out and detached restart preserve correct obligation.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_final_attempt_voicemail.py::test_reducing_attempt_policy_does_not_enable_early_voicemail",
@@ -5059,8 +5216,12 @@
       "step": "E10",
       "planned_node": "services/backend/tests/test_billing_resolution.py::test_every_effect_cost_and_credit",
       "expected": "All actual legs/reviews/transfers and uncertain amounts reconcile once; credit period retained; optional budget cannot prevent stop.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_billing_resolution.py::test_partial_carrier_receipt_does_not_clear_other_leg_liability",
@@ -5105,8 +5266,12 @@
       "step": "E11",
       "planned_node": "services/backend/tests/test_installed_copy_migration.py::test_legacy_copy_allowlist_continuity",
       "expected": "Copied actual schema authenticates; raw canaries removed before retained backup; IDs, human notes, denials and effect identities unchanged.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_installed_copy_migration.py::test_legacy_copy_allowlist_continuity",
@@ -5118,8 +5283,12 @@
       "step": "E11",
       "planned_node": "services/backend/tests/test_remediation_privacy.py::test_all_boundaries_original_ttl",
       "expected": "299/300/301 seconds, retries/revisions/clock changes/wake/restart never extend raw life in any durable or transient boundary.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_remediation_privacy.py::test_all_boundaries_original_ttl",
@@ -5145,8 +5314,12 @@
       "step": "E11",
       "planned_node": "services/backend/tests/test_effect_journal.py::test_lost_store_and_flush_failure",
       "expected": "Replay typed encrypted effects/denials from independent journal; truncation, wrong key, fsync/disk-full and missing segments hold new effects.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_effect_journal.py::test_lost_store_and_flush_failure",
@@ -5160,8 +5333,12 @@
       "step": "E11",
       "planned_node": "services/backend/tests/test_restore_effects.py::test_restore_preserves_newer_state",
       "expected": "Current effects/liabilities/human edits/auth win; conflicting identity aborts; old backups cannot resurrect revoked access.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_restore_effects.py::test_restore_keeps_a_call_submitted_after_the_backup_and_its_live_claim",
@@ -5183,8 +5360,12 @@
       "step": "E12",
       "planned_node": "services/backend/tests/test_ingress_boundary.py::test_exact_public_route_allowlist",
       "expected": "Only signed webhook POST and active nonce GET pass; other methods/paths denied; arbitrary/private probe target refused.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_ingress_boundary.py::test_exact_public_route_allowlist",
@@ -5198,8 +5379,12 @@
       "step": "E12",
       "planned_node": "services/backend/tests/test_capability_consistency.py::test_configured_vs_verified_capabilities",
       "expected": "All UI/API capabilities reflect same evidence/source versions; missing keys/privacy/coverage remain actionable; GET never charges.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_capability_consistency.py::test_configured_vs_verified_capabilities",
@@ -5215,8 +5400,12 @@
       "step": "E12",
       "planned_node": "services/backend/tests/test_connected_security.py::test_authority_switch_scope",
       "expected": "Switch held during active effects; no cross-authority cache/session or seller leakage; connected fixtures use real PostgreSQL.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_connected_security.py::test_connected_never_grants_loopback_auth_bypass",
@@ -5233,8 +5422,12 @@
       "step": "E12",
       "planned_node": "apps/desktop/tests/completion.spec.ts::small_window_keyboard_journey",
       "expected": "1024x720 and1280x720 helper/script/hangup visible; F1/Escape/focus/opt-out work during AI failure and reconnect.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "apps/desktop/tests/completion.spec.ts::small_window_keyboard_journey"
@@ -5245,8 +5438,12 @@
       "step": "E13",
       "planned_node": "services/backend/tests/test_completion_contracts.py::test_coverage_receipt_parser",
       "expected": "Missing totals, branch floor alone, stale source and absent case receipts fail acceptance; docs-only digest equivalence explicit.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_completion_contracts.py::test_coverage_receipt_parser",
@@ -5262,8 +5459,12 @@
       "step": "E13",
       "planned_node": "services/backend/tests/test_completion_contracts.py::test_targeted_mutation_detection",
       "expected": "Ten named mutations each fail their designated test; no mutated source enters production.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_completion_contracts.py::test_coverage_receipt_parser",
@@ -5279,8 +5480,12 @@
       "step": "E13",
       "planned_node": "services/backend/tests/test_completion_contracts.py::test_bounded_acceptance_tools",
       "expected": "Performance/AST tools reject installed paths, raw fields and unexpected network; parsers inventory whole production source.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_completion_contracts.py::test_coverage_receipt_parser",
@@ -5296,8 +5501,12 @@
       "step": "E14",
       "planned_node": "tests/test_distribution_contract.py::test_version_identity_artifact_contract",
       "expected": "0.3.0 versions agree; keys/data identity unchanged; wrong signature/hash/platform rejected; fresh executable works without dev PATH.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "tests/test_distribution_contract.py::test_version_identity_artifact_contract",
@@ -5316,8 +5525,12 @@
       "step": "E14",
       "planned_node": "tests/test_native_update_wait.py::test_installed_exact_backend_after_exit",
       "expected": "Upgrader exited and installed backend SHA-256 equals accepted installer before native workflow; old GUI-only success insufficient.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "tests/test_native_update_wait.py::test_updater_wait_handles_the_native_window_closing",
@@ -5330,8 +5543,12 @@
       "step": "E14",
       "planned_node": "services/backend/tests/test_installed_copy_migration.py::test_actual_update_allowed_data",
       "expected": "Mac/Windows installed update preserves actual allowed record IDs/note/denial/session and has no raw legacy data.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_installed_copy_migration.py::test_legacy_copy_allowlist_continuity",
@@ -5344,8 +5561,12 @@
       "step": "E15",
       "planned_node": "services/backend/tests/test_completion_contracts.py::test_handoff_manifest_scope",
       "expected": "Artifact/source/remote/evidence and cleanup allowlist agree; missing external receipt cannot become accepted-external.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_completion_contracts.py::test_coverage_receipt_parser",
@@ -5361,8 +5582,12 @@
       "step": "E12",
       "planned_node": "apps/desktop/src-tauri/src/lib.rs::tests::webhook_tunnel_owned_runtime_lifecycle",
       "expected": "Validated argument arrays target the managed random loopback port; reconnect, missing SSH, mode switch and updater stop only the owned child; no token persisted.",
-      "status": "authored-baseline-running",
-      "red_receipts": [],
+      "status": "baseline-recorded",
+      "red_receipts": [
+        "docs/evidence/completion/E00-sqlite.json",
+        "docs/evidence/completion/E00-contract-baselines.json",
+        "docs/evidence/completion/E00-surfaces.json"
+      ],
       "green_receipts": [],
       "actual_nodes": [
         "apps/desktop/src-tauri/src/lib.rs::tests::webhook_tunnel_owned_runtime_lifecycle"
