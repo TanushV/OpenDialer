@@ -192,7 +192,7 @@ async def test_planning_lease_expiring_during_calculation_cannot_publish(workspa
         assert service.scoped(s, "scheduling_plans", p) == []
 
 
-def test_full_reallocation_replaces_an_unchanged_leads_old_slot(workspace, app, clock):
+def constrained_workspace(workspace, app):
     service, p = app.state.service, principal(workspace)
     with service.db.transaction() as s:
         for i, row in enumerate(service.scoped(s, "number_inventory", p)):
@@ -210,6 +210,11 @@ def test_full_reallocation_replaces_an_unchanged_leads_old_slot(workspace, app, 
         for row in service.scoped(s, "leads", p):
             update(row, timezone="UTC")
     service.refresh_schedule_plans(p, workspace["campaign_id"])
+    return service, p
+
+
+def test_full_reallocation_replaces_an_unchanged_leads_old_slot(workspace, app, clock):
+    service, p = constrained_workspace(workspace, app)
     with service.db.transaction() as s:
         plans = service.scoped(s, "scheduling_plans", p)
         assert sum(bool(row.data.get("selected")) for row in plans) == 1
@@ -223,3 +228,47 @@ def test_full_reallocation_replaces_an_unchanged_leads_old_slot(workspace, app, 
             if row.data.get("selected")
         }
         assert selected == {promoted}, "The old winner must relinquish its capacity after reallocation"
+
+
+def test_changed_priority_work_requests_rebalance_only_when_saved_work_blocks_it():
+    fixed = changed_plan([lead("cold")], inventory=[number(daily_limit=1)])["existing_schedule"]
+    callback = lead("promised", callback_due_at=NOW.isoformat())
+    result = changed_plan([callback], fixed, inventory=[number(daily_limit=1)])
+    assert result["existing_schedule"] == []
+    assert result.get("rebalance_required") is True
+    assert not changed_plan([lead("cold2")], fixed).get("rebalance_required")
+    assert not changed_plan([callback], (), inventory=[number(daily_limit=1)]).get("rebalance_required")
+
+
+@pytest.mark.asyncio
+async def test_blocked_callback_queues_one_internal_rebalance_and_replaces_cold_plan(workspace, app, clock):
+    from app.db import Job
+    from sqlalchemy import select
+    from test_projection_replay import project_pending
+
+    service, p = constrained_workspace(workspace, app)
+    project_pending(service, p)
+    with service.db.transaction() as s:
+        plans = service.scoped(s, "scheduling_plans", p)
+        promoted = next(row.data["lead_id"] for row in plans if not row.data.get("selected"))
+        update(get(s, "leads", promoted), callback_due_at=clock.now.isoformat())
+    internal = {**p, "user_id": None}
+    result = service.refresh_schedule_plans(
+        internal, workspace["campaign_id"], lead_ids=[promoted], internal=True
+    )
+    assert result.get("rebalance_job_id"), "Blocked priority work must retain a background obligation"
+    again = service.refresh_schedule_plans(
+        internal, workspace["campaign_id"], lead_ids=[promoted], internal=True
+    )
+    assert again["rebalance_job_id"] == result["rebalance_job_id"]
+    for _ in range(8):
+        await service.run_jobs(p["tenant_id"], ["ml"])
+    with service.db.transaction(False) as s:
+        jobs = list(s.scalars(select(Job).where(Job.id == result["rebalance_job_id"])))
+        assert len(jobs) == 1 and jobs[0].status == "completed"
+        selected = {
+            row.data["lead_id"]
+            for row in service.scoped(s, "scheduling_plans", p)
+            if row.data.get("selected")
+        }
+        assert selected == {promoted}
