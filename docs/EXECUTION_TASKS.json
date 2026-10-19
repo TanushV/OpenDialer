@@ -993,12 +993,12 @@
         {
           "id": "E13.2",
           "task": "Mutation evidence on disposable source copies",
-          "status": "8 detected; two anchors need precise replacement"
+          "status": "10 deliberate mutations detected on disposable copies; current source-version and direct TTL assertions verified"
         },
         {
           "id": "E13.3",
           "task": "Complete performance/load/shift/resource runner",
-          "status": "in progress; request fixture and guard contracts pass, duration/native gates remain open"
+          "status": "Guarded real-record measurement harness and preserved historical import pass 12 contracts; historical timing running; duration/native gates open"
         },
         {
           "id": "E13.4",
@@ -1008,7 +1008,7 @@
         {
           "id": "E13.5",
           "task": "Version-consistent candidate and full SQLite/PostgreSQL coverage",
-          "status": "open"
+          "status": "All version owners now 0.3.0 with preserved updater identity; 11 distribution/mutation contracts pass; full coverage remains open"
         },
         {
           "id": "E13.6",

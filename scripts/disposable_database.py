@@ -7,13 +7,17 @@ from sqlalchemy.engine import make_url
 
 def validate_database_url(value: str, *, purpose: str = "unit") -> str:
     """Reject everything except the exact, separately named disposable identities."""
-    if purpose not in {"unit", "browser"}:
+    if purpose not in {"unit", "browser", "performance"}:
         raise ValueError("Unknown disposable database purpose")
     try:
         url = make_url(value)
     except Exception as exc:
         raise ValueError("Invalid disposable database URL") from exc
-    local_name = "opendialer_remediation_test" if purpose == "unit" else "opendialer_completion_e2e"
+    local_name = {
+        "unit": "opendialer_remediation_test",
+        "browser": "opendialer_completion_e2e",
+        "performance": "opendialer_completion_performance",
+    }[purpose]
     local = (
         url.drivername == "postgresql+psycopg"
         and url.host == "127.0.0.1"
@@ -23,7 +27,7 @@ def validate_database_url(value: str, *, purpose: str = "unit") -> str:
         and url.database == local_name
         and not url.query
     )
-    ci_name = "opendialer_test" if purpose == "unit" else "opendialer_completion_e2e"
+    ci_name = "opendialer_test" if purpose == "unit" else local_name
     ci = (
         os.getenv("GITHUB_ACTIONS") == "true"
         and url.drivername == "postgresql+psycopg"

@@ -14,9 +14,9 @@
     },
     {
       "id": "source_version",
-      "source": "services/backend/app/coaching/workflows.py",
-      "find": "or not sources.current(self, s, p, request.get(\"context_sources\"))",
-      "replace": "or False",
+      "source": "services/backend/app/coaching/sources.py",
+      "find": "def current(service, s, p, receipt):",
+      "replace": "def current(service, s, p, receipt):\n    return True  # deliberate mutation: ignore current source versions",
       "designated_test": "services/backend/tests/test_live_claim_review.py::test_changed_sources_during_review_cannot_publish_but_both_requests_are_settled",
       "status": "planned-not-executed"
     },
@@ -73,7 +73,7 @@
       "source": "services/backend/app/privacy.py",
       "find": "if deadline <= now or monotonic_deadline <= mono:",
       "replace": "if False:  # deliberate mutation: skip expiry",
-      "designated_test": "services/backend/tests/test_remediation_privacy.py::test_transcript_expires_during_an_active_long_call",
+      "designated_test": "services/backend/tests/test_remediation_privacy.py::test_ephemeral_buffer_is_bounded_and_source_revision_does_not_reset_expiry",
       "status": "planned-not-executed"
     },
     {
