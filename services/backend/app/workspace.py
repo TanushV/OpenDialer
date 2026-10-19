@@ -42,6 +42,29 @@ def after(model, anchor, descending):
 
 
 class WorkspaceReads:
+    def quiescence_in(self, s, p):
+        """Indexed authority obligations; a local mode change stops the whole process."""
+        from app.telephony.reducer import TERMINAL
+
+        local = self.settings.mode == "local"
+        reasons = []
+        for table, condition, reason in (
+            ("call_attempts", MODELS["call_attempts"].op_status.not_in(TERMINAL), "ACTIVE_CALL"),
+            ("call_legs", MODELS["call_legs"].op_status.not_in([*TERMINAL, "ended", "failed", "cancelled"]), "ACTIVE_LEG"),
+            ("followup_tasks", MODELS["followup_tasks"].op_active.is_(True), "ACTIVE_INBOUND"),
+            ("command_outbox", MODELS["command_outbox"].op_status.in_(["sending", "uncertain", "reconciling", "review_required"]), "EXTERNAL_OPERATION_UNRESOLVED"),
+        ):
+            model = MODELS[table]
+            query = select(model.id).where(model.tenant_id == p["tenant_id"], condition)
+            if not local:
+                # Non-call admin effects are seller-owned. Reps block only on their own work.
+                query = query.where(model.seller_id == p["seller_id"])
+                if p["role"] not in {"owner", "admin"} or table != "command_outbox":
+                    query = query.where(model.op_owner_id == p["user_id"])
+            if s.scalar(query.limit(1)):
+                reasons.append(reason)
+        return {"can_disconnect": not reasons, "reasons": reasons}
+
     def workspace_page(self, p, section, *, cursor=None, q="", filter="all", limit=PAGE_SIZE, session=None):
         if section not in PAGE_TABLES and section != "jobs":
             fail(404, "Workspace section not found")

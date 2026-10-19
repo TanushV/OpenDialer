@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -27,6 +28,7 @@ class Vault:
         self.directory = Path(directory) / "secrets"
         self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.cipher = Fernet(base64.urlsafe_b64encode(hashlib.sha256(key.encode()).digest()))
+        self._config_digest_key = hashlib.sha256((key + ":provider-edit").encode()).digest()
         self._journal_lock = threading.RLock()
         self._verified_journals = set()
 
@@ -34,14 +36,31 @@ class Vault:
         path = self.directory / (tenant_id + ".enc")
         return json.loads(self.cipher.decrypt(path.read_bytes())) if path.exists() else {}
 
-    def write(self, tenant_id, values, *, expected=None, advance_version=False):
+    def write(self, tenant_id, values, *, expected=None, advance_version=False, edit=None):
         with self._locked_journal("provider-config"):
             current = self.read(tenant_id)
+            receipts = dict(current.get("_config_receipts", {}))
+            if edit is not None:
+                request_id, expected_version = edit
+                digest = hmac.new(self._config_digest_key,
+                                  json.dumps([expected_version, values], sort_keys=True).encode(),
+                                  hashlib.sha256).hexdigest()
+                if request_id in receipts:
+                    if receipts[request_id] != digest:
+                        raise HTTPException(409, "Provider request identity has different input")
+                    return
+                if current.get("version", 0) != expected_version:
+                    raise HTTPException(409, "Provider configuration changed; reload before saving")
+                receipts[request_id] = digest
+                while len(receipts) > 128:
+                    receipts.pop(next(iter(receipts)))
             if expected is not None and any(current.get(k) != v for k, v in expected.items()):
                 raise HTTPException(409, "Provider configuration changed before publication")
             data = {**current, **{k: v for k, v in values.items() if v is not None}}
             if advance_version:
                 data["version"] = current.get("version", 0) + 1
+            if edit is not None:
+                data["_config_receipts"] = receipts
             path = self.directory / (tenant_id + ".enc")
             temp = path.with_suffix("." + uid() + ".tmp")
             fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)

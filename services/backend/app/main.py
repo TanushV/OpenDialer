@@ -203,6 +203,8 @@ class PolicyUpdate(Strict):
 
 
 class ProviderSettings(Strict):
+    request_id: UUID | None = None
+    expected_version: int | None = Field(default=None, ge=0)
     dnc_api_key: str | None = None
     dnc_seller_authorization: DNCAuthorization | None = None
     telnyx_api_key: str | None = None
@@ -402,9 +404,17 @@ def create_app(settings=None, *, clock=None, carrier=None):
     def logout(p=Depends(principal)):
         with db.transaction() as s:
             db.authorize_stream(s, p)
+            status = service.quiescence_in(s, p)
+            if not status["can_disconnect"]:
+                fail(409, {"code": "AUTHORITY_HAS_OBLIGATIONS", "reasons": status["reasons"]})
             service.record_work_in(s, p, False)
             update(service.required(s, "sessions", p["session_id"], p), revoked=True)
         return {"logged_out": True}
+
+    @app.get("/v1/auth/quiescence")
+    def quiescence(p=Depends(principal)):
+        with db.transaction(False) as s:
+            return service.quiescence_in(s, p)
 
     @app.get("/v1/workspace")
     def workspace(p=Depends(principal)):
@@ -723,7 +733,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
         own_profile = service.vault.read("plan-" + p["user_id"])
         config["chatgpt_access_token"] = own_profile.get("access_token", "")
         return {
-            **{k: v for k, v in config.items() if k not in SECRET_FIELDS},
+            **{k: v for k, v in config.items() if k not in SECRET_FIELDS and not k.startswith("_")},
             "configured": {k: bool(config.get(k)) for k in SECRET_FIELDS},
             "version": config.get("version", 0),
             "defaults": {
@@ -736,6 +746,12 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.put("/v1/admin/settings")
     def write_settings(data: ProviderSettings, p=Depends(administrator)):
         values = data.model_dump(exclude_none=True)
+        request_id = values.pop("request_id", None)
+        expected_version = values.pop("expected_version", None)
+        if (request_id is None) != (expected_version is None):
+            fail(422, "Provider edits require request_id and expected_version together")
+        if request_id and "chatgpt_access_token" in values:
+            fail(422, "Use the per-user plan authorization flow for this credential")
         if values.get("dnc_seller_authorization"):
             values["dnc_seller_authorization"]["seller_id"] = p["seller_id"]
         from urllib.parse import urlsplit
@@ -756,12 +772,14 @@ def create_app(settings=None, *, clock=None, carrier=None):
                     fail(422, "Endpoint requires a valid HTTP(S) URL without embedded credentials")
                 if parsed.scheme == "http" and parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
                     fail(422, "Remote provider endpoints require HTTPS")
-        if "chatgpt_access_token" in values:
-            service.vault.write("plan-" + p["user_id"], {"access_token": values.pop("chatgpt_access_token")})
-        # The provider config has one source version for challenge and UI freshness.
-        service.vault.write(p["tenant_id"], values, advance_version=True)
-        service.capability_cache.clear()
         with db.transaction() as s:
+            db.authorize_stream(s, p)
+            service._restore_operator(s, p)
+            if "chatgpt_access_token" in values:
+                service.vault.write("plan-" + p["user_id"], {"access_token": values.pop("chatgpt_access_token")})
+            service.vault.write(p["tenant_id"], values, advance_version=True,
+                                edit=(str(request_id), expected_version) if request_id else None)
+            service.capability_cache.clear()
             audit(
                 s,
                 p["tenant_id"],

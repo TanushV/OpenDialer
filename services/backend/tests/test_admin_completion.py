@@ -29,7 +29,8 @@ def test_authority_change_refuses_unresolved_obligations(workspace, app, obligat
         assert c.post(f"/v1/calls/{identity}/hangup", headers=h).status_code == 200
     else:
         with service.db.transaction() as s:
-            update(get(s, table, identity), state="ended", status="completed", inbound_state="ended")
+            update(get(s, table, identity), **({"state": "ended"} if table == "call_legs"
+                   else {"status": "completed", "inbound_state": "ended"}))
     assert c.get("/v1/auth/quiescence", headers=h).json()["can_disconnect"]
     assert c.post("/v1/auth/logout", headers=h).status_code == 200
 

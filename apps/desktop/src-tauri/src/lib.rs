@@ -122,6 +122,52 @@ mod tests {
             "cleanup is idempotent for quit/mode/update"
         );
     }
+
+    #[test]
+    fn webhook_tunnel_missing_ssh_is_an_actionable_state() {
+        let error = spawn_webhook_ssh("/missing/opendialer-ssh-fixture", &["-NT".into()]).unwrap_err();
+        assert_eq!(error, "ssh_missing");
+    }
+
+    #[test]
+    fn webhook_tunnel_saved_config_is_validated_and_contains_no_runtime_identity() {
+        let root = std::env::temp_dir().join(format!("opendialer-tunnel-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("webhook-forward.json");
+        save_tunnel_config(&path, &fixture()).unwrap();
+        let saved = load_tunnel_config(&path).unwrap();
+        assert_eq!(saved.host, fixture().host);
+        let mut bad = fixture();
+        bad.remote_port = 0;
+        assert!(save_tunnel_config(&path, &bad).is_err());
+        assert_eq!(load_tunnel_config(&path).unwrap().remote_port, 18765);
+        assert!(!std::fs::read_to_string(&path).unwrap().contains("token"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn webhook_supervisor_reaps_stale_child_and_can_be_stopped_during_backoff() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let starts = Arc::new(AtomicUsize::new(0));
+        let observed = starts.clone();
+        let mut supervisor = TunnelSupervisor::start(move || {
+            observed.fetch_add(1, Ordering::SeqCst);
+            std::process::Command::new("false").spawn().map(OwnedWebhookTunnel::new)
+                .map_err(|_| "ssh_missing".into())
+        });
+        let deadline = std::time::Instant::now() + Duration::from_secs(4);
+        while starts.load(Ordering::SeqCst) < 2 && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(starts.load(Ordering::SeqCst) >= 2);
+        let before = std::time::Instant::now();
+        supervisor.stop().unwrap();
+        assert!(before.elapsed() < Duration::from_millis(500));
+        let count = starts.load(Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(starts.load(Ordering::SeqCst), count);
+    }
 }
 
 struct ExitCleanup(Mutex<Option<Box<dyn FnOnce() + Send>>>);
