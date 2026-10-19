@@ -1260,7 +1260,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
     async def run_jobs(self, tenant_id=None, queues=None):
         if (queues is None or "ml" in queues) and self.settings.worker_enabled:
             await self.periodic_optimization(tenant_id)
-        processed, worker_id = 0, "worker-" + uid()
+        worker_id = "worker-" + uid()
 
         async def execute(lane, job):
             p = {
@@ -1386,7 +1386,8 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 with contextlib.suppress(asyncio.CancelledError):
                     await pulse
 
-        for lane in queues or ["webhook", "live_coach", "postcall", "scripts", "research", "ml"]:
+        async def drain(lane, execution_class=None):
+            processed = 0
             limits = self.settings.runtime_limits
             capacity = (
                 limits.live_active
@@ -1398,7 +1399,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 else 1
             )
             pool = ("research", "scripts") if lane in {"research", "scripts"} else (lane,)
-            admission = self.job_admission["preparation" if len(pool) == 2 else lane]
+            admission = self.job_admission[
+                "preparation" if len(pool) == 2 else "training" if execution_class == "training" else lane
+            ]
 
             async def admitted_job(lane=lane, capacity=capacity, pool=pool, admission=admission):
                 # Wait for a local slot while still queued, never while leased.
@@ -1411,6 +1414,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                         tenant_id,
                         capacity=capacity,
                         shared_queues=pool,
+                        execution_class=execution_class,
                     )
                     if not job:
                         return None
@@ -1428,7 +1432,22 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                         if not task.done():
                             task.cancel()
                     await asyncio.gather(*active, return_exceptions=True)
-        return {"processed": processed}
+            return processed
+
+        # One runner, independently admitted live/I/O/CPU work. A slow fit or
+        # background lease cannot stop a different lane from making progress.
+        tasks = [
+            asyncio.create_task(drain(lane, kind))
+            for lane in queues or ["webhook", "live_coach", "postcall", "scripts", "research", "ml"]
+            for kind in (("maintenance", "training") if lane == "ml" else (None,))
+        ]
+        try:
+            return {"processed": sum(await asyncio.gather(*tasks))}
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     def _training_source(self, s, p, payload):
         user = self.required(s, "users", p["user_id"], p)

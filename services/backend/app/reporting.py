@@ -13,7 +13,15 @@ from app.service import dt, fail
 # Only changes affecting a displayed metric, plan or authority invalidate it.
 # None means the entire small configuration/receipt is an input, not every table.
 REPORT_FIELDS = {
-    "campaigns": {"optimization", "optimization_epoch", "optimization_trial", "policy_id", "staffing"},
+    "campaigns": {
+        "optimization",
+        "optimization_epoch",
+        "optimization_trial",
+        "controlled_comparisons",
+        "policy_id",
+        "staffing",
+        "dataset_summaries",
+    },
     "policy_versions": None,
     "leads": {
         "campaign_id",

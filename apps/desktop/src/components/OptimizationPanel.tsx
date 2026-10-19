@@ -136,6 +136,8 @@ interface OptimizationReport {
   cohort_history: string[];
   coaching: {
     reviewed_cards: number;
+    latency_support?: Record<string, number>;
+    latency_quantization?: { upper_bounds: boolean };
     useful_fraction: number | null;
     grounded_fraction: number | null;
     timely_fraction: number | null;
@@ -933,6 +935,14 @@ export function OptimizationPanel({
               {report.coaching.p95_render_ms?.toFixed(0) ?? "Unknown"} ms. STT
               and full network delivery need live measurement.
             </p>
+            {report.coaching.latency_quantization?.upper_bounds && (
+              <p className="fine">
+                Latency percentiles are upper estimates from bounded timing
+                buckets; {report.coaching.latency_support?.inference_ms ?? 0}{" "}
+                recorded inference timings. Missing measurements are excluded,
+                not counted as zero.
+              </p>
+            )}
             {admin && (
               <details>
                 <summary>Evaluate a reviewed conversation replay</summary>

@@ -16,7 +16,7 @@ from sqlalchemy import func, or_, select
 
 from app.db import MODELS, Job, doc, put, uid, update
 from app.operational_schema import call_work_bounds
-from app.optimization.learning import conversion_at, outcome_at
+from app.optimization.learning import conversion_at, outcome_at, training_rows
 from app.optimization.numbering import timestamp
 from app.scheduling.models import derive_labels
 
@@ -113,6 +113,26 @@ def call_values(call, *, config, now):
     return values
 
 
+def training_values(call, feature, events, *, config, now):
+    """One attempt's current label counts, without saving a second training row."""
+    data = training_rows(
+        [call],
+        [feature] if feature else [],
+        events,
+        now=now,
+        goal=config["conversion_goal"],
+        window_days=config["window_days"],
+    )
+    row = data[0] if data else {}
+    return {
+        "dataset_rows": int(bool(row)),
+        "dataset_pending_rows": int(bool(row) and row["conversion"] is None),
+        "dataset_matured_rows": int(bool(row) and row["window_closed"]),
+        "dataset_positive_conversions": int(bool(row) and row["conversion"] == 1),
+        "dataset_missing_snapshot_calls": int(bool(outcome_at(call, now)) and not feature),
+    }
+
+
 def _microusd(value):
     if isinstance(value, bool):
         raise ValueError("Money must be finite and nonnegative")
@@ -160,6 +180,20 @@ def rep_day_values(intervals, calls, *, rep_id, day, now):
     }
 
 
+LATENCY_FIELDS = (
+    "state_ms",
+    "retrieval_ms",
+    "stt_ms",
+    "inference_ms",
+    "delivery_ms",
+    "render_ms",
+    "event_to_render_ms",
+)
+# Fixed upper-bound bins: exact whole milliseconds through100, then10% plus1ms rounding.
+# One hundred million distinct provider timings cannot enlarge a bucket forever.
+LATENCY_BOUNDS = tuple(range(101)) + tuple(sorted({math.ceil(100 * 1.1**i) for i in range(1, 93)}))
+
+
 def help_values(event, feedback, *, now):
     feedback = feedback or {}
     exposure = event.get("strategy_exposure", {})
@@ -180,7 +214,43 @@ def help_values(event, feedback, *, now):
     for key in ("useful", "grounded", "timely", "distracting"):
         values[key + "_true"] = int(feedback.get(key) is True)
         values[key + "_count"] = int(isinstance(feedback.get(key), bool))
+    timing = {**event.get("latency", {}), **feedback, **exposure.get("timing", {})}
+    for key in LATENCY_FIELDS:
+        value = timing.get(key)
+        if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+            continue
+        bound = next((v for v in LATENCY_BOUNDS if v >= value), "overflow")
+        values[f"latency:{key}:{bound}"] = 1
     return values
+
+
+def coaching_from_counts(values):
+    result = {
+        "reviewed_cards": values.get("reviewed_cards", 0),
+        "latency_support": {},
+        "latency_quantization": {
+            "upper_bounds": True,
+            "exact_integer_ms_through": 100,
+            "relative_width": 0.1,
+            "rounding_ms": 1,
+        },
+        "evidence_scope": "Recorded provider and reviewer measurements; bounded percentile upper estimates. Live STT target remains unverified.",
+    }
+    for key in ("useful", "grounded", "timely", "distracting"):
+        n = values.get(key + "_count", 0)
+        result[key + "_fraction"] = values.get(key + "_true", 0) / n if n else None
+    for key in LATENCY_FIELDS:
+        counts = [(v, values.get(f"latency:{key}:{v}", 0)) for v in (*LATENCY_BOUNDS, "overflow")]
+        n = sum(count for _, count in counts)
+        result["latency_support"][key] = n
+        threshold, cumulative, percentile = math.ceil(n * 0.95), 0, None
+        for bound, count in counts:
+            cumulative += count
+            if n and cumulative >= threshold:
+                percentile = bound if bound != "overflow" else None
+                break
+        result["p95_" + key] = percentile
+    return result
 
 
 def delta_values(previous, current):
@@ -215,7 +285,7 @@ def dirty_source_units(changed, session):
         for value in [row.data, *([previous] if previous else [])]:
             if table in {"call_attempts", "conversion_events"} and value.get("lead_id"):
                 units[(*scope, "lead", value["lead_id"])] = False
-            if table == "conversion_events" and value.get("lead_id"):
+            if table in {"conversion_events", "feature_snapshots"} and value.get("lead_id"):
                 units[(*scope, "lead-calls", value["lead_id"])] = False
             if table == "suppressions" and value.get("phone"):
                 database = session.info["database"]
@@ -313,7 +383,7 @@ def definition_version(config, epoch):
     return hashlib.sha256(
         json.dumps(
             {
-                "metrics": "cohort-work-v5",
+                "metrics": "cohort-work-v6",
                 "epoch": epoch,
                 "goal": config["conversion_goal"],
                 "window_days": config["window_days"],
@@ -362,7 +432,7 @@ def _unit_snapshot(service, p, payload):
             session.scalar(_scoped_query(p, table).where(MODELS[table].id == identity)) if table else None
         )
         row = doc(source) if source else {}
-        calls, events, intervals, feedback, suppressed = [], [], [], None, False
+        calls, events, intervals, feedback, suppressed, feature = [], [], [], None, False, None
         if kind == "lead" and row:
             calls = [
                 doc(r)
@@ -383,6 +453,21 @@ def _unit_snapshot(service, p, payload):
                 key = hmac.new(service.db.identity_key, phone.encode(), hashlib.sha256).hexdigest()
                 denial = service._by_key(session, p, "suppressions", key)
                 suppressed = bool(denial and denial.data.get("active", True))
+        elif kind == "call" and row:
+            record = session.scalar(
+                _scoped_query(p, "feature_snapshots").where(
+                    MODELS["feature_snapshots"].id == row.get("feature_snapshot_id")
+                )
+            )
+            feature = doc(record) if record else None
+            events = [
+                doc(r)
+                for r in session.scalars(
+                    _scoped_query(p, "conversion_events").where(
+                        MODELS["conversion_events"].op_lead_id == row.get("lead_id")
+                    )
+                )
+            ]
         elif kind == "rep-day":
             rep, day = identity.rsplit(":", 1)
             start = datetime.fromisoformat(day).replace(tzinfo=UTC)
@@ -408,6 +493,7 @@ def _unit_snapshot(service, p, payload):
             )
             rep = row.get("rep_id") or (call.data.get("rep_id") if call else None)
             if rep:
+                row["rep_id"] = rep
                 record = service._by_key(session, p, "coaching_feedback", identity + ":" + rep)
                 feedback = doc(record) if record else None
         previous = {
@@ -431,6 +517,7 @@ def _unit_snapshot(service, p, payload):
         "events": events,
         "intervals": intervals,
         "feedback": feedback,
+        "feature": feature,
         "suppressed": suppressed,
         "campaign_id": campaign.id,
         "config": config,
@@ -445,7 +532,7 @@ def _unit_snapshot(service, p, payload):
                 [
                     sorted(
                         (r.get("id"), r.get("version"))
-                        for r in [row, *calls, *events, *intervals, feedback or {}]
+                        for r in [row, *calls, *events, *intervals, feedback or {}, feature or {}]
                         if r.get("id")
                     ),
                     definition,
@@ -474,6 +561,11 @@ def _calculate_unit(snapshot, now):
             refresh.append(due + timedelta(microseconds=1))
     elif kind == "call" and row:
         values = call_values(row, config=config, now=now)
+        values.update(training_values(row, snapshot["feature"], snapshot["events"], config=config, now=now))
+        if at := timestamp(row.get("started_at")):
+            boundary = at + timedelta(days=config["window_days"])
+            if boundary > now:
+                refresh.append(boundary)
         start = timestamp(
             row.get("submitted_at") or (row.get("started_at") if row.get("provider_id") else None)
         )
@@ -542,6 +634,8 @@ def _groups(snapshot, namespace):
         groups.append(
             {"bucket_kind": "rep", "bucket_day": day, "rep_id": snapshot["identity"].rsplit(":", 1)[0]}
         )
+    elif kind == "help" and row.get("rep_id"):
+        groups.append({"bucket_kind": "rep_total", "bucket_day": None, "rep_id": row["rep_id"]})
     return [
         {
             **g,
@@ -1147,29 +1241,60 @@ def rebuild_page(service, p, *, start=False, lease=None):
     return result
 
 
+def _total_in(service, session, p, *, rep_only=False):
+    campaign = session.scalar(_scoped_query(p, "campaigns").order_by(MODELS["campaigns"].created_at).limit(1))
+    pointer = campaign.data.get("metric_projection", {})
+    config = pointer.get("active_config") or service.optimization_config(session, p, campaign.id)
+    group = {
+        "bucket_kind": "rep_total" if rep_only else "total",
+        "bucket_day": None,
+        "campaign_id": campaign.id,
+        "definition_version": pointer.get("active_definition")
+        or definition_version(
+            config, campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
+        ),
+        "namespace": pointer.get("active_namespace", "initial"),
+        **({"rep_id": p["user_id"]} if rep_only else {}),
+    }
+    bucket = service._by_key(session, p, "metric_buckets", _group_key(service, group))
+    return config, group, dict(bucket.data["values"]) if bucket else {}
+
+
+def read_coaching_metrics(service, p):
+    with service.db.transaction(False) as session:
+        _, _, values = _total_in(service, session, p, rep_only=p.get("role") == "rep")
+    return coaching_from_counts(values)
+
+
+def read_dataset_metrics(service, p):
+    with service.db.transaction(False) as session:
+        _, _, values = _total_in(service, session, p)
+        campaign = session.scalar(
+            _scoped_query(p, "campaigns").order_by(MODELS["campaigns"].created_at).limit(1)
+        )
+        saved = campaign.data.get("dataset_summaries", [])[-10:]
+    return {
+        **{
+            key: values.get("dataset_" + key, 0)
+            for key in (
+                "rows",
+                "pending_rows",
+                "matured_rows",
+                "positive_conversions",
+                "missing_snapshot_calls",
+            )
+        },
+        "snapshots": saved,
+    }
+
+
 def read_metrics(service, p):
     """One total plus bounded rep totals; never source history or a training dataset."""
     from app.measurement import connect_health_counts, work_summary
 
     with service.db.transaction(False) as session:
-        campaign = session.scalar(
-            _scoped_query(p, "campaigns").order_by(MODELS["campaigns"].created_at).limit(1)
-        )
-        pointer = campaign.data.get("metric_projection", {})
-        config = pointer.get("active_config") or service.optimization_config(session, p, campaign.id)
-        definition = pointer.get("active_definition") or definition_version(
-            config, campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
-        )
-        namespace = pointer.get("active_namespace", "initial")
-        group = {
-            "bucket_kind": "total",
-            "bucket_day": None,
-            "campaign_id": campaign.id,
-            "definition_version": definition,
-            "namespace": namespace,
-        }
-        bucket = service._by_key(session, p, "metric_buckets", _group_key(service, group))
-        values = dict(bucket.data["values"]) if bucket else {}
+        config, group, values = _total_in(service, session, p)
+        definition, namespace = group["definition_version"], group["namespace"]
         prefix = f"v{definition}:{namespace}:"
         contributions = MODELS["metric_contributions"]
         next_refresh = session.scalar(

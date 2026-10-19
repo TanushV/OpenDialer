@@ -812,6 +812,8 @@ class OptimizationWorkflows(ComparisonWorkflows):
         }
 
     def optimization_report(self, p, epoch=None):
+        from app.optimization.projections import read_coaching_metrics, read_dataset_metrics
+
         with self.db.transaction(False) as s:
             s.info["row_cache"] = {}
             config = self.optimization_config(s, p)
@@ -830,13 +832,6 @@ class OptimizationWorkflows(ComparisonWorkflows):
             coach_events = [
                 doc(r) for r in self.scoped(s, "coach_events", p) if r.data["call_id"] in known_calls
             ]
-            timing_by_card = {r["coach_event_id"]: r for r in feedback}
-            for event in coach_events:
-                if timing := event.get("strategy_exposure", {}).get("timing"):
-                    timing_by_card[event["id"]] = {**timing_by_card.get(event["id"], {}), **timing}
-            timing_feedback = list(timing_by_card.values())
-            latency = sorted(r["latency"]["inference_ms"] for r in coach_events if r.get("latency"))
-            delivery = sorted(r["delivery_ms"] for r in timing_feedback if r.get("delivery_ms") is not None)
             campaign = self.scoped(s, "campaigns", p)[0]
             current_epoch = campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
             epoch = epoch or current_epoch
@@ -965,7 +960,6 @@ class OptimizationWorkflows(ComparisonWorkflows):
                     r.id,
                 ),
             )
-            count = len(data)
             now = self.clock()
             model_drift = {
                 **drift_report(
@@ -1021,80 +1015,13 @@ class OptimizationWorkflows(ComparisonWorkflows):
                     "unique_right_party": measured["right_party_unique"],
                     "observed_cost_usd": sum(r.get("observed_cost_usd") or 0 for r in data),
                 },
-                "dataset": {
-                    "rows": count,
-                    "pending_rows": sum(r["conversion"] is None for r in data),
-                    "matured_rows": sum(r["window_closed"] for r in data),
-                    "positive_conversions": sum(r["conversion"] == 1 for r in data),
-                    "missing_snapshot_calls": sum(
-                        bool(c.data.get("outcome")) and not c.data.get("feature_snapshot_id") for c in calls
-                    ),
-                    "snapshots": [
-                        {
-                            "id": r.id,
-                            "rows": len(r.data.get("rows", [])),
-                            "as_of": r.data["as_of"],
-                            "goal": r.data["goal"],
-                        }
-                        for r in self.scoped(s, "learning_datasets", p)[-10:]
-                    ],
-                },
+                "dataset": read_dataset_metrics(self, p),
                 "decisions": decisions[-30:],
                 "future_slots": futures[:100],
                 "plans": [doc(row) for row in plans[-100:]],
                 "drift": model_drift,
                 "trial": trial,
-                "coaching": {
-                    **{
-                        "p95_" + key: sorted(
-                            r["latency"][key]
-                            for r in coach_events
-                            if r.get("latency", {}).get(key) is not None
-                        )[
-                            max(
-                                0,
-                                int(
-                                    sum(r.get("latency", {}).get(key) is not None for r in coach_events)
-                                    * 0.95
-                                    + 0.999
-                                )
-                                - 1,
-                            )
-                        ]
-                        if any(r.get("latency", {}).get(key) is not None for r in coach_events)
-                        else None
-                        for key in ("state_ms", "retrieval_ms", "stt_ms")
-                    },
-                    "reviewed_cards": sum(
-                        any(r.get(key) is not None for key in ("useful", "grounded", "timely", "distracting"))
-                        for r in feedback
-                    ),
-                    **{
-                        "p95_" + key: sorted(r[key] for r in timing_feedback if r.get(key) is not None)[
-                            max(
-                                0,
-                                int(sum(r.get(key) is not None for r in timing_feedback) * 0.95 + 0.999) - 1,
-                            )
-                        ]
-                        if any(r.get(key) is not None for r in timing_feedback)
-                        else None
-                        for key in ("render_ms", "event_to_render_ms")
-                    },
-                    **{
-                        key + "_fraction": sum(r.get(key) is True for r in feedback)
-                        / sum(r.get(key) is not None for r in feedback)
-                        if any(r.get(key) is not None for r in feedback)
-                        else None
-                        for key in ("useful", "grounded", "timely", "distracting")
-                    },
-                    "p95_inference_ms": latency[max(0, int(len(latency) * 0.95 + 0.999) - 1)]
-                    if latency
-                    else None,
-                    "p95_delivery_ms": delivery[max(0, int(len(delivery) * 0.95 + 0.999) - 1)]
-                    if delivery
-                    else None,
-                    "evidence_scope": "recorded provider and reviewer measurements; live STT target remains unverified",
-                },
+                "coaching": read_coaching_metrics(self, p),
                 "simulation": self.settings.simulation,
                 "as_of": self.clock().isoformat(),
             }
@@ -1114,12 +1041,8 @@ class OptimizationWorkflows(ComparisonWorkflows):
                     sort_keys=True,
                 ).encode()
             ).hexdigest()
-            previous = next(
-                (r for r in self.scoped(s, "learning_datasets", p) if r.external_key == key), None
-            )
-            if previous:
-                return doc(previous)
-            result = put(
+            previous = self._by_key(s, p, "learning_datasets", key)
+            result = previous or put(
                 s,
                 "learning_datasets",
                 p["tenant_id"],
@@ -1138,6 +1061,19 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 key=key,
                 now=self.clock(),
             )
+            summary = {
+                "id": result.id,
+                "rows": len(result.data.get("rows", [])),
+                "as_of": result.data["as_of"],
+                "goal": result.data["goal"],
+            }
+            manifest = campaign.data.get("dataset_summaries", [])
+            revised = sorted(
+                [r for r in manifest if r["id"] != result.id] + [summary],
+                key=lambda r: (r["as_of"], r["id"]),
+            )[-10:]
+            if manifest != revised:
+                update(campaign, dataset_summaries=revised)
             return doc(result)
 
     def train_operational(self, p):

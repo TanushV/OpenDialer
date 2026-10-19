@@ -66,7 +66,16 @@ class JobQueue:
         capacity=None,
         shared_queues=(),
         key_prefix=None,
+        execution_class=None,
     ):
+        if execution_class not in {None, "training", "maintenance"} or (
+            execution_class is not None and queue != "ml"
+        ):
+            raise ValueError("Invalid job execution class")
+        # Existing training identities already distinguish CPU work without
+        # decrypting payloads, changing durable keys or adding another queue.
+        training = Job.key.startswith("operational-train:", autoescape=True)
+        match = training if execution_class == "training" else ~training
         with self.db.transaction() as s:
             # This fence covers only admission to one execution pool, never the
             # job's work or other writers. It also covers independent runners.
@@ -76,14 +85,21 @@ class JobQueue:
                     raise ValueError("Invalid execution pool capacity")
                 if not self.db.sqlite:
                     key = int.from_bytes(
-                        hashlib.sha256(("jobs:capacity:" + ":".join(pool)).encode()).digest()[:8],
+                        hashlib.sha256(
+                            ("jobs:capacity:" + ":".join(pool) + ":" + (execution_class or "all")).encode()
+                        ).digest()[:8],
                         signed=True,
                     )
-                    if not s.scalar(text("SELECT pg_try_advisory_xact_lock(:pool)"), {"pool": key}):
-                        return None
-                running = s.scalar(
+                    # Serialize only the tiny admission transaction. Treating a
+                    # simultaneous claim as an empty queue strands spare slots
+                    # behind the first long-running job in a capacity wave.
+                    s.execute(text("SELECT pg_advisory_xact_lock(:pool)"), {"pool": key})
+                running_query = (
                     select(func.count()).select_from(Job).where(Job.queue.in_(pool), Job.status == "running")
                 )
+                if execution_class is not None:
+                    running_query = running_query.where(match)
+                running = s.scalar(running_query)
                 if running >= capacity:
                     return None
             query = (
@@ -96,6 +112,8 @@ class JobQueue:
                 query = query.where(Job.tenant_id == tenant_id)
             if key_prefix is not None:
                 query = query.where(Job.key.startswith(key_prefix, autoescape=True))
+            if execution_class is not None:
+                query = query.where(match)
             if not self.db.sqlite:
                 query = query.with_for_update(skip_locked=True)
             candidates = list(s.scalars(query))

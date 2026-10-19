@@ -60,6 +60,7 @@ class Service(ReservationPlanner):
                 "postcall": limits.postcall_active,
                 "preparation": limits.company_units,
                 "ml": 1,
+                "training": 1,
             }.items()
         }
 
