@@ -11,7 +11,7 @@ from uuid import UUID
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 from sqlalchemy import select
@@ -47,6 +47,11 @@ class RecoveryEdit(Strict):
 
 class JobRetry(Strict):
     expected_attempts: int = Field(ge=0)
+
+
+class IngressCheck(Strict):
+    request_id: UUID
+    expected_version: int = Field(ge=0)
 
 
 class Setup(Strict):
@@ -290,6 +295,10 @@ def create_app(settings=None, *, clock=None, carrier=None):
         if (
             settings.mode == "local"
             and request.url.path != "/webhooks/telnyx"
+            and not (
+                request.method == "GET"
+                and re.fullmatch(r"/webhooks/ingress-check/[0-9a-f]{32}", request.url.path)
+            )
             and host not in {"127.0.0.1", "localhost", "testserver", "["}
         ):
             return JSONResponse({"detail": "Local authority host rejected"}, status_code=403)
@@ -683,6 +692,14 @@ def create_app(settings=None, *, clock=None, carrier=None):
     def preflight(p=Depends(administrator)):
         return service.preflight(p)
 
+    @app.post("/v1/admin/ingress-check")
+    async def ingress_check(data: IngressCheck, p=Depends(administrator)):
+        return await service.check_ingress(p, data.model_dump(mode="json"))
+
+    @app.get("/webhooks/ingress-check/{nonce}", response_class=PlainTextResponse)
+    def ingress_challenge(nonce: str):
+        return service.ingress_challenge(nonce)
+
     @app.get("/v1/admin/callback-routing")
     def callback_routing(p=Depends(administrator)):
         return service.read_callback_routing(p)
@@ -699,12 +716,21 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.get("/v1/admin/settings")
     def read_settings(p=Depends(administrator)):
+        from app.compliance.operating import OperatingPolicy
+        from app.preparation.templates import PreparationPolicy
+
         config = service.vault.read(p["tenant_id"])
         own_profile = service.vault.read("plan-" + p["user_id"])
         config["chatgpt_access_token"] = own_profile.get("access_token", "")
         return {
             **{k: v for k, v in config.items() if k not in SECRET_FIELDS},
             "configured": {k: bool(config.get(k)) for k in SECRET_FIELDS},
+            "version": config.get("version", 0),
+            "defaults": {
+                "runtime": settings.runtime_limits.model_dump(mode="json"),
+                "operating": OperatingPolicy().model_dump(mode="json"),
+                "preparation": PreparationPolicy().model_dump(mode="json"),
+            },
         }
 
     @app.put("/v1/admin/settings")
@@ -728,7 +754,11 @@ def create_app(settings=None, *, clock=None, carrier=None):
                     fail(422, "Remote provider endpoints require HTTPS")
         if "chatgpt_access_token" in values:
             service.vault.write("plan-" + p["user_id"], {"access_token": values.pop("chatgpt_access_token")})
-        service.vault.write(p["tenant_id"], values)
+        # The provider config has one source version for challenge and UI freshness.
+        with service.vault._journal_lock:
+            current = service.vault.read(p["tenant_id"])
+            service.vault.write(p["tenant_id"], {**values, "version": current.get("version", 0) + 1})
+        service.capability_cache.clear()
         with db.transaction() as s:
             audit(
                 s,

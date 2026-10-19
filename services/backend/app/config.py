@@ -45,6 +45,19 @@ class RuntimeLimits(BaseModel):
         return self
 
 
+class CapabilityStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    id: str
+    state: Literal[
+        "unconfigured", "configured", "software_verified", "live_verified", "degraded", "unavailable"
+    ]
+    blocks: Literal["voice", "transcription", "help", "preparation", "none"]
+    reason_codes: list[str]
+    evidence_at: str | None = None
+    remedy: str
+    source_version: str
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="OPENDIALER_", env_nested_delimiter="__", extra="ignore")
     runtime_limits: RuntimeLimits = Field(default_factory=RuntimeLimits)

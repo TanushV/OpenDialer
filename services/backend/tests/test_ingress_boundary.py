@@ -142,3 +142,44 @@ def test_ingress_network_failure_is_actionable_and_closes_challenge(workspace, a
     assert response.status_code == 502
     assert "provider-private" not in response.text
     assert app.state.service.ingress_challenges == {}
+    from test_remediation_privacy import principal
+
+    with app.state.db.transaction(False) as s:
+        attempts = [
+            r
+            for r in app.state.service.scoped(s, "outcomes", principal(workspace))
+            if r.data.get("kind") == "ingress_check"
+        ]
+        assert len(attempts) == 1 and attempts[0].data["status"] == "failed"
+
+
+def test_route_proof_response_replays_without_another_network_request(workspace, monkeypatch):
+    from urllib.parse import urlsplit
+
+    from app.research.fetch import SafeFetcher
+
+    c, h = workspace["client"], workspace["headers"]
+    calls = []
+
+    async def fetch(fetcher, url):
+        calls.append(url)
+        response = await asyncio.to_thread(c.get, urlsplit(url).path)
+        return {"text": response.text}
+
+    monkeypatch.setattr(SafeFetcher, "fetch", fetch)
+    saved = c.put(
+        "/v1/admin/settings", headers=h, json={"webhook_url": "https://owned.example.test/webhooks/telnyx"}
+    )
+    body = {"request_id": str(uuid4()), "expected_version": saved.json()["version"]}
+    first = c.post("/v1/admin/ingress-check", headers=h, json=body)
+    assert first.status_code == 200
+    assert c.post("/v1/admin/ingress-check", headers=h, json=body).json() == first.json()
+    assert len(calls) == 1
+    assert (
+        c.post(
+            "/v1/admin/ingress-check",
+            headers=h,
+            json={**body, "expected_version": body["expected_version"] + 1},
+        ).status_code
+        == 409
+    )

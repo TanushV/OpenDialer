@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import logging
+import threading
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -38,6 +39,9 @@ class Service(ReservationPlanner):
         self.injected_carrier = carrier
         self.simulated_carrier = carrier or SimulatedCarrier()
         self.vault = Vault(settings.data_dir, settings.secret_key)
+        self.ingress_lock = threading.Lock()
+        self.ingress_challenges = {}
+        self.capability_cache = {}
         self.jobs = JobQueue(db, clock)
         from app.privacy import EphemeralBuffer
 

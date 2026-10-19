@@ -4,6 +4,29 @@ import pytest
 from app.db import Database
 
 
+def test_independent_provider_writers_preserve_each_others_fields(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.security import Vault
+
+    writers = [Vault(tmp_path, "synthetic-vault-secret") for _ in range(4)]
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        list(executor.map(lambda i: writers[i % 4].write("tenant", {f"field{i}": str(i)}), range(40)))
+    assert writers[0].read("tenant") == {f"field{i}": str(i) for i in range(40)}
+
+
+def test_provider_source_fence_does_not_publish_over_a_new_config(tmp_path):
+    from app.security import Vault
+    from fastapi import HTTPException
+
+    vault = Vault(tmp_path, "synthetic-vault-secret")
+    vault.write("tenant", {"version": 2, "webhook_url": "https://new.example.test/webhooks/telnyx"})
+    with pytest.raises(HTTPException) as error:
+        vault.write("tenant", {"ingress_evidence": {"routing": "software_verified"}}, expected={"version": 1})
+    assert error.value.status_code == 409
+    assert "ingress_evidence" not in vault.read("tenant")
+
+
 def test_persistent_database_and_wal_do_not_expose_phone_email_or_notes(workspace):
     app = workspace["client"].app
     app.state.db.engine.dispose()

@@ -4,9 +4,15 @@ import hashlib
 import json
 import os
 import re
+import secrets
+import time
+from datetime import timedelta
+from urllib.parse import urlsplit
 
+import httpx
 from sqlalchemy import delete, func, or_, select
 
+from app.config import CapabilityStatus
 from app.db import DERIVED_TABLES, MODELS, audit, doc, emit, get, put, rows, uid, update
 from app.intelligence import Application
 from app.measurement import Measurement
@@ -22,6 +28,113 @@ from app.telephony.recovery_actions import RecoveryActions
 from app.telephony.reducer import TERMINAL
 from app.telephony.workflows import TelephonyWorkflows
 from app.workspace import WorkspaceReads
+
+
+def capability_statuses(conf, policy, screening, *, simulation, source_version, ingress=None):
+    """Evidence states; a configured credential never certifies a funded/live integration."""
+    values = []
+
+    def add(identity, state, blocks, reasons, remedy, evidence_at=None):
+        values.append(
+            CapabilityStatus(
+                id=identity,
+                state=state,
+                blocks=blocks,
+                reason_codes=reasons,
+                remedy=remedy,
+                evidence_at=evidence_at,
+                source_version=source_version,
+            ).model_dump()
+        )
+
+    carrier = all(conf.get(k) for k in ("telnyx_api_key", "telnyx_connection_id", "telnyx_public_key"))
+    add(
+        "telephony",
+        "software_verified" if simulation else "configured" if carrier else "unconfigured",
+        "none" if simulation or carrier else "voice",
+        ["SIMULATION_ONLY"]
+        if simulation
+        else ["LIVE_CARRIER_ACCEPTANCE_REQUIRED"]
+        if carrier
+        else ["TELNYX_NOT_CONFIGURED"],
+        "Configure Telnyx credentials, approved traffic and ingress, then verify owned test destinations.",
+    )
+    privacy = policy.get("transcription_privacy_verified") and policy.get("transcription_privacy_reference")
+    add(
+        "transcription",
+        "software_verified" if simulation else "configured" if privacy and carrier else "unavailable",
+        "none" if simulation or privacy and carrier else "transcription",
+        ["SIMULATION_ONLY"]
+        if simulation
+        else ["LIVE_STT_ACCEPTANCE_REQUIRED"]
+        if privacy and carrier
+        else ["STT_PRIVACY_OR_CARRIER_MISSING"],
+        "Record selected STT engine/account retention evidence and configure Telnyx. Voice and manual notes remain separate.",
+    )
+    helper = conf.get("coach_provider", "openrouter") == "openrouter" and bool(conf.get("openrouter_api_key"))
+    add(
+        "live_helper",
+        "software_verified" if simulation else "configured" if helper else "unconfigured",
+        "none" if simulation or helper else "help",
+        ["SIMULATION_ONLY"]
+        if simulation
+        else ["FUNDED_CEREBRAS_ACCEPTANCE_REQUIRED"]
+        if helper
+        else ["CEREBRAS_NOT_CONFIGURED"],
+        "Add an OpenRouter key for the pinned Cerebras ZDR route; use the prepared script when help is unavailable.",
+    )
+    screening_ready = bool(screening.get("cleared_count"))
+    add(
+        "national_dnc",
+        "software_verified"
+        if simulation
+        else "configured"
+        if screening_ready
+        else "degraded"
+        if screening.get("configured")
+        else "unconfigured",
+        "none" if screening_ready else "voice",
+        ["SIMULATION_ONLY"]
+        if simulation
+        else list(
+            screening.get("reason_codes")
+            or (["CURRENT_AUTHORIZED_COVERAGE"] if screening_ready else ["SCREENING_PENDING"])
+        ),
+        "Import fresh seller-authorized coverage or authorize a prepaid screening batch. Internal opt-outs always block.",
+    )
+    url = conf.get("webhook_url", "")
+    proof = ingress or {}
+    route_current = bool(
+        proof.get("endpoint_digest") == hashlib.sha256(url.encode()).hexdigest()
+        and proof.get("routing") == "software_verified"
+    )
+    add(
+        "local_ingress",
+        "software_verified" if route_current else "configured" if url else "unconfigured",
+        "none" if url else "voice",
+        ["ROUTE_PROOF_ONLY"]
+        if route_current
+        else ["INGRESS_CHECK_REQUIRED"]
+        if url
+        else ["INGRESS_NOT_CONFIGURED"],
+        "Configure the webhook-only HTTPS route to the current local port, then run the route check. Keep the authority awake.",
+        proof.get("at") if route_current else None,
+    )
+    add(
+        "offline_callback",
+        "unavailable",
+        "none",
+        ["OFFLINE_FALLBACK_UNAVAILABLE"],
+        "Keep the selected authority online or use an existing always-on connected host. An operator note is not carrier failover proof.",
+    )
+    add(
+        "preparation",
+        "software_verified",
+        "none",
+        ["APPROVED_FALLBACK_AVAILABLE"],
+        "Publish the seller template and prepare batches; personalized research additionally requires configured inference.",
+    )
+    return values
 
 
 class Dialer(
@@ -45,6 +158,7 @@ class Dialer(
 
     def preflight(self, p, *, full=True):
         if not full:
+            cached = self.capability_cache.get((p["tenant_id"], p["seller_id"]), {})
             return {
                 "integrity_ok": None,
                 "ready_to_call": None,
@@ -56,6 +170,9 @@ class Dialer(
                 "mode": self.settings.mode,
                 "simulation": self.settings.simulation,
                 "version": self.settings.version,
+                **cached,
+                "capabilities_stale": not cached
+                or (self.clock() - dt(cached["capabilities_as_of"])).total_seconds() > 60,
             }
         conf = self.vault.read(p["tenant_id"])
         blockers, warnings = [], []
@@ -63,6 +180,8 @@ class Dialer(
             campaign = self.scoped(s, "campaigns", p)[0]
             policy = self.required(s, "policy_versions", campaign.data["policy_id"], p)
             seller = self.required(s, "sellers", p["seller_id"], p)
+            operating = dict(seller.data.get("operating_policy", {}))
+            source_version = f"{conf.get('version', 0)}:{seller.version}:{policy.version}"
             if not policy.data.get("approved"):
                 blockers.append("POLICY_NOT_PUBLISHED")
             if not seller.data.get("approved"):
@@ -174,7 +293,19 @@ class Dialer(
         integrity = self.db.integrity()
         if not integrity:
             blockers.append("DATABASE_INTEGRITY_FAILURE")
+        capabilities = capability_statuses(
+            {**conf, "webhook_url": conf.get("webhook_url", self.settings.webhook_public_url)},
+            operating,
+            screening,
+            simulation=self.settings.simulation,
+            source_version=source_version,
+            ingress=conf.get("ingress_evidence"),
+        )
+        cache = {"capabilities": capabilities, "capabilities_as_of": self.clock().isoformat()}
+        self.capability_cache[(p["tenant_id"], p["seller_id"])] = cache
         return {
+            **cache,
+            "capabilities_stale": False,
             "integrity_ok": integrity,
             "ready_to_call": not blockers,
             "blockers": sorted(set(blockers)),
@@ -187,6 +318,152 @@ class Dialer(
             if self.settings.simulation
             else "requires live account validation",
         }
+
+    def _ingress_start(self, p, data):
+        conf = self.vault.read(p["tenant_id"])
+        endpoint = conf.get("webhook_url", self.settings.webhook_public_url)
+        if not endpoint:
+            fail(409, "INGRESS_NOT_CONFIGURED: save the public webhook endpoint first")
+        parsed = urlsplit(endpoint)
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.port not in {None, 443}
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+            or parsed.path != "/webhooks/telnyx"
+        ):
+            fail(422, "Ingress requires an HTTPS host and exact /webhooks/telnyx path")
+        digest = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+        key = "ingress-check:" + data["request_id"]
+        with self.db.transaction() as s:
+            self._restore_operator(s, p)
+            prior = self._by_key(s, p, "outcomes", key)
+            if prior:
+                if prior.data["digest"] != digest:
+                    fail(409, "Ingress request identity has different input")
+                if prior.data.get("receipt"):
+                    return {"receipt": prior.data["receipt"]}
+                fail(409, "Ingress check is pending or failed; use a new explicit check after resolving it")
+            if conf.get("version", 0) != data["expected_version"]:
+                fail(409, "Provider configuration changed; reload before checking ingress")
+            row = put(
+                s,
+                "outcomes",
+                p["tenant_id"],
+                p["seller_id"],
+                {"kind": "ingress_check", "digest": digest, "status": "pending"},
+                key=key,
+                now=self.clock(),
+            )
+            identity = row.id
+        nonce = secrets.token_hex(16)
+        challenge = {
+            "tenant_id": p["tenant_id"],
+            "endpoint": endpoint,
+            "version": conf.get("version", 0),
+            "expires": self.clock() + timedelta(seconds=60),
+            "monotonic_end": time.monotonic() + 60,
+            "consumed": False,
+            "nonce": nonce,
+            "id": identity,
+        }
+        with self.ingress_lock:
+            self.ingress_challenges = {
+                k: v
+                for k, v in self.ingress_challenges.items()
+                if v["expires"] > self.clock() and v["monotonic_end"] > time.monotonic()
+            }
+            if len(self.ingress_challenges) >= 128 or any(
+                v["tenant_id"] == p["tenant_id"] for v in self.ingress_challenges.values()
+            ):
+                fail(409, "Another ingress check is active; wait for its deadline")
+            self.ingress_challenges[nonce] = challenge
+        return challenge
+
+    def ingress_challenge(self, nonce):
+        with self.ingress_lock:
+            item = self.ingress_challenges.pop(nonce, None)
+            if not item or item["expires"] <= self.clock() or item["monotonic_end"] <= time.monotonic():
+                fail(404, "Not found")
+            current = self.vault.read(item["tenant_id"])
+            if (
+                current.get("webhook_url", self.settings.webhook_public_url) != item["endpoint"]
+                or current.get("version", 0) != item["version"]
+            ):
+                fail(404, "Not found")
+            item["consumed"] = True
+            return "opendialer-ingress:" + nonce
+
+    def _ingress_finish(self, p, item, response):
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+        from app.providers.telnyx import verify_webhook
+
+        with self.db.transaction() as s:
+            self._restore_operator(s, p)
+            current = self.vault.read(p["tenant_id"])
+            if (
+                current.get("webhook_url", self.settings.webhook_public_url) != item["endpoint"]
+                or current.get("version", 0) != item["version"]
+            ):
+                fail(409, "Ingress configuration changed during verification")
+            if (
+                not item["consumed"]
+                or item["expires"] <= self.clock()
+                or item["monotonic_end"] <= time.monotonic()
+                or response.get("text") != "opendialer-ingress:" + item["nonce"]
+            ):
+                fail(502, "Ingress proof missing or expired; check the webhook-only proxy and tunnel")
+            private = Ed25519PrivateKey.generate()
+            stamp, body = str(int(self.clock().timestamp())), b"{}"
+            public = base64.b64encode(private.public_key().public_bytes_raw()).decode()
+            signature = base64.b64encode(private.sign(stamp.encode() + b"|" + body)).decode()
+            assert verify_webhook(body, signature, stamp, public, now=self.clock())
+            assert not verify_webhook(b"bad", signature, stamp, public, now=self.clock())
+            model = MODELS["webhook_inbox"]
+            recent = s.scalars(
+                select(model)
+                .where(model.tenant_id == p["tenant_id"])
+                .order_by(model.created_at.desc(), model.id.desc())
+                .limit(100)
+            )
+            real = next((r.data.get("received_at") for r in recent if r.data.get("signature_verified")), None)
+            receipt = {
+                "routing": "software_verified",
+                "signature_fixture": "software_verified",
+                "last_real_provider_event": real,
+                "real_event_search_limit": 100,
+                "at": self.clock().isoformat(),
+                "source_version": item["version"],
+                "endpoint_digest": hashlib.sha256(item["endpoint"].encode()).hexdigest(),
+            }
+            update(self.required(s, "outcomes", item["id"], p), status="completed", receipt=receipt)
+            self.vault.write(p["tenant_id"], {"ingress_evidence": receipt})
+            self.capability_cache.clear()
+            return receipt
+
+    async def check_ingress(self, p, data):
+        from app.research.fetch import SafeFetcher
+
+        item = await asyncio.to_thread(self._ingress_start, p, data)
+        if "receipt" in item:
+            return item["receipt"]
+        parsed = urlsplit(item["endpoint"])
+        url = f"https://{parsed.netloc}/webhooks/ingress-check/{item['nonce']}"
+        try:
+            async with asyncio.timeout(10):
+                response = await SafeFetcher(
+                    max_bytes=1024, max_redirects=0, allowed_domains=[parsed.hostname]
+                ).fetch(url)
+            return await asyncio.to_thread(self._ingress_finish, p, item, response)
+        except (TimeoutError, ValueError, OSError, httpx.HTTPError):
+            fail(502, "Ingress is unreachable or unsafe; verify the saved hostname and webhook-only route")
+        finally:
+            with self.ingress_lock:
+                self.ingress_challenges.pop(item["nonce"], None)
 
     def publish(self, p, policy_id, body):
         now = self.clock()
