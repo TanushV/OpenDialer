@@ -304,3 +304,114 @@ def test_prepaid_screen_journal_keeps_exact_attempt_without_its_secret(workspace
         for e in r["entities"]
     )
     assert "synthetic-private-key" not in str(entries)
+
+
+def test_lost_store_preserves_credit_and_its_replay_identity(workspace, app):
+    from app.db import get
+    from test_billing_resolution import resolve, saved, uncertain
+
+    service, p = app.state.service, principal(workspace)
+    backup = service.backup(p)
+    row = uncertain(workspace, app)
+    assert resolve(workspace, row).status_code == 200
+    row = saved(app, row)
+    assert (
+        resolve(workspace, row, action="credit", receipt_id="credit-once", cost_usd=0.001).status_code == 200
+    )
+    before = saved(app, row)
+    with service.db.transaction() as s:
+        s.delete(get(s, "usage_ledger", row["id"]))
+        for proof in service.scoped(s, "audit_events", p):
+            if proof.data.get("action", "").startswith("billing."):
+                s.delete(proof)
+    service.restore(p, backup["backup_id"])
+    current = saved(app, row)
+    assert current["credited_usd"] == 0.001 and current["cost_usd"] == 0.003
+    assert current["version"] == before["version"]
+    assert (
+        resolve(workspace, row, action="credit", receipt_id="credit-once", cost_usd=0.001).status_code == 200
+    )
+    assert saved(app, row)["credited_usd"] == 0.001
+    assert (
+        resolve(workspace, current, action="credit", receipt_id="credit-once", cost_usd=0.002).status_code
+        == 409
+    )
+
+
+def test_lost_carrier_receipt_and_complete_statement_recover_together(workspace, app):
+    from app.db import get, update
+    from test_billing_resolution import call_hold, cdr, resolve, saved
+
+    service, p = app.state.service, principal(workspace)
+    backup = service.backup(p)
+    call, hold = call_hold(workspace, app)
+    assert cdr(workspace, call).status_code == 200
+    with service.db.transaction() as s:
+        update(get(s, "call_attempts", call["id"]), state="ENDED")
+    hold = saved(app, hold)
+    assert (
+        resolve(
+            workspace,
+            hold,
+            action="close_call",
+            provider="telnyx",
+            request_id=None,
+            cost_usd=0.0,
+            provider_record_ids=["cdr-original"],
+            confirm_complete=True,
+        ).status_code
+        == 200
+    )
+    with service.db.transaction() as s:
+        for table in ("usage_ledger", "audit_events"):
+            for row in service.scoped(s, table, p):
+                if table == "usage_ledger" or row.data.get("action", "").startswith("billing."):
+                    s.delete(row)
+    service.restore(p, backup["backup_id"])
+    current = saved(app, hold)
+    assert current["reserved_usd"] == 0 and current["reconciled_to_provider_records"]
+    response = cdr(workspace, call)
+    assert response.status_code == 200 and response.json()["duplicates"] == 1
+    with service.db.transaction(False) as s:
+        receipts = [
+            r
+            for r in service.scoped(s, "usage_ledger", p)
+            if r.data.get("provider_record_id") == "cdr-original"
+        ]
+        assert len(receipts) == 1 and receipts[0].data["cost_usd"] == 0.02
+
+
+def test_prior_purchase_receipt_survives_loss_without_new_purchase(workspace, app, carrier, monkeypatch):
+    from app.db import get
+    from test_number_orders import legacy_order
+
+    service, p = app.state.service, principal(workspace)
+    backup = service.backup(p)
+    order = legacy_order(workspace, app)
+
+    async def original_order(identity):
+        return {
+            "id": identity,
+            "status": "pending",
+            "phone_numbers": [
+                {"phone_number": n, "status": "pending", "requirements_met": False} for n in order["numbers"]
+            ],
+        }
+
+    monkeypatch.setattr(carrier, "get_number_order", original_order, raising=False)
+    path = f"/v1/admin/numbers/orders/{order['id']}/reconcile"
+    result = workspace["client"].post(
+        path,
+        headers=workspace["headers"],
+        json={"provider_order_id": "original-purchase", "expected_version": order["version"]},
+    )
+    assert result.status_code == 200, result.text
+    with service.db.transaction() as s:
+        s.delete(get(s, "command_outbox", order["id"]))
+    service.restore(p, backup["backup_id"])
+    with service.db.transaction(False) as s:
+        recovered = get(s, "command_outbox", order["id"])
+        assert recovered is not None and recovered.data["provider_order_id"] == "original-purchase"
+        assert recovered.data["numbers"] == order["numbers"]
+        assert recovered.data["committed_usd"] == 2
+    assert not carrier.purchases
