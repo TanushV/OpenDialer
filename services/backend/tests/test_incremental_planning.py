@@ -141,3 +141,52 @@ def test_explicit_forecast_publishes_schedule_from_one_calculation(workspace, ap
     assert result["status"] == "ready" and len(calls) == 1
     with service.db.transaction(False) as s:
         assert len(service.scoped(s, "scheduling_plans", p)) == 3
+
+
+def test_changed_planning_coalesces_bounded_pages_before_reports(workspace, app, clock):
+    from app.db import Job, put
+    from sqlalchemy import select
+    from test_projection_replay import project_pending
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        sample = service.scoped(s, "leads", p)[0]
+        for i in range(101):
+            put(
+                s,
+                "leads",
+                p["tenant_id"],
+                p["seller_id"],
+                {**sample.data, "name": f"Bounded page {i}"},
+                now=clock.now,
+            )
+        wanted = {r.id for r in service.scoped(s, "leads", p)}
+    project_pending(service, p)
+    with service.db.transaction(False) as s:
+        jobs = [
+            j
+            for j in s.scalars(select(Job).where(Job.queue == "ml", Job.status == "queued"))
+            if j.payload.get("kind") == "retry_plan_refresh"
+        ]
+        assert len(jobs) == 2, "104 changed leads need two pages, not 104 calculations"
+        assert all(1 <= len(j.payload["lead_ids"]) <= 100 and j.priority > 10 for j in jobs)
+        assert {i for j in jobs for i in j.payload["lead_ids"]} == wanted
+
+
+@pytest.mark.asyncio
+async def test_planning_lease_expiring_during_calculation_cannot_publish(workspace, app, clock, monkeypatch):
+    from test_projection_replay import project_pending
+
+    service, p = app.state.service, principal(workspace)
+    project_pending(service, p)
+    original = capacity.plan_changed
+
+    def expired(*args, **kwargs):
+        result = original(*args, **kwargs)
+        clock.now += timedelta(seconds=61)
+        return result
+
+    monkeypatch.setattr(capacity, "plan_changed", expired)
+    await service.run_jobs(p["tenant_id"], ["ml"])
+    with service.db.transaction(False) as s:
+        assert service.scoped(s, "scheduling_plans", p) == []

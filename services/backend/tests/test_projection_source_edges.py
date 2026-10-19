@@ -93,6 +93,27 @@ def test_learning_worker_checks_owner_before_persisting_a_dataset(workspace, app
         assert service.scoped(s, "learning_datasets", p) == []
 
 
+def test_learning_publication_rechecks_current_owner(workspace, app, monkeypatch):
+    import app.optimization.conversations as conversations
+
+    service, p = app.state.service, principal(workspace)
+    original = conversations.conversation_associations
+
+    def revoked(*args, **kwargs):
+        result = original(*args, **kwargs)
+        with service.db.transaction() as s:
+            update(get(s, "users", p["user_id"]), disabled=True)
+        return result
+
+    monkeypatch.setattr(conversations, "conversation_associations", revoked)
+    with pytest.raises(HTTPException) as error:
+        service.refresh_learning(p)
+    assert error.value.status_code == 403
+    with service.db.transaction(False) as s:
+        campaign = get(s, "campaigns", workspace["campaign_id"])
+        assert not campaign.data.get("conversation_report")
+
+
 def test_campaign_specific_goal_cannot_pollute_another_campaign_estimate(workspace, app, clock):
     service, p = app.state.service, principal(workspace)
     with service.db.transaction() as s:
