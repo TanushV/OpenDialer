@@ -27,7 +27,10 @@ def test_derived_refresh_source_changes_do_not_consume_failure_attempts(workspac
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kind", ["forecast_refresh", "health_refresh", "learning_refresh", "report_refresh"])
+@pytest.mark.parametrize(
+    "kind",
+    ["forecast_refresh", "health_refresh", "learning_refresh", "report_refresh", "optimization_refresh"],
+)
 async def test_expired_derived_worker_cannot_publish(workspace, app, clock, monkeypatch, kind):
     from datetime import timedelta
 
@@ -44,6 +47,8 @@ async def test_expired_derived_worker_cannot_publish(workspace, app, clock, monk
         target, name = workflows, "capacity_forecast"
     elif kind == "learning_refresh":
         target, name = conversations, "conversation_associations"
+    elif kind == "optimization_refresh":
+        target, name = service, "selection_profile"
     else:
         target, name = service, "inventory_evidence" if kind == "health_refresh" else "optimization_report"
     original = getattr(target, name)
@@ -68,7 +73,11 @@ async def test_expired_derived_worker_cannot_publish(workspace, app, clock, monk
     )
     await service.run_jobs(p["tenant_id"], ["ml"])
     with service.db.transaction(False) as s:
-        if kind == "learning_refresh":
+        if kind == "optimization_refresh":
+            assert not service.required(s, "campaigns", workspace["campaign_id"], p).data.get(
+                "selection_profile"
+            )
+        elif kind == "learning_refresh":
             assert not service.required(s, "campaigns", workspace["campaign_id"], p).data.get(
                 "conversation_report"
             )
