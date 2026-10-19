@@ -589,7 +589,9 @@
         "services/backend/tests/test_remediation_performance.py",
         "services/backend/tests/test_background_event_loop.py",
         "services/backend/tests/test_work_measurement.py",
-        "services/backend/tests/test_migrations.py"
+        "services/backend/tests/test_migrations.py",
+        "services/backend/tests/test_metric_readiness.py",
+        "services/backend/tests/test_incremental_reports.py"
       ],
       "receipts": [
         "docs/evidence/completion/E09-contracts-red.json",
@@ -613,7 +615,7 @@
         "A50",
         "A51"
       ],
-      "checkpoint": "6fe32b9: dependent suppression/conversion expansion accepted on SQLite35pass+1PG-onlyskip and PostgreSQL36pass. Continue resumable inactive rebuild, shared incremental readers, health/planning and training isolation. ParentE09 open.",
+      "checkpoint": "Shared home metrics and resumable rebuild implemented; SQLite183 affected checks pass, then PostgreSQL exposes locale-sensitive namespace range errors. New restore/empty/maturation/dead-source regressions precede repairs. Targeted dual-database revalidation underway; secondary report readers and routine-history retirement remain open.",
       "implementation_todos": [
         {
           "id": "E09.admission",
@@ -637,8 +639,23 @@
         },
         {
           "id": "E09.readers",
-          "status": "open",
+          "status": "in-progress",
           "work": "Shared metric readers and incremental estimates/planning; remove normal history rebuild"
+        },
+        {
+          "id": "E09.core_readers",
+          "status": "in-progress",
+          "work": "Shared home/count/work/cost/rolling-connect totals; inactive rebuild, retirement, restore and locale-safe range reads"
+        },
+        {
+          "id": "E09.secondary_readers",
+          "status": "open",
+          "work": "Incremental dataset, coaching, health, trial/strategy and drift reports; no historical source scans"
+        },
+        {
+          "id": "E09.maintenance",
+          "status": "open",
+          "work": "Dirty estimate and retry planning, explicit bounded dataset work, maintenance independent of training"
         },
         {
           "id": "E09.acceptance",
