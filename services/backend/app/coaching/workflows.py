@@ -23,7 +23,7 @@ from app.coaching.contracts import card_view
 from app.coaching.engine import CardRejected, finish_shielded
 from app.db import MODELS, doc, emit, get, put, uid, update
 from app.grounding import accept_review
-from app.privacy import persistent_document
+from app.privacy import RAW_TTL_SECONDS, persistent_document
 from app.providers.inference import InferenceResult
 from app.service import dt, fail
 from app.telephony.reducer import TERMINAL
@@ -39,6 +39,8 @@ class LiveHelper:
                 "seller_id": p["seller_id"],
                 "user_id": call.data["rep_id"],
                 "state_version": call.data["transcript_version"],
+                "debounce": marker == "final",
+                "pending_deadline": (self.clock() + timedelta(seconds=RAW_TTL_SECONDS - 60)).isoformat(),
             },
             f"coach:{call.id}",
             tenant_id=p["tenant_id"],
@@ -355,7 +357,7 @@ class LiveHelper:
                 for r in self.transcript_rows(s, p, call_id)
                 if r.get("is_final") and not r.get("system_audio")
             ]
-            if not stable and not question:
+            if not stable and not urgent:
                 return None
             pending = [item for item in stable if item.get("interpretation_revision") != item["revision"]]
             if not pending and not urgent:
@@ -368,6 +370,12 @@ class LiveHelper:
             version = call.data.get("transcript_version", 0)
             state_record = self._by_key(s, p, "conversation_states", call_id)
             previous = state_record.data if state_record else {}
+            if (
+                not urgent
+                and state_record
+                and self._automatic_admissions_in(s, p, call, state_record) is None
+            ):
+                return None
             seller = self.required(s, "sellers", p["seller_id"], p)
             interval = seller.data.get("operating_policy", {}).get("auto_coach_interval_seconds", 8)
             facts = [
@@ -507,6 +515,9 @@ class LiveHelper:
                 "prior_call_context": [
                     {
                         "call_id": c.id,
+                        "version": c.version,
+                        "note_id": notes.get(c.id, {}).get("id"),
+                        "note_version": notes.get(c.id, {}).get("version"),
                         "at": c.data["started_at"],
                         "outcome": c.data.get("outcome"),
                         "human_notes": (notes.get(c.id, {}).get("human_text") or "")[:1000],
@@ -661,7 +672,7 @@ class LiveHelper:
                     retrieval_ms,
                     (time.perf_counter() - began) * 1000,
                     progressive=True,
-                    deadline=min(monotonic_deadline, began + limits.manual_first_ms / 1000)
+                    deadline=min(monotonic_deadline, request_started + limits.manual_first_ms / 1000)
                     if urgent
                     else monotonic_deadline,
                 )
@@ -708,7 +719,7 @@ class LiveHelper:
                     retrieval_ms,
                     (time.perf_counter() - began) * 1000,
                     event_id=progress_id if result is not fallback else None,
-                    deadline=min(monotonic_deadline, began + limits.manual_first_ms / 1000)
+                    deadline=min(monotonic_deadline, request_started + limits.manual_first_ms / 1000)
                     if urgent and not progress_id
                     else monotonic_deadline,
                 )
@@ -763,28 +774,32 @@ class LiveHelper:
             ):
                 return False
             if count_admission and not request.get("manual_help"):
-                now = self.clock()
-                admitted = [
-                    item
-                    for item in state.data.get("automatic_admissions", [])
-                    if dt(item["at"]) > now - timedelta(seconds=60)
-                ]
+                admitted = self._automatic_admissions_in(s, p, call, state)
+                if admitted is None:
+                    return False
                 if not any(item["id"] == request["help_request_id"] for item in admitted):
-                    if len(admitted) >= self.settings.runtime_limits.automatic_per_call_minute:
-                        version = request["state_version"]
-                        if state.data.get("rate_limited_version") != version:
-                            update(
-                                state,
-                                rate_limited_version=version,
-                                rate_limited_opportunities=state.data.get("rate_limited_opportunities", 0)
-                                + 1,
-                            )
-                        self._defer_help(s, p, call, dt(admitted[0]["at"]) + timedelta(seconds=60), "rate")
-                        return False
-                    admitted.append({"id": request["help_request_id"], "at": now.isoformat()})
+                    admitted.append({"id": request["help_request_id"], "at": self.clock().isoformat()})
                     update(state, automatic_admissions=admitted)
             update(state, coach_request_key=request["help_request_id"])
             return True
+
+    def _automatic_admissions_in(self, s, p, call, state):
+        admitted = [
+            item
+            for item in state.data.get("automatic_admissions", [])
+            if dt(item["at"]) > self.clock() - timedelta(seconds=60)
+        ]
+        if len(admitted) < self.settings.runtime_limits.automatic_per_call_minute:
+            return admitted
+        version = call.data["transcript_version"]
+        if state.data.get("rate_limited_version") != version:
+            update(
+                state,
+                rate_limited_version=version,
+                rate_limited_opportunities=state.data.get("rate_limited_opportunities", 0) + 1,
+            )
+        self._defer_help(s, p, call, dt(admitted[0]["at"]) + timedelta(seconds=60), "rate")
+        return None
 
     def _defer_busy_help(self, p, call_id):
         with self.db.transaction() as s:

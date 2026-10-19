@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 
@@ -92,6 +92,16 @@ class JobQueue:
                 priority=priority,
                 available_at=available_at,
             )
+        if job.status == "queued" or (
+            job.status == "running"
+            and job.payload.get("desired_generation", 0) > job.payload.get("claimed_generation", 0)
+        ):
+            payload = {
+                **payload,
+                "pending_deadline": job.payload.get("pending_deadline", payload["pending_deadline"]),
+            }
+        if payload.get("debounce"):
+            available_at = min(available_at, datetime.fromisoformat(payload["pending_deadline"]))
         job.payload = {
             **payload,
             "desired_generation": job.payload.get("desired_generation", 0) + 1,

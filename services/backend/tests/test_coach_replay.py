@@ -1,5 +1,6 @@
 import pytest
 from app.coaching.replay import evaluate
+from test_remediation_coach import ordinary_advice
 
 
 @pytest.mark.asyncio
@@ -9,10 +10,11 @@ async def test_replay_measures_grounding_expected_silence_and_deadlines():
             if request["id"] == "quiet":
                 return {"action": "NO_ACTION"}
             return {
+                **ordinary_advice(request),
                 "action": "SHOW_CARD",
                 "kind": "DISCOVERY",
                 "say_or_ask": "What would need to improve?",
-                "reason": "An existing provider was mentioned.",
+                "reason": "Invite the prospect to describe priorities.",
                 "state_version": 1,
                 "expires_in_ms": 7000,
                 "evidence_segment_ids": ["s1"],

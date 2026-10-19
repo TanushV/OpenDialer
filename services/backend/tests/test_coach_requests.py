@@ -204,9 +204,9 @@ async def test_context_assembly_cannot_extend_private_answer_raw_lifetime(worksp
         last_usage, last_request_id = {}, None
 
         async def suggest(self, request, **kwargs):
-            from test_remediation_coach import advice
+            from test_remediation_coach import ordinary_advice
 
-            value = advice(request["state_version"])
+            value = ordinary_advice(request)
             value["evidence_segment_ids"] = []
             return value
 

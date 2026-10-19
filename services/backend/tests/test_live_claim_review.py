@@ -24,6 +24,30 @@ def context():
     }
 
 
+def test_review_has_identified_context_without_promoting_model_memory_to_fact():
+    from app.coaching.context import guidance_review_request
+
+    request = {
+        **context(),
+        "state": {"version": 7, "needs": [{"id": "need-1", "text": "A workflow concern.", "status": "open"}]},
+        "prior_call_context": [
+            {
+                "call_id": "prior",
+                "version": 3,
+                "outcome": "callback_requested",
+                "note_id": "note-1",
+                "note_version": 4,
+                "human_notes": "The rep confirmed a requested follow-up.",
+            }
+        ],
+    }
+    review = guidance_review_request(advice(), request)
+    sources = {source["id"]: source for source in review["sources"]}
+    assert sources["observation:need-1"]["epistemic_status"] == "model_interpreted"
+    assert sources["human_note:note-1"]["version"] == 4
+    assert sources["outcome:prior"]["version"] == 3
+
+
 @pytest.mark.parametrize(
     "field,text",
     [
@@ -148,6 +172,28 @@ def usage(service, p):
             for r in service.scoped(s, "usage_ledger", p)
             if r.data.get("work_kind") in {"live_coach", "live_coach_review"}
         ]
+
+
+@pytest.mark.asyncio
+async def test_help_hotkey_can_use_prepared_context_before_any_speech(workspace, app, monkeypatch):
+    from test_remediation_coach import ordinary_advice
+
+    call, p, _, _ = setup(workspace, app, monkeypatch)
+    service, seen = app.state.service, []
+
+    class Provider:
+        last_usage, last_request_id = {"cost": 0.001}, "opening-help"
+        last_provider, last_model = "Cerebras", "fixture"
+
+        async def suggest(self, request, **kwargs):
+            seen.append(request)
+            return ordinary_advice(request, evidence_segment_ids=[])
+
+    monkeypatch.setattr(service, "configured_coach", lambda _: (Provider(), "openrouter"))
+    result = await service.coach_turn(p, call["id"], urgent=True)
+    assert result["action"] == "SHOW_CARD"
+    assert len(seen) == 1 and seen[0]["manual_help"] and not seen[0]["recent_dialogue"]
+    assert seen[0]["seller"] and seen[0]["prepared_script"]
 
 
 @pytest.mark.asyncio

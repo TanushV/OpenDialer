@@ -166,6 +166,41 @@ def guidance_sources(request):
                     "raw_expires_at": item.get("raw_expires_at"),
                 }
             )
+    state = request.get("state", {})
+    for key in STATE_FIELDS:
+        for item in state.get(key, [])[:12]:
+            if item.get("id"):
+                result.append(
+                    {
+                        "kind": "observation",
+                        "id": item["id"],
+                        "version": item.get("version", state.get("version", 0)),
+                        "text": item.get("text", ""),
+                        "status": item.get("status"),
+                        "epistemic_status": item.get("epistemic_status", "model_interpreted"),
+                    }
+                )
+    for call in request.get("prior_call_context", [])[:3]:
+        if call.get("outcome"):
+            result.append(
+                {
+                    "kind": "outcome",
+                    "id": call["call_id"],
+                    "version": call.get("version", 1),
+                    "text": call["outcome"],
+                    "scope": "historical_call",
+                }
+            )
+        if call.get("human_notes") and call.get("note_id"):
+            result.append(
+                {
+                    "kind": "human_note",
+                    "id": call["note_id"],
+                    "version": call.get("note_version", 1),
+                    "text": call["human_notes"],
+                    "epistemic_status": "human_confirmed",
+                }
+            )
     return result
 
 
@@ -207,7 +242,7 @@ def ground_guidance(card, request, *, review=None, cached=False, progressive=Fal
         state_version=request["state_version"],
         segment_ids=set(sources),
         card_ids=set(cards),
-        manual=bool(request.get("private_question")),
+        manual=bool(request.get("manual_help") or request.get("private_question")),
     )
     if card["action"] == "NO_ACTION":
         return True
@@ -237,6 +272,8 @@ def ground_guidance(card, request, *, review=None, cached=False, progressive=Fal
             return True
         except ValueError as exc:
             raise CardRejected("Meaning review is not current for these complete fields") from exc
+    if not isinstance(card.get("field_audit", []), list) or len(card.get("field_audit", [])) > 40:
+        raise CardRejected("Unbounded generator audit")
     try:
         audits = [FieldAudit.model_validate(a) for a in card.get("field_audit", [])]
     except ValueError as exc:

@@ -11,6 +11,22 @@ FALLBACK = {"action": "NO_ACTION"}
 
 
 @pytest.mark.asyncio
+async def test_continuous_final_chunks_cannot_starve_earlier_pending_context(
+    workspace, app, clock, monkeypatch
+):
+    call, p, requests, _ = setup(workspace, app, monkeypatch)
+    service = app.state.service
+    turn(service, p, call, "oldest")
+    clock.now += timedelta(seconds=239.9)
+    turn(service, p, call, "recent")
+    clock.now += timedelta(milliseconds=200)
+    turn(service, p, call, "newest")
+    await service.run_jobs(p["tenant_id"], queues=["live_coach"])
+    assert len(requests) == 1
+    assert "oldest" in {r["segment_id"] for r in requests[0]["recent_dialogue"]}
+
+
+@pytest.mark.asyncio
 async def test_unchanged_final_revision_does_not_rebill_interpretation(workspace, app, clock, monkeypatch):
     call, p, requests, _ = setup(workspace, app, monkeypatch)
     service = app.state.service

@@ -7,7 +7,14 @@ import json
 import math
 import time
 
-from app.coaching.context import ground_guidance
+from app.coaching.context import (
+    MeaningReviewRequired,
+    ground_guidance,
+    guidance_review_request,
+    guidance_sources,
+)
+from app.coaching.contracts import card_view
+from app.grounding import accept_review
 
 CONTEXT_FIELDS = {
     "id",
@@ -106,7 +113,10 @@ async def evaluate(cases, provider, *, model, deadline_ms=1200, max_duration_ms=
     for case in cases:
         started = time.perf_counter()
         request = {key: value for key, value in case.items() if key in CONTEXT_FIELDS}
+        request["context_fingerprint"] = hashlib.sha256(encoded(request)).hexdigest()
+        request["evidence_catalog"] = guidance_sources(request)
         valid, matched, failure, expected_card = False, False, None, None
+        review_metadata = None
         budget = min(deadline_ms / 1000, expires - started)
         attempted, output_hash = budget > 0, None
         if attempted:
@@ -118,7 +128,32 @@ async def evaluate(cases, provider, *, model, deadline_ms=1200, max_duration_ms=
                 # Cooperative cancellation can return late; that is never useful-in-time evidence.
                 if time.perf_counter() >= started + budget:
                     raise TimeoutError("Replay response exceeded its deadline")
-                ground_guidance(result, request)
+                result = card_view(result)
+                try:
+                    ground_guidance(result, request, cached=bool(getattr(provider, "seller_approved", False)))
+                except MeaningReviewRequired:
+                    if not hasattr(provider, "review"):
+                        raise
+                    review = guidance_review_request(result, request)
+                    generation = {
+                        name: getattr(provider, name, None)
+                        for name in ("last_usage", "last_request_id", "last_provider", "last_model")
+                    }
+                    try:
+                        left = started + budget - time.perf_counter()
+                        if left <= 0:
+                            raise TimeoutError("No remaining review budget")
+                        checked = await asyncio.wait_for(
+                            provider.review(copy.deepcopy(review), max(1, int(left * 1000))), left
+                        )
+                        if time.perf_counter() >= started + budget:
+                            raise TimeoutError("Review exceeded the original replay deadline")
+                        receipt = accept_review(review, checked, getattr(provider, "last_request_id", None))
+                        ground_guidance(result, request, review=receipt)
+                        review_metadata = receipt.metadata()
+                    finally:
+                        for name, value in generation.items():
+                            setattr(provider, name, value)
                 valid = True
                 matched = result["action"] == case["expected_action"]
                 if "expected_card_ids" in case:
@@ -144,6 +179,7 @@ async def evaluate(cases, provider, *, model, deadline_ms=1200, max_duration_ms=
                 "inference_ms": round((time.perf_counter() - started) * 1000, 3) if attempted else None,
                 "failure": failure,
                 "expected_card": expected_card,
+                "meaning_review": review_metadata,
                 "provider": getattr(provider, "last_provider", None) if attempted else None,
                 "model": getattr(provider, "last_model", model) if attempted else None,
                 "request_id": getattr(provider, "last_request_id", None) if attempted else None,

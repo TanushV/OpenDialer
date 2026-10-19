@@ -740,6 +740,8 @@ def register_optimization(app, service, principal, administrator):
                 authorized(s)
 
         class ReplayProvider:
+            seller_approved = True
+
             async def suggest(self, request, deadline_ms=1200):
                 state = build_context(
                     request.get("recent_dialogue", []),
@@ -760,7 +762,7 @@ def register_optimization(app, service, principal, administrator):
                     "playbook_card_ids": [cards[0]["id"]],
                     "expires_in_ms": 7000,
                 }
-                ground_guidance(result, request)
+                ground_guidance(result, request, cached=True)
                 return result
 
         # A replay never auto-selects a paid route: simulation/static evaluation is explicit.
@@ -779,6 +781,12 @@ def register_optimization(app, service, principal, administrator):
             last_usage, last_request_id, last_provider, last_model = {}, None, None, None
 
             async def suggest(self, request, deadline_ms=1200):
+                return await self._request("suggest", "coach_replay", request, deadline_ms)
+
+            async def review(self, request, deadline_ms=1200):
+                return await self._request("review", "coach_replay_review", request, deadline_ms)
+
+            async def _request(self, method, kind, request, deadline_ms):
                 from app.providers.inference import InferenceError
 
                 request_key = "replay:" + uid()
@@ -791,20 +799,23 @@ def register_optimization(app, service, principal, administrator):
                 submitted = False
                 try:
                     await asyncio.to_thread(still_authorized)
-                    if not await service._reserve_coach(p, request_key, usage_object_id, "coach_replay"):
+                    if not await service._reserve_coach(p, request_key, usage_object_id, kind):
                         raise InferenceError("Replay exceeds the optional inference budget")
                     await asyncio.to_thread(still_authorized)
+                    provider.last_usage, provider.last_request_id = {}, None
                     submitted = True
-                    return await provider.suggest(request, deadline_ms)
+                    return await getattr(provider, method)(request, deadline_ms)
                 finally:
                     if submitted:
                         self.last_usage = getattr(provider, "last_usage", {})
                         self.last_request_id = getattr(provider, "last_request_id", None)
                         self.last_provider = getattr(provider, "last_provider", None)
-                        self.last_model = getattr(provider, "last_model", provider.model)
+                        self.last_model = getattr(provider, "last_model", None) or getattr(
+                            provider, "model", None
+                        )
                     await finish_shielded(
                         service._settle_coach(
-                            p, request_key, usage_object_id, "coach_replay", "openrouter", self, submitted
+                            p, request_key, usage_object_id, kind, "openrouter", self, submitted
                         )
                     )
 

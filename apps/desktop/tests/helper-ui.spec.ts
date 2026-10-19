@@ -50,10 +50,46 @@ test("fixed helper remains visible, private controls work and no raw content is 
     .getByRole("button", { name: "Ask privately", exact: true })
     .click();
   await expect(page.getByLabel("Private helper question")).toHaveValue("");
+  const callView = /\/v1\/calls\/[^/]+$/;
+  let reviewStatus = "model_suggestion";
+  await page.route(callView, async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    if (body.coach)
+      body.coach = {
+        ...body.coach,
+        provider: "openrouter",
+        meaning_review: { status: reviewStatus },
+        alternatives: [
+          "Which constraint matters most?",
+          "What would make the next step worthwhile?",
+        ],
+      };
+    await route.fulfill({ response, json: body });
+  });
+  for (const [status, label] of [
+    ["model_suggestion", "Model suggestion"],
+    ["model_reviewed", "Model-reviewed guidance"],
+  ]) {
+    reviewStatus = status;
+    await page.keyboard.press("F1");
+    await expect(strip.getByText(label, { exact: false })).toBeVisible();
+    await expect(
+      strip.getByText("Alternative: Which constraint matters most?", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Hang up", exact: true }),
+    ).toBeInViewport();
+  }
+  await page.unroute(callView);
   await page.getByRole("button", { name: "Hang up", exact: true }).click();
   await page.getByLabel("Disposition").selectOption("no_answer");
   await page.getByRole("button", { name: "Save outcome", exact: true }).click();
-  await page.getByRole("button", { name: "Pause dialing", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Pause dialing", exact: true })
+    .click();
 });
 
 test("settings display the authority cost register, including changed rates", async ({

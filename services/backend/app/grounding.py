@@ -18,6 +18,8 @@ SUPPORTED means ALL explicit and implied assertions in that field follow from th
 including negation, speaker, scope, certainty, owner, dates, promises and scoring opportunity.
 A valid quote does not establish that a paraphrase is true. Reject contradictions and additions.
 Questions can contain unsupported assumptions. Inspect the entire field, not a supplied claims list.
+Model-interpreted memory is provisional context, never sole support for a new factual assertion.
+Historical notes or outcomes do not by themselves establish a current fact or agreement.
 Check proposed unknowns and N/A explanations too: absence in a partial transcript is not proof
 that something never happened. Ratings require the stated rubric anchor and actual opportunity.
 Use UNCERTAIN for ambiguity or insufficient context, CONTRADICTED for a conflicting assertion,

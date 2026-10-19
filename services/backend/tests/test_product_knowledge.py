@@ -7,7 +7,7 @@ from app.coaching.context import ground_guidance
 from app.db import MODELS, doc, get, put
 from sqlalchemy import inspect, text
 from test_context_reads import count_decrypted
-from test_remediation_coach import advice
+from test_remediation_coach import advice, ordinary_advice
 from test_remediation_privacy import principal
 
 
@@ -92,7 +92,7 @@ async def test_published_context_reaches_helper_without_restricting_its_wording(
 
         async def suggest(self, request, **kwargs):
             seen.append(request)
-            result = advice(request["state_version"], text="Which part of onboarding would be most useful?")
+            result = ordinary_advice(request, say_or_ask="Which part of onboarding would be most useful?")
             result["evidence_segment_ids"] = []
             return result
 
@@ -131,7 +131,13 @@ def test_factual_grounding_can_use_current_product_description():
     card = advice(0, text="Our product includes 3 guided onboarding sessions.")
     card["evidence_segment_ids"] = []
     card["reason"] = "This is included in the approved product description."
-    assert ground_guidance(card, request)
+    from app.coaching.context import guidance_review_request
+    from app.grounding import accept_review
+    from test_grounding_review import review_response
+
+    review = guidance_review_request(card, request)
+    receipt = accept_review(review, review_response(review), "knowledge-review")
+    assert ground_guidance(card, request, review=receipt)
 
 
 def test_current_knowledge_does_not_decrypt_retired_playbooks(workspace, app, clock, monkeypatch):

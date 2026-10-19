@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 from app.db import get, put, update
 from test_coaching_library import publish, source
-from test_remediation_coach import advice
+from test_remediation_coach import ordinary_advice
 
 
 def prepared(workspace, app, clock):
@@ -109,7 +109,7 @@ async def test_live_advice_rechecks_all_used_knowledge_before_publication(
         async def suggest(self, request, **kwargs):
             assert request["facts"] and request["prior_commitments"] and request["prior_call_context"]
             change(service, p, call, ids, boundary, clock)
-            return advice(request["state_version"], "lesson")
+            return ordinary_advice(request, "lesson")
 
     monkeypatch.setattr(service.settings, "simulation", False)
     monkeypatch.setattr(service, "configured_coach", lambda _: (Provider(), "openrouter"))
@@ -132,7 +132,7 @@ async def test_published_help_is_hidden_after_knowledge_changes(workspace, app, 
 
         async def suggest(self, request, **kwargs):
             calls.append(request)
-            return advice(request["state_version"], "lesson")
+            return ordinary_advice(request, "lesson")
 
     monkeypatch.setattr(service.settings, "simulation", False)
     monkeypatch.setattr(service, "configured_coach", lambda _: (Provider(), "openrouter"))
@@ -186,7 +186,7 @@ async def test_new_prior_call_note_invalidates_a_prepared_empty_note_context(
                     },
                     key=old_call_id,
                 )
-            return advice(request["state_version"], "lesson")
+            return ordinary_advice(request, "lesson")
 
     monkeypatch.setattr(service.settings, "simulation", False)
     monkeypatch.setattr(service, "configured_coach", lambda _: (Provider(), "openrouter"))
@@ -206,7 +206,7 @@ async def test_ordinary_preparation_bookkeeping_does_not_discard_valid_live_help
         async def suggest(self, request, **kwargs):
             with service.db.transaction() as s:
                 update(get(s, "leads", call["lead_id"]), preparation_status="queued")
-            return advice(request["state_version"], "lesson")
+            return ordinary_advice(request, "lesson")
 
     monkeypatch.setattr(service.settings, "simulation", False)
     monkeypatch.setattr(service, "configured_coach", lambda _: (Provider(), "openrouter"))

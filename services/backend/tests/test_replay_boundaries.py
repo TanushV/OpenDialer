@@ -45,7 +45,11 @@ async def test_replay_withholds_all_review_targets_from_model_and_leaves_input_u
             return {"action": "NO_ACTION"}
 
     report = await evaluate([source], Observer(), model="fixture")
-    assert seen == [{k: source[k] for k in ("id", "state_version", "recent_dialogue", "approved_cards")}]
+    assert len(seen) == 1
+    assert {k: v for k, v in seen[0].items() if k not in {"context_fingerprint", "evidence_catalog"}} == {
+        k: source[k] for k in ("id", "state_version", "recent_dialogue", "approved_cards")
+    }
+    assert len(seen[0]["context_fingerprint"]) == 64 and seen[0]["evidence_catalog"]
     assert json.dumps(source, sort_keys=True) == before
     assert report["expected_action_fraction"] == 1
     assert report["semantic_quality"] == "not_reviewed"
@@ -56,7 +60,10 @@ async def test_replay_records_content_fingerprints_and_never_saves_generated_raw
 
     class Answer(Quiet):
         async def suggest(self, request, deadline_ms):
+            from test_remediation_coach import ordinary_advice
+
             return {
+                **ordinary_advice(request),
                 "action": "SHOW_CARD",
                 "kind": "help",
                 "say_or_ask": "Which constraint matters most?",
@@ -121,6 +128,47 @@ def post(workspace, cases):
         headers=workspace["headers"],
         json={"cases": cases, "review_reference": "Synthetic authorized replay, no real provider"},
     )
+
+
+def test_replay_uses_selective_review_and_accounts_each_attempt(workspace, app, monkeypatch):
+    from test_grounding_review import review_response
+    from test_remediation_coach import advice
+
+    seen = []
+
+    class Provider(Quiet):
+        async def suggest(self, request, deadline_ms):
+            seen.append("generation")
+            self.last_usage, self.last_request_id = {"cost": 0.002}, "replay-generation"
+            return {**advice(1, text="The service supports browser access."), "evidence_segment_ids": []}
+
+        async def review(self, request, deadline_ms):
+            seen.append("review")
+            self.last_usage, self.last_request_id = {"cost": 0.001}, "replay-review"
+            return review_response(request)
+
+    service, p = app.state.service, principal(workspace)
+    monkeypatch.setattr(service, "configured_coach", lambda _: (Provider(), "openrouter"))
+    monkeypatch.setattr(service.settings, "simulation", False)
+    response = post(
+        workspace,
+        [
+            {
+                **case(),
+                "expected_action": "SHOW_CARD",
+                "private_question": "Explain access",
+                "seller": {"knowledge": "The service supports browser access."},
+            }
+        ],
+    )
+    assert response.status_code == 200
+    report = response.json()
+    assert report["valid_fraction"] == 1 and report["semantic_quality"] == "not_reviewed"
+    assert seen == ["generation", "review"]
+    with service.db.transaction(False) as s:
+        costs = [row.data for row in service.scoped(s, "usage_ledger", p)]
+    assert sorted(row["cost_usd"] for row in costs) == [0.001, 0.002]
+    assert {row["work_kind"] for row in costs} == {"coach_replay", "coach_replay_review"}
 
 
 def test_replay_without_a_receipt_retains_uncertain_charge(workspace, app, monkeypatch):
