@@ -1,0 +1,92 @@
+{
+  "step_id": "E09",
+  "stage": "secondary-counts-and-independent-admission",
+  "source_commit": "0571839d47615bee3d891e7cb7b825609d6478eb",
+  "production_tree_digest": "36c7e24223cc7e233349ef89afd9d2b7d36a07b25383b9e12b9ef95c95df110f",
+  "test_tree_commit": "5824437437d7628fd7da9ac3a052a85f5c2bb71e",
+  "test_tree_digest": "9659a0f43519ee063019329aa2ff1653af797ad9e9ced24d91f3c3348ccbbef7",
+  "digest_method": "SHA256 git ls-tree -r for the named production/test roots; individual boundary revisions retained below",
+  "case_ids": [
+    "C035",
+    "C037",
+    "C038"
+  ],
+  "mode": [
+    "sqlite",
+    "postgresql",
+    "browser"
+  ],
+  "fixture_seed": 20261018,
+  "commands": [
+    "pytest test_job_admission.py test_report_projections.py -q --tb=short",
+    "pytest test_incremental_reports.py test_optimization_learning.py test_remediation_learning.py test_strategy_exposure.py test_incremental_metrics.py test_metric_readiness.py -k \"not report_publication_reads and not ordinary_refresh_never and not normal_correction\" -q --tb=short",
+    "playwright test tests/optimization.spec.ts -g \"optimization goals\""
+  ],
+  "environment": {
+    "python": "3.12.13",
+    "postgresql": "17 disposable loopback authority",
+    "installed_app_changed": false
+  },
+  "started_at": null,
+  "finished_at": "2026-10-19T17:11:59.833991+00:00",
+  "timestamp_note": "Exact start times not captured; runner durations retained.",
+  "result_counts": {
+    "admission_and_freshness_sqlite": {
+      "source_commit": "6e671a27c3ed195d8262a0629d7e4fc6d4cfbf50",
+      "passed": 30,
+      "seconds": 20.82
+    },
+    "admission_and_freshness_postgres": {
+      "source_commit": "6e671a27c3ed195d8262a0629d7e4fc6d4cfbf50",
+      "passed": 30,
+      "seconds": 86.27
+    },
+    "drift_and_contribution_sqlite": {
+      "passed": 129,
+      "deselected": 3,
+      "seconds": 22.76
+    },
+    "drift_and_contribution_postgres": {
+      "passed": 129,
+      "deselected": 3,
+      "seconds": 115.78
+    },
+    "browser": {
+      "source_commit": "6e671a27c3ed195d8262a0629d7e4fc6d4cfbf50",
+      "passed": 1,
+      "seconds": 14.6
+    }
+  },
+  "failed_cases": [],
+  "historical_intermediate_results": {
+    "statistics_sqlite": "53 passed before the final admission/freshness repair",
+    "statistics_postgres": "52 passed, 1 failed: concurrent admission treated a contended lock as no queued work; fixed and all30 admission/report cases pass afterward",
+    "browser_first_green_attempt": "New timing assertions passed; later comparison freshness failed. Fixed and complete workflow passes afterward",
+    "drift_baseline": "2 missing-contract failures; existing no-history operational report test remains red for other readers"
+  },
+  "raw_log_sha256": {
+    "E09-secondary-statistics-sqlite-final.txt": "4ec9fd5b7cc4998321d79ba68e385a28b1ec47abd76548682805aa4e197980ca",
+    "E09-secondary-statistics-postgres-final.txt": "9050080740f09202b08ed2b82d13f5abb20925acd816581546a352f9a7ca4d69",
+    "E09-admission-freshness-sqlite.txt": "e06944a98350c383893118fce306391c9c105b7a6134ee0e0c5e2ce35e4a2b45",
+    "E09-admission-freshness-postgres.txt": "d7300cd53f71c5b00a062da6078b277314dcd1c6ea84822b0787c334b6aab1dd",
+    "E09-cpu-admission-red.txt": "736377a43586f19f5812c147b713953bb08c91b2c8bfce044dbcbd8cab216a17",
+    "E09-comparison-invalidation-red.txt": "4129983658572ca55d126f10fbce144739adaeef083971764af670ab11dd8edb",
+    "E09-latency-ui-red.txt": "901376014ccef3ee7ab0ac2b38970cce316d42bf0b92a96e359558f9e48d633d",
+    "E09-latency-ui-green.txt": "e14675afb0a8a0a2c59c708d7c38918db2c617e9bcd3ace710a0a2267638df9e",
+    "E09-latency-ui-final.txt": "8492cb3182bb0c7a57eede9d479cc622fad865900ac156633c4fa1a685b6328c",
+    "E09-drift-red.txt": "70176508630202f6b88e5aeb83f1da111026188a08a9ac8529408f27f990f5a1",
+    "E09-drift-sqlite.txt": "da410a1eb8430f3d85f4c1e869b14cab4201c17095e132f768905900295db2cf",
+    "E09-drift-postgres.txt": "964aa71c160d440cde4e5f163662da3056c839bc6cc2bfc8ca15da7412bc8684"
+  },
+  "retired_paths": [
+    "Report-time dataset count scan and saved dataset payload reads",
+    "Per-report coaching feedback/timing history reducer",
+    "Drift source-row materialization inside normal optimization report"
+  ],
+  "known_limitations": [
+    "E09 remains open: trial/strategy, number health, cost detail, bounded recent plans and ordinary refresh still contain source-history work",
+    "Final E09 and E13 full system/resource checks remain required",
+    "No native update or paid provider receipt"
+  ],
+  "external_calls": false
+}

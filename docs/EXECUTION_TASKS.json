@@ -600,7 +600,8 @@
         "docs/evidence/completion/E09-contributions.json",
         "docs/evidence/completion/E09-publication.json",
         "docs/evidence/completion/E09-dependents.json",
-        "docs/evidence/completion/E09-core-readers.json"
+        "docs/evidence/completion/E09-core-readers.json",
+        "docs/evidence/completion/E09-secondary-counts.json"
       ],
       "planned_case_ids": [
         "C035",
@@ -616,7 +617,7 @@
         "A50",
         "A51"
       ],
-      "checkpoint": "4c3c3ea: core saved metric readers and rebuild readiness accepted by focused SQLite27+78 and PostgreSQL28+78 checks. Continue secondary reports and incremental maintenance; parent E09 remains open.",
+      "checkpoint": "0571839: bounded dataset/coaching/drift counters accepted at focused boundaries (129 SQLite and129 PostgreSQL); CPU/admission/freshness30 perDB plus optimization browser1 at6e671a2. Trial aggregate implementation is active; remaining health/planning/history-reader removal stays open.",
       "implementation_todos": [
         {
           "id": "E09.admission",
@@ -652,6 +653,11 @@
           "id": "E09.secondary_readers",
           "status": "in-progress",
           "work": "Incremental dataset, coaching, health, trial/strategy and drift reports; no historical source scans"
+        },
+        {
+          "id": "E09.secondary_counts",
+          "status": "accepted-software",
+          "work": "Dataset totals, bounded coaching histograms, drift sufficient statistics and independent CPU admission; E09-secondary-counts receipt"
         },
         {
           "id": "E09.maintenance",
