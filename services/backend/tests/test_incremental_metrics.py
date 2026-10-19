@@ -38,6 +38,12 @@ async def test_contribution_replay_oracle(workspace, app, clock):
     first = completed_report(workspace).json()
     expected = len({event["lead_id"] for event in events if not event["retracted"]})
     assert first["metrics"]["unique_conversions"] == expected == 2
+    with service.db.transaction(False) as session:
+        contributions = [
+            r for r in service.scoped(session, "metric_contributions", p) if r.data["source_kind"] == "lead"
+        ]
+        assert len(contributions) == 3, "Every lead needs one current source contribution"
+        assert sum(r.data["values"]["unique_conversions"] for r in contributions) == 2
     with service.db.transaction() as s:
         for event in events:
             if event["lead_id"] == ids[0]["id"]:
@@ -100,6 +106,7 @@ def test_lead_and_call_vectors_keep_distinct_units_and_asof_evidence(clock):
             "id": f"c{i}",
             "lead_id": "l1",
             "started_at": (now - timedelta(days=2)).isoformat(),
+            "submitted_at": (now - timedelta(days=2)).isoformat(),
             "outcome": "right_party",
             "outcome_available_at": (now - timedelta(days=2)).isoformat(),
         }
@@ -161,6 +168,7 @@ def test_call_vector_conditioning_is_not_invented(clock, outcome, role, classifi
         "id": "c",
         "lead_id": "l",
         "started_at": (now - timedelta(days=14)).isoformat(),
+        "submitted_at": (now - timedelta(days=14)).isoformat(),
         "outcome": outcome,
         "contact_role": role,
         "outcome_available_at": now.isoformat(),
@@ -310,3 +318,53 @@ def test_projection_vectors_are_encrypted_and_disposable_on_backup_restore(works
     with service.db.transaction(False) as session:
         assert get(session, "metric_contributions", identity) is None
         assert len(service.scoped(session, "leads", p)) == 3
+
+
+def test_unsubmitted_or_future_call_cannot_increment_attempts(clock):
+    from app.optimization.projections import call_values
+
+    config = {"conversion_goal": "meeting_held", "window_days": 14}
+    base = {"id": "c", "lead_id": "l", "started_at": clock.now.isoformat(), "state": "AUTHORIZED"}
+    assert call_values(base, config=config, now=clock.now)["attempts"] == 0
+    future = (clock.now + timedelta(hours=1)).isoformat()
+    assert (
+        call_values({**base, "submitted_at": future, "started_at": future}, config=config, now=clock.now)[
+            "attempts"
+        ]
+        == 0
+    )
+
+
+def test_help_contribution_keeps_generated_display_use_and_feedback_separate(clock):
+    from app.optimization.projections import help_values
+
+    event = {
+        "id": "card",
+        "action": "SHOW_CARD",
+        "call_id": "call",
+        "rep_id": "rep",
+        "strategy_exposure": {"displayed_at": None},
+        "latency": {"inference_ms": 700, "state_ms": 12, "retrieval_ms": 4},
+    }
+    values = help_values(event, None, now=clock.now)
+    assert values["generated_guidance"] == 1 and values["displayed_guidance"] == 0
+    assert values["rep_use_unknown"] == 1 and values["reviewed_cards"] == 0
+    assert "unique_conversions" not in values
+    shown = {**event, "strategy_exposure": {"displayed_at": clock.now.isoformat(), "used_by_rep": False}}
+    feedback = {"useful": True, "grounded": None, "timely": False, "distracting": None}
+    revised = help_values(shown, feedback, now=clock.now)
+    assert revised["displayed_guidance"] == revised["rep_use_no"] == revised["reviewed_cards"] == 1
+    assert revised["rep_use_unknown"] == 0
+    assert revised["useful_true"] == revised["useful_count"] == 1
+    assert revised["grounded_count"] == 0 and revised["timely_count"] == 1 and revised["timely_true"] == 0
+
+
+def test_same_definition_has_separate_inactive_namespace_keys():
+    from app.optimization.projections import unit_key
+
+    definition = "a" * 64
+    one = unit_key(definition, "active", "lead", "one")
+    two = unit_key(definition, "rebuilding", "lead", "one")
+    assert one != two
+    assert one == unit_key(definition, "active", "lead", "one")
+    assert len(one) <= 512
