@@ -101,7 +101,7 @@ def freeze_features(lead, *, health, now, calls=()):
     }
 
 
-def training_rows(calls, snapshots, events, *, now, goal, window_days):
+def training_rows(calls, snapshots, events, *, now, goal, window_days, include_unclassified=False):
     if goal not in GOALS or not 1 <= window_days <= 180:
         raise ValueError("Reviewed conversion goal and bounded outcome window required")
     by_id = {r["id"]: r for r in snapshots}
@@ -118,6 +118,13 @@ def training_rows(calls, snapshots, events, *, now, goal, window_days):
         if not at or at > now or not snapshot or timestamp(snapshot.get("as_of")) is None:
             continue
         outcome = outcome_at(call, now)
+        if not outcome and include_unclassified and timestamp(call.get("submitted_at")):
+            outcome = {
+                "outcome": None,
+                "available": now,
+                "timing_known": False,
+                "outcome_source": "unobserved",
+            }
         if timestamp(snapshot["as_of"]) > at or not outcome:
             continue
         end = at + timedelta(days=window_days)

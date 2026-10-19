@@ -22,12 +22,13 @@ from app.optimization.learning import (
     drift_stratum,
     drift_values,
     outcome_at,
+    retry_statistics,
     training_rows,
     trial_from_counts,
     trial_values,
 )
 from app.optimization.numbering import timestamp
-from app.scheduling.models import derive_labels
+from app.scheduling.models import derive_labels, estimate_counts
 
 
 def unit_key(definition, namespace, kind, identity):
@@ -131,9 +132,11 @@ def training_values(call, feature, events, *, config, now):
         now=now,
         goal=config["conversion_goal"],
         window_days=config["window_days"],
+        include_unclassified=True,
     )
-    row = data[0] if data else {}
+    row = data[0] if data and outcome_at(call, now) else {}
     return {
+        **{"estimate:" + k: v for k, v in estimate_counts(data).items()},
         "dataset_rows": int(bool(row)),
         "dataset_pending_rows": int(bool(row) and row["conversion"] is None),
         "dataset_matured_rows": int(bool(row) and row["window_closed"]),
@@ -360,6 +363,8 @@ def dirty_source_units(changed, session):
                 if value.get("id") == row.data.get("id") and value.get("observed_guidance_id"):
                     units[(*scope, "help", value["observed_guidance_id"])] = False
         for value in [row.data, *([previous] if previous else [])]:
+            if table == "outcomes" and value.get("kind") == "attempt_work" and value.get("call_id"):
+                units[(*scope, "call", value["call_id"])] = False
             if table in {
                 "call_attempts",
                 "conversion_events",
@@ -470,7 +475,7 @@ def definition_version(config, epoch):
     return hashlib.sha256(
         json.dumps(
             {
-                "metrics": "cohort-work-v11",
+                "metrics": "cohort-work-v12",
                 "epoch": epoch,
                 "goal": config["conversion_goal"],
                 "window_days": config["window_days"],
@@ -532,6 +537,7 @@ def _unit_snapshot(service, p, payload):
         if callback_source and not row.get("inbound"):
             row = {}
         calls, events, intervals, feedback, suppressed, feature = [], [], [], None, False, None
+        work = None
         assignments, features, decisions, studies, observations = [], [], [], {}, []
         comparisons = [
             {k: v for k, v in item.items() if k != "population"}
@@ -600,6 +606,10 @@ def _unit_snapshot(service, p, payload):
                 denial = service._by_key(session, p, "suppressions", key)
                 suppressed = bool(denial and denial.data.get("active", True))
         elif kind == "call" and row and not callback_source:
+            record = service._by_key(session, p, "outcomes", "attempt-work:" + row["id"])
+            work = doc(record) if record else None
+            if work:
+                row.update({k: work[k] for k in ("rep_work_intervals", "rep_work_incomplete") if k in work})
             record = session.scalar(
                 _scoped_query(p, "feature_snapshots").where(
                     MODELS["feature_snapshots"].id == row.get("feature_snapshot_id")
@@ -717,6 +727,7 @@ def _unit_snapshot(service, p, payload):
                             *decisions,
                             feedback or {},
                             feature or {},
+                            work or {},
                         ]
                         if r.get("id")
                     ),
@@ -1100,7 +1111,39 @@ def _health_groups(snapshot, now, namespace):
 def _detail_groups(snapshot, now, namespace):
     """Per-call statistics grouped independently of the workspace totals."""
     if snapshot["kind"] == "lead" and snapshot["row"]:
-        return _trial_groups(snapshot, now, namespace) + _comparison_groups(snapshot, now, namespace)
+        config = snapshot["config"]
+        data = training_rows(
+            snapshot["calls"],
+            snapshot["features"],
+            snapshot["events"],
+            now=now,
+            goal=config["conversion_goal"],
+            window_days=config["window_days"],
+        )
+        retry = retry_statistics(
+            data,
+            [{**snapshot["row"], "suppressed": snapshot["suppressed"]}],
+            now=now,
+            # Retain observed continuation at every known attempt index. The
+            # planner applies the current permitted allowance, not this counter.
+            max_attempts=max((r["features"].get("attempt_count", 0) for r in data), default=0) + 2,
+        )
+        groups = [
+            (
+                {
+                    "bucket_kind": "retry",
+                    "bucket_day": None,
+                    "campaign_id": snapshot["campaign_id"],
+                    "definition_version": snapshot["definition"],
+                    "namespace": namespace,
+                    "segment": r["segment"],
+                    "attempt_index": r["attempt_index"],
+                },
+                {k: r[k] for k in ("needs_retry_count", "classified_count")},
+            )
+            for r in retry
+        ]
+        return groups + _trial_groups(snapshot, now, namespace) + _comparison_groups(snapshot, now, namespace)
     if snapshot["kind"] == "help" and snapshot["row"]:
         return _comparison_groups(snapshot, now, namespace)
     if snapshot["kind"] != "call" or not snapshot["row"]:
@@ -1116,10 +1159,28 @@ def _detail_groups(snapshot, now, namespace):
         now=now,
         goal=config["conversion_goal"],
         window_days=config["window_days"],
+        include_unclassified=True,
     )
-    if not data or not now - timedelta(days=28) <= timestamp(data[0]["at"]) <= now:
+    if not data:
         return groups
     observed = data[0]
+    groups.append(
+        (
+            {
+                "bucket_kind": "estimate",
+                "bucket_day": None,
+                "campaign_id": snapshot["campaign_id"],
+                "definition_version": snapshot["definition"],
+                "namespace": namespace,
+                "features": {
+                    k: observed.get(k) for k in ("segment", "local_hour", "local_weekday", "attempt_count")
+                },
+            },
+            estimate_counts(data),
+        )
+    )
+    if not now - timedelta(days=28) <= timestamp(observed["at"]) <= now:
+        return groups
     return groups + [
         (
             {
@@ -1150,7 +1211,7 @@ def _apply_bucket_delta(service, session, p, group, delta, fields=()):
         (kind == "drift" and total.get("rows", 0) == 0)
         or (kind == "trial" and total.get("control:leads", 0) + total.get("candidate:leads", 0) == 0)
         or (
-            kind in {"comparison", "number_health", "number_health_stratum", "call_cost"}
+            kind in {"comparison", "number_health", "number_health_stratum", "call_cost", "estimate", "retry"}
             and not any(total.values())
         )
     )
@@ -1796,6 +1857,47 @@ def read_dataset_metrics(service, p):
             )
         },
         "snapshots": saved,
+    }
+
+
+def read_estimate_statistics(service, p):
+    """Read bounded conditional cells with exact pooled support; never partial local rates."""
+    with service.db.transaction(False) as session:
+        _, group, values = _total_in(service, session, p)
+        prefix = f"v{group['definition_version']}:{group['namespace']}:"
+        model = MODELS["metric_buckets"]
+        results = {}
+        for kind in ("estimate", "retry"):
+            results[kind] = [
+                dict(row.data)
+                for row in session.scalars(
+                    _scoped_query(p, "metric_buckets")
+                    .where(
+                        model.external_key >= prefix,
+                        model.external_key < prefix + "~",
+                        model.bucket_kind == kind,
+                    )
+                    .order_by(model.external_key)
+                    .limit(1001)
+                )
+            ]
+    cells, retry = results["estimate"], results["retry"]
+    return {
+        "total": {k.removeprefix("estimate:"): v for k, v in values.items() if k.startswith("estimate:")},
+        "cells": [{"features": row["group"]["features"], "counts": row["values"]} for row in cells[:1000]],
+        "cells_complete": len(cells) <= 1000,
+        "retry_observations": [
+            {
+                **{k: row["group"][k] for k in ("segment", "attempt_index")},
+                **row["values"],
+                "matured": True,
+                "available_at": service.clock().isoformat(),
+            }
+            for row in retry
+        ]
+        if len(retry) <= 1000
+        else [],
+        "retry_complete": len(retry) <= 1000,
     }
 
 

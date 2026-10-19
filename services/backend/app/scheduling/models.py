@@ -106,6 +106,25 @@ def saved_prediction(profile, features, config):
     policy = EstimatePolicy.model_validate(config.get("estimate_policy", {}))
     work = config.get("handling_seconds", 120)
     if profile_current(profile, config):
+        if statistics := profile.get("statistics"):
+            cells = statistics.get("cells", [])
+            complete = statistics.get("cells_complete", False)
+            selected, level = _cell([c["features"] for c in cells], features)
+            total = statistics["total"]
+            local = (
+                sum_counts(cells[i]["counts"] for i in selected) if complete and level != "pooled" else total
+            )
+            return {
+                **prediction_from_counts(
+                    total,
+                    local,
+                    level=level if complete else "pooled",
+                    handling_seconds=work,
+                    estimate_policy=policy,
+                ),
+                "cell_detail_limited": not complete,
+                "as_of": profile.get("as_of"),
+            }
         found = profile.get("predictions", {}).get(prediction_key(features)) or profile.get("pooled")
         if found:
             return {**found, "as_of": profile.get("as_of")}
@@ -250,13 +269,8 @@ def _stage_counts(rows, indexes, stage):
     return sum(values), len(values), missing, excluded
 
 
-def pooled_predictions(
-    history, *, segment=None, hour=None, features=None, handling_seconds=120, estimate_policy=None
-):
-    policy = EstimatePolicy.model_validate(estimate_policy or {})
-    features = features if features is not None else {"segment": segment, "local_hour": hour}
-    if not _finite(handling_seconds) or handling_seconds < 10:
-        raise ValueError("An explicit finite work assumption of at least 10 seconds is required")
+def estimate_rows(history):
+    """Normalize immutable as-of labels without confirming provisional evidence."""
     rows = []
     for item in history:
         labels = derive_labels(item)
@@ -264,16 +278,61 @@ def pooled_predictions(
         # Immutable dataset rows already have as-of labels. Never override provisional evidence.
         labels.update({key: item[key] for key in ("human", "right_party") if key in item and not provisional})
         rows.append({**item.get("features", {}), **item, **labels})
-    cell, level = _cell(rows, features)
-    outside = set(range(len(rows))) - cell
+    return rows
+
+
+def sum_counts(vectors):
+    total = {}
+    for vector in vectors:
+        for key, value in vector.items():
+            total[key] = total.get(key, 0) + value
+    return total
+
+
+def estimate_counts(history):
+    """Additive sufficient statistics shared by replay, serving and projections."""
+    rows = estimate_rows(history)
+    result = {"rows": len(rows)}
+    for stage in ("human", "right_party", "conversion"):
+        result.update(
+            (stage + "_" + key, value)
+            for key, value in zip(
+                ("successes", "known", "unknown", "excluded"),
+                _stage_counts(rows, range(len(rows)), stage),
+                strict=True,
+            )
+        )
+    work = [v for row in rows if (v := attempt_work_seconds(row)) is not None]
+    costs = [
+        row["observed_cost_usd"]
+        for row in rows
+        if _finite(row.get("observed_cost_usd")) and row.get("cost_status") == "settled"
+    ]
+    result.update(
+        work_seconds=math.fsum(work),
+        work_observations=len(work),
+        cost_usd=math.fsum(costs),
+        cost_observations=len(costs),
+        cost_unknown_observations=len(rows) - len(costs),
+    )
+    return result
+
+
+def prediction_from_counts(total, cell, *, level, handling_seconds=120, estimate_policy=None):
+    policy = EstimatePolicy.model_validate(estimate_policy or {})
+    if not _finite(handling_seconds) or handling_seconds < 10:
+        raise ValueError("An explicit finite work assumption of at least 10 seconds is required")
     support, predictions = {}, {}
     for stage, prior, key in (
         ("human", policy.human_prior, "p_human"),
         ("right_party", policy.right_prior, "p_right_party_given_human"),
         ("conversion", policy.goal_prior, "p_conversion_given_right_party"),
     ):
-        s, n, missing, excluded = _stage_counts(rows, cell, stage)
-        os, on, _, _ = _stage_counts(rows, outside, stage)
+        s, n, missing, excluded = (
+            cell.get(stage + "_" + field, 0) for field in ("successes", "known", "unknown", "excluded")
+        )
+        os = total.get(stage + "_successes", 0) - s
+        on = total.get(stage + "_known", 0) - n
         a, b = prior
         pooled = _weighted_mean([(os / on if on else 0, on), (1, a), (0, b)])
         predictions[key] = (
@@ -290,23 +349,21 @@ def pooled_predictions(
             "observed_interval": list(wilson(s, n)),
             "interval_kind": "observed_rate_wilson",
         }
-    work = [v for i in cell if (v := attempt_work_seconds(rows[i])) is not None]
-    costs = [
-        rows[i]["observed_cost_usd"]
-        for i in cell
-        if _finite(rows[i].get("observed_cost_usd")) and rows[i].get("cost_status") == "settled"
-    ]
+    work_n, cost_n = cell.get("work_observations", 0), cell.get("cost_observations", 0)
     return {
         **predictions,
         "p_next_step_given_right_party": predictions["p_conversion_given_right_party"],
         "expected_rep_seconds": _weighted_mean(
-            [(v, 1) for v in work] + [(handling_seconds, policy.work_prior)]
+            [
+                (cell.get("work_seconds", 0) / work_n if work_n else 0, work_n),
+                (handling_seconds, policy.work_prior),
+            ]
         ),
-        "work_observations": len(work),
+        "work_observations": work_n,
         "work_assumption_seconds": handling_seconds,
-        "expected_attempt_cost_usd": sum(costs) / len(costs) if costs else None,
-        "cost_observations": len(costs),
-        "cost_unknown_observations": len(cell) - len(costs),
+        "expected_attempt_cost_usd": cell.get("cost_usd", 0) / cost_n if cost_n else None,
+        "cost_observations": cost_n,
+        "cost_unknown_observations": cell.get("cost_unknown_observations", 0),
         "observations": support["human"]["cell_known"],
         "conversion_observations": support["conversion"]["cell_known"],
         "stage_support": support,
@@ -315,3 +372,19 @@ def pooled_predictions(
         "prior_only": not any(v["cell_known"] or v["outside_known"] for v in support.values()),
         "model_version": "pooled-funnel-v3",
     }
+
+
+def pooled_predictions(
+    history, *, segment=None, hour=None, features=None, handling_seconds=120, estimate_policy=None
+):
+    """Explicit history evaluation uses exactly the same math as projected serving."""
+    features = features if features is not None else {"segment": segment, "local_hour": hour}
+    rows = estimate_rows(history)
+    cell, level = _cell(rows, features)
+    return prediction_from_counts(
+        estimate_counts(rows),
+        estimate_counts(rows[i] for i in cell),
+        level=level,
+        handling_seconds=handling_seconds,
+        estimate_policy=estimate_policy,
+    )

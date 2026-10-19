@@ -84,6 +84,10 @@ REPORT_FIELDS = {
     "coaching_feedback": None,
     "coach_events": {"call_id", "rep_id", "action", "latency", "strategy_exposure"},
     "outcomes": {
+        "kind",
+        "call_id",
+        "rep_work_intervals",
+        "rep_work_incomplete",
         "observed_guidance_id",
         "state",
         "review_status",
@@ -159,10 +163,14 @@ def invalidate_reports(session):
         if row not in session.new and row not in session.deleted and not history.has_changes():
             continue
         previous = history.deleted[0] if history.deleted else None
-        if table == "outcomes" and (
-            row.data.get("kind") != "conversation_lineage"
-            or row.data.get("observation_kind") != "approach"
-            and not row.data.get("observed_guidance_id")
+        if (
+            table == "outcomes"
+            and row.data.get("kind") != "attempt_work"
+            and (
+                row.data.get("kind") != "conversation_lineage"
+                or row.data.get("observation_kind") != "approach"
+                and not row.data.get("observed_guidance_id")
+            )
         ):
             continue
         if previous is None and row not in session.new:
