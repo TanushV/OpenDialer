@@ -51,6 +51,47 @@ test("missing and stale capacity estimates are explicit", async ({ page }) => {
   ).toBeVisible();
 });
 
+test("pending report refresh preserves comparison input", async ({ page }) => {
+  await simulation(page);
+  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page
+    .getByLabel("Comparison review reference")
+    .fill("Retain this draft during refresh");
+  await page.route("**/v1/optimization", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    await route.fulfill({
+      response,
+      json: {
+        settings: body.settings,
+        projection: {
+          status: "pending",
+          as_of: null,
+          refresh_status: "queued",
+        },
+      },
+    });
+  });
+  await page
+    .getByRole("button", { name: "Refresh learning and capacity" })
+    .click();
+  await expect(
+    page.getByText("Preparing the first report in the background.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Comparison review reference")).toHaveValue(
+    "Retain this draft during refresh",
+  );
+  await page.unroute("**/v1/optimization");
+  await page
+    .getByRole("button", { name: "Check report status", exact: true })
+    .click();
+  await expect(page.getByLabel("Comparison review reference")).toHaveValue(
+    "Retain this draft during refresh",
+  );
+});
+
 test("optimization goals, forecast, learning state and provider settings persist", async ({
   page,
 }) => {
