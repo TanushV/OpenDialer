@@ -648,7 +648,7 @@ def test_comparison_buckets_keep_strata_feedback_seed_and_corrected_speech(works
         put(s, "outcomes", p["tenant_id"], p["seller_id"], lineage, now=began)
     project_pending(service, p)
 
-    def read():
+    def read(who=None):
         def reject(connection, cursor, statement, parameters, context, many):
             assert not any(
                 "FROM " + table in statement
@@ -666,7 +666,7 @@ def test_comparison_buckets_keep_strata_feedback_seed_and_corrected_speech(works
 
         event.listen(service.db.engine, "before_cursor_execute", reject)
         try:
-            return projections.read_comparison_metrics(service, p)
+            return projections.read_comparison_metrics(service, who or p)
         finally:
             event.remove(service.db.engine, "before_cursor_execute", reject)
 
@@ -689,6 +689,10 @@ def test_comparison_buckets_keep_strata_feedback_seed_and_corrected_speech(works
         assert reports[1]["strategy_policy_snapshot"] == actual["strategy_policy_snapshot"]
         assert actual["strategy_policy_snapshot"]["observations"]["approach"] == 1
     assert not actual["sufficient_evidence"]
+    private = read({**p, "role": "rep", "user_id": "another-rep"})[0]
+    assert private["coaching_quality"]["candidate"]["reviewed_cards"] == 0
+    if family == "strategy":
+        assert private["strategy_exposure"]["generated"] == 0
 
     with service.db.transaction() as s:
         update(
@@ -702,7 +706,12 @@ def test_comparison_buckets_keep_strata_feedback_seed_and_corrected_speech(works
             "outcomes",
             p["tenant_id"],
             p["seller_id"],
-            {**lineage, "version": 2, "state": "retracted", "invalidated_at": clock.now.isoformat()},
+            {
+                **{k: v for k, v in lineage.items() if k != "observed_guidance_id"},
+                "version": 2,
+                "state": "retracted",
+                "invalidated_at": clock.now.isoformat(),
+            },
             now=clock.now,
         )
     project_pending(service, p)
