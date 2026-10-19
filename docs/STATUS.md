@@ -1,6 +1,8 @@
 # Execution log and continuation state
 
-**Current checkpoint — E05 active:** E00–E04 software steps pass their recorded scoped contracts. Continue E05–E15 in order. Installed Mac remains 0.2.1; no update, reinstall, funded request or purchase occurred. E13 retains the backlog/load discrepancy; whole-system acceptance is still open.
+**Current checkpoint — E06 active:** E00–E05 software steps pass their scoped recorded contracts. Continue E06–E15 in order. Installed Mac remains 0.2.1; no update, reinstall, funded request or purchase occurred. E13 retains the backlog/load discrepancy; whole-system acceptance remains open.
+
+2026-10-19 E05 EXIT / E06 RED. Final source 2b26c27: state/source/registry/policy selection passes 75 SQLite (23.30s) and 75 PostgreSQL (105.03s); rate/accounting/refresh supplement passes 66 in both modes. Eight paired browser journeys pass. The earlier 170-case runs remain source-qualified at 1e9bf73; [E05 receipt](evidence/completion/E05.json) records retained versus impacted validation. E06 additional precision tests capture 32 failures and two passes before planner changes; absence of new typed contracts is distinguished from occupancy/priority/retry failures. No native/provider change.
 
 2026-10-19 E05 FINAL BOUNDARIES. Both first selections pass 170 tests (SQLite 61.55s; PostgreSQL 293.48s). Eight paired local/PostgreSQL browser screening journeys pass (24.4s). Supplemental rate/accounting/refresh: 66 SQLite passes (33.75s), 66 PostgreSQL passes (143.32s); the first misnamed-environment supplement was SQLite and is not counted as PostgreSQL. State-list expiry now shares the national source/access deadline calculation; four red boundary cases plus a corrected valid-case fixture lead to 75 SQLite passes (23.30s). Final PostgreSQL state selection is running. No provider/native operation.
 

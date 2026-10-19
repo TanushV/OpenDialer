@@ -690,7 +690,7 @@ These boxes are deliberately open. This planning pass does not perform implement
 - [x] E02 Shared conversation state, long-call continuity and finalization pass; duplicate extraction removed.
 - [x] E03 One complete local rep/task/meeting/next-call journey passes in both authorities.
 - [x] E04 Bounded discovery, prepared queue, off-hours batches and partial recovery pass.
-- [ ] E05 Shared screening/cost readiness, authorized refresh and no-recurring policy pass.
+- [x] E05 Shared screening/cost readiness, authorized refresh and no-recurring policy pass.
 - [ ] E06 One planner, conservative capacity, known/retry separation and minimum-addition oracle pass.
 - [ ] E07 Existing-number setup, health and route/reassignment evidence pass.
 - [ ] E08 Sparse baselines, as-of learning, strategy exposure and manual reviewed model control pass.
@@ -702,4 +702,4 @@ These boxes are deliberately open. This planning pass does not perform implement
 - [ ] E14 Exact Mac/Windows artifacts accepted, existing installations updated and native use recorded.
 - [ ] E15 Accurate docs, remaining external gates, final preflight and scoped cleanup complete; source/artifact/remote match.
 
-**Next action on implementation resumption:** E05. E04 bounded discovery, preparation/runway and deferred review contracts pass on SQLite/PostgreSQL and affected browser journeys (STATUS/E04 receipt). Unify DNC readiness, explicit refresh and costs, then E06–E15. Preserve the E13 backlog/load discrepancy and all native/live gates.
+**Next action on implementation resumption:** E06. E05 shared screening/readiness, bounded refresh, source publication and costs pass their scoped dual-database/browser contracts (STATUS/E05 receipt). Unify scheduling and minimum number capacity, then E07–E15. Preserve the E13 backlog/load discrepancy and all native/live gates.

@@ -1,0 +1,203 @@
+{
+  "step_id": "E05",
+  "source_commit": "2b26c271ca3220467a05ddee5bc4c0b6898b23f1",
+  "digest_roots": {
+    "production": [
+      "services/backend/app",
+      "services/backend/migrations",
+      "apps/desktop/src",
+      "apps/desktop/src-tauri/src"
+    ],
+    "tests": [
+      "services/backend/tests",
+      "apps/desktop/tests",
+      "tests"
+    ]
+  },
+  "digest_method": "SHA256 of git ls-tree -r at named source; run-specific source boundaries recorded below",
+  "case_ids": [
+    "C018",
+    "C019",
+    "C020",
+    "C021"
+  ],
+  "mode": [
+    "sqlite",
+    "postgresql",
+    "browser-local",
+    "browser-postgresql"
+  ],
+  "fixture_seed": 20261018,
+  "environment": {
+    "system": "macOS-26.5.1-arm64-arm-64bit",
+    "python": "3.12.13",
+    "postgres": "17.11 guarded loopback disposable unit and separate browser databases"
+  },
+  "commands": [
+    {
+      "run": "first_sqlite",
+      "tool": ".venv/bin/python -m pytest",
+      "test_files": [
+        "services/backend/tests/test_admin_completion.py",
+        "services/backend/tests/test_dnc_recovery.py",
+        "services/backend/tests/test_operating_edits.py",
+        "services/backend/tests/test_operating_validation.py",
+        "services/backend/tests/test_policy.py",
+        "services/backend/tests/test_registry_hotpath.py",
+        "services/backend/tests/test_remediation_dnc_costs.py",
+        "services/backend/tests/test_scheduling_and_numbers.py",
+        "services/backend/tests/test_screening_readiness.py",
+        "services/backend/tests/test_screening_refresh.py"
+      ],
+      "postgres_environment": null,
+      "junit": "work/remediation/completion/E05-sqlite-first.xml"
+    },
+    {
+      "run": "first_postgres",
+      "tool": ".venv/bin/python -m pytest",
+      "test_files": [
+        "services/backend/tests/test_admin_completion.py",
+        "services/backend/tests/test_dnc_recovery.py",
+        "services/backend/tests/test_operating_edits.py",
+        "services/backend/tests/test_operating_validation.py",
+        "services/backend/tests/test_policy.py",
+        "services/backend/tests/test_registry_hotpath.py",
+        "services/backend/tests/test_remediation_dnc_costs.py",
+        "services/backend/tests/test_scheduling_and_numbers.py",
+        "services/backend/tests/test_screening_readiness.py",
+        "services/backend/tests/test_screening_refresh.py"
+      ],
+      "postgres_environment": "OPENDIALER_TEST_POSTGRES_URL",
+      "junit": "work/remediation/completion/E05-postgres-first.xml"
+    },
+    {
+      "run": "supplement_sqlite",
+      "tool": ".venv/bin/python -m pytest",
+      "test_files": [
+        "services/backend/tests/test_operating_validation.py",
+        "services/backend/tests/test_request_accounting.py",
+        "services/backend/tests/test_screening_refresh.py"
+      ],
+      "postgres_environment": null,
+      "junit": "work/remediation/completion/E05-supplement-sqlite.xml"
+    },
+    {
+      "run": "supplement_postgres",
+      "tool": ".venv/bin/python -m pytest",
+      "test_files": [
+        "services/backend/tests/test_operating_validation.py",
+        "services/backend/tests/test_request_accounting.py",
+        "services/backend/tests/test_screening_refresh.py"
+      ],
+      "postgres_environment": "OPENDIALER_TEST_POSTGRES_URL",
+      "junit": "work/remediation/completion/E05-supplement-pg-verified.xml"
+    },
+    {
+      "run": "state_sqlite",
+      "tool": ".venv/bin/python -m pytest",
+      "test_files": [
+        "services/backend/tests/test_policy.py",
+        "services/backend/tests/test_registry_hotpath.py",
+        "services/backend/tests/test_screening_readiness.py"
+      ],
+      "postgres_environment": null,
+      "junit": "work/remediation/completion/E05-state-sqlite.xml"
+    },
+    {
+      "run": "state_postgres",
+      "tool": ".venv/bin/python -m pytest",
+      "test_files": [
+        "services/backend/tests/test_policy.py",
+        "services/backend/tests/test_registry_hotpath.py",
+        "services/backend/tests/test_screening_readiness.py"
+      ],
+      "postgres_environment": "OPENDIALER_TEST_POSTGRES_URL",
+      "junit": "work/remediation/completion/E05-state-postgres.xml"
+    },
+    {
+      "run": "paired_browser",
+      "command": "OPENDIALER_E2E_DATABASE_URL=<guarded separate browser DB> npm --prefix apps/desktop run test:e2e -- tests/dnc-recovery.spec.ts"
+    }
+  ],
+  "result_counts": {
+    "first_sqlite": {
+      "passed": 170,
+      "failed": 0,
+      "seconds": 61.541,
+      "source_commit": "1e9bf73"
+    },
+    "first_postgres": {
+      "passed": 170,
+      "failed": 0,
+      "seconds": 293.459,
+      "source_commit": "1e9bf73"
+    },
+    "supplement_sqlite": {
+      "passed": 66,
+      "failed": 0,
+      "seconds": 33.711,
+      "source_commit": "2b26c271ca3220467a05ddee5bc4c0b6898b23f1"
+    },
+    "supplement_postgres": {
+      "passed": 66,
+      "failed": 0,
+      "seconds": 143.315,
+      "source_commit": "2b26c271ca3220467a05ddee5bc4c0b6898b23f1"
+    },
+    "state_sqlite": {
+      "passed": 75,
+      "failed": 0,
+      "seconds": 23.283,
+      "source_commit": "2b26c271ca3220467a05ddee5bc4c0b6898b23f1"
+    },
+    "state_postgres": {
+      "passed": 75,
+      "failed": 0,
+      "seconds": 105.018,
+      "source_commit": "2b26c271ca3220467a05ddee5bc4c0b6898b23f1"
+    },
+    "paired_browser": {
+      "passed": 8,
+      "failed": 0,
+      "seconds": 24.4,
+      "source_commit": "2b26c271ca3220467a05ddee5bc4c0b6898b23f1"
+    }
+  },
+  "failed_cases": [],
+  "raw_log_sha256": {
+    "E05-sqlite-first.xml": "2905ec03209424b4bead964385355937271e20107f87aa9fe5ec357181622221",
+    "E05-sqlite-first.txt": "b21b37821ffcbbea3bc99d236c8fe4ce0837b37e492b122576a0b2ddb87c79af",
+    "E05-postgres-first.xml": "ce5527fd52448bd3eb473cee60673a2644941fd46ef1b74a1555edfe99fbf449",
+    "E05-postgres-first.txt": "2a8e9efce8049e25241628712420ac56e615936723ae581ab1324e6cfa415c2b",
+    "E05-supplement-sqlite.xml": "99592a884d4c04cd535997984f3629af7c9dc0e3a9f6f706fa93abe3f204873c",
+    "E05-supplement-sqlite.txt": "3940ebf81d67dc79a56beb8f9fef980b50333d78672d620bef7e48bdd2b327ca",
+    "E05-supplement-pg-verified.xml": "22ccb50f1f3f5d614ba2861a4cc854f9b215e7232cc79c012c98ab1e27761b99",
+    "E05-supplement-pg-verified.txt": "534310099a989a1f4988c99e28d143fa49e36f276b69db56bdef579aa5148456",
+    "E05-state-sqlite.xml": "2e2e10ca6ea5736adb7d9db4b35896046461f4d00a097be1f549a06941a570b5",
+    "E05-state-sqlite.txt": "ff885054509a2f2d2a711fa8e9a0026dc57a86060bd7386a6c004c6726a5b941",
+    "E05-state-postgres.xml": "b0fd5b1dbc031a155e8193cc3ce42b5adb46729c00f67aac9a5a236b477e0fba",
+    "E05-state-postgres.txt": "ea2dc1b75f0d62b0845fdaf85bb813dbc27e4087a8c3f38be97559b34745f32a",
+    "E05-dnc-ui-paired.txt": "f48026ae7fd2a6b8b149a9b202cfd39d768a3b9d4b8216333142f434d07c3421",
+    "E05-database-guard.txt": "23e847854cb5090ffb0d54e389411ff1ad816748fe33f63aaac4e8d20d28d4a1"
+  },
+  "retired_paths": [
+    "Snapshot-only preflight national rule",
+    "Per-endpoint country-wide bitmap decoding",
+    "Unversioned operating policy edits",
+    "Independent state/national source expiry math",
+    "Hardcoded one-day screening horizon",
+    "Zero funding minimum for unknown account commitments"
+  ],
+  "known_limitations": [
+    "Final impacted selections are at 2b26c27; the first 170-case selections were at 1e9bf73. They are retained coverage, not a claim of rerunning the full application on final source.",
+    "No funded DNC/vendor account, native update or live certification. X04/X07 remain open.",
+    "National supplied-file imports arrive as normalized JSON/pasted data and checkpoint each NPA; no download/scraping source is invented.",
+    "No subscription or number rental is activated; complete multi-provider liability recovery and final cost worksheet remain E10/E15.",
+    "Full current system coverage/load acceptance remains E13."
+  ],
+  "external_calls": false,
+  "started_at": "2026-10-19T04:04:30.936196-07:00",
+  "finished_at": "2026-10-19T04:19:16.822244-07:00",
+  "production_tree_digest": "3f293b9dbd4ccf4ae0d77a0ecdf75fa2cef1f1ac104c28ad2733f842cb500e50",
+  "tests_tree_digest": "613fc979ad81584f95fe9cce2649003d4e72e110fce7f834b957ef5de7878fdf"
+}

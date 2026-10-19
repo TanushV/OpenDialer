@@ -1,0 +1,15 @@
+{
+  "step_id": "E06",
+  "source_commit": "2b26c271ca3220467a05ddee5bc4c0b6898b23f1",
+  "mode": "sqlite",
+  "external_calls": false,
+  "result_counts": {
+    "failed": 32,
+    "passed": 2,
+    "seconds": 0.62
+  },
+  "raw_log_sha256": {
+    "E06-precision-red.txt": "b9ce1ca053358d66cab475fc3207dd2484a9f12db13e7dadbd26dff02340783c"
+  },
+  "boundary": "Before E06 production changes. Retains E00 planner contracts; additional tests assert exact occupancy, pool conservation, channel constraints, pending availability, priority, retry availability and bounded search. Missing typed contract/signature failures are contract absence, not observed external failures."
+}

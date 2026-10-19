@@ -3,10 +3,10 @@
   "written_at": "2026-10-18",
   "baseline_commit": "63f4d4242f60672777f596177fe98fe57f715bf9",
   "baseline_product_test_commit": "6611d3c2fb486b0aac65df2bb42e20663457552a",
-  "status": "implementation-authorized; E00-E03 software boundaries accepted; E04 in progress",
+  "status": "implementation-authorized; E00-E05 software boundaries accepted; E06 in progress",
   "requirements_source": "docs/REMEDIATION_PLAN.md",
   "implementation_source": "docs/EXECUTION_SPEC.md",
-  "next_step": "E05",
+  "next_step": "E06",
   "receipt_rule": "No inherited checkbox or planned node is a current passing receipt. Update by actual source-bound evidence.",
   "steps": [
     {
@@ -283,7 +283,7 @@
     {
       "id": "E05",
       "title": "National DNC, costs and honest readiness",
-      "status": "in-progress",
+      "status": "accepted-software",
       "depends_on": [
         "E04"
       ],
@@ -298,7 +298,8 @@
         "services/backend/tests/test_operating_validation.py"
       ],
       "receipts": [
-        "docs/evidence/completion/E05-baseline.json"
+        "docs/evidence/completion/E05-baseline.json",
+        "docs/evidence/completion/E05.json"
       ],
       "planned_case_ids": [
         "C018",
@@ -317,46 +318,46 @@
       "implementation_todos": [
         {
           "id": "E05.capability",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Shared endpoint/preflight freshness, authorization and no-charge coverage"
         },
         {
           "id": "E05.edits",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Versioned policy edits and explicit refresh budgets"
         },
         {
           "id": "E05.refresh",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "One daily resumable prepaid cursor and charged uncertainty control"
         },
         {
           "id": "E05.chunks",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Per-NPA atomic publication and bounded scoped LRU"
         },
         {
           "id": "E05.costs",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Dated single cost register and source/account provenance"
         },
         {
           "id": "E05.ui",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Actionable screening/funding/readiness surfaces"
         },
         {
           "id": "E05.acceptance",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Focused dual-database/browser checks and retire duplicate preflight rule"
         }
       ],
-      "checkpoint": "170 focused SQLite cases and four DNC/cost/import browser journeys pass; current PostgreSQL selection running. Account provenance, actual queue eligibility and resumable legacy chunk backfill implemented; full E05 exit remains open."
+      "checkpoint": "Scoped screening/import/cost/readiness contracts pass on both databases and eight paired browser journeys. See E05 receipt for exact retained and final source boundaries."
     },
     {
       "id": "E06",
       "title": "One lightweight scheduler and number-capacity calculation",
-      "status": "open",
+      "status": "in-progress",
       "depends_on": [
         "E05"
       ],
@@ -386,6 +387,38 @@
         "A18",
         "A35",
         "A50"
+      ],
+      "implementation_todos": [
+        {
+          "id": "E06.contracts",
+          "status": "in-progress",
+          "work": "Retain E00 and add precise occupancy, retry and immutable-input regressions"
+        },
+        {
+          "id": "E06.planner",
+          "status": "open",
+          "work": "One normalized immutable input and bounded assignment/minimum search; delete aggregate branch"
+        },
+        {
+          "id": "E06.learning",
+          "status": "open",
+          "work": "Matured retry scenarios, work estimates, shared eligibility and bounded scoring"
+        },
+        {
+          "id": "E06.publication",
+          "status": "open",
+          "work": "Read snapshots then plan outside writes; source-fenced bounded schedule publication"
+        },
+        {
+          "id": "E06.ui",
+          "status": "open",
+          "work": "Simple/named staffing and honest now/later capacity/assumptions"
+        },
+        {
+          "id": "E06.acceptance",
+          "status": "open",
+          "work": "Independent oracles, dual databases, affected browsers and removal receipt"
+        }
       ]
     },
     {
@@ -1049,13 +1082,15 @@
       "id": "M1.08c",
       "requirement": "Add bounded DNC status/recovery, no-charge reads, explicit retry-cost acknowledgement and lost-response identity reuse. Freshness follows the shortest source/access/policy deadline; GET/reload cannot spend credits.",
       "baseline_checked": true,
-      "execution_status": "retained-needs-revalidation",
+      "execution_status": "in-progress",
       "primary_step": "E05",
       "supporting_steps": [
         "E10"
       ],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E05.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1107,13 +1142,15 @@
       "id": "M2.02c",
       "requirement": "Restrict authorization to published registries, exact prepaid/suppression identities and candidate consent; decode membership once per decision, check internal opt-outs first and recheck publication before claiming. Registry replacement preserves retired history. Dual-database and browser receipts are in STATUS.md; full-country dataset sizing/refresh and mixed-load gates remain open.",
       "baseline_checked": true,
-      "execution_status": "retained-needs-revalidation",
+      "execution_status": "in-progress",
       "primary_step": "E05",
       "supporting_steps": [
         "E09"
       ],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E05.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -1776,13 +1813,15 @@
       "id": "M4.07",
       "requirement": "Disable subscription activation and expose observed-health / external-label capability states honestly.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "in-progress",
       "primary_step": "E05",
       "supporting_steps": [
         "E07"
       ],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E05.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -2215,11 +2254,13 @@
       "id": "M6.07",
       "requirement": "Implement documented prepaid DNC adapter plus authorized snapshot import, freshness/coverage and seller authorization.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "accepted-software",
       "primary_step": "E05",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E05.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -2228,11 +2269,13 @@
       "id": "M6.07a",
       "requirement": "Complete prepaid screening publication, current-source cache validation and recoverable uncertainty; exact phone/timestamp checks, strict results, seller isolation, budget denial and original liabilities pass both databases. Snapshot/background refresh and actual source/account certification remain separately open.",
       "baseline_checked": true,
-      "execution_status": "retained-needs-revalidation",
+      "execution_status": "accepted-software",
       "primary_step": "E05",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E05.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -2241,11 +2284,13 @@
       "id": "M6.08",
       "requirement": "Recheck national and local DNC for every US submission; queue background refresh and fail closed on unavailable data.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "accepted-software",
       "primary_step": "E05",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E05.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -2254,13 +2299,15 @@
       "id": "M6.09",
       "requirement": "Enforce no subscription/new rental commitments, disclose existing obligations, and document PAYG prices/minimums/limits.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "in-progress",
       "primary_step": "E05",
       "supporting_steps": [
         "E07"
       ],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E05.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -2770,11 +2817,13 @@
       "id": "X04",
       "requirement": "Actual prepaid DNC source access/freshness/authority and lookup charge reconciliation; no subscription activation.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "accepted-software",
       "primary_step": "E05",
       "supporting_steps": [],
       "acceptance_gate": "external",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E05.json"
+      ],
       "verification_steps": []
     },
     {
@@ -2803,14 +2852,16 @@
       "id": "X07",
       "requirement": "Current seller data/policy approval and production host/DNS/TLS/backup operational acceptance where applicable.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "in-progress",
       "primary_step": "E05",
       "supporting_steps": [
         "E11",
         "E12"
       ],
       "acceptance_gate": "external",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E05.json"
+      ],
       "verification_steps": []
     },
     {
@@ -4853,14 +4904,16 @@
       "step": "E05",
       "planned_node": "services/backend/tests/test_screening_readiness.py::test_prepaid_preflight_authorization_agree",
       "expected": "Authorized cached prepaid-only endpoint can be ready; configured key without source/coverage cannot; preflight and dial agree.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-group1.json",
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E05.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_screening_readiness.py::test_prepaid_preflight_authorization_agree"
       ]
@@ -4870,13 +4923,15 @@
       "step": "E05",
       "planned_node": "services/backend/tests/test_screening_refresh.py::test_bounded_paid_refresh",
       "expected": "Two workers yield one submission; 500-row cursor resumes; opt-outs excluded; unknown charge prevents automatic repeat.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E05.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_screening_refresh.py::test_bounded_paid_refresh",
         "services/backend/tests/test_screening_refresh.py::test_screening_refresh_requires_bounded_explicit_funding",
@@ -4889,13 +4944,15 @@
       "step": "E05",
       "planned_node": "services/backend/tests/test_registry_hotpath.py::test_npa_chunk_country_bound",
       "expected": "500 NPA chunks require only relevant membership decode within LRU; atomic publication/expiry fences survive replacement.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E05.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_registry_hotpath.py::test_npa_chunk_country_bound",
         "services/backend/tests/test_registry_hotpath.py::test_reservation_ignores_retired_snapshots_and_unrelated_prepaid_checks",
@@ -4916,13 +4973,15 @@
       "step": "E05",
       "planned_node": "services/backend/tests/test_operating_validation.py::test_literal_cost_privacy_constraints",
       "expected": "Settings merge cannot enable subscription/recording or longer raw retention; rates differ from actual charges; no paid GET.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E05.json"
+      ],
       "actual_nodes": [
         "services/backend/tests/test_operating_validation.py::test_dnc_settings_validate_source_shape_before_saving",
         "services/backend/tests/test_operating_validation.py::test_partial_privacy_update_uses_existing_evidence",
