@@ -602,6 +602,8 @@ async def test_confirming_corrected_task_acknowledges_review(workspace, app, mon
             "expected_version": task["version"],
             "status": "open",
             "due_at": "2026-10-21T21:00:00+00:00",
+            "confirmation_state": "confirmed",
+            "confirmation_reason": "The rep independently confirmed this callback.",
         },
     )
     assert after["review_required"] is False

@@ -361,6 +361,25 @@ def test_note_only_task_edit_cannot_silently_resolve_source_conflict(workspace, 
     )
     assert response.status_code == 200, response.text
     assert response.json()["review_required"] and response.json()["confirmation_state"] == "needs_review"
+    current = response.json()
+    confirm = {
+        "request_id": str(uuid4()),
+        "expected_version": current["version"],
+        "confirmation_state": "confirmed",
+        "status": "open",
+    }
+    path = f"/v1/tasks/{task['id']}"
+    refused = workspace["client"].patch(path, headers=workspace["headers"], json=confirm)
+    assert refused.status_code == 422, refused.text
+    accepted = workspace["client"].patch(
+        path,
+        headers=workspace["headers"],
+        json={**confirm, "confirmation_reason": "I independently confirmed the promised time."},
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert not accepted.json()["review_required"]
+    assert accepted.json()["source_stale"], "Rep resolution must not falsify original source validity"
+    assert accepted.json()["confirmation_reason"] == "I independently confirmed the promised time."
 
 
 def test_duplicate_wrapup_has_one_outcome_and_does_not_reopen_completed_task(workspace, app, clock):
