@@ -996,10 +996,14 @@ function NumberRow({
     if (request.current?.fingerprint !== fingerprint)
       request.current = { fingerprint, id: crypto.randomUUID() };
     try {
-      await api<NumberRecord>(path, method, {
+      const saved = await api<NumberRecord>(path, method, {
         ...value,
         request_id: request.current.id,
       });
+      onSaved(saved);
+      setView((previous) =>
+        previous ? { ...previous, number: saved } : previous,
+      );
       request.current = null;
       await load();
       await refresh();

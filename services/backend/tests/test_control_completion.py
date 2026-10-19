@@ -696,3 +696,51 @@ async def test_one_unavailable_inbound_lookup_does_not_block_other_recovery(
     monkeypatch.setattr(carrier, "reconcile", lookup)
     await service.recover(p)
     assert carrier.hangups
+
+
+def test_hangup_reloads_current_call_before_mutation(workspace, app, monkeypatch):
+    """A speech publication between lookup and stop must not turn hangup into a 500."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    service, p = app.state.service, principal(workspace)
+    if service.db.sqlite:
+        pytest.skip("Read/write interleaving needs PostgreSQL")
+    call = start(workspace)
+    original = service.required
+    changed = False
+
+    def required(s, kind, identity, actor):
+        nonlocal changed
+        row = original(s, kind, identity, actor)
+        if kind == "call_attempts" and identity == call["id"] and not changed:
+            changed = True
+
+            def publication():
+                with service.db.transaction() as other:
+                    current = get(other, kind, identity)
+                    update(current, transcript_version=current.data["transcript_version"] + 1)
+
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                pool.submit(publication).result(timeout=5)
+        return row
+
+    monkeypatch.setattr(service, "required", required)
+    saved, command = service._claim_hangup(p, call["id"], "stop-owner")
+    assert saved["state"] == "ENDING" and command["provider_id"] == call["provider_id"]
+    assert saved["transcript_version"] == call["transcript_version"] + 1
+    assert not getattr(service, "_effect_journal_fault", False)
+
+
+def test_database_conflict_is_not_mislabeled_as_failed_effect_journal(workspace, app, monkeypatch):
+    import app.accounting as accounting
+    from sqlalchemy.orm.exc import StaleDataError
+
+    service, p = app.state.service, principal(workspace)
+
+    def conflict(*args):
+        raise StaleDataError("Synthetic concurrent publication")
+
+    monkeypatch.setattr(accounting, "get", conflict)
+    with pytest.raises(StaleDataError), service.db.transaction() as s:
+        service.journal_effect_in(s, p, "hangup", "journal-conflict", "submitted", emergency=True)
+    assert not getattr(service, "_effect_journal_fault", False)

@@ -262,6 +262,14 @@ export class Telephony {
       this.audio.srcObject = this.agent.remoteStream;
     this.report(wasAgent ? "agent-disconnected" : "return-ended");
   }
+  async releaseIdleAgent() {
+    if (this.hasIncoming) return;
+    const session = this.session;
+    const id = this.expectedAgent;
+    if (id) await this.emergencyHangup(id);
+    if (this.session === session && !this.expectedAgent && !this.hasIncoming)
+      this.disconnect();
+  }
   disconnect() {
     ++this.session;
     this.cancelRegistration?.();

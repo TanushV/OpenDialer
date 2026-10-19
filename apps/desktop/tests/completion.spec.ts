@@ -1,5 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: "wait" });
+});
+
 test("setup shows capability evidence and uses protected native credential entry", async ({
   page,
 }) => {
@@ -362,3 +366,51 @@ for (const connected of [false, true]) {
     });
   }
 }
+
+test("seller DNC authorization saves with its loaded version and stable request identity", async ({
+  page,
+}) => {
+  await enter(page, false);
+  let saved: Record<string, unknown> | null = null;
+  await page.route("**/v1/admin/settings", async (route) => {
+    if (route.request().method() === "PUT") {
+      saved = route.request().postDataJSON();
+      await route.fulfill({ json: { version: 5, configured: {} } });
+      return;
+    }
+    const response = await route.fetch();
+    await route.fulfill({
+      response,
+      json: { ...(await response.json()), version: 4 },
+    });
+  });
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Policy & DNC", exact: true }).click();
+  await page
+    .getByText("Seller authorization and source freshness", { exact: true })
+    .click();
+  await page
+    .getByLabel("Seller access reference")
+    .fill("Reviewed fixture source");
+  await page.getByLabel("Covered prospect area codes").fill("415, 212");
+  await page
+    .getByLabel("Authorization expiry (ISO timestamp)")
+    .fill("2026-12-01T00:00:00Z");
+  await page
+    .getByLabel("Registry source refresh (ISO timestamp)")
+    .fill("2026-10-14T00:00:00Z");
+  await page
+    .getByLabel("I verified this seller's access and the provider's source")
+    .check();
+  await page
+    .getByRole("button", { name: "Save seller authorization", exact: true })
+    .click();
+  await expect(
+    page.getByText("Seller authorization saved", { exact: true }),
+  ).toBeVisible();
+  expect(saved).toMatchObject({
+    expected_version: 4,
+    request_id: expect.stringMatching(/^[a-f0-9-]{36}$/),
+    dnc_seller_authorization: { npas: ["415", "212"] },
+  });
+});

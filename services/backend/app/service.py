@@ -1024,6 +1024,7 @@ class Service(ReservationPlanner):
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             call = self.required(s, "call_attempts", call_id, p)
+            s.refresh(call, with_for_update=True)
             if p["role"] == "rep" and call.data["rep_id"] != p["user_id"]:
                 fail(403, "Call belongs to another rep")
             if call.data["state"] in TERMINAL:

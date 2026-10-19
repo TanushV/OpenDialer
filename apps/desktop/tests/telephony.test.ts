@@ -221,8 +221,10 @@ test("a failed local stop retains that exact leg for an emergency retry", async 
 });
 
 test("pause releases the verified idle agent and its SDK registration", async () => {
-  const {phone,client}=await connected();
-  const agent=call("agent");phone.expectAgentLeg("agent");client.emit(agent);
+  const { phone, client } = await connected();
+  const agent = call("agent");
+  phone.expectAgentLeg("agent");
+  client.emit(agent);
   await phone.releaseIdleAgent();
   expect(agent.hangup).toHaveBeenCalledTimes(1);
   expect(client.disconnect).toHaveBeenCalledTimes(1);
@@ -230,8 +232,10 @@ test("pause releases the verified idle agent and its SDK registration", async ()
 });
 
 test("pause does not disconnect a pending incoming callback", async () => {
-  const {phone,client}=await connected();
-  const agent=call("agent");phone.expectAgentLeg("agent");client.emit(agent);
+  const { phone, client } = await connected();
+  const agent = call("agent");
+  phone.expectAgentLeg("agent");
+  client.emit(agent);
   client.emit(call("callback"));
   await phone.releaseIdleAgent();
   expect(agent.hangup).not.toHaveBeenCalled();
@@ -239,12 +243,24 @@ test("pause does not disconnect a pending incoming callback", async () => {
 });
 
 test("a delayed idle-agent hangup cannot disconnect a replacement registration", async () => {
-  const {phone,client}=await connected();
-  const agent=call("old");phone.expectAgentLeg("old");client.emit(agent);
-  let finish!:()=>void;agent.hangup.mockImplementation(()=>new Promise<void>(resolve=>{finish=resolve;}));
-  const pending=phone.releaseIdleAgent();
-  phone.expectAgentLeg("new");const next=call("new");client.emit(next);
-  finish();await pending;
+  const { phone, client } = await connected();
+  const agent = call("old");
+  phone.expectAgentLeg("old");
+  client.emit(agent);
+  let finish!: () => void;
+  agent.hangup.mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const pending = phone.releaseIdleAgent();
+  phone.expectAgentLeg("new");
+  const next = call("new");
+  client.emit(next);
+  finish();
+  await pending;
   expect(client.disconnect).not.toHaveBeenCalled();
-  phone.mute();expect(next.toggleAudioMute).toHaveBeenCalledTimes(1);
+  phone.mute();
+  expect(next.toggleAudioMute).toHaveBeenCalledTimes(1);
 });

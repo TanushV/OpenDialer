@@ -1,5 +1,5 @@
 import { native } from "../api/client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { label, useWorkspace } from "../context";
 import { DncScreeningPanel } from "./DncScreeningPanel";
 import { localEdit } from "../api/client";
@@ -58,6 +58,8 @@ export function OperatingPolicySettings() {
     configured: Record<string, boolean>;
   } | null>(null);
   const [keyBusy, setKeyBusy] = useState(false);
+  const authorizationEdit = useRef<{ body: string; id: string } | null>(null);
+  const [authorizationBusy, setAuthorizationBusy] = useState(false);
   const [rateComponent, setRateComponent] = useState("dnc");
   const [rateDraft, setRateDraft] = useState<Policy["account_rates"][string]>({
     values: {},
@@ -621,17 +623,35 @@ export function OperatingPolicySettings() {
         </label>
         <button
           className="secondary"
+          disabled={!credential || authorizationBusy}
           onClick={() =>
             void run(async () => {
-              await api("/v1/admin/settings", "PUT", {
+              if (!credential) return;
+              const data = {
+                expected_version: credential.version,
                 dnc_seller_authorization: {
                   ...authorization,
                   npas: authorization.npas.split(/[,\s]+/).filter(Boolean),
                   source_refreshed_at:
                     authorization.source_refreshed_at || null,
                 },
-              });
-              notice("Seller authorization saved");
+              };
+              const body = JSON.stringify(data);
+              if (authorizationEdit.current?.body !== body)
+                authorizationEdit.current = { body, id: crypto.randomUUID() };
+              setAuthorizationBusy(true);
+              try {
+                setCredential(
+                  await api("/v1/admin/settings", "PUT", {
+                    ...data,
+                    request_id: authorizationEdit.current.id,
+                  }),
+                );
+                authorizationEdit.current = null;
+                notice("Seller authorization saved");
+              } finally {
+                setAuthorizationBusy(false);
+              }
             })
           }
         >

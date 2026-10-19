@@ -1,32 +1,72 @@
 import { useEffect, useState } from "react";
-import { LoaderCircle, Mic, MicOff, Phone, PhoneOff, ShieldCheck } from "lucide-react";
+import {
+  LoaderCircle,
+  Mic,
+  MicOff,
+  Phone,
+  PhoneOff,
+  ShieldCheck,
+} from "lucide-react";
 import { useWorkspace } from "../context";
 import { Keypad } from "./Keypad";
 import { terminal, type Call, type Reservation } from "../types";
 import type { Telephony } from "../telephony/client";
 
-type Props = { call: Call | null; reservation: Reservation | null; controller: Telephony;
-  ready: boolean; audioStatus: string; blocked: boolean; dialing: boolean; canOptOut: boolean;
-  onNext: () => Promise<void>; onStart: () => Promise<void>; onOptOut: () => Promise<void>;
-  onHangup: (pauseAfter: boolean) => Promise<void> };
-export function CallControls({call, reservation, controller, ready, audioStatus, blocked, dialing,
-  canOptOut, onNext, onStart, onOptOut, onHangup}: Props) {
+type Props = {
+  call: Call | null;
+  reservation: Reservation | null;
+  controller: Telephony;
+  ready: boolean;
+  audioStatus: string;
+  blocked: boolean;
+  dialing: boolean;
+  canOptOut: boolean;
+  onNext: () => Promise<void>;
+  onStart: () => Promise<void>;
+  onOptOut: () => Promise<void>;
+  onHangup: (pauseAfter: boolean) => Promise<void>;
+};
+export function CallControls({
+  call,
+  reservation,
+  controller,
+  ready,
+  audioStatus,
+  blocked,
+  dialing,
+  canOptOut,
+  onNext,
+  onStart,
+  onOptOut,
+  onHangup,
+}: Props) {
   const { run } = useWorkspace();
   const [mute, setMute] = useState(false);
   const [keypad, setKeypad] = useState(false);
   const [pauseAfter, setPauseAfter] = useState(false);
   const active = !call?.detached && !terminal(call);
-  useEffect(() => { setMute(false); setKeypad(false); }, [call?.id]);
+  useEffect(() => {
+    setMute(false);
+    setKeypad(false);
+  }, [call?.id]);
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (!active) return;
-      if (event.key === "F2") { event.preventDefault(); controller.mute(); setMute(value => !value); }
-      if (event.key === "F4") { event.preventDefault(); void run(() => onHangup(pauseAfter)); }
+      if (event.key === "F2") {
+        event.preventDefault();
+        controller.mute();
+        setMute((value) => !value);
+      }
+      if (event.key === "F4") {
+        event.preventDefault();
+        void run(() => onHangup(pauseAfter));
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [active, controller, onHangup, pauseAfter, run]);
-  return (<>
+  return (
+    <>
       <div className="call-dock">
         <div className="dock-status">
           <span className={`status-dot ${ready ? "" : "paused"}`} />
@@ -75,16 +115,17 @@ export function CallControls({call, reservation, controller, ready, audioStatus,
             <span>Opt out</span>
           </button>
           {active ? (
-            <button className="danger-button" onClick={() => void run(() => onHangup(pauseAfter))}>
+            <button
+              className="danger-button"
+              onClick={() => void run(() => onHangup(pauseAfter))}
+            >
               <PhoneOff size={17} />
               Hang up
             </button>
           ) : reservation && !call ? (
             <button
               className="primary dial-button"
-              disabled={
-                blocked || dialing
-              }
+              disabled={blocked || dialing}
               onClick={() => void run(onStart)}
             >
               {dialing ? (
@@ -97,9 +138,7 @@ export function CallControls({call, reservation, controller, ready, audioStatus,
           ) : (
             <button
               className="primary dial-button"
-              disabled={
-                !ready || blocked
-              }
+              disabled={!ready || blocked}
               onClick={() => void run(onNext)}
             >
               <Phone size={17} />
@@ -119,5 +158,6 @@ export function CallControls({call, reservation, controller, ready, audioStatus,
       {keypad && call && active && (
         <Keypad key={call.id} callId={call.id} close={() => setKeypad(false)} />
       )}
- </>);
+    </>
+  );
 }

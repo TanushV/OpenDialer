@@ -87,6 +87,27 @@ export async function protectedProviderInput(
 export async function disconnectNativeAuthority() {
   await invoke("disconnect_authority");
 }
+export async function assertNoPendingOptouts(
+  tenantId: string,
+  simulation: boolean,
+) {
+  const raw = native()
+    ? await readCache(`optouts-${tenantId}`, simulation)
+    : localStorage.getItem(`opendialer.optouts.${tenantId}`);
+  if (raw === null) return;
+  let pending: unknown;
+  try {
+    pending = JSON.parse(raw);
+  } catch {
+    throw new Error("Recover the damaged opt-out journal before continuing.");
+  }
+  if (!Array.isArray(pending))
+    throw new Error("Recover the damaged opt-out journal before continuing.");
+  if (pending.length)
+    throw new Error(
+      "Synchronize pending opt-outs before updating or changing workspace.",
+    );
+}
 export interface TunnelConfig {
   enabled: boolean;
   host: string;

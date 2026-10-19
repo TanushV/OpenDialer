@@ -16,12 +16,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import {
-  native,
-  openSource,
-  readCache,
-  writeCache,
-} from "../api/client";
+import { native, openSource, readCache, writeCache } from "../api/client";
 import { label, useWorkspace } from "../context";
 import { MemoryStorage, OptOutJournal, type OptOut } from "../state/optouts";
 import { Telephony } from "../telephony/client";
@@ -80,6 +75,14 @@ export function DialerPage() {
     )?.provider_id;
   const incomingAudio = telephony.current.hasIncoming;
   const selectedLead = packet?.lead;
+
+  useEffect(() => {
+    const controller = telephony.current;
+    return () => {
+      controller.onStatus = () => {};
+      controller.disconnect();
+    };
+  }, []);
 
   async function reloadCall(id: string) {
     setCall(await api<Call>(`/v1/calls/${id}`));
@@ -272,6 +275,10 @@ export function DialerPage() {
       audio_ready: w.user.presence.audio_ready ?? false,
       telephony_ready: false,
     });
+    if (!active) {
+      await telephony.current.releaseIdleAgent();
+      setReservation(null);
+    }
     await refresh();
   }
   async function getNext() {
@@ -867,16 +874,32 @@ export function DialerPage() {
         </section>
       )}
       {call && terminal(call) && call.state !== "FINALIZED" && (
-        <WrapUp key={call.id} call={call} onSaved={async (result) => {
-          setCall(result); await refresh();
-          setPacket(await api<Packet>(`/v1/leads/${call.lead_id}/packet`));
-        }} />
+        <WrapUp
+          key={call.id}
+          call={call}
+          onSaved={async (result) => {
+            setCall(result);
+            await refresh();
+            setPacket(await api<Packet>(`/v1/leads/${call.lead_id}/packet`));
+          }}
+        />
       )}
-      <CallControls call={call} reservation={reservation} controller={telephony.current}
-        ready={ready} audioStatus={audioStatus} dialing={dialing} canOptOut={Boolean(selectedLead)}
-        blocked={pendingOptouts || !journalReady || Boolean(inbound) || incomingAudio}
-        onStart={startCall} onNext={getNext} onOptOut={optOut} onHangup={hangup} />
-
+      <CallControls
+        call={call}
+        reservation={reservation}
+        controller={telephony.current}
+        ready={ready}
+        audioStatus={audioStatus}
+        dialing={dialing}
+        canOptOut={Boolean(selectedLead)}
+        blocked={
+          pendingOptouts || !journalReady || Boolean(inbound) || incomingAudio
+        }
+        onStart={startCall}
+        onNext={getNext}
+        onOptOut={optOut}
+        onHangup={hangup}
+      />
     </>
   );
 }

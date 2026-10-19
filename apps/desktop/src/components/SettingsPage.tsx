@@ -25,6 +25,7 @@ import {
   openSource,
   tunnelStatus,
   saveTunnel,
+  assertNoPendingOptouts,
   type TunnelStatus,
   type ProviderCredential,
 } from "../api/client";
@@ -589,6 +590,19 @@ function ProviderSettings() {
         >
           Save provider settings
           <Check size={15} />
+        </button>
+        <button
+          className="secondary"
+          disabled={busy}
+          onClick={() =>
+            void run(async () => {
+              load(await api<SettingsData>("/v1/admin/settings"));
+              edit.current = null;
+              notice("Current provider settings loaded.");
+            })
+          }
+        >
+          Reload provider settings
         </button>
       </div>
     </>
@@ -1312,7 +1326,7 @@ function OperationsSettings({ onDisconnect }: { onDisconnect: () => void }) {
   );
 }
 function UpdateSettings() {
-  const { snapshot: w, api, run, notice } = useWorkspace();
+  const { snapshot: w, session, api, run, notice } = useWorkspace();
   const [updateInfo, setUpdateInfo] = useState<{
     version: string;
     body: string;
@@ -1380,6 +1394,7 @@ function UpdateSettings() {
             disabled={updateBusy}
             onClick={() =>
               void run(async () => {
+                await assertNoPendingOptouts(session.tenant_id, w.simulation);
                 const status = await api<{
                   can_disconnect: boolean;
                   reasons: string[];

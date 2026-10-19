@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { isolatedSimulationWorkspace } from "./simulation";
 
 test("work time is visible, supported by a heartbeat and correctable after pause", async ({
   page,
@@ -13,6 +14,7 @@ test("work time is visible, supported by a heartbeat and correctable after pause
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await isolatedSimulationWorkspace(page, "worktime");
   await expect(
     page.getByRole("region", { name: "Calling health" }),
   ).toContainText("Not enough classified calls");
@@ -53,7 +55,7 @@ test("work time is visible, supported by a heartbeat and correctable after pause
     start.getTime() - start.getTimezoneOffset() * 60_000,
   )
     .toISOString()
-    .slice(0, 16);
+    .slice(0, 19);
   await page.getByLabel("Work started", { exact: true }).fill(localStart);
   await page
     .getByLabel("Correction reason", { exact: true })

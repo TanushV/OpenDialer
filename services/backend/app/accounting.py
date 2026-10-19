@@ -109,8 +109,10 @@ class RequestAccounting:
                 hashlib.sha256,
             ).hexdigest(),
         }
+        # Loading may flush a caller's pending SQL. A database conflict is not
+        # an independent journal failure and must abort the original transaction.
+        seller = get(s, "sellers", p["seller_id"], p["tenant_id"])
         try:
-            seller = get(s, "sellers", p["seller_id"], p["tenant_id"])
             if not emergency and (
                 getattr(self, "_effect_journal_fault", False)
                 or seller

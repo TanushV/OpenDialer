@@ -37,6 +37,7 @@ import {
   bindAuthority,
   protectedProviderInput,
   disconnectNativeAuthority,
+  assertNoPendingOptouts,
 } from "./api/client";
 import { DialerPage } from "./components/DialerPage";
 import { LiveConnection, type LiveEvent } from "./api/live";
@@ -204,7 +205,10 @@ export function App() {
           t.inbound_state !== "ended",
       ));
   useEffect(() => {
-    if (activeConversation) setView("Dialer");
+    if (activeConversation) {
+      setView("Dialer");
+      window.scrollTo({ top: 0, behavior: "instant" });
+    }
   }, [activeConversation]);
 
   const run = useCallback(async (work: () => Promise<void>) => {
@@ -432,13 +436,7 @@ export function App() {
   }
   async function disconnect() {
     if (!runtime || !session) return;
-    const pending = native()
-      ? await readCache(`optouts-${session.tenant_id}`, runtime.simulation)
-      : localStorage.getItem(`opendialer.optouts.${session.tenant_id}`);
-    if (pending && JSON.parse(pending).length)
-      throw new Error(
-        "Synchronize pending opt-outs before changing workspace.",
-      );
+    await assertNoPendingOptouts(session.tenant_id, runtime.simulation);
     if (native()) {
       await bindAuthority(runtime, session, connection === "local");
       await disconnectNativeAuthority();
