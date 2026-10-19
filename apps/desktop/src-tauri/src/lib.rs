@@ -828,6 +828,46 @@ mod tests {
     use super::*;
 
     #[test]
+    fn lost_logout_response_retries_the_same_bound_session_before_cleanup() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            for attempt in 0..2 {
+                let (mut socket, _) = listener.accept().unwrap();
+                socket
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut bytes = [0; 4096];
+                let count = socket.read(&mut bytes).unwrap();
+                let request = String::from_utf8_lossy(&bytes[..count]).to_lowercase();
+                assert!(request.starts_with("post /v1/auth/logout "));
+                assert!(request.contains("authorization: bearer same-session"));
+                if attempt == 1 {
+                    socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 19\r\nConnection: close\r\n\r\n{\"logged_out\":true}").unwrap();
+                }
+            }
+        });
+        let mut state = AuthorityState {
+            binding: Some(AuthorityBinding {
+                url: format!("http://{address}"),
+                token: "same-session".into(),
+                tenant_id: "t".into(),
+                local: false,
+                simulation: true,
+            }),
+            ..Default::default()
+        };
+        assert!(state.logout_once().is_err());
+        assert!(!state.logout_confirmed);
+        assert!(state.binding.is_some());
+        state.logout_once().unwrap();
+        assert!(state.logout_confirmed);
+        server.join().unwrap();
+        state.logout_once().unwrap();
+    }
+
+    #[test]
     fn successful_logout_is_not_repeated_when_native_cleanup_needs_retry() {
         use std::io::{Read, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();

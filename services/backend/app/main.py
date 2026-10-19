@@ -247,16 +247,14 @@ def create_app(settings=None, *, clock=None, carrier=None):
     if not settings.secret_key:
         raise ValueError("A persistent OPENDIALER_SECRET_KEY is required; use the desktop or CLI bootstrap")
     clock = clock or (lambda: datetime.now(UTC))
+    from app.migrate import migrate_business_state, prepare_database
+
+    prepare_database(settings, clock)
     db = Database(settings.database_url, encryption_key=settings.secret_key)
     db.registry_lru_bytes = settings.runtime_limits.registry_lru_bytes
     service = Dialer(db, settings, clock, carrier)
-    service.privacy_cutover()
-    from app.compliance.registry import migrate_registry_chunks
-
-    migrate_registry_chunks(service)
-    service.migrate_conversation_states()
-    service.migrate_followthrough()
     try:
+        migrate_business_state(service)
         from app.compliance.suppressions import replay as replay_suppressions
 
         replay_suppressions(service)

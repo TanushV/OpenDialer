@@ -56,10 +56,38 @@ from app.operational_schema import (
 
 _DATABASE_CIPHER = contextvars.ContextVar("opendialer_database_cipher", default=None)
 _DATABASE_LOOKUP_KEY = contextvars.ContextVar("opendialer_database_lookup_key", default=None)
+STARTUP_CONTRACT = "completion-0017-raw2-v1"
 
 
 def database_cipher(key):
     return Fernet(base64.urlsafe_b64encode(hashlib.sha256((key + ":database:v1").encode()).digest()))
+
+
+def startup_contract_current(engine, cipher):
+    """Authenticate the completed cutover once, without rescanning historical payloads."""
+    with engine.connect() as connection:
+        existing = set(inspect(connection).get_table_names())
+        if not {*TABLES, "events", "jobs", "alembic_version"}.issubset(existing):
+            return False
+        if (
+            connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
+            != "0017_metric_projections"
+        ):
+            return False
+        value = connection.execute(
+            text(
+                "SELECT data FROM audit_events WHERE tenant_id='' AND seller_id='' "
+                "AND external_key='completion-startup'"
+            )
+        ).scalar()
+        if not value:
+            return False
+        try:
+            value = json.loads(value) if isinstance(value, str) else value
+            value = json.loads(cipher.decrypt(value["token"].encode()))
+        except (InvalidToken, KeyError, ValueError, AttributeError, TypeError) as exc:
+            raise ValueError("Stored data cannot be authenticated with this authority key") from exc
+        return value.get("contract") == STARTUP_CONTRACT
 
 
 def authenticate_store(engine, cipher):
@@ -356,7 +384,9 @@ class Database:
             connect_args={"check_same_thread": False, "timeout": 30} if self.sqlite else {},
         )
         try:
-            authenticate_store(self.engine, self.cipher)
+            current = startup_contract_current(self.engine, self.cipher)
+            if not current:
+                authenticate_store(self.engine, self.cipher)
         finally:
             # Authentication connections must not skip the runtime pragmas below.
             self.engine.dispose()
@@ -370,6 +400,8 @@ class Database:
                 connection.execute("PRAGMA secure_delete=ON")
 
         self.sessions = sessionmaker(self.engine, expire_on_commit=False)
+        if current:
+            return
         # create_all is additive for new tables; migrate metadata columns before mapped reads.
         with self.engine.begin() as connection:
             ensure_columns(connection, Base.metadata)

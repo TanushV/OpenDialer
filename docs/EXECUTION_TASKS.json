@@ -1038,7 +1038,7 @@
         {
           "id": "E13.review-logout",
           "task": "Operation-specific replay after a lost committed logout response",
-          "status": "Tests-first backend repair;141 SQLite scoped passes/one PG-only skip. Final PostgreSQL and native assertion remain open."
+          "status": "Backend replay and native lost-response retry pass; final exact-source full/native update gates remain open."
         },
         {
           "id": "E13.review-screening",
@@ -1048,12 +1048,12 @@
         {
           "id": "E13.review-migration",
           "task": "Protected-copy upgrade and original-store preservation on late corruption/interruption",
-          "status": "Four behavioral counterexamples then10 SQLite migration/authentication checks pass; protected-copy interruption/publication remains open"
+          "status": "Protected-copy interruption, source-change, publication rollback/cleanup, wrong-key/corruption and bounded current startup pass;21 scoped checks/two native skips. Full dual-database/native acceptance remains open."
         },
         {
           "id": "E13.review-combined",
           "task": "Combined restore/source correction, restored screening, UI conflict/retry/focus and native cleanup assertions",
-          "status": "open"
+          "status": "Eight local/shared follow-through browser journeys pass, including lost committed correction and stale meeting reload. Separate-authority restore/correction and focus/source-response assertions remain open."
         }
       ],
       "checkpoint": "E13 review repairs and acceptance tooling; exact-source full suites, load/resources and native updates are not accepted."

@@ -41,12 +41,10 @@ def main():
     if settings.mode == "connected" and settings.database_url.startswith("sqlite"):
         raise SystemExit("Connected deployments require OPENDIALER_DATABASE_URL=postgresql+psycopg://...")
     clock = (lambda: datetime(2026, 10, 14, 18, 0, tzinfo=UTC)) if settings.simulation else None
-    from app.migrate import migrate_database
-
-    migrate_database(settings.database_url, encryption_key=settings.secret_key)
-    if args.command == "migrate":
-        return
     app = create_app(settings, clock=clock)
+    if args.command == "migrate":
+        app.state.db.engine.dispose()
+        return
     if args.command == "worker":
         settings.worker_enabled = True  # Separate worker processes also own bounded automatic scheduling.
 
