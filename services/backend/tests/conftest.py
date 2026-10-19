@@ -9,6 +9,8 @@ from app.main import create_app
 from app.providers.simulated import SimulatedCarrier
 from fastapi.testclient import TestClient
 
+from scripts.disposable_database import validate_database_url
+
 NOW = datetime(2026, 10, 14, 18, 0, tzinfo=UTC)
 
 
@@ -31,6 +33,8 @@ def carrier():
 @pytest.fixture
 def app(tmp_path, clock, carrier):
     database_url = os.getenv("OPENDIALER_TEST_POSTGRES_URL", f"sqlite:///{tmp_path}/test.db")
+    if os.getenv("OPENDIALER_TEST_POSTGRES_URL"):
+        validate_database_url(database_url)
     settings = Settings(
         database_url=database_url,
         mode="local",

@@ -39,7 +39,7 @@ build-backend = "hatchling.build"
 packages = ["services/backend/app"]
 [tool.pytest.ini_options]
 testpaths = ["services/backend/tests", "tests"]
-pythonpath = ["services/backend"]
+pythonpath = ["services/backend", "."]
 asyncio_mode = "auto"
 addopts = "-ra --strict-markers"
 markers = ["postgres: requires OPENDIALER_TEST_POSTGRES_URL", "live: explicit permissioned provider test"]

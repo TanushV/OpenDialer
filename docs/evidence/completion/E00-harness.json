@@ -1,0 +1,21 @@
+{
+  "step_id": "E00",
+  "slice": "disposable test-store guard",
+  "source_commit": "eb77aad79401cf275ef9b889155605eb8a565ebe",
+  "commands": [
+    "uv run pytest tests/test_disposable_database.py -q --tb=short",
+    "uv run ruff check scripts/disposable_database.py scripts/e2e_server.py tests/test_disposable_database.py services/backend/tests/conftest.py"
+  ],
+  "result_counts": {
+    "passed": 12,
+    "failed": 0
+  },
+  "raw_log_sha256": "3124d6df0c747c9c4523685d93a8d241d5d133598f93c84f9f86185b4a6eb2b7",
+  "installed_baseline_sha256": "c48897b0026dea1fcff0168ad227719e0bddf6d4eab310cd456e2cd39ea136f8",
+  "known_limitations": [
+    "E00 remains open: complete behavior contracts and native/browser baseline pending",
+    "Connected browser harness now requires explicitly isolated PostgreSQL; runtime journey not yet accepted"
+  ],
+  "external_calls": false,
+  "installed_app_changed": false
+}

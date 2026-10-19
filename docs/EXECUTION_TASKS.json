@@ -12,7 +12,7 @@
     {
       "id": "E00",
       "title": "Write and record every missing contract first",
-      "status": "open",
+      "status": "in-progress",
       "depends_on": [],
       "spec_anchor": "4-e00-write-and-record-every-missing-contract-first",
       "planned_test_files": [
