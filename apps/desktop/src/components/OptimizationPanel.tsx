@@ -920,11 +920,17 @@ export function OptimizationPanel({
                 : "There is not enough evidence to claim conversion improvement."}
             </p>
           </section>
-          <TrialControls
-            comparisons={report.comparisons}
-            cohortReportId={cohortReportId}
-            load={load}
-          />
+        </>
+      )}
+      {!numbersOnly && (
+        <TrialControls
+          comparisons={report?.comparisons ?? []}
+          cohortReportId={cohortReportId}
+          load={load}
+        />
+      )}
+      {report && !numbersOnly && (
+        <>
           <section className="card padded optimization-panel">
             <h2>Coaching quality and timing</h2>
             <p>
