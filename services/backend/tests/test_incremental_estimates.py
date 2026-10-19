@@ -349,3 +349,38 @@ def test_explicit_learning_snapshot_is_outside_writer_and_reuses_one_dataset(wor
     with service.db.transaction(False) as s:
         campaign = service.scoped(s, "campaigns", p)[0]
         assert campaign.data["conversation_report"]["patterns"] == []
+
+
+def test_attributed_usage_index_backfills_without_rewriting_the_receipt(workspace, app, clock):
+    from app.db import MODELS
+    from sqlalchemy import inspect, update as sql_update
+
+    service, p = app.state.service, principal(workspace)
+    model = MODELS["usage_ledger"]
+    assert hasattr(model, "op_call_id"), "Explicit learning needs an indexed attributed receipt lookup"
+    with service.db.transaction() as s:
+        record = put(
+            s,
+            "usage_ledger",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "kind": "voice",
+                "object_id": "synthetic-call",
+                "status": "settled",
+                "cost_usd": 0.05,
+            },
+            now=clock.now,
+        )
+        identity, original, version = record.id, dict(record.data), record.version
+    with service.db.transaction() as s:
+        s.execute(sql_update(model).where(model.id == identity).values(op_index_version=3, op_call_id=None))
+    service.db.backfill_operational_columns()
+    with service.db.transaction(False) as s:
+        row = get(s, "usage_ledger", identity)
+        assert row.op_call_id == "synthetic-call" and row.op_index_version == 4
+        assert row.data == original and row.version == version
+    indexes = {
+        row["name"]: row["column_names"] for row in inspect(service.db.engine).get_indexes("usage_ledger")
+    }
+    assert indexes["ix_usage_ledger_call"] == ["tenant_id", "seller_id", "op_call_id"]
