@@ -854,7 +854,10 @@ def test_migration_resumes_after_a_committed_page_and_preserves_versions(workspa
 
 
 @pytest.mark.asyncio
-async def test_human_observation_retraction_invalidates_the_existing_brief(workspace, app, monkeypatch):
+@pytest.mark.parametrize("human_edit", [False, True])
+async def test_human_observation_retraction_invalidates_the_existing_brief(
+    workspace, app, monkeypatch, human_edit
+):
     from app.coaching.context import merge_semantic_state
     from test_conversation_learning import observed_call
     from test_remediation_privacy import principal
@@ -863,6 +866,7 @@ async def test_human_observation_retraction_invalidates_the_existing_brief(works
     call, _ = observed_call(workspace, app, monkeypatch)
     await service.analyze_postcall(p, call["id"])
     original = service.analysis(p, call["id"])["observations"][0]
+    request = service._conversation_context(p, call["id"], "review")
     with service.db.transaction() as s:
         row = service._by_key(s, p, "conversation_states", call["id"])
         state = merge_semantic_state(
@@ -880,17 +884,42 @@ async def test_human_observation_retraction_invalidates_the_existing_brief(works
                         "replaces": [],
                         "quote": "",
                         "commitment": None,
-                    }
+                    },
+                    {
+                        "kind": "commitment",
+                        "text": "Reconnect about the approval process.",
+                        "state": "confirmed",
+                        "sources": [
+                            {"kind": "observation", "id": original["id"], "version": original["version"]},
+                            {"kind": "segment", "id": "s", "version": 1},
+                        ],
+                        "replaces": [],
+                        "quote": "",
+                        "commitment": {
+                            "kind": "callback",
+                            "owner": "rep",
+                            "due_at": "2026-10-20T21:00:00+00:00",
+                            "needs_time_confirmation": False,
+                            "verbatim_time_expression": "October 20, 2026 at 2 PM Pacific time",
+                        },
+                    },
                 ],
                 "rubric_items": [],
                 "tracker_matches": [],
                 "interpreted_segments": [],
             },
-            [],
+            request["recent_dialogue"],
             request_id="prior-brief",
             at=service.clock(),
         )
         service._store_conversation(s, p, service.required(s, "call_attempts", call["id"], p), state, row)
+    await service.review_conversation(p, call["id"])
+    with service.db.transaction() as s:
+        task = service.lead_records(s, p, "followup_tasks", call["lead_id"])[0]
+        assert task.data["status"] == "open"
+        task_id = task.id
+        if human_edit:
+            update(task, human_edited=True, note="My independent follow-up decision.")
     response = workspace["client"].post(
         f"/v1/calls/{call['id']}/observations/{original['id']}/review",
         headers=workspace["headers"],
@@ -904,6 +933,14 @@ async def test_human_observation_retraction_invalidates_the_existing_brief(works
     view = service.analysis(p, call["id"])
     assert not view["call_memory"]["needs"]
     assert view["source_conflicts"]
+    with service.db.transaction(False) as s:
+        task = service.required(s, "followup_tasks", task_id, p)
+        assert task.data["source_stale"] and task.data["review_required"]
+        assert task.data["status"] == ("open" if human_edit else "needs_confirmation")
+        if human_edit:
+            assert task.data["note"] == "My independent follow-up decision."
+        else:
+            assert not service.required(s, "leads", call["lead_id"], p).data.get("callback_due_at")
 
 
 def test_finalizer_rejects_a_different_context_fingerprint(workspace, app, monkeypatch):

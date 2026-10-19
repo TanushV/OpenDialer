@@ -115,11 +115,15 @@ def publish(service, s, p, call, items, *, retracted_observations=()):
     service.refresh_packet_in(s, p, lead)
 
 
-def invalidate(service, s, p, call, segment_id):
+def invalidate(service, s, p, call, segment_id=None, *, observation_ids=()):
     lead = service.required(s, "leads", call.data["lead_id"], p)
     affected = set()
     for record in service.lead_records(s, p, "commitments", lead.id):
-        if record.data.get("call_id") == call.id and segment_id in record.data.get("evidence", []):
+        if record.data.get("call_id") == call.id and (
+            segment_id is not None
+            and segment_id in record.data.get("evidence", [])
+            or record.data.get("observation_id") in observation_ids
+        ):
             update(record, source_stale=True, status="needs_confirmation")
             affected.add(record.id)
     if not affected:

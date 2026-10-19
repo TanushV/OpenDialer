@@ -215,6 +215,7 @@ def register_optimization(app, service, principal, administrator):
         from app.coaching.context import invalidate_state, lineage_metadata, upgrade_state
         from app.optimization.conversations import invalidate_report
         from app.postcall.analysis import learning_observations
+        from app.postcall.commitments import invalidate as invalidate_commitments
 
         with service.db.transaction() as s:
             call = service.required(s, "call_attempts", call_id, p)
@@ -265,6 +266,13 @@ def register_optimization(app, service, principal, administrator):
                 ]
             )
             service._store_conversation(s, p, call, state, memory)
+            invalidate_commitments(
+                service,
+                s,
+                p,
+                call,
+                observation_ids={i["id"] for i in state["_lineage_updates"] if i.get("invalidated_at")},
+            )
             lead = service.required(s, "leads", call.data["lead_id"], p)
             invalidate_report(service, s, p, lead.data["campaign_id"])
             service.refresh_packet_in(s, p, lead)

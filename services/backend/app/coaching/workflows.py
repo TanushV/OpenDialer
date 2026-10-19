@@ -19,7 +19,6 @@ from app.coaching.context import (
     merge_semantic_state,
     persistent_state,
     retrieve_cards,
-    state_view,
     upgrade_state,
 )
 from app.coaching.contracts import card_view
@@ -588,7 +587,7 @@ class LiveHelper:
 
             request = {
                 "state_version": version,
-                "state": state_view(state),
+                "state": persistent_state(state, limits=self.settings.runtime_limits),
                 "mode": mode,
                 "recent_dialogue": stable,
                 "automatic_tips_muted": bool(preferences.get("muted") and not urgent),

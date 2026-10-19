@@ -396,13 +396,15 @@ def test_visible_card_ttl_is_reported_by_the_authority(workspace, clock):
             "is_final": True,
         },
     )
+    clock.now += timedelta(milliseconds=301)
+    c.post("/v1/admin/jobs/run", headers=h, json={"queues": ["live_coach"]}).raise_for_status()
     clock.now += timedelta(seconds=3)
     card = c.get(f"/v1/calls/{call['id']}", headers=h).json()["coach"]
     assert card["remaining_ms"] == card["expires_in_ms"] - 3000
     assert card["latency"]["stt_ms"] is None
 
 
-def test_render_measurements_do_not_count_as_human_quality_reviews(workspace):
+def test_render_measurements_do_not_count_as_human_quality_reviews(workspace, clock):
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
     c.post(
@@ -416,6 +418,8 @@ def test_render_measurements_do_not_count_as_human_quality_reviews(workspace):
             "is_final": True,
         },
     )
+    clock.now += timedelta(milliseconds=301)
+    c.post("/v1/admin/jobs/run", headers=h, json={"queues": ["live_coach"]}).raise_for_status()
     card = c.get(f"/v1/calls/{call['id']}", headers=h).json()["coach"]
     c.post(
         f"/v1/calls/{call['id']}/coach/feedback",
