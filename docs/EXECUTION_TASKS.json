@@ -6,7 +6,7 @@
   "status": "implementation-authorized; E00-E07 scoped software accepted; E08 in progress",
   "requirements_source": "docs/REMEDIATION_PLAN.md",
   "implementation_source": "docs/EXECUTION_SPEC.md",
-  "next_step": "E08",
+  "next_step": "E09",
   "receipt_rule": "No inherited checkbox or planned node is a current passing receipt. Update by actual source-bound evidence.",
   "steps": [
     {
@@ -498,7 +498,7 @@
     {
       "id": "E08",
       "title": "Sparse learning and the observation to guidance loop",
-      "status": "in-progress",
+      "status": "accepted-software",
       "depends_on": [
         "E07"
       ],
@@ -517,7 +517,8 @@
       "receipts": [
         "docs/evidence/completion/E08-contracts-red.json",
         "docs/evidence/completion/E08-progress.json",
-        "docs/evidence/completion/E08-models.json"
+        "docs/evidence/completion/E08-models.json",
+        "docs/evidence/completion/E08.json"
       ],
       "planned_case_ids": [
         "C030",
@@ -539,41 +540,41 @@
       "implementation_todos": [
         {
           "id": "E08.labels",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Canonical nullable labels, one configurable leave-cell-out sparse baseline, work and cost support"
         },
         {
           "id": "E08.features",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Decision-time prior reviewed concepts and missingness; bounded training-only vocabularies"
         },
         {
           "id": "E08.evaluation",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Three as-of entity-grouped folds, stage fallback, ablation and paired bootstrap; v1 rollback"
         },
         {
           "id": "E08.strategy",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Finite reviewed approaches, real display/use exposures and exact trial/adaptive assignment"
         },
         {
           "id": "E08.integration",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Shared scheduling/brief/report estimates, drift, manual model controls and scoped UI"
         },
         {
           "id": "E08.acceptance",
-          "status": "in-progress",
+          "status": "accepted-software",
           "work": "Dual-database and browser evidence, superseded paths removed and mapping updated"
         }
       ],
-      "checkpoint": "Final integration: 235 affected SQLite passes, seven browser passes. Matching PostgreSQL running; earlier source had 382 passes per authority. Commit final receipt and close E08 after green; next E09 removes broad report invalidation/history rebuilds."
+      "checkpoint": "Scoped E08 accepted on product31c15f2: 235 final tests per database, seven browser journeys; earlier382 per database and model/feature receipts retained. E09 refresh and E13 system/native/live gates remain separate."
     },
     {
       "id": "E09",
       "title": "Incremental reporting and small critical sections",
-      "status": "open",
+      "status": "in-progress",
       "depends_on": [
         "E08"
       ],
@@ -604,6 +605,39 @@
         "A49",
         "A50",
         "A51"
+      ],
+      "checkpoint": "Current red contracts: incremental tables/replay absent, broad invalidation/history rebuild and excess leased jobs. Start shared bounded admission, then contributions/rebuild/report consolidation.",
+      "implementation_todos": [
+        {
+          "id": "E09.admission",
+          "status": "in-progress",
+          "work": "Authority-wide capacity-sized claim waves and queued-context coalescing"
+        },
+        {
+          "id": "E09.contributions",
+          "status": "open",
+          "work": "0017 encrypted source contributions and buckets; independent replay parity"
+        },
+        {
+          "id": "E09.dirty",
+          "status": "open",
+          "work": "Field-specific content-free source jobs, version fencing and future maturity"
+        },
+        {
+          "id": "E09.rebuild",
+          "status": "open",
+          "work": "Resumable inactive namespace, change replay and atomic activation"
+        },
+        {
+          "id": "E09.readers",
+          "status": "open",
+          "work": "Shared metric readers and incremental estimates/planning; remove normal history rebuild"
+        },
+        {
+          "id": "E09.acceptance",
+          "status": "open",
+          "work": "Dual-database corrections, churn, work union, scaling and affected UI; retired paths and receipt"
+        }
       ]
     },
     {
@@ -1331,13 +1365,15 @@
       "id": "M2.05",
       "requirement": "Batch model predictions, cache transaction-local serving pointers and bounded verified artifacts, and keep heavy imports off the baseline path. Trials are scoped to their exact reviewed model/cohort and expire; invalid artifacts/probabilities fall back to pooled estimates. Dual-database and migration evidence is in STATUS.md; full mixed-load/resource certification remains M2.09.",
       "baseline_checked": true,
-      "execution_status": "retained-needs-revalidation",
+      "execution_status": "in-progress",
       "primary_step": "E08",
       "supporting_steps": [
         "E09"
       ],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E08.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -2442,11 +2478,13 @@
       "id": "M7.01",
       "requirement": "Capture versioned as-of features, outcome occurrence/availability and corrections from actual workflow events.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "accepted-software",
       "primary_step": "E08",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E08.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -2455,11 +2493,13 @@
       "id": "M7.02",
       "requirement": "Fix delayed-label temporal leakage, grouping, censorship and preprocessing/calibration boundaries.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "accepted-software",
       "primary_step": "E08",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E08.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -2468,11 +2508,13 @@
       "id": "M7.02a",
       "requirement": "Partition each funnel stage by observed outcome/label availability, embargo delayed windows, retain correction/retraction history and keep timestamp ties/entities separate. Per-stage audit cutoffs and sparse conditional fallback pass focused dual-database tests. Vocabulary/preprocessing changes and broader rolling backtests remain open.",
       "baseline_checked": true,
-      "execution_status": "retained-needs-revalidation",
+      "execution_status": "accepted-software",
       "primary_step": "E08",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E08.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -2481,11 +2523,13 @@
       "id": "M7.03",
       "requirement": "Keep pooled cold-start baselines and batch challengers; support missing data, evaluation, reviewed promotion and rollback.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "accepted-software",
       "primary_step": "E08",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E08.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -2494,11 +2538,13 @@
       "id": "M7.04",
       "requirement": "Add evidence-backed open-ended conversation observations, bounded normalization and supported incremental feature evaluation.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "accepted-software",
       "primary_step": "E08",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E08.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -2507,11 +2553,13 @@
       "id": "M7.04a",
       "requirement": "Persist reviewed open-ended observations, source/reviewer corrections, versioned name normalization and background, temporally separated association reports; expose supported correlations to future coaching without altering dialing policy. Both databases and review/normalization UI pass the October 18 conversation-learning receipts in STATUS.md. Incremental prior-call predictor evaluation and finite-strategy experiments remain M7.04/M7.05.",
       "baseline_checked": true,
-      "execution_status": "retained-needs-revalidation",
+      "execution_status": "accepted-software",
       "primary_step": "E08",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E08.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -2520,11 +2568,13 @@
       "id": "M7.05",
       "requirement": "Connect observed strategy/help exposure and corrected feedback to future recommendations without fabricated propensities.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "accepted-software",
       "primary_step": "E08",
       "supporting_steps": [],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E08.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -2533,14 +2583,15 @@
       "id": "M7.06",
       "requirement": "Preserve callbacks/coverage in learned time/retry/number scheduling; monitor drift and avoid starving difficult leads.",
       "baseline_checked": false,
-      "execution_status": "in-progress",
+      "execution_status": "accepted-software",
       "primary_step": "E06",
       "supporting_steps": [
         "E08"
       ],
       "acceptance_gate": "software",
       "receipts": [
-        "docs/evidence/completion/E06.json"
+        "docs/evidence/completion/E06.json",
+        "docs/evidence/completion/E08.json"
       ],
       "verification_steps": [
         "E13"
@@ -2550,14 +2601,15 @@
       "id": "M7.07",
       "requirement": "Add campaign-goal change preview/migration and frozen historical reporting definitions. Explicit rep review protects reopened relationships; stale meaningful context conflicts while background preparation does not (October 18 learning/goal receipts in STATUS.md).",
       "baseline_checked": true,
-      "execution_status": "in-progress",
+      "execution_status": "accepted-software",
       "primary_step": "E08",
       "supporting_steps": [
         "E03"
       ],
       "acceptance_gate": "software",
       "receipts": [
-        "docs/evidence/completion/E03.json"
+        "docs/evidence/completion/E03.json",
+        "docs/evidence/completion/E08.json"
       ],
       "verification_steps": [
         "E13"
@@ -2610,13 +2662,15 @@
       "id": "M7.09",
       "requirement": "Produce uncertainty-aware cohort/treatment/number/help reports with real cost and sample support.",
       "baseline_checked": false,
-      "execution_status": "open",
+      "execution_status": "in-progress",
       "primary_step": "E09",
       "supporting_steps": [
         "E08"
       ],
       "acceptance_gate": "software",
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E08.json"
+      ],
       "verification_steps": [
         "E13"
       ]
@@ -5669,30 +5723,89 @@
       "step": "E08",
       "planned_node": "services/backend/tests/test_optimization_learning.py::test_nullable_labels_and_pooled_counts",
       "expected": "Zero/few data use displayed priors; unknown role/failure excluded correctly; leave-cell-out pooling and circular hour formula match independent arithmetic.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-group1.json",
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E08.json"
+      ],
       "actual_nodes": [
-        "services/backend/tests/test_optimization_learning.py::test_labels_keep_the_funnel_distinct",
-        "services/backend/tests/test_optimization_learning.py::test_nullable_labels_and_pooled_counts",
-        "services/backend/tests/test_optimization_learning.py::test_sparse_prior_excludes_cell_and_uses_circular_hour",
-        "services/backend/tests/test_optimization_learning.py::test_snapshot_only_has_information_known_before_the_call",
-        "services/backend/tests/test_optimization_learning.py::test_dataset_uses_immutable_snapshot_and_censors_delayed_conversions",
-        "services/backend/tests/test_optimization_learning.py::test_future_features_and_events_are_rejected_from_training",
-        "services/backend/tests/test_optimization_learning.py::test_conversion_score_prefers_useful_outcomes_over_easy_low_value_pickups",
-        "services/backend/tests/test_optimization_learning.py::test_treatment_learning_changes_the_best_approved_action_and_logs_exact_distribution",
-        "services/backend/tests/test_optimization_learning.py::test_pending_outcomes_cannot_promote_a_treatment",
-        "services/backend/tests/test_optimization_learning.py::test_future_slots_respect_timezone_retry_callback_and_coverage",
-        "services/backend/tests/test_optimization_learning.py::test_no_timezone_and_exhausted_leads_are_not_scheduled",
+        "services/backend/tests/test_context_reads.py::test_context_index_backfill_preserves_identity_version_and_human_data",
+        "services/backend/tests/test_context_reads.py::test_context_index_tracks_corrections_and_is_scoped_without_plaintext_domain",
+        "services/backend/tests/test_context_reads.py::test_context_indexes_are_present_for_both_databases",
+        "services/backend/tests/test_context_reads.py::test_context_migration_still_accepts_the_documented_unversioned_bootstrap",
+        "services/backend/tests/test_context_reads.py::test_expired_or_other_seller_fact_never_enters_bounded_context",
+        "services/backend/tests/test_context_reads.py::test_helper_keeps_current_support_for_the_frozen_script",
+        "services/backend/tests/test_context_reads.py::test_helper_preserves_human_notes_but_does_not_reuse_invalidated_ai_summary",
+        "services/backend/tests/test_context_reads.py::test_helper_reads_bounded_related_context_including_latest_prior_notes",
+        "services/backend/tests/test_context_reads.py::test_lead_packet_keeps_recent_history_and_discloses_omissions",
+        "services/backend/tests/test_context_reads.py::test_missing_company_domain_does_not_merge_unknown_company_evidence",
+        "services/backend/tests/test_context_reads.py::test_packet_tasks_are_bounded_with_open_work_ahead_of_closed_history",
+        "services/backend/tests/test_context_reads.py::test_prepared_script_keeps_its_older_support_when_new_facts_fill_the_context_page",
+        "services/backend/tests/test_context_reads.py::test_raw_context_does_not_scan_expired_long_call_metadata",
+        "services/backend/tests/test_context_reads.py::test_selection_loads_only_consents_for_candidate_endpoints",
+        "services/backend/tests/test_context_reads.py::test_unknown_commitment_status_stays_ahead_of_completed_history",
         "services/backend/tests/test_optimization_learning.py::test_a_possible_coverage_deadline_is_not_replaced_with_a_later_slot",
+        "services/backend/tests/test_optimization_learning.py::test_ambiguous_import_does_not_invent_target_contact",
+        "services/backend/tests/test_optimization_learning.py::test_attempt_work_preserves_asof_contact_role_and_missing_time",
+        "services/backend/tests/test_optimization_learning.py::test_attempt_work_unions_phases_and_excludes_detached_playback",
+        "services/backend/tests/test_optimization_learning.py::test_conditional_estimates_use_only_known_conditioning_labels_and_no_double_prior",
+        "services/backend/tests/test_optimization_learning.py::test_conversion_score_prefers_useful_outcomes_over_easy_low_value_pickups",
+        "services/backend/tests/test_optimization_learning.py::test_dataset_cost_waits_for_complete_attributed_receipts",
+        "services/backend/tests/test_optimization_learning.py::test_dataset_uses_immutable_snapshot_and_censors_delayed_conversions",
+        "services/backend/tests/test_optimization_learning.py::test_drift_report_exposes_changed_features_without_automatic_activation",
+        "services/backend/tests/test_optimization_learning.py::test_drift_separates_missingness_from_values_and_requires_comparable_model_support",
+        "services/backend/tests/test_optimization_learning.py::test_estimate_policy_is_validated_and_returned_by_the_single_settings_owner",
+        "services/backend/tests/test_optimization_learning.py::test_finite_large_prior_parameters_cannot_overflow_a_prediction",
+        "services/backend/tests/test_optimization_learning.py::test_forecast_shares_weekday_and_attempt_estimates_with_selection",
+        "services/backend/tests/test_optimization_learning.py::test_future_features_and_events_are_rejected_from_training",
         "services/backend/tests/test_optimization_learning.py::test_future_slots_can_use_the_verified_active_model_instead_of_only_the_pooled_baseline",
+        "services/backend/tests/test_optimization_learning.py::test_future_slots_respect_timezone_retry_callback_and_coverage",
+        "services/backend/tests/test_optimization_learning.py::test_labels_keep_the_funnel_distinct",
+        "services/backend/tests/test_optimization_learning.py::test_live_decision_uses_saved_cold_assumptions",
+        "services/backend/tests/test_optimization_learning.py::test_missing_historical_time_falls_back_to_the_known_segment",
+        "services/backend/tests/test_optimization_learning.py::test_no_timezone_and_exhausted_leads_are_not_scheduled",
+        "services/backend/tests/test_optimization_learning.py::test_nullable_labels_and_pooled_counts",
+        "services/backend/tests/test_optimization_learning.py::test_one_goal_evidence_cannot_prove_another_goal",
+        "services/backend/tests/test_optimization_learning.py::test_pending_conversion_and_unsettled_cost_are_never_observed_rewards",
+        "services/backend/tests/test_optimization_learning.py::test_pending_outcomes_cannot_promote_a_treatment",
+        "services/backend/tests/test_optimization_learning.py::test_prior_intervals_stay_unknown_and_custom_work_prior_is_visible",
+        "services/backend/tests/test_optimization_learning.py::test_saved_sparse_profile_requires_the_same_outcome_window",
+        "services/backend/tests/test_optimization_learning.py::test_snapshot_only_has_information_known_before_the_call",
+        "services/backend/tests/test_optimization_learning.py::test_sparse_cells_keep_weekend_attempt_and_missing_labels_distinct",
+        "services/backend/tests/test_optimization_learning.py::test_sparse_prior_excludes_cell_and_uses_circular_hour",
+        "services/backend/tests/test_optimization_learning.py::test_training_rows_retain_each_actual_frozen_stage_prediction",
+        "services/backend/tests/test_optimization_learning.py::test_treatment_learning_changes_the_best_approved_action_and_logs_exact_distribution",
         "services/backend/tests/test_optimization_learning.py::test_trial_reports_use_unique_matured_leads_and_do_not_claim_lift_from_tiny_samples",
-        "services/backend/tests/test_optimization_learning.py::test_drift_report_exposes_changed_features_without_automatic_activation"
+        "services/backend/tests/test_work_measurement.py::test_answer_to_end_duration_excludes_ringing_and_late_answer_never_revives",
+        "services/backend/tests/test_work_measurement.py::test_attempt_work_counts_supported_wrapup_and_keeps_call_edit_version",
+        "services/backend/tests/test_work_measurement.py::test_attempt_work_wrapup_disconnect_is_not_filled_in",
+        "services/backend/tests/test_work_measurement.py::test_connect_warning_requires_supported_comparison_and_keeps_unknown_visible",
+        "services/backend/tests/test_work_measurement.py::test_current_verified_call_counts_while_listening_and_stops_at_carrier_lifetime",
+        "services/backend/tests/test_work_measurement.py::test_dashboard_and_optimization_share_goal_and_work_denominators",
+        "services/backend/tests/test_work_measurement.py::test_delayed_webhooks_use_source_answer_and_end_times",
+        "services/backend/tests/test_work_measurement.py::test_deliberate_pause_closes_all_devices_but_idle_device_does_not_pause_another",
+        "services/backend/tests/test_work_measurement.py::test_heartbeat_accepts_only_the_reps_current_call_or_recent_wrapup",
+        "services/backend/tests/test_work_measurement.py::test_heartbeat_cannot_claim_nonexistent_call_work",
+        "services/backend/tests/test_work_measurement.py::test_heartbeat_work_excludes_pauses_and_stale_disconnected_time",
+        "services/backend/tests/test_work_measurement.py::test_idle_heartbeat_closes_work_and_does_not_make_paused_rep_ready",
+        "services/backend/tests/test_work_measurement.py::test_late_answer_does_not_start_speech_processing_on_an_ended_call",
+        "services/backend/tests/test_work_measurement.py::test_manual_work_correction_is_scoped_versioned_and_audited",
+        "services/backend/tests/test_work_measurement.py::test_manual_work_correction_rejects_future_reversed_or_unbounded_time",
+        "services/backend/tests/test_work_measurement.py::test_missing_answer_timestamp_is_not_zero_second_connection",
+        "services/backend/tests/test_work_measurement.py::test_missing_work_evidence_is_unknown_not_attempt_duration",
+        "services/backend/tests/test_work_measurement.py::test_pause_ends_attempt_work_before_a_later_disposition",
+        "services/backend/tests/test_work_measurement.py::test_rep_human_classification_does_not_invent_carrier_answer_timing",
+        "services/backend/tests/test_work_measurement.py::test_short_call_rate_uses_all_measured_connections_and_excludes_unknown_or_invalid",
+        "services/backend/tests/test_work_measurement.py::test_two_devices_union_and_logout_do_not_extend_stale_work",
+        "services/backend/tests/test_work_measurement.py::test_verified_call_work_extends_past_the_last_presence_heartbeat",
+        "services/backend/tests/test_work_measurement.py::test_work_review_filters_ownership_before_applying_limit",
+        "services/backend/tests/test_work_measurement.py::test_work_table_migration_preserves_previous_rows",
+        "services/backend/tests/test_work_measurement.py::test_work_union_counts_overlapping_devices_once_per_rep"
       ]
     },
     {
@@ -5700,31 +5813,46 @@
       "step": "E08",
       "planned_node": "services/backend/tests/test_learning_chronology.py::test_rolling_asof_entity_embargo",
       "expected": "Future/corrected labels, overlapping outcomes, timestamp ties and shared entity cannot leak across training/calibration/evaluation.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E08.json"
+      ],
       "actual_nodes": [
-        "services/backend/tests/test_learning_chronology.py::test_rolling_asof_entity_embargo",
-        "services/backend/tests/test_learning_chronology.py::test_feature_vocabulary_is_fitted_only_in_each_training_partition",
-        "services/backend/tests/test_learning_chronology.py::test_each_fitting_partition_purges_labels_crossing_its_next_boundary",
+        "services/backend/tests/test_learning_chronology.py::test_absent_concept_is_unknown_even_when_another_concept_was_observed",
         "services/backend/tests/test_learning_chronology.py::test_answer_model_can_learn_before_conversion_windows_mature",
-        "services/backend/tests/test_learning_chronology.py::test_timestamp_ties_are_not_split_between_training_and_calibration",
-        "services/backend/tests/test_learning_chronology.py::test_duplicate_entities_cannot_cross_fitting_partitions",
-        "services/backend/tests/test_learning_chronology.py::test_conversion_stage_waits_for_its_conditioning_right_party_label",
         "services/backend/tests/test_learning_chronology.py::test_challenger_persists_auditable_per_stage_cutoffs",
-        "services/backend/tests/test_learning_chronology.py::test_late_observed_conversion_is_not_available_at_its_occurrence",
-        "services/backend/tests/test_learning_chronology.py::test_retraction_changes_only_datasets_after_it_is_known",
-        "services/backend/tests/test_learning_chronology.py::test_future_disposition_is_excluded_and_provisional_labels_are_not_training_truth",
-        "services/backend/tests/test_learning_chronology.py::test_legacy_unknown_label_availability_is_not_backdated",
-        "services/backend/tests/test_learning_chronology.py::test_future_callback_does_not_change_frozen_pre_call_features",
-        "services/backend/tests/test_learning_chronology.py::test_same_timestamp_correction_uses_the_latest_recorded_revision",
-        "services/backend/tests/test_learning_chronology.py::test_repeated_retraction_does_not_move_the_original_availability",
+        "services/backend/tests/test_learning_chronology.py::test_conversion_stage_waits_for_its_conditioning_right_party_label",
         "services/backend/tests/test_learning_chronology.py::test_disposition_corrections_retain_as_of_history_without_transcripts",
-        "services/backend/tests/test_learning_chronology.py::test_revised_meeting_reports_keep_observation_and_retraction_history"
+        "services/backend/tests/test_learning_chronology.py::test_duplicate_entities_cannot_cross_fitting_partitions",
+        "services/backend/tests/test_learning_chronology.py::test_each_fitting_partition_purges_labels_crossing_its_next_boundary",
+        "services/backend/tests/test_learning_chronology.py::test_evaluation_does_not_use_a_label_received_after_its_asof_cutoff",
+        "services/backend/tests/test_learning_chronology.py::test_feature_vocabulary_is_fitted_only_in_each_training_partition",
+        "services/backend/tests/test_learning_chronology.py::test_future_callback_does_not_change_frozen_pre_call_features",
+        "services/backend/tests/test_learning_chronology.py::test_future_disposition_is_excluded_and_provisional_labels_are_not_training_truth",
+        "services/backend/tests/test_learning_chronology.py::test_late_observed_conversion_is_not_available_at_its_occurrence",
+        "services/backend/tests/test_learning_chronology.py::test_legacy_unknown_label_availability_is_not_backdated",
+        "services/backend/tests/test_learning_chronology.py::test_linked_company_and_endpoint_chains_cannot_cross_partitions",
+        "services/backend/tests/test_learning_chronology.py::test_missing_label_availability_is_never_assigned_to_the_decision_time",
+        "services/backend/tests/test_learning_chronology.py::test_paired_bootstrap_preserves_linked_entities_and_zero_effect",
+        "services/backend/tests/test_learning_chronology.py::test_repeated_retraction_does_not_move_the_original_availability",
+        "services/backend/tests/test_learning_chronology.py::test_retraction_changes_only_datasets_after_it_is_known",
+        "services/backend/tests/test_learning_chronology.py::test_revised_meeting_reports_keep_observation_and_retraction_history",
+        "services/backend/tests/test_learning_chronology.py::test_rolling_asof_entity_embargo",
+        "services/backend/tests/test_learning_chronology.py::test_same_timestamp_correction_uses_the_latest_recorded_revision",
+        "services/backend/tests/test_learning_chronology.py::test_timestamp_ties_are_not_split_between_training_and_calibration",
+        "services/backend/tests/test_learning_chronology.py::test_unknown_classification_and_unavailable_times_cannot_fit_a_stage",
+        "services/backend/tests/test_learning_chronology.py::test_unreviewable_v2_candidate_cannot_activate_with_legacy_brier_fields",
+        "services/backend/tests/test_remediation_learning.py::test_batch_prediction_verifies_artifact_only_on_load_and_preserves_rows",
+        "services/backend/tests/test_remediation_learning.py::test_conversation_associations_require_support_and_keep_correlation_label",
+        "services/backend/tests/test_remediation_learning.py::test_future_labels_and_feedback_clicks_cannot_create_conversion_associations",
+        "services/backend/tests/test_remediation_learning.py::test_goal_change_preserves_booked_hold_and_optout",
+        "services/backend/tests/test_remediation_learning.py::test_short_call_health_uses_answer_to_end_not_ringing",
+        "services/backend/tests/test_remediation_learning.py::test_two_distinct_provider_attempts_settle_only_their_matching_holds"
       ]
     },
     {
@@ -5732,16 +5860,55 @@
       "step": "E08",
       "planned_node": "services/backend/tests/test_conversation_features.py::test_prior_observation_features_only",
       "expected": "Training-only bounded vocabulary; current/future call or unreviewed observation excluded; missing is not absent; ablation uses same rows.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-group1.json",
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E08.json"
+      ],
       "actual_nodes": [
-        "services/backend/tests/test_conversation_features.py::test_prior_observation_features_only"
+        "services/backend/tests/test_conversation_features.py::test_active_packet_uses_frozen_selection_prediction_and_policy",
+        "services/backend/tests/test_conversation_features.py::test_brief_exposes_conditional_support_and_actual_prior_policy",
+        "services/backend/tests/test_conversation_features.py::test_current_review_state_and_versions_are_frozen_in_the_actual_next_decision",
+        "services/backend/tests/test_conversation_features.py::test_feature_source_invalidation_uses_the_decision_cutoff",
+        "services/backend/tests/test_conversation_features.py::test_persisted_decision_owns_its_sources_goal_and_allowed_actions",
+        "services/backend/tests/test_conversation_features.py::test_prior_observation_features_only",
+        "services/backend/tests/test_conversation_features.py::test_reserved_packet_uses_only_current_owned_decision",
+        "services/backend/tests/test_conversation_features.py::test_review_received_after_decision_is_not_prior_knowledge",
+        "services/backend/tests/test_conversation_features.py::test_source_changed_after_scoring_is_reselected_before_snapshot",
+        "services/backend/tests/test_conversation_features.py::test_stale_saved_estimate_does_not_claim_historical_as_of_time",
+        "services/backend/tests/test_conversation_learning.py::test_association_needs_later_independent_support_not_only_a_good_discovery_fit",
+        "services/backend/tests/test_conversation_learning.py::test_associations_feed_next_call_context_only_when_fresh_validated_and_same_goal",
+        "services/backend/tests/test_conversation_learning.py::test_background_association_calculation_does_not_hold_a_write_transaction",
+        "services/backend/tests/test_conversation_learning.py::test_background_report_cannot_publish_an_outdated_dataset_after_a_correction",
+        "services/backend/tests/test_conversation_learning.py::test_background_report_uses_the_selected_campaign_only",
+        "services/backend/tests/test_conversation_learning.py::test_cached_associations_have_explicit_versioned_admin_correction_and_no_paid_get",
+        "services/backend/tests/test_conversation_learning.py::test_comparable_mix_is_required_and_sparse_support_is_visible",
+        "services/backend/tests/test_conversation_learning.py::test_future_outcome_is_required_before_any_guidance_association",
+        "services/backend/tests/test_conversation_learning.py::test_helper_uses_the_frozen_prepared_script_the_rep_is_reading",
+        "services/backend/tests/test_conversation_learning.py::test_human_reviewed_aliases_are_versioned_and_do_not_create_new_observations",
+        "services/backend/tests/test_conversation_learning.py::test_interpretation_does_not_receive_outcomes_as_evidence_of_the_response",
+        "services/backend/tests/test_conversation_learning.py::test_legacy_call_without_snapshot_still_gives_the_helper_a_script_object",
+        "services/backend/tests/test_conversation_learning.py::test_legacy_unreviewed_observations_are_not_operational_training_inputs",
+        "services/backend/tests/test_conversation_learning.py::test_multiplicity_widens_intervals_instead_of_reusing_the_default_z",
+        "services/backend/tests/test_conversation_learning.py::test_new_synonym_vocabulary_needs_a_later_validation_period",
+        "services/backend/tests/test_conversation_learning.py::test_observation_rephrase_keeps_identity_but_rep_retraction_wins",
+        "services/backend/tests/test_conversation_learning.py::test_observations_are_in_meaning_review_and_rejected_as_a_unit",
+        "services/backend/tests/test_conversation_learning.py::test_prospect_brief_retains_reviewed_concepts_without_showing_retracted_ones",
+        "services/backend/tests/test_conversation_learning.py::test_rep_cannot_review_another_reps_observation_or_change_shared_names",
+        "services/backend/tests/test_conversation_learning.py::test_repeated_calls_or_shared_endpoint_do_not_inflate_support",
+        "services/backend/tests/test_conversation_learning.py::test_retracted_conversion_marks_old_guidance_stale",
+        "services/backend/tests/test_conversation_learning.py::test_reviewed_observations_survive_expiry_without_raw_text_and_feed_dataset",
+        "services/backend/tests/test_conversation_learning.py::test_source_correction_invalidates_observations_and_cached_guidance",
+        "services/backend/tests/test_conversation_learning.py::test_suggested_response_is_not_evidence_the_rep_used_it",
+        "services/backend/tests/test_conversation_learning.py::test_transitively_shared_contacts_are_one_independent_unit",
+        "services/backend/tests/test_conversation_learning.py::test_unanswered_prior_call_does_not_hide_the_first_reviewed_conversation",
+        "services/backend/tests/test_conversation_learning.py::test_unavailable_or_unreliable_observations_cannot_become_supported_evidence",
+        "services/backend/tests/test_conversation_learning.py::test_vocabulary_normalizes_surface_forms_but_never_erases_negation"
       ]
     },
     {
@@ -5749,16 +5916,37 @@
       "step": "E08",
       "planned_node": "services/backend/tests/test_strategy_exposure.py::test_finite_strategy_assignment",
       "expected": "Stable approved arms, actual allowed set/mixture probability, display-use distinction and matured reward; no invented sentence propensity.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E08.json"
+      ],
       "actual_nodes": [
+        "services/backend/tests/test_strategy_exposure.py::test_adaptive_protocol_accepts_only_current_matching_owned_trial_receipt",
+        "services/backend/tests/test_strategy_exposure.py::test_adaptive_seed_includes_confirmed_call_only_goal_evidence",
+        "services/backend/tests/test_strategy_exposure.py::test_display_ack_and_rep_use_are_separate_durable_versioned_receipts",
+        "services/backend/tests/test_strategy_exposure.py::test_display_telemetry_does_not_race_the_first_rep_feedback_edit",
+        "services/backend/tests/test_strategy_exposure.py::test_displayed_guidance_is_not_assumed_used_or_converted",
+        "services/backend/tests/test_strategy_exposure.py::test_expired_or_wrong_rep_card_cannot_be_acknowledged_displayed",
+        "services/backend/tests/test_strategy_exposure.py::test_finite_report_preserves_assigned_denominator_and_display_use_distinctions",
         "services/backend/tests/test_strategy_exposure.py::test_finite_strategy_assignment",
-        "services/backend/tests/test_strategy_exposure.py::test_displayed_guidance_is_not_assumed_used_or_converted"
+        "services/backend/tests/test_strategy_exposure.py::test_invalid_saved_strategy_mixture_cannot_assign",
+        "services/backend/tests/test_strategy_exposure.py::test_legacy_availability_control_still_interprets_the_conversation",
+        "services/backend/tests/test_strategy_exposure.py::test_observed_use_requires_post_display_rep_speech_and_independent_review",
+        "services/backend/tests/test_strategy_exposure.py::test_protocol_stop_during_generation_fences_the_old_strategy",
+        "services/backend/tests/test_strategy_exposure.py::test_report_keeps_reviewed_speech_metadata_after_context_trim_and_corrects_it",
+        "services/backend/tests/test_strategy_exposure.py::test_reviewed_strategy_protocol_is_idempotent_and_rejects_changed_request",
+        "services/backend/tests/test_strategy_exposure.py::test_speech_reviewer_receives_the_reviewed_approach_meaning_not_only_an_id",
+        "services/backend/tests/test_strategy_exposure.py::test_stopped_or_withdrawn_strategy_keeps_assignment_but_no_treatment",
+        "services/backend/tests/test_strategy_exposure.py::test_strategy_assignment_is_stable_with_exact_probabilities_and_protected_work",
+        "services/backend/tests/test_strategy_exposure.py::test_strategy_protocol_requires_current_reviewed_source_and_adaptive_evidence",
+        "services/backend/tests/test_strategy_exposure.py::test_strategy_report_uses_disposition_known_at_report_time",
+        "services/backend/tests/test_strategy_exposure.py::test_strategy_rewards_use_matured_fixed_goal_not_helpfulness_or_late_conversions",
+        "services/backend/tests/test_strategy_exposure.py::test_supported_adaptive_policy_retains_exact_mixture_and_unknown_use"
       ]
     },
     {
@@ -5766,25 +5954,60 @@
       "step": "E08",
       "planned_node": "services/backend/tests/test_model_serving_bounds.py::test_v1_v2_model_compatibility",
       "expected": "Owned checksummed artifacts retain original vectorizer; stages without support fall back; baseline imports no scientific stack.",
-      "status": "baseline-recorded",
+      "status": "accepted-software",
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
         "docs/evidence/completion/E00-surfaces.json"
       ],
-      "green_receipts": [],
+      "green_receipts": [
+        "docs/evidence/completion/E08.json"
+      ],
       "actual_nodes": [
-        "services/backend/tests/test_model_serving_bounds.py::test_v1_v2_model_compatibility",
+        "services/backend/tests/test_model_serving_bounds.py::test_baseline_rollback_names_the_current_baseline",
         "services/backend/tests/test_model_serving_bounds.py::test_checksum_verified_bytes_are_the_bytes_deserialized",
         "services/backend/tests/test_model_serving_bounds.py::test_concurrent_first_predictions_verify_and_load_once",
         "services/backend/tests/test_model_serving_bounds.py::test_invalid_model_probabilities_fall_back_without_poisoning_the_queue",
         "services/backend/tests/test_model_serving_bounds.py::test_oversized_artifact_is_rejected_before_reading_or_loading",
-        "services/backend/tests/test_model_serving_bounds.py::test_retired_model_history_does_not_enter_reservation_reads",
-        "services/backend/tests/test_model_serving_bounds.py::test_serving_pointer_is_loaded_once_per_transaction_without_unrelated_enrollment",
-        "services/backend/tests/test_model_serving_bounds.py::test_serving_index_backfill_keeps_source_identity_and_versions",
         "services/backend/tests/test_model_serving_bounds.py::test_queue_scores_one_vector_batch_for_each_selected_model",
+        "services/backend/tests/test_model_serving_bounds.py::test_retired_model_history_does_not_enter_reservation_reads",
+        "services/backend/tests/test_model_serving_bounds.py::test_saved_conditional_estimators_retain_their_actual_stage_names",
+        "services/backend/tests/test_model_serving_bounds.py::test_serving_index_backfill_keeps_source_identity_and_versions",
+        "services/backend/tests/test_model_serving_bounds.py::test_serving_pointer_is_loaded_once_per_transaction_without_unrelated_enrollment",
+        "services/backend/tests/test_model_serving_bounds.py::test_trial_enrollment_reads_only_the_original_model_assignment",
         "services/backend/tests/test_model_serving_bounds.py::test_trial_pointer_cannot_cross_its_reviewed_epoch",
-        "services/backend/tests/test_model_serving_bounds.py::test_trial_enrollment_reads_only_the_original_model_assignment"
+        "services/backend/tests/test_model_serving_bounds.py::test_v1_v2_model_compatibility",
+        "services/backend/tests/test_model_serving_bounds.py::test_v2_model_controls_recheck_frozen_definition_and_owned_source",
+        "services/backend/tests/test_optimization_workflows.py::test_automatic_training_uses_owned_dataset_and_is_bounded_when_sparse",
+        "services/backend/tests/test_optimization_workflows.py::test_call_decision_freezes_features_explains_allocation_and_keeps_immutable_lineage",
+        "services/backend/tests/test_optimization_workflows.py::test_enabled_worker_schedules_bounded_automatic_learning_without_operator_requests",
+        "services/backend/tests/test_optimization_workflows.py::test_future_conversion_and_conflicting_call_attribution_are_rejected",
+        "services/backend/tests/test_optimization_workflows.py::test_future_plan_explains_callback_and_does_not_reserve_or_call",
+        "services/backend/tests/test_optimization_workflows.py::test_later_conversion_is_idempotent_attributed_and_not_counted_twice",
+        "services/backend/tests/test_optimization_workflows.py::test_learning_state_survives_authority_restart_and_backup",
+        "services/backend/tests/test_optimization_workflows.py::test_new_events_never_cross_seller_boundaries_within_a_tenant",
+        "services/backend/tests/test_optimization_workflows.py::test_number_health_review_requires_observed_evidence_and_retains_callbacks",
+        "services/backend/tests/test_optimization_workflows.py::test_observed_delivery_failures_pause_outbound_but_keep_incoming_identity",
+        "services/backend/tests/test_optimization_workflows.py::test_optimization_endpoints_require_auth_and_seller_scoping",
+        "services/backend/tests/test_optimization_workflows.py::test_optimization_goal_settings_are_validated_and_reported",
+        "services/backend/tests/test_optimization_workflows.py::test_original_eligible_denominator_does_not_change_after_optout",
+        "services/backend/tests/test_optimization_workflows.py::test_refresh_reconciles_delayed_windows_without_rewriting_features",
+        "services/backend/tests/test_optimization_workflows.py::test_training_is_queued_once_from_real_stored_snapshots_and_produces_a_candidate",
+        "services/backend/tests/test_training_isolation.py::test_cancellation_during_cleanup_does_not_leak_training_capacity",
+        "services/backend/tests/test_training_isolation.py::test_cancellation_during_process_creation_still_reaps_owned_child",
+        "services/backend/tests/test_training_isolation.py::test_cancelling_during_publication_does_not_delete_committed_artifact",
+        "services/backend/tests/test_training_isolation.py::test_changed_authority_or_dataset_cannot_publish_trained_candidate",
+        "services/backend/tests/test_training_isolation.py::test_frozen_child_dispatch_does_not_boot_an_authority",
+        "services/backend/tests/test_training_isolation.py::test_only_one_training_child_per_authority_and_cancellation_releases_it",
+        "services/backend/tests/test_training_isolation.py::test_operational_training_admission_keeps_unclassified_outcomes_unknown",
+        "services/backend/tests/test_training_isolation.py::test_training_cannot_substitute_an_easier_baseline",
+        "services/backend/tests/test_training_isolation.py::test_training_capacity_lock_is_shared_across_authority_processes",
+        "services/backend/tests/test_training_isolation.py::test_training_child_failures_are_bounded_reaped_and_sanitized",
+        "services/backend/tests/test_training_isolation.py::test_training_freezes_and_uses_the_actual_configured_baseline",
+        "services/backend/tests/test_training_isolation.py::test_training_input_limits_reject_before_spawning",
+        "services/backend/tests/test_training_isolation.py::test_training_requires_the_exact_owned_dataset_before_spawning",
+        "services/backend/tests/test_training_isolation.py::test_training_source_rejects_changed_window_before_publication",
+        "services/backend/tests/test_training_isolation.py::test_training_uses_a_real_child_and_publishes_off_loop_without_inheriting_secrets"
       ]
     },
     {
