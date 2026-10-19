@@ -111,6 +111,9 @@ async def test_dirty_lead_worker_updates_only_that_plan(workspace, app, monkeypa
         chosen = service.scoped(s, "leads", p)[0]
         identity = chosen.id
         update(chosen, outreach_hold={"kind": "human_booked"})
+    # Report/readiness catch-up can complete metric jobs before the normal
+    # runner sees them; the separate planning obligation must survive that path.
+    service.prepare_metric_read(p)
 
     def no_whole_list(*args, **kwargs):
         raise AssertionError("Dirty work cannot recalculate a whole-list proposal")
