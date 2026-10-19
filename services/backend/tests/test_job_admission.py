@@ -165,3 +165,21 @@ async def test_separate_runners_share_database_admission(workspace, app, monkeyp
     )
     assert len(seen) == len(set(seen)) == 8
     assert peak <= service.settings.runtime_limits.company_units
+
+
+def test_rebuild_claim_prefix_cannot_run_training_or_another_seller(app, clock):
+    queue = app.state.service.jobs
+    queue.enqueue(
+        "ml",
+        {"seller_id": "other", "rows": ["must not execute"]},
+        "operational-train:fixture",
+        tenant_id="tenant",
+        priority=100,
+    )
+    queue.enqueue("ml", {"seller_id": "other"}, "projection:other:lead:1", tenant_id="tenant", priority=100)
+    expected = queue.enqueue(
+        "ml", {"seller_id": "seller"}, "projection:seller:lead:1", tenant_id="tenant", priority=1
+    )
+    claimed = queue.claim("ml", "rebuild-fixture", tenant_id="tenant", key_prefix="projection:seller:")
+    assert claimed["id"] == expected["id"]
+    assert queue.claim("ml", "rebuild-fixture", tenant_id="tenant", key_prefix="projection:seller:") is None
