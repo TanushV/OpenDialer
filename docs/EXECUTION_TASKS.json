@@ -4414,7 +4414,8 @@
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
-        "docs/evidence/completion/E00-surfaces.json"
+        "docs/evidence/completion/E00-surfaces.json",
+        "docs/evidence/completion/E03-baseline.json"
       ],
       "green_receipts": [],
       "actual_nodes": [
@@ -4428,14 +4429,24 @@
         "services/backend/tests/test_local_followthrough.py::test_assignment_keeps_callback_with_selected_rep",
         "services/backend/tests/test_local_followthrough.py::test_booked_hold_is_enforced_by_final_authorization_and_not_time_passage",
         "services/backend/tests/test_local_followthrough.py::test_meeting_changes_require_explicit_next_action_and_are_versioned",
-        "services/backend/tests/test_local_followthrough.py::test_cancel_meeting_without_next_action_keeps_hold",
+        "services/backend/tests/test_local_followthrough.py::test_cancel_meeting_without_explicit_next_action_is_rejected_and_keeps_original_hold",
         "services/backend/tests/test_local_followthrough.py::test_wrapup_and_refresh_job_commit_together",
         "services/backend/tests/test_local_followthrough.py::test_callback_assignment_is_enforced_at_submission",
         "services/backend/tests/test_local_followthrough.py::test_naive_callback_time_is_a_validation_error_not_server_error",
         "services/backend/tests/test_local_followthrough.py::test_meeting_endpoint_rejects_unused_task_fields",
         "services/backend/tests/test_local_followthrough.py::test_null_task_status_cannot_remove_task_from_the_workflow",
         "services/backend/tests/test_local_followthrough.py::test_explicit_new_callback_reopens_previous_meeting_task",
-        "services/backend/tests/test_local_followthrough.py::test_stale_disposition_cannot_overwrite_new_outcome"
+        "services/backend/tests/test_local_followthrough.py::test_stale_disposition_cannot_overwrite_new_outcome",
+        "services/backend/tests/test_local_followthrough.py::test_wrapup_requires_identified_versioned_edits_but_read_and_hangup_remain_available",
+        "services/backend/tests/test_local_followthrough.py::test_task_replay_returns_original_receipt_and_current_view_without_overwriting_newer_edit",
+        "services/backend/tests/test_local_followthrough.py::test_wrapup_replay_has_one_outcome_one_task_and_does_not_repeat_preparation",
+        "services/backend/tests/test_local_followthrough.py::test_meeting_report_replays_without_repeating_outcome_or_clearing_newer_hold",
+        "services/backend/tests/test_local_followthrough.py::test_continuity_refresh_coalesces_and_retains_running_owner",
+        "services/backend/tests/test_local_followthrough.py::test_human_note_correction_marks_the_next_packet_dirty_atomically",
+        "services/backend/tests/test_local_followthrough.py::test_rep_task_history_and_meeting_edits_remain_scoped_to_relationship_owner",
+        "services/backend/tests/test_local_followthrough.py::test_task_replay_still_rechecks_current_account_authority",
+        "services/backend/tests/test_local_followthrough.py::test_next_call_brief_reuses_prior_answers_questions_and_exposes_expired_gaps",
+        "services/backend/tests/test_local_followthrough.py::test_note_only_task_edit_cannot_silently_resolve_source_conflict"
       ]
     },
     {
@@ -4447,7 +4458,8 @@
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
-        "docs/evidence/completion/E00-surfaces.json"
+        "docs/evidence/completion/E00-surfaces.json",
+        "docs/evidence/completion/E03-baseline.json"
       ],
       "green_receipts": [],
       "actual_nodes": [
@@ -4461,7 +4473,7 @@
         "services/backend/tests/test_local_followthrough.py::test_assignment_keeps_callback_with_selected_rep",
         "services/backend/tests/test_local_followthrough.py::test_booked_hold_is_enforced_by_final_authorization_and_not_time_passage",
         "services/backend/tests/test_local_followthrough.py::test_meeting_changes_require_explicit_next_action_and_are_versioned",
-        "services/backend/tests/test_local_followthrough.py::test_cancel_meeting_without_next_action_keeps_hold",
+        "services/backend/tests/test_local_followthrough.py::test_cancel_meeting_without_explicit_next_action_is_rejected_and_keeps_original_hold",
         "services/backend/tests/test_local_followthrough.py::test_wrapup_and_refresh_job_commit_together",
         "services/backend/tests/test_local_followthrough.py::test_callback_assignment_is_enforced_at_submission",
         "services/backend/tests/test_local_followthrough.py::test_naive_callback_time_is_a_validation_error_not_server_error",
@@ -4523,7 +4535,8 @@
         "services/backend/tests/test_coaching_library.py::test_new_source_revision_can_be_reviewed_without_reactivating_old_example",
         "services/backend/tests/test_coaching_library.py::test_practice_does_not_return_help_from_a_changed_knowledge_source",
         "services/backend/tests/test_coaching_library.py::test_practice_replay_rechecks_current_knowledge_without_another_charge",
-        "services/backend/tests/test_coaching_library.py::test_invalidated_examples_do_not_exhaust_the_active_library"
+        "services/backend/tests/test_coaching_library.py::test_invalidated_examples_do_not_exhaust_the_active_library",
+        "services/backend/tests/test_coaching_library.py::test_cross_call_improvement_uses_twenty_reviewed_opportunities_and_two_examples"
       ]
     },
     {

@@ -1,6 +1,7 @@
 """Local-only follow-through: identities, conflicts, holds and recovery. Tests first."""
 
 from datetime import timedelta
+from uuid import uuid4
 
 import pytest
 from app.compliance.policy import authorize
@@ -8,6 +9,199 @@ from app.db import Job, put
 from conftest import start
 from sqlalchemy import select
 from test_remediation_rep_workflow import finish, p
+
+
+@pytest.mark.parametrize("missing", ["request_id", "expected_version"])
+def test_wrapup_requires_identified_versioned_edits_but_read_and_hangup_remain_available(workspace, missing):
+    call = start(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    path = f"/v1/calls/{call['id']}"
+    ended = c.post(path + "/hangup", headers=h).json()
+    body = {"request_id": str(uuid4()), "expected_version": ended["version"], "outcome": "no_answer"}
+    body.pop(missing)
+    response = c.post(path + "/disposition", headers=h, json=body)
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "client_upgrade_required"
+    assert c.get(path, headers=h).status_code == 200
+    assert c.post(path + "/hangup", headers=h).status_code == 200
+
+
+def test_task_replay_returns_original_receipt_and_current_view_without_overwriting_newer_edit(
+    workspace, clock
+):
+    call = start(workspace)
+    finish(workspace, call, callback_at=(clock.now + timedelta(days=1)).isoformat())
+    task = tasks(workspace, call)[0]
+    c, h = workspace["client"], workspace["headers"]
+    path = f"/v1/tasks/{task['id']}"
+    body = {"request_id": str(uuid4()), "expected_version": task["version"], "note": "First human decision"}
+    first = c.patch(path, headers=h, json=body)
+    assert first.status_code == 200, first.text
+    second = c.patch(
+        path,
+        headers=h,
+        json={
+            "request_id": str(uuid4()),
+            "expected_version": first.json()["version"],
+            "note": "Later human decision",
+        },
+    )
+    assert second.status_code == 200, second.text
+    replay = c.patch(path, headers=h, json=body)
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["note"] == "Later human decision"
+    assert replay.json()["version"] == second.json()["version"]
+    assert replay.json()["edit_receipt"] == first.json()["edit_receipt"]
+    conflict = c.patch(path, headers=h, json={**body, "note": "Different request content"})
+    assert conflict.status_code == 409
+
+
+def test_wrapup_replay_has_one_outcome_one_task_and_does_not_repeat_preparation(workspace, app, clock):
+    call = start(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    path = f"/v1/calls/{call['id']}"
+    ended = c.post(path + "/hangup", headers=h).json()
+    body = {
+        "request_id": str(uuid4()),
+        "expected_version": ended["version"],
+        "outcome": "callback_requested",
+        "contact_role": "right_party",
+        "callback_at": (clock.now + timedelta(days=1)).isoformat(),
+        "callback_note": "Rep confirmed the next discussion",
+    }
+    saved = c.post(path + "/disposition", headers=h, json=body)
+    assert saved.status_code == 200, saved.text
+    version = c.get(f"/v1/leads/{call['lead_id']}/packet", headers=h).json()["lead"]["version"]
+    replay = c.post(path + "/disposition", headers=h, json=body)
+    assert replay.status_code == 200 and replay.json()["edit_receipt"] == saved.json()["edit_receipt"]
+    assert replay.json()["canonical_task_id"] == tasks(workspace, call)[0]["id"]
+    assert replay.json()["rundown_status"] in {"pending", "partial", "ready", "unavailable"}
+    assert c.get(f"/v1/leads/{call['lead_id']}/packet", headers=h).json()["lead"]["version"] == version
+    with app.state.db.transaction(False) as s:
+        outcomes = [
+            r
+            for r in app.state.service.scoped(s, "outcomes", p(workspace))
+            if r.external_key == f"disposition:{call['id']}"
+        ]
+        assert len(outcomes) == 1 and outcomes[0].data["contact_role"] == "right_party"
+
+
+def test_meeting_report_replays_without_repeating_outcome_or_clearing_newer_hold(workspace):
+    call = start(workspace)
+    finish(workspace, call, "meeting_booked")
+    c, h = workspace["client"], workspace["headers"]
+    path = f"/v1/leads/{call['lead_id']}"
+    lead = c.get(path + "/packet", headers=h).json()["lead"]
+    first_body = {"request_id": str(uuid4()), "expected_version": lead["version"], "status": "held"}
+    first = c.post(path + "/meeting", headers=h, json=first_body)
+    assert first.status_code == 200, first.text
+    changed = c.post(
+        path + "/meeting",
+        headers=h,
+        json={
+            "request_id": str(uuid4()),
+            "expected_version": first.json()["version"],
+            "status": "no_show",
+            "next_action": "keep_hold",
+        },
+    )
+    assert changed.status_code == 200, changed.text
+    replay = c.post(path + "/meeting", headers=h, json=first_body)
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["meeting"]["status"] == "no_show"
+    assert replay.json()["outreach_hold"] == "meeting_next_action"
+    assert replay.json()["edit_receipt"] == first.json()["edit_receipt"]
+
+
+def test_continuity_refresh_coalesces_and_retains_running_owner(workspace, app):
+    service, who = app.state.service, p(workspace)
+    lead_id = workspace["client"].get("/v1/workspace", headers=workspace["headers"]).json()["leads"][0]["id"]
+    for _ in range(3):
+        with service.db.transaction() as s:
+            service.refresh_packet_in(s, who, service.required(s, "leads", lead_id, who))
+    with service.db.transaction(False) as s:
+        jobs = list(s.scalars(select(Job).where(Job.queue == "scripts")))
+        assert len(jobs) == 1
+        identity = jobs[0].id
+        assert jobs[0].payload["kind"] == "packet_refresh"
+    claimed = service.jobs.claim("scripts", "original-worker", tenant_id=who["tenant_id"])
+    assert claimed["id"] == identity
+    with service.db.transaction() as s:
+        service.refresh_packet_in(s, who, service.required(s, "leads", lead_id, who))
+    service.jobs.complete(identity, "original-worker")
+    next_work = service.jobs.claim("scripts", "next-worker", tenant_id=who["tenant_id"])
+    assert next_work and next_work["id"] == identity
+    assert next_work["attempts"] == 1, "Changed input is newer work, not a failed attempt"
+
+
+def test_human_note_correction_marks_the_next_packet_dirty_atomically(workspace, app):
+    call = start(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    analysis = c.get(f"/v1/calls/{call['id']}/analysis", headers=h).json()
+    before = c.get(f"/v1/leads/{call['lead_id']}/packet", headers=h).json()
+    response = c.patch(
+        f"/v1/calls/{call['id']}/notes",
+        headers=h,
+        json={
+            "expected_version": analysis["notes_version"],
+            "text": "The rep corrected the next conversation goal.",
+        },
+    )
+    assert response.status_code == 200, response.text
+    after = c.get(f"/v1/leads/{call['lead_id']}/packet", headers=h).json()
+    assert after["lead"].get("preparation_revision", 0) > before["lead"].get("preparation_revision", 0)
+    assert "The rep corrected the next conversation goal." in str(after["prospect_brief"])
+
+
+@pytest.mark.parametrize("operation", ["history", "meeting"])
+def test_rep_task_history_and_meeting_edits_remain_scoped_to_relationship_owner(
+    workspace, app, clock, operation
+):
+    from app.db import update
+    from fastapi import HTTPException
+
+    call = start(workspace)
+    finish(workspace, call, callback_at=(clock.now + timedelta(days=1)).isoformat())
+    service, who = app.state.service, p(workspace)
+    with service.db.transaction() as s:
+        user = put(
+            s, "users", who["tenant_id"], who["seller_id"], {"name": "Other rep", "role": "rep"}, now=clock()
+        )
+        lead = service.required(s, "leads", call["lead_id"], who)
+        update(lead, rep_id=who["user_id"])
+        version = lead.version
+        other = {**who, "user_id": user.id, "role": "rep"}
+    if operation == "history":
+        page = service.workspace_page(other, "tasks")
+        assert not page["items"], "A rep's task history must not reveal another rep's relationships"
+        return
+    with pytest.raises(HTTPException) as denied:
+        service.report_meeting(
+            other,
+            call["lead_id"],
+            {"request_id": str(uuid4()), "expected_version": version, "status": "booked"},
+        )
+    assert denied.value.status_code in {403, 404}
+
+
+@pytest.mark.parametrize("replay", [False, True])
+def test_task_replay_still_rechecks_current_account_authority(workspace, app, clock, replay):
+    from app.db import update
+    from fastapi import HTTPException
+
+    call = start(workspace)
+    finish(workspace, call, callback_at=(clock.now + timedelta(days=1)).isoformat())
+    task = tasks(workspace, call)[0]
+    service, who = app.state.service, p(workspace)
+    body = {"request_id": str(uuid4()), "expected_version": task["version"], "note": "Confirmed context"}
+    first = service.edit_task(who, task["id"], body)
+    with service.db.transaction() as s:
+        update(service.required(s, "users", who["user_id"], who), disabled=True)
+    if not replay:
+        body = {**body, "request_id": str(uuid4()), "expected_version": first["version"]}
+    with pytest.raises(HTTPException) as denied:
+        service.edit_task(who, task["id"], body)
+    assert denied.value.status_code in {403, 404}
 
 
 def test_callback_time_and_snooze(workspace, clock):
@@ -68,7 +262,7 @@ def test_callback_identity_and_alias(workspace, app, clock, conflicting_human):
         )
         alias = duplicate.id
     # Startup/backfill is the required idempotent reconciliation boundary.
-    service.db.backfill_operational_columns()
+    service.migrate_followthrough()
     view = tasks(workspace, call)
     if conflicting_human:
         assert len(view) == 2 and any(t.get("source_conflicts") for t in view)
@@ -92,6 +286,81 @@ def tasks(w, call):
         for t in w["client"].get("/v1/workspace", headers=w["headers"]).json()["tasks"]
         if t.get("call_id") == call["id"]
     ]
+
+
+def test_next_call_brief_reuses_prior_answers_questions_and_exposes_expired_gaps(workspace, app, clock):
+    from app.coaching.context import upgrade_state
+    from test_live_memory import turn
+
+    service, who = app.state.service, p(workspace)
+    call = start(workspace)
+    turn(service, who, call, "prior-context")
+    with service.db.transaction() as s:
+        row = service.required(s, "call_attempts", call["id"], who)
+        state = upgrade_state(
+            {
+                "call_id": call["id"],
+                "version": 1,
+                "transcript_version": 1,
+                "answered_questions": [
+                    {
+                        "id": "answer",
+                        "text": "Operations owns the evaluation.",
+                        "status": "confirmed",
+                        "evidence_revisions": {"prior-context": 1},
+                    }
+                ],
+                "open_questions": [
+                    {
+                        "id": "question",
+                        "text": "Which approval step needs clarification?",
+                        "status": "open",
+                        "evidence_revisions": {"prior-context": 1},
+                    }
+                ],
+            },
+            call_id=call["id"],
+        )
+        state["coverage"] = {"unavailable_segments": 1}
+        state["finalization"] = {"status": "partial", "reason": "raw_expired_before_interpretation"}
+        service._store_conversation(s, who, row, state)
+    service.analysis(who, call["id"])
+    clock.now += timedelta(seconds=301)
+    packet = (
+        workspace["client"].get(f"/v1/leads/{call['lead_id']}/packet", headers=workspace["headers"]).json()
+    )
+    brief = packet["prospect_brief"]
+    assert brief["prior_answers"][0]["text"] == "Operations owns the evaluation."
+    assert brief["unanswered_questions"][0]["id"] == "question"
+    assert brief["next_question"] == "Which approval step needs clarification?"
+    assert brief["interpretation_gaps"][0]["call_id"] == call["id"]
+    assert brief["interpretation_gaps"][0]["status"] == "partial"
+    assert brief["source_versions"] and brief["freshness"]["state"] in {
+        "missing",
+        "stale",
+        "ready",
+        "fallback",
+    }
+    assert "overall_score" not in brief
+
+
+def test_note_only_task_edit_cannot_silently_resolve_source_conflict(workspace, app, clock):
+    from app.db import update
+
+    call = start(workspace)
+    finish(workspace, call, callback_at=(clock.now + timedelta(days=1)).isoformat())
+    task = tasks(workspace, call)[0]
+    with app.state.db.transaction() as s:
+        record = app.state.service.required(s, "followup_tasks", task["id"], p(workspace))
+        update(record, source_stale=True, review_required=True, confirmation_state="needs_review")
+        version = record.version
+    response = workspace["client"].patch(
+        f"/v1/tasks/{task['id']}",
+        headers=workspace["headers"],
+        json={"request_id": str(uuid4()), "expected_version": version, "note": "Added a human reminder."},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["review_required"] and response.json()["confirmation_state"] == "needs_review"
 
 
 def test_duplicate_wrapup_has_one_outcome_and_does_not_reopen_completed_task(workspace, app, clock):
@@ -273,37 +542,46 @@ def test_meeting_changes_require_explicit_next_action_and_are_versioned(workspac
     assert len([t for t in packet["tasks"] if t["status"] == "open"]) == 1
 
 
-def test_cancel_meeting_without_next_action_keeps_hold(workspace):
+def test_cancel_meeting_without_explicit_next_action_is_rejected_and_keeps_original_hold(workspace):
     call = start(workspace)
     finish(workspace, call, "meeting_booked")
     c, h = workspace["client"], workspace["headers"]
     path = "/v1/leads/" + call["lead_id"]
     lead = c.get(path + "/packet", headers=h).json()["lead"]
     result = c.post(
-        path + "/meeting", headers=h, json={"status": "cancelled", "expected_version": lead["version"]}
+        path + "/meeting",
+        headers=h,
+        json={"request_id": str(uuid4()), "status": "cancelled", "expected_version": lead["version"]},
     )
-    assert result.status_code == 200, result.text
-    assert result.json()["outreach_hold"] == "meeting_next_action"
+    assert result.status_code == 422, result.text
+    assert "next_action" in result.text
+    current = c.get(path + "/packet", headers=h).json()["lead"]
+    assert current["outreach_hold"] == "meeting_booked"
+    assert current["meeting"]["status"] == "booked"
 
 
 def test_wrapup_and_refresh_job_commit_together(workspace, app, monkeypatch):
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
-    c.post("/v1/calls/" + call["id"] + "/hangup", headers=h)
+    ended = c.post("/v1/calls/" + call["id"] + "/hangup", headers=h).json()
     original = app.state.service.jobs.enqueue_in
 
     def fail_prepare(s, queue, *args, **kwargs):
-        if queue == "research":
+        if queue == "scripts":
             raise RuntimeError("simulated queue persistence failure")
         return original(s, queue, *args, **kwargs)
 
     monkeypatch.setattr(app.state.service.jobs, "enqueue_in", fail_prepare)
     with pytest.raises(RuntimeError):
-        c.post("/v1/calls/" + call["id"] + "/disposition", headers=h, json={"outcome": "right_party"})
+        c.post(
+            "/v1/calls/" + call["id"] + "/disposition",
+            headers=h,
+            json={"request_id": str(uuid4()), "expected_version": ended["version"], "outcome": "right_party"},
+        )
     with app.state.db.transaction(False) as s:
         persisted = app.state.service.required(s, "call_attempts", call["id"], p(workspace))
         assert persisted.data["state"] != "FINALIZED"
-        assert not list(s.scalars(select(Job).where(Job.queue == "research")))
+        assert not list(s.scalars(select(Job).where(Job.queue == "scripts")))
 
 
 def test_callback_assignment_is_enforced_at_submission(workspace, app, clock):

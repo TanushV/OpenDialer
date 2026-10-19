@@ -66,6 +66,58 @@ def source(workspace, app):
     return call, p
 
 
+def test_cross_call_improvement_uses_twenty_reviewed_opportunities_and_two_examples(workspace, app, clock):
+    from app.coaching.context import upgrade_state
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        for n in range(3):
+            call = put(
+                s,
+                "call_attempts",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    "rep_id": p["user_id"],
+                    "state": "FINALIZED",
+                    "started_at": clock().isoformat(),
+                    "transcript_version": 0,
+                    "lead_id": f"synthetic-lead-{n}",
+                },
+                now=clock() + timedelta(seconds=n),
+            )
+            state = upgrade_state({}, call_id=call.id)
+            state["observations"] = [
+                {
+                    "id": f"reviewed-{n}-{i}",
+                    "version": 1,
+                    "kind": "approach",
+                    "text": "Clarify decision ownership",
+                    "state": "confirmed",
+                    "sources": [],
+                    "replaces": [],
+                    "epistemic_status": "human_confirmed" if i < 8 else "model_interpreted",
+                    "observed_at": clock().isoformat(),
+                    "available_at": clock().isoformat(),
+                    "invalidated_at": None,
+                    "review_receipt_id": "synthetic-review" if i < 8 else None,
+                    "review_status": "reviewed" if i < 8 else "pending",
+                    "lineage_depth": 0,
+                    "approach": "Ask who approves the decision",
+                    "reviewer_id": p["user_id"] if i < 8 else None,
+                }
+                for i in range(9)
+            ]
+            service._store_conversation(s, p, call, state)
+    view = workspace["client"].get("/v1/coaching", headers=workspace["headers"]).json()
+    assert len(view["reviewed_opportunities"]) == 20
+    assert all(item["review_status"] == "human_confirmed" for item in view["reviewed_opportunities"])
+    groups = view["improvement_groups"]
+    assert len(groups) == 1 and groups[0]["count"] == 20
+    assert 1 <= len(groups[0]["examples"]) <= 2
+    assert "outcome_lift" not in groups[0] and "rep_rank" not in view
+
+
 def publish(workspace, call, **changes):
     return workspace["client"].post(
         "/v1/admin/snippets",
