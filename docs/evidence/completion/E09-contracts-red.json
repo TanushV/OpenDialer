@@ -1,0 +1,43 @@
+{
+  "step_id": "E09",
+  "stage": "contracts-red",
+  "source_commit": "fbabc86e906ba2fd847cddda179b8c8c3c6925e0",
+  "product_source": "31c15f28a1c0cfc1dc90fad13aaba2bf9fcc7f57",
+  "test_worktree_sha256": "a01c90c202e164314577e4cdeac0c21378c10c4ad81690bf163d2f449adb90b0",
+  "case_ids": [
+    "C035",
+    "C036",
+    "C037",
+    "C038"
+  ],
+  "result_counts": {
+    "initial_sqlite": {
+      "failed": 6,
+      "passed": 1,
+      "seconds": 3.64
+    },
+    "expanded_postgres": {
+      "failed": 8,
+      "passed": 1,
+      "seconds": 24.13
+    },
+    "additional_admission_sqlite": {
+      "failed": 4,
+      "passed": 1,
+      "seconds": 3.29
+    }
+  },
+  "scope_note": "The last SQLite run adds independent runners. Timing can allow the overlapping same-instance case to pass; the same failure was reproduced in preceding SQLite and PostgreSQL captures. Projection coordinator/tables are absent; the remaining failures assert observable invalidation, rebuild and capacity behavior.",
+  "raw_log_sha256": {
+    "E09-focused-red.txt": "dcb42a7ac75db23c232c1d9aeb0e34e8004be6339bd2e18d3b686db5bdffc546",
+    "E09-focused-red-postgres.txt": "6ba66dfc6c79eff47750679b99d9ccb6cbce9cceb9e4bd0f83cb4947257317c9",
+    "E09-admission-red.txt": "4006b93f9e76cbd1d774e3133e468824c7dc62290cd5d9a1e1b94b1d519b0478",
+    "E09-admission-expanded-red.txt": "bd0fd941e74798292376d57d97f4f93f20b89f99f281ab104e250ca45d303c84"
+  },
+  "environment": {
+    "python": "3.12.13",
+    "system": "macOS-26.5.1-arm64-arm-64bit"
+  },
+  "external_calls": false,
+  "installed_app_changed": false
+}

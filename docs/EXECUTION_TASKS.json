@@ -591,7 +591,9 @@
         "services/backend/tests/test_work_measurement.py",
         "services/backend/tests/test_migrations.py"
       ],
-      "receipts": [],
+      "receipts": [
+        "docs/evidence/completion/E09-contracts-red.json"
+      ],
       "planned_case_ids": [
         "C035",
         "C036",
@@ -6019,7 +6021,8 @@
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
-        "docs/evidence/completion/E00-surfaces.json"
+        "docs/evidence/completion/E00-surfaces.json",
+        "docs/evidence/completion/E09-contracts-red.json"
       ],
       "green_receipts": [],
       "actual_nodes": [
@@ -6036,7 +6039,8 @@
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
-        "docs/evidence/completion/E00-surfaces.json"
+        "docs/evidence/completion/E00-surfaces.json",
+        "docs/evidence/completion/E09-contracts-red.json"
       ],
       "green_receipts": [],
       "actual_nodes": [
@@ -6054,12 +6058,16 @@
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
-        "docs/evidence/completion/E00-surfaces.json"
+        "docs/evidence/completion/E00-surfaces.json",
+        "docs/evidence/completion/E09-contracts-red.json"
       ],
       "green_receipts": [],
       "actual_nodes": [
         "services/backend/tests/test_job_admission.py::test_claim_only_running_capacity",
-        "services/backend/tests/test_job_admission.py::test_two_workers_share_job_identity_and_global_capacity"
+        "services/backend/tests/test_job_admission.py::test_two_workers_share_job_identity_and_global_capacity",
+        "services/backend/tests/test_job_admission.py::test_research_and_script_ticks_share_company_job_capacity",
+        "services/backend/tests/test_job_admission.py::test_legacy_live_backlog_coalesces_without_leasing_waiting_requests",
+        "services/backend/tests/test_job_admission.py::test_separate_runners_share_database_admission"
       ]
     },
     {
@@ -6071,7 +6079,8 @@
       "red_receipts": [
         "docs/evidence/completion/E00-sqlite.json",
         "docs/evidence/completion/E00-contract-baselines.json",
-        "docs/evidence/completion/E00-surfaces.json"
+        "docs/evidence/completion/E00-surfaces.json",
+        "docs/evidence/completion/E09-contracts-red.json"
       ],
       "green_receipts": [],
       "actual_nodes": [

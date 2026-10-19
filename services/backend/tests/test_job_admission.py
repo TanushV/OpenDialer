@@ -69,3 +69,99 @@ async def test_two_workers_share_job_identity_and_global_capacity(workspace, app
     assert peak <= 2, (
         "Script generation capacity is authority-wide, not a fresh semaphore for every worker tick"
     )
+
+
+@pytest.mark.asyncio
+async def test_research_and_script_ticks_share_company_job_capacity(workspace, app, monkeypatch):
+    service, p = app.state.service, principal(workspace)
+    active, peak = 0, 0
+    seen = []
+
+    async def prepare(p, lead_ids):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        seen.extend(lead_ids)
+        await asyncio.sleep(0.05)
+        active -= 1
+
+    monkeypatch.setattr(service, "prepare", prepare)
+    for queue in ("research", "scripts"):
+        for i in range(4):
+            service.jobs.enqueue(
+                queue,
+                {
+                    "seller_id": p["seller_id"],
+                    "user_id": p["user_id"],
+                    "lead_ids": [f"{queue}:{i}"],
+                },
+                f"lanes:{queue}:{i}",
+                tenant_id=p["tenant_id"],
+            )
+    await asyncio.gather(*(service.run_jobs(p["tenant_id"], queues=[q]) for q in ("research", "scripts")))
+    assert len(seen) == len(set(seen)) == 8
+    assert peak <= service.settings.runtime_limits.company_units
+
+
+@pytest.mark.asyncio
+async def test_legacy_live_backlog_coalesces_without_leasing_waiting_requests(workspace, app, monkeypatch):
+    from conftest import start
+
+    call = start(workspace)
+    service, p = app.state.service, principal(workspace)
+    seen = []
+
+    async def coach(p, call_id):
+        seen.append(call_id)
+
+    monkeypatch.setattr(service, "coach_turn", coach)
+    for i in range(18):
+        service.jobs.enqueue(
+            "live_coach",
+            {
+                "call_id": call["id"],
+                "seller_id": p["seller_id"],
+                "user_id": p["user_id"],
+                "state_version": i,
+            },
+            f"legacy-admission:{i}",
+            tenant_id=p["tenant_id"],
+        )
+    await service.run_jobs(p["tenant_id"], queues=["live_coach"])
+    assert seen == [call["id"]]
+    with service.db.transaction(False) as s:
+        jobs = list(s.scalars(select(Job).where(Job.queue == "live_coach")))
+        assert all(j.status == "completed" for j in jobs)
+        assert sum(j.attempts for j in jobs) == 1, (
+            "Superseded unsent contexts are coalesced without execution leases"
+        )
+
+
+@pytest.mark.asyncio
+async def test_separate_runners_share_database_admission(workspace, app, monkeypatch):
+    service, p = app.state.service, principal(workspace)
+    other = type(service)(service.db, service.settings, service.clock)
+    active, peak, seen = 0, 0, []
+
+    async def prepare(p, lead_ids):
+        nonlocal active, peak
+        seen.extend(lead_ids)
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.05)
+        active -= 1
+
+    for runner in (service, other):
+        monkeypatch.setattr(runner, "prepare", prepare)
+    for i in range(8):
+        service.jobs.enqueue(
+            "scripts",
+            {"seller_id": p["seller_id"], "user_id": p["user_id"], "lead_ids": [str(i)]},
+            f"separate-runners:{i}",
+            tenant_id=p["tenant_id"],
+        )
+    await asyncio.gather(
+        *(runner.run_jobs(p["tenant_id"], queues=["scripts"]) for runner in (service, other))
+    )
+    assert len(seen) == len(set(seen)) == 8
+    assert peak <= service.settings.runtime_limits.company_units
