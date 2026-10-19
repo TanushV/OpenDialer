@@ -27,6 +27,66 @@ OPERATIONS = [
 PHASES = ["before_send", "after_send", "before_publication", "expired_lease", "stale_owner"]
 
 
+def test_operation_policy_covers_each_effect_without_a_generic_retry():
+    from app.telephony import recovery
+
+    policies = getattr(recovery, "OPERATION_POLICIES", {})
+    expected = set(OPERATIONS) | {
+        "dial",
+        "agent",
+        "number_configure",
+        "number_purchase",
+        "dnc_screen",
+        "deferred_scripts",
+        "inference",
+        "review",
+        "local_task",
+        "local_outcome",
+    }
+    assert set(policies) == expected
+    for policy in policies.values():
+        assert policy.handler and policy.proof and policy.uncertain_action
+    for operation in {"hangup", "playback_stop", "transcription_stop", "record_stop"}:
+        assert policies[operation].repeat == "safe_stop"
+    assert policies["transfer"].repeat == "original_command_window"
+    assert policies["dnc_screen"].repeat == "explicit_charge_acknowledgement"
+    assert policies["number_purchase"].repeat == "never"
+
+
+@pytest.mark.asyncio
+async def test_agent_reconciliation_requires_current_unexpired_lease(
+    workspace, app, carrier, clock, monkeypatch
+):
+    from app.db import put
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        leg = put(
+            s,
+            "call_legs",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "kind": "agent",
+                "rep_id": p["user_id"],
+                "provider_id": "known-agent",
+                "state": "uncertain",
+            },
+        )
+        identity, version = leg.id, leg.version
+
+    async def delayed(*_):
+        clock.now += timedelta(seconds=31)
+        return {"call_control_id": "known-agent", "is_alive": True}
+
+    monkeypatch.setattr(carrier, "reconcile", delayed)
+    await service.reconcile_agent(p, identity, version)
+    with service.db.transaction(False) as s:
+        row = get(s, "call_legs", identity)
+        assert row.data["state"] == "uncertain"
+        assert row.data["lease_owner"]
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("role", ["live_coach", "live_coach_review"])
 @pytest.mark.parametrize("phase", PHASES)
