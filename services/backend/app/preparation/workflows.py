@@ -219,7 +219,7 @@ class Preparation:
             s.scalars(
                 select(Job).where(
                     Job.tenant_id == p["tenant_id"],
-                    Job.queue == "research",
+                    Job.queue.in_(["research", "scripts"]),
                     Job.status.in_(["queued", "running"]),
                 )
             )
@@ -228,6 +228,7 @@ class Preparation:
             lead_id
             for job in active
             if job.payload.get("seller_id") == p["seller_id"]
+            and (job.queue == "research" or job.payload.get("kind") == "packet_refresh")
             for lead_id in job.payload.get("lead_ids", [])
         }
         states = {lead.id: self.preparation_state(s, p, lead) for lead in leads}

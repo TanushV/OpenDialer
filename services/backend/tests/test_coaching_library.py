@@ -96,7 +96,7 @@ def test_cross_call_improvement_uses_twenty_reviewed_opportunities_and_two_examp
                     "state": "confirmed",
                     "sources": [],
                     "replaces": [],
-                    "epistemic_status": "human_confirmed" if i < 8 else "model_interpreted",
+                    "epistemic_status": "human_confirmed" if i < 8 else "model_reviewed",
                     "observed_at": clock().isoformat(),
                     "available_at": clock().isoformat(),
                     "invalidated_at": None,

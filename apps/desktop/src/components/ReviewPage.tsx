@@ -7,7 +7,7 @@ import {
   Quote,
   ShieldCheck,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useHistory } from "../state/useHistory";
 import { HistoryMore } from "./HistoryMore";
 import { date, label, useWorkspace } from "../context";
@@ -25,10 +25,27 @@ export function ReviewPage() {
   const [notes, setNotes] = useState("");
   const [comment, setComment] = useState("");
   const [highlight, setHighlight] = useState<string[]>([]);
-  async function open(id: string) {
+  const selectedCall = useRef<string | null>(null);
+  const requestVersion = useRef(0);
+  useEffect(
+    () => () => {
+      selectedCall.current = null;
+      requestVersion.current++;
+    },
+    [],
+  );
+  async function reload(id: string) {
+    if (selectedCall.current !== id) return;
+    const version = ++requestVersion.current;
     const result = await api<Analysis>(`/v1/calls/${id}/analysis`);
+    if (selectedCall.current !== id || requestVersion.current !== version)
+      return;
     setAnalysis(result);
     setNotes(result.human_notes ?? result.notes.summary);
+  }
+  async function open(id: string) {
+    selectedCall.current = id;
+    await reload(id);
   }
   const history = useHistory("calls", w.calls);
   const calls = history.items;
@@ -124,7 +141,14 @@ export function ReviewPage() {
   );
   return (
     <>
-      <button className="text-button back" onClick={() => setAnalysis(null)}>
+      <button
+        className="text-button back"
+        onClick={() => {
+          selectedCall.current = null;
+          requestVersion.current++;
+          setAnalysis(null);
+        }}
+      >
         <ArrowLeft size={14} />
         All conversations
       </button>
@@ -354,7 +378,7 @@ export function ReviewPage() {
           </section>
           <ConversationObservations
             analysis={analysis}
-            reload={() => open(analysis.call.id)}
+            reload={() => reload(analysis.call.id)}
           />
           <section className="card padded" aria-label="Conversation signals">
             <h2>Conversation signals</h2>
@@ -401,7 +425,7 @@ export function ReviewPage() {
             </div>
             <CallPurpose
               analysis={analysis}
-              reload={() => open(analysis.call.id)}
+              reload={() => reload(analysis.call.id)}
             />
             <p className="muted small">
               Evidence coverage:{" "}
@@ -423,7 +447,7 @@ export function ReviewPage() {
               key={analysis.call.id}
               analysis={analysis}
               evidence={highlight}
-              reload={() => open(analysis.call.id)}
+              reload={() => reload(analysis.call.id)}
             />
           </section>
           <section className="card padded">
@@ -446,7 +470,7 @@ export function ReviewPage() {
                   await api(`/v1/calls/${analysis.call.id}/comments`, "POST", {
                     text: comment,
                   });
-                  await open(analysis.call.id);
+                  await reload(analysis.call.id);
                   setComment("");
                 })
               }

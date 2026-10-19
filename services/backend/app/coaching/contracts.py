@@ -4,6 +4,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.scheduling.models import ContactRole, OutcomeCode
+
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
@@ -65,6 +67,11 @@ class ProposedCommitment(StrictModel):
     needs_time_confirmation: bool
 
 
+class ProposedOutcome(StrictModel):
+    code: OutcomeCode
+    contact_role: ContactRole
+
+
 class ObservationDelta(StrictModel):
     kind: ObservationKind
     text: ShortText
@@ -75,6 +82,7 @@ class ObservationDelta(StrictModel):
     commitment: ProposedCommitment | None
     review_required: bool = False
     approach: ShortText | None = None
+    outcome: ProposedOutcome | None = None
 
 
 class RubricDelta(StrictModel):
@@ -118,6 +126,7 @@ class Observation(StrictModel):
     approach: ShortText | None = None
     reviewer_id: str | None = None
     reviewed_at: str | None = None
+    outcome: ProposedOutcome | None = None
 
 
 class ConversationStateV2(StrictModel):

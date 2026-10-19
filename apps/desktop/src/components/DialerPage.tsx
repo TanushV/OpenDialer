@@ -859,6 +859,24 @@ export function DialerPage() {
             <span className="eyebrow">LEAVE A CLEAR NEXT STEP</span>
             <h3>How did the conversation go?</h3>
           </div>
+          {call.suggested_outcome && (
+            <div>
+              <p>
+                Suggested outcome: {label(call.suggested_outcome.code)}.{" "}
+                {call.suggested_outcome.reason}
+              </p>
+              <button
+                className="secondary"
+                onClick={() => {
+                  setOutcome(call.suggested_outcome!.code);
+                  setContactRole(call.suggested_outcome!.contact_role);
+                }}
+              >
+                Use suggested outcome
+              </button>
+              <small>Review the outcome and contact role before saving.</small>
+            </div>
+          )}
           <label>
             Disposition
             <select
@@ -877,7 +895,9 @@ export function DialerPage() {
                 "ivr",
                 "voicemail",
                 "no_answer",
+                "busy",
                 "wrong_party",
+                "invalid_endpoint",
                 "not_interested",
                 "opt_out",
                 "temporary_failure",

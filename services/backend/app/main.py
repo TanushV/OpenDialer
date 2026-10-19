@@ -30,6 +30,7 @@ from app.db import Database, Event, audit, doc, put, rows, update
 from app.measurement import WorkEdit
 from app.providers.telnyx import verify_webhook
 from app.rep_workflows import MeetingEdit, OutreachEdit, TaskEdit
+from app.scheduling.models import ContactRole, OutcomeCode
 from app.security import DUMMY_HASH, PASSWORDS, admin, decode_session, issue_session
 from app.service import dt, fail
 from app.telephony.callbacks import CallbackRoutingEdit
@@ -139,26 +140,8 @@ class NoteEdit(Strict):
 
 class Disposition(Strict):
     request_id: UUID | None = None
-    contact_role: Literal["right_party", "gatekeeper", "wrong_party", "unknown"] = "unknown"
-    outcome: Literal[
-        "right_party",
-        "gatekeeper",
-        "wrong_party",
-        "voicemail",
-        "no_answer",
-        "busy",
-        "screening",
-        "ivr",
-        "callback_requested",
-        "meeting_booked",
-        "meeting_held",
-        "not_interested",
-        "opt_out",
-        "invalid_endpoint",
-        "temporary_failure",
-        "qualified_conversation",
-        "sale_won",
-    ]
+    contact_role: ContactRole = "unknown"
+    outcome: OutcomeCode
     callback_at: AwareDatetime | None = None
     expected_version: int | None = Field(default=None, ge=1, strict=True)
     callback_note: str = Field(default="", max_length=1000)
@@ -453,12 +436,17 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.get("/v1/calls/{call_id}")
     def get_call(call_id: str, p=Depends(principal)):
+        from app.coaching.context import upgrade_state
+        from app.postcall.analysis import suggested_outcome
+        from app.postcall.rubrics import effective
+
         with db.transaction(False) as s:
             call = service.required(s, "call_attempts", call_id, p)
             if p["role"] == "rep" and call.data["rep_id"] != p["user_id"]:
                 fail(404, "Object not found")
             state = service._by_key(s, p, "conversation_states", call_id)
             state = state.data if state else {}
+            derived = upgrade_state(state, call_id=call_id, rubric=effective(call.data))
             coach = service.visible_help(s, p, call, state)
             segments = service.transcript_rows(s, p, call_id)
             return {
@@ -467,6 +455,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 "raw_evidence_status": service.raw_status(call, segments),
                 "coach": coach,
                 "conversation_state": state,
+                "rundown_status": derived["finalization"]["status"],
+                "suggested_outcome": suggested_outcome(derived),
             }
 
     @app.post("/v1/calls/{call_id}/hangup")

@@ -195,6 +195,20 @@ def test_manual_wrapup_preserves_source_identity_and_never_adds_an_ambiguous_thi
         assert response.json()["canonical_task_id"] == task_id
         with service.db.transaction(False) as s:
             assert service.required(s, "followup_tasks", task_id, who).external_key == key
+        repeated = c.post(
+            f"/v1/calls/{call['id']}/disposition",
+            headers=h,
+            json=disposition_body(
+                c,
+                h,
+                call["id"],
+                outcome="callback_requested",
+                callback_at=(clock() + timedelta(days=1)).isoformat(),
+                callback_note="The rep clarified the follow-up purpose.",
+            ),
+        )
+        assert repeated.status_code == 200, repeated.text
+        assert repeated.json()["canonical_task_id"] == task_id and len(tasks(workspace, call)) == 1
         changed = c.post(
             f"/v1/calls/{call['id']}/disposition",
             headers=h,
@@ -244,6 +258,7 @@ def test_continuity_refresh_coalesces_and_retains_running_owner(workspace, app):
         assert len(jobs) == 1
         identity = jobs[0].id
         assert jobs[0].payload["kind"] == "packet_refresh"
+        assert service.preparation_status_in(s, who)[0]["queued"] == 1
     claimed = service.jobs.claim("scripts", "original-worker", tenant_id=who["tenant_id"])
     assert claimed["id"] == identity
     with service.db.transaction() as s:

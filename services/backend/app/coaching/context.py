@@ -769,6 +769,7 @@ def merge_semantic_state(
             depth = 1
         material = (
             item["kind"] in {"commitment", "approach"}
+            or item.get("outcome") is not None
             or item["state"] in {"resolved", "retracted"}
             or depth == 8
             or item["review_required"]
@@ -779,6 +780,8 @@ def merge_semantic_state(
         ):
             status = "open"
         commitment = None
+        if item.get("outcome") and item["kind"] != "signal":
+            raise CardRejected("An outcome suggestion belongs to a source-linked signal")
         if item["commitment"]:
             from app.postcall.dates import resolve_time
 
@@ -808,6 +811,7 @@ def merge_semantic_state(
             lineage_depth=depth,
             commitment=commitment,
             approach=item.get("approach"),
+            outcome=item.get("outcome"),
         )
         if not material:
             for old in replacement:

@@ -1,34 +1,72 @@
 import { expect, test } from "@playwright/test";
 import { prepareSimulationCall } from "./simulation";
 
-test("a suggested outcome requires a rep choice and keeps the rep's note and contact role", async ({ page }) => {
+test("a suggested outcome requires a rep choice and keeps the rep's note and contact role", async ({
+  page,
+}) => {
   await page.goto("/");
   await expect(page.getByText("Opening your workspace…")).toBeHidden();
-  if (await page.getByRole("button", { name: "Try a simulated workspace" }).isVisible())
-    await page.getByRole("button", { name: "Try a simulated workspace" }).click();
-  await prepareSimulationCall(page, "Suggested outcome fixture", "+14155550178");
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await prepareSimulationCall(
+    page,
+    "Suggested outcome fixture",
+    "+14155550178",
+  );
   await page.route("**/v1/calls/*", async (route) => {
-    if (route.request().method() !== "GET" || !/\/v1\/calls\/[^/]+$/.test(route.request().url())) return route.continue();
+    if (
+      route.request().method() !== "GET" ||
+      !/\/v1\/calls\/[^/]+$/.test(route.request().url())
+    )
+      return route.continue();
     const response = await route.fetch();
     const call = await response.json();
-    await route.fulfill({ response, json: { ...call, rundown_status: "partial", suggested_outcome: {
-      code: "not_interested", contact_role: "unknown", reason: "The contact declined further discussion.",
-      source_observation_id: "synthetic-signal", review_receipt_id: "synthetic-review"
-    } } });
+    await route.fulfill({
+      response,
+      json: {
+        ...call,
+        rundown_status: "partial",
+        suggested_outcome: {
+          code: "not_interested",
+          contact_role: "unknown",
+          reason: "The contact declined further discussion.",
+          source_observation_id: "synthetic-signal",
+          review_receipt_id: "synthetic-review",
+        },
+      },
+    });
   });
-  await page.getByRole("button", { name: "Get next lead", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Get next lead", exact: true })
+    .click();
   await page.getByRole("button", { name: "Start call", exact: true }).click();
   await page.getByRole("button", { name: "Hang up", exact: true }).click();
   await expect(page.getByLabel("Disposition")).toHaveValue("right_party");
-  await page.getByRole("button", { name: "Use suggested outcome", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Use suggested outcome", exact: true })
+    .click();
   await expect(page.getByLabel("Disposition")).toHaveValue("not_interested");
   await page.getByLabel("Who did you speak with?").selectOption("gatekeeper");
-  await page.getByLabel("Wrap-up note").fill("The rep confirmed this was the office assistant.");
-  const saved = page.waitForResponse((r) => r.url().endsWith("/disposition") && r.request().method() === "POST");
+  await page
+    .getByLabel("Wrap-up note")
+    .fill("The rep confirmed this was the office assistant.");
+  const saved = page.waitForResponse(
+    (r) => r.url().endsWith("/disposition") && r.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Save outcome", exact: true }).click();
   const result = await saved;
   expect(result.status()).toBe(200);
-  expect(result.request().postDataJSON()).toMatchObject({ outcome: "not_interested", contact_role: "gatekeeper", callback_note: "The rep confirmed this was the office assistant." });
+  expect(result.request().postDataJSON()).toMatchObject({
+    outcome: "not_interested",
+    contact_role: "gatekeeper",
+    callback_note: "The rep confirmed this was the office assistant.",
+  });
 });
 
 for (const connected of [false, true]) {
@@ -103,7 +141,9 @@ for (const connected of [false, true]) {
       .getByRole("button", { name: "Snooze reminder", exact: true })
       .click();
     const result = await (await snoozed).json();
-    expect(Date.parse(result.due_at)).toBe(Date.parse(String(requests[0].due_at)));
+    expect(Date.parse(result.due_at)).toBe(
+      Date.parse(String(requests[0].due_at)),
+    );
     expect(result.snoozed_until).not.toBe(result.due_at);
     await page.reload();
     await page

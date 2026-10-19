@@ -130,6 +130,9 @@ async def test_outcome_suggestion_is_reviewed_with_its_contact_role_but_never_co
     analysis = service.analysis(p, call["id"])
     suggestion = analysis["notes"]["suggested_outcome"]
     assert bool(suggestion) == supported
+    current = workspace["client"].get(f"/v1/calls/{call['id']}", headers=workspace["headers"]).json()
+    assert current.get("suggested_outcome") == suggestion
+    assert current.get("rundown_status") == analysis["finalization"]["status"]
     assert not analysis["call"].get("outcome"), "Model interpretation is not a confirmed training label"
     with service.db.transaction(False) as s:
         assert not service.lead_records(s, p, "followup_tasks", call["lead_id"])

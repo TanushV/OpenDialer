@@ -1,40 +1,74 @@
 import { expect, test } from "@playwright/test";
 import { prepareSimulationCall } from "./simulation";
 
-test("leaving review prevents an in-flight refresh from reopening the old call", async ({ page }) => {
+test("leaving review prevents an in-flight refresh from reopening the old call", async ({
+  page,
+}) => {
   await page.goto("/");
   await expect(page.getByText("Opening your workspace…")).toBeHidden();
-  if (await page.getByRole("button", { name: "Try a simulated workspace" }).isVisible())
-    await page.getByRole("button", { name: "Try a simulated workspace" }).click();
-  await prepareSimulationCall(page, "Review navigation fixture", "+14155550179");
-  const reserved = page.waitForResponse((r) => r.url().endsWith("/v1/queue/next") && r.request().method() === "POST");
-  await page.getByRole("button", { name: "Get next lead", exact: true }).click();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await prepareSimulationCall(
+    page,
+    "Review navigation fixture",
+    "+14155550179",
+  );
+  const reserved = page.waitForResponse(
+    (r) =>
+      r.url().endsWith("/v1/queue/next") && r.request().method() === "POST",
+  );
+  await page
+    .getByRole("button", { name: "Get next lead", exact: true })
+    .click();
   const selected = await (await reserved).json();
-  const reviewCall = page.getByRole("button", { name: `Review call ${selected.lead.name}`, exact: true });
+  const reviewCall = page.getByRole("button", {
+    name: `Review call ${selected.lead.name}`,
+    exact: true,
+  });
   await page.getByRole("button", { name: "Start call", exact: true }).click();
   await page.getByRole("button", { name: "Hang up", exact: true }).click();
   await page.getByRole("button", { name: "Save outcome", exact: true }).click();
   await page.getByRole("button", { name: "Review", exact: true }).click();
   await reviewCall.click();
-  await page.getByLabel("Actual call purpose", { exact: true }).selectOption("follow_up");
-  await page.getByLabel("Reason for purpose correction", { exact: true }).fill("Rep corrected the conversation purpose.");
+  await page
+    .getByLabel("Actual call purpose", { exact: true })
+    .selectOption("follow_up");
+  await page
+    .getByLabel("Reason for purpose correction", { exact: true })
+    .fill("Rep corrected the conversation purpose.");
   let arrived!: () => void, release!: () => void;
-  const entered = new Promise<void>((resolve) => { arrived = resolve; });
-  const proceed = new Promise<void>((resolve) => { release = resolve; });
+  const entered = new Promise<void>((resolve) => {
+    arrived = resolve;
+  });
+  const proceed = new Promise<void>((resolve) => {
+    release = resolve;
+  });
   await page.route("**/v1/calls/*/analysis", async (route) => {
     const response = await route.fetch();
     arrived();
     await proceed;
     await route.fulfill({ response });
   });
-  await page.getByRole("button", { name: "Update call purpose", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Update call purpose", exact: true })
+    .click();
   await entered;
-  await page.getByRole("button", { name: "All conversations", exact: true }).click();
+  await page
+    .getByRole("button", { name: "All conversations", exact: true })
+    .click();
   const response = page.waitForResponse((r) => r.url().endsWith("/analysis"));
   release();
   await response;
   await expect(reviewCall).toBeVisible();
-  await expect(page.getByRole("region", { name: "Call purpose", exact: true })).toBeHidden();
+  await expect(
+    page.getByRole("region", { name: "Call purpose", exact: true }),
+  ).toBeHidden();
 });
 
 test("campaign scoring anchors persist and a rep can correct the call purpose", async ({

@@ -1,3 +1,26 @@
+from typing import Literal
+
+OutcomeCode = Literal[
+    "right_party",
+    "gatekeeper",
+    "wrong_party",
+    "voicemail",
+    "no_answer",
+    "busy",
+    "screening",
+    "ivr",
+    "callback_requested",
+    "meeting_booked",
+    "meeting_held",
+    "not_interested",
+    "opt_out",
+    "invalid_endpoint",
+    "temporary_failure",
+    "qualified_conversation",
+    "sale_won",
+]
+ContactRole = Literal["right_party", "gatekeeper", "wrong_party", "unknown"]
+
 HUMAN = {
     "right_party",
     "gatekeeper",

@@ -537,6 +537,23 @@ class RepWorkflows:
             outreach_hold=hold,
         )
 
+    def _callback_by_key(self, s, p, lead, key):
+        task = self._by_key(s, p, "followup_tasks", key)
+        if task:
+            return (
+                self.required(s, "followup_tasks", task.data["alias_of"], p)
+                if task.data.get("alias_of")
+                else task
+            )
+        return next(
+            (
+                t
+                for t in self.lead_records(s, p, "followup_tasks", lead.id)
+                if t.data.get("wrapup_key") == key
+            ),
+            None,
+        )
+
     def _callback_task(
         self,
         s,
@@ -552,7 +569,7 @@ class RepWorkflows:
         source="rep_reported",
         explicit_replacement=False,
     ):
-        task = self._by_key(s, p, "followup_tasks", key)
+        task = self._callback_by_key(s, p, lead, key)
         if not task and call_id and key == "wrapup-callback:" + call_id:
             inferred = [
                 t
@@ -564,6 +581,17 @@ class RepWorkflows:
             if len(inferred) == 1:
                 task = inferred[0]
                 update(task, wrapup_key=key)
+            elif len(inferred) > 1:
+                fail(
+                    409,
+                    {
+                        "code": "ambiguous_callbacks",
+                        "reasons": [
+                            "Review this call's existing follow-ups before confirming its callback outcome."
+                        ],
+                        "task_ids": [t.id for t in inferred],
+                    },
+                )
         values = {
             "lead_id": lead.id,
             "call_id": call_id,
@@ -895,7 +923,7 @@ class RepWorkflows:
                         note=canonical["callback_note"],
                     )
                 else:
-                    old_task = self._by_key(s, p, "followup_tasks", callback_key)
+                    old_task = self._callback_by_key(s, p, lead, callback_key)
                     if (
                         old_task
                         and old_task.data["status"] in ACTIVE_TASKS
@@ -961,6 +989,8 @@ class RepWorkflows:
                 None,
             )
             memory = self._by_key(s, p, "conversation_states", call.id)
+            from app.postcall.analysis import suggested_outcome
+
             result = {
                 **doc(call),
                 "edit_receipt": receipt,
@@ -968,6 +998,7 @@ class RepWorkflows:
                 "rundown_status": (
                     memory.data.get("finalization", {}).get("status", "pending") if memory else "pending"
                 ),
+                "suggested_outcome": suggested_outcome(memory.data if memory else {}),
             }
             phone = lead.data["phone"]
         if outcome in {"wrong_party", "invalid_endpoint", "opt_out"}:

@@ -112,6 +112,13 @@ export interface Coach {
 }
 export interface Call {
   rundown_status?: "pending" | "partial" | "ready" | "unavailable";
+  suggested_outcome?: {
+    code: string;
+    contact_role: "right_party" | "gatekeeper" | "wrong_party" | "unknown";
+    reason: string;
+    source_observation_id: string;
+    review_receipt_id: string;
+  } | null;
   lead_name?: string;
   lead_company?: string;
   rubric_snapshot?: { call_type: string; rubric_version: string };

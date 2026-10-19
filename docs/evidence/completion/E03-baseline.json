@@ -40,6 +40,21 @@
     },
     "current_view_authority": {
       "failed": 2
+    },
+    "source_identity": {
+      "failed": 2
+    },
+    "suggested_outcome_contract": {
+      "failed": 2
+    },
+    "ui_completion": {
+      "failed": 2
+    },
+    "read_view": {
+      "failed": 3
+    },
+    "review_status": {
+      "failed": 1
     }
   },
   "known_limitations": [
@@ -47,7 +62,8 @@
     "Two alias cases name missing migration contract; remaining failures are behavioral/API assertions.",
     "The choice supplement rejects an accidental green caused by an unsupported request field.",
     "Browser local failure demonstrates no replay after a committed response is lost; paired authority expansion also fails with the same missing identity/retry behavior.",
-    "Brief fixture now includes the actual frozen rubric; otherwise the shared reader correctly resets finalization to pending. Browser callback comparison now compares UTC instants, not equivalent ISO formatting. Neither change weakens the behavior assertion."
+    "Brief fixture now includes the actual frozen rubric; otherwise the shared reader correctly resets finalization to pending. Browser callback comparison now compares UTC instants, not equivalent ISO formatting. Neither change weakens the behavior assertion.",
+    "The first navigation fixture assumed its imported lead was selected; the corrected fixture captures the actual reservation and reproduces the late-refresh navigation race. The preliminary setup timeout is not behavioral red evidence."
   ],
   "raw_logs": {
     "E03-sqlite-baseline.txt": "80f57e88dd1b1c9c3ca20014b245c962e72acfc282af2c28ccd72f4f4698148b",
@@ -58,7 +74,12 @@
     "E03-postgres-baseline.txt": "5bd409cf61674647276ef9876b26cd76ac1ad5aca3ffc70c07b86c11bd4324ce",
     "E03-migration-red.txt": "b50ada85bf49a00d2d8d3dd10596e897809567d315b99bb2ba8dcd328612c8ed",
     "E03-human-continuity-red.txt": "96c3d58ce80934d45aa59ea70bababe2126b0ce8a05483a145c6baf1223249f9",
-    "E03-current-view-red.txt": "c57da97bd73aea8b065098a8e04d695b3c347a773f06a407e6b915a67cb8d431"
+    "E03-current-view-red.txt": "c57da97bd73aea8b065098a8e04d695b3c347a773f06a407e6b915a67cb8d431",
+    "E03-source-identity-red.txt": "f8e5431bce6d0bb5fe1c80992ad41ca72a65e321da9f8bf607c2c978c440e0a1",
+    "E03-ui-completion-red.txt": "dbba2e613be447287c485a18c306632ee4032d472ea15db27fa456a74662a895",
+    "E03-read-view-red.txt": "63eba8d52fb3fd5d1d703ca38c6b4dca23612e3a41d8a97da71d4d08b929063e",
+    "E03-review-status-red.txt": "0708de38fe6163566a63a0674218b80c93e526d810d57977cc8bb4bbd74ee47d",
+    "E03-suggestion-red.txt": "cdb2c93db1208a5115b86c7a3077b90c04ed87ba4d68cc23c582954a339355a5"
   },
   "tests": {
     "services/backend/tests/test_local_followthrough.py": "37a0e607345ea33f43f3de42110196d466f89badd1df5740cd5528419dcda7cc",

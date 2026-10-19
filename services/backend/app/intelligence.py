@@ -1487,6 +1487,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                                     "state",
                                     "approach",
                                     "commitment",
+                                    "outcome",
                                     "score",
                                     "status",
                                     "explanation",

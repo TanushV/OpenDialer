@@ -156,6 +156,7 @@ def overview(service, p):
                     item.get("kind") != "approach"
                     or item.get("state") in {"stale", "retracted"}
                     or item.get("epistemic_status") not in {"human_confirmed", "model_reviewed"}
+                    or item.get("review_status") != "reviewed"
                     or not item.get("observed_at")
                 ):
                     continue

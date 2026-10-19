@@ -151,6 +151,29 @@ def learning_observations(observations, lineage=None):
     ]
 
 
+def suggested_outcome(derived):
+    """A reviewed interpretation for a rep to accept; never an observed business label."""
+    items = [
+        i
+        for i in derived.get("observations", [])
+        if i.get("kind") == "signal"
+        and i.get("outcome")
+        and i.get("review_status") == "reviewed"
+        and i.get("state") not in {"stale", "retracted"}
+    ]
+    if not items:
+        return None
+    if len({(i["outcome"]["code"], i["outcome"]["contact_role"]) for i in items}) > 1:
+        return None  # Conflicting live interpretations require a rep decision.
+    item = items[-1]
+    return {
+        **item["outcome"],
+        "source_observation_id": item["id"],
+        "review_receipt_id": item["review_receipt_id"],
+        "reason": item["text"],
+    }
+
+
 def build_analysis(
     call_id, segments, *, outcome=None, transcript_version=1, derived=None, rubric=None, lineage=None
 ):
@@ -235,6 +258,7 @@ def build_analysis(
             "summary": "\n".join(item["text"] for item in visible("rundown_points"))[:2400]
             or "No model rundown is available. Review the recorded outcome and your notes.",
             "outcome": outcome or "unconfirmed",
+            "suggested_outcome": suggested_outcome(derived),
             "problems": visible("needs"),
             "objections": visible("objections"),
             "commitments": visible("commitments"),
