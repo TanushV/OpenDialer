@@ -1162,8 +1162,13 @@ class OptimizationWorkflows(ComparisonWorkflows):
         common_hash = hashlib.sha256(json.dumps(common, sort_keys=True, default=str).encode()).hexdigest()
 
         def fingerprint(lead):
+            # A different lead's priority may move or displace this allocation
+            # without changing this lead's inputs. Fingerprint the pure choice,
+            # before adding display predictions or publication metadata.
             return hashlib.sha256(
-                json.dumps([common_hash, lead], sort_keys=True, default=str).encode()
+                json.dumps(
+                    [common_hash, lead, selected.get(lead["id"])], sort_keys=True, default=str
+                ).encode()
             ).hexdigest()
 
         for offset in range(0, len(inputs["leads"]), 100):
