@@ -161,6 +161,129 @@ def test_comparison_report_after_goal_change_preserves_original_trial_definition
     assert report["comparisons"][0]["id"] == started.json()["id"]
 
 
+def test_report_uses_saved_forecast_with_its_own_freshness(workspace, app, clock, monkeypatch):
+    from test_projection_replay import project_pending
+
+    service, p = app.state.service, principal(workspace)
+    project_pending(service, p)
+
+    def no_planning(*args, **kwargs):
+        raise AssertionError("Report publication must not calculate the horizon")
+
+    monkeypatch.setattr(service, "forecast", no_planning)
+    pending = service.optimization_report(p)["forecast"]
+    assert pending["projection"]["status"] == "pending"
+    assert pending["capacity_shortfall"] is None and pending["regions"] == []
+    with service.db.transaction() as s:
+        campaign = service.scoped(s, "campaigns", p)[0]
+        put(
+            s,
+            "report_projections",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "campaign_id": campaign.id,
+                "source_revision": service.report_revision(s, p),
+                "as_of": clock.now.isoformat(),
+                "expires_at": (clock.now + timedelta(seconds=60)).isoformat(),
+                "report": {
+                    "regions": [],
+                    "capacity_shortfall": 3,
+                    "staffing_shortfall": 2,
+                    "number_shortfall": 1,
+                    "input_fingerprint": "synthetic-saved-forecast",
+                },
+            },
+            key=f"planning:{campaign.id}:configured",
+            now=clock.now,
+        )
+    saved = service.optimization_report(p)["forecast"]
+    assert saved["projection"]["status"] == "ready" and saved["capacity_shortfall"] == 3
+    clock.now += timedelta(seconds=61)
+    expired = service.optimization_report(p)["forecast"]
+    assert expired["projection"]["status"] == "stale"
+    assert expired["input_fingerprint"] == saved["input_fingerprint"]
+
+
+def test_report_decisions_follow_scoped_reservation_identities(workspace, app, clock):
+    from app.db import uid
+    from test_projection_replay import project_pending
+
+    service, p = app.state.service, principal(workspace)
+    own, other = [], []
+    with service.db.transaction() as s:
+        for i in range(36):
+            owner = p["user_id"] if i in (0, 20) else uid()
+            decision = put(
+                s,
+                "policy_decisions",
+                p["tenant_id"],
+                p["seller_id"],
+                {"rep_id": owner, "lead_id": "synthetic", "action": "control"},
+                now=clock.now + timedelta(microseconds=i),
+            )
+            put(
+                s,
+                "reservations",
+                p["tenant_id"],
+                p["seller_id"],
+                {"rep_id": owner, "policy_decision_id": decision.id, "status": "expired"},
+                now=clock.now + timedelta(microseconds=i),
+            )
+            (own if owner == p["user_id"] else other).append(decision.id)
+    project_pending(service, p)
+    admin = service.optimization_report(p)
+    assert len(admin["decisions"]) == 30
+    assert admin["detail_coverage"]["decisions_limited"] is True
+    rep = service.optimization_report({**p, "role": "rep"})
+    assert [d["id"] for d in rep["decisions"]] == own
+    assert not rep["detail_coverage"]["decisions_limited"]
+
+
+def test_report_uses_only_current_versioned_plans(workspace, app, clock):
+    from test_projection_replay import project_pending
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        leads = service.scoped(s, "leads", p)
+        for i, lead in enumerate(leads):
+            value = {
+                "lead_id": lead.id,
+                "status": "ready",
+                "source_lead_version": lead.version,
+                "selected": {"lead_id": lead.id, "at": clock.now.isoformat(), "reason": "fixture"},
+                "expires_at": (clock.now + timedelta(minutes=10)).isoformat(),
+            }
+            if i == 1:
+                value["source_lead_version"] -= 1
+            if i == 2:
+                value["expires_at"] = (clock.now - timedelta(seconds=1)).isoformat()
+            put(
+                s,
+                "scheduling_plans",
+                p["tenant_id"],
+                p["seller_id"],
+                value,
+                key="current:" + lead.id,
+                now=clock.now,
+            )
+            put(
+                s,
+                "scheduling_plans",
+                p["tenant_id"],
+                p["seller_id"],
+                value,
+                key="historical:" + lead.id,
+                now=clock.now + timedelta(seconds=1),
+            )
+        expected_id = leads[0].id
+    project_pending(service, p)
+    report = service.optimization_report(p)
+    assert [v["lead_id"] for v in report["future_slots"]] == [expected_id]
+    assert len(report["plans"]) == 3
+    assert report["detail_coverage"]["plans_inspected"] == 3
+
+
 def test_report_publication_reads_bucket_metrics_not_source_history(workspace, app, clock, monkeypatch):
     service, p = app.state.service, principal(workspace)
     call = start(workspace)
