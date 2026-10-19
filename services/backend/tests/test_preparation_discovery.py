@@ -492,3 +492,52 @@ async def test_failed_pages_preserve_good_sources_and_stay_within_total_fetch_ca
             bool([r for r in service.scoped(s, "research_facts", p) if r.data.get("domain") == domain])
             == home_useful
         )
+
+
+@pytest.mark.asyncio
+async def test_conflicting_company_facts_are_not_reused_or_recharged(workspace, app, monkeypatch):
+    from urllib.parse import urlsplit
+
+    service, p = app.state.service, principal(workspace)
+    monkeypatch.setattr(service.settings, "simulation", False)
+    domain, requests = "conflict.example.test", []
+
+    async def fetch(fetcher, url):
+        home = urlsplit(url).path in {"", "/"}
+        return {
+            "url": url,
+            "title": "Official",
+            "text": "Maintenance is available." if home else "Maintenance is discontinued.",
+            "links": [{"url": f"https://{domain}/services", "text": "Services"}] if home else [],
+        }
+
+    class Provider:
+        async def complete(self, prompt, context, schema):
+            requests.append(context)
+            if "fingerprint" in context:
+                return InferenceResult(review_response(context), {"cost": 0.001}, f"conflict-review-{len(requests)}")
+            return InferenceResult(
+                {
+                    "facts": [
+                        {
+                            "statement": "Maintenance is available.",
+                            "quote": "Maintenance is available.",
+                            "source_id": context["sources"][0]["id"],
+                            "stability": "time_sensitive",
+                            "conflicts": [context["sources"][1]["id"]],
+                        }
+                    ]
+                },
+                {"cost": 0.001},
+                f"conflict-extract-{len(requests)}",
+            )
+
+    monkeypatch.setattr(SafeFetcher, "fetch", fetch)
+    monkeypatch.setattr(service, "inference", lambda *args: Provider())
+    for _ in range(2):
+        await service.research_company(p, domain, {"domain": domain, "company": "Conflict"})
+    with service.db.transaction(False) as s:
+        facts = service.scoped(s, "research_facts", p)
+        assert len(facts) == 1 and facts[0].data["status"] == "needs_review"
+        assert facts[0].data["conflicts"]
+    assert len(requests) == 2, "Known unresolved research must not charge again for each lead"

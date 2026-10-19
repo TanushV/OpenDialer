@@ -1,5 +1,6 @@
 """Deferred output needs the same meaning check, without repeated paid reviews."""
 
+import asyncio
 import json
 from datetime import timedelta
 
@@ -10,9 +11,9 @@ from test_grounding_review import review_response
 from test_remediation_rep_workflow import p
 
 
-@pytest.mark.parametrize("verdict", ["NON_FACTUAL", "UNSUPPORTED", "timeout", "changed_lead"])
+@pytest.mark.parametrize("verdict", ["NON_FACTUAL", "UNSUPPORTED", "timeout", "changed_lead", "cancelled"])
 @pytest.mark.asyncio
-async def test_batch_review_is_complete_cached_and_budgeted(workspace, app, monkeypatch, verdict):
+async def test_batch_review_is_complete_cached_and_budgeted(workspace, app, monkeypatch, clock, verdict):
     c, h = workspace["client"], workspace["headers"]
     service = app.state.service
     lead = c.get("/v1/workspace", headers=h).json()["leads"][0]
@@ -52,6 +53,8 @@ async def test_batch_review_is_complete_cached_and_budgeted(workspace, app, monk
             reviews.append(context)
             if verdict == "timeout":
                 raise TimeoutError("Unknown paid effect")
+            if verdict == "cancelled":
+                raise asyncio.CancelledError()
             if verdict == "changed_lead":
                 from app.db import update
 
@@ -82,6 +85,11 @@ async def test_batch_review_is_complete_cached_and_budgeted(workspace, app, monk
         assert response.json()["published"] == []
         assert response.json()["pending_review_lead_ids"] == [lead["id"]]
     assert not reviews, "Reconciliation queues reviews; it cannot charge or monopolize the request"
+    if verdict == "cancelled":
+        with pytest.raises(asyncio.CancelledError):
+            await service.run_jobs(p(workspace)["tenant_id"], ["scripts"])
+        clock.now += timedelta(minutes=2)
+        service.jobs.recover_expired()
     await service.run_jobs(p(workspace)["tenant_id"], ["scripts"])
     response = c.post(f"/v1/admin/batches/{intent['id']}/reconcile", headers=h)
     assert response.json()["published"] == ([lead["id"]] if verdict == "NON_FACTUAL" else [])
@@ -95,7 +103,7 @@ async def test_batch_review_is_complete_cached_and_budgeted(workspace, app, monk
             if r.data.get("work_kind") == "grounding_review"
         ]
     assert len(usage) == 1
-    assert usage[0]["status"] == ("uncertain" if verdict == "timeout" else "settled")
+    assert usage[0]["status"] == ("uncertain" if verdict in {"timeout", "cancelled"} else "settled")
 
 
 @pytest.mark.parametrize("hours", [None, 23, 24])

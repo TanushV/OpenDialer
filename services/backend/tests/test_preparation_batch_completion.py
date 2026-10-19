@@ -313,3 +313,39 @@ def test_legacy_batch_receipt_can_settle_its_original_unbound_hold(deferred, wor
     with service.db.transaction(False) as s:
         hold = service.required(s, "usage_ledger", identity, principal)
         assert hold.data["object_id"] == deferred["intent"]["id"] and hold.data["cost_usd"] == 0.004
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("verdict", ["SUPPORTED", "CONTRADICTED"])
+async def test_deferred_template_paraphrase_queues_complete_review(
+    deferred, workspace, app, monkeypatch, verdict
+):
+    from app.providers.inference import InferenceResult
+    from test_grounding_review import review_response
+
+    reviewed = []
+    deferred["candidate"]["slots"]["relevance"] = {
+        "text": "Maintenance is offered by this company.",
+        "fact_ids": [deferred["fact_id"]],
+    }
+
+    class Reviewer:
+        async def complete(self, instructions, context, schema):
+            reviewed.append(context)
+            assert {f["field"] for f in context["fields"]} == {"opener"}
+            return InferenceResult(
+                review_response(context, verdict=verdict), {"cost": 0.002}, "novel-slot-review"
+            )
+
+    monkeypatch.setattr(app.state.service, "inference", lambda *args: Reviewer())
+    result = deferred["finish"]().json()
+    assert result["published"] == []
+    assert result["pending_review_lead_ids"] == [deferred["lead_id"]]
+    assert not reviewed
+    await app.state.service.run_jobs(p(workspace)["tenant_id"], ["scripts"])
+    result = deferred["finish"]().json()
+    assert result["published"] == ([deferred["lead_id"]] if verdict == "SUPPORTED" else [])
+    assert len(reviewed) == 1
+    if verdict == "SUPPORTED":
+        packet = app.state.service.packet(p(workspace), deferred["lead_id"])
+        assert "Maintenance is offered by this company." in packet["script"]["opener"]

@@ -834,3 +834,74 @@ async def test_hundred_lead_preparation_keeps_health_responsive(workspace, app, 
             service.required(s, "leads", identity, principal).data["preparation"]["status"] == "ready"
             for identity in ids
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("verdict", ["SUPPORTED", "CONTRADICTED"])
+async def test_template_personalization_uses_review_not_exact_wording(workspace, app, monkeypatch, verdict):
+    from test_grounding_review import review_response
+
+    configure(workspace)
+    service, lead_id = app.state.service, workspace["lead_ids"][0]
+    requests = []
+    novel = "This business is a fictional example used for testing."
+
+    class Provider:
+        async def complete(self, prompt, context, schema):
+            requests.append(context)
+            if "fingerprint" in context:
+                assert {f["field"] for f in context["fields"]} == {"opener"}
+                assert novel in context["fields"][0]["value"]
+                return InferenceResult(
+                    review_response(context, verdict=verdict), {"cost": 0.002}, "slot-review"
+                )
+            fact = context["facts"][0]
+            return InferenceResult(
+                {
+                    "lead_id": lead_id,
+                    "slots": {
+                        "relevance": {"text": novel, "fact_ids": [fact["fact_id"]]},
+                        "proof": {"text": "", "fact_ids": []},
+                    },
+                },
+                {"cost": 0.001},
+                "slot-generation",
+            )
+
+    monkeypatch.setattr(service, "inference", lambda *args: Provider())
+    if verdict == "SUPPORTED":
+        await service.prepare(p(workspace), [lead_id])
+    else:
+        with pytest.raises(RuntimeError):
+            await service.prepare(p(workspace), [lead_id])
+    assert len(requests) == 2, "Meaning review must decide novel personalization, not string equality"
+    packet = service.packet(p(workspace), lead_id)
+    assert (novel in packet["script"]["opener"]) is (verdict == "SUPPORTED")
+    assert packet["script"]["fallback"] is (verdict != "SUPPORTED")
+
+
+def test_explicit_free_preparation_survives_exhausted_optional_budget(workspace, app):
+    configure(workspace)
+    with app.state.service.db.transaction() as s:
+        for budget in app.state.service.scoped(s, "budgets", p(workspace)):
+            update(budget, daily_limit_usd=0, monthly_limit_usd=0)
+    result = workspace["client"].post(
+        "/v1/research/batches", headers=workspace["headers"], json={"lead_ids": workspace["lead_ids"]}
+    )
+    assert result.status_code == 200, result.text
+    assert result.json()["work_units"] > 0
+
+
+@pytest.mark.parametrize(
+    "instants",
+    [
+        ["2026-11-01T08:30:00+00:00", "2026-11-01T09:30:00+00:00"],
+        ["2027-03-14T09:30:00+00:00", "2027-03-14T10:30:00+00:00"],
+    ],
+)
+def test_preparation_dst_window_catchup_does_not_duplicate_jobs(workspace, app, clock, instants):
+    configure(workspace, preparation={"ahead_count": 2, "off_hours_start": 0, "off_hours_end": 4})
+    clock.now = datetime.fromisoformat(instants[0])
+    assert app.state.service.prepare_ahead(p(workspace))["queued"] == 2
+    clock.now = datetime.fromisoformat(instants[1])
+    assert app.state.service.prepare_ahead(p(workspace))["queued"] == 0
