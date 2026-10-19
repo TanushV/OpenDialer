@@ -455,3 +455,24 @@ def test_trial_projection_reads_original_cohort_and_later_correction(workspace, 
         update(get(s, "conversion_events", identity), retracted=True, retracted_at=clock.now.isoformat())
     project_pending(service, p)
     assert sum(a["conversions"] for a in read()["arms"].values()) == 0
+
+
+def test_trial_study_metadata_change_refreshes_enrolled_leads(workspace, app, clock):
+    service, p = app.state.service, principal(workspace)
+    previous = completed_report(workspace).json()
+    assert previous["trial"]["trial_model_id"] is None
+    with service.db.transaction() as s:
+        campaign = service.required(s, "campaigns", workspace["campaign_id"], p)
+        update(
+            campaign,
+            optimization_trial={
+                "model_id": "reviewed-test-model",
+                "starts_at": clock.now.isoformat(),
+                "ends_at": (clock.now + timedelta(days=1)).isoformat(),
+                "max_leads": 100,
+            },
+        )
+    current = completed_report(workspace).json()
+    assert current["trial"]["trial_model_id"] == "reviewed-test-model"
+    assert current["trial"]["epoch"] == previous["trial"]["epoch"]
+    assert sum(a["leads"] for a in current["trial"]["arms"].values()) == 3
