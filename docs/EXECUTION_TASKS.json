@@ -751,26 +751,26 @@
         "A49",
         "A54"
       ],
-      "checkpoint": "Initial scope326 passes/six failures. Four stale fixtures corrected without product edits; two interrupted agent recovery failures remain. Five new expired-effect and six SDK identity/control regressions are red.",
+      "checkpoint": "349 SQLite recovery checks,40 frontend units and five browser journeys passed; broad PostgreSQL is still running. Final indexed agent readers pass120 SQLite checks; matching PostgreSQL remains.",
       "implementation_todos": [
         {
           "id": "E10.contracts",
-          "status": "in-progress",
+          "status": "implemented-awaiting-final-verification",
           "work": "Record operation matrix, expired publication and actual SDK identity regression evidence before repairs"
         },
         {
           "id": "E10.ownership",
-          "status": "open",
+          "status": "implemented-awaiting-final-verification",
           "work": "Fence completion/failure by current unexpired lease; recover interrupted agents without another dial"
         },
         {
           "id": "E10.callbacks",
-          "status": "open",
+          "status": "implemented-awaiting-final-verification",
           "work": "Exact SDK identities, explicit inbound accept/mute/hangup, stale-session isolation and conflicting outbound prevention"
         },
         {
           "id": "E10.matrix",
-          "status": "open",
+          "status": "implemented-awaiting-final-verification",
           "work": "One machine-readable operation policy selects existing operation-specific handlers and retry boundaries"
         },
         {
@@ -819,6 +819,39 @@
         "A44",
         "A53",
         "A54"
+      ],
+      "checkpoint": "Baseline:8 failures,101 passes,two native receipt skips. New segment regressions:6 fail,one pass before implementation. No E11 production changes yet.",
+      "implementation_todos": [
+        {
+          "id": "E11.segments",
+          "status": "open",
+          "work": "Chained encrypted8MiB journal segments, bounded append, checkpoint and loss/corruption tests"
+        },
+        {
+          "id": "E11.effects",
+          "status": "open",
+          "work": "Typed intent/submission/receipt integration across all paid and customer-visible effects; safe stops retain access"
+        },
+        {
+          "id": "E11.restore",
+          "status": "open",
+          "work": "Missing-store effect/accounting recovery and protected backup checkpoints without replacing current state"
+        },
+        {
+          "id": "E11.migration",
+          "status": "open",
+          "work": "Resumable500-row raw sanitation and actual installed0.2.1 copy with allowed-data continuity"
+        },
+        {
+          "id": "E11.privacy",
+          "status": "open",
+          "work": "All raw boundaries, provider capability and frontend expiry/restart tests"
+        },
+        {
+          "id": "E11.acceptance",
+          "status": "open",
+          "work": "Both database scopes, copied-store recovery, receipt/todo updates; native delivery remainsE14"
+        }
       ]
     },
     {
