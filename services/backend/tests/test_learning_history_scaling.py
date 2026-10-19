@@ -72,6 +72,51 @@ def test_cohort_report_does_not_compare_each_assignment_with_unrelated_events(cl
     assert CountedIdentity.comparisons <= 800 * 8, CountedIdentity.comparisons
 
 
+def test_new_comparison_assignment_does_not_read_assignment_history(workspace, app, clock, monkeypatch):
+    from app.db import put, update
+    from test_context_reads import count_decrypted
+    from test_remediation_privacy import principal
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        campaign = service.required(s, "campaigns", workspace["campaign_id"], p)
+        leads = service.scoped(s, "leads", p)
+        study = {
+            "id": "bounded-comparison",
+            "family": "coaching",
+            "population": [r.id for r in leads],
+            "ends_at": (clock.now + timedelta(days=1)).isoformat(),
+            "goal": "meeting_held",
+            "window_days": 14,
+        }
+        update(campaign, controlled_comparisons=[study])
+        for i in range(200):
+            put(
+                s,
+                "experiment_assignments",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    "comparison_id": study["id"],
+                    "family": "coaching",
+                    "rep_id": p["user_id"],
+                    "arm": "candidate" if i % 2 else "control",
+                    "lead_id": f"old-{i}",
+                },
+                key=study["id"] + f":old-{i}",
+                now=clock.now - timedelta(microseconds=200 - i),
+            )
+    seen = count_decrypted(app, monkeypatch)
+    with service.db.transaction() as s:
+        campaign = service.required(s, "campaigns", workspace["campaign_id"], p)
+        rows = service.scoped(s, "leads", p)
+        first = service.comparison_assignment(s, p, campaign, rows[0], "coaching", rep_id=p["user_id"])
+        second = service.comparison_assignment(s, p, campaign, rows[1], "coaching", rep_id=p["user_id"])
+    assert first["arm"] != second["arm"]
+    assert (first["propensity"], second["propensity"]) == (0.5, 1)
+    assert len(seen) < 25, "Assignment must count indexed metadata and read only the preceding arm"
+
+
 def test_training_keeps_call_specific_and_unassigned_events_separate(clock):
     calls, snapshots, events, _ = histories(clock, 2)
     calls[1]["lead_id"] = calls[0]["lead_id"]
