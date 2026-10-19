@@ -11,6 +11,7 @@ from sqlalchemy import or_, select
 from app.db import MODELS, Job, audit, doc, get, uid, update
 from app.service import dt, fail
 from app.telephony.recovery import CALL_COMMAND_KINDS, call_receipt
+from app.telephony.reducer import owns_effect
 
 UNFINISHED = {"pending", "sending", "uncertain", "reconciling", "review_required"}
 
@@ -300,6 +301,7 @@ class RecoveryActions:
             with self.db.transaction() as s:
                 self.db.authorize_stream(s, p)
                 leg = self.required(s, "call_legs", identity, p)
+                s.refresh(leg, with_for_update=True)
                 if leg.version != expected_version or leg.data.get("kind") != "agent":
                     fail(409, "Agent setup changed; refresh before continuing")
                 if leg.data.get("lease_until") and dt(leg.data["lease_until"]) > self.clock():
@@ -334,7 +336,8 @@ class RecoveryActions:
         def finish():
             with self.db.transaction() as s:
                 leg = self.required(s, "call_legs", identity, p)
-                if leg.data.get("lease_owner") != owner:
+                s.refresh(leg, with_for_update=True)
+                if not owns_effect(leg.data, owner, self.clock()):
                     return {"status": "unchanged"}
                 update(
                     leg,

@@ -9,7 +9,8 @@ from sqlalchemy import delete, select
 from app.compliance.policy import authorize
 from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, rows, uid, update
 from app.service import dt, fail
-from app.telephony.reducer import TERMINAL
+from app.telephony.recovery import safe_stop, within_command_window
+from app.telephony.reducer import TERMINAL, owns_effect
 
 KEYPAD_STATES = {"DIALING", "RINGING", "ANSWERED_UNCLASSIFIED", "HUMAN", "GATEKEEPER", "SCREENING", "IVR"}
 
@@ -311,15 +312,12 @@ class TelephonyWorkflows:
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             current = self.required(s, "command_outbox", command_id, p)
+            s.refresh(current, with_for_update=True)
             command = doc(current)
             if current.data["status"] != "pending":
                 return None
             sent = dt(current.data.get("sent_at"))
-            if (
-                sent
-                and not 0 <= (self.clock() - sent).total_seconds() < 45
-                and command["action"] not in {"hangup", "playback_stop", "transcription_stop", "record_stop"}
-            ):
+            if sent and not within_command_window(sent, self.clock()) and not safe_stop(command["action"]):
                 update(
                     current,
                     status="review_required",
@@ -352,7 +350,7 @@ class TelephonyWorkflows:
             if (
                 not inbound
                 and call.data["state"] in TERMINAL | {"ENDING"}
-                and command["action"] not in {"hangup", "playback_stop", "transcription_stop", "record_stop"}
+                and not safe_stop(command["action"])
             ):
                 update(current, status="cancelled", reason="CALL_NO_LONGER_ACTIVE")
                 return None
@@ -414,7 +412,8 @@ class TelephonyWorkflows:
         command, call_id, inbound, target, owner, provider_id = claimed
         with self.db.transaction() as s:
             current = self.required(s, "command_outbox", command["id"], p)
-            if current.data.get("lease_owner") != owner:
+            s.refresh(current, with_for_update=True)
+            if current.data["status"] != "sending" or not owns_effect(current.data, owner, self.clock()):
                 return
             if error is not None:
                 update(
@@ -538,7 +537,8 @@ class TelephonyWorkflows:
     def _agent_failed(self, p, leg_id, owner):
         with self.db.transaction() as s:
             current = self.required(s, "call_legs", leg_id, p)
-            if current.data["state"] == "submitting" and current.data.get("lease_owner") == owner:
+            s.refresh(current, with_for_update=True)
+            if current.data["state"] == "submitting" and owns_effect(current.data, owner, self.clock()):
                 update(current, state="uncertain", lease_owner=None, lease_until=None)
             if current.data.get("provider_id"):
                 return {"agent_call_control_id": current.data["provider_id"]}
@@ -546,10 +546,16 @@ class TelephonyWorkflows:
     def _agent_completed(self, p, leg_id, owner, receipt):
         with self.db.transaction() as s:
             current = self.required(s, "call_legs", leg_id, p)
-            if current.data.get("lease_owner") not in {owner, None}:
-                fail(409, "Agent reconciliation owns the result; refresh its current status")
+            s.refresh(current, with_for_update=True)
             if current.data.get("provider_id") not in {None, receipt["call_control_id"]}:
                 fail(409, "Carrier returned a conflicting agent leg reference")
+            # Signed events can establish or end the leg before the HTTP response.
+            if current.data.get("provider_id") == receipt["call_control_id"] and not current.data.get(
+                "lease_owner"
+            ):
+                return {"agent_call_control_id": receipt["call_control_id"]}
+            if current.data["state"] != "submitting" or not owns_effect(current.data, owner, self.clock()):
+                fail(409, "Agent reconciliation owns the result; refresh its current status")
             update(
                 current,
                 provider_id=receipt["call_control_id"],

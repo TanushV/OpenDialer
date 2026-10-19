@@ -1,3 +1,5 @@
+from datetime import datetime
+
 TERMINAL = {"ENDED", "FINALIZED", "BUSY", "NO_ANSWER", "TEMPORARY_FAILURE", "INVALID_ENDPOINT"}
 ORDER = {
     v: i
@@ -24,6 +26,15 @@ ORDER = {
         ]
     )
 }
+
+
+def owns_effect(data, owner, now):
+    """A response cannot publish after its exclusive execution lease expired."""
+    try:
+        expiry = datetime.fromisoformat(data.get("lease_until") or "")
+        return bool(owner and data.get("lease_owner") == owner and expiry > now)
+    except (ValueError, TypeError):
+        return False
 
 
 def reduce_state(state, event):

@@ -22,7 +22,7 @@ from app.providers.simulated import SimulatedCarrier
 from app.providers.telnyx import TelnyxCarrier
 from app.scheduling.queue import ReservationPlanner
 from app.security import PASSWORDS, Vault, issue_session
-from app.telephony.reducer import TERMINAL, reduce_state
+from app.telephony.reducer import TERMINAL, owns_effect, reduce_state
 
 
 def dt(value):
@@ -864,8 +864,9 @@ class Service(ReservationPlanner):
     def _dial_failed(self, p, call_id, command_id, owner, exc):
         with self.db.transaction() as s:
             command = self.required(s, "command_outbox", command_id, p)
+            s.refresh(command, with_for_update=True)
             call = self.required(s, "call_attempts", call_id, p)
-            if command.data.get("lease_owner") == owner and command.data["status"] == "sending":
+            if owns_effect(command.data, owner, self.clock()) and command.data["status"] == "sending":
                 rejected = isinstance(exc, httpx.HTTPStatusError) and 400 <= exc.response.status_code < 500
                 update(
                     command,
@@ -887,8 +888,9 @@ class Service(ReservationPlanner):
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
             current = self.required(s, "command_outbox", command_id, p)
+            s.refresh(current, with_for_update=True)
             if current.data["status"] != "completed":
-                if current.data.get("lease_owner") != owner:
+                if current.data["status"] != "sending" or not owns_effect(current.data, owner, self.clock()):
                     return
                 self.bind_dial_receipt(s, p, call, receipt["call_control_id"])
             cancel = call.data["state"] not in TERMINAL and (
@@ -1024,7 +1026,8 @@ class Service(ReservationPlanner):
     def _hangup_completed(self, p, call_id, command_id, owner, error=None):
         with self.db.transaction() as s:
             current = self.required(s, "command_outbox", command_id, p)
-            if current.data.get("lease_owner") != owner:
+            s.refresh(current, with_for_update=True)
+            if current.data["status"] != "sending" or not owns_effect(current.data, owner, self.clock()):
                 return
             if error is not None:
                 update(current, status="uncertain", lease_owner=None, lease_until=None)

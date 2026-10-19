@@ -4,15 +4,117 @@ import asyncio
 import base64
 import json
 import logging
+from dataclasses import dataclass
 from datetime import timedelta
 
 from sqlalchemy import or_, select
 
 from app.db import MODELS, doc, emit, uid, update
 from app.service import dt, fail
-from app.telephony.reducer import TERMINAL, reduce_state
+from app.telephony.reducer import TERMINAL, owns_effect, reduce_state
 
 CALL_COMMAND_KINDS = {"dial", "hangup", "action"}
+# Conservative application window inside Telnyx's documented 60-second dedupe.
+COMMAND_RETRY_SECONDS = 45
+
+
+@dataclass(frozen=True)
+class OperationPolicy:
+    handler: str
+    repeat: str
+    uncertain_action: str
+    proof: str
+
+
+OPERATION_POLICIES = {
+    "dial": OperationPolicy(
+        "reconcile_command",
+        "original_command_window",
+        "verify_original_call",
+        "matching_leg_or_terminal_receipt",
+    ),
+    "agent": OperationPolicy(
+        "reconcile_agent",
+        "original_command_window",
+        "verify_original_agent",
+        "matching_agent_or_terminal_receipt",
+    ),
+    **{
+        name: OperationPolicy(
+            "reconcile_command",
+            "original_command_window",
+            "verify_original_operation",
+            "matching_operation_event_or_typed_acknowledgement",
+        )
+        for name in (
+            "answer",
+            "bridge",
+            "transfer",
+            "transcription_start",
+            "playback_start",
+            "gather",
+            "speak",
+            "send_dtmf",
+        )
+    },
+    **{
+        name: OperationPolicy(
+            "reconcile_command", "safe_stop", "stop_verified_original_leg", "stopped_or_terminal_receipt"
+        )
+        for name in ("hangup", "transcription_stop", "playback_stop", "record_stop")
+    },
+    "number_configure": OperationPolicy(
+        "reconcile_number_configuration",
+        "verified_idempotent_configuration",
+        "read_original_number_route",
+        "exact_identity_connection_and_recording_state",
+    ),
+    "number_purchase": OperationPolicy(
+        "reconcile_number_order", "never", "read_original_order", "original_partial_or_terminal_items"
+    ),
+    "dnc_screen": OperationPolicy(
+        "compliance.screening.execute",
+        "explicit_charge_acknowledgement",
+        "review_original_lookup_liability",
+        "exact_endpoint_source_and_attempt_response",
+    ),
+    "deferred_scripts": OperationPolicy(
+        "preparation.batch_recovery.claim_recovery",
+        "explicit_missing_objects",
+        "read_original_batch",
+        "original_input_digest_and_source_current_results",
+    ),
+    "inference": OperationPolicy(
+        "run_jobs",
+        "current_budget_and_live_sources",
+        "retain_original_uncertain_usage",
+        "matching_request_usage_receipt",
+    ),
+    "review": OperationPolicy(
+        "run_jobs",
+        "current_budget_and_live_sources",
+        "retain_original_uncertain_usage",
+        "matching_review_fingerprint_and_usage_receipt",
+    ),
+    "local_task": OperationPolicy(
+        "edit_task", "identical_request_digest", "read_committed_edit_receipt", "committed_task_and_version"
+    ),
+    "local_outcome": OperationPolicy(
+        "save_disposition",
+        "identical_request_digest",
+        "read_committed_edit_receipt",
+        "committed_outcome_and_version",
+    ),
+}
+
+
+def safe_stop(operation):
+    policy = OPERATION_POLICIES.get(operation)
+    return bool(policy and policy.repeat == "safe_stop")
+
+
+def within_command_window(sent, now):
+    return bool(sent and 0 <= (now - sent).total_seconds() < COMMAND_RETRY_SECONDS)
 
 
 def call_receipt(receipt, provider_id, *, simulation=False):
@@ -37,6 +139,7 @@ class CommandRecovery:
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             command = self.required(s, "command_outbox", command_id, p)
+            s.refresh(command, with_for_update=True)
             if command.data.get("kind") not in CALL_COMMAND_KINDS:
                 fail(409, "Use this operation's own recovery workflow; it is not a call command")
             if expected_version is not None and command.version != expected_version:
@@ -70,7 +173,8 @@ class CommandRecovery:
         command_data, call_data, target, owner, previously_known = claimed
         with self.db.transaction() as s:
             command = self.required(s, "command_outbox", command_data["id"], p)
-            if command.data.get("lease_owner") != owner:
+            s.refresh(command, with_for_update=True)
+            if command.data["status"] != "reconciling" or not owns_effect(command.data, owner, self.clock()):
                 return doc(command)
             call = self.required(
                 s, "followup_tasks" if command.data.get("inbound") else "call_attempts", call_data["id"], p
@@ -127,14 +231,9 @@ class CommandRecovery:
                 )
             else:
                 sent = dt(command.data.get("sent_at"))
-                retryable = bool(sent and 0 <= (self.clock() - sent).total_seconds() < 45)
+                retryable = within_command_window(sent, self.clock())
                 # Stopping an existing leg is safe; starting another effect needs the original dedupe window.
-                stop = kind == "hangup" or action in {
-                    "hangup",
-                    "transcription_stop",
-                    "playback_stop",
-                    "record_stop",
-                }
+                stop = safe_stop(action if kind == "action" else kind)
                 update(
                     command,
                     **changes,
@@ -240,6 +339,41 @@ class CommandRecovery:
                 return
             self.finish_call(s, p, call, "provider_terminal_reconciliation")
 
+    def _expired_agents(self, p):
+        """Keep an interrupted setup actionable without placing another carrier dial."""
+        with self.db.transaction() as s:
+            model = MODELS["call_legs"]
+            pending = s.scalars(
+                select(model)
+                .where(
+                    model.tenant_id == p["tenant_id"],
+                    model.seller_id == p["seller_id"],
+                    model.op_status.in_(["submitting", "uncertain"]),
+                    or_(model.op_due_at.is_(None), model.op_due_at <= self.clock()),
+                )
+                .order_by(model.op_due_at.asc().nullsfirst(), model.id)
+                .limit(25)
+                .with_for_update(skip_locked=True)
+            )
+            known = []
+            for leg in pending:
+                if leg.data.get("kind") != "agent":
+                    continue
+                expiry = dt(leg.data.get("lease_until"))
+                if expiry and expiry > self.clock():
+                    continue
+                update(
+                    leg,
+                    state="uncertain",
+                    lease_owner=None,
+                    lease_until=None,
+                    next_attempt_at=(self.clock() + timedelta(seconds=60)).isoformat(),
+                    recovery_reason="Verify the original carrier agent reference; do not create another leg",
+                )
+                if leg.data.get("provider_id"):
+                    known.append(doc(leg))
+            return known
+
     async def recover(self, p):
         await asyncio.to_thread(self.jobs.recover_expired)
         await self.reconcile_inbound(p)
@@ -273,6 +407,11 @@ class CommandRecovery:
                     )
 
         await asyncio.gather(*(check_configuration(command) for command in configurations))
+        for leg in await asyncio.to_thread(self._expired_agents, p):
+            try:
+                await self.reconcile_agent(p, leg["id"], leg["version"])
+            except Exception as exc:
+                logging.getLogger(__name__).warning("Agent reconciliation deferred: %s", type(exc).__name__)
         for call in calls:
             if call["state"] == "ENDING" and call.get("provider_id"):
                 receipt = None
