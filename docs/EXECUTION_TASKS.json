@@ -4190,7 +4190,8 @@
         "services/backend/tests/test_coach_admission.py::test_timeout_ignoring_provider_cannot_return_late_advice",
         "services/backend/tests/test_coach_admission.py::test_breaker_is_scoped_to_the_affected_seller_route",
         "services/backend/tests/test_coach_admission.py::test_cancel_resistant_work_still_counts_against_capacity",
-        "services/backend/tests/test_coach_admission.py::test_one_rep_cannot_fill_the_shared_queue_with_practice_requests"
+        "services/backend/tests/test_coach_admission.py::test_one_rep_cannot_fill_the_shared_queue_with_practice_requests",
+        "services/backend/tests/test_coach_admission.py::test_optional_review_holds_the_original_live_capacity_slot"
       ]
     },
     {
@@ -4243,7 +4244,13 @@
         "services/backend/tests/test_live_claim_review.py::test_changed_sources_during_review_cannot_publish_but_both_requests_are_settled",
         "services/backend/tests/test_live_claim_review.py::test_early_factual_stream_is_not_displayed_before_meaning_review",
         "services/backend/tests/test_live_claim_review.py::test_cancelled_review_retains_its_uncertain_cost_and_generation_receipt",
-        "services/backend/tests/test_live_claim_review.py::test_complete_field_audit"
+        "services/backend/tests/test_live_claim_review.py::test_complete_field_audit",
+        "services/backend/tests/test_openrouter_coach.py::test_independent_live_review_pins_same_route_and_records_its_own_receipt",
+        "services/backend/tests/test_openrouter_coach.py::test_openrouter_pins_cerebras_requires_schema_and_retains_actual_receipt",
+        "services/backend/tests/test_openrouter_coach.py::test_wrong_provider_truncation_refusal_and_invalid_json_are_failures",
+        "services/backend/tests/test_openrouter_coach.py::test_rate_limit_does_not_retry_or_switch_provider",
+        "services/backend/tests/test_openrouter_coach.py::test_model_and_provider_settings_are_secure_and_do_not_erase_other_provider_keys",
+        "services/backend/tests/test_openrouter_coach.py::test_reused_adapter_does_not_attribute_the_previous_receipt_to_a_failed_attempt"
       ]
     },
     {
@@ -5192,7 +5199,12 @@
       "red_receipts": [],
       "green_receipts": [],
       "actual_nodes": [
-        "services/backend/tests/test_capability_consistency.py::test_configured_vs_verified_capabilities"
+        "services/backend/tests/test_capability_consistency.py::test_configured_vs_verified_capabilities",
+        "services/backend/tests/test_operating_validation.py::test_runtime_limits_have_one_validated_nested_configuration",
+        "services/backend/tests/test_operating_validation.py::test_invalid_runtime_limits_fail_startup",
+        "services/backend/tests/test_operating_validation.py::test_dnc_settings_validate_source_shape_before_saving",
+        "services/backend/tests/test_operating_validation.py::test_partial_privacy_update_uses_existing_evidence",
+        "services/backend/tests/test_operating_validation.py::test_legacy_operating_coach_setting_cannot_override_the_actual_provider"
       ]
     },
     {

@@ -11,6 +11,35 @@ FALLBACK = {"action": "NO_ACTION"}
 
 
 @pytest.mark.asyncio
+async def test_optional_review_holds_the_original_live_capacity_slot():
+    engine, reviewing, finish = CoachEngine(), asyncio.Event(), asyncio.Event()
+    engine.capacity = asyncio.Semaphore(1)
+    submitted = []
+
+    class Provider:
+        async def suggest(self, request, **kwargs):
+            submitted.append(request["id"])
+            return {"action": "SHOW_CARD"}
+
+    async def publish(result):
+        reviewing.set()
+        await finish.wait()
+        return result
+
+    task = asyncio.create_task(
+        engine.suggest("first", {"id": "first"}, Provider(), FALLBACK, deadline_ms=1000, publish=publish)
+    )
+    try:
+        await asyncio.wait_for(reviewing.wait(), 1)
+        other = await engine.suggest("other", {"id": "other"}, Provider(), FALLBACK, deadline_ms=30)
+        assert other.get("status") == "busy"
+        assert submitted == ["first"]
+    finally:
+        finish.set()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
 async def test_prospect_debounce_and_rate_limit(workspace, app, clock, monkeypatch):
     """C002: a final prospect turn must not wait behind the rep-only 8-second pace."""
     call, p, requests, _ = setup(workspace, app, monkeypatch)

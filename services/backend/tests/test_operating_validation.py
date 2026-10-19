@@ -3,6 +3,47 @@
 import pytest
 
 
+def test_runtime_limits_have_one_validated_nested_configuration(monkeypatch):
+    from app.config import Settings
+
+    defaults = Settings().runtime_limits
+    assert (defaults.live_active, defaults.live_pending, defaults.live_per_rep) == (8, 32, 2)
+    assert (defaults.prospect_debounce_ms, defaults.automatic_per_call_minute) == (300, 30)
+    assert (defaults.projection_batch, defaults.rebuild_batch) == (100, 500)
+    assert defaults.registry_lru_bytes == 16777216
+    monkeypatch.setenv("OPENDIALER_RUNTIME_LIMITS__LIVE_ACTIVE", "4")
+    assert Settings().runtime_limits.live_active == 4
+    with pytest.raises(ValueError):
+        defaults.live_active = 2
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"live_active": 0},
+        {"live_active": 33},
+        {"live_pending": 257},
+        {"prospect_debounce_ms": 501},
+        {"automatic_per_call_minute": 61},
+        {"manual_connect_ms": 3001, "manual_first_ms": 3000},
+        {"manual_first_ms": 8001, "manual_full_ms": 8000},
+        {"automatic_deadline_ms": 5001},
+        {"conversation_bytes": 262145},
+        {"research_pages": 4},
+        {"planning_operations": 200001},
+        {"projection_batch": 101},
+        {"rebuild_batch": 501},
+        {"registry_lru_bytes": 16777217},
+        {"invented_limit": 1},
+    ],
+)
+def test_invalid_runtime_limits_fail_startup(override):
+    from app.config import Settings
+
+    with pytest.raises(ValueError):
+        Settings(runtime_limits=override)
+
+
 @pytest.mark.parametrize(
     "change",
     [

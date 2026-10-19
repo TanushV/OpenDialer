@@ -6,6 +6,47 @@ from app.providers.inference import InferenceError
 from app.providers.openrouter import OpenRouterCoach
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("actual_provider", ["Cerebras", "Another provider"])
+async def test_independent_live_review_pins_same_route_and_records_its_own_receipt(actual_provider):
+    from app.grounding import review_request
+
+    request = review_request(
+        "guidance",
+        [{"field": "say_or_ask", "text": "A fact.", "evidence": ["k"]}],
+        [{"id": "k", "text": "A fact."}],
+    )
+    answer = {
+        "fingerprint": request["fingerprint"],
+        "verdicts": [{"field": "say_or_ask", "verdict": "SUPPORTED", "evidence": ["k"]}],
+    }
+    captured = []
+
+    def handler(sent):
+        captured.append(json.loads(sent.content))
+        return httpx.Response(200, json=completion(actual_provider, answer, id="review-123"))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        adapter = OpenRouterCoach("fixture", http=http)
+        if actual_provider == "Cerebras":
+            assert await adapter.review(request, deadline_ms=1200) == answer
+        else:
+            with pytest.raises(InferenceError):
+                await adapter.review(request, deadline_ms=1200)
+    body = captured[0]
+    assert body["provider"] == {
+        "only": ["cerebras"],
+        "order": ["cerebras"],
+        "allow_fallbacks": False,
+        "require_parameters": True,
+        "data_collection": "deny",
+        "zdr": True,
+    }
+    assert body["stream"] is False and "tools" not in body
+    assert body["response_format"]["json_schema"]["schema"]["required"] == ["fingerprint", "verdicts"]
+    assert adapter.last_request_id == "review-123" and adapter.last_usage["cost"] == 0.0001
+
+
 def completion(provider="Cerebras", content=None, **overrides):
     return {
         "id": "gen-123",
