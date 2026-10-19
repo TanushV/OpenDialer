@@ -282,7 +282,8 @@ class ReportProjections:
         if user.data.get("disabled"):
             fail(403, "Account is disabled")
         p = {**p, "role": "rep" if "rep" in (p["role"], user.data["role"]) else "admin"}
-        campaign = self.selected_campaign(s, p)
+        campaign = self.selected_campaign(s, p, epoch.split(":", 1)[0] if epoch else None)
+        p = {**p, "campaign_id": campaign.id}
         current = campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
         epoch = epoch or current
         if len(epoch) > 200:

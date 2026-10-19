@@ -1268,6 +1268,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 "seller_id": job["payload"].get("seller_id"),
                 "user_id": job["payload"].get("user_id"),
                 "role": "admin",
+                "campaign_id": job["payload"].get("campaign_id"),
             }
 
             async def heartbeat():

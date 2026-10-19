@@ -334,6 +334,7 @@ def delta_values(previous, current):
 def dirty_source_units(changed, session):
     """Source IDs only; the worker reads current authorized records after commit."""
     units = {}
+    campaigns = {}
     for row, previous in changed:
         table = row.__tablename__
         scope = (row.tenant_id, row.seller_id)
@@ -415,10 +416,27 @@ def dirty_source_units(changed, session):
                 ):
                     start = max(start, timestamp(previous.get("heartbeat_at")) or start) if start else None
             if start and end and end >= start:
-                day = start.date()
-                while day <= end.date():
-                    units[(*scope, "rep-day", value["rep_id"] + ":" + day.isoformat())] = False
-                    day += timedelta(days=1)
+                if scope not in campaigns:
+                    model = MODELS["campaigns"]
+                    campaigns[scope] = list(
+                        session.scalars(
+                            select(model.id)
+                            .where(
+                                model.tenant_id == scope[0],
+                                model.seller_id == scope[1],
+                            )
+                            .order_by(model.created_at, model.id)
+                        )
+                    )
+                for index, campaign_id in enumerate(campaigns[scope]):
+                    rep = (campaign_id + "|" if index else "") + value["rep_id"]
+                    if (end.date() - start.date()).days >= 100:
+                        units[(*scope, "rep-days", f"{rep}:{start.date()}:{end.date()}")] = False
+                        continue
+                    day = start.date()
+                    while day <= end.date():
+                        units[(*scope, "rep-day", rep + ":" + day.isoformat())] = False
+                        day += timedelta(days=1)
     return units
 
 
@@ -444,7 +462,7 @@ def enqueue_units(session, units):
         job = pending.get((tenant, key))
         payload = {
             "kind": "metric_dependents"
-            if kind in {"endpoint-leads", "lead-calls", "campaign-leads"}
+            if kind in {"endpoint-leads", "lead-calls", "campaign-leads", "rep-days"}
             else "metric_refresh",
             "seller_id": seller,
             "source_kind": kind,
@@ -557,7 +575,9 @@ def _unit_snapshot(service, p, payload):
                 .order_by(model.created_at)
                 .limit(1)
             )
-        campaign = service.selected_campaign(session, p, source_campaign)
+        campaign = service.selected_campaign(
+            session, {k: v for k, v in p.items() if k != "campaign_id"}, source_campaign
+        )
         config = service.optimization_config(session, p, campaign.id)
         definition = definition_version(
             config, campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
@@ -664,7 +684,7 @@ def _unit_snapshot(service, p, payload):
                 )
             ]
         elif kind == "rep-day":
-            rep, day = identity.rsplit(":", 1)
+            rep, day = identity.split("|", 1)[-1].rsplit(":", 1)
             start = datetime.fromisoformat(day).replace(tzinfo=UTC)
             end = start + timedelta(days=1)
             for relation, end_field, target in [
@@ -837,7 +857,7 @@ def _calculate_unit(snapshot, now):
     elif kind == "help" and row:
         values = help_values(row, snapshot["feedback"], now=now)
     elif kind == "rep-day":
-        rep, day = snapshot["identity"].rsplit(":", 1)
+        rep, day = snapshot["identity"].split("|", 1)[-1].rsplit(":", 1)
         values = rep_day_values(
             snapshot["intervals"],
             snapshot["calls"],
@@ -889,10 +909,18 @@ def _groups(snapshot, namespace):
         groups.append({"bucket_kind": "daily", "bucket_day": day})
     if kind == "rep-day":
         groups.append(
-            {"bucket_kind": "rep_total", "bucket_day": None, "rep_id": snapshot["identity"].rsplit(":", 1)[0]}
+            {
+                "bucket_kind": "rep_total",
+                "bucket_day": None,
+                "rep_id": snapshot["identity"].split("|", 1)[-1].rsplit(":", 1)[0],
+            }
         )
         groups.append(
-            {"bucket_kind": "rep", "bucket_day": day, "rep_id": snapshot["identity"].rsplit(":", 1)[0]}
+            {
+                "bucket_kind": "rep",
+                "bucket_day": day,
+                "rep_id": snapshot["identity"].split("|", 1)[-1].rsplit(":", 1)[0],
+            }
         )
     elif kind == "help" and row.get("rep_id"):
         groups.append({"bucket_kind": "rep_total", "bucket_day": None, "rep_id": row["rep_id"]})
@@ -1289,7 +1317,7 @@ def _apply_bucket_delta(service, session, p, group, delta, fields=()):
 
 def refresh_unit(service, p, payload):
     """Compute outside writes, then replace one source vector under a generation fence."""
-    if payload["source_kind"] in {"endpoint-leads", "lead-calls", "campaign-leads"}:
+    if payload["source_kind"] in {"endpoint-leads", "lead-calls", "campaign-leads", "rep-days"}:
         return expand_dependents(service, p, payload)
     snapshot = _unit_snapshot(service, p, payload)
     if not snapshot["namespaces"]:
@@ -1505,6 +1533,7 @@ def expand_dependents(service, p, payload):
         "endpoint-leads": ("leads", "op_endpoint_id", "lead"),
         "lead-calls": ("call_attempts", "op_lead_id", "call"),
         "campaign-leads": ("leads", "op_campaign_id", "lead"),
+        "rep-days": (None, None, "rep-day"),
     }[kind]
     key = f"projection:{p['seller_id']}:{kind}:{identity}"
     with service.db.transaction(False) as session:
@@ -1515,20 +1544,33 @@ def expand_dependents(service, p, payload):
         cursor = job.payload.get("cursor", "") if job.payload.get("cursor_generation") == generation else ""
         if job.payload.get("completed_generation") == generation:
             return {"status": "ready", "processed": 0}
-        model = MODELS[table]
-        ids = list(
-            session.scalars(
-                select(model.id)
-                .where(
-                    model.tenant_id == p["tenant_id"],
-                    model.seller_id == p["seller_id"],
-                    getattr(model, field) == identity,
-                    model.id > cursor,
-                )
-                .order_by(model.id)
-                .limit(100)
+        if kind == "rep-days":
+            rep, begin, finish = identity.rsplit(":", 2)
+            first_day = (
+                datetime.fromisoformat(cursor.rsplit(":", 1)[-1]).date() + timedelta(days=1)
+                if cursor
+                else datetime.fromisoformat(begin).date()
             )
-        )
+            last_day = datetime.fromisoformat(finish).date()
+            ids = [
+                rep + ":" + (first_day + timedelta(days=i)).isoformat()
+                for i in range(min(100, max(0, (last_day - first_day).days + 1)))
+            ]
+        else:
+            model = MODELS[table]
+            ids = list(
+                session.scalars(
+                    select(model.id)
+                    .where(
+                        model.tenant_id == p["tenant_id"],
+                        model.seller_id == p["seller_id"],
+                        getattr(model, field) == identity,
+                        model.id > cursor,
+                    )
+                    .order_by(model.id)
+                    .limit(100)
+                )
+            )
     with service.db.transaction() as session:
         # Source writers acquire these same keys in order. Parent-first would
         # invert that order for lead-calls expansion and a concurrent correction.
@@ -1570,7 +1612,11 @@ def expand_dependents(service, p, payload):
             "cursor": ids[-1] if ids else cursor,
             "completed_generation": generation if len(ids) < 100 else None,
         }
-    return {"status": "ready" if len(ids) < 100 else "pending", "processed": len(ids)}
+    return {
+        "status": "ready" if len(ids) < 100 else "pending",
+        "processed": len(ids),
+        "cursor": ids[-1] if ids else cursor,
+    }
 
 
 # Rebuild is explicit recovery work. Normal corrections use only dirty units.
@@ -1683,6 +1729,7 @@ def _rebuild_source_page(service, p, state, lease=None):
     table, kind = _REBUILD_SOURCES[cursor["phase"]]
     model = MODELS[table]
     with service.db.transaction(False) as session:
+        primary = service.selected_campaign(session, {k: v for k, v in p.items() if k != "campaign_id"}).id
         fields = [model.id, model.created_at]
         if kind == "rep-day":
             end = model.op_due_at if table == "work_intervals" else model.op_work_end_at
@@ -1708,7 +1755,10 @@ def _rebuild_source_page(service, p, state, lease=None):
                     p,
                     {
                         "source_kind": "rep-day",
-                        "source_id": rep + ":" + day.isoformat(),
+                        "source_id": (state["campaign_id"] + "|" if state["campaign_id"] != primary else "")
+                        + rep
+                        + ":"
+                        + day.isoformat(),
                         "target_namespace": state["namespace"],
                         "rebuild_lease": lease,
                     },

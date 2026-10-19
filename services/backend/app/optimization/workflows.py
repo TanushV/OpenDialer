@@ -254,12 +254,28 @@ class OptimizationWorkflows(ComparisonWorkflows):
             if identity in seen:
                 continue
             seen.add(identity)
-            self.jobs.enqueue(
-                "ml",
-                {"kind": "optimization_refresh", "seller_id": user["seller_id"], "user_id": user["id"]},
-                f"optimization-refresh:{user['seller_id']}:{slot}",
-                tenant_id=user["tenant_id"],
-            )
+            with self.db.transaction(False) as session:
+                model = MODELS["campaigns"]
+                campaigns = list(
+                    session.scalars(
+                        select(model.id).where(
+                            model.tenant_id == user["tenant_id"],
+                            model.seller_id == user["seller_id"],
+                        )
+                    )
+                )
+            for campaign_id in campaigns:
+                self.jobs.enqueue(
+                    "ml",
+                    {
+                        "kind": "optimization_refresh",
+                        "seller_id": user["seller_id"],
+                        "user_id": user["id"],
+                        "campaign_id": campaign_id,
+                    },
+                    f"optimization-refresh:{user['seller_id']}:{campaign_id}:{slot}",
+                    tenant_id=user["tenant_id"],
+                )
 
     def optimization_config(self, s, p, campaign_id=None):
         from app.optimization.api import HealthPolicy
