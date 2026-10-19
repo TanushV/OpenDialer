@@ -113,10 +113,11 @@ class Vault:
             ).encode()
         ).hexdigest()
 
-    def _scan_journal(self, name, *, collect):
+    def _scan_journal(self, name, *, collect, required=None):
         head = self._journal_head(name)
         state = {"sequence": 0, "hash": ZERO_HASH, "segment": 0, "bytes": 0}
         result, head_seen, chained = [], head is None or head.get("sequence") == 0, False
+        required_seen = required is None or required == {"sequence": 0, "hash": ZERO_HASH, "segment": 0}
         segments = sorted(self.directory.parent.glob(name + "-journal-*.enc"))
         for index, path in enumerate(segments + [self._journal_path(name)], 1):
             if path.is_symlink() or index <= len(segments) and path.name != f"{name}-journal-{index:08d}.enc":
@@ -150,11 +151,15 @@ class Vault:
                         if state["hash"] != head["hash"]:
                             raise ValueError("Journal checkpoint conflict")
                         head_seen = True
+                    if required and sequence == required.get("sequence"):
+                        if state["hash"] != required.get("hash"):
+                            raise ValueError("Backup journal checkpoint conflict")
+                        required_seen = True
                     if collect:
                         result.append(value)
             if index <= len(segments):
                 state["segment"], state["bytes"] = index, 0
-        if not head_seen:
+        if not head_seen or not required_seen:
             raise ValueError("Acknowledged journal records are missing")
         return result, state
 
@@ -223,6 +228,13 @@ class Vault:
                 return {k: state[k] for k in ("sequence", "hash", "segment")}
             except Exception:
                 raise HTTPException(409, "Journal checkpoint cannot be verified") from None
+
+    def verify_journal_checkpoint(self, name, checkpoint):
+        with self._locked_journal(name):
+            try:
+                self._scan_journal(name, collect=False, required=checkpoint)
+            except Exception:
+                raise HTTPException(409, "Backup journal checkpoint cannot be verified") from None
 
     def sync_journal(self, name):
         """Confirm repaired storage before releasing an earlier failed append hold."""

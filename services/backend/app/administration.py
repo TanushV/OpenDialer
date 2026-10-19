@@ -491,6 +491,10 @@ class Dialer(
         optional = {"work_intervals", *DERIVED_TABLES}
         if set(MODELS) - optional - payload.get("tables", {}).keys():
             fail(422, "Backup is missing required source tables")
+        for name, checkpoint in payload.get("journal_checkpoints", {}).items():
+            if name not in {"effects", "consent", "suppression"}:
+                fail(422, "Backup has an unknown journal checkpoint")
+            self.vault.verify_journal_checkpoint(name, checkpoint)
         events = suppression_entries(self)
         revoked = journal_entries(self)
         effects = self.effect_entries()

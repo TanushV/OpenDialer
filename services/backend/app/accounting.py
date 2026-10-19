@@ -144,6 +144,10 @@ class RequestAccounting:
             for entity in entry.get("entities", []):
                 key = (*scope, entity["table"], entity["id"])
                 old = latest.get(key, {})
+                if old and entity["external_key"] != old["external_key"]:
+                    raise HTTPException(409, "Effect journal contains conflicting request identities")
+                if old.get("version", 0) > entity["version"]:
+                    continue
                 latest[key] = {**entity, "data": {**old.get("data", {}), **entity["data"]}}
                 if entry.get("provider_id") and (
                     entry["kind"] == "dial"
@@ -152,6 +156,12 @@ class RequestAccounting:
                     and entity["table"] == "call_legs"
                 ):
                     latest[key]["data"]["provider_id"] = entry["provider_id"]
+                previous_provider = old.get("data", {}).get("provider_id")
+                current_provider = latest[key]["data"].get("provider_id")
+                if previous_provider and current_provider and current_provider != previous_provider:
+                    raise HTTPException(409, "Effect journal contains conflicting provider identities")
+                if previous_provider and not current_provider:
+                    latest[key]["data"]["provider_id"] = previous_provider
         recovered = 0
         for (tenant, seller_id, kind, identity), entity in latest.items():
             seller = get(s, "sellers", seller_id, tenant)
