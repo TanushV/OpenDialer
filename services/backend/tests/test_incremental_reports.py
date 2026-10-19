@@ -347,6 +347,9 @@ def test_drift_projection_corrects_and_expires_without_source_reads(workspace, a
     assert report["reference_rows"] == 1 and report["recent_rows"] == 2
     assert report["excluded_recent"] == 1
     assert report["stage_support"]["human"]["recent"] == 1
+    limited = projections.read_drift_metrics(service, p, limit=1)
+    assert limited["complete"] is False and limited["drift_detected"] is None
+    assert limited["reference_rows"] is None and limited["recent_rows"] is None
     with service.db.transaction() as session:
         update(get(session, "call_attempts", calls[1]), outcome="temporary_failure")
     project_pending(service, p)
