@@ -150,7 +150,7 @@ test("disconnect while microphone permission is pending cannot register later", 
   let release!: (value: any) => void;
   navigator.mediaDevices.getUserMedia = vi.fn(
     () =>
-      new Promise((resolve) => {
+      new Promise<MediaStream>((resolve) => {
         release = resolve;
       }),
   );

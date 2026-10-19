@@ -1,5 +1,6 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tauri::{Manager, State};
 use tauri_plugin_shell::{process::CommandChild, ShellExt};
 use uuid::Uuid;
@@ -16,6 +17,402 @@ struct BackendConfig {
 }
 #[derive(Default, Clone)]
 struct LocalBackend(Arc<Mutex<Option<Backend>>>);
+
+#[derive(Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct WebhookTunnelConfig {
+    enabled: bool,
+    host: String,
+    user: String,
+    remote_port: u16,
+}
+
+fn validate_tunnel(config: &WebhookTunnelConfig) -> Result<(), String> {
+    if !config.enabled && config.host.is_empty() && config.user.is_empty() {
+        return Ok(());
+    }
+    let host_ok = !config.host.is_empty()
+        && config.host.len() <= 253
+        && config.host.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && label.as_bytes()[0].is_ascii_alphanumeric()
+                && label.as_bytes()[label.len() - 1].is_ascii_alphanumeric()
+                && label
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || c == b'-')
+        });
+    let user_ok = !config.user.is_empty()
+        && config.user.len() <= 64
+        && config.user.as_bytes()[0].is_ascii_alphanumeric()
+        && config
+            .user
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"_-".contains(&c));
+    if !host_ok || !user_ok || config.remote_port < 1024 {
+        return Err("Use a hostname, SSH user and dedicated remote port 1024–65535".into());
+    }
+    Ok(())
+}
+
+fn webhook_ssh_args(config: &WebhookTunnelConfig, runtime: &str) -> Result<Vec<String>, String> {
+    validate_tunnel(config)?;
+    let url = url::Url::parse(runtime).map_err(|_| "Invalid managed local destination")?;
+    if !config.enabled
+        || url.scheme() != "http"
+        || url.host_str() != Some("127.0.0.1")
+        || url.port().is_none()
+        || url.path() != "/"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err("Forwarding requires the current managed loopback authority".into());
+    }
+    Ok(vec![
+        "-NT".into(),
+        "-o".into(),
+        "BatchMode=yes".into(),
+        "-o".into(),
+        "StrictHostKeyChecking=yes".into(),
+        "-o".into(),
+        "ExitOnForwardFailure=yes".into(),
+        "-o".into(),
+        "ServerAliveInterval=30".into(),
+        "-o".into(),
+        "ServerAliveCountMax=3".into(),
+        "-R".into(),
+        format!(
+            "127.0.0.1:{}:127.0.0.1:{}",
+            config.remote_port,
+            url.port().unwrap()
+        ),
+        format!("{}@{}", config.user, config.host),
+    ])
+}
+
+fn tunnel_retry_delay(attempt: usize) -> Duration {
+    Duration::from_secs([1, 2, 4, 8, 16, 30][attempt.min(5)])
+}
+
+#[derive(Debug)]
+struct OwnedWebhookTunnel {
+    child: Option<std::process::Child>,
+}
+impl OwnedWebhookTunnel {
+    fn new(child: std::process::Child) -> Self {
+        Self { child: Some(child) }
+    }
+    fn is_stopped(&self) -> bool {
+        self.child.is_none()
+    }
+    fn stop(&mut self) -> Result<(), String> {
+        if let Some(child) = self.child.as_mut() {
+            if child
+                .try_wait()
+                .map_err(|_| "Cannot inspect owned SSH child")?
+                .is_none()
+            {
+                child.kill().map_err(|_| "Cannot stop owned SSH child")?;
+            }
+            child.wait().map_err(|_| "Cannot reap owned SSH child")?;
+            self.child = None;
+        }
+        Ok(())
+    }
+}
+impl Drop for OwnedWebhookTunnel {
+    fn drop(&mut self) {
+        let _ = self.stop();
+    }
+}
+
+fn spawn_webhook_ssh(program: &str, args: &[String]) -> Result<OwnedWebhookTunnel, String> {
+    let mut command = std::process::Command::new(program);
+    command
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    command.spawn().map(OwnedWebhookTunnel::new).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            "ssh_missing"
+        } else {
+            "ssh_start_failed"
+        }
+        .into()
+    })
+}
+
+struct TunnelSupervisor {
+    stop: std::sync::mpsc::Sender<()>,
+    thread: Option<std::thread::JoinHandle<Result<(), String>>>,
+    status: Arc<Mutex<String>>,
+}
+impl TunnelSupervisor {
+    fn start(
+        mut spawn: impl FnMut() -> Result<OwnedWebhookTunnel, String> + Send + 'static,
+    ) -> Self {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let status = Arc::new(Mutex::new("starting".to_string()));
+        let reported = status.clone();
+        let thread = std::thread::spawn(move || {
+            let mut failures = 0;
+            loop {
+                if rx.try_recv().is_ok() {
+                    return Ok(());
+                }
+                match spawn() {
+                    Ok(mut owned) => {
+                        *reported.lock().map_err(|_| "Tunnel status unavailable")? =
+                            "running_unverified".into();
+                        let started = std::time::Instant::now();
+                        loop {
+                            if rx.recv_timeout(Duration::from_millis(100)).is_ok() {
+                                return owned.stop();
+                            }
+                            if owned
+                                .child
+                                .as_mut()
+                                .unwrap()
+                                .try_wait()
+                                .map_err(|_| "Cannot inspect SSH child")?
+                                .is_some()
+                            {
+                                owned.stop()?;
+                                break;
+                            }
+                        }
+                        if started.elapsed() >= Duration::from_secs(60) {
+                            failures = 0;
+                        }
+                        *reported.lock().map_err(|_| "Tunnel status unavailable")? =
+                            "host_or_forward_unavailable".into();
+                    }
+                    Err(reason) => {
+                        *reported.lock().map_err(|_| "Tunnel status unavailable")? = reason
+                    }
+                }
+                if rx.recv_timeout(tunnel_retry_delay(failures)).is_ok() {
+                    return Ok(());
+                }
+                failures = failures.saturating_add(1);
+            }
+        });
+        Self {
+            stop: tx,
+            thread: Some(thread),
+            status,
+        }
+    }
+    fn stop(&mut self) -> Result<(), String> {
+        let _ = self.stop.send(());
+        if let Some(thread) = self.thread.take() {
+            thread
+                .join()
+                .map_err(|_| "Tunnel supervisor interrupted")??;
+        }
+        Ok(())
+    }
+}
+impl Drop for TunnelSupervisor {
+    fn drop(&mut self) {
+        let _ = self.stop();
+    }
+}
+
+#[derive(Default, Clone)]
+struct WebhookTunnel(Arc<Mutex<Option<(String, TunnelSupervisor)>>>);
+impl WebhookTunnel {
+    fn stop(&self) -> Result<(), String> {
+        if let Some((_, mut task)) = self.0.lock().map_err(|_| "Tunnel unavailable")?.take() {
+            task.stop()?;
+        }
+        Ok(())
+    }
+}
+
+fn load_tunnel_config(path: &std::path::Path) -> Result<WebhookTunnelConfig, String> {
+    if !path.exists() {
+        return Ok(WebhookTunnelConfig {
+            remote_port: 18765,
+            ..Default::default()
+        });
+    }
+    if std::fs::metadata(path)
+        .map_err(|_| "Cannot read forwarding configuration")?
+        .len()
+        > 4096
+    {
+        return Err("Forwarding configuration exceeds its bound".into());
+    }
+    let config = serde_json::from_slice(
+        &std::fs::read(path).map_err(|_| "Cannot read forwarding configuration")?,
+    )
+    .map_err(|_| "Invalid forwarding configuration")?;
+    validate_tunnel(&config)?;
+    Ok(config)
+}
+
+fn save_tunnel_config(path: &std::path::Path, config: &WebhookTunnelConfig) -> Result<(), String> {
+    use std::io::Write;
+    validate_tunnel(config)?;
+    let parent = path.parent().ok_or("Invalid forwarding location")?;
+    std::fs::create_dir_all(parent).map_err(|_| "Cannot create forwarding configuration")?;
+    let temp = path.with_extension(format!("{}.tmp", Uuid::new_v4()));
+    let result = (|| {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options
+            .open(&temp)
+            .map_err(|_| "Cannot create forwarding configuration")?;
+        file.write_all(&serde_json::to_vec(config).map_err(|_| "Invalid configuration")?)
+            .map_err(|_| "Cannot write forwarding configuration")?;
+        file.sync_all()
+            .map_err(|_| "Cannot flush forwarding configuration")?;
+        std::fs::rename(&temp, path).map_err(|_| "Cannot publish forwarding configuration")?;
+        #[cfg(unix)]
+        std::fs::File::open(parent)
+            .and_then(|f| f.sync_all())
+            .map_err(|_| "Cannot flush forwarding directory")?;
+        Ok(())
+    })();
+    let _ = std::fs::remove_file(temp);
+    result
+}
+
+fn local_backend_healthy(runtime: &str) -> bool {
+    use std::io::{Read, Write};
+    let Ok(url) = url::Url::parse(runtime) else {
+        return false;
+    };
+    let Some(port) = url.port() else {
+        return false;
+    };
+    let timeout = Duration::from_millis(200);
+    let Ok(mut stream) = std::net::TcpStream::connect_timeout(
+        &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+        timeout,
+    ) else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(timeout));
+    let _ = stream.set_write_timeout(Some(timeout));
+    if stream
+        .write_all(b"GET /health HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
+        .is_err()
+    {
+        return false;
+    }
+    let mut result = [0; 32];
+    matches!(stream.read(&mut result), Ok(n) if n >= 12 && &result[9..12] == b"200")
+}
+
+fn sync_tunnel(app: &tauri::AppHandle, runtime: &BackendConfig) -> Result<(), String> {
+    let state = app.state::<WebhookTunnel>();
+    if runtime.simulation {
+        return state.stop();
+    }
+    let config = load_tunnel_config(
+        &app.path()
+            .app_data_dir()
+            .map_err(|_| "App data unavailable")?
+            .join("webhook-forward.json"),
+    )?;
+    if !config.enabled {
+        return state.stop();
+    }
+    let args = webhook_ssh_args(&config, &runtime.url)?;
+    let mut task = state.0.lock().map_err(|_| "Tunnel unavailable")?;
+    if task.as_ref().is_some_and(|(url, _)| url == &runtime.url) {
+        return Ok(());
+    }
+    if let Some((_, mut previous)) = task.take() {
+        previous.stop()?;
+    }
+    let url = runtime.url.clone();
+    #[cfg(target_os = "macos")]
+    let program = "/usr/bin/ssh".to_string();
+    #[cfg(windows)]
+    let program = std::path::PathBuf::from(
+        std::env::var_os("SystemRoot").ok_or("Windows system directory unavailable")?,
+    )
+    .join("System32/OpenSSH/ssh.exe")
+    .to_string_lossy()
+    .into_owned();
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let program = "ssh".to_string();
+    let supervisor = TunnelSupervisor::start(move || {
+        if !local_backend_healthy(&url) {
+            return Err("waiting_for_local_authority".into());
+        }
+        spawn_webhook_ssh(&program, &args)
+    });
+    *task = Some((runtime.url.clone(), supervisor));
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct TunnelView {
+    config: WebhookTunnelConfig,
+    state: String,
+}
+
+#[tauri::command]
+async fn webhook_tunnel_status(app: tauri::AppHandle) -> Result<TunnelView, String> {
+    secure_io(move || {
+        let config = load_tunnel_config(
+            &app.path()
+                .app_data_dir()
+                .map_err(|_| "App data unavailable")?
+                .join("webhook-forward.json"),
+        )?;
+        let tunnel = app.state::<WebhookTunnel>();
+        let owned = tunnel.0.lock().map_err(|_| "Tunnel unavailable")?;
+        let state = if let Some((_, task)) = owned.as_ref() {
+            task.status
+                .lock()
+                .map_err(|_| "Tunnel status unavailable")?
+                .clone()
+        } else if config.enabled {
+            "awaiting_local_authority".into()
+        } else {
+            "disabled".into()
+        };
+        Ok(TunnelView { config, state })
+    })
+    .await
+}
+
+#[tauri::command]
+async fn webhook_tunnel_set(
+    app: tauri::AppHandle,
+    config: WebhookTunnelConfig,
+) -> Result<(), String> {
+    secure_io(move || {
+        validate_tunnel(&config)?;
+        let state = app.state::<LocalBackend>();
+        let runtime = state.0.lock().map_err(|_| "Local authority unavailable")?.as_ref().map(|b| b.config.clone());
+        if config.enabled && runtime.as_ref().is_none_or(|r| r.simulation) {
+            return Err("Enable forwarding from the actual local workspace, not simulation or connected mode".into());
+        }
+        save_tunnel_config(&app.path().app_data_dir().map_err(|_| "App data unavailable")?.join("webhook-forward.json"), &config)?;
+        app.state::<WebhookTunnel>().stop()?;
+        if let Some(runtime) = runtime { sync_tunnel(&app, &runtime)?; }
+        Ok(())
+    }).await
+}
 
 #[cfg(test)]
 mod tests {
@@ -125,7 +522,8 @@ mod tests {
 
     #[test]
     fn webhook_tunnel_missing_ssh_is_an_actionable_state() {
-        let error = spawn_webhook_ssh("/missing/opendialer-ssh-fixture", &["-NT".into()]).unwrap_err();
+        let error =
+            spawn_webhook_ssh("/missing/opendialer-ssh-fixture", &["-NT".into()]).unwrap_err();
         assert_eq!(error, "ssh_missing");
     }
 
@@ -153,7 +551,9 @@ mod tests {
         let observed = starts.clone();
         let mut supervisor = TunnelSupervisor::start(move || {
             observed.fetch_add(1, Ordering::SeqCst);
-            std::process::Command::new("false").spawn().map(OwnedWebhookTunnel::new)
+            std::process::Command::new("false")
+                .spawn()
+                .map(OwnedWebhookTunnel::new)
                 .map_err(|_| "ssh_missing".into())
         });
         let deadline = std::time::Instant::now() + Duration::from_secs(4);
@@ -167,6 +567,47 @@ mod tests {
         let count = starts.load(Ordering::SeqCst);
         std::thread::sleep(Duration::from_millis(50));
         assert_eq!(starts.load(Ordering::SeqCst), count);
+    }
+
+    #[test]
+    fn protected_provider_input_has_an_exact_secret_allowlist() {
+        for field in ["telnyx_api_key", "openrouter_api_key", "openai_api_key", "dnc_api_key"] {
+            assert!(provider_input_label(field).is_ok());
+        }
+        for field in ["url", "chatgpt_access_token", "groq_api_key", "x\nWrite-Output bad"] {
+            assert!(provider_input_label(field).is_err());
+        }
+    }
+
+    #[test]
+    fn protected_provider_save_sends_to_bound_authority_and_returns_only_redacted_state() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 4096];
+            loop {
+                let n = socket.read(&mut buffer).unwrap();
+                request.extend_from_slice(&buffer[..n]);
+                if request.windows(21).any(|x| x == b"synthetic-secret-only") { break; }
+            }
+            let body = r#"{"version":2,"configured":{"openrouter_api_key":true},"unexpected":"secret-must-not-reach-renderer"}"#;
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+            String::from_utf8(request).unwrap()
+        });
+        let authority = AuthorityBinding { url: format!("http://{address}"), token: "synthetic-session".into(),
+            local: false, simulation: false, tenant_id: "fixture".into() };
+        let result = save_provider_key_to(&authority, "openrouter_api_key", "synthetic-secret-only", 1).unwrap();
+        assert_eq!(result.version, 2);
+        let shown = serde_json::to_string(&result).unwrap();
+        assert!(!shown.contains("secret-must") && !shown.contains("synthetic-secret"));
+        let request = server.join().unwrap();
+        assert!(request.starts_with("PUT /v1/admin/settings HTTP/1.1"));
+        assert!(request.contains("Bearer synthetic-session"));
+        assert!(request.contains("expected_version") && request.contains("request_id"));
     }
 }
 
@@ -270,7 +711,12 @@ async fn backend_config(
     simulation: bool,
 ) -> Result<BackendConfig, String> {
     let backend = state.inner().clone();
-    secure_io(move || start_backend(app, backend, simulation)).await
+    secure_io(move || {
+        let runtime = start_backend(app.clone(), backend, simulation)?;
+        sync_tunnel(&app, &runtime)?;
+        Ok(runtime)
+    })
+    .await
 }
 
 fn start_backend(
@@ -288,6 +734,7 @@ fn start_backend(
         }
     }
     if let Some(old) = locked.take() {
+        app.state::<WebhookTunnel>().stop()?;
         old.child
             .kill()
             .map_err(|_| "Cannot stop the previous local service")?;
@@ -553,6 +1000,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .manage(LocalBackend::default())
+        .manage(WebhookTunnel::default())
         .setup(|app| {
             let root = app.path().app_data_dir()?;
             for mode in ["local", "simulation"] {
@@ -560,7 +1008,9 @@ pub fn run() {
                     .map_err(std::io::Error::other)?;
             }
             let backend = app.state::<LocalBackend>().inner().clone();
+            let tunnel = app.state::<WebhookTunnel>().inner().clone();
             register_exit_cleanup(app.handle(), move || {
+                let _ = tunnel.stop();
                 if let Ok(mut state) = backend.0.lock() {
                     if let Some(backend) = state.take() {
                         let _ = backend.child.kill();
@@ -577,12 +1027,15 @@ pub fn run() {
             check_server_url,
             open_source,
             cache_read,
-            cache_write
+            cache_write,
+            webhook_tunnel_status,
+            webhook_tunnel_set
         ])
         .build(tauri::generate_context!())
         .expect("OpenDialer could not start");
     app.run(|handle, event| {
         if let tauri::RunEvent::Exit = event {
+            let _ = handle.state::<WebhookTunnel>().stop();
             if let Ok(mut state) = handle.state::<LocalBackend>().0.lock() {
                 if let Some(backend) = state.take() {
                     let _ = backend.child.kill();

@@ -10,18 +10,13 @@ import {
   Globe2,
   Headphones,
   Layers3,
-  LoaderCircle,
-  Mic,
-  MicOff,
   Pause,
   Phone,
-  PhoneOff,
   Plus,
   ShieldCheck,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
-  localEdit,
   native,
   openSource,
   readCache,
@@ -31,7 +26,8 @@ import { label, useWorkspace } from "../context";
 import { MemoryStorage, OptOutJournal, type OptOut } from "../state/optouts";
 import { Telephony } from "../telephony/client";
 import { InboundCall } from "./InboundCall";
-import { Keypad } from "./Keypad";
+import { CallControls } from "./CallControls";
+import { WrapUp } from "./WrapUp";
 import type { Call, Packet, Reservation } from "../types";
 import { terminal } from "../types";
 
@@ -51,14 +47,7 @@ export function DialerPage() {
   const [call, setCall] = useState<Call | null>(null);
   useSpeechExpiry(call, setCall);
   const [dialing, setDialing] = useState(false);
-  const [mute, setMute] = useState(false);
   const [transcript, setTranscript] = useState("");
-  const [outcome, setOutcome] = useState("right_party");
-  const [callbackAt, setCallbackAt] = useState("");
-  const [wrapNote, setWrapNote] = useState("");
-  const [contactRole, setContactRole] = useState("unknown");
-  const [pauseAfter, setPauseAfter] = useState(false);
-  const [keypad, setKeypad] = useState(false);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [audioStatus, setAudioStatus] = useState("");
   const [showDevices, setShowDevices] = useState(false);
@@ -175,21 +164,6 @@ export function DialerPage() {
   useEffect(() => {
     if (returnProvider) telephony.current.expectReturnLeg(returnProvider);
   }, [returnProvider]);
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "F2") {
-        e.preventDefault();
-        telephony.current.mute();
-        setMute((v) => !v);
-      }
-      if (e.key === "F4" && call && active) {
-        e.preventDefault();
-        void run(hangup);
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [call, active]);
 
   async function persistJournal() {
     await writeCache(
@@ -315,11 +289,6 @@ export function DialerPage() {
     setReservation(next);
     setPacket(await api(`/v1/leads/${next.lead.id}/packet`));
     setCall(null);
-    setWrapNote("");
-    setContactRole("unknown");
-    setCallbackAt("");
-    setOutcome("right_party");
-    setMute(false);
   }
   async function startCall() {
     if (inbound || telephony.current.hasIncoming)
@@ -340,7 +309,7 @@ export function DialerPage() {
       setDialing(false);
     }
   }
-  async function hangup() {
+  async function hangup(pauseAfter = false) {
     if (!call) return;
     try {
       setCall(await api(`/v1/calls/${call.id}/hangup`, "POST"));
@@ -898,230 +867,16 @@ export function DialerPage() {
         </section>
       )}
       {call && terminal(call) && call.state !== "FINALIZED" && (
-        <section className="wrap-up card">
-          <div>
-            <span className="eyebrow">LEAVE A CLEAR NEXT STEP</span>
-            <h3>How did the conversation go?</h3>
-          </div>
-          {call.suggested_outcome && (
-            <div>
-              <p>
-                Suggested outcome: {label(call.suggested_outcome.code)}.{" "}
-                {call.suggested_outcome.reason}
-              </p>
-              <button
-                className="secondary"
-                onClick={() => {
-                  setOutcome(call.suggested_outcome!.code);
-                  setContactRole(call.suggested_outcome!.contact_role);
-                }}
-              >
-                Use suggested outcome
-              </button>
-              <small>Review the outcome and contact role before saving.</small>
-            </div>
-          )}
-          <label>
-            Disposition
-            <select
-              value={outcome}
-              onChange={(e) => setOutcome(e.target.value)}
-            >
-              {[
-                "right_party",
-                "qualified_conversation",
-                "sale_won",
-                "callback_requested",
-                "meeting_booked",
-                "meeting_held",
-                "gatekeeper",
-                "screening",
-                "ivr",
-                "voicemail",
-                "no_answer",
-                "busy",
-                "wrong_party",
-                "invalid_endpoint",
-                "not_interested",
-                "opt_out",
-                "temporary_failure",
-              ].map((o) => (
-                <option key={o} value={o}>
-                  {label(o)}
-                </option>
-              ))}
-            </select>
-          </label>
-          {outcome === "callback_requested" && (
-            <label>
-              Confirmed callback time
-              <input
-                type="datetime-local"
-                value={callbackAt}
-                onChange={(e) => setCallbackAt(e.target.value)}
-              />
-            </label>
-          )}
-          <label>
-            Who did you speak with?
-            <select
-              value={contactRole}
-              onChange={(event) => setContactRole(event.target.value)}
-            >
-              <option value="unknown">Not confirmed</option>
-              <option value="right_party">Target contact</option>
-              <option value="gatekeeper">Gatekeeper</option>
-              <option value="wrong_party">Wrong person</option>
-            </select>
-          </label>
-          <label>
-            Wrap-up note
-            <textarea
-              value={wrapNote}
-              maxLength={1000}
-              onChange={(event) => setWrapNote(event.target.value)}
-            />
-          </label>
-          {call.rundown_status && (
-            <p role="status">
-              Rundown: {label(call.rundown_status)}. You can continue eligible
-              calling while analysis finishes.
-            </p>
-          )}
-          <button
-            className="primary"
-            onClick={() =>
-              void run(async () => {
-                const result = await localEdit<Call>(
-                  api,
-                  `/v1/calls/${call.id}/disposition`,
-                  "POST",
-                  {
-                    request_id: crypto.randomUUID(),
-                    outcome,
-                    contact_role: contactRole,
-                    callback_note: wrapNote,
-                    expected_version: call.version,
-                    callback_at:
-                      outcome === "callback_requested" && callbackAt
-                        ? new Date(callbackAt).toISOString()
-                        : null,
-                  },
-                );
-                setCall(result);
-                await refresh();
-                setPacket(
-                  await api<Packet>(`/v1/leads/${call.lead_id}/packet`),
-                );
-                notice(
-                  outcome === "meeting_booked" || outcome === "meeting_held"
-                    ? "Meeting recorded as rep-reported. Outreach is paused."
-                    : "Outcome saved. Analysis continues in the background.",
-                );
-              })
-            }
-          >
-            Save outcome
-            <Check size={15} />
-          </button>
-        </section>
+        <WrapUp key={call.id} call={call} onSaved={async (result) => {
+          setCall(result); await refresh();
+          setPacket(await api<Packet>(`/v1/leads/${call.lead_id}/packet`));
+        }} />
       )}
-      <div className="call-dock">
-        <div className="dock-status">
-          <span className={`status-dot ${ready ? "" : "paused"}`} />
-          <div>
-            <strong>
-              {active
-                ? "In conversation"
-                : ready
-                  ? "Ready when you are"
-                  : "Session paused"}
-            </strong>
-            <small>
-              {reservation
-                ? `${reservation.number.phone} · Your calling identity`
-                : audioStatus || "One active prospect at a time"}
-            </small>
-          </div>
-        </div>
-        <div className="dock-controls">
-          <button
-            className="dock-tool"
-            disabled={!active}
-            title="Mute · F2"
-            onClick={() => {
-              telephony.current.mute();
-              setMute(!mute);
-            }}
-          >
-            {mute ? <MicOff size={18} /> : <Mic size={18} />}
-            <span>{mute ? "Unmute" : "Mute"}</span>
-          </button>
-          <button
-            className="dock-tool"
-            disabled={!active}
-            onClick={() => setKeypad(!keypad)}
-          >
-            <span className="keypad-icon">⠿</span>
-            <span>Keypad</span>
-          </button>
-          <button
-            className="dock-tool optout"
-            disabled={!selectedLead}
-            onClick={() => void run(optOut)}
-          >
-            <ShieldCheck size={18} />
-            <span>Opt out</span>
-          </button>
-          {active ? (
-            <button className="danger-button" onClick={() => void run(hangup)}>
-              <PhoneOff size={17} />
-              Hang up
-            </button>
-          ) : reservation && !call ? (
-            <button
-              className="primary dial-button"
-              disabled={
-                dialing || pendingOptouts || Boolean(inbound) || incomingAudio
-              }
-              onClick={() => void run(startCall)}
-            >
-              {dialing ? (
-                <LoaderCircle size={17} className="spin" />
-              ) : (
-                <Phone size={17} />
-              )}
-              Start call
-            </button>
-          ) : (
-            <button
-              className="primary dial-button"
-              disabled={
-                !ready ||
-                pendingOptouts ||
-                !journalReady ||
-                Boolean(inbound) ||
-                incomingAudio
-              }
-              onClick={() => void run(getNext)}
-            >
-              <Phone size={17} />
-              Get next lead
-            </button>
-          )}
-        </div>
-        <label className="pause-after">
-          <input
-            type="checkbox"
-            checked={pauseAfter}
-            onChange={(e) => setPauseAfter(e.target.checked)}
-          />{" "}
-          Pause after call
-        </label>
-      </div>
-      {keypad && call && active && (
-        <Keypad key={call.id} callId={call.id} close={() => setKeypad(false)} />
-      )}
+      <CallControls call={call} reservation={reservation} controller={telephony.current}
+        ready={ready} audioStatus={audioStatus} dialing={dialing} canOptOut={Boolean(selectedLead)}
+        blocked={pendingOptouts || !journalReady || Boolean(inbound) || incomingAudio}
+        onStart={startCall} onNext={getNext} onOptOut={optOut} onHangup={hangup} />
+
     </>
   );
 }
