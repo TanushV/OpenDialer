@@ -93,6 +93,8 @@ class TelephonyWorkflows:
 
     def event(self, p, event_id, event_type, call_id, payload=None, *, session=None):
         with self.db.transaction(session=session) as session:
+            # An event can carry an opt-out; keep authorization before call locks.
+            self.db.authorize_stream(session, p)
             result = super().event(p, event_id, event_type, call_id, payload, session=session)
             if result["duplicate"]:
                 with self.db.transaction(False, session=session) as s:

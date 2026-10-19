@@ -746,7 +746,8 @@ def test_database_conflict_is_not_mislabeled_as_failed_effect_journal(workspace,
     assert not getattr(service, "_effect_journal_fault", False)
 
 
-def test_event_locks_call_before_shared_report_invalidation(workspace, app):
+@pytest.mark.parametrize("operation", ["event", "transcript", "suppression", "consent"])
+def test_event_locks_call_before_shared_report_invalidation(workspace, app, operation):
     """A reducer cannot hold report generation while waiting for the call owner."""
     import threading
     from concurrent.futures import ThreadPoolExecutor
@@ -774,15 +775,59 @@ def test_event_locks_call_before_shared_report_invalidation(workspace, app):
                 with service.db.transaction() as s:
                     row = get(s, "call_attempts", call["id"])
                     s.refresh(row, with_for_update=True)
-                    pending = pool.submit(service.event, p, "lock-order-answer", "call.answered", call["id"])
+                    if operation == "event":
+                        pending = pool.submit(
+                            service.event, p, "lock-order-answer", "call.answered", call["id"]
+                        )
+                    elif operation == "transcript":
+                        pending = pool.submit(
+                            service._receive_transcript,
+                            p,
+                            call["id"],
+                            {
+                                "segment_id": "lock-order-speech",
+                                "revision": 1,
+                                "side": "remote",
+                                "is_final": True,
+                                "text": "Our team reviews applications.",
+                            },
+                            service.clock(),
+                            True,
+                        )
+                    elif operation == "suppression":
+                        lead = get(s, "leads", call["lead_id"])
+                        pending = pool.submit(service.suppress, p, lead.data["phone"], "opt_out")
+                    else:
+                        from app.compliance.consent import record as record_consent
+
+                        pending = pool.submit(
+                            record_consent,
+                            service,
+                            p,
+                            {
+                                "endpoint_id": call["endpoint_id"],
+                                "permissions": ["transcription"],
+                                "revoked": True,
+                                "evidence_reference": "Explicit synthetic permission withdrawal",
+                                "idempotency_key": "call-lock-withdrawal",
+                            },
+                        )
                     assert reached.wait(5), "Reducer did not reach its call mutation"
                     update(row, max_call_seconds=row.data["max_call_seconds"] + 1)
             finally:
                 result = pending.result(timeout=8)
-        assert not result["duplicate"]
+        if operation in {"event", "transcript"}:
+            assert not (result if operation == "event" else result[0]).get("duplicate")
+        elif operation == "consent":
+            assert result["revoked"]
     finally:
         event.remove(service.db.engine, "before_cursor_execute", query)
     with service.db.transaction(False) as s:
         row = get(s, "call_attempts", call["id"])
         assert row.data["max_call_seconds"] == call["max_call_seconds"] + 1
-        assert row.data["answered_at"]
+        if operation == "event":
+            assert row.data["answered_at"]
+        elif operation == "transcript":
+            assert row.data["transcript_version"] == call["transcript_version"] + 1
+        else:
+            assert row.data["transcription_disabled"]

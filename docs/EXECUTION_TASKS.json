@@ -913,7 +913,7 @@
         "A52",
         "A55"
       ],
-      "checkpoint": "Call-event deadlock and wrap-up interleaving regressions red before source-lock repair; two PostgreSQL passes. Previous120 control/journal passes. Native logout retry17 passes. Final affected browser and dual-database run pending.",
+      "checkpoint": "208 PostgreSQL setup/control checks and30 browser journeys passed. New transcript/denial source-lock regressions red, then4 PostgreSQL passes. Broader denial/privacy checks running; native17 and frontend22 pass. E12 receipt/exit pending.",
       "todos": [
         {
           "id": "E12.1",

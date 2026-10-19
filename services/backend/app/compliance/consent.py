@@ -123,12 +123,18 @@ def verify_recovery(service, s, p, entries):
 
 def revoke_effects(service, s, p, endpoint_id, permissions):
     model = MODELS["call_attempts"]
-    calls = s.scalars(
-        select(model).where(
-            model.tenant_id == p["tenant_id"],
-            model.seller_id == p["seller_id"],
-            model.op_endpoint_id == endpoint_id,
-            model.op_status.not_in(TERMINAL),
+    calls = list(
+        s.scalars(
+            select(model)
+            .where(
+                model.tenant_id == p["tenant_id"],
+                model.seller_id == p["seller_id"],
+                model.op_endpoint_id == endpoint_id,
+                model.op_status.not_in(TERMINAL),
+            )
+            .order_by(model.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
     )
     for call in calls:
@@ -206,6 +212,7 @@ def replay_in(service, s, *, p=None, entries=None):
                 object_id=body["endpoint_id"],
                 now=dt(entry["at"]),
             )
+        revoke_effects(service, s, scope, endpoint.id, body["permissions"])
         if prior:
             if prior.data["endpoint_id"] != endpoint.id:
                 update(prior, endpoint_id=endpoint.id)
@@ -227,7 +234,6 @@ def replay_in(service, s, *, p=None, entries=None):
                 object_id=entry["id"],
                 now=dt(entry["at"]),
             )
-        revoke_effects(service, s, scope, endpoint.id, body["permissions"])
         if prior:
             continue
         audit(
@@ -296,6 +302,8 @@ def record(service, p, body):
                         "request_hash": digest,
                     },
                 )
+            if body["revoked"]:
+                revoke_effects(service, s, p, endpoint.id, body["permissions"])
             row = put(
                 s,
                 "consent_evidence",
@@ -312,8 +320,6 @@ def record(service, p, body):
                 object_id=identity,
                 now=at,
             )
-            if body["revoked"]:
-                revoke_effects(service, s, p, endpoint.id, body["permissions"])
             audit(
                 s,
                 p["tenant_id"],

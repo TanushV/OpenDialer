@@ -671,7 +671,9 @@ class SpeechPrivacy:
 
         from app.db import MODELS, update
 
+        self.db.authorize_stream(s, p)
         call = self.required(s, "call_attempts", call_id, p)
+        s.refresh(call, with_for_update=True)
         if self.speech_revoked(s, p, call):
             return {"unavailable": "permission_revoked", "expired": True}, False
 

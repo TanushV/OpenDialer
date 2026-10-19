@@ -50,6 +50,12 @@ def apply_in(service, s, entry):
     receipt = service._by_key(s, p, "audit_events", identity(entry))
     if receipt and receipt.data.get("detail", {}).get("request_hash") != fingerprint(entry):
         fail(409, "Opt-out request identity already describes another endpoint or reason")
+    endpoint = service._by_key(s, p, "phone_endpoints", key)
+    if endpoint:
+        from app.compliance.consent import revoke_effects
+
+        # Lock affected calls before any denial dirties shared report state.
+        revoke_effects(service, s, p, endpoint.id, ["live", "transcription", "recording", "prerecorded"])
     row = service._by_key(s, p, "suppressions", key)
     if not row:
         row = put(
@@ -73,11 +79,7 @@ def apply_in(service, s, entry):
         permanent = row.data.get("permanent") or entry["reason"] != "temporary_hold"
         reason = row.data["reason"] if row.data.get("permanent") else entry["reason"]
         update(row, active=True, reason=reason, permanent=permanent)
-    endpoint = service._by_key(s, p, "phone_endpoints", key)
     if endpoint:
-        from app.compliance.consent import revoke_effects
-
-        revoke_effects(service, s, p, endpoint.id, ["live", "transcription", "recording", "prerecorded"])
         reservations = MODELS["reservations"]
         for reservation in s.scalars(
             select(reservations).where(
