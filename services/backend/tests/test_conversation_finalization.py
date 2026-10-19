@@ -49,6 +49,110 @@ def conversation_fixture():
     return state, segment, at
 
 
+async def pending_review(workspace, app, clock, monkeypatch):
+    from app.grounding import accept_review
+    from test_grounding_review import review_response
+    from test_live_memory import turn
+
+    call, p, _, changes = setup(workspace, app, monkeypatch)
+    service = app.state.service
+    turn(service, p, call, "source")
+    changes["result"] = {
+        "action": "NO_ACTION",
+        "state_update": {
+            "stage": "next_step",
+            "commitments": [
+                {
+                    "text": "The buyer wants another procurement discussion.",
+                    "status": "confirmed",
+                    "evidence_segment_ids": ["source"],
+                    "quote": "",
+                }
+            ],
+        },
+    }
+    await service.coach_turn(p, call["id"], urgent=True)
+    request = service._conversation_context(p, call["id"], "review")
+    owner, review = service._state_review_snapshot(p, call["id"], request)
+    receipt = accept_review(review, review_response(review), "review-fixture")
+    return service, call, p, request, owner, receipt
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["expiry", "lease", "note", "purpose", "ownership", "revision"])
+async def test_review_publication_rechecks_sources_and_owner_inside_commit(
+    workspace, app, clock, monkeypatch, change
+):
+    from test_live_memory import turn
+
+    service, call, p, request, owner, receipt = await pending_review(workspace, app, clock, monkeypatch)
+    if change in {"expiry", "lease"}:
+        clock.now += timedelta(seconds=301 if change == "expiry" else 31)
+    elif change == "revision":
+        turn(service, p, call, "source", revision=2, text="The earlier understanding was mistaken.")
+    else:
+        service.analysis(p, call["id"])
+        with service.db.transaction() as s:
+            if change == "note":
+                update(
+                    service._by_key(s, p, "notes", call["id"]), human_text="Rep correction takes priority."
+                )
+            elif change == "purpose":
+                update(service.required(s, "call_attempts", call["id"], p), rubric_revision="new-purpose")
+            else:
+                update(service.required(s, "users", p["user_id"], p), role="rep")
+                update(service.required(s, "call_attempts", call["id"], p), rep_id="other-rep")
+    # This boundary is after a successful network-result check and before the commit.
+    service._publish_state_review(p, call["id"], request, owner, receipt)
+    with service.db.transaction(False) as s:
+        state = service._by_key(s, p, "conversation_states", call["id"]).data
+        assert all(i["epistemic_status"] != "model_reviewed" for i in state["observations"])
+        assert not service.lead_records(s, p, "followup_tasks", call["lead_id"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["expiry", "note", "ownership"])
+async def test_finalizer_publication_cannot_accept_context_changed_after_response(
+    workspace, app, clock, monkeypatch, change
+):
+    from test_live_memory import turn
+
+    call, p, _, _ = setup(workspace, app, monkeypatch)
+    service = app.state.service
+    turn(service, p, call, "final")
+    service.analysis(p, call["id"])
+    owner = service._begin_finalization(p, call["id"])
+    request = service._conversation_context(p, call["id"], "finalize")
+    result = {
+        "action": "NO_ACTION",
+        "state_version": request["state_version"],
+        "state_update": {
+            "stage": "discovery",
+            "rundown_points": [
+                {
+                    "text": "The buyer described a process delay.",
+                    "status": "confirmed",
+                    "evidence_segment_ids": ["final"],
+                    "quote": "",
+                }
+            ],
+        },
+    }
+    if change == "expiry":
+        clock.now += timedelta(seconds=301)
+    else:
+        with service.db.transaction() as s:
+            if change == "note":
+                update(service._by_key(s, p, "notes", call["id"]), human_text="Corrected after generation.")
+            else:
+                update(service.required(s, "users", p["user_id"], p), role="rep")
+                update(service.required(s, "call_attempts", call["id"], p), rep_id="other-rep")
+    assert service._merge_finalization(p, call["id"], owner, request, result) is False
+    service._finish_finalization(p, call["id"], owner, False)
+    if change == "note":
+        assert service._begin_finalization(p, call["id"]), "Changed context still needs its own finalization"
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("verdict", ["SUPPORTED", "CONTRADICTED", "UNCERTAIN"])
 async def test_live_commitment_stays_provisional_until_selective_review(

@@ -1,0 +1,64 @@
+{
+  "step_id": "E02",
+  "source_commit": "09c35ce",
+  "runs": [
+    {
+      "mode": "sqlite",
+      "counts": {
+        "tests": 27,
+        "failures": 15,
+        "errors": 0,
+        "skipped": 0
+      },
+      "duration_seconds": 11.349,
+      "raw_log_sha256": "f982548485c4d1848aa4f29102ed0f04b923f5aa8366f35b67fbcb2c24cb51c1",
+      "failed_cases": [
+        "services.backend.tests.test_conversation_finalization::test_only_one_canonical_state_is_written_and_legacy_arrays_are_read_views",
+        "services.backend.tests.test_conversation_finalization::test_live_commitment_stays_provisional_until_selective_review[SUPPORTED]",
+        "services.backend.tests.test_conversation_finalization::test_live_commitment_stays_provisional_until_selective_review[CONTRADICTED]",
+        "services.backend.tests.test_conversation_finalization::test_live_commitment_stays_provisional_until_selective_review[UNCERTAIN]",
+        "services.backend.tests.test_conversation_finalization::test_observation_ids_do_not_depend_on_paraphrase_and_replay_is_a_noop",
+        "services.backend.tests.test_conversation_finalization::test_conversation_global_bound_preserves_promises_and_reports_omissions",
+        "services.backend.tests.test_conversation_finalization::test_replacement_requires_an_existing_scoped_observation[foreign]",
+        "services.backend.tests.test_conversation_finalization::test_replacement_requires_an_existing_scoped_observation[forward]",
+        "services.backend.tests.test_conversation_finalization::test_no_provider_finalization_is_partial_and_never_fabricates_scores",
+        "services.backend.tests.test_conversation_finalization::test_early_context_survives_ttl[False]",
+        "services.backend.tests.test_conversation_finalization::test_early_context_survives_ttl[True]",
+        "services.backend.tests.test_conversation_finalization::test_merge_correction_and_missing_source",
+        "services.backend.tests.test_tracker_publication::test_reviewed_state_sources[cycle]",
+        "services.backend.tests.test_tracker_publication::test_reviewed_state_sources[too_many_sources]",
+        "services.backend.tests.test_tracker_publication::test_reviewed_state_sources[unknown_speaker]"
+      ]
+    },
+    {
+      "mode": "postgres",
+      "counts": {
+        "tests": 27,
+        "failures": 15,
+        "errors": 0,
+        "skipped": 0
+      },
+      "duration_seconds": 43.157,
+      "raw_log_sha256": "316412ab8f2a3f09d4f2f728efe89b2c2804c92a9039e2914747477a06c36f87",
+      "failed_cases": [
+        "services.backend.tests.test_conversation_finalization::test_only_one_canonical_state_is_written_and_legacy_arrays_are_read_views",
+        "services.backend.tests.test_conversation_finalization::test_live_commitment_stays_provisional_until_selective_review[SUPPORTED]",
+        "services.backend.tests.test_conversation_finalization::test_live_commitment_stays_provisional_until_selective_review[CONTRADICTED]",
+        "services.backend.tests.test_conversation_finalization::test_live_commitment_stays_provisional_until_selective_review[UNCERTAIN]",
+        "services.backend.tests.test_conversation_finalization::test_observation_ids_do_not_depend_on_paraphrase_and_replay_is_a_noop",
+        "services.backend.tests.test_conversation_finalization::test_conversation_global_bound_preserves_promises_and_reports_omissions",
+        "services.backend.tests.test_conversation_finalization::test_replacement_requires_an_existing_scoped_observation[foreign]",
+        "services.backend.tests.test_conversation_finalization::test_replacement_requires_an_existing_scoped_observation[forward]",
+        "services.backend.tests.test_conversation_finalization::test_no_provider_finalization_is_partial_and_never_fabricates_scores",
+        "services.backend.tests.test_conversation_finalization::test_early_context_survives_ttl[False]",
+        "services.backend.tests.test_conversation_finalization::test_early_context_survives_ttl[True]",
+        "services.backend.tests.test_conversation_finalization::test_merge_correction_and_missing_source",
+        "services.backend.tests.test_tracker_publication::test_reviewed_state_sources[cycle]",
+        "services.backend.tests.test_tracker_publication::test_reviewed_state_sources[too_many_sources]",
+        "services.backend.tests.test_tracker_publication::test_reviewed_state_sources[unknown_speaker]"
+      ]
+    }
+  ],
+  "contract_absence": "Four new pure cases name the planned stable request identity; remaining failures assert existing public behavior. No E02 product edits before these runs.",
+  "external_calls": false
+}
