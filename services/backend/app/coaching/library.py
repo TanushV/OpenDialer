@@ -81,9 +81,7 @@ def examples(service, s, p):
             {
                 **doc(row),
                 "raw_evidence_status": "available_temporarily"
-                if all(
-                    service.raw.get(service.raw_key(p, data["call_id"], key)) is not None for key in evidence
-                )
+                if all(service.raw.has(service.raw_key(p, data["call_id"], key)) for key in evidence)
                 else "expired",
             }
         )

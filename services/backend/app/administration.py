@@ -290,8 +290,6 @@ class Dialer(
         provider = conf.get("coach_provider", PROVIDER_DEFAULTS.coach_provider)
         if provider == "openrouter" and not conf.get("openrouter_api_key"):
             warnings.append("OpenRouter/Cerebras is unconfigured; approved static coaching remains available")
-        elif provider == "groq" and not conf.get("groq_api_key"):
-            warnings.append("Groq is unconfigured; approved static coaching remains available")
         integrity = self.db.integrity()
         if not integrity:
             blockers.append("DATABASE_INTEGRITY_FAILURE")

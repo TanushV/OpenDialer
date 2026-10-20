@@ -98,7 +98,11 @@ async def test_openrouter_pins_cerebras_requires_schema_and_retains_actual_recei
     assert body["provider"]["only"] == ["cerebras"]
     assert body["provider"]["allow_fallbacks"] is False and body["provider"]["require_parameters"] is True
     assert body["response_format"]["json_schema"]["strict"] is True
-    assert body["max_tokens"] <= 1000 and body["reasoning"]["effort"] in {"minimal", "low"}
+    # Reasoning tokens count against the completion cap even when excluded from the response.
+    assert "max_tokens" not in body and body["max_completion_tokens"] >= 4096
+    assert body["reasoning"] == {"effort": "low", "exclude": True}
+    assert captured[0].headers["x-openrouter-metadata"] == "enabled"
+    assert "usage" not in body, "Usage accounting is always returned; usage.include is retired"
     assert not body["stream"] and "tools" not in body
     assert result["action"] == "NO_ACTION"
     assert adapter.last_request_id == "gen-123" and adapter.last_provider == "Cerebras"
@@ -156,6 +160,26 @@ def test_model_and_provider_settings_are_secure_and_do_not_erase_other_provider_
     assert result.json()["coach_provider"] == "openrouter"
 
 
+def test_retired_non_zdr_groq_route_cannot_be_configured_or_echoed(workspace, app):
+    """Raw speech may only reach the pinned Cerebras ZDR route; the Groq adapter is deleted."""
+    import importlib.util
+
+    from app.coaching import contracts
+
+    assert importlib.util.find_spec("app.providers.groq") is None
+    assert not hasattr(contracts, "CARD_SCHEMA")
+    c, h = workspace["client"], workspace["headers"]
+    for body in ({"groq_api_key": "test-groq-secret"}, {"groq_model": "openai/gpt-oss-20b"}):
+        assert c.put("/v1/admin/settings", headers=h, json=body).status_code == 422
+    # A key stored by an older release stays write-only and is not reported as configured.
+    app.state.service.vault.write(workspace["tenant_id"], {"groq_api_key": "legacy-groq-secret"})
+    settings = c.get("/v1/admin/settings", headers=h)
+    assert settings.status_code == 200
+    assert "legacy-groq-secret" not in settings.text and "groq" not in settings.json()["configured"]
+    preflight = c.get("/v1/admin/preflight", headers=h)
+    assert "groq" not in preflight.text.lower()
+
+
 async def test_reused_adapter_does_not_attribute_the_previous_receipt_to_a_failed_attempt():
     attempts = []
 
@@ -169,3 +193,163 @@ async def test_reused_adapter_does_not_attribute_the_previous_receipt_to_a_faile
         with pytest.raises(httpx.HTTPStatusError):
             await adapter.suggest({})
         assert adapter.last_request_id is None and adapter.last_usage == {}
+
+
+UNSUPPORTED_KEYWORDS = {"minItems", "maxItems", "minLength", "maxLength"}
+
+
+def objects(node):
+    if isinstance(node, dict):
+        if "properties" in node or node.get("type") == "object":
+            yield node
+        for key, value in node.items():
+            if key in {"properties", "$defs"}:
+                for child in value.values():
+                    yield from objects(child)
+            else:
+                yield from objects(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from objects(item)
+
+
+def keywords(node):
+    if isinstance(node, list):
+        for item in node:
+            yield from keywords(item)
+    elif isinstance(node, dict):
+        for key, value in node.items():
+            if key in {"properties", "$defs"}:
+                for child in value.values():
+                    yield from keywords(child)
+            else:
+                yield key
+                yield from keywords(value)
+
+
+TURN = {
+    "state_version": 1,
+    "context_fingerprint": "fixture",
+    "state_delta": {
+        "stage": "discovery",
+        "observations": [],
+        "rubric_items": [],
+        "tracker_matches": [],
+        "interpreted_segments": [{"kind": "segment", "id": "s1", "version": 1}],
+    },
+    "field_audit": [],
+    "guidance": None,
+}
+
+
+@pytest.mark.asyncio
+async def test_wire_schemas_are_cerebras_strict_while_pydantic_keeps_the_bounds():
+    """Cerebras strict mode rejects length/item bounds and needs closed, fully required objects."""
+    from app.grounding import review_request
+
+    sent = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        sent.append(body["response_format"]["json_schema"]["schema"])
+        review = json.loads(body["messages"][1]["content"])
+        if "fingerprint" not in review:
+            return httpx.Response(200, json=completion(content=TURN))
+        verdict = {"field": "f", "verdict": "SUPPORTED", "evidence": ["k"]}
+        answer = {"fingerprint": review["fingerprint"], "verdicts": [verdict] * 101}
+        return httpx.Response(200, json=completion(content=answer))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        adapter = OpenRouterCoach("fixture", http=http)
+        await adapter.suggest({"state_version": 1})
+        with pytest.raises(InferenceError):
+            # 101 verdicts exceed the pydantic bound that the wire schema no longer carries.
+            await adapter.review(review_request("guidance", [{"field": "f", "evidence": []}], [{"id": "k"}]))
+    for schema in sent:
+        assert not UNSUPPORTED_KEYWORDS & set(keywords(schema))
+        for node in objects(schema):
+            assert node["additionalProperties"] is False
+            assert node["required"] == list(node["properties"])
+    assert list(sent[0]["properties"])[:3] == ["state_version", "context_fingerprint", "state_delta"], (
+        "State is generated before optional guidance so truncation cannot discard the interpretation"
+    )
+
+
+@pytest.mark.asyncio
+async def test_oversize_generated_guidance_is_still_rejected_after_the_response():
+    oversize = {
+        **TURN,
+        "guidance": {
+            "kind": "DISCOVERY",
+            "say_or_ask": "x" * 1001,
+            "reason": "",
+            "alternatives": [],
+            "evidence_segment_ids": [],
+            "playbook_card_ids": [],
+            "expires_in_ms": 20000,
+        },
+    }
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=completion(content=oversize)))
+    ) as http:
+        with pytest.raises(InferenceError):
+            await OpenRouterCoach("fixture", http=http).suggest({"state_version": 1})
+
+
+def metadata(provider):
+    return {"openrouter_metadata": {"endpoints": {"available": [{"provider": provider}], "selected": 0}}}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "identity,verified",
+    [
+        ({"provider": "Cerebras"}, True),
+        ({"provider": None, **metadata("Cerebras")}, True),
+        ({"provider": None, **metadata("Another provider")}, "provider_mismatch"),
+        ({"provider": None}, "provider_unverified"),
+    ],
+)
+async def test_provider_identity_comes_from_the_top_level_or_routing_metadata(identity, verified):
+    from app.providers.openrouter import RouteNotVerified
+
+    payload = {k: v for k, v in {**completion(content=TURN), **identity}.items() if v is not None}
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload))
+    ) as http:
+        adapter = OpenRouterCoach("fixture", http=http)
+        if verified is True:
+            result = await adapter.suggest({"state_version": 1})
+            assert result["action"] == "NO_ACTION" and adapter.last_provider == "Cerebras"
+        else:
+            with pytest.raises(RouteNotVerified) as failure:
+                await adapter.suggest({"state_version": 1})
+            assert failure.value.reason == verified
+        assert adapter.last_request_id == "gen-123" and adapter.last_usage["cost"] == 0.0001
+
+
+@pytest.mark.asyncio
+async def test_truncated_turn_keeps_its_complete_state_but_shows_nothing():
+    content = json.dumps(TURN)
+    truncated = content[: content.index('"field_audit"')] + '"field_audit": [{"field": "say_or'
+    payload = completion(choices=[{"finish_reason": "length", "message": {"content": truncated}}])
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload))
+    ) as http:
+        result = await OpenRouterCoach("fixture", http=http).suggest({"state_version": 1})
+    assert result["action"] == "NO_ACTION"
+    assert result["state_update"] == TURN["state_delta"]
+
+
+@pytest.mark.asyncio
+async def test_settlement_uses_the_always_returned_usage_cost():
+    from app.privacy import usage_metadata
+
+    payload = completion(content=TURN)
+    payload["usage"] = {"cost": 0.0003, "cost_details": {"upstream_inference_cost": None}, "is_byok": False}
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload))
+    ) as http:
+        adapter = OpenRouterCoach("fixture", http=http)
+        await adapter.suggest({"state_version": 1})
+    assert usage_metadata(adapter.last_usage)["cost"] == 0.0003

@@ -25,6 +25,19 @@ def clock():
     return Clock()
 
 
+@pytest.fixture(autouse=True)
+def coaching_time(request, monkeypatch):
+    """Helper deadlines in app tests follow the test clock, so runner speed cannot decide them.
+
+    Engine-only tests keep real time or patch the same `app.coaching.engine.monotonic` seam.
+    """
+    if "app" in request.fixturenames:
+        import app.coaching.engine as engine
+
+        clock = request.getfixturevalue("clock")
+        monkeypatch.setattr(engine, "monotonic", lambda: clock().timestamp())
+
+
 @pytest.fixture
 def carrier():
     return SimulatedCarrier()
