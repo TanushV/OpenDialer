@@ -235,8 +235,13 @@ async def test_repeated_failed_provider_attempts_each_need_a_fresh_budget_hold(w
         },
     )
     service = c.app.state.service
+    # The ended call's hold settles to its estimate, so the base is measured after hangup.
+    assert c.post(f"/v1/calls/{call['id']}/hangup", headers=h).status_code == 200
     with service.db.transaction(False) as s:
-        base = sum(r.data.get("reserved_usd", 0) for r in service.scoped(s, "usage_ledger", workspace))
+        base = sum(
+            r.data["cost_usd"] if r.data.get("cost_usd") is not None else r.data.get("reserved_usd", 0)
+            for r in service.scoped(s, "usage_ledger", workspace)
+        )
     assert (
         c.put(
             "/v1/admin/budget",
@@ -256,7 +261,6 @@ async def test_repeated_failed_provider_attempts_each_need_a_fresh_budget_hold(w
             raise TimeoutError("No provider receipt")
 
     monkeypatch.setattr(service, "configured_coach", lambda *args: (Failing(), "openrouter"))
-    assert c.post(f"/v1/calls/{call['id']}/hangup", headers=h).status_code == 200
     for _ in range(3):
         await service.analyze_postcall(workspace, call["id"])
     assert len(calls) == 2
