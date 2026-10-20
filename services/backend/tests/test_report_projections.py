@@ -198,6 +198,7 @@ async def test_report_failure_preserves_old_evidence_and_does_not_queue_on_every
     assert later[0]["projection"]["refresh_error"]
 
 
+@pytest.mark.database
 def test_concurrent_source_change_cannot_publish_a_falsely_fresh_report(workspace, app, monkeypatch):
     service, p = app.state.service, principal(workspace)
     service.refresh_optimization(p)
@@ -323,6 +324,7 @@ def test_stale_report_retains_its_calculation_definition(workspace, app):
     assert after["projection"]["status"] == "stale"
 
 
+@pytest.mark.database
 def test_concurrent_report_views_share_the_same_job(workspace, app):
     from concurrent.futures import ThreadPoolExecutor
 

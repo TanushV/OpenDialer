@@ -13,6 +13,8 @@ from conftest import start
 from sqlalchemy import inspect, text
 from test_remediation_privacy import RAW, persisted_content, principal
 
+pytestmark = pytest.mark.database
+
 
 def legacy_upgrade_store(tmp_path):
     from app.config import Settings

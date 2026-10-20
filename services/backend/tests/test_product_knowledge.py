@@ -64,6 +64,7 @@ def test_published_knowledge_emits_one_content_free_invalidation_event(workspace
     assert data["product_description"] not in str(changed)
 
 
+@pytest.mark.database
 def test_unapproved_knowledge_never_replaces_current_and_parallel_publication_has_one_winner(workspace, app):
     from concurrent.futures import ThreadPoolExecutor
 
@@ -182,6 +183,7 @@ def test_knowledge_index_backfill_preserves_source_data_and_revision(workspace, 
     assert hasattr(MODELS["playbooks"], "ctx_key")
 
 
+@pytest.mark.database
 def test_knowledge_migration_is_additive_and_repeatable(tmp_path):
     from datetime import UTC, datetime
     from pathlib import Path

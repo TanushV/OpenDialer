@@ -407,15 +407,28 @@ def test_negated_budget_approval_does_not_resolve_an_objection():
 @pytest.mark.asyncio
 async def test_six_independent_coaching_jobs_fit_the_shared_latency_budget(workspace, app, monkeypatch):
     import asyncio
-    import time
+    import math
 
     service, p = app.state.service, principal(workspace)
-    completed = []
-    started = time.perf_counter()
+    work_seconds, budget_seconds = 0.7, 2.5  # Modelled 700 ms work, not a measured provider latency.
+    active, peak, completed = 0, 0, []
+    all_admitted = asyncio.Event()
 
     async def bounded_provider_work(principal, call_id):
-        await asyncio.sleep(0.7)  # Controlled 700 ms work, not a measured live provider latency.
-        completed.append(time.perf_counter() - started)
+        # Each job holds its slot until all six overlap, so concurrency is observed, not raced.
+        # Only a narrower admission reaches the generous window; its peak is then measured.
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        if active == 6:
+            all_admitted.set()
+        try:
+            await asyncio.wait_for(all_admitted.wait(), 5)
+        except TimeoutError:
+            pass
+        finally:
+            active -= 1
+        completed.append(call_id)
 
     monkeypatch.setattr(service, "coach_turn", bounded_provider_work)
     for i in range(6):
@@ -426,5 +439,7 @@ async def test_six_independent_coaching_jobs_fit_the_shared_latency_budget(works
             tenant_id=p["tenant_id"],
         )
     result = await service.run_jobs(queues=["live_coach"])
-    assert result["processed"] == 6
-    assert max(completed) < 2.5, {"completion_seconds": completed, "assumed_work_seconds": 0.7}
+    assert result["processed"] == 6 and len(completed) == 6
+    # Shared-budget model: six jobs at `peak` concurrency need ceil(6 / peak) sequential waves.
+    waves = math.ceil(6 / peak)
+    assert waves * work_seconds < budget_seconds, {"peak_concurrency": peak, "waves": waves}

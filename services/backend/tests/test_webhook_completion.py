@@ -3,7 +3,6 @@
 import asyncio
 import base64
 import json
-import time
 from contextlib import contextmanager
 from datetime import timedelta
 
@@ -18,10 +17,9 @@ from sqlalchemy import select
 
 
 @pytest.mark.parametrize("present", [False, True])
+@pytest.mark.sqlite_only
 def test_provider_call_lookup_has_bounded_sql_work(workspace, app, clock, present):
     service, p = app.state.service, principal(workspace)
-    if not service.db.sqlite:
-        pytest.skip("SQLite VM-work oracle; provider identity behavior is checked on both databases")
     with service.db.transaction() as session:
         for i in range(600):
             put(
@@ -191,32 +189,26 @@ async def test_receipt_and_processing_job_are_one_transaction(workspace, app, mo
 
 @pytest.mark.asyncio
 async def test_slow_receipt_storage_does_not_block_control_event_loop(workspace, app, monkeypatch):
+    from conftest import LoopResponsiveness
+
     service = app.state.service
     original = service.db.transaction
+    loop = LoopResponsiveness()
 
     @contextmanager
     def delayed(*args, **kwargs):
-        time.sleep(0.12)
+        # Storage stays blocked until the control loop has served other work.
+        loop.wait_for_loop()
         with original(*args, **kwargs) as s:
             yield s
 
     monkeypatch.setattr(service.db, "transaction", delayed)
-    delays = []
-
-    async def heartbeat():
-        before = time.monotonic()
-        await asyncio.sleep(0.01)
-        delays.append(time.monotonic() - before)
-
-    await asyncio.gather(
-        heartbeat(),
-        service.accept_webhook(
-            workspace["tenant_id"],
-            {"id": "slow-store", "event_type": "call.hangup", "payload": {"call_control_id": "unknown"}},
-            "slow-hash",
-        ),
+    await service.accept_webhook(
+        workspace["tenant_id"],
+        {"id": "slow-store", "event_type": "call.hangup", "payload": {"call_control_id": "unknown"}},
+        "slow-hash",
     )
-    assert max(delays) < 0.08, delays
+    loop.assert_responsive()
 
 
 @pytest.mark.asyncio
@@ -456,6 +448,7 @@ async def test_lost_unprocessed_speech_is_visible_on_the_call(workspace, app, cl
 
 
 @pytest.mark.asyncio
+@pytest.mark.database
 async def test_concurrent_admission_and_processing_apply_the_event_once(workspace, app):
     service, p = app.state.service, principal(workspace)
     call = start(workspace)

@@ -210,6 +210,7 @@ async def test_callback_reconcile_due_read_does_not_decrypt_recently_checked_cal
     assert seen == ["incoming-150"]
 
 
+@pytest.mark.database
 def test_control_deadline_migration_preserves_payloads(tmp_path):
     from pathlib import Path
 

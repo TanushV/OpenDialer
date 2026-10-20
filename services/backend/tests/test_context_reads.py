@@ -258,6 +258,7 @@ def test_selection_loads_only_consents_for_candidate_endpoints(workspace, app, m
     assert len(decrypted) <= 120, f"Reservation decrypted {len(decrypted)} records with three candidates"
 
 
+@pytest.mark.database
 def test_context_index_backfill_preserves_identity_version_and_human_data(tmp_path, clock):
     import json
     from pathlib import Path
@@ -451,6 +452,7 @@ def test_helper_preserves_human_notes_but_does_not_reuse_invalidated_ai_summary(
     assert prior["analysis_stale"] is True
 
 
+@pytest.mark.database
 def test_context_migration_still_accepts_the_documented_unversioned_bootstrap(tmp_path):
     from pathlib import Path
 

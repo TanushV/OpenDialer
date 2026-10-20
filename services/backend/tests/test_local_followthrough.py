@@ -117,6 +117,7 @@ def test_legacy_unlinked_meeting_requires_source_review_before_disposition_corre
     assert response.json()["detail"]["code"] == "meeting_source_review_required"
 
 
+@pytest.mark.postgres
 def test_wrapup_keeps_call_locked_through_version_check_and_commit(workspace, app, monkeypatch):
     """Background interpretation cannot invalidate an already-checked human edit."""
     import threading
@@ -126,8 +127,6 @@ def test_wrapup_keeps_call_locked_through_version_check_and_commit(workspace, ap
     from sqlalchemy import event
 
     service, actor = app.state.service, p(workspace)
-    if service.db.sqlite:
-        pytest.skip("PostgreSQL publication interleaving")
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
     ended = c.post(f"/v1/calls/{call['id']}/hangup", headers=h).json()

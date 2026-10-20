@@ -1,9 +1,12 @@
 """Typed hot-path and migration contracts written before the storage repair."""
 
+import pytest
 from app.db import MODELS, Database, doc, get, put, update
 from app.migrate import migrate_database
 from conftest import reserve
 from sqlalchemy import inspect, select
+
+pytestmark = pytest.mark.database
 
 
 def test_hot_operational_columns_follow_mutations_without_exposing_phone(tmp_path, clock):

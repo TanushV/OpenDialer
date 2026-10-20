@@ -58,6 +58,7 @@ def test_claim_cannot_double_reserve_and_is_kept_during_active_call(workspace, c
     )
 
 
+@pytest.mark.database
 def test_concurrent_requests_create_one_endpoint_claim(workspace):
     ready(workspace)
 

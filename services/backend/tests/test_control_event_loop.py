@@ -2,7 +2,6 @@
 
 import asyncio
 import threading
-import time
 from functools import partial
 
 import pytest
@@ -67,30 +66,22 @@ async def test_control_operations_keep_all_sql_off_the_live_loop(workspace, app,
 
 @pytest.mark.asyncio
 async def test_slow_hangup_storage_does_not_stop_unrelated_async_delivery(workspace, app):
+    from conftest import LoopResponsiveness
+
     service, p = app.state.service, principal(workspace)
     call = start(workspace)
-    ticks, running = [], True
-
-    async def heartbeat():
-        while running:
-            ticks.append(time.perf_counter())
-            await asyncio.sleep(0.005)
+    loop = LoopResponsiveness()
 
     def delayed(*args):
-        time.sleep(0.005)
+        # Every statement stays blocked until the live loop has served other work.
+        loop.wait_for_loop()
 
-    pulse = asyncio.create_task(heartbeat())
-    await asyncio.sleep(0)
     event.listen(service.db.engine, "before_cursor_execute", delayed)
     try:
         await service.hangup(p, call["id"])
-        await asyncio.sleep(0.01)
     finally:
         event.remove(service.db.engine, "before_cursor_execute", delayed)
-        running = False
-        await pulse
-    assert len(ticks) >= 5
-    assert max(b - a for a, b in zip(ticks, ticks[1:], strict=False)) < 0.075
+    loop.assert_responsive()
 
 
 @pytest.mark.parametrize("operation", ["token", "dtmf", "voicemail", "webhook"])
