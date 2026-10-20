@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 async function activeHelper(page: Page, coach?: Record<string, unknown>) {
   let call: Record<string, unknown> = {};

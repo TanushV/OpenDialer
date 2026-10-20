@@ -6,7 +6,6 @@ import pytest
 from app.db import get, update
 from app.providers.simulated import UncertainCarrierResult
 from conftest import disposition_body, reserve, start
-from test_batch_recovery import batch  # noqa: F401 - pytest fixture
 from test_dnc_recovery import screening  # noqa: F401 - pytest fixture
 from test_remediation_privacy import principal
 
@@ -37,7 +36,6 @@ def test_operation_policy_covers_each_effect_without_a_generic_retry():
         "number_configure",
         "number_purchase",
         "dnc_screen",
-        "deferred_scripts",
         "inference",
         "review",
         "local_task",
@@ -149,68 +147,6 @@ async def test_inference_attempt_crash_matrix(workspace, app, clock, monkeypatch
     with service.db.transaction(False) as s:
         if not (role == "live_coach" and phase in {"before_send", "after_send"}):
             assert not service.scoped(s, "coach_events", p)
-
-
-@pytest.mark.parametrize("phase", PHASES)
-def test_deferred_script_crash_matrix(workspace, batch, clock, monkeypatch, phase):  # noqa: F811
-    import asyncio
-
-    from app.providers.batch import OpenAIBatch
-    from test_batch_recovery import reconcile, stored, submit
-
-    original_thread = asyncio.to_thread
-    crashed = []
-
-    async def at_publication(function, *args, **kwargs):
-        if phase == "before_publication" and function.__name__ == "save_submission" and not crashed:
-            crashed.append(True)
-            raise RuntimeError("Synthetic lost batch publication")
-        return await original_thread(function, *args, **kwargs)
-
-    async def provider_submit(provider, requests):
-        if phase == "before_send":
-            raise TimeoutError("Synthetic transport failure before write")
-        batch["sent"].append(requests)
-        batch["metadata"] = provider.metadata
-        if phase == "after_send":
-            raise TimeoutError("Synthetic lost response after batch acceptance")
-        if phase == "expired_lease":
-            clock.now += timedelta(seconds=181)
-        if phase == "stale_owner":
-            row = stored(batch)
-            with batch["service"].db.transaction() as s:
-                update(get(s, "command_outbox", row["id"]), lease_owner="replacement-owner")
-        return {"id": "batch-original", "status": "in_progress", "metadata": batch["metadata"]}
-
-    monkeypatch.setattr(asyncio, "to_thread", at_publication)
-    monkeypatch.setattr(OpenAIBatch, "submit", provider_submit)
-    try:
-        response = submit(workspace, batch)
-        assert response.status_code in {200, 409, 503}
-    except RuntimeError:
-        assert phase == "before_publication" and crashed
-    row = stored(batch)
-    assert len(batch["sent"]) == (0 if phase == "before_send" else 1)
-    if phase == "stale_owner":
-        assert row["lease_owner"] == "replacement-owner" and not row.get("provider_batch_id")
-    monkeypatch.setattr(asyncio, "to_thread", original_thread)
-    clock.now += timedelta(seconds=181)
-    # Lost response replay returns the same durable effect, never another batch.
-    repeated = submit(workspace, batch)
-    assert repeated.status_code == 200
-    assert repeated.json()["id"] == row["id"]
-    if phase != "before_send":
-        result = reconcile(workspace, stored(batch))
-        assert result.status_code == 200, result.text
-        assert stored(batch)["provider_batch_id"] == "batch-original"
-    with batch["service"].db.transaction(False) as s:
-        holds = [
-            r
-            for r in batch["service"].scoped(s, "usage_ledger", batch["p"])
-            if r.data.get("work_kind") == "script_batch"
-        ]
-        assert len(holds) == 1 and holds[0].data["status"] in {"reserved", "uncertain"}
-    assert len(batch["sent"]) == (0 if phase == "before_send" else 1)
 
 
 @pytest.mark.asyncio

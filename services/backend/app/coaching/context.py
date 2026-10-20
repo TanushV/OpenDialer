@@ -29,12 +29,6 @@ def memory_id(key, item):
     )
 
 
-def bounded_memory(items):
-    # Preserve unresolved work before recent resolved details; report omitted material explicitly.
-    selected = sorted(enumerate(items), key=lambda pair: (pair[1].get("status") != "open", -pair[0]))[:12]
-    return [item for _, item in sorted(selected)]
-
-
 def words(text):
     return set(re.findall(r"[a-z]+", text.casefold())) - {
         "a",

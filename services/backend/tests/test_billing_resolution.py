@@ -385,6 +385,19 @@ def test_legacy_callback_receipt_cannot_be_reassigned_without_its_request_key(wo
     assert cdr(workspace, call).status_code == 409
 
 
+def test_default_ledger_view_lists_unverified_call_estimates(workspace, app):
+    """An estimate still needs the carrier statement, so it stays in the unresolved view."""
+    call, hold = call_hold(workspace, app)
+    workspace["client"].post(f"/v1/calls/{call['id']}/hangup", headers=workspace["headers"])
+    assert saved(app, hold)["status"] == "estimated"
+    entries = {row["id"]: row for row in ledger(workspace).json()["entries"]}
+    assert hold["id"] in entries, "The default (unresolved) view hides an unverified estimate"
+    assert entries[hold["id"]]["status"] == "estimated"
+    assert entries[hold["id"]]["billing_verified"] is False
+    settled = {row["id"] for row in ledger(workspace, status="settled").json()["entries"]}
+    assert hold["id"] not in settled
+
+
 def test_explicit_zero_charge_statement_can_close_a_terminal_call_without_cdr(workspace, app):
     call, hold = call_hold(workspace, app)
     workspace["client"].post(f"/v1/calls/{call['id']}/hangup", headers=workspace["headers"])

@@ -22,10 +22,20 @@ interface Entry {
   can_settle: boolean;
   can_credit: boolean;
   can_close_call: boolean;
+  /** A carrier statement or provider receipt confirmed this amount. */
+  billing_verified?: boolean;
+  estimate_source?: string | null;
 }
 type Ledger = { entries: Entry[]; next_cursor: string | null };
 const money = (value: number | null) =>
   value === null ? "Unknown" : `$${value.toFixed(6)}`;
+/** Estimates count against budgets but are never presented as carrier-verified. */
+const costState = (item: Entry) =>
+  item.status === "estimated"
+    ? "Estimated · not carrier-verified"
+    : item.status === "settled" && item.billing_verified
+      ? "Settled · carrier-verified"
+      : label(item.status);
 
 export function BillingReconciliation() {
   const { api, refresh } = useWorkspace();
@@ -132,7 +142,7 @@ export function BillingReconciliation() {
             {data?.entries.map((item) => (
               <option key={item.id} value={item.id}>
                 {label(item.kind)} · {item.request_key || item.id} ·{" "}
-                {label(item.status)}
+                {costState(item)}
               </option>
             ))}
           </select>
@@ -212,6 +222,15 @@ function ReceiptForm({
         Gross {money(row.cost_usd)} · Credits {money(row.credited_usd)} · Net{" "}
         {money(row.net_cost_usd)} · Reserved {money(row.reserved_usd)}
       </p>
+      {row.status === "estimated" && (
+        <p role="status">
+          Estimated {money(row.cost_usd)}
+          {row.estimate_source
+            ? ` (${row.estimate_source.replaceAll("_", " ")})`
+            : ""}
+          . Not carrier-verified; record the carrier statement to replace it.
+        </p>
+      )}
       {row.receipt_id && (
         <p className="fine">
           Last recorded receipt: {row.receipt_id} · {row.source_reference}

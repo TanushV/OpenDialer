@@ -38,15 +38,12 @@ export async function isolatedSimulationWorkspace(page: Page, name: string) {
   await expect(page.getByText("Opening your workspace…")).toBeHidden();
 }
 
-/** Give a calling journey its own fictional work without resetting shared state. */
-export async function prepareSimulationCall(
-  page: Page,
-  name: string,
-  phone: string,
-) {
-  await expect(
-    page.getByText(/Practice workspace · Calls and provider responses/),
-  ).toBeVisible();
+/**
+ * Add one fictional lead and return to the dialer. Earlier specs on the shared
+ * authority may have used every seeded lead's attempts, so a calling journey
+ * brings its own.
+ */
+export async function importLead(page: Page, name: string, phone: string) {
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   await page
     .getByLabel("CSV lead data")
@@ -54,7 +51,32 @@ export async function prepareSimulationCall(
       `name,phone,company,timezone,region\n${name},${phone},Example,America/Los_Angeles,415`,
     );
   await page.getByRole("button", { name: "Import leads", exact: true }).click();
-  await expect(page.getByText(/1 imported/)).toBeVisible();
+  await expect(page.getByText(/^1 imported/)).toBeVisible();
+  await page.getByRole("button", { name: "Dialer", exact: true }).click();
+}
+
+/** Give a calling journey its own fictional work without resetting shared state. */
+export async function prepareSimulationCall(
+  page: Page,
+  name: string,
+  phone: string,
+  /** Further fictional leads for a journey that makes more than one call. */
+  more: { name: string; phone: string }[] = [],
+) {
+  await expect(
+    page.getByText(/Practice workspace · Calls and provider responses/),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Leads", exact: true }).click();
+  const rows = [{ name, phone }, ...more]
+    .map((lead) => `${lead.name},${lead.phone},Example,America/Los_Angeles,415`)
+    .join("\n");
+  await page
+    .getByLabel("CSV lead data")
+    .fill(`name,phone,company,timezone,region\n${rows}`);
+  await page.getByRole("button", { name: "Import leads", exact: true }).click();
+  await expect(
+    page.getByText(new RegExp(`^${1 + more.length} imported`)),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
   const ready = page.getByRole("button", { name: "Go ready", exact: true });
   await expect(
@@ -98,7 +120,47 @@ export async function finishCall(page: Page) {
   }
   if (await save.isVisible()) {
     await chooseOutcome(page, "no_answer");
-    await save.click();
-    await expect(save).toBeHidden();
+    // Cleanup saves again, as a rep would, when the shared PostgreSQL
+    // authority answers a conflict with a concurrent post-hangup write.
+    for (let attempt = 1; ; attempt++) {
+      await save.click();
+      try {
+        await expect(save).toBeHidden();
+        return;
+      } catch (error) {
+        if (attempt >= 3) throw error;
+      }
+    }
   }
+}
+
+/** After a test, reopen the workspace and end any call it left behind. */
+export async function leaveNoCall(page: Page) {
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    return;
+  const dialer = page.getByRole("button", { name: "Dialer", exact: true });
+  if (await dialer.isEnabled()) await dialer.click();
+  const pause = page.getByRole("button", {
+    name: "Pause dialing",
+    exact: true,
+  });
+  const ready = page.getByRole("button", { name: "Go ready", exact: true });
+  await expect(ready.or(pause)).toBeVisible();
+  // Let the dialer restore a current call from the workspace before checking.
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  await finishCall(page);
+  if (await pause.isVisible()) await pause.click();
+  await expect(ready).toBeVisible();
 }

@@ -174,7 +174,6 @@ class RecoveryActions:
                         "reason": r.data.get("recovery_reason")
                         or {
                             "number_configure": "Verify the original number route; callback testing is separate.",
-                            "script_batch": "Review the original deferred preparation request; do not submit another batch.",
                             "purchase": "Use prior order recovery in Numbers to verify the original carrier order.",
                         }.get(
                             r.data.get("kind"),

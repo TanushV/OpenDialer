@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { chooseOutcome } from "./simulation";
+import { expect, test } from "./fixtures";
+import { importLead, chooseOutcome } from "./simulation";
 
 test("conversation learning is honest about sparse evidence and saves reviewed aliases", async ({
   page,
@@ -85,6 +85,7 @@ test("the rep can retract an interpreted response without editing the transcript
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await importLead(page, "Retraction fixture", "+14155550702");
   await page.getByRole("button", { name: "Go ready", exact: true }).click();
   await page
     .getByRole("button", { name: "Get next lead", exact: true })

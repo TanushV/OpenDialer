@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { prepareSimulationCall, chooseOutcome } from "./simulation";
 
 test("a failed evidence review is visible without overwriting the rep note", async ({

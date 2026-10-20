@@ -1423,11 +1423,11 @@ async def test_unknown_job_kind_fails_closed_instead_of_running_a_default_handle
 
 
 @pytest.mark.asyncio
-async def test_retired_retry_plan_jobs_drain_as_no_ops(workspace, app, monkeypatch):
+async def test_retired_retry_plan_jobs_drain_as_no_ops(workspace, app):
     from test_remediation_privacy import principal
 
-    service, p, ran = app.state.service, principal(workspace), []
-    monkeypatch.setattr(service, "refresh_schedule_plans", lambda *args, **kwargs: ran.append(args))
+    service, p = app.state.service, principal(workspace)
+    assert not hasattr(service, "refresh_schedule_plans"), "Per-lead schedule plans are retired"
     job = service.jobs.enqueue(
         "ml",
         {"kind": "retry_plan_refresh", "campaign_id": workspace["campaign_id"], "seller_id": p["seller_id"]},
@@ -1435,7 +1435,6 @@ async def test_retired_retry_plan_jobs_drain_as_no_ops(workspace, app, monkeypat
         tenant_id=p["tenant_id"],
     )
     result = await service.run_jobs(p["tenant_id"], ["ml"])
-    assert not ran, "Per-lead schedule plans are retired; persisted rows must not rebuild them"
     assert service.jobs.get(job["id"])["status"] == "completed" and not result["errors"]
 
 

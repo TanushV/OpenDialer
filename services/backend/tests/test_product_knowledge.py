@@ -64,6 +64,24 @@ def test_published_knowledge_emits_one_content_free_invalidation_event(workspace
     assert data["product_description"] not in str(changed)
 
 
+def test_published_knowledge_keeps_the_active_call_script_and_changes_the_next_packet(workspace, app):
+    """E03 item 6: knowledge refreshes next-call preparation; an active call keeps its frozen script."""
+    from conftest import start
+
+    call = start(workspace)
+    service, p = app.state.service, principal(workspace)
+    before = service.packet(p, call["lead_id"])["script"]
+    data = body(workspace, app)
+    data["opener"] = "Hello, this is {rep} with newly reviewed product context."
+    assert publish(workspace, data).status_code == 200
+    during = service.packet(p, call["lead_id"])["script"]
+    assert during == before, "A knowledge publication must not replace an active call's script"
+    ended = workspace["client"].post(f"/v1/calls/{call['id']}/hangup", headers=workspace["headers"])
+    assert ended.status_code == 200, ended.text
+    after = service.packet(p, call["lead_id"])["script"]
+    assert "newly reviewed product context" in after["opener"]
+
+
 @pytest.mark.database
 def test_unapproved_knowledge_never_replaces_current_and_parallel_publication_has_one_winner(workspace, app):
     from concurrent.futures import ThreadPoolExecutor

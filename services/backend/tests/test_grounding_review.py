@@ -132,7 +132,9 @@ def test_incomplete_or_unsafe_reviews_cannot_publish(change, workspace, app, mon
 
 
 def test_every_visible_analysis_field_is_reviewed_including_omitted_assertions(workspace, app, monkeypatch):
-    from app.postcall.analysis import DIMENSIONS
+    from app.postcall.rubrics import effective
+
+    DIMENSIONS = [d["id"] for d in effective({})["dimensions"]]  # The default rubric.
 
     body = analysis_body()
     body["summary"] += " Their budget was approved."

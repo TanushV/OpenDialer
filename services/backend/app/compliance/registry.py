@@ -550,15 +550,3 @@ class RegistryBitmap:
         if any(len(v) != 1_250_000 or not k.isdigit() or len(k) != 3 for k, v in result.items()):
             raise RegistryError("Invalid bitmap snapshot")
         return cls(result)
-
-    def apply_changes(self, add, remove):
-        result = RegistryBitmap({k: bytearray(v) for k, v in self.regions.items()})
-        for number in add:
-            bits = result.regions.setdefault(number[2:5], bytearray(1_250_000))
-            suffix = int(number[5:])
-            bits[suffix >> 3] |= 1 << (suffix & 7)
-        for number in remove:
-            if number[2:5] in result.regions:
-                suffix = int(number[5:])
-                result.regions[number[2:5]][suffix >> 3] &= ~(1 << (suffix & 7))
-        return result

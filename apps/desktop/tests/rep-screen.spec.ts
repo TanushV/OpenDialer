@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { chooseOutcome, finishCall, prepareSimulationCall } from "./simulation";
 import { zonedInstant } from "../src/state/zones";
 
