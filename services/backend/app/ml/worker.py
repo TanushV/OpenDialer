@@ -1,4 +1,9 @@
-"""One temporary CPU child; no authority, secrets, network clients or extra service."""
+"""One temporary CPU child; no authority, secrets, network clients or extra service.
+
+A frozen authority carries no fitting libraries: its child is the separate trainer binary that
+is installed beside it (opendialer-trainer, with the authority's own target-triple and .exe
+suffix). From source the child is this module in the current interpreter.
+"""
 
 import asyncio
 import hashlib
@@ -16,19 +21,42 @@ MAX_ARTIFACT = 64 * 1024 * 1024
 MAX_SECONDS = 300
 
 
+AUTHORITY = "opendialer-backend"
+TRAINER = "opendialer-trainer"
+
+
+def trainer_path(executable=None):
+    executable = Path(executable or sys.executable)
+    name = executable.name
+    suffix = name[len(AUTHORITY) :] if name.startswith(AUTHORITY) else ".exe" if os.name == "nt" else ""
+    return executable.with_name(TRAINER + suffix)
+
+
+def trainer_unavailable():
+    """None when training can start; otherwise the operator-facing reason it cannot."""
+    if getattr(sys, "frozen", False) and not trainer_path().is_file():
+        return (
+            f"The training component ({trainer_path().name}) is missing from this installation; "
+            "reinstall OpenDialer to train models. Serving and pooled estimates are unaffected."
+        )
+    return None
+
+
 def child_command():
     if getattr(sys, "frozen", False):
-        return [sys.executable, "--train-child"]
+        if reason := trainer_unavailable():
+            raise RuntimeError(reason)
+        return [str(trainer_path())]
     return [sys.executable, "-m", "app.ml.worker"]
 
 
 def child_environment():
     allowed = {"PATH", "SystemRoot", "WINDIR", "TEMP", "TMP", "LANG", "LC_ALL"}
-    if getattr(sys, "frozen", False):
-        # Same executable worker reuses PyInstaller's extracted runtime and libraries.
-        allowed.update(k for k in os.environ if k.startswith("_PYI_"))
-        allowed.update({"LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"})
     result = {k: v for k, v in os.environ.items() if k in allowed}
+    if getattr(sys, "frozen", False):
+        # The trainer is its own onefile runtime: it must not adopt the authority's extracted
+        # libraries (_PYI_* / library paths), and PyInstaller treats it as a fresh process.
+        result["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
     result.update(
         {
             "PYTHONNOUSERSITE": "1",
@@ -116,7 +144,7 @@ async def reap(process):
 
 def checked_result(contents, output_dir):
     result = json.loads(contents)
-    path = output_dir / "challenger.joblib"
+    path = output_dir / "challenger.json"
     if not isinstance(result, dict) or result.get("artifact") != str(path) or path.is_symlink():
         raise ValueError("Invalid artifact identity")
     with path.open("rb") as stream:

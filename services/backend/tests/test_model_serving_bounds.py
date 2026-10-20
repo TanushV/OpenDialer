@@ -1,112 +1,87 @@
 """A33/A50: bounded serving history, exact verified bytes, and safe probabilities."""
 
 import hashlib
-import io
+import json
+import pickle
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from pathlib import Path
 
-import joblib
-import numpy as np
 import pytest
 from app.db import Database, get, put, update
-from app.ml import training
+from app.ml import serving, training
 from conftest import ready
-from sklearn.dummy import DummyClassifier
+from model_artifacts import column_stage, constant_stage, write
 from sqlalchemy import inspect
 from test_context_reads import count_decrypted
 from test_remediation_privacy import principal
 
 
-class FeatureColumnClassifier:
-    def predict_proba(self, values):
-        # Independent oracle: a named training-vocabulary column is probability.
-        probabilities = np.asarray(values)[:, 0]
-        return np.column_stack((1 - probabilities, probabilities))
-
-
 def test_saved_conditional_estimators_retain_their_actual_stage_names(tmp_path):
-    path = tmp_path / "conditional.joblib"
-    joblib.dump(
-        {
-            name: FeatureColumnClassifier()
-            for name in ("human", "right_party_given_human", "conversion_given_right_party")
-        },
-        path,
+    descriptor = write(
+        tmp_path / "conditional.json",
+        {name: column_stage(["requested_contact"]) for name in training.STAGES},
     )
-    descriptor = {
-        "artifact": str(path),
-        "checksum": hashlib.sha256(path.read_bytes()).hexdigest(),
-        "feature_order": ["requested_contact"],
-    }
     result = training.predict_funnel_batch(descriptor, [{"requested_contact": 1}], tmp_path)
     assert result == [{"p_human": 1, "p_right_party_given_human": 1, "p_conversion_given_right_party": 1}]
 
 
+ROWS = [
+    {
+        "requested_contact": 1,
+        "segment": "enterprise",
+        "conversation_concepts": ["approval"],
+        "conversation_evidence_missing": False,
+    },
+    {
+        "requested_contact": 0,
+        "segment": "unknown",
+        "conversation_concepts": [],
+        "conversation_evidence_missing": True,
+    },
+]
+
+
+def test_v2_vocabulary_scores_its_exported_feature_order(tmp_path):
+    record = write(
+        tmp_path / "v2.json",
+        {
+            "human": column_stage(
+                ["segment:enterprise", "concept:approval", "concept:approval:missing"],
+                vocabulary={"segments": ["enterprise"], "concepts": ["approval"]},
+            )
+        },
+    )
+    values = training.predict_funnel_batch(record, ROWS, tmp_path)
+    assert values == [{"p_human": 1.0}, {"p_human": 0.0}]
+    assert training.predict_funnel_batch(record, ROWS, tmp_path) == values
+    # C034: a different record schema never reinterprets the stored stages.
+    assert training.predict_funnel_batch({**record, "feature_schema_version": 1}, ROWS, tmp_path) == [{}, {}]
+
+
 @pytest.mark.parametrize("version", [1, 2])
-def test_v1_v2_model_compatibility(tmp_path, version):
-    """C034: a v2 vocabulary must not reinterpret a retained v1 artifact."""
+def test_retained_pickled_artifacts_are_retired_not_reinterpreted(tmp_path, version):
+    """Artifacts from before pure serving stay on disk but are never opened."""
     path = tmp_path / f"v{version}.joblib"
-    artifact = {"human": FeatureColumnClassifier()}
-    if version == 2:
-        artifact.update(
-            feature_schema_version=2, vocabulary={"segments": ["enterprise"], "concepts": ["approval"]}
-        )
-    joblib.dump(artifact, path)
+    path.write_bytes(pickle.dumps({"human": "legacy estimator"}))
     record = {
         "artifact": str(path),
         "checksum": hashlib.sha256(path.read_bytes()).hexdigest(),
         "feature_schema_version": version,
-        "feature_order": ["requested_contact"]
-        if version == 1
-        else ["segment:enterprise", "concept:approval", "concept:approval:missing"],
+        "feature_order": ["requested_contact"],
     }
-    rows = [
-        {
-            "requested_contact": 1,
-            "segment": "enterprise",
-            "conversation_concepts": ["approval"],
-            "conversation_evidence_missing": False,
-        },
-        {
-            "requested_contact": 0,
-            "segment": "unknown",
-            "conversation_concepts": [],
-            "conversation_evidence_missing": True,
-        },
-    ]
-    values = training.predict_funnel_batch(record, rows, tmp_path)
-    assert values == [{"p_human": 1.0}, {"p_human": 0.0}]
-    assert training.predict_funnel_batch(record, rows, tmp_path) == values
+    assert training.predict_funnel_batch(record, ROWS, tmp_path) == [{}, {}]
+    assert training.retired_reason(record) == serving.RETIRED
 
 
-def artifact(tmp_path, probability=None):
+def artifact(tmp_path, probability=0.5):
     root = tmp_path / "models"
     root.mkdir(exist_ok=True)
-    path = root / "candidate.joblib"
-    model = DummyClassifier(strategy="prior").fit([[0], [1]], [0, 1])
-    joblib.dump({"human": model if probability is None else ProbabilityEstimator(probability)}, path)
+    path = root / "candidate.json"
+    descriptor = write(path, {"human": constant_stage(probability)})
     training._MODELS.clear()
-    return (
-        root,
-        path,
-        {
-            "artifact": str(path),
-            "checksum": hashlib.sha256(path.read_bytes()).hexdigest(),
-            "feature_order": ["local_hour"],
-        },
-    )
-
-
-class ProbabilityEstimator:
-    def __init__(self, probability):
-        self.probability = probability
-
-    def predict_proba(self, values):
-        if self.probability == "short":
-            return np.array([[1.0]])
-        return np.array([[1 - self.probability, self.probability] for _ in values])
+    return root, path, descriptor
 
 
 @pytest.mark.parametrize("action", ["activate", "rollback", "serve"])
@@ -114,20 +89,6 @@ class ProbabilityEstimator:
 def test_v2_model_controls_recheck_frozen_definition_and_owned_source(workspace, app, clock, action, change):
     service, p = app.state.service, principal(workspace)
     root, path, descriptor = artifact(service.settings.data_dir)
-    joblib.dump(
-        {
-            "feature_schema_version": 2,
-            "stages": {
-                "human": {
-                    "estimator": DummyClassifier(strategy="prior").fit([[0], [1]], [0, 1]),
-                    "feature_order": ["local_hour"],
-                    "vocabulary": {"segments": [], "concepts": []},
-                }
-            },
-        },
-        path,
-    )
-    descriptor["checksum"] = hashlib.sha256(path.read_bytes()).hexdigest()
     assert root == service.settings.data_dir / "models"
     with service.db.transaction() as s:
         config = service.optimization_config(s, p)
@@ -212,17 +173,14 @@ def test_baseline_rollback_names_the_current_baseline(workspace):
 
 def test_checksum_verified_bytes_are_the_bytes_deserialized(tmp_path, monkeypatch):
     root, path, model = artifact(tmp_path)
-    replacement = io.BytesIO()
-    joblib.dump(
-        {"human": DummyClassifier(strategy="constant", constant=1).fit([[0], [1]], [0, 1])}, replacement
-    )
-    load = joblib.load
+    replacement = json.dumps({"format": serving.FORMAT, "stages": {"human": constant_stage(0.9)}}).encode()
+    parse = serving.parse
 
-    def replace_before_deserialization(source, *args, **kwargs):
-        path.write_bytes(replacement.getvalue())
-        return load(source, *args, **kwargs)
+    def replace_before_parsing(contents):
+        path.write_bytes(replacement)
+        return parse(contents)
 
-    monkeypatch.setattr(joblib, "load", replace_before_deserialization)
+    monkeypatch.setattr(serving, "parse", replace_before_parsing)
     assert training.predict_funnel_batch(model, [{"local_hour": 12}], root) == [{"p_human": 0.5}]
     # A subsequent read notices replacement and cannot reuse a stale verified entry.
     assert training.predict_funnel_batch(model, [{}], root) == [{}]
@@ -230,23 +188,28 @@ def test_checksum_verified_bytes_are_the_bytes_deserialized(tmp_path, monkeypatc
 
 def test_concurrent_first_predictions_verify_and_load_once(tmp_path, monkeypatch):
     root, _, model = artifact(tmp_path)
-    load, loads = joblib.load, []
+    parse, loads = serving.parse, []
 
-    def slow_load(*args, **kwargs):
+    def slow_parse(*args, **kwargs):
         loads.append(1)
         time.sleep(0.05)
-        return load(*args, **kwargs)
+        return parse(*args, **kwargs)
 
-    monkeypatch.setattr(joblib, "load", slow_load)
+    monkeypatch.setattr(serving, "parse", slow_parse)
     with ThreadPoolExecutor(max_workers=6) as executor:
         predictions = list(executor.map(lambda _: training.predict_funnel_batch(model, [{}], root), range(6)))
     assert predictions == [[{"p_human": 0.5}]] * 6
     assert len(loads) == 1
 
 
-@pytest.mark.parametrize("probability", [float("nan"), float("inf"), -0.1, 1.1, "short"])
-def test_invalid_model_probabilities_fall_back_without_poisoning_the_queue(tmp_path, probability):
-    root, _, model = artifact(tmp_path, probability)
+@pytest.mark.parametrize(
+    "contents",
+    [b'{"format": "opendialer.funnel-trees.v1", "stages": {"human": ', b"NaN", b"\x80\x04K\x01.", b"{}"],
+)
+def test_invalid_model_content_falls_back_without_poisoning_the_queue(tmp_path, contents):
+    root, path, model = artifact(tmp_path)
+    path.write_bytes(contents)
+    model["checksum"] = hashlib.sha256(contents).hexdigest()
     assert training.predict_funnel_batch(model, [{}, {}], root) == [{}, {}]
 
 
@@ -259,7 +222,7 @@ def test_oversized_artifact_is_rejected_before_reading_or_loading(tmp_path, monk
         raise AssertionError("Serving read an oversized model")
 
     monkeypatch.setattr(Path, "read_bytes", forbidden)
-    monkeypatch.setattr(joblib, "load", forbidden)
+    monkeypatch.setattr(serving, "parse", forbidden)
     assert training.predict_funnel_batch(model, [{}], root) == [{}]
 
 
@@ -503,3 +466,77 @@ def test_trial_enrollment_reads_only_the_original_model_assignment(
             selected = service.serving_model(s, p, config, lead_id)
             assert (selected.id if selected else None) == (model_id if matching else None)
     assert len(decrypted) <= 8, len(decrypted)
+
+
+def retired_model(service, p, clock, **fields):
+    """A current, reviewed model whose artifact predates pure serving (a pickle on disk)."""
+    path = service.settings.data_dir / "models" / "legacy" / "challenger.joblib"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(pickle.dumps({"feature_schema_version": 2, "stages": {}}))
+    with service.db.transaction() as s:
+        config = service.optimization_config(s, p)
+        baseline = {k: config[k] for k in ("estimate_policy", "handling_seconds")}
+        definition = {"goal": config["conversion_goal"], "window_days": config["window_days"]}
+        source = put(
+            s,
+            "learning_datasets",
+            p["tenant_id"],
+            p["seller_id"],
+            {**definition, "baseline": baseline},
+            now=clock(),
+        )
+        model = put(
+            s,
+            "model_versions",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "artifact": str(path),
+                "checksum": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "feature_order": ["local_hour"],
+                "feature_schema_version": 2,
+                "source_dataset_id": source.id,
+                **definition,
+                "baseline": baseline,
+                "reviewable": True,
+                "online_trial_passed": True,
+                "coverage_delta": 0,
+                "policy_violations": 0,
+                **fields,
+            },
+            now=clock(),
+        )
+        return model.id
+
+
+def test_retired_active_model_serves_pooled_estimates_with_a_visible_reason(
+    workspace, app, clock, monkeypatch
+):
+    import app.optimization.learning as learning
+
+    service, p = app.state.service, principal(workspace)
+    model_id = retired_model(service, p, clock, active=True, ever_activated=True)
+    monkeypatch.setattr(learning, "stable_control", lambda *args, **kwargs: False)  # No holdout lead.
+    ready(workspace)
+    plan = service._selection(p, workspace["campaign_id"])
+    assert plan["prediction"]["model_version"] == "pooled-funnel-v3"
+    assert plan["prediction"]["model_fallback"] == {"model_id": model_id, "reason": serving.RETIRED}
+    page = workspace["client"].get("/v1/workspace/models", headers=workspace["headers"]).json()
+    shown = next(item for item in page["items"] if item["id"] == model_id)
+    assert shown["serving_block"] == serving.RETIRED
+
+
+@pytest.mark.parametrize("action", ["activate", "rollback", "start-trial"])
+def test_retired_model_controls_name_the_retirement(workspace, app, clock, action):
+    service, p = app.state.service, principal(workspace)
+    model_id = retired_model(service, p, clock, ever_activated=action == "rollback")
+    body = (
+        {"review_reference": "Reviewed controlled pilot", "max_leads": 100, "duration_days": 7}
+        if action == "start-trial"
+        else {"approved": True, "reason": "Reviewed model control"}
+    )
+    response = workspace["client"].post(
+        f"/v1/admin/models/{model_id}/{action}", headers=workspace["headers"], json=body
+    )
+    assert response.status_code == 409, response.text
+    assert serving.RETIRED in response.json()["detail"]

@@ -1,18 +1,19 @@
 """Bounded CPU funnel challengers with independent chronological calibration.
 
-NumPy/scikit-learn load only inside fitting and model serving, so the authority can check
-review-policy support without importing them.
+NumPy and scikit-learn load only inside fitting, which runs in the separate trainer process.
+The trainer exports every fitted stage as plain JSON (app.ml.serving), so the authority checks
+review-policy support and serves promoted models without the numeric stack or any unpickling.
 """
 
 import hashlib
-import io
+import json
 import math
-import pickle
 import threading
 from collections import Counter, defaultdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from app.ml import serving
 from app.optimization.learning import funnel_predictions
 from app.optimization.numbering import timestamp
 from app.scheduling.models import OPTIMIZATION_DEFAULTS, EstimatePolicy, prediction_key
@@ -30,16 +31,6 @@ FEATURE_ORDER = [
     "requested_contact",
     *[f"segment_bucket_{i}" for i in range(8)],
 ]
-
-
-def vector(features, order):
-    bucket = int(hashlib.sha256(str(features.get("segment", "unknown")).encode()).hexdigest()[:8], 16) % 8
-    return [
-        float(int(name.rsplit("_", 1)[1]) == bucket)
-        if name.startswith("segment_bucket_")
-        else float(features.get(name) or 0)
-        for name in order
-    ]
 
 
 REVIEW_POLICY = {
@@ -359,6 +350,10 @@ def fit_stage(partitions, label, *, conversation):
     calibrated.fit(*xy(partitions[1]))
     xv, yv = xy(partitions[2])
     probabilities = calibrated.predict_proba(xv)[:, 1]
+    export = export_stage(calibrated, order, vocabulary)
+    served = serving.stage_from_document(json.loads(json.dumps(export, allow_nan=False)))
+    if max(abs(a - b) for a, b in zip(served.probabilities(xv.tolist()), probabilities, strict=True)) > 1e-9:
+        raise ValueError("Exported stage does not reproduce the fitted model")
     report.update(
         status="fitted",
         brier=float(brier_score_loss(yv, probabilities)),
@@ -371,7 +366,78 @@ def fit_stage(partitions, label, *, conversation):
         validation_labels_through=max(label_time(r, label) for r in partitions[2]).isoformat(),
         calibration=calibration_diagnostics(partitions[2], probabilities, train=partitions[0], label=label),
     )
-    return {"estimator": calibrated, "vocabulary": vocabulary, "feature_order": order}, report, probabilities
+    return (
+        {"estimator": calibrated, "vocabulary": vocabulary, "feature_order": order, "export": export},
+        report,
+        probabilities,
+    )
+
+
+def export_stage(calibrated, feature_order, vocabulary):
+    """Plain-JSON stage: every calibration member's trees, baseline and sigmoid parameters.
+
+    Refuses anything the pure evaluator would not reproduce exactly: other calibrations or
+    links, multiclass or categorical splits, or a feature width that differs from the order.
+    """
+    from sklearn.ensemble import HistGradientBoostingClassifier
+    from sklearn.frozen import FrozenEstimator
+
+    if calibrated.method != "sigmoid" or [int(c) for c in calibrated.classes_] != [0, 1]:
+        raise ValueError("Only binary sigmoid calibration is exportable")
+    members = []
+    for pair in calibrated.calibrated_classifiers_:
+        model = pair.estimator.estimator if isinstance(pair.estimator, FrozenEstimator) else pair.estimator
+        if (
+            not isinstance(model, HistGradientBoostingClassifier)
+            or type(model._loss).__name__ != "HalfBinomialLoss"
+            or model.n_trees_per_iteration_ != 1
+            or [int(c) for c in model.classes_] != [0, 1]
+            or model.n_features_in_ != len(feature_order)
+            or (model.is_categorical_ is not None and bool(model.is_categorical_.any()))
+            or len(pair.calibrators) != 1
+        ):
+            raise ValueError("Calibrated member is not an exportable binary gradient boosting model")
+        trees = []
+        for (predictor,) in model._predictors:
+            nodes = predictor.nodes
+            if bool(nodes["is_categorical"].any()):
+                raise ValueError("Categorical splits are not exportable")
+            leaf = [bool(v) for v in nodes["is_leaf"]]
+
+            def column(name, convert, nodes=nodes, leaf=leaf):
+                return [0 if is_leaf else convert(v) for v, is_leaf in zip(nodes[name], leaf, strict=True)]
+
+            trees.append(
+                {
+                    "feature": column("feature_idx", int),
+                    "threshold": column("num_threshold", serving.encode_threshold),
+                    "missing_left": [
+                        False if is_leaf else bool(v)
+                        for v, is_leaf in zip(nodes["missing_go_to_left"], leaf, strict=True)
+                    ],
+                    "left": column("left", int),
+                    "right": column("right", int),
+                    "leaf": leaf,
+                    "value": [
+                        float(v) if is_leaf else 0.0 for v, is_leaf in zip(nodes["value"], leaf, strict=True)
+                    ],
+                }
+            )
+        (calibrator,) = pair.calibrators
+        members.append(
+            {
+                "baseline": float(model._baseline_prediction.item()),
+                "sigmoid": {"a": float(calibrator.a_), "b": float(calibrator.b_)},
+                "trees": trees,
+            }
+        )
+    return {
+        "feature_order": list(feature_order),
+        "vocabulary": {k: list(vocabulary[k]) for k in ("segments", "concepts")},
+        "link": "logistic",
+        "calibration": "sigmoid",
+        "members": members,
+    }
 
 
 def rolling_cutoffs(rows):
@@ -403,7 +469,6 @@ def baseline_probabilities(train, validation, stage, baseline):
 
 
 def _train_challenger(rows, output_dir, *, baseline=None):
-    import joblib
     from sklearn.metrics import brier_score_loss
 
     if len(rows) < REVIEW_POLICY["minimum_rows"]:
@@ -538,16 +603,22 @@ def _train_challenger(rows, output_dir, *, baseline=None):
         and calibration_ok
     )
     vocabulary = final["human"][2]["vocabulary"] if final else {"segments": [], "concepts": []}
-    artifact = {"feature_schema_version": 2, "stages": models, "review_policy": REVIEW_POLICY}
+    artifact = {
+        "format": serving.FORMAT,
+        "feature_schema_version": 2,
+        "stages": {name: packed["export"] for name, packed in models.items()},
+        "review_policy": REVIEW_POLICY,
+    }
     directory = Path(output_dir)
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / "challenger.joblib"
-    joblib.dump(artifact, path)
+    path = directory / ARTIFACT_NAME
+    path.write_bytes(json.dumps(artifact, allow_nan=False, separators=(",", ":")).encode())
     human = metrics["human"]
     human_parts = final["human"][3] if final else ([], [], [])
     return {
         "artifact": str(path),
         "checksum": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "artifact_format": serving.FORMAT,
         "feature_schema_version": 2,
         "baseline": baseline,
         "feature_order": models.get("human", {}).get("feature_order", []),
@@ -604,95 +675,65 @@ def promotion_allowed(model):
     )
 
 
+def retired_reason(model):
+    """Record-level: an artifact from before pure serving (joblib/pickle) is never opened."""
+    if model.get("artifact") and model.get("artifact_format") != serving.FORMAT:
+        return serving.RETIRED
+    return None
+
+
+def _verified_stages(model, artifact_root):
+    path = Path(model["artifact"]).resolve()
+    if not path.is_relative_to(Path(artifact_root).resolve()) or not path.is_file():
+        return None
+    # Only owned artifacts produced by this authority. Verify and parse the same bounded
+    # bytes; a second path open could observe a replacement.
+    with _MODEL_LOCK:
+        stat = path.stat()
+        if stat.st_size > MAX_MODEL_BYTES:
+            return None
+        key = (str(path), model["checksum"], stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino)
+        if key not in _MODELS:
+            with path.open("rb") as handle:
+                contents = handle.read(MAX_MODEL_BYTES + 1)
+            if len(contents) > MAX_MODEL_BYTES or hashlib.sha256(contents).hexdigest() != model["checksum"]:
+                return None
+            loaded = serving.parse(contents)
+            if len(_MODELS) >= MODEL_CACHE_ENTRIES:
+                _MODELS.pop(next(iter(_MODELS)))
+            _MODELS[key] = loaded
+        return _MODELS[key]
+
+
 def predict_funnel_batch(model, features, artifact_root):
     if not features:
         return []
-    import joblib
-    import numpy as np
-
+    empty = [{} for _ in features]
     try:
-        path = Path(model["artifact"]).resolve()
-        if not path.is_relative_to(Path(artifact_root).resolve()) or not path.is_file():
-            return [{} for _ in features]
-        # Only load owned artifacts produced by this authority. Verify and deserialize
-        # the same bounded bytes; a second path open could observe a replacement.
-        with _MODEL_LOCK:
-            stat = path.stat()
-            if stat.st_size > MAX_MODEL_BYTES:
-                return [{} for _ in features]
-            key = (
-                str(path),
-                model["checksum"],
-                stat.st_mtime_ns,
-                stat.st_ctime_ns,
-                stat.st_size,
-                stat.st_ino,
-            )
-            if key not in _MODELS:
-                with path.open("rb") as handle:
-                    contents = handle.read(MAX_MODEL_BYTES + 1)
-                if (
-                    len(contents) > MAX_MODEL_BYTES
-                    or hashlib.sha256(contents).hexdigest() != model["checksum"]
-                ):
-                    return [{} for _ in features]
-                loaded = joblib.load(io.BytesIO(contents))
-                if len(_MODELS) >= 4:
-                    _MODELS.pop(next(iter(_MODELS)))
-                _MODELS[key] = loaded
-            models = _MODELS[key]
-        if not isinstance(models, dict):
-            models = {"human": models}
-        schema = models.get("feature_schema_version", 1)
-        if schema != model.get("feature_schema_version", 1) or schema not in (1, 2):
-            return [{} for _ in features]
-        estimators = models.get("stages", models)
+        if retired_reason(model) or model.get("feature_schema_version", 1) != 2:
+            return empty
+        stages = _verified_stages(model, artifact_root)
+        if stages is None:
+            return empty
         output = [{} for _ in features]
-        for name, estimator in estimators.items():
-            if schema == 2 and name in {"feature_schema_version", "vocabulary", "feature_order"}:
-                continue
-            if name not in {*STAGES, "right_party", "conversion"}:
-                return [{} for _ in features]
-            if schema == 2:
-                packed = (
-                    estimator
-                    if "stages" in models
-                    else {
-                        "estimator": estimator,
-                        "vocabulary": models["vocabulary"],
-                        "feature_order": models.get("feature_order", model["feature_order"]),
-                    }
-                )
-                values = [vector_v2(row, packed["feature_order"], packed["vocabulary"]) for row in features]
-                estimator = packed["estimator"]
-            else:
-                values = [vector(row, model["feature_order"]) for row in features]
-            matrix = np.asarray(estimator.predict_proba(values))
-            if matrix.shape != (len(features), 2):
-                return [{} for _ in features]
-            probabilities = matrix[:, 1]
-            if not np.all(np.isfinite(probabilities) & (probabilities >= 0) & (probabilities <= 1)):
-                return [{} for _ in features]
+        for name, stage in stages.items():
+            vectors = [vector_v2(row, stage.feature_order, stage.vocabulary) for row in features]
+            probabilities = stage.probabilities(vectors)
+            if not all(math.isfinite(p) and 0 <= p <= 1 for p in probabilities):
+                return empty
             for row, probability in zip(output, probabilities, strict=True):
-                row["p_" + name] = float(probability)
+                row["p_" + name] = probability
         return output
-    except (
-        OSError,
-        ValueError,
-        KeyError,
-        TypeError,
-        EOFError,
-        pickle.UnpicklingError,
-        ImportError,
-        AttributeError,
-    ):
-        return [{} for _ in features]
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return empty
 
 
 def predict_funnel(model, features, artifact_root):
     return predict_funnel_batch(model, [features], artifact_root)[0]
 
 
+ARTIFACT_NAME = "challenger.json"
 _MODELS = {}
 _MODEL_LOCK = threading.Lock()
+MODEL_CACHE_ENTRIES = 4
 MAX_MODEL_BYTES = 64 * 1024 * 1024
