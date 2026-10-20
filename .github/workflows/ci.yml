@@ -207,7 +207,11 @@ jobs:
       - run: npm ci && npm run build
         working-directory: apps/desktop
       - uses: dtolnay/rust-toolchain@stable
-      - run: uv run python scripts/build_sidecar.py
+      - name: Freeze the authority and trainer sidecars
+        run: |
+          uv run python scripts/build_sidecar.py
+          test -x apps/desktop/src-tauri/binaries/opendialer-backend-aarch64-apple-darwin
+          test -x apps/desktop/src-tauri/binaries/opendialer-trainer-aarch64-apple-darwin
       - run: cargo fmt --check && cargo test --locked
         working-directory: apps/desktop/src-tauri
       - run: cargo clippy --locked --all-targets -- -D warnings

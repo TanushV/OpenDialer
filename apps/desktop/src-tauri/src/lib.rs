@@ -2375,31 +2375,36 @@ fn stop_owned_runtimes(
     }
 }
 
-/// The updater's installer replaces opendialer-backend.exe right after cleanup. A job member
-/// that is still terminating keeps the image mapped, so wait until it can be opened exclusively.
+/// The updater's installer replaces opendialer-backend.exe and opendialer-trainer.exe right after
+/// cleanup. A training child is the authority's job member, so the job kill also ends it, but a
+/// member that is still terminating keeps its image mapped: wait until each executable can be
+/// opened exclusively, within one shared limit.
 #[cfg(windows)]
 fn wait_for_backend_release(limit: Duration) {
     use std::os::windows::fs::OpenOptionsExt;
-    let Some(path) = std::env::current_exe()
+    let Some(directory) = std::env::current_exe()
         .ok()
-        .and_then(|exe| exe.parent().map(|dir| dir.join("opendialer-backend.exe")))
+        .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf))
     else {
         return;
     };
     let deadline = std::time::Instant::now() + limit;
-    while path.is_file() && std::time::Instant::now() < deadline {
-        match std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .share_mode(0)
-            .open(&path)
-        {
-            Ok(_) => return,
-            // ERROR_SHARING_VIOLATION / ERROR_LOCK_VIOLATION while a process still uses it.
-            Err(error) if matches!(error.raw_os_error(), Some(32 | 33)) => {
-                std::thread::sleep(Duration::from_millis(100))
+    for name in ["opendialer-backend.exe", "opendialer-trainer.exe"] {
+        let path = directory.join(name);
+        while path.is_file() && std::time::Instant::now() < deadline {
+            match std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .share_mode(0)
+                .open(&path)
+            {
+                Ok(_) => break,
+                // ERROR_SHARING_VIOLATION / ERROR_LOCK_VIOLATION while a process still uses it.
+                Err(error) if matches!(error.raw_os_error(), Some(32 | 33)) => {
+                    std::thread::sleep(Duration::from_millis(100))
+                }
+                Err(_) => break,
             }
-            Err(_) => return,
         }
     }
 }

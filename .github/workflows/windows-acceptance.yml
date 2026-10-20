@@ -82,6 +82,7 @@ jobs:
           }
           $backend = @(Get-ChildItem $unpack -Recurse -Filter opendialer-backend.exe)
           if ($backend.Count -ne 1) { throw 'Expected one packaged backend executable' }
+          if (@(Get-ChildItem $unpack -Recurse -Filter opendialer-trainer.exe).Count -ne 1) { throw 'Expected one packaged trainer executable' }
           $backendHash = (Get-FileHash $backend[0].FullName -Algorithm SHA256).Hash.ToLower()
           "OPENDIALER_EXPECTED_BACKEND_SHA256=$backendHash" >> $env:GITHUB_ENV
           $selectedVersion = $version
@@ -162,7 +163,7 @@ jobs:
           if ($env:OPENDIALER_TEST_APPLICATION) {
             $directory = Split-Path $env:OPENDIALER_TEST_APPLICATION
             $files = @(Get-ChildItem $directory -File | ForEach-Object { @{name=$_.Name;length=$_.Length;sha256=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower();version=$_.VersionInfo.ProductVersion} })
-            $processes = @(Get-CimInstance Win32_Process -Filter "Name='opendialer-backend.exe' OR Name='opendialer-desktop.exe'" | Select-Object Name,ExecutablePath,ProcessId,ParentProcessId)
+            $processes = @(Get-CimInstance Win32_Process -Filter "Name='opendialer-backend.exe' OR Name='opendialer-trainer.exe' OR Name='opendialer-desktop.exe'" | Select-Object Name,ExecutablePath,ProcessId,ParentProcessId)
             New-Item -ItemType Directory -Force work/windows-native | Out-Null
             @{installed_files=$files;owned_processes=$processes} | ConvertTo-Json -Depth 6 | Set-Content work/windows-native/installed-diagnostics.json
           }

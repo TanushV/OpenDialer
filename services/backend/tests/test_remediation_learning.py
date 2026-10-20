@@ -112,24 +112,15 @@ def test_goal_change_preserves_booked_hold_and_optout(workspace, app):
 
 
 def test_batch_prediction_verifies_artifact_only_on_load_and_preserves_rows(tmp_path, monkeypatch):
-    import hashlib
     from pathlib import Path
 
-    import joblib
-    import numpy as np
     from app.ml import training
-    from sklearn.dummy import DummyClassifier
+    from model_artifacts import constant_stage, write
 
     root = tmp_path / "models"
     root.mkdir()
-    path = root / "fixture.joblib"
-    estimator = DummyClassifier(strategy="prior").fit(np.array([[0], [1]]), [0, 1])
-    joblib.dump({"human": estimator}, path)
-    model = {
-        "artifact": str(path),
-        "checksum": hashlib.sha256(path.read_bytes()).hexdigest(),
-        "feature_order": ["local_hour"],
-    }
+    path = root / "fixture.json"
+    model = write(path, {"human": constant_stage(0.5)})
     original = Path.open
     reads = []
 

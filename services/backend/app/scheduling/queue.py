@@ -204,7 +204,7 @@ class ReservationPlanner:
                 if serving:
                     by_model.setdefault(serving.id, (serving, []))[1].append(lead.id)
             for serving, identifiers in by_model.values():
-                from app.ml.training import predict_funnel_batch
+                from app.ml.training import predict_funnel_batch, retired_reason
 
                 estimates = predict_funnel_batch(
                     serving.data, [features[i] for i in identifiers], self.settings.data_dir / "models"
@@ -212,6 +212,12 @@ class ReservationPlanner:
                 for identifier, estimate in zip(identifiers, estimates, strict=True):
                     if estimate:
                         predictions[identifier].update(**estimate, model_version=serving.id)
+                    else:
+                        # Pooled estimates stay in force; the decision records why the model did not.
+                        predictions[identifier]["model_fallback"] = {
+                            "model_id": serving.id,
+                            "reason": retired_reason(serving.data) or "model_artifact_unavailable",
+                        }
             candidates = rank_candidates(
                 [{**doc(lead), "propensity": conversion_score(predictions[lead.id])} for lead in leads], now
             )

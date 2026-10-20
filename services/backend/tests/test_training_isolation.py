@@ -190,22 +190,118 @@ async def test_training_requires_the_exact_owned_dataset_before_spawning(workspa
     assert error.value.status_code in {403, 404, 409}
 
 
-def test_frozen_child_dispatch_does_not_boot_an_authority(monkeypatch):
-    entry = Path(__file__).resolve().parents[3] / "scripts/backend_entry.py"
+ENTRIES = Path(__file__).resolve().parents[3] / "scripts"
+
+
+def test_frozen_trainer_dispatch_does_not_boot_an_authority(monkeypatch):
+    entry = ENTRIES / "trainer_entry.py"
     child, seen = ModuleType("app.ml.worker"), []
     child.main = lambda: seen.append(True)
     monkeypatch.setitem(sys.modules, "app.ml.worker", child)
     monkeypatch.setattr(sys, "frozen", True, raising=False)
-    monkeypatch.setattr(sys, "argv", [str(entry), "--train-child"])
+    monkeypatch.setattr(sys, "argv", [str(entry)])
     original = builtins.__import__
 
     def guarded(name, *args, **kwargs):
-        assert name not in {"app.cli", "app.main", "uvicorn"}, "Child imported the authority"
+        assert name not in {"app.cli", "app.main", "uvicorn"}, "Trainer imported the authority"
         return original(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", guarded)
     runpy.run_path(str(entry), run_name="__main__")
     assert seen == [True]
+
+
+def test_trainer_self_check_loads_the_fitting_stack_and_rejects_other_arguments():
+    import json
+    import subprocess
+
+    entry = str(ENTRIES / "trainer_entry.py")
+    receipt = subprocess.run(  # noqa: S603 - current interpreter, repository entrypoint
+        [sys.executable, entry, "--self-check"], capture_output=True, text=True, timeout=120, check=True
+    )
+    assert {"numpy", "scipy", "sklearn"} <= set(json.loads(receipt.stdout)["libraries"])
+    other = subprocess.run(  # noqa: S603 - current interpreter, repository entrypoint
+        [sys.executable, entry, "serve"], capture_output=True, text=True, timeout=120
+    )
+    assert other.returncode == 2 and "opendialer-trainer" in other.stderr
+
+
+def test_authority_entry_no_longer_trains_in_process(monkeypatch, capsys):
+    entry = ENTRIES / "backend_entry.py"
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "argv", [str(entry), "--train-child"])
+    original = builtins.__import__
+
+    def guarded(name, *args, **kwargs):
+        assert name not in {"app.ml.worker", "app.ml.training", "app.cli"}, name
+        return original(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", guarded)
+    with pytest.raises(SystemExit) as stopped:
+        runpy.run_path(str(entry), run_name="__main__")
+    assert stopped.value.code == 2
+    assert "opendialer-trainer" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "authority,trainer",
+    [
+        ("opendialer-backend", "opendialer-trainer"),
+        ("opendialer-backend-aarch64-apple-darwin", "opendialer-trainer-aarch64-apple-darwin"),
+        ("opendialer-backend.exe", "opendialer-trainer.exe"),
+        ("opendialer-backend-x86_64-pc-windows-msvc.exe", "opendialer-trainer-x86_64-pc-windows-msvc.exe"),
+    ],
+)
+def test_frozen_training_launches_the_trainer_installed_beside_the_authority(
+    tmp_path, monkeypatch, authority, trainer
+):
+    from app.ml import worker
+
+    for name in (authority, trainer):
+        (tmp_path / name).write_bytes(b"")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / authority))
+    assert worker.child_command() == [str(tmp_path / trainer)]
+    assert worker.trainer_unavailable() is None
+
+
+def test_missing_trainer_is_a_clear_error_that_never_queues_training(workspace, app, tmp_path, monkeypatch):
+    from app.ml import training, worker
+
+    (tmp_path / "opendialer-backend").write_bytes(b"")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "opendialer-backend"))
+    with pytest.raises(RuntimeError, match="opendialer-trainer"):
+        worker.child_command()
+    service, p = app.state.service, principal(workspace)
+    monkeypatch.setattr(training, "training_support", lambda rows: None)
+    monkeypatch.setattr(
+        service,
+        "save_operational_dataset",
+        lambda p: {"id": "dataset", "rows": [{"human": i % 2} for i in range(200)]},
+    )
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Training was queued without a trainer")
+
+    monkeypatch.setattr(service.jobs, "enqueue", forbidden)
+    result = service.train_operational(p)
+    assert result["status"] == "trainer_unavailable"
+    assert "opendialer-trainer" in result["reason"]
+
+
+def test_frozen_trainer_is_an_independent_runtime_not_the_authoritys(monkeypatch):
+    from app.ml import worker
+
+    for name in ("_PYI_ARCHIVE_FILE", "_PYI_APPLICATION_HOME_DIR", "_PYI_PARENT_PROCESS_LEVEL"):
+        monkeypatch.setenv(name, "/authority/extraction")
+    monkeypatch.setenv("DYLD_LIBRARY_PATH", "/authority/extraction")
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/authority/extraction")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    environment = worker.child_environment()
+    assert not [k for k in environment if k.startswith("_PYI_") or k.endswith("LIBRARY_PATH")]
+    assert environment["PYINSTALLER_RESET_ENVIRONMENT"] == "1"
+    assert "PYTHONPATH" not in environment
 
 
 @pytest.mark.asyncio
@@ -404,7 +500,7 @@ async def test_cancelling_during_publication_does_not_delete_committed_artifact(
 
     def fit_result(output):
         output.mkdir(parents=True)
-        path = output / "challenger.joblib"
+        path = output / "challenger.json"
         path.write_bytes(b"owned candidate")
         return {"artifact": str(path), "checksum": hashlib.sha256(path.read_bytes()).hexdigest()}
 
@@ -451,7 +547,7 @@ async def test_changed_authority_or_dataset_cannot_publish_trained_candidate(
 
     async def fitted(rows, output_dir, **kwargs):
         output_dir.mkdir(parents=True)
-        artifact = output_dir / "challenger.joblib"
+        artifact = output_dir / "challenger.json"
         artifact.write_bytes(b"fixture internal artifact")
         with service.db.transaction() as s:
             if changed == "role":
@@ -479,4 +575,4 @@ async def test_changed_authority_or_dataset_cannot_publish_trained_candidate(
     assert error.value.status_code in {403, 409}
     with service.db.transaction(False) as s:
         assert not service.scoped(s, "model_versions", p)
-    assert not list((service.settings.data_dir / "models").glob("*/challenger.joblib"))
+    assert not list((service.settings.data_dir / "models").glob("*/challenger.json"))

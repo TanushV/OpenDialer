@@ -31,7 +31,7 @@ from app.measurement import WorkEdit
 from app.providers.telnyx import verify_webhook
 from app.rep_workflows import MeetingEdit, OutreachEdit, TaskEdit
 from app.scheduling.models import ContactRole, OutcomeCode
-from app.security import DUMMY_HASH, PASSWORDS, admin, decode_session, issue_session
+from app.security import PASSWORDS, admin, decode_session, dummy_hash, issue_session
 from app.service import fail
 from app.telephony.callbacks import CallbackRoutingEdit
 
@@ -484,7 +484,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
             fail(429, "Too many login attempts; retry later")
         with db.transaction() as s:
             user = next((u for u in rows(s, "users") if u.data["email"] == data.email.casefold()), None)
-            verified = PASSWORDS.verify(data.password, user.data["password_hash"] if user else DUMMY_HASH)
+            fallback = dummy_hash()  # Requested for every login, known account or not.
+            verified = PASSWORDS.verify(data.password, user.data["password_hash"] if user else fallback)
             if not verified or not user or user.data.get("disabled"):
                 login_failures[key] = [*failures, time.monotonic()]
                 fail(401, "Email or password is invalid")
@@ -1223,7 +1224,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/admin/models/{model_id}/activate")
     def activate(model_id: str, data: dict, p=Depends(administrator)):
-        from app.ml.training import predict_funnel, promotion_allowed
+        from app.ml.training import predict_funnel, promotion_allowed, retired_reason
 
         with db.transaction() as s:
             model = service.required(s, "model_versions", model_id, p)
@@ -1237,7 +1238,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
             ) or not predict_funnel(model.data, {}, service.settings.data_dir / "models"):
                 fail(
                     409,
-                    "Model source, evaluated baseline or owned artifact changed; evaluate current settings",
+                    retired_reason(model.data)
+                    or "Model source, evaluated baseline or owned artifact changed; evaluate current settings",
                 )
             for previous in service.scoped(s, "model_versions", p):
                 if previous.data.get("active"):
@@ -1534,10 +1536,14 @@ def create_app(settings=None, *, clock=None, carrier=None):
                     409,
                     "Rollback requires a previously activated model with the current evaluated definition",
                 )
-            from app.ml.training import predict_funnel
+            from app.ml.training import predict_funnel, retired_reason
 
             if not predict_funnel(model.data, {}, service.settings.data_dir / "models"):
-                fail(409, "Rollback artifact is unavailable or failed verification; use the pooled baseline")
+                fail(
+                    409,
+                    retired_reason(model.data)
+                    or "Rollback artifact is unavailable or failed verification; use the pooled baseline",
+                )
             for item in service.scoped(session, "model_versions", p):
                 update(item, active=item.id == model.id, trial_active=False)
             audit(

@@ -28,7 +28,8 @@
     "active": true,
     "targets": "all",
     "externalBin": [
-      "binaries/opendialer-backend"
+      "binaries/opendialer-backend",
+      "binaries/opendialer-trainer"
     ],
     "createUpdaterArtifacts": true,
     "icon": [

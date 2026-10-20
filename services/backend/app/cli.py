@@ -225,6 +225,11 @@ def run(args, settings, watch_stdin):
         )
     if settings.mode == "connected" and settings.database_url.startswith("sqlite"):
         raise SystemExit("Connected deployments require OPENDIALER_DATABASE_URL=postgresql+psycopg://...")
+    if settings.mode == "connected" and getattr(sys, "frozen", False):
+        # The desktop sidecar ships without PostgreSQL drivers; it only ever runs local mode.
+        raise SystemExit(
+            "This desktop authority runs local mode only; run connected mode from the server image"
+        )
     import uvicorn
 
     from app.main import create_app
