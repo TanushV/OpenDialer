@@ -1,13 +1,26 @@
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{Manager, State};
-use tauri_plugin_shell::{process::CommandChild, ShellExt};
+use tauri_plugin_shell::{
+    process::{CommandChild, CommandEvent},
+    ShellExt,
+};
 use uuid::Uuid;
+
+// Lock order: NativeAuthority -> LocalBackend -> WebhookTunnel. None of them is held across
+// OS credential-store access or authority HTTP, so a keychain prompt cannot freeze commands.
+
+/// Exit status of the Python authority when another authority owns its data directory.
+const AUTHORITY_BUSY_EXIT: i32 = 75;
 
 struct Backend {
     config: BackendConfig,
     child: CommandChild,
+    generation: u64,
+    /// Set by the event drain once the owned child has terminated.
+    exited: Arc<AtomicBool>,
 }
 #[derive(Clone, Serialize)]
 struct BackendConfig {
@@ -15,8 +28,53 @@ struct BackendConfig {
     local_token: String,
     simulation: bool,
 }
+#[derive(Default)]
+struct LocalRuntime {
+    backend: Option<Backend>,
+    generation: u64,
+    /// Mode whose last authority refused to start because another authority owns its data.
+    refused: Option<bool>,
+}
 #[derive(Default, Clone)]
-struct LocalBackend(Arc<Mutex<Option<Backend>>>);
+struct LocalBackend(Arc<Mutex<LocalRuntime>>);
+
+impl LocalBackend {
+    /// The running managed authority; a terminated child is never offered for reuse.
+    fn current(&self) -> Result<Option<BackendConfig>, String> {
+        Ok(self
+            .0
+            .lock()
+            .map_err(|_| "Local authority unavailable")?
+            .backend
+            .as_ref()
+            .filter(|b| !b.exited.load(Ordering::SeqCst))
+            .map(|b| b.config.clone()))
+    }
+    fn take(&self) -> Result<Option<Backend>, String> {
+        Ok(self
+            .0
+            .lock()
+            .map_err(|_| "Local authority unavailable")?
+            .backend
+            .take())
+    }
+    /// Remove only the instance whose event stream ended, recording a lock refusal.
+    fn forget_exited(&self, generation: u64, code: Option<i32>) -> Option<Backend> {
+        let mut state = self.0.lock().ok()?;
+        if state
+            .backend
+            .as_ref()
+            .is_none_or(|b| b.generation != generation)
+        {
+            return None;
+        }
+        let backend = state.backend.take()?;
+        if code == Some(AUTHORITY_BUSY_EXIT) {
+            state.refused = Some(backend.config.simulation);
+        }
+        Some(backend)
+    }
+}
 
 #[derive(Clone, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -42,26 +100,19 @@ struct ConfiguredProviderState {
     configured: std::collections::BTreeMap<String, bool>,
 }
 
-impl AuthorityState {
-    fn logout_once(&mut self) -> Result<(), String> {
-        if self.logout_confirmed {
-            return Ok(());
-        }
-        let binding = self.binding.as_ref().ok_or("No active native workspace")?;
-        let response = authority_client()?
-            .post(format!(
-                "{}/v1/auth/logout",
-                binding.url.trim_end_matches('/')
-            ))
-            .bearer_auth(&binding.token)
-            .send()
-            .map_err(|_| {
-                "Authority unavailable; remain in this workspace until obligations can be checked"
-            })?;
-        authority_response(response)?;
-        self.logout_confirmed = true;
-        Ok(())
-    }
+fn post_logout(binding: &AuthorityBinding) -> Result<(), String> {
+    let response = authority_client()?
+        .post(format!(
+            "{}/v1/auth/logout",
+            binding.url.trim_end_matches('/')
+        ))
+        .bearer_auth(&binding.token)
+        .send()
+        .map_err(|_| {
+            "Authority unavailable; remain in this workspace until obligations can be checked"
+        })?;
+    authority_response(response)?;
+    Ok(())
 }
 
 fn guard_local_mode(binding: Option<&AuthorityBinding>, simulation: bool) -> Result<(), String> {
@@ -103,6 +154,34 @@ impl NativeAuthority {
             state.binding = None;
             state.logout_confirmed = false;
         }
+    }
+    fn binding(&self) -> Result<Option<AuthorityBinding>, String> {
+        Ok(self
+            .0
+            .lock()
+            .map_err(|_| "Workspace unavailable")?
+            .binding
+            .clone())
+    }
+    /// Revoke the bound session at most once. The HTTP call runs without the workspace lock;
+    /// the confirmation is recorded only if the same binding is still active.
+    fn logout_once(&self, binding: &AuthorityBinding) -> Result<(), String> {
+        {
+            let state = self.0.lock().map_err(|_| "Workspace unavailable")?;
+            if state.binding.as_ref() != Some(binding) {
+                return Err("Workspace changed; reload before signing out".into());
+            }
+            if state.logout_confirmed {
+                return Ok(());
+            }
+        }
+        post_logout(binding)?;
+        let mut state = self.0.lock().map_err(|_| "Workspace unavailable")?;
+        if state.binding.as_ref() != Some(binding) {
+            return Err("Workspace changed during sign-out; reload before retrying".into());
+        }
+        state.logout_confirmed = true;
+        Ok(())
     }
 }
 
@@ -183,20 +262,20 @@ async fn bind_authority(app: tauri::AppHandle, binding: AuthorityBinding) -> Res
         {
             return Err("Invalid workspace identity".into());
         }
-        if binding.local {
-            let local = app.state::<LocalBackend>();
-            let state = local.0.lock().map_err(|_| "Local authority unavailable")?;
-            if state.as_ref().is_none_or(|r| {
-                r.config.url != binding.url || r.config.simulation != binding.simulation
-            }) {
-                return Err("This is not the managed local authority".into());
-            }
-        }
         let native = app.state::<NativeAuthority>();
         let mut state = native
             .0
             .lock()
             .map_err(|_| "Workspace identity unavailable")?;
+        if binding.local {
+            let runtime = app.state::<LocalBackend>().current()?;
+            if runtime
+                .as_ref()
+                .is_none_or(|r| r.url != binding.url || r.simulation != binding.simulation)
+            {
+                return Err("This is not the managed local authority".into());
+            }
+        }
         if let Some(current) = &state.binding {
             if current.url != binding.url
                 || current.tenant_id != binding.tenant_id
@@ -367,38 +446,29 @@ async fn protected_provider_input(
 async fn disconnect_authority(app: tauri::AppHandle) -> Result<(), String> {
     secure_io(move || {
         let native = app.state::<NativeAuthority>();
-        let mut state = native.0.lock().map_err(|_| "Workspace unavailable")?;
-        let binding = state.binding.as_ref().ok_or("No active native workspace")?;
-        let (root, path) = cache_path(
-            &app,
-            &format!("optouts-{}", binding.tenant_id),
-            binding.simulation,
-        )?;
+        let binding = native.binding()?.ok_or("No active native workspace")?;
+        let namespace = format!("optouts-{}", binding.tenant_id);
+        let (root, path) = cache_path(&app, &namespace, binding.simulation)?;
         if path.exists() {
             let bytes = std::fs::read(path).map_err(|_| "Cannot inspect pending opt-outs")?;
-            let clear = decrypt_blob(
-                &master_key(binding.simulation, &root)?,
-                &format!("optouts-{}", binding.tenant_id),
-                &bytes,
-            )?;
+            // Credential-store access happens without the workspace lock held.
+            let clear = decrypt_blob(&master_key(binding.simulation, &root)?, &namespace, &bytes)?;
             let pending: Vec<serde_json::Value> =
                 serde_json::from_slice(&clear).map_err(|_| "Opt-out journal requires recovery")?;
             if !pending.is_empty() {
                 return Err("Synchronize pending opt-outs before changing workspace".into());
             }
         }
-        state.logout_once()?;
+        native.logout_once(&binding)?;
+        let mut state = native.0.lock().map_err(|_| "Workspace unavailable")?;
+        if state.binding.as_ref() != Some(&binding) {
+            return Err("Workspace changed during sign-out; reload before retrying".into());
+        }
         if let Some(mut prompt) = state.prompt.take() {
             prompt.stop()?;
         }
         app.state::<WebhookTunnel>().stop()?;
-        if let Some(backend) = app
-            .state::<LocalBackend>()
-            .0
-            .lock()
-            .map_err(|_| "Local authority unavailable")?
-            .take()
-        {
+        if let Some(backend) = app.state::<LocalBackend>().take()? {
             backend
                 .child
                 .kill()
@@ -475,6 +545,12 @@ fn webhook_ssh_args(config: &WebhookTunnelConfig, runtime: &str) -> Result<Vec<S
         "ServerAliveInterval=30".into(),
         "-o".into(),
         "ServerAliveCountMax=3".into(),
+        // Never join or create a user-configured multiplexing master: a shared master could
+        // keep this forward alive after the owned child exits.
+        "-o".into(),
+        "ControlMaster=no".into(),
+        "-o".into(),
+        "ControlPath=none".into(),
         "-R".into(),
         format!(
             "127.0.0.1:{}:127.0.0.1:{}",
@@ -492,10 +568,21 @@ fn tunnel_retry_delay(attempt: usize) -> Duration {
 #[derive(Debug)]
 struct OwnedWebhookTunnel {
     child: Option<std::process::Child>,
+    /// The child leads its own Unix process group, which is terminated as a unit.
+    group: bool,
 }
 impl OwnedWebhookTunnel {
     fn new(child: std::process::Child) -> Self {
-        Self { child: Some(child) }
+        Self {
+            child: Some(child),
+            group: false,
+        }
+    }
+    fn new_group(child: std::process::Child) -> Self {
+        Self {
+            child: Some(child),
+            group: cfg!(unix),
+        }
     }
     #[cfg(test)]
     fn is_stopped(&self) -> bool {
@@ -503,6 +590,15 @@ impl OwnedWebhookTunnel {
     }
     fn stop(&mut self) -> Result<(), String> {
         if let Some(child) = self.child.as_mut() {
+            #[cfg(unix)]
+            if self.group {
+                // Also stops ProxyCommand/ProxyJump helpers. Best effort: ESRCH means every
+                // member already exited; the leader is still killed and reaped below.
+                // SAFETY: killpg only sends a signal to the group this tunnel created.
+                let _ = unsafe { libc::killpg(child.id() as libc::pid_t, libc::SIGKILL) };
+            }
+            #[cfg(not(unix))]
+            let _ = self.group;
             if child
                 .try_wait()
                 .map_err(|_| "Cannot inspect owned SSH child")?
@@ -529,19 +625,27 @@ fn spawn_webhook_ssh(program: &str, args: &[String]) -> Result<OwnedWebhookTunne
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x08000000);
     }
-    command.spawn().map(OwnedWebhookTunnel::new).map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound {
-            "ssh_missing"
-        } else {
-            "ssh_start_failed"
-        }
-        .into()
-    })
+    command
+        .spawn()
+        .map(OwnedWebhookTunnel::new_group)
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                "ssh_missing"
+            } else {
+                "ssh_start_failed"
+            }
+            .into()
+        })
 }
 
 struct TunnelSupervisor {
@@ -630,6 +734,21 @@ impl WebhookTunnel {
         }
         Ok(())
     }
+    /// Stop the forward only if it still targets the given (exited) local authority.
+    fn stop_for(&self, runtime: &str) -> Result<(), String> {
+        let task = {
+            let mut owned = self.0.lock().map_err(|_| "Tunnel unavailable")?;
+            if owned.as_ref().is_some_and(|(url, _)| url == runtime) {
+                owned.take()
+            } else {
+                None
+            }
+        };
+        if let Some((_, mut task)) = task {
+            task.stop()?;
+        }
+        Ok(())
+    }
 }
 
 fn load_tunnel_config(path: &std::path::Path) -> Result<WebhookTunnelConfig, String> {
@@ -655,12 +774,24 @@ fn load_tunnel_config(path: &std::path::Path) -> Result<WebhookTunnelConfig, Str
 }
 
 fn save_tunnel_config(path: &std::path::Path, config: &WebhookTunnelConfig) -> Result<(), String> {
-    use std::io::Write;
     validate_tunnel(config)?;
     let parent = path.parent().ok_or("Invalid forwarding location")?;
     std::fs::create_dir_all(parent).map_err(|_| "Cannot create forwarding configuration")?;
+    write_private_file(
+        path,
+        &serde_json::to_vec(config).map_err(|_| "Invalid configuration")?,
+        true,
+    )
+    .map_err(|_| "Cannot publish forwarding configuration".into())
+}
+
+/// Atomic private publish: create a 0600 temporary file, fsync it, rename it into place (or
+/// hard-link it without replacing an existing file), then fsync the directory entry.
+fn write_private_file(path: &std::path::Path, bytes: &[u8], replace: bool) -> Result<(), String> {
+    use std::io::Write;
+    let parent = path.parent().ok_or("Invalid protected file location")?;
     let temp = path.with_extension(format!("{}.tmp", Uuid::new_v4()));
-    let result = (|| {
+    let result = (|| -> Result<(), String> {
         let mut options = std::fs::OpenOptions::new();
         options.write(true).create_new(true);
         #[cfg(unix)]
@@ -670,20 +801,40 @@ fn save_tunnel_config(path: &std::path::Path, config: &WebhookTunnelConfig) -> R
         }
         let mut file = options
             .open(&temp)
-            .map_err(|_| "Cannot create forwarding configuration")?;
-        file.write_all(&serde_json::to_vec(config).map_err(|_| "Invalid configuration")?)
-            .map_err(|_| "Cannot write forwarding configuration")?;
-        file.sync_all()
-            .map_err(|_| "Cannot flush forwarding configuration")?;
-        std::fs::rename(&temp, path).map_err(|_| "Cannot publish forwarding configuration")?;
-        #[cfg(unix)]
-        std::fs::File::open(parent)
-            .and_then(|f| f.sync_all())
-            .map_err(|_| "Cannot flush forwarding directory")?;
-        Ok(())
+            .map_err(|_| "Cannot create a private file")?;
+        file.write_all(bytes)
+            .map_err(|_| "Cannot write a private file")?;
+        file.sync_all().map_err(|_| "Cannot flush a private file")?;
+        drop(file);
+        if replace {
+            std::fs::rename(&temp, path).map_err(|_| "Cannot publish a private file atomically")?;
+        } else {
+            match std::fs::hard_link(&temp, path) {
+                Ok(()) => (),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    return Err("A protected file already exists and was not replaced".into())
+                }
+                // File systems without hard links; creation is already serialized.
+                Err(_) if !path.exists() => std::fs::rename(&temp, path)
+                    .map_err(|_| "Cannot publish a private file atomically")?,
+                Err(_) => return Err("Cannot publish a private file atomically".into()),
+            }
+        }
+        sync_directory(parent)
     })();
-    let _ = std::fs::remove_file(temp);
+    let _ = std::fs::remove_file(&temp);
     result
+}
+
+fn sync_directory(directory: &std::path::Path) -> Result<(), String> {
+    // Windows has no portable directory fsync; NTFS journals the rename metadata itself.
+    #[cfg(unix)]
+    std::fs::File::open(directory)
+        .and_then(|d| d.sync_all())
+        .map_err(|_| "Cannot flush the protected directory")?;
+    #[cfg(not(unix))]
+    let _ = directory;
+    Ok(())
 }
 
 fn local_backend_healthy(runtime: &str) -> bool {
@@ -797,16 +948,19 @@ async fn webhook_tunnel_set(
     secure_io(move || {
         validate_tunnel(&config)?;
         let authority = app.state::<NativeAuthority>();
-        let binding = authority.0.lock().map_err(|_| "Workspace unavailable")?;
-        let state = app.state::<LocalBackend>();
-        let runtime = state
-            .0
-            .lock()
-            .map_err(|_| "Local authority unavailable")?
-            .as_ref()
-            .map(|b| b.config.clone());
-        guard_forwarding(binding.binding.as_ref(), runtime.as_ref())?;
-        verify_bound_admin(binding.binding.as_ref().ok_or("Choose a workspace first")?)?;
+        let local = app.state::<LocalBackend>();
+        let binding = authority.binding()?;
+        let runtime = local.current()?;
+        guard_forwarding(binding.as_ref(), runtime.as_ref())?;
+        let binding = binding.ok_or("Choose a workspace first")?;
+        // The administrator check is HTTP; it runs without the workspace lock held.
+        verify_bound_admin(&binding)?;
+        let state = authority.0.lock().map_err(|_| "Workspace unavailable")?;
+        if state.binding.as_ref() != Some(&binding)
+            || local.current()?.map(|r| r.url) != runtime.as_ref().map(|r| r.url.clone())
+        {
+            return Err("Workspace or local authority changed; forwarding was not changed".into());
+        }
         save_tunnel_config(
             &app.path()
                 .app_data_dir()
@@ -848,23 +1002,22 @@ mod tests {
                 }
             }
         });
-        let mut state = AuthorityState {
-            binding: Some(AuthorityBinding {
-                url: format!("http://{address}"),
-                token: "same-session".into(),
-                tenant_id: "t".into(),
-                local: false,
-                simulation: true,
-            }),
-            ..Default::default()
+        let binding = AuthorityBinding {
+            url: format!("http://{address}"),
+            token: "same-session".into(),
+            tenant_id: "t".into(),
+            local: false,
+            simulation: true,
         };
-        assert!(state.logout_once().is_err());
-        assert!(!state.logout_confirmed);
-        assert!(state.binding.is_some());
-        state.logout_once().unwrap();
-        assert!(state.logout_confirmed);
+        let native = NativeAuthority::default();
+        native.0.lock().unwrap().binding = Some(binding.clone());
+        assert!(native.logout_once(&binding).is_err());
+        assert!(!native.0.lock().unwrap().logout_confirmed);
+        assert!(native.0.lock().unwrap().binding.is_some());
+        native.logout_once(&binding).unwrap();
+        assert!(native.0.lock().unwrap().logout_confirmed);
         server.join().unwrap();
-        state.logout_once().unwrap();
+        native.logout_once(&binding).unwrap();
     }
 
     #[test]
@@ -881,21 +1034,331 @@ mod tests {
                 .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")
                 .unwrap();
         });
-        let mut state = AuthorityState {
-            binding: Some(AuthorityBinding {
-                url: format!("http://{address}"),
-                token: "fixture".into(),
-                tenant_id: "t".into(),
-                local: false,
-                simulation: true,
-            }),
-            ..Default::default()
+        let binding = AuthorityBinding {
+            url: format!("http://{address}"),
+            token: "fixture".into(),
+            tenant_id: "t".into(),
+            local: false,
+            simulation: true,
         };
-        state.logout_once().unwrap();
+        let native = NativeAuthority::default();
+        native.0.lock().unwrap().binding = Some(binding.clone());
+        native.logout_once(&binding).unwrap();
         server.join().unwrap();
         // The old session is revoked; the authority is deliberately no longer reachable.
         // Retrying owned-child cleanup must reuse the confirmed logout, not authenticate again.
-        state.logout_once().unwrap();
+        native.logout_once(&binding).unwrap();
+    }
+
+    #[test]
+    fn slow_authority_http_does_not_hold_the_workspace_lock() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut bytes = [0; 4096];
+            let _ = socket.read(&mut bytes).unwrap();
+            std::thread::sleep(Duration::from_millis(800));
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")
+                .unwrap();
+        });
+        let binding = AuthorityBinding {
+            url: format!("http://{address}"),
+            token: "fixture".into(),
+            tenant_id: "t".into(),
+            local: false,
+            simulation: true,
+        };
+        let native = NativeAuthority::default();
+        native.0.lock().unwrap().binding = Some(binding.clone());
+        let worker = {
+            let (native, binding) = (native.clone(), binding.clone());
+            std::thread::spawn(move || native.logout_once(&binding))
+        };
+        std::thread::sleep(Duration::from_millis(200));
+        // Every other command (bind, prompt, exit cleanup) still gets the lock promptly.
+        let started = std::time::Instant::now();
+        drop(native.0.lock().unwrap());
+        assert!(started.elapsed() < Duration::from_millis(300));
+        worker.join().unwrap().unwrap();
+        server.join().unwrap();
+        assert!(native.0.lock().unwrap().logout_confirmed);
+    }
+
+    #[test]
+    fn logout_confirmation_is_not_applied_to_a_changed_workspace() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let binding = AuthorityBinding {
+            url: format!("http://{address}"),
+            token: "fixture".into(),
+            tenant_id: "t".into(),
+            local: false,
+            simulation: true,
+        };
+        let native = NativeAuthority::default();
+        native.0.lock().unwrap().binding = Some(binding.clone());
+        let server = {
+            let native = native.clone();
+            std::thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                let mut bytes = [0; 4096];
+                let _ = socket.read(&mut bytes).unwrap();
+                native.clear(); // Workspace changes while the logout is in flight.
+                socket
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+                    )
+                    .unwrap();
+            })
+        };
+        assert!(native.logout_once(&binding).is_err());
+        server.join().unwrap();
+        assert!(!native.0.lock().unwrap().logout_confirmed);
+    }
+
+    struct MemoryKey {
+        value: Mutex<Option<String>>,
+        writes: std::sync::atomic::AtomicUsize,
+    }
+    impl MasterKeyStore for MemoryKey {
+        fn load(&self) -> Result<Option<String>, String> {
+            Ok(self.value.lock().unwrap().clone())
+        }
+        fn create(&self, value: &str) -> Result<(), String> {
+            self.writes.fetch_add(1, Ordering::SeqCst);
+            *self.value.lock().unwrap() = Some(value.into());
+            Ok(())
+        }
+        fn recovery(&self) -> &'static str {
+            "fixture recovery"
+        }
+    }
+    fn memory_key(value: Option<&str>) -> MemoryKey {
+        MemoryKey {
+            value: Mutex::new(value.map(Into::into)),
+            writes: Default::default(),
+        }
+    }
+
+    #[test]
+    fn credential_store_key_is_never_reminted_over_existing_data() {
+        // Existing 0.2.1 install: the stored key is returned unchanged and never rewritten.
+        let root = temp_root("keychain-existing");
+        std::fs::write(root.join("opendialer.db"), b"fixture").unwrap();
+        let existing = "0".repeat(72);
+        let store = memory_key(Some(&existing));
+        assert_eq!(resolve_master_key(&store, &root).unwrap(), existing);
+        // Missing credential beside existing data: actionable error, nothing created.
+        let store = memory_key(None);
+        let error = resolve_master_key(&store, &root).unwrap_err();
+        assert!(error.contains("No new key was created") && error.contains("fixture recovery"));
+        assert_eq!(store.writes.load(Ordering::SeqCst), 0);
+        // Damaged credential: rejected, never replaced.
+        let store = memory_key(Some(""));
+        assert!(resolve_master_key(&store, &root)
+            .unwrap_err()
+            .contains("empty or damaged"));
+        assert_eq!(store.writes.load(Ordering::SeqCst), 0);
+        std::fs::remove_dir_all(root).unwrap();
+        // Fresh install: exactly one key is created and a marker records it.
+        let fresh = temp_root("keychain-fresh");
+        std::fs::create_dir_all(fresh.join("encrypted-cache")).unwrap();
+        let store = memory_key(None);
+        let key = resolve_master_key(&store, &fresh).unwrap();
+        assert_eq!(resolve_master_key(&store, &fresh).unwrap(), key);
+        assert_eq!(store.writes.load(Ordering::SeqCst), 1);
+        assert!(fresh.join(MASTER_KEY_MARKER).exists());
+        // Losing the credential after creation is detected, not silently replaced.
+        let lost = memory_key(None);
+        assert!(resolve_master_key(&lost, &fresh).is_err());
+        assert_eq!(lost.writes.load(Ordering::SeqCst), 0);
+        std::fs::remove_dir_all(fresh).unwrap();
+    }
+
+    #[test]
+    fn concurrent_first_credential_requests_create_one_key() {
+        let root = temp_root("keychain-race");
+        let store = Arc::new(memory_key(None));
+        let barrier = Arc::new(std::sync::Barrier::new(8));
+        let workers: Vec<_> = (0..8)
+            .map(|_| {
+                let (root, store, barrier) = (root.clone(), store.clone(), barrier.clone());
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    resolve_master_key(store.as_ref(), &root).unwrap()
+                })
+            })
+            .collect();
+        let keys: Vec<_> = workers.into_iter().map(|w| w.join().unwrap()).collect();
+        assert!(keys.iter().all(|k| k == &keys[0]));
+        assert_eq!(store.writes.load(Ordering::SeqCst), 1);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn private_files_publish_atomically_without_clobbering_keys() {
+        let root = temp_root("atomic");
+        let path = root.join("simulation-master");
+        write_private_file(&path, b"first-value", false).unwrap();
+        assert!(write_private_file(&path, b"second-value", false).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"first-value");
+        let cache = root.join("optouts-t.enc");
+        write_private_file(&cache, b"one", true).unwrap();
+        write_private_file(&cache, b"two", true).unwrap();
+        assert_eq!(std::fs::read(&cache).unwrap(), b"two");
+        assert!(temporary_files(&root).is_empty());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for file in [&path, &cache] {
+                let mode = std::fs::metadata(file).unwrap().permissions().mode();
+                assert_eq!(mode & 0o777, 0o600);
+            }
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    fn shell_app() -> tauri::App<tauri::test::MockRuntime> {
+        tauri::test::mock_builder()
+            .plugin(tauri_plugin_shell::init())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap()
+    }
+
+    fn owned_backend(child: CommandChild, generation: u64, exited: Arc<AtomicBool>) -> Backend {
+        Backend {
+            config: BackendConfig {
+                url: "http://127.0.0.1:9".into(),
+                local_token: "fixture".into(),
+                simulation: false,
+            },
+            child,
+            generation,
+            exited,
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn exited_authority_is_forgotten_and_a_lock_refusal_is_reported() {
+        let app = shell_app();
+        let (events, child) = managed_sidecar(app.shell().command("sh").args(["-c", "exit 75"]))
+            .spawn()
+            .unwrap();
+        let local = LocalBackend::default();
+        let exited = Arc::new(AtomicBool::new(false));
+        local.0.lock().unwrap().backend = Some(owned_backend(child, 7, exited.clone()));
+        assert!(local.current().unwrap().is_some());
+        drain_backend(
+            events,
+            local.clone(),
+            WebhookTunnel::default(),
+            7,
+            exited.clone(),
+        )
+        .await;
+        assert!(exited.load(Ordering::SeqCst));
+        assert!(
+            local.current().unwrap().is_none(),
+            "a dead authority is never reused"
+        );
+        let state = local.0.lock().unwrap();
+        assert!(state.backend.is_none());
+        assert_eq!(state.refused, Some(false));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_stale_drain_does_not_forget_the_replacement_authority() {
+        let app = shell_app();
+        let (old_events, old_child) = managed_sidecar(app.shell().command("true"))
+            .spawn()
+            .unwrap();
+        let (_events, current) = managed_sidecar(app.shell().command("sleep").args(["30"]))
+            .spawn()
+            .unwrap();
+        let _ = old_child.kill();
+        let local = LocalBackend::default();
+        local.0.lock().unwrap().backend =
+            Some(owned_backend(current, 2, Arc::new(AtomicBool::new(false))));
+        drain_backend(
+            old_events,
+            local.clone(),
+            WebhookTunnel::default(),
+            1,
+            Arc::new(AtomicBool::new(false)),
+        )
+        .await;
+        assert!(local.current().unwrap().is_some());
+        let backend = local.take().unwrap().unwrap();
+        backend.child.kill().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn updater_cleanup_waits_for_the_owned_authority_group_to_exit() {
+        let app = shell_app();
+        let (mut events, child) = managed_sidecar(
+            app.shell()
+                .command("sh")
+                .args(["-c", "sleep 30 & echo $!; wait"]),
+        )
+        .spawn()
+        .unwrap();
+        let helper = loop {
+            if let Some(CommandEvent::Stdout(bytes)) = events.recv().await {
+                break String::from_utf8(bytes)
+                    .unwrap()
+                    .trim()
+                    .parse::<u32>()
+                    .unwrap();
+            }
+        };
+        let leader = child.pid();
+        let local = LocalBackend::default();
+        local.0.lock().unwrap().backend =
+            Some(owned_backend(child, 1, Arc::new(AtomicBool::new(false))));
+        let cleanup = local.clone();
+        register_exit_cleanup(app.handle(), move || {
+            stop_owned_runtimes(
+                &NativeAuthority::default(),
+                &WebhookTunnel::default(),
+                &cleanup,
+            )
+        });
+        app.cleanup_before_exit();
+        let alive = |pid: u32| {
+            std::process::Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .unwrap()
+                .success()
+        };
+        // No grace period: the leader is reaped before cleanup returns to the updater.
+        assert!(
+            !alive(leader),
+            "installer must not start while the authority runs"
+        );
+        assert!(local.current().unwrap().is_none());
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while alive(helper) && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let survived = alive(helper);
+        if survived {
+            let _ = std::process::Command::new("kill")
+                .arg(helper.to_string())
+                .status();
+        }
+        assert!(
+            !survived,
+            "the frozen runtime child must not outlive cleanup"
+        );
     }
     use std::time::Duration;
 
@@ -927,6 +1390,10 @@ mod tests {
                     "ServerAliveInterval=30".into(),
                     "-o".into(),
                     "ServerAliveCountMax=3".into(),
+                    "-o".into(),
+                    "ControlMaster=no".into(),
+                    "-o".into(),
+                    "ControlPath=none".into(),
                     "-R".into(),
                     format!("127.0.0.1:18765:127.0.0.1:{port}"),
                     "dialer@forwarder.example.test".into(),
@@ -972,6 +1439,19 @@ mod tests {
         let mut disabled = fixture();
         disabled.enabled = false;
         assert!(webhook_ssh_args(&disabled, "http://127.0.0.1:34001").is_err());
+        // A user ssh_config multiplexing master must not keep the forward alive after the
+        // owned child exits, and saved values may only form the final destination argument.
+        let args = webhook_ssh_args(&fixture(), "http://127.0.0.1:34001").unwrap();
+        let options: Vec<_> = args
+            .windows(2)
+            .filter(|pair| pair[0] == "-o")
+            .map(|pair| pair[1].as_str())
+            .collect();
+        assert!(options.contains(&"ControlMaster=no") && options.contains(&"ControlPath=none"));
+        assert_eq!(args.last().unwrap(), "dialer@forwarder.example.test");
+        assert!(args[..args.len() - 1]
+            .iter()
+            .all(|arg| !arg.contains("forwarder") && !arg.contains("dialer")));
     }
 
     #[cfg(unix)]
@@ -1125,6 +1605,128 @@ mod tests {
         }
     }
 
+    fn temp_root(label: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!("opendialer-{label}-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    fn temporary_files(root: &std::path::Path) -> Vec<String> {
+        std::fs::read_dir(root)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".tmp"))
+            .collect()
+    }
+
+    #[test]
+    fn simulation_key_rejects_an_empty_or_damaged_file_without_replacing_it() {
+        let root = temp_root("key-empty");
+        std::fs::write(root.join("simulation-master"), b"").unwrap();
+        let error = master_key(true, &root).unwrap_err();
+        assert!(error.contains("empty or damaged"), "{error}");
+        assert_eq!(std::fs::read(root.join("simulation-master")).unwrap(), b"");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn missing_key_is_never_reminted_over_existing_encrypted_data() {
+        let root = temp_root("key-existing");
+        std::fs::create_dir_all(root.join("encrypted-cache")).unwrap();
+        std::fs::write(root.join("encrypted-cache/optouts-t.enc"), b"ODC1 fixture").unwrap();
+        let error = master_key(true, &root).unwrap_err();
+        assert!(error.contains("No new key was created"), "{error}");
+        assert!(!root.join("simulation-master").exists());
+        std::fs::remove_dir_all(root).unwrap();
+
+        // An empty cache directory and an interrupted temporary write are not protected data.
+        let fresh = temp_root("key-fresh");
+        std::fs::create_dir_all(fresh.join("encrypted-cache")).unwrap();
+        std::fs::write(fresh.join("simulation-master.0000.tmp"), b"partial").unwrap();
+        let key = master_key(true, &fresh).unwrap();
+        assert!(key.len() >= 32);
+        assert_eq!(master_key(true, &fresh).unwrap(), key);
+        // Once a key was created here, losing it is reported even before other data exists.
+        std::fs::remove_file(fresh.join("simulation-master")).unwrap();
+        assert!(master_key(true, &fresh).is_err());
+        assert!(!fresh.join("simulation-master").exists());
+        std::fs::remove_dir_all(fresh).unwrap();
+    }
+
+    #[test]
+    fn concurrent_first_key_requests_share_one_published_key() {
+        let root = temp_root("key-race");
+        let barrier = Arc::new(std::sync::Barrier::new(8));
+        let workers: Vec<_> = (0..8)
+            .map(|_| {
+                let (root, barrier) = (root.clone(), barrier.clone());
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    master_key(true, &root)
+                })
+            })
+            .collect();
+        let keys: Vec<_> = workers.into_iter().map(|w| w.join().unwrap()).collect();
+        assert!(keys.iter().all(|k| k.is_ok()), "{keys:?}");
+        let first = keys[0].clone().unwrap();
+        assert!(first.len() >= 32);
+        assert!(
+            keys.iter().all(|k| k.as_ref().unwrap() == &first),
+            "{keys:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("simulation-master")).unwrap(),
+            first
+        );
+        assert!(temporary_files(&root).is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn webhook_tunnel_stop_also_terminates_ssh_helpers_in_its_owned_group() {
+        let root = temp_root("ssh-group");
+        let pid_file = root.join("helper.pid");
+        let script = format!("sleep 30 & echo $! > '{}'; wait", pid_file.display());
+        let mut tunnel = spawn_webhook_ssh("/bin/sh", &["-c".into(), script]).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let helper = loop {
+            if let Some(pid) = std::fs::read_to_string(&pid_file)
+                .ok()
+                .and_then(|text| text.trim().parse::<u32>().ok())
+            {
+                break pid;
+            }
+            assert!(std::time::Instant::now() < deadline, "helper never started");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        tunnel.stop().unwrap();
+        let alive = |pid: u32| {
+            std::process::Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .unwrap()
+                .success()
+        };
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while alive(helper) && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let survived = alive(helper);
+        if survived {
+            let _ = std::process::Command::new("kill")
+                .arg(helper.to_string())
+                .status();
+        }
+        std::fs::remove_dir_all(root).unwrap();
+        assert!(
+            !survived,
+            "an SSH helper (ProxyCommand/ProxyJump) must not outlive the owned tunnel"
+        );
+    }
+
     #[test]
     fn protected_provider_save_sends_to_bound_authority_and_returns_only_redacted_state() {
         use std::io::{Read, Write};
@@ -1215,42 +1817,150 @@ fn secret_entry(account: &str) -> Result<keyring::Entry, String> {
         .map_err(|_| "OS credential store is unavailable".into())
 }
 
+/// Where one mode's data key lives. `load` returns `None` only when the key is absent.
+trait MasterKeyStore {
+    fn load(&self) -> Result<Option<String>, String>;
+    fn create(&self, value: &str) -> Result<(), String>;
+    fn recovery(&self) -> &'static str;
+}
+
+struct CredentialStoreKey(keyring::Entry);
+impl MasterKeyStore for CredentialStoreKey {
+    fn load(&self) -> Result<Option<String>, String> {
+        match self.0.get_password() {
+            Ok(value) => Ok(Some(value)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(_) => Err("Unlock your OS credential store to start OpenDialer".into()),
+        }
+    }
+    fn create(&self, value: &str) -> Result<(), String> {
+        self.0
+            .set_password(value)
+            .map_err(|_| "Cannot protect the local authority key in the OS credential store".into())
+    }
+    fn recovery(&self) -> &'static str {
+        "Restore the OpenDialer credential (service com.opendialer.desktop, account authority-master-v1) to your OS credential store from a backup, then reopen OpenDialer"
+    }
+}
+
+struct FileKey(std::path::PathBuf);
+impl MasterKeyStore for FileKey {
+    fn load(&self) -> Result<Option<String>, String> {
+        match std::fs::read_to_string(&self.0) {
+            Ok(value) => Ok(Some(value)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(_) => Err("Cannot read the simulation data key".into()),
+        }
+    }
+    fn create(&self, value: &str) -> Result<(), String> {
+        write_private_file(&self.0, value.as_bytes(), false)
+    }
+    fn recovery(&self) -> &'static str {
+        "Simulation data is synthetic: quit OpenDialer and move the simulation folder aside to start a fresh simulation, or restore simulation-master from a backup"
+    }
+}
+
+const MASTER_KEY_MARKER: &str = "master-key-created";
+const MASTER_KEY_LOCK: &str = "master-key.lock";
+static MASTER_KEY_CREATION: Mutex<()> = Mutex::new(());
+
+fn checked_master_key(store: &dyn MasterKeyStore, value: String) -> Result<String, String> {
+    if (32..=4096).contains(&value.len()) && value.bytes().all(|b| b.is_ascii_graphic()) {
+        return Ok(value);
+    }
+    Err(format!(
+        "The stored local data key is empty or damaged and was not replaced. {}.",
+        store.recovery()
+    ))
+}
+
+/// Anything beyond an empty cache directory, lock files and interrupted temporary writes
+/// may be encrypted with the missing key.
+fn protected_data_present(directory: &std::path::Path) -> Result<bool, String> {
+    let entries = match std::fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(_) => return Err("Cannot inspect protected application data".into()),
+    };
+    for entry in entries {
+        let entry = entry.map_err(|_| "Cannot inspect protected application data")?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.ends_with(".tmp")
+            || matches!(
+                name.as_ref(),
+                MASTER_KEY_LOCK | "authority.lock" | ".DS_Store" | "desktop.ini" | "Thumbs.db"
+            )
+        {
+            continue;
+        }
+        if name == "encrypted-cache"
+            && entry.file_type().is_ok_and(|kind| kind.is_dir())
+            && std::fs::read_dir(entry.path())
+                .map_err(|_| "Cannot inspect protected application data")?
+                .next()
+                .is_none()
+        {
+            continue;
+        }
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+/// Load the mode's data key, creating it only for a directory with no protected data.
+/// First creation is serialized in this process and across desktop processes.
+fn resolve_master_key(
+    store: &dyn MasterKeyStore,
+    directory: &std::path::Path,
+) -> Result<String, String> {
+    if let Some(value) = store.load()? {
+        return checked_master_key(store, value);
+    }
+    let _serial = MASTER_KEY_CREATION
+        .lock()
+        .map_err(|_| "Protected key creation unavailable")?;
+    std::fs::create_dir_all(directory).map_err(|_| "Cannot create private application data")?;
+    let lock = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(directory.join(MASTER_KEY_LOCK))
+        .map_err(|_| "Cannot serialize protected key creation")?;
+    if let Err(error) = lock.lock() {
+        if error.kind() != std::io::ErrorKind::Unsupported {
+            return Err("Cannot serialize protected key creation".into());
+        }
+    }
+    if let Some(value) = store.load()? {
+        return checked_master_key(store, value);
+    }
+    if directory.join(MASTER_KEY_MARKER).exists() || protected_data_present(directory)? {
+        return Err(format!(
+            "OpenDialer found existing protected data but its key is missing. No new key was created, so the data is unchanged. {}.",
+            store.recovery()
+        ));
+    }
+    let value = format!("{}{}", Uuid::new_v4(), Uuid::new_v4());
+    store.create(&value)?;
+    if store.load()?.as_deref() != Some(value.as_str()) {
+        return Err(
+            "The new local data key could not be read back; nothing was encrypted with it".into(),
+        );
+    }
+    write_private_file(&directory.join(MASTER_KEY_MARKER), b"1\n", true)?;
+    Ok(value)
+}
+
 fn master_key(simulation: bool, directory: &std::path::Path) -> Result<String, String> {
     if simulation {
-        use std::io::Write;
-        let path = directory.join("simulation-master");
-        if path.exists() {
-            return std::fs::read_to_string(path)
-                .map_err(|_| "Cannot read the simulation data key".into());
-        }
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options
-            .open(path)
-            .map_err(|_| "Cannot create a private simulation key")?;
-        let key = format!("{}{}", Uuid::new_v4(), Uuid::new_v4());
-        file.write_all(key.as_bytes())
-            .map_err(|_| "Cannot persist simulation key")?;
-        file.sync_all().map_err(|_| "Cannot flush simulation key")?;
-        return Ok(key);
+        return resolve_master_key(&FileKey(directory.join("simulation-master")), directory);
     }
-    let entry = secret_entry("authority-master-v1")?;
-    match entry.get_password() {
-        Ok(value) => Ok(value),
-        Err(keyring::Error::NoEntry) => {
-            let value = format!("{}{}", Uuid::new_v4(), Uuid::new_v4());
-            entry.set_password(&value).map_err(|_| {
-                "Cannot protect the local authority key in the OS credential store".to_string()
-            })?;
-            Ok(value)
-        }
-        Err(_) => Err("Unlock your OS credential store to start OpenDialer".into()),
-    }
+    resolve_master_key(
+        &CredentialStoreKey(secret_entry("authority-master-v1")?),
+        directory,
+    )
 }
 
 pub fn managed_sidecar(
@@ -1275,10 +1985,7 @@ async fn backend_config(
 ) -> Result<BackendConfig, String> {
     let backend = state.inner().clone();
     secure_io(move || {
-        let native = app.state::<NativeAuthority>();
-        let binding = native.0.lock().map_err(|_| "Workspace unavailable")?;
-        guard_local_mode(binding.binding.as_ref(), simulation)?;
-        let runtime = start_backend(app.clone(), backend, simulation)?;
+        let runtime = start_backend(&app, &backend, simulation)?;
         sync_tunnel(&app, &runtime)?;
         Ok(runtime)
     })
@@ -1286,24 +1993,14 @@ async fn backend_config(
 }
 
 fn start_backend(
-    app: tauri::AppHandle,
-    state: LocalBackend,
+    app: &tauri::AppHandle,
+    state: &LocalBackend,
     simulation: bool,
 ) -> Result<BackendConfig, String> {
-    let mut locked = state
-        .0
-        .lock()
-        .map_err(|_| "Local service state unavailable")?;
-    if let Some(existing) = locked.as_ref() {
-        if existing.config.simulation == simulation {
-            return Ok(existing.config.clone());
-        }
-    }
-    if let Some(old) = locked.take() {
-        app.state::<WebhookTunnel>().stop()?;
-        old.child
-            .kill()
-            .map_err(|_| "Cannot stop the previous local service")?;
+    let native = app.state::<NativeAuthority>();
+    guard_local_mode(native.binding()?.as_ref(), simulation)?;
+    if let Some(existing) = state.current()?.filter(|c| c.simulation == simulation) {
+        return Ok(existing);
     }
     let directory = app
         .path()
@@ -1311,6 +2008,28 @@ fn start_backend(
         .map_err(|_| "App data directory unavailable")?
         .join(if simulation { "simulation" } else { "local" });
     std::fs::create_dir_all(&directory).map_err(|_| "Cannot create private application data")?;
+    // The credential store may show an OS prompt; no shared lock is held while it does.
+    let secret_key = master_key(simulation, &directory)?;
+    let authority = native.0.lock().map_err(|_| "Workspace unavailable")?;
+    guard_local_mode(authority.binding.as_ref(), simulation)?;
+    let mut locked = state
+        .0
+        .lock()
+        .map_err(|_| "Local service state unavailable")?;
+    if let Some(existing) = locked.backend.as_ref() {
+        if existing.config.simulation == simulation && !existing.exited.load(Ordering::SeqCst) {
+            return Ok(existing.config.clone());
+        }
+    }
+    if locked.refused.take() == Some(simulation) {
+        return Err("Another OpenDialer authority is already using this workspace's data. Quit the other OpenDialer window or process, then retry.".into());
+    }
+    if let Some(old) = locked.backend.take() {
+        app.state::<WebhookTunnel>().stop()?;
+        old.child
+            .kill()
+            .map_err(|_| "Cannot stop the previous local service")?;
+    }
     let listener =
         std::net::TcpListener::bind("127.0.0.1:0").map_err(|_| "No loopback port is available")?;
     let port = listener
@@ -1329,37 +2048,112 @@ fn start_backend(
         "local".into(),
         "--data-dir".into(),
         directory.to_string_lossy().to_string(),
+        "--secrets-stdin".into(),
     ];
     if simulation {
         args.push("--simulation".into());
     }
+    // Secrets travel over the child's private stdin pipe, never through its environment.
+    // The authority treats end-of-file on that pipe as loss of this launcher.
     let command = managed_sidecar(
         app.shell()
             .sidecar("opendialer-backend")
             .map_err(|_| "Bundled local service is missing")?,
     )
     .args(args)
-    .env("OPENDIALER_LOCAL_TOKEN", &nonce)
-    .env("OPENDIALER_SECRET_KEY", master_key(simulation, &directory)?)
     .env("OMP_NUM_THREADS", "1")
     .env("OPENBLAS_NUM_THREADS", "1");
-    let (mut receiver, child) = command
+    let (receiver, mut child) = command
         .spawn()
         .map_err(|_| "Cannot start the bundled local service")?;
-    tauri::async_runtime::spawn(async move {
-        // Drain without forwarding provider or user content into ordinary desktop logs.
-        while receiver.recv().await.is_some() {}
-    });
+    if child.write(&launch_secrets(&nonce, &secret_key)?).is_err() {
+        let _ = child.kill();
+        return Err("Cannot hand secrets to the bundled local service".into());
+    }
+    locked.generation += 1;
+    let generation = locked.generation;
+    let exited = Arc::new(AtomicBool::new(false));
     let config = BackendConfig {
         url: format!("http://127.0.0.1:{port}"),
         local_token: nonce,
         simulation,
     };
-    *locked = Some(Backend {
+    tauri::async_runtime::spawn(drain_backend(
+        receiver,
+        state.clone(),
+        app.state::<WebhookTunnel>().inner().clone(),
+        generation,
+        exited.clone(),
+    ));
+    purge_legacy_after_healthy(config.url.clone(), directory, exited.clone());
+    locked.backend = Some(Backend {
         config: config.clone(),
         child,
+        generation,
+        exited,
     });
+    drop(locked);
+    drop(authority);
     Ok(config)
+}
+
+/// One JSON line, read once by the authority (`--secrets-stdin`).
+fn launch_secrets(local_token: &str, secret_key: &str) -> Result<Vec<u8>, String> {
+    let mut line = serde_json::to_vec(&serde_json::json!({
+        "local_token": local_token,
+        "secret_key": secret_key,
+    }))
+    .map_err(|_| "Cannot prepare local service secrets")?;
+    line.push(b'\n');
+    Ok(line)
+}
+
+/// Drain without forwarding provider or user content into ordinary desktop logs. When the
+/// owned child exits, forget it so the next request starts a fresh authority.
+async fn drain_backend(
+    mut events: tauri::async_runtime::Receiver<CommandEvent>,
+    local: LocalBackend,
+    tunnel: WebhookTunnel,
+    generation: u64,
+    exited: Arc<AtomicBool>,
+) {
+    let mut code = None;
+    while let Some(event) = events.recv().await {
+        if let CommandEvent::Terminated(payload) = event {
+            code = payload.code;
+        }
+    }
+    exited.store(true, Ordering::SeqCst);
+    let _ = tauri::async_runtime::spawn_blocking(move || {
+        if let Some(backend) = local.forget_exited(generation, code) {
+            let url = backend.config.url.clone();
+            // Reap any remaining group/job members; the leader has already exited.
+            let _ = backend.child.kill();
+            let _ = tunnel.stop_for(&url);
+        }
+    })
+    .await;
+}
+
+const LEGACY_PURGE_MARKER: &str = "legacy-cache-purge-v1";
+
+/// The legacy raw-cache cutover runs once per mode, only after its authority is healthy
+/// (migrations and backups done), and can never abort startup.
+fn purge_legacy_after_healthy(url: String, root: std::path::PathBuf, exited: Arc<AtomicBool>) {
+    if root.join(LEGACY_PURGE_MARKER).exists() {
+        return;
+    }
+    std::thread::spawn(move || {
+        let deadline = std::time::Instant::now() + Duration::from_secs(300);
+        while std::time::Instant::now() < deadline && !exited.load(Ordering::SeqCst) {
+            if local_backend_healthy(&url) {
+                // A failure is retried on a later launch because no marker is written.
+                let _ = purge_legacy_caches_once(&root);
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(500));
+        }
+    });
 }
 
 #[tauri::command]
@@ -1511,25 +2305,19 @@ async fn cache_write(
     simulation: bool,
 ) -> Result<(), String> {
     secure_io(move || {
-        use std::io::Write;
         if value.len() > 2_000_000 {
             return Err("Cache exceeds the bounded storage limit".into());
         }
         let (root, path) = cache_path(&app, &namespace, simulation)?;
         let secret = master_key(simulation, &root)?;
-        let temp = path.with_extension(format!("{}.tmp", Uuid::new_v4()));
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options.open(&temp).map_err(|_| "Cannot persist cache")?;
-        file.write_all(&encrypt_blob(&secret, &namespace, value.as_bytes())?)
-            .map_err(|_| "Cannot write cache")?;
-        file.sync_all().map_err(|_| "Cannot flush cache")?;
-        std::fs::rename(temp, path).map_err(|_| "Cannot publish cache atomically".into())
+        // The opt-out journal uses this path: the rename is durable only after the
+        // directory entry itself is flushed.
+        write_private_file(
+            &path,
+            &encrypt_blob(&secret, &namespace, value.as_bytes())?,
+            true,
+        )
+        .map_err(|_| "Cannot publish cache atomically".into())
     })
     .await
 }
@@ -1560,6 +2348,62 @@ pub fn purge_legacy_caches(directory: &std::path::Path) -> Result<usize, String>
     Ok(removed)
 }
 
+/// Run the legacy cutover for one mode directory at most once (marker written on success).
+pub fn purge_legacy_caches_once(root: &std::path::Path) -> Result<Option<usize>, String> {
+    let marker = root.join(LEGACY_PURGE_MARKER);
+    if marker.exists() {
+        return Ok(None);
+    }
+    let removed = purge_legacy_caches(&root.join("encrypted-cache"))?;
+    write_private_file(&marker, b"1\n", true)?;
+    Ok(Some(removed))
+}
+
+/// Quit, mode change and updater cleanup: stop the owned SSH child and wait for it, then
+/// terminate the authority's process group (Unix) or job object (Windows) and wait for it.
+fn stop_owned_runtimes(
+    authority: &NativeAuthority,
+    tunnel: &WebhookTunnel,
+    backend: &LocalBackend,
+) {
+    authority.clear();
+    let _ = tunnel.stop();
+    if let Ok(Some(owned)) = backend.take() {
+        let _ = owned.child.kill();
+        #[cfg(windows)]
+        wait_for_backend_release(Duration::from_secs(10));
+    }
+}
+
+/// The updater's installer replaces opendialer-backend.exe right after cleanup. A job member
+/// that is still terminating keeps the image mapped, so wait until it can be opened exclusively.
+#[cfg(windows)]
+fn wait_for_backend_release(limit: Duration) {
+    use std::os::windows::fs::OpenOptionsExt;
+    let Some(path) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("opendialer-backend.exe")))
+    else {
+        return;
+    };
+    let deadline = std::time::Instant::now() + limit;
+    while path.is_file() && std::time::Instant::now() < deadline {
+        match std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(0)
+            .open(&path)
+        {
+            Ok(_) => return,
+            // ERROR_SHARING_VIOLATION / ERROR_LOCK_VIOLATION while a process still uses it.
+            Err(error) if matches!(error.raw_os_error(), Some(32 | 33)) => {
+                std::thread::sleep(Duration::from_millis(100))
+            }
+            Err(_) => return,
+        }
+    }
+}
+
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -1569,22 +2413,15 @@ pub fn run() {
         .manage(WebhookTunnel::default())
         .manage(NativeAuthority::default())
         .setup(|app| {
-            let root = app.path().app_data_dir()?;
-            for mode in ["local", "simulation"] {
-                purge_legacy_caches(&root.join(mode).join("encrypted-cache"))
-                    .map_err(std::io::Error::other)?;
-            }
+            // tauri-plugin-updater's own on_before_exit hook calls cleanup_before_exit() before
+            // it launches the NSIS or MSI installer and calls process::exit(0); that clears the
+            // resource table, which runs this guard. Legacy cache cleanup is deferred until the
+            // authority is healthy (purge_legacy_after_healthy) and never aborts setup.
             let backend = app.state::<LocalBackend>().inner().clone();
             let tunnel = app.state::<WebhookTunnel>().inner().clone();
             let authority = app.state::<NativeAuthority>().inner().clone();
             register_exit_cleanup(app.handle(), move || {
-                authority.clear();
-                let _ = tunnel.stop();
-                if let Ok(mut state) = backend.0.lock() {
-                    if let Some(backend) = state.take() {
-                        let _ = backend.child.kill();
-                    }
-                }
+                stop_owned_runtimes(&authority, &tunnel, &backend)
             });
             Ok(())
         })
@@ -1607,13 +2444,11 @@ pub fn run() {
         .expect("OpenDialer could not start");
     app.run(|handle, event| {
         if let tauri::RunEvent::Exit = event {
-            handle.state::<NativeAuthority>().clear();
-            let _ = handle.state::<WebhookTunnel>().stop();
-            if let Ok(mut state) = handle.state::<LocalBackend>().0.lock() {
-                if let Some(backend) = state.take() {
-                    let _ = backend.child.kill();
-                }
-            }
+            stop_owned_runtimes(
+                &handle.state::<NativeAuthority>(),
+                &handle.state::<WebhookTunnel>(),
+                &handle.state::<LocalBackend>(),
+            );
         }
     });
 }

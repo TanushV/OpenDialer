@@ -2584,6 +2584,7 @@ version = "0.3.0"
 dependencies = [
  "aes-gcm",
  "keyring",
+ "libc",
  "reqwest",
  "rustls",
  "serde",

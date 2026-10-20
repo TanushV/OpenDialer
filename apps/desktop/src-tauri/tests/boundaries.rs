@@ -138,3 +138,31 @@ fn raw_cache_cutover_only_removes_owned_legacy_snapshots() {
     }
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn raw_cache_cutover_runs_once_per_mode_and_a_failure_is_retried() {
+    let root = std::env::temp_dir().join(format!("opendialer-purge-once-{}", uuid::Uuid::new_v4()));
+    let cache = root.join("encrypted-cache");
+    std::fs::create_dir_all(&cache).unwrap();
+    std::fs::write(cache.join("analysis-user-call.enc"), b"legacy").unwrap();
+    std::fs::write(cache.join("optouts-tenant.enc"), b"journal").unwrap();
+    assert_eq!(
+        opendialer_lib::purge_legacy_caches_once(&root).unwrap(),
+        Some(1)
+    );
+    // A later snapshot with a legacy-looking name is not touched again after the cutover.
+    std::fs::write(cache.join("analysis-later.enc"), b"kept").unwrap();
+    assert_eq!(
+        opendialer_lib::purge_legacy_caches_once(&root).unwrap(),
+        None
+    );
+    assert!(cache.join("analysis-later.enc").exists());
+    assert_eq!(
+        std::fs::read(cache.join("optouts-tenant.enc")).unwrap(),
+        b"journal"
+    );
+    std::fs::remove_dir_all(&root).unwrap();
+    // A missing mode directory is an error the caller ignores, and leaves no marker.
+    assert!(opendialer_lib::purge_legacy_caches_once(&root).is_err());
+    assert!(!root.exists());
+}
