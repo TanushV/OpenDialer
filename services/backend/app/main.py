@@ -126,6 +126,11 @@ class Suppress(Strict):
     event_id: str | None = None
 
 
+class HoldRelease(Strict):
+    phone: str = Field(min_length=1, max_length=40)
+    reason: str = Field(min_length=1, max_length=500, pattern=r"\S")
+
+
 class ImportLeads(Strict):
     campaign_id: str
     rows: list[dict] = Field(max_length=10000)
@@ -512,6 +517,12 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.post("/v1/suppressions")
     def suppress(data: Suppress, p=Depends(principal)):
         return service.suppress(p, data.phone, data.reason, event_id=data.event_id)
+
+    @app.post("/v1/admin/suppressions/release-hold")
+    def release_hold(data: HoldRelease, p=Depends(administrator)):
+        from app.compliance.suppressions import release_hold
+
+        return release_hold(service, p, data.phone, data.reason)
 
     @app.post("/v1/leads/import")
     def import_leads(data: ImportLeads, p=Depends(administrator)):
