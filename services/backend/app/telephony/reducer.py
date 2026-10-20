@@ -9,6 +9,8 @@ ORDER = {
             "RESERVED",
             "AUTHORIZED",
             "RECONCILING",
+            # No carrier reference or event before the dial deadline; operator review owns it.
+            "DIAL_UNCONFIRMED",
             "DIALING",
             "RINGING",
             "ANSWERED_UNCLASSIFIED",
@@ -37,26 +39,32 @@ def owns_effect(data, owner, now):
         return False
 
 
+# Documented Telnyx AMD results, normalized as "<event_type>:<payload.result>". Other results
+# (not_sure, silence, fax_detected, ended, no_beep_detected) leave the classification unknown.
+HUMAN_EVENTS = {
+    "call.machine.detection.ended:human",
+    "call.machine.premium.detection.ended:human_residence",
+    "call.machine.premium.detection.ended:human_business",
+}
+MAPPING = {
+    "call.initiated": "DIALING",
+    "call.ringing": "RINGING",
+    "call.answered": "ANSWERED_UNCLASSIFIED",
+    "call.hangup": "ENDED",
+    **dict.fromkeys(HUMAN_EVENTS, "HUMAN"),
+    "call.machine.detection.ended:machine": "VOICEMAIL_GREETING",
+    "call.machine.premium.detection.ended:machine": "VOICEMAIL_GREETING",
+    "call.machine.greeting.ended:beep_detected": "VOICEMAIL_READY",
+    "call.machine.premium.greeting.ended:beep_detected": "VOICEMAIL_READY",
+    "call.machine.premium.call_screening.detected:screening": "SCREENING",
+    "call.playback.started": "VM_PLAYING",
+    "call.playback.ended": "ENDING",
+    "human.confirmed": "HUMAN",
+}
+
+
 def reduce_state(state, event):
     if state in TERMINAL:
         return state
-    mapping = {
-        "call.initiated": "DIALING",
-        "call.ringing": "RINGING",
-        "call.answered": "ANSWERED_UNCLASSIFIED",
-        "call.hangup": "ENDED",
-        "call.machine.detection.ended:human": "HUMAN",
-        "call.machine.detection.ended:machine": "VOICEMAIL_GREETING",
-        "call.machine.detection.ended:not_sure": "ANSWERED_UNCLASSIFIED",
-        "call.machine.greeting.ended:beep_detected": "VOICEMAIL_READY",
-        "call.machine.premium.detection.ended:human_residence": "HUMAN",
-        "call.machine.premium.detection.ended:human_business": "HUMAN",
-        "call.machine.premium.detection.ended:machine": "VOICEMAIL_GREETING",
-        "call.machine.premium.detection.ended:screening": "SCREENING",
-        "call.playback.started": "VM_PLAYING",
-        "call.playback.ended": "ENDING",
-        "call.playback.failed": "ENDING",
-        "human.confirmed": "HUMAN",
-    }
-    target = mapping.get(event, state)
+    target = MAPPING.get(event, state)
     return target if ORDER.get(target, 0) >= ORDER.get(state, 0) else state

@@ -72,7 +72,8 @@ def test_lookup_uses_saved_account_rate_without_repricing_old_liability(workspac
     with service.db.transaction(False) as s:
         ledger = [r for r in service.scoped(s, "usage_ledger", p) if r.data.get("work_kind") == "dnc_screen"]
         assert len(ledger) == 1
-        assert ledger[0].data["reserved_usd"] == 0.004
+        # The answered lookup settles at the saved account rate, labeled as an estimate.
+        assert ledger[0].data["cost_usd"] == 0.004 and ledger[0].data["status"] == "estimated"
         identity, before = ledger[0].id, dict(ledger[0].data)
     assert (
         save_operating_policy(
@@ -168,7 +169,11 @@ def test_retry_retains_previous_liability_and_is_idempotent_after_lost_reply(
             r.data for r in service.scoped(s, "usage_ledger", p) if r.data.get("work_kind") == "dnc_screen"
         ]
         assert len(costs) == 2 and len({r["request_key"] for r in costs}) == 2
-        assert all(r["cost_usd"] is None and r["reserved_usd"] > 0 for r in costs)
+        # The lost reply keeps its uncertain hold; the answered retry settles at an estimate.
+        lost, answered = sorted(costs, key=lambda r: r["status"] != "uncertain")
+        assert lost["cost_usd"] is None and lost["reserved_usd"] > 0
+        assert answered["status"] == "estimated" and answered["cost_usd"] > 0
+        assert not answered["billing_verified"]
         assert cached_screen(service, s, p, PHONE)["listed"] is False
 
 
@@ -219,7 +224,8 @@ def test_late_result_never_overrides_changed_authority_or_internal_optout(
         holds = [
             r.data for r in service.scoped(s, "usage_ledger", p) if r.data.get("work_kind") == "dnc_screen"
         ]
-        assert len(holds) == 1 and holds[0]["reserved_usd"] > 0
+        # The provider answered, so the charge is kept as an estimate even though nothing published.
+        assert len(holds) == 1 and holds[0]["status"] == "estimated" and holds[0]["cost_usd"] > 0
     assert len(calls) == 1
 
 

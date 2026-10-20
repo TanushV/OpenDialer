@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from conftest import reserve, start
+from test_inbound_completion import incoming
 
 
 def event(w, call, name, payload=None):
@@ -18,10 +19,9 @@ def test_answer_enqueues_permissioned_stt_without_waiting_for_inference(workspac
     event(workspace, call, "call.answered")
     c, h = workspace["client"], workspace["headers"]
     c.post("/v1/admin/control/run", headers=h)
-    assert any(
-        a["action"] == "transcription_start" and a["payload"]["transcription_tracks"] == "both"
-        for a in carrier.actions
-    )
+    # One single-track stream per leg (Soniox reports no track; the leg names the speaker).
+    starts = [a for a in carrier.actions if a["action"] == "transcription_start"]
+    assert len(starts) == 2 and {a["payload"]["transcription_tracks"] for a in starts} == {"inbound"}
 
 
 def test_agent_leg_is_server_created_and_live_ready_requires_verified_answer(workspace):
@@ -93,25 +93,12 @@ def test_voicemail_watchdog_and_optout_stop_old_leg(workspace, clock):
 
 
 def test_inbound_callback_resolves_seller_and_ambiguous_caller_is_queued(workspace):
-    service = workspace["client"].app.state.service
-    import asyncio
-
-    result = asyncio.run(
-        service.inbound_callback(
-            workspace["tenant_id"],
-            {"call_control_id": "incoming-test", "to": "+14155550100", "from": "+14155550101"},
-            "inbound-event",
-        )
-    )
+    result = incoming(workspace, provider_id="incoming-test", event_id="inbound-event")
     assert result["seller_id"] == workspace["seller_id"]
     assert result["route"] in {"responsible_rep", "callback_queue"}
     assert result["lead_id"] is not None
-    unknown = asyncio.run(
-        service.inbound_callback(
-            workspace["tenant_id"],
-            {"call_control_id": "incoming-unknown", "to": "+14155550100", "from": "+14155550888"},
-            "unknown-event",
-        )
+    unknown = incoming(
+        workspace, provider_id="incoming-unknown", event_id="unknown-event", phone="+14155550888"
     )
     assert unknown["route"] == "callback_queue" and unknown["lead_id"] is None
 
@@ -137,20 +124,15 @@ def test_ready_responsible_rep_receives_inbound_transfer_through_durable_outbox(
                 "at": service.clock().isoformat(),
             },
         )
-    task = asyncio.run(
-        service.inbound_callback(
-            workspace["tenant_id"],
-            {
-                "call_control_id": "incoming-controlled",
-                "to": "+14155550100",
-                "from": next(
-                    lead["phone"]
-                    for lead in c.get("/v1/workspace", headers=h).json()["leads"]
-                    if lead["id"] == call["lead_id"]
-                ),
-            },
-            "transfer-event",
-        )
+    task = incoming(
+        workspace,
+        provider_id="incoming-controlled",
+        event_id="transfer-event",
+        phone=next(
+            lead["phone"]
+            for lead in c.get("/v1/workspace", headers=h).json()["leads"]
+            if lead["id"] == call["lead_id"]
+        ),
     )
     assert task["route"] == "responsible_rep"
     asyncio.run(service.dispatch_controls(workspace))

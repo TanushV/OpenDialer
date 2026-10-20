@@ -1044,6 +1044,27 @@ def call_cycle(client, headers, campaign, measured, identity, *, simulated_secon
             ),
         )
         if call["state"] == "RECONCILING":
+            # Telnyx cannot be asked about a dial by command ID, so neither can the simulator: the
+            # signed call.initiated event carries the original carrier reference, as in production.
+            from app.db import get
+
+            with service.db.transaction(False) as s:
+                tenant = get(s, "call_attempts", call["id"]).tenant_id
+            initiated = {
+                "id": "measure-initiated:" + identity,
+                "event_type": "call.initiated",
+                "payload": {
+                    "call_control_id": service.simulated_carrier.calls[call["id"]]["call_control_id"],
+                    "direction": "outgoing",
+                    "client_state": base64.b64encode(
+                        json.dumps({"call_id": call["id"], "tenant_id": tenant}).encode()
+                    ).decode(),
+                },
+            }
+            digest = hashlib.sha256(json.dumps(initiated, sort_keys=True).encode()).hexdigest()
+            service._process_webhook(
+                tenant, service._receive_webhook(tenant, initiated, digest)["receipt_id"]
+            )
             record("recovery", lambda: request("POST", "/v1/admin/recovery"))
             call = request("GET", f"/v1/calls/{call['id']}")
         provider_event = {

@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import hashlib
 import json
 from datetime import timedelta
 from uuid import uuid4
@@ -93,14 +94,24 @@ def principal(w):
     return {k: w[k] for k in ("tenant_id", "seller_id", "user_id")} | {"role": "owner"}
 
 
+def deliver(w, event_type, payload, event_id=None):
+    """The production path: a durable signed inbox receipt, then the webhook worker."""
+    service = w["client"].app.state.service
+    event = {"id": event_id or str(uuid4()), "event_type": event_type, "payload": payload}
+    body = hashlib.sha256(json.dumps(event, sort_keys=True).encode()).hexdigest()
+    receipt = asyncio.run(service.accept_webhook(w["tenant_id"], event, body, verified=True))
+    if receipt.get("duplicate"):
+        return receipt
+    return asyncio.run(service.process_webhook(w["tenant_id"], receipt["receipt_id"]))
+
+
 def incoming(w, *, provider_id="inbound-1", event_id="incoming-1", phone="+14155550101"):
-    return asyncio.run(
-        w["client"].app.state.service.inbound_callback(
-            w["tenant_id"],
-            {"call_control_id": provider_id, "to": "+14155550100", "from": phone},
-            event_id,
-        )
-    )
+    payload = {"call_control_id": provider_id, "to": "+14155550100", "from": phone, "direction": "incoming"}
+    result = deliver(w, "call.initiated", payload, event_id)
+    service = w["client"].app.state.service
+    with service.db.transaction(False) as s:
+        task = service._by_key(s, principal(w), "followup_tasks", "callback:" + provider_id)
+    return doc(task) if task else result
 
 
 def dispatch(w):
@@ -109,15 +120,8 @@ def dispatch(w):
     asyncio.run(service.dispatch_controls(principal(w)))
 
 
-def webhook(w, event_type, payload, event_id="receipt-1"):
-    service = w["client"].app.state.service
-    return asyncio.run(
-        service._apply_webhook(
-            w["tenant_id"],
-            {"event_type": event_type, "event_id": event_id, "received_at": service.clock().isoformat()},
-            payload,
-        )
-    )
+def webhook(w, event_type, payload, event_id=None):
+    return deliver(w, event_type, payload, event_id)
 
 
 def saved(w, table, identity):

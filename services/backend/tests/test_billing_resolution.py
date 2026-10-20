@@ -388,6 +388,8 @@ def test_legacy_callback_receipt_cannot_be_reassigned_without_its_request_key(wo
 def test_explicit_zero_charge_statement_can_close_a_terminal_call_without_cdr(workspace, app):
     call, hold = call_hold(workspace, app)
     workspace["client"].post(f"/v1/calls/{call['id']}/hangup", headers=workspace["headers"])
+    hold = saved(app, hold)  # The terminal call settled its hold to an estimate; reload it.
+    assert hold["status"] == "estimated"
     args = {
         "action": "close_call",
         "provider": "telnyx",
@@ -400,7 +402,8 @@ def test_explicit_zero_charge_statement_can_close_a_terminal_call_without_cdr(wo
     assert resolve(workspace, hold, **args).status_code == 409
     result = resolve(workspace, hold, **args, confirm_no_charge=True)
     assert result.status_code == 200, result.text
-    assert saved(app, hold)["reserved_usd"] == 0
+    closed = saved(app, hold)
+    assert closed["reserved_usd"] == 0 and closed["cost_usd"] == 0 and closed["billing_verified"]
 
 
 def test_same_carrier_receipt_cannot_move_to_a_different_call(workspace, app, clock):
