@@ -4,6 +4,7 @@ from datetime import timedelta
 
 import pytest
 from app.db import get, update
+from conftest import NOW
 from test_postcall_completion import setup_analysis
 from test_remediation_rep_workflow import p
 
@@ -51,7 +52,7 @@ def test_reviewed_state_sources(bad):
     else:
         segment["side"] = "unknown"
     if bad == "unknown_speaker":
-        result = merge_semantic_state(prior, {"stage": "discovery", "needs": [item]}, [segment])
+        result = merge_semantic_state(prior, {"stage": "discovery", "needs": [item]}, [segment], at=NOW)
         assert all(row.get("epistemic_status") != "human_confirmed" for row in result.get("needs", []))
         assert all(
             row.get("status") != "confirmed"
@@ -60,7 +61,7 @@ def test_reviewed_state_sources(bad):
         )
     else:
         with pytest.raises(CardRejected):
-            merge_semantic_state(prior, {"stage": "discovery", "needs": [item]}, [segment])
+            merge_semantic_state(prior, {"stage": "discovery", "needs": [item]}, [segment], at=NOW)
 
 
 def setup(workspace, app, monkeypatch):

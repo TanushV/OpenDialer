@@ -143,6 +143,8 @@ def review_fixture(
 
         async def suggest(self, request, **kwargs):
             requests.append(("suggest", deepcopy(request)))
+            if options.get("during_generation"):
+                options["during_generation"]()
             self.last_usage, self.last_request_id = {"cost": 0.002}, "generation-receipt"
             result = {**advice(request["state_version"], "claim", text=text), "reason": reason}
             result.update(options.get("result", {}))
@@ -155,6 +157,7 @@ def review_fixture(
 
         async def review(self, request, **kwargs):
             requests.append(("review", deepcopy(request)))
+            options["review_deadline_ms"] = kwargs.get("deadline_ms")
             if options.get("during"):
                 options["during"]()
             if options.get("review_started"):
@@ -393,3 +396,159 @@ async def test_complete_field_audit(workspace, app, monkeypatch, visible_field):
         assert "alternatives.0" in fields
     assert result["action"] == "NO_ACTION"
     assert len(usage(service, p)) == 2
+
+
+def audit(field, classification="nonassertive"):
+    return {"field": field, "classification": classification, "sources": [], "implied_premises": []}
+
+
+@pytest.mark.asyncio
+async def test_slow_generation_keeps_the_full_review_budget(workspace, app, clock, monkeypatch):
+    """CI flake: a runner slower than the 3 s first-useful ceiling must not skip the review."""
+    from datetime import timedelta
+
+    service, p, call, requests, options = review_fixture(workspace, app, monkeypatch)
+    options["during_generation"] = lambda: setattr(clock, "now", clock.now + timedelta(seconds=3.5))
+    result = await service.coach_turn(p, call["id"], urgent=True, question="How should I answer?")
+    assert [kind for kind, _ in requests] == ["suggest", "review"], result
+    assert result["action"] == "SHOW_CARD" and result["meaning_review"]["status"] == "model_reviewed"
+    remaining = service.settings.runtime_limits.manual_full_ms - 3500
+    assert abs(options["review_deadline_ms"] - remaining) <= 1, "Review uses the full answer budget"
+
+
+@pytest.mark.asyncio
+async def test_non_factual_verdict_cannot_support_an_unaudited_field(workspace, app, monkeypatch):
+    service, p, call, requests, _ = review_fixture(
+        workspace,
+        app,
+        monkeypatch,
+        text="Our product is compatible with offline use.",
+        verdict="NON_FACTUAL",
+    )
+    result = await service.coach_turn(p, call["id"], urgent=True, question="What should I say?")
+    assert [kind for kind, _ in requests] == ["suggest", "review"]
+    assert not any(field["allows_non_factual"] for field in requests[-1][1]["fields"])
+    assert result["action"] == "NO_ACTION", "NON_FACTUAL cannot approve a factual product claim"
+
+
+@pytest.mark.asyncio
+async def test_non_factual_supports_only_the_field_the_generator_audited_nonassertive(
+    workspace, app, monkeypatch
+):
+    service, p, call, requests, options = review_fixture(
+        workspace,
+        app,
+        monkeypatch,
+        text="Which access situations matter most to your team?",
+        verdict={"say_or_ask": "NON_FACTUAL", "reason": "SUPPORTED"},
+    )
+    options["result"] = {"field_audit": [audit("say_or_ask"), audit("reason", "supported_fact")]}
+    result = await service.coach_turn(p, call["id"], urgent=True, question="What should I ask?")
+    fields = {f["field"]: f["allows_non_factual"] for f in requests[-1][1]["fields"]}
+    assert fields == {"say_or_ask": True, "reason": False}
+    assert result["action"] == "SHOW_CARD"
+    assert result["reason"] == "Use the approved access capability."
+
+
+@pytest.mark.asyncio
+async def test_rejected_factual_reason_still_shows_the_audited_nonassertive_question(
+    workspace, app, monkeypatch
+):
+    """Spec E01.6: rejection withholds every factual field; an audited clarification may remain."""
+    service, p, call, requests, options = review_fixture(
+        workspace,
+        app,
+        monkeypatch,
+        text="Which access situations matter most to your team?",
+        reason="Our product is compatible with offline use.",
+        verdict={"say_or_ask": "NON_FACTUAL", "reason": "CONTRADICTED"},
+    )
+    options["result"] = {"field_audit": [audit("say_or_ask"), audit("reason", "material_claim")]}
+    result = await service.coach_turn(p, call["id"], urgent=True, question="What should I ask?")
+    assert [kind for kind, _ in requests] == ["suggest", "review"]
+    assert result["action"] == "SHOW_CARD"
+    assert result["say_or_ask"] == "Which access situations matter most to your team?"
+    assert result["reason"] == "" and "offline" not in str(result)
+    assert result["meaning_review"]["rejected_fields"] == ["reason"]
+    assert len(usage(service, p)) == 2
+
+
+@pytest.mark.asyncio
+async def test_rejected_primary_can_fall_back_to_an_audited_nonassertive_alternative(
+    workspace, app, monkeypatch
+):
+    service, p, call, _, options = review_fixture(
+        workspace,
+        app,
+        monkeypatch,
+        text="Our product is compatible with offline use.",
+        reason="Our product is compatible with offline use.",
+        verdict={"say_or_ask": "CONTRADICTED", "reason": "CONTRADICTED", "alternatives.0": "NON_FACTUAL"},
+    )
+    clarification = "Which offline situations matter most to your team?"
+    options["result"] = {
+        "alternatives": [clarification],
+        "field_audit": [
+            audit("say_or_ask", "material_claim"),
+            audit("reason", "material_claim"),
+            audit("alternatives.0"),
+        ],
+    }
+    result = await service.coach_turn(p, call["id"], urgent=True, question="What should I say?")
+    assert result["action"] == "SHOW_CARD"
+    assert result["say_or_ask"] == clarification
+    assert result["reason"] == "" and result["alternatives"] == []
+    assert "compatible" not in str(result)
+
+
+@pytest.mark.parametrize("delta", ["commitment", "score"])
+def test_commitment_or_rating_update_routes_audited_advice_to_review(delta):
+    from app.coaching.context import MeaningReviewRequired
+
+    source = {"kind": "segment", "id": "s1", "version": 1}
+    update = {
+        "stage": "next_step",
+        "observations": [],
+        "rubric_items": [],
+        "tracker_matches": [],
+        "interpreted_segments": [],
+    }
+    if delta == "commitment":
+        update["observations"].append(
+            {
+                "kind": "commitment",
+                "text": "The prospect agreed to a follow-up call.",
+                "state": "open",
+                "sources": [source],
+                "replaces": [],
+                "quote": "",
+                "commitment": {
+                    "kind": "callback",
+                    "owner": "rep",
+                    "due_at": None,
+                    "verbatim_time_expression": "next week",
+                    "needs_time_confirmation": True,
+                },
+            }
+        )
+    else:
+        update["rubric_items"].append(
+            {
+                "dimension": "discovery",
+                "status": "scored",
+                "score": 2,
+                "explanation": "The rep explored the need.",
+                "sources": [source],
+            }
+        )
+    card = {
+        **advice(1, text="What would make evaluation worthwhile?"),
+        "evidence_segment_ids": [],
+        "reason": "Invite their priorities.",
+        "context_fingerprint": "fixture-context",
+        "field_audit": [audit("say_or_ask"), audit("reason")],
+        "state_update": update,
+    }
+    assert ground_guidance({**card, "state_update": None}, context())
+    with pytest.raises(MeaningReviewRequired):
+        ground_guidance(card, context())

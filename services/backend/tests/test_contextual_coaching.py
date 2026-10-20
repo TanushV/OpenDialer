@@ -1,7 +1,7 @@
 import pytest
 from app.coaching.context import build_context, ground_guidance, merge_semantic_state, retrieve_cards
 from app.coaching.engine import CardRejected
-from conftest import completed_report, start
+from conftest import NOW, completed_report, start
 
 CARDS = [
     {
@@ -48,6 +48,7 @@ def test_state_tracks_evidence_questions_negation_and_resolved_objections():
             ],
         },
         dialogue,
+        at=NOW,
     )
     assert interpreted["stage"] == "next_step"
     assert interpreted["buying_signals"][0]["evidence_segment_ids"] == ["s2"]
@@ -81,16 +82,21 @@ def test_paraphrased_state_survives_new_turns_but_not_a_revised_source():
         ],
     }
     next_turn = segment("s2", "Can we arrange a meeting?", revision=1)
-    state = build_context([original, next_turn], version=2, facts=[], commitments=[], prior=prior)
+    state = build_context([original, next_turn], version=2, facts=[], commitments=[], prior=prior, at=NOW)
     assert state["needs"] and state["needs"][0]["text"] == "Duplicate data creates recurring manual work."
     revised = {**original, "revision": 2, "text": "We do not have duplicated entries."}
-    state = build_context([revised, next_turn], version=3, facts=[], commitments=[], prior=prior)
+    state = build_context([revised, next_turn], version=3, facts=[], commitments=[], prior=prior, at=NOW)
     assert not state["needs"]
 
 
 def test_lexical_retrieval_matches_explicit_budget_words_instead_of_first_card():
     state = build_context([segment("s", "We have no budget.")], version=1, facts=[], commitments=[])
     assert retrieve_cards(state, CARDS)[0]["id"] == "budget"
+
+
+def test_an_unrelated_discovery_card_is_not_always_eligible():
+    state = build_context([segment("s", "We have no budget.")], version=1, facts=[], commitments=[])
+    assert "discovery" not in [c["id"] for c in retrieve_cards(state, CARDS)]
 
 
 def test_interpreted_decline_and_already_answered_question_do_not_repeat_cached_guidance():
@@ -143,7 +149,8 @@ def test_call_state_and_quality_feedback_are_persisted_and_scoped(workspace, clo
             "segment_id": "budget-turn",
             "revision": 1,
             "side": "remote",
-            "text": "We cannot afford another subscription.",
+            # Cached knowledge must match the turn; a discovery card is no longer always eligible.
+            "text": "We have no budget for another subscription.",
             "is_final": True,
         },
     )

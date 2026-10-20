@@ -2,19 +2,177 @@
 
 import asyncio
 from datetime import timedelta
+from types import SimpleNamespace
 
+import httpx
 import pytest
 from app.coaching.engine import CoachEngine
+from app.providers.inference import InferenceError
 from test_live_memory import setup, turn
 
 FALLBACK = {"action": "NO_ACTION"}
 
 
+class Healthy:
+    async def suggest(self, *args, **kwargs):
+        return {"action": "SHOW_CARD", "say_or_ask": "Contextual help"}
+
+
+class Raising:
+    def __init__(self, fault):
+        self.fault = fault
+
+    async def suggest(self, *args, **kwargs):
+        raise self.fault
+
+
+def status_error(code):
+    request = httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions")
+    return httpx.HTTPStatusError("fixture", request=request, response=httpx.Response(code, request=request))
+
+
+@pytest.mark.asyncio
+async def test_admission_ceiling_covers_the_admit_storage_step(monkeypatch):
+    """The 100 ms ceiling bounds all of admission, including its DB/budget step, or rejects."""
+    import app.coaching.engine as engine_module
+
+    clock, calls, settled = [0.0], [], []
+    monkeypatch.setattr(engine_module, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+
+    class Provider:
+        async def suggest(self, *args, **kwargs):
+            calls.append("provider")
+            return {"action": "SHOW_CARD"}
+
+    async def admit(*args):
+        clock[0] = 0.101
+        return True
+
+    async def settle(submitted):
+        settled.append(submitted)
+
+    result = await CoachEngine().suggest(
+        "slow-admit", {}, Provider(), FALLBACK, deadline_ms=1500, admit=admit, settle=settle
+    )
+    assert result["status"] == "busy"
+    assert calls == [] and settled == [False]
+
+
+@pytest.mark.asyncio
+async def test_slow_storage_admission_is_busy_retried_and_not_counted(workspace, app, clock, monkeypatch):
+    call, p, requests, _ = setup(workspace, app, monkeypatch)
+    service = app.state.service
+    original = service.reserve_optional_budget
+
+    def slow(*args, **kwargs):
+        allowed = original(*args, **kwargs)
+        clock.now += timedelta(milliseconds=150)
+        return allowed
+
+    monkeypatch.setattr(service, "reserve_optional_budget", slow)
+    turn(service, p, call, "slow-admission")
+    clock.now += timedelta(milliseconds=301)
+    await service.run_jobs(p["tenant_id"], queues=["live_coach"])
+    assert requests == [], "A late admission must not submit"
+    with service.db.transaction(False) as s:
+        state = service._by_key(s, p, "conversation_states", call["id"])
+        assert not state.data.get("automatic_admissions"), "A rejected admission is not a spent request"
+        holds = [
+            r.data for r in service.scoped(s, "usage_ledger", p) if r.data.get("work_kind") == "live_coach"
+        ]
+        assert holds and all(h["status"] == "released" for h in holds)
+    monkeypatch.setattr(service, "reserve_optional_budget", original)
+    clock.now += timedelta(milliseconds=301)
+    await service.run_jobs(p["tenant_id"], queues=["live_coach"])
+    assert len(requests) == 1, "The busy turn is retried after the debounce without another utterance"
+
+
+@pytest.mark.asyncio
+async def test_manual_failures_do_not_open_the_automatic_breaker():
+    engine = CoachEngine()
+    for i in range(3):
+        await engine.suggest(
+            f"manual-{i}", {"manual_help": True}, Raising(TimeoutError()), FALLBACK, circuit_key="seller-a"
+        )
+    automatic = await engine.suggest("automatic", {}, Healthy(), FALLBACK, circuit_key="seller-a")
+    assert automatic["action"] == "SHOW_CARD", "Manual timeouts must not silence proactive help"
+    manual = await engine.suggest(
+        "manual", {"manual_help": True}, Healthy(), FALLBACK, circuit_key="seller-a"
+    )
+    assert manual["action"] == "NO_ACTION", "The manual route's own breaker remains open"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "fault,counted",
+    [
+        (InferenceError("Invalid structured conversation turn"), False),
+        (ValueError("Guidance failed validation"), False),
+        (status_error(400), False),
+        (status_error(429), True),
+        (status_error(503), True),
+        (httpx.ConnectError("synthetic outage"), True),
+        (httpx.ReadTimeout("synthetic timeout"), True),
+        (TimeoutError(), True),
+    ],
+)
+async def test_only_transport_faults_open_the_breaker(fault, counted):
+    engine = CoachEngine()
+    for i in range(3):
+        failed = await engine.suggest(str(i), {}, Raising(fault), FALLBACK, circuit_key="route")
+        assert failed["action"] == "NO_ACTION" and failed["status"] == "unavailable"
+    after = await engine.suggest("next", {}, Healthy(), FALLBACK, circuit_key="route")
+    assert (after["action"] == "NO_ACTION") is counted
+
+
+@pytest.mark.asyncio
+async def test_transient_failure_stays_quiet_and_cached_knowledge_needs_an_open_circuit():
+    cached = {"action": "SHOW_CARD", "kind": "cached_tip", "say_or_ask": "Cached knowledge"}
+    engine = CoachEngine()
+    failed = await engine.suggest("a", {}, Raising(httpx.ConnectError("down")), cached, circuit_key="k")
+    assert failed["action"] == "NO_ACTION" and failed["status"] == "unavailable"
+    assert failed is not cached
+    for i in range(2):
+        await engine.suggest(str(i), {}, Raising(httpx.ConnectError("down")), cached, circuit_key="k")
+    degraded = await engine.suggest("b", {}, Healthy(), cached, circuit_key="k")
+    assert degraded is cached, "An open circuit is the explicit degraded mode for cached knowledge"
+
+
+@pytest.mark.asyncio
+async def test_transient_live_failure_exposes_helper_status_without_a_cached_card(
+    workspace, app, clock, monkeypatch
+):
+    call, p, _, changes = setup(workspace, app, monkeypatch)
+    service = app.state.service
+    with service.db.transaction() as s:
+        from app.db import update
+
+        update(
+            service.approved_playbook(s, p),
+            cards=[{"id": "workflow", "version": 1, "tags": ["workflow"], "text": "Which teams own it?"}],
+        )
+    turn(service, p, call, "outage")
+
+    def outage():
+        raise httpx.ConnectError("synthetic outage")
+
+    changes["during"] = outage
+    result = await service.coach_turn(p, call["id"])
+    assert result["action"] == "NO_ACTION" and result["status"] == "unavailable"
+    view = workspace["client"].get(f"/v1/calls/{call['id']}", headers=workspace["headers"]).json()
+    assert view["coach"] is None, "A transient failure must not substitute an unreviewed cached card"
+    assert view["conversation_state"]["helper_status"]["status"] == "unavailable"
+    assert view["conversation_state"]["helper_status"]["reason"] == "transport_fault"
+    changes.pop("during")
+    turn(service, p, call, "recovered")
+    assert (await service.coach_turn(p, call["id"]))["action"] == "SHOW_CARD"
+    view = workspace["client"].get(f"/v1/calls/{call['id']}", headers=workspace["headers"]).json()
+    assert view["conversation_state"]["helper_status"]["status"] == "available"
+
+
 @pytest.mark.asyncio
 async def test_late_capacity_acquisition_does_not_spend_after_admission_deadline(monkeypatch):
     """A delayed event loop may deliver a semaphore before its timeout callback."""
-    from types import SimpleNamespace
-
     import app.coaching.engine as engine_module
 
     clock, calls, settled, released = [0.0], [], [], []
@@ -250,7 +408,7 @@ async def test_local_capacity_wait_is_not_a_provider_failure_or_global_circuit_b
             assert (await engine.suggest(f"waiting-{i}", {}, provider, FALLBACK, deadline_ms=15))[
                 "action"
             ] == "NO_ACTION"
-        assert engine.failures == 0 and engine.open_until == 0
+        assert not engine._circuits, "A local capacity wait is not a provider failure"
         release.set()
         assert (await active)["action"] == "SHOW_CARD"
         assert (await engine.suggest("next", {}, provider, FALLBACK))["action"] == "SHOW_CARD"

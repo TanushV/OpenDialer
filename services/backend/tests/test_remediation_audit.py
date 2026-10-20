@@ -10,7 +10,7 @@ from app.db import doc, update
 from app.optimization.numbering import capacity_forecast
 from app.providers.inference import InferenceResult
 from app.transcripts import normalize_transcription
-from conftest import disposition_body, start
+from conftest import NOW, disposition_body, start
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from fastapi import HTTPException
@@ -393,7 +393,7 @@ def test_negated_budget_approval_does_not_resolve_an_objection():
             }
         ]
     }
-    result = build_context(segments, version=2, facts=[], commitments=[], prior=prior)
+    result = build_context(segments, version=2, facts=[], commitments=[], prior=prior, at=NOW)
     # Removing the regex classifier must not erase or resolve the earlier evidenced objection.
     assert len(result["objections"]) == 1
     objection = result["objections"][0]
