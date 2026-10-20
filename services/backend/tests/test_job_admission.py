@@ -2,6 +2,7 @@
 
 import asyncio
 import collections
+import contextlib
 import threading
 
 import pytest
@@ -436,3 +437,46 @@ async def test_a_claim_wave_takes_the_writer_once_for_all_its_due_jobs(workspace
     claims = [name for name in writes if "claim" in name]
     assert len(claims) == 1, collections.Counter(writes)
     assert all(service.jobs.get(job["id"])["attempts"] == 1 for job in jobs)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("depth", range(6))
+async def test_a_cancelled_wave_returns_every_local_slot(workspace, app, clock, monkeypatch, depth):
+    """Cancellation at any loop turn after a claim (including before a job's first step) frees slots."""
+    from test_idle_authority import defer_existing_jobs
+
+    service, p = app.state.service, principal(workspace)
+    defer_existing_jobs(service, clock)
+    admission = service.job_admission["live_coach"]
+    full, loop, outer = admission._value, asyncio.get_running_loop(), None
+
+    async def coach(p, call_id):
+        await asyncio.sleep(30)
+
+    def nested(level):
+        if level:
+            loop.call_soon(nested, level - 1)
+        else:
+            outer.cancel()
+
+    original = service.jobs.claim_many
+
+    def claim_then_cancel(*args, **kwargs):
+        jobs = original(*args, **kwargs)
+        loop.call_soon_threadsafe(nested, depth)
+        return jobs
+
+    monkeypatch.setattr(service, "coach_turn", coach)
+    monkeypatch.setattr(service.jobs, "claim_many", claim_then_cancel)
+    for i in range(3):
+        service.jobs.enqueue(
+            "live_coach",
+            {"call_id": f"cancel-call-{i}", "seller_id": p["seller_id"], "user_id": p["user_id"]},
+            f"cancel:{depth}:{i}",
+            tenant_id=p["tenant_id"],
+        )
+    outer = asyncio.create_task(service.run_jobs(p["tenant_id"], queues=["live_coach"]))
+    with contextlib.suppress(asyncio.CancelledError):
+        await outer
+    await asyncio.sleep(0)
+    assert admission._value == full, f"{full - admission._value} local slot(s) leaked"

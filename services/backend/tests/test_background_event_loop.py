@@ -155,3 +155,13 @@ async def test_one_prepared_lead_does_not_decrypt_unrelated_company_or_script_hi
     await service.prepare(p, [lead_id])
     assert len(decoded) <= 120, len(decoded)
     assert service.packet(p, lead_id)["script"]["script_version"]
+
+
+def test_number_search_quotes_are_saved_off_the_live_loop(workspace, app):
+    with async_sql(app) as found:
+        response = workspace["client"].post(
+            "/v1/admin/numbers/search", headers=workspace["headers"], json={"region": "415"}
+        )
+    assert response.status_code == 200, response.text
+    assert response.json()["numbers"], "The simulated carrier offers candidates to quote"
+    assert found == [], found
