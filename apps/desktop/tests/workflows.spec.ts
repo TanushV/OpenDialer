@@ -90,13 +90,18 @@ test("admin inventory, lead import, policy, preparation and real readiness bound
   await page
     .getByRole("button", { name: "Prepare displayed lead packets" })
     .click();
+  // Preparation is previewed with its count and budget before it is queued.
+  await page.getByRole("button", { name: "Queue preparation" }).click();
   await expect(page.getByText(/Preparation queued/)).toBeVisible();
   await page.getByRole("button", { name: "Numbers", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Numbers & callbacks" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Plan regional capacity" }).click();
-  await expect(page.getByText("Regional capacity proposal")).toBeVisible();
+  // One planning request; the saved plan is then read back with backoff.
+  await expect(page.getByText("Regional capacity proposal")).toBeVisible({
+    timeout: 20000,
+  });
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Run preflight" }).click();
   await expect(page.getByText(/Simulated providers/)).toBeVisible();
@@ -127,7 +132,9 @@ test("advanced administration exposes evidence-controlled workflows", async ({
   page,
 }) => {
   await enterSimulation(page);
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  // Trackers are advanced analysis configuration: Settings → Advanced.
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByText("Advanced", { exact: true }).click();
   await page.getByLabel("Tracker name").fill("Existing supplier");
   await page
     .getByLabel("Tracker definition")
@@ -139,29 +146,38 @@ test("advanced administration exposes evidence-controlled workflows", async ({
   await expect(
     page.getByText("Existing supplier", { exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Policy & DNC", exact: true }).click();
+  // Business identity evidence is the first setup step.
+  await page.getByRole("button", { name: "Setup", exact: true }).click();
+  await page.getByTestId("setup-identity").locator(":scope > summary").click();
   await expect(page.getByLabel("Business identity evidence")).toBeVisible();
 });
 
-test("approved variants and quoted procurement are operable from administration", async ({
+test("approved variants are an experiment and purchases are never offered", async ({
   page,
 }) => {
   await enterSimulation(page);
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  // Script variants are one experiment type in the single Advanced experiment view.
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByText("Advanced", { exact: true }).click();
+  await page.getByLabel("Experiment type").selectOption("variant");
   await page.getByLabel("Variant name").fill("Purpose first");
   await page
     .getByLabel("Variant introduction")
     .fill("Hi, this is {rep} from Example Seller. May I explain why I called?");
   await page
-    .getByLabel("Variant review reference")
+    .getByLabel("Experiment review reference")
     .fill("Synthetic review only");
   await page.getByRole("button", { name: "Publish approved variant" }).click();
   await expect(page.getByText("Approved treatment published.")).toBeVisible();
+  // Purchases are disabled by policy, so no quote or rental tool is shown.
   await page.getByRole("button", { name: "Numbers", exact: true }).click();
-  await page.getByLabel("Procurement area code").fill("415");
-  await page.getByRole("button", { name: "Get carrier quotes" }).click();
-  await expect(page.getByText("First month + setup")).toBeVisible();
+  await expect(page.getByLabel("Procurement area code")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Get carrier quotes" }),
+  ).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /purchase|buy/i })).toHaveCount(
+    0,
+  );
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
   // Device selection is the pre-ready "Check audio" step.
   await page.getByText("Check audio", { exact: true }).click();

@@ -1,7 +1,9 @@
+import { useEffect, useRef, useState } from "react";
 import { useHistory } from "../state/useHistory";
+import { limits, useDefinitions } from "../state/definitions";
 import { HistoryMore } from "./HistoryMore";
-import { useState, useEffect, useRef } from "react";
-import { date, label, useWorkspace } from "../context";
+import { date, label, percent, useWorkspace } from "../context";
+import type { ReportState } from "./OptimizationPanel";
 
 export interface ControlledComparison {
   id: string;
@@ -38,25 +40,46 @@ export interface ControlledComparison {
   >;
 }
 
-export function TrialControls({
-  comparisons,
-  cohortReportId,
-  load,
-}: {
-  comparisons: ControlledComparison[];
-  cohortReportId: string;
-  load: () => Promise<void>;
-}) {
+type Kind = "model_pilot" | "approach" | "coaching" | "number_allocation";
+type ExperimentKind = Kind | "variant";
+const KINDS: [ExperimentKind, string][] = [
+  ["model_pilot", "Reviewed model pilot"],
+  ["approach", "Response approach comparison"],
+  ["coaching", "Live help availability (coaching)"],
+  ["number_allocation", "Regional number allocation"],
+  ["variant", "Approved script variant"],
+];
+const START: Record<ExperimentKind, string> = {
+  model_pilot: "Start bounded model pilot",
+  approach: "Start reviewed strategy comparison",
+  coaching: "Start coaching comparison",
+  number_allocation: "Start number comparison",
+  variant: "Publish approved variant",
+};
+
+/** One experiment surface: model pilots, approach, help and number comparisons, variants. */
+export function Experiments({ state }: { state: ReportState }) {
   const { api, run, refresh, notice, snapshot: w } = useWorkspace();
+  const bounds = useDefinitions();
+  const trial = bounds?.model_trial;
+  const comparison = bounds?.comparison;
   const history = useHistory("models", w.models);
+  const report = state.report;
+  const comparisons = report?.comparisons ?? [];
+  const [kind, setKind] = useState<ExperimentKind>("model_pilot");
+  const [reference, setReference] = useState("");
+  const [days, setDays] = useState<number | null>(null);
+  const [limit, setLimit] = useState<number | null>(null);
+  const [probability, setProbability] = useState<number | null>(null);
+  const [modelId, setModelId] = useState("");
+  const [reason, setReason] = useState("");
+  const [cohortReport, setCohortReport] = useState("");
+  const [variant, setVariant] = useState({ name: "", opener: "" });
   const [approaches, setApproaches] = useState<
     { id: string; source_version: number; text: string }[]
   >([]);
   const [approachId, setApproachId] = useState("");
-  const [strategyPolicy, setStrategyPolicy] = useState<"two_arm" | "adaptive">(
-    "two_arm",
-  );
-  const [candidateProbability, setCandidateProbability] = useState(0.5);
+  const [policy, setPolicy] = useState<"two_arm" | "adaptive">("two_arm");
   const strategyRequest = useRef<{
     fingerprint: string;
     requestId: string;
@@ -75,6 +98,15 @@ export function TrialControls({
       live = false;
     };
   }, [api]);
+  // Defaults come from the authority's definitions until the admin edits them.
+  const durationBound = (kind === "model_pilot" ? trial : comparison)
+    ?.duration_days;
+  const duration = days ?? Number(durationBound?.default ?? Number.NaN);
+  const leads = limit ?? Number(trial?.max_leads?.default ?? Number.NaN);
+  const share =
+    probability ??
+    Number(comparison?.candidate_probability?.default ?? Number.NaN);
+  const selected = history.items.find((model) => model.id === modelId);
   const supportedStudy = comparisons.find(
     (s) =>
       s.strategy_policy === "two_arm" &&
@@ -82,28 +114,138 @@ export function TrialControls({
       s.strategy_ids?.length === 2 &&
       s.strategy_ids[1] === approachId,
   );
-  const [modelId, setModelId] = useState("");
-  const [reference, setReference] = useState("");
-  const [comparisonReference, setComparisonReference] = useState("");
-  const [reason, setReason] = useState("");
-  const [days, setDays] = useState(14);
-  const [limit, setLimit] = useState(200);
-  const [savedReport, setSavedReport] = useState("");
-  const admin = ["owner", "admin"].includes(w.user.role);
-  const selected = history.items.find((model) => model.id === modelId);
   const changed = async () => {
-    await load();
+    await state.load();
     await refresh();
   };
+  const reviewed = reference.trim().length >= 3;
+  const blocked = !bounds
+    ? "Loading experiment limits…"
+    : kind === "model_pilot" && !modelId
+      ? "Choose an owned candidate."
+      : kind === "approach" && !approaches.length
+        ? "Publish a source-linked coaching example from call review before starting an approach trial."
+        : kind === "approach" && !approachId
+          ? "Choose a reviewed teaching example."
+          : kind === "variant" && (!variant.name || !variant.opener)
+            ? "Name the variant and write its introduction."
+            : !reviewed
+              ? "Enter a review reference of at least 3 characters."
+              : kind === "model_pilot" &&
+                  selected?.feature_schema_version === 2 &&
+                  !selected.reviewable
+                ? "This candidate's predictive evidence is not reviewable, so it cannot start a pilot."
+                : kind === "approach" &&
+                    policy === "adaptive" &&
+                    !supportedStudy
+                  ? "Adaptive allocation requires a supported completed comparison for this approach."
+                  : "";
+  async function start() {
+    if (kind === "model_pilot") {
+      await api("/v1/admin/models/" + modelId + "/start-trial", "POST", {
+        review_reference: reference,
+        max_leads: leads,
+        duration_days: duration,
+      });
+      notice("Reviewed bounded model pilot started");
+    } else if (kind === "variant") {
+      await api("/v1/admin/variants", "POST", {
+        campaign_id: w.campaign.id,
+        name: variant.name,
+        opener: variant.opener,
+        review_reference: reference,
+      });
+      setVariant({ name: "", opener: "" });
+      notice("Approved treatment published.");
+    } else if (kind === "approach") {
+      const body = {
+        family: "coaching",
+        review_reference: reference,
+        duration_days: duration,
+        strategy_ids: ["control", approachId],
+        strategy_policy: policy,
+        candidate_probability: share,
+        evidence_comparison_id: supportedStudy?.id,
+      };
+      const fingerprint = JSON.stringify(body);
+      if (strategyRequest.current?.fingerprint !== fingerprint)
+        strategyRequest.current = {
+          fingerprint,
+          requestId: crypto.randomUUID(),
+        };
+      await api("/v1/admin/optimization/comparisons", "POST", {
+        ...body,
+        request_id: strategyRequest.current.requestId,
+      });
+      strategyRequest.current = null;
+      notice("Reviewed approach comparison started");
+    } else {
+      await api("/v1/admin/optimization/comparisons", "POST", {
+        family: kind,
+        review_reference: reference,
+        duration_days: duration,
+      });
+      notice("Reviewed comparison started");
+    }
+    await changed();
+  }
   return (
-    <section className="card padded optimization-panel">
-      <h2>Reviewed model pilot</h2>
+    <section
+      className="card padded optimization-panel"
+      aria-label="Experiments"
+    >
+      <h2>Experiments</h2>
       <p className="fine">
-        A bounded candidate serves enrolled leads with a fixed baseline control.
-        Promotion requires a saved live cohort report, closed outcome windows,
-        adequate evidence, preserved coverage and human review.
+        Every comparison keeps a fixed control, logs exact assignment
+        probabilities and needs human review. Calling permissions remain
+        authoritative; wording stays freeform. Predictive validation does not
+        establish conversion lift.
       </p>
-      {admin && (
+      <div className="optimization-fields">
+        <label>
+          Experiment type
+          <select
+            value={kind}
+            onChange={(e) => setKind(e.target.value as ExperimentKind)}
+          >
+            {KINDS.map(([value, title]) => (
+              <option key={value} value={value}>
+                {title}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Experiment review reference
+          <input
+            value={reference}
+            onChange={(e) => setReference(e.target.value)}
+          />
+        </label>
+        {kind !== "variant" && (
+          <label>
+            Experiment duration (days)
+            <input
+              type="number"
+              {...limits(durationBound)}
+              value={Number.isFinite(duration) ? duration : ""}
+              onChange={(e) => setDays(Number(e.target.value))}
+            />
+          </label>
+        )}
+        {kind === "model_pilot" && (
+          <label>
+            Pilot maximum leads
+            <input
+              type="number"
+              {...limits(trial?.max_leads)}
+              value={Number.isFinite(leads) ? leads : ""}
+              onChange={(e) => setLimit(Number(e.target.value))}
+            />
+          </label>
+        )}
+      </div>
+      {kind === "model_pilot" && (
         <>
           <label>
             Pilot candidate
@@ -125,144 +267,144 @@ export function TrialControls({
             </select>
           </label>
           <HistoryMore history={history} label="Load more pilot candidates" />
-          {selected && (
-            <p className="fine">
-              Human-answer Brier {selected.metrics.brier?.toFixed(4)} · Pooled
-              baseline {selected.metrics.pooled_baseline_brier?.toFixed(4)} ·
-              Goal {label(selected.goal || "legacy")}
-              {selected.trial_ends_at
-                ? " · Pilot ends " + date(selected.trial_ends_at)
-                : ""}
-            </p>
-          )}
-          {selected?.feature_schema_version === 2 && (
-            <>
-              <p role="status">
-                Predictive evidence:{" "}
-                {selected.reviewable ? "reviewable" : "not reviewable"}
-              </p>
-              <details>
-                <summary>Model evaluation</summary>
-                <p>
-                  Objective: {label(selected.objective_stage || "unknown")} ·{" "}
-                  {selected.window_days ?? "Unknown"}-day outcome window.
-                </p>
-                <p>
-                  Linked evaluation entities: {selected.bootstrap?.groups ?? 0}.
-                  Paired Brier difference interval:{" "}
-                  {selected.bootstrap?.interval
-                    ?.map((v) => v.toFixed(4))
-                    .join(" to ") || "Unavailable"}
-                  .
-                </p>
-                <p>
-                  Pooled stages:{" "}
-                  {selected.pooled_stages?.map(label).join(", ") ||
-                    "None reported"}
-                  .
-                </p>
-                <p>
-                  Conversation features:{" "}
-                  {selected.conversation_ablation?.eligible_for_serving
-                    ? "retained after held-out comparison"
-                    : "excluded after held-out comparison"}
-                </p>
-                <table aria-label="Rolling evaluation support">
-                  <thead>
-                    <tr>
-                      <th>Training cutoff</th>
-                      <th>Stage</th>
-                      <th>Status</th>
-                      <th>Train +/−</th>
-                      <th>Calibration +/−</th>
-                      <th>Evaluation +/−</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selected.rolling_evaluations?.flatMap((f) =>
-                      Object.entries(f.stages).map(([stage, v]) => (
-                        <tr key={`${f.training_cutoff}:${stage}`}>
-                          <td
-                            title={`Calibration through ${date(f.calibration_cutoff)}; evaluation through ${date(f.evaluation_cutoff)}`}
-                          >
-                            {date(f.training_cutoff)}
-                          </td>
-                          <td>{label(stage)}</td>
-                          <td>{label(v.status)}</td>
-                          {["train", "calibration", "validation"].map(
-                            (part) => (
-                              <td key={part}>
-                                {v.support[part]?.positive ?? 0} /{" "}
-                                {v.support[part]?.negative ?? 0}
-                              </td>
-                            ),
-                          )}
-                        </tr>
-                      )),
-                    )}
-                  </tbody>
-                </table>
-                <p className="fine">
-                  Predictive validation does not establish conversion lift.
-                  Reviewed live cohort evidence is required before promotion.
-                </p>
-              </details>
-            </>
-          )}
-          <div className="optimization-fields">
+          {selected && <CandidateEvidence model={selected} />}
+        </>
+      )}
+      {kind === "approach" && (
+        <>
+          <label>
+            Reviewed response approach
+            <select
+              value={approachId}
+              onChange={(e) => setApproachId(e.target.value)}
+            >
+              <option value="">Choose a reviewed teaching example</option>
+              {approaches.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.text}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="fine">
+            Wording stays freeform. Control receives ordinary contextual help.
+          </p>
+          <label>
+            Strategy allocation
+            <select
+              value={policy}
+              onChange={(e) =>
+                setPolicy(e.target.value as "two_arm" | "adaptive")
+              }
+            >
+              <option value="two_arm">Fixed control and approach</option>
+              <option value="adaptive">
+                90% supported best + 10% exploration
+              </option>
+            </select>
+          </label>
+          {policy === "two_arm" && (
             <label>
-              Pilot review reference
-              <input
-                value={reference}
-                onChange={(e) => setReference(e.target.value)}
-              />
-            </label>
-            <label>
-              Pilot maximum leads
+              Approach assignment probability
               <input
                 type="number"
-                min={20}
-                max={10000}
-                value={limit}
-                onChange={(e) => setLimit(Number(e.target.value))}
+                step={0.05}
+                {...limits(comparison?.candidate_probability)}
+                value={Number.isFinite(share) ? share : ""}
+                onChange={(e) => setProbability(Number(e.target.value))}
               />
             </label>
-            <label>
-              Pilot duration (days)
-              <input
-                type="number"
-                min={1}
-                max={90}
-                value={days}
-                onChange={(e) => setDays(Number(e.target.value))}
-              />
-            </label>
+          )}
+        </>
+      )}
+      {(kind === "coaching" || kind === "number_allocation") && (
+        <p className="fine">
+          {kind === "coaching"
+            ? "Randomized two-lead blocks within each rep compare approved static help with the configured live helper."
+            : "Regional numbers use fixed region clusters and preserve existing caller-ID bindings."}
+        </p>
+      )}
+      {kind === "variant" && (
+        <>
+          <label>
+            Variant name
+            <input
+              value={variant.name}
+              onChange={(e) => setVariant({ ...variant, name: e.target.value })}
+            />
+          </label>
+          <label>
+            Variant introduction
+            <textarea
+              rows={3}
+              value={variant.opener}
+              onChange={(e) =>
+                setVariant({ ...variant, opener: e.target.value })
+              }
+              placeholder={`Hi, this is {rep} from ${w.seller.name}.`}
+            />
+          </label>
+          <p className="fine">
+            Variants keep your business identity. Nonurgent choices use the
+            exploration share with exact logged probabilities; caller IDs stay
+            stable.
+          </p>
+        </>
+      )}
+      <button
+        className="secondary"
+        disabled={!!blocked}
+        onClick={() => void run(start)}
+      >
+        {START[kind]}
+      </button>
+      {blocked && (
+        <p className="fine" role="status">
+          {blocked}
+        </p>
+      )}
+      {kind === "model_pilot" && (
+        <details>
+          <summary>Train, stop, roll back or promote a candidate</summary>
+          <div className="button-row">
+            <button
+              className="secondary"
+              onClick={() =>
+                void run(async () => {
+                  const result = await api<{ status: string; rows: number }>(
+                    "/v1/admin/optimization/train",
+                    "POST",
+                    {},
+                  );
+                  await changed();
+                  notice(
+                    result.status === "insufficient_data"
+                      ? `More independent labeled calls are required; ${result.rows} rows available.`
+                      : "Training queued from the immutable call-history dataset",
+                  );
+                })
+              }
+            >
+              Train from call history
+            </button>
+            <button
+              className="secondary"
+              onClick={() =>
+                void run(async () => {
+                  const saved = await api<{ id: string }>(
+                    "/v1/admin/optimization/trial",
+                    "POST",
+                    {},
+                  );
+                  setCohortReport(saved.id);
+                  await state.load();
+                  notice("Controlled cohort report saved for review");
+                })
+              }
+            >
+              Generate trial report
+            </button>
           </div>
-          <button
-            className="secondary"
-            disabled={
-              !modelId ||
-              reference.trim().length < 3 ||
-              (selected?.feature_schema_version === 2 && !selected.reviewable)
-            }
-            onClick={() =>
-              void run(async () => {
-                await api(
-                  "/v1/admin/models/" + modelId + "/start-trial",
-                  "POST",
-                  {
-                    review_reference: reference,
-                    max_leads: limit,
-                    duration_days: days,
-                  },
-                );
-                await changed();
-                notice("Reviewed bounded model pilot started");
-              })
-            }
-          >
-            Start bounded model pilot
-          </button>
           <label>
             Pilot stop or rollback reason
             <input value={reason} onChange={(e) => setReason(e.target.value)} />
@@ -301,30 +443,29 @@ export function TrialControls({
               Restore pooled baseline
             </button>
           </div>
-          <details>
-            <summary>Review a completed cohort and promote</summary>
-            <label>
-              Saved cohort report ID
-              <input
-                value={savedReport || cohortReportId}
-                onChange={(e) => setSavedReport(e.target.value)}
-              />
-            </label>
+          <label>
+            Saved cohort report ID
+            <input
+              value={cohortReport}
+              onChange={(e) => setCohortReport(e.target.value)}
+            />
+          </label>
+          {cohortReport && (
+            <p className="fine">Saved cohort report: {cohortReport}</p>
+          )}
+          <p className="fine">
+            The authority reads trial outcome, coverage and policy evidence from
+            the saved report; activation re-checks every gate.
+          </p>
+          <div className="button-row">
             <button
               className="secondary"
-              disabled={
-                !modelId ||
-                reference.trim().length < 3 ||
-                !(savedReport || cohortReportId)
-              }
+              disabled={!modelId || !reviewed || !cohortReport.trim()}
               onClick={() =>
                 void run(async () => {
                   await api("/v1/admin/models/" + modelId + "/trial", "POST", {
                     report_reference: reference,
-                    cohort_report_id: savedReport || cohortReportId,
-                    online_trial_passed: true,
-                    coverage_delta: 0,
-                    policy_violations: 0,
+                    cohort_report_id: cohortReport.trim(),
                   });
                   await changed();
                   notice("Saved cohort evidence reviewed");
@@ -341,7 +482,7 @@ export function TrialControls({
                   await api(
                     "/v1/admin/models/" + modelId + "/activate",
                     "POST",
-                    { approved: true },
+                    {},
                   );
                   await changed();
                   notice("Reviewed model activated");
@@ -350,193 +491,48 @@ export function TrialControls({
             >
               Activate after gates
             </button>
-          </details>
-          <h3>Reviewed response approaches</h3>
-          <label>
-            Comparison review reference
-            <input
-              value={comparisonReference}
-              onChange={(e) => setComparisonReference(e.target.value)}
-            />
-          </label>
+          </div>
+          {(!modelId || !reviewed || !cohortReport.trim()) && (
+            <p className="fine">
+              Choose a candidate, enter a review reference and name a saved
+              cohort report to review it.
+            </p>
+          )}
+        </details>
+      )}
+      {report && (
+        <>
+          <h3>Controlled conversion comparison</h3>
           <p className="fine">
-            Wording stays freeform. Control receives ordinary contextual help.
+            {report.metrics.unique_conversions} unique conversions /{" "}
+            {report.metrics.original_eligible_leads} original eligible leads in
+            the selected cohort.
           </p>
           <label>
-            Reviewed response approach
+            Cohort history
             <select
-              value={approachId}
-              onChange={(e) => setApproachId(e.target.value)}
+              value={report.trial.epoch}
+              onChange={(e) =>
+                void run(() => state.selectEpoch(e.target.value))
+              }
             >
-              <option value="">Choose a reviewed teaching example</option>
-              {approaches.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.text}
+              {report.cohort_history.map((epoch) => (
+                <option key={epoch} value={epoch}>
+                  {epoch}
                 </option>
               ))}
             </select>
           </label>
-          {!approaches.length && (
-            <p className="fine">
-              Publish a source-linked coaching example from call review before
-              starting an approach trial.
-            </p>
-          )}
-          <label>
-            Strategy allocation
-            <select
-              value={strategyPolicy}
-              onChange={(e) =>
-                setStrategyPolicy(e.target.value as "two_arm" | "adaptive")
-              }
-            >
-              <option value="two_arm">Fixed control and approach</option>
-              <option value="adaptive">
-                90% supported best + 10% exploration
-              </option>
-            </select>
-          </label>
-          {strategyPolicy === "two_arm" && (
-            <label>
-              Approach assignment probability
-              <input
-                type="number"
-                min={0.1}
-                max={0.9}
-                step={0.05}
-                value={candidateProbability}
-                onChange={(e) =>
-                  setCandidateProbability(Number(e.target.value))
-                }
-              />
-            </label>
-          )}
-          {strategyPolicy === "adaptive" && !supportedStudy && (
-            <p className="fine">
-              Adaptive allocation requires a supported completed comparison for
-              this approach.
-            </p>
-          )}
-          <button
-            className="secondary"
-            disabled={
-              !approachId ||
-              comparisonReference.trim().length < 3 ||
-              (strategyPolicy === "adaptive" && !supportedStudy)
-            }
-            onClick={() =>
-              void run(async () => {
-                const body = {
-                  family: "coaching",
-                  review_reference: comparisonReference,
-                  duration_days: days,
-                  strategy_ids: ["control", approachId],
-                  strategy_policy: strategyPolicy,
-                  candidate_probability: candidateProbability,
-                  evidence_comparison_id: supportedStudy?.id,
-                };
-                const fingerprint = JSON.stringify(body);
-                if (strategyRequest.current?.fingerprint !== fingerprint)
-                  strategyRequest.current = {
-                    fingerprint,
-                    requestId: crypto.randomUUID(),
-                  };
-                await api("/v1/admin/optimization/comparisons", "POST", {
-                  ...body,
-                  request_id: strategyRequest.current.requestId,
-                });
-                strategyRequest.current = null;
-                await changed();
-                notice("Reviewed approach comparison started");
-              })
-            }
-          >
-            Start reviewed strategy comparison
-          </button>
-          <h3>Number and helper availability comparisons</h3>
+          <ArmTable arms={report.trial.arms} />
           <p className="fine">
-            Regional numbers use fixed region clusters and preserve existing
-            bindings. Coaching uses randomized two-lead blocks within each rep,
-            comparing approved static help with the configured coach. Existing
-            call permissions remain authoritative.
+            {report.trial.pending_leads} lead windows remain open. Planning
+            requires approximately {report.trial.required_per_arm} matured leads
+            per group for the configured example effect.{" "}
+            {report.trial.sufficient_evidence
+              ? "The observed comparison is ready for human review."
+              : "There is not enough evidence to claim conversion improvement."}
           </p>
-          <div className="button-row">
-            {["number_allocation", "coaching"].map((family) => (
-              <button
-                className="secondary"
-                key={family}
-                disabled={comparisonReference.trim().length < 3}
-                onClick={() =>
-                  void run(async () => {
-                    await api("/v1/admin/optimization/comparisons", "POST", {
-                      family,
-                      review_reference: comparisonReference,
-                      duration_days: days,
-                    });
-                    await changed();
-                    notice("Reviewed comparison started");
-                  })
-                }
-              >
-                {family === "coaching"
-                  ? "Start coaching comparison"
-                  : "Start number comparison"}
-              </button>
-            ))}
-          </div>
         </>
-      )}
-      {selected?.calibration && (
-        <details>
-          <summary>Calibration and subgroup evidence</summary>
-          <p className="fine">
-            Expected calibration error:{" "}
-            {selected.calibration.expected_calibration_error?.toFixed(4)}. Small
-            groups are descriptive; rows are held out chronologically.
-          </p>
-          <div className="optimization-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Predicted bin</th>
-                  <th>Samples</th>
-                  <th>Mean prediction</th>
-                  <th>Observed pickup</th>
-                </tr>
-              </thead>
-              <tbody>
-                {selected.calibration.bins.map((bin) => (
-                  <tr key={bin.lower}>
-                    <td>
-                      {bin.lower.toFixed(1)}–{bin.upper.toFixed(1)}
-                    </td>
-                    <td>{bin.samples}</td>
-                    <td>{bin.mean_prediction.toFixed(3)}</td>
-                    <td>{bin.observed_rate.toFixed(3)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {Object.entries(selected.calibration.subgroups).map(
-            ([dimension, groups]) => (
-              <div key={dimension}>
-                <h4>{label(dimension)}</h4>
-                {Object.entries(groups)
-                  .slice(0, 12)
-                  .map(([group, value]) => (
-                    <p className="fine" key={group}>
-                      {group.slice(0, 18)} · {value.samples} samples · Brier{" "}
-                      {value.brier.toFixed(4)} ·{" "}
-                      {value.seen_during_training
-                        ? "Group observed in training"
-                        : "Previously unseen group"}
-                    </p>
-                  ))}
-              </div>
-            ),
-          )}
-        </details>
       )}
       {comparisons.map((study) => (
         <div className="comparison-summary" key={study.id}>
@@ -575,34 +571,8 @@ export function TrialControls({
               matches. These are not conversion labels.
             </p>
           )}
-          <div className="optimization-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Group</th>
-                  <th>Leads</th>
-                  <th>Closed windows</th>
-                  <th>Conversions</th>
-                  <th>95% interval</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.entries(study.arms).map(([arm, value]) => (
-                  <tr key={arm}>
-                    <td>{label(arm)}</td>
-                    <td>{value.leads}</td>
-                    <td>{value.matured_leads}</td>
-                    <td>{value.conversions}</td>
-                    <td>
-                      {(100 * value.confidence_low).toFixed(1)}% –{" "}
-                      {(100 * value.confidence_high).toFixed(1)}%
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {admin && !study.stopped_at && (
+          <ArmTable arms={study.arms} />
+          {!study.stopped_at && (
             <button
               className="text-button"
               onClick={() =>
@@ -612,8 +582,7 @@ export function TrialControls({
                     "POST",
                     {
                       reason:
-                        comparisonReference ||
-                        "Operator stopped the reviewed comparison",
+                        reference || "Operator stopped the reviewed comparison",
                     },
                   );
                   await changed();
@@ -629,5 +598,91 @@ export function TrialControls({
         </div>
       ))}
     </section>
+  );
+}
+
+function ArmTable({ arms }: { arms: ControlledComparison["arms"] }) {
+  return (
+    <div className="optimization-table">
+      <table>
+        <thead>
+          <tr>
+            <th>Group</th>
+            <th>Leads</th>
+            <th>Closed windows</th>
+            <th>Conversions</th>
+            <th>95% interval</th>
+          </tr>
+        </thead>
+        <tbody>
+          {Object.entries(arms).map(([arm, value]) => (
+            <tr key={arm}>
+              <td>{label(arm)}</td>
+              <td>{value.leads}</td>
+              <td>{value.matured_leads}</td>
+              <td>{value.conversions}</td>
+              <td>
+                {percent(value.confidence_low)} –{" "}
+                {percent(value.confidence_high)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Reviewable evidence summary for one candidate; raw calibration tables stay in the record. */
+function CandidateEvidence({
+  model,
+}: {
+  model: ReturnType<typeof useWorkspace>["snapshot"]["models"][number];
+}) {
+  return (
+    <>
+      <p className="fine">
+        Goal {label(model.goal || "legacy")}
+        {model.trial_ends_at
+          ? " · Pilot ends " + date(model.trial_ends_at)
+          : ""}
+      </p>
+      {model.feature_schema_version === 2 && (
+        <>
+          <p role="status">
+            Predictive evidence:{" "}
+            {model.reviewable ? "reviewable" : "not reviewable"}
+          </p>
+          <details>
+            <summary>Model evaluation</summary>
+            <p>
+              Objective: {label(model.objective_stage || "unknown")} ·{" "}
+              {model.window_days ?? "Unknown"}-day outcome window.
+            </p>
+            <p>
+              Linked evaluation entities: {model.bootstrap?.groups ?? 0}. Paired
+              difference interval:{" "}
+              {model.bootstrap?.interval
+                ?.map((v) => v.toFixed(4))
+                .join(" to ") || "Unavailable"}
+              .
+            </p>
+            <p>
+              Pooled stages:{" "}
+              {model.pooled_stages?.map(label).join(", ") || "None reported"}.
+            </p>
+            <p>
+              Conversation features:{" "}
+              {model.conversation_ablation?.eligible_for_serving
+                ? "retained after held-out comparison"
+                : "excluded after held-out comparison"}
+            </p>
+            <p className="fine">
+              Reviewed live cohort evidence is required before promotion.
+            </p>
+          </details>
+        </>
+      )}
+    </>
   );
 }

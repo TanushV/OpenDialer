@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { label, useWorkspace } from "../context";
+import { useDefinitions } from "../state/definitions";
 
 interface DeferredBatch {
   id: string;
@@ -19,6 +20,8 @@ type BatchList = { batches: DeferredBatch[]; limited: boolean };
 export function DeferredScripts() {
   const { api, snapshot: w, refresh } = useWorkspace();
   const [data, setData] = useState<BatchList | null>(null);
+  const bounds = useDefinitions();
+  const batchLimit = bounds?.deferred_batch?.lead_ids?.max_items ?? 0;
   const [references, setReferences] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -70,11 +73,26 @@ export function DeferredScripts() {
     (item) =>
       !["completed", "expired", "cancelled", "failed"].includes(item.status),
   );
-  const leads = w.leads
-    .filter((lead) => !lead.suppressed)
-    .slice(0, 500)
+  const eligible = w.leads.filter((lead) => !lead.suppressed);
+  // One deferred batch carries at most this many leads; the rest wait for the next.
+  const leads = eligible
+    .slice(0, batchLimit)
     .map((lead) => lead.id)
     .sort();
+  const soon =
+    !submission.current &&
+    (!Number.isFinite(Date.parse(deadline)) ||
+      Date.parse(deadline) < Date.now() + 24 * 3600000);
+  const blocked =
+    !data || !bounds
+      ? "Loading saved batches…"
+      : unfinished
+        ? "Resolve the existing batch before another bulk submission. Immediate preparation remains available in Leads."
+        : !leads.length
+          ? "No displayed lead is eligible for deferred preparation."
+          : soon
+            ? "Deferred preparation needs a deadline at least 24 hours from now; use Leads for sooner work."
+            : "";
   return (
     <section className="card padded" aria-label="Deferred script preparation">
       <span className="eyebrow">PREPARE AHEAD OF THE SHIFT</span>
@@ -106,17 +124,17 @@ export function DeferredScripts() {
           {error}
         </p>
       )}
+      <p className="fine">
+        Submits {leads.length} displayed eligible{" "}
+        {leads.length === 1 ? "lead" : "leads"}
+        {eligible.length > batchLimit
+          ? ` (the first ${batchLimit} of ${eligible.length}; submit the rest after this batch completes)`
+          : ""}
+        .
+      </p>
       <button
         className="secondary"
-        disabled={
-          busy ||
-          !data ||
-          unfinished ||
-          !leads.length ||
-          (!submission.current &&
-            (!Number.isFinite(Date.parse(deadline)) ||
-              Date.parse(deadline) < Date.now() + 24 * 3600000))
-        }
+        disabled={busy || !!blocked}
         onClick={() => {
           if (!submission.current)
             submission.current = {
@@ -137,6 +155,11 @@ export function DeferredScripts() {
       >
         Submit deferred scripts
       </button>
+      {blocked && blocked !== "Loading saved batches…" && (
+        <p className="fine" role="status">
+          {blocked}
+        </p>
+      )}
       <button
         className="secondary"
         disabled={busy}
@@ -144,12 +167,6 @@ export function DeferredScripts() {
       >
         Reload deferred status
       </button>
-      {unfinished && (
-        <p>
-          Resolve the existing batch before another bulk submission. Immediate
-          preparation remains available in Leads.
-        </p>
-      )}
       {!data && <p>Loading saved batches…</p>}
       {data?.batches.length === 0 && <p>No deferred batches recorded.</p>}
       {data?.limited && (
