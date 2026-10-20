@@ -237,7 +237,21 @@ def indexes(name):
             else ()
         ),
         *(
-            (Index("ix_leads_endpoint", "tenant_id", "seller_id", "op_endpoint_id", "id"),)
+            (
+                Index("ix_leads_endpoint", "tenant_id", "seller_id", "op_endpoint_id", "id"),
+                # Exactly the next-lead ORDER BY, so the page reads only its top K rows.
+                Index(
+                    "ix_leads_queue",
+                    "tenant_id",
+                    "seller_id",
+                    "op_campaign_id",
+                    "op_status",
+                    text("op_priority DESC"),
+                    "op_coverage_at",
+                    "id",
+                    "op_due_at",
+                ),
+            )
             if name == "leads"
             else ()
         ),
@@ -408,6 +422,9 @@ def sync_columns(row, lookup_key=None):
     row.op_owner_id = data.get("rep_id", data.get("owner_id"))
     row.op_due_at = as_time(data.get("callback_due_at") or data.get("next_attempt_at") or data.get("due_at"))
     row.op_coverage_at = as_time(data.get("coverage_due_at"))
+    if row.__tablename__ == "leads" and row.op_coverage_at is None:
+        # Missing deadlines sort first on every database; the queue index has no NULLs.
+        row.op_coverage_at = datetime(1970, 1, 1, tzinfo=UTC)
     row.op_at = (
         as_time(data.get("started_at") or data.get("at") or data.get("as_of") or data.get("occurred_at"))
         or row.created_at
