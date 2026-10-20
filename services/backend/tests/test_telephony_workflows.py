@@ -18,10 +18,9 @@ def test_answer_enqueues_permissioned_stt_without_waiting_for_inference(workspac
     event(workspace, call, "call.answered")
     c, h = workspace["client"], workspace["headers"]
     c.post("/v1/admin/control/run", headers=h)
-    assert any(
-        a["action"] == "transcription_start" and a["payload"]["transcription_tracks"] == "both"
-        for a in carrier.actions
-    )
+    # One single-track stream per leg (Soniox reports no track; the leg names the speaker).
+    starts = [a for a in carrier.actions if a["action"] == "transcription_start"]
+    assert len(starts) == 2 and {a["payload"]["transcription_tracks"] for a in starts} == {"inbound"}
 
 
 def test_agent_leg_is_server_created_and_live_ready_requires_verified_answer(workspace):

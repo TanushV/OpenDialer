@@ -154,6 +154,7 @@ def revoke_effects(service, s, p, endpoint_id, permissions):
             service.control_intent(
                 s, p, call.id, "transcription_stop", {}, target=call.data.get("provider_id")
             )
+            service.stop_agent_transcription_in(s, p, call)
         if "recording" in permissions:
             service.control_intent(s, p, call.id, "record_stop", {}, target=call.data.get("provider_id"))
         if "prerecorded" in permissions:

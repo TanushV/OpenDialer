@@ -28,9 +28,19 @@ async def test_coach_circuit_breaker_falls_back_without_backlog():
 @pytest.mark.parametrize("profile,allowed", [(None, True), ("outbound-pstn-profile", False)])
 async def test_scoped_credential_must_not_bypass_backend_pstn_gate(profile, allowed):
     def handler(request):
+        # Documented shapes: the credential names its connection only as resource_id.
         if "/telephony_credentials/" in request.url.path:
-            return httpx.Response(200, json={"data": {"connection_id": "incoming-only"}})
-        return httpx.Response(200, json={"data": {"outbound": {"outbound_voice_profile_id": profile}}})
+            return httpx.Response(200, json={"data": {"resource_id": "connection:incoming-only"}})
+        assert request.url.path == "/v2/credential_connections/incoming-only"
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "sip_uri_calling_preference": "internal",
+                    "outbound": {"outbound_voice_profile_id": profile},
+                }
+            },
+        )
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         provider = TelnyxCarrier("secret", "callcontrol", http=client)

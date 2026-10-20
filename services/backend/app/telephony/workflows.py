@@ -10,9 +10,10 @@ from app.compliance.policy import authorize
 from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, uid, update
 from app.service import dt, fail
 from app.telephony.recovery import safe_stop, within_command_window
-from app.telephony.reducer import TERMINAL, owns_effect
+from app.telephony.reducer import HUMAN_EVENTS, TERMINAL, owns_effect
 
 KEYPAD_STATES = {"DIALING", "RINGING", "ANSWERED_UNCLASSIFIED", "HUMAN", "GATEKEEPER", "SCREENING", "IVR"}
+TRANSCRIPTION_ENGINE = "Soniox"
 
 
 class TelephonyWorkflows:
@@ -110,18 +111,11 @@ class TelephonyWorkflows:
                 policy = self.required(s, "policy_versions", campaign.data["policy_id"], p).data
                 number = self.required(s, "number_inventory", call.data["number_id"], p)
                 if event_type == "call.answered" and call.data["state"] not in TERMINAL | {"ENDING"}:
-                    for permission, action, command in [
-                        (
-                            "transcription",
-                            "transcription_start",
-                            {"transcription_engine": "Soniox", "transcription_tracks": "both"},
-                        ),
-                    ]:
-                        decision = authorize(
-                            self.context(s, p, lead, number, permission=permission, active=True)
-                        )
-                        if decision.allowed:
-                            self.control_intent(s, p, call_id, action, command)
+                    decision = authorize(
+                        self.context(s, p, lead, number, permission="transcription", active=True)
+                    )
+                    if decision.allowed:
+                        self.start_transcription_in(s, p, call)
                 if (
                     event_type == "call.playback.started"
                     and call.data.get("detach_requested")
@@ -176,7 +170,7 @@ class TelephonyWorkflows:
                             call.id,
                             self.clock(),
                         )
-                if event_type.endswith(":human") and call.data.get("detached"):
+                if event_type in HUMAN_EVENTS and call.data.get("detached"):
                     self.control_intent(s, p, call_id, "playback_stop", {}, suffix="late-human-stop")
                     recovery = policy.get("late_human_recovery_destination")
                     if recovery:
@@ -210,13 +204,16 @@ class TelephonyWorkflows:
                             },
                             suffix="optout-rearm:" + event_id,
                         )
-                if event_type in {"call.playback.ended", "call.playback.failed"}:
+                if event_type == "call.playback.ended":
+                    # Telnyx reports every outcome here; only `completed` played the whole asset.
+                    status = payload.get("status")
                     self.control_intent(s, p, call_id, "hangup", {}, suffix="voicemail-completion")
                     update(
                         call,
-                        voicemail_result="playback_failed"
-                        if event_type.endswith("failed")
-                        else "playback_completed_not_mailbox_receipt",
+                        voicemail_playback_status=status,
+                        voicemail_result="playback_completed_not_mailbox_receipt"
+                        if status == "completed"
+                        else "playback_failed",
                     )
                 if (
                     event_type == "call.dtmf.received"
@@ -245,8 +242,49 @@ class TelephonyWorkflows:
                     update(receipt, effects_complete=True)
             return result
 
+    def start_transcription_in(self, s, p, call):
+        """One inbound stream per leg: the leg that carried speech identifies its speaker.
+
+        Soniox omits `transcription_track`, so a single `both` stream cannot tell the rep from the
+        prospect. The rep's agent leg outlives the call, so its stream names the call in client state.
+        """
+        stream = {"transcription_engine": TRANSCRIPTION_ENGINE, "transcription_tracks": "inbound"}
+        self.control_intent(s, p, call.id, "transcription_start", stream)
+        agent = call.data.get("agent_provider_id")
+        if agent:
+            state = json.dumps({"transcript_call_id": call.id, "tenant_id": p["tenant_id"]})
+            self.control_intent(
+                s,
+                p,
+                call.id,
+                "transcription_start",
+                {**stream, "client_state": base64.b64encode(state.encode()).decode()},
+                target=agent,
+                suffix="transcription_start:agent",
+            )
+        update(call, transcription_layout="leg_inbound")
+
+    def stop_agent_transcription_in(self, s, p, call):
+        """The prospect stream ends with its leg; the persistent agent leg needs an explicit stop."""
+        start = self._by_key(s, p, "command_outbox", call.id + ":transcription_start:agent")
+        if not start or start.data["status"] == "cancelled":
+            return
+        if start.data["status"] == "pending" and not start.data.get("sent_at"):
+            update(start, status="cancelled", reason="CALL_NO_LONGER_ACTIVE")
+            return
+        self.control_intent(
+            s,
+            p,
+            call.id,
+            "transcription_stop",
+            {},
+            target=start.data["target"],
+            suffix="transcription_stop:agent",
+        )
+
     def finish_call(self, s, p, call, reason=None):
         super().finish_call(s, p, call, reason)
+        self.stop_agent_transcription_in(s, p, call)
         for lease in self.scoped(s, "number_leases", p):
             if lease.data.get("call_id") == call.id and lease.data.get("active"):
                 update(lease, active=False)
@@ -595,12 +633,20 @@ class TelephonyWorkflows:
             )
         return {"agent_call_control_id": receipt["call_control_id"]}
 
+    async def verified_credential(self, carrier, credential, sip):
+        from app.providers.telnyx import CarrierConfigurationError
+
+        try:
+            return await carrier.verify_incoming_only_credential(credential, sip_username=sip)
+        except CarrierConfigurationError as exc:
+            fail(503, {"code": "TELEPHONY_CREDENTIAL_MISCONFIGURED", "message": str(exc)})
+
     async def create_agent(self, p):
         if self.settings.simulation:
             return await asyncio.to_thread(self._simulated_agent, p)
         sip, credential, phone = await asyncio.to_thread(self._agent_context, p)
         carrier = await asyncio.to_thread(self.carrier, p["tenant_id"])
-        await carrier.verify_incoming_only_credential(credential)
+        await self.verified_credential(carrier, credential, sip)
         leg_id, owner = uid(), uid()
         leg, created = await asyncio.to_thread(self._claim_agent, p, leg_id, owner)
         if not created:
@@ -608,7 +654,7 @@ class TelephonyWorkflows:
         try:
             receipt = await carrier.dial(
                 {
-                    "to": f"sip:{sip}@sip.telnyx.com;secure=srtp",
+                    "to": f"sip:{sip}@sip.telnyx.com",
                     "from": phone,
                     "time_limit_secs": self.settings.max_call_seconds,
                     "command_id": leg_id,

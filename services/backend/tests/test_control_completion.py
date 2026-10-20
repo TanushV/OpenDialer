@@ -146,7 +146,7 @@ async def test_late_dial_receipt_cannot_complete_an_expired_submission(
             p["tenant_id"], {"sip_username": "test-rep", "telephony_credential_id": "test-cred"}
         )
 
-        async def verified(_):
+        async def verified(_, **__):
             return True
 
         monkeypatch.setattr(carrier, "verify_incoming_only_credential", verified, raising=False)
@@ -208,7 +208,7 @@ async def test_agent_submission_cannot_regress_newer_event(
     monkeypatch.setattr(service, "carrier", lambda _: carrier)
     service.vault.write(p["tenant_id"], {"sip_username": "test-rep", "telephony_credential_id": "test-cred"})
 
-    async def verified(_):
+    async def verified(_, **__):
         return True
 
     async def event_before_response(payload):
@@ -632,7 +632,7 @@ async def test_agent_submission_has_lease_and_stale_response_cannot_overwrite_ow
     monkeypatch.setattr(service, "carrier", lambda _: carrier)
     observed = {}
 
-    async def verified(_):
+    async def verified(_, **__):
         return True
 
     async def taken_over(payload):
