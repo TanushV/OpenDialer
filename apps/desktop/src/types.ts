@@ -158,6 +158,9 @@ export interface Call {
   unprocessed_speech_events?: number;
   coach_preferences?: { muted?: boolean; pinned?: boolean };
   detached?: boolean;
+  /** Frozen at dial time; voicemail is offered only on the final permitted attempt. */
+  attempt_ordinal?: number;
+  attempt_allowance?: number;
   id: string;
   rep_id: string;
   lead_id: string;
@@ -380,6 +383,8 @@ export interface HistoryPage<T> {
   filter?: string;
 }
 export interface Workspace {
+  /** Latest live-event sequence reflected by this snapshot. */
+  event_cursor?: number;
   quiescence?: { can_disconnect: boolean; reasons: string[] };
   active_playbook?: Playbook | null;
   pages?: Record<string, Omit<HistoryPage<never>, "items">>;
@@ -520,6 +525,7 @@ export interface EvidenceItem {
   evidence: string[];
 }
 export interface Analysis {
+  lead_timezone?: string | null;
   trackers?: {
     tracker_id: string;
     name?: string;
@@ -608,13 +614,18 @@ export interface Analysis {
   recording_available: boolean;
   provider: string;
 }
-export const terminal = (call: Call | null) =>
-  !call ||
-  [
-    "ENDED",
-    "FINALIZED",
-    "BUSY",
-    "NO_ANSWER",
-    "INVALID_ENDPOINT",
-    "TEMPORARY_FAILURE",
-  ].includes(call.state);
+const TERMINAL_STATES = new Set([
+  "ENDED",
+  "FINALIZED",
+  "BUSY",
+  "NO_ANSWER",
+  "INVALID_ENDPOINT",
+  "TEMPORARY_FAILURE",
+]);
+/** No call, or one whose carrier leg has finished. */
+export const isTerminal = (call: { state: string } | null | undefined) =>
+  !call || TERMINAL_STATES.has(call.state);
+/** The rep is still on the line: not finished and not a detached voicemail. */
+export const isActiveCall = (
+  call: { state: string; detached?: boolean } | null | undefined,
+) => !!call && !call.detached && !isTerminal(call);

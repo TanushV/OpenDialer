@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { chooseOutcome } from "./simulation";
 
 async function enterSimulation(page: import("@playwright/test").Page) {
   await page.goto("/");
@@ -45,11 +46,13 @@ test("local setup, readiness, calling, evidence, human notes and opt-out", async
     .getByLabel("Simulation transcript")
     .fill("We already use another provider.");
   await page.getByRole("button", { name: "Add prospect turn" }).click();
+  // The ephemeral transcript is an optional expansion during the call.
+  await page.getByText("Live transcript", { exact: false }).click();
   await expect(
     page.getByText("We already use another provider.", { exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Hang up", exact: true }).click();
-  await page.getByLabel("Disposition").selectOption("callback_requested");
+  await chooseOutcome(page, "callback_requested");
   await page.getByRole("button", { name: "Save outcome" }).click();
   await page.getByRole("button", { name: "Review", exact: true }).click();
   await page
@@ -160,8 +163,7 @@ test("approved variants and quoted procurement are operable from administration"
   await page.getByRole("button", { name: "Get carrier quotes" }).click();
   await expect(page.getByText("First month + setup")).toBeVisible();
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Audio devices", exact: true })
-    .click();
+  // Device selection is the pre-ready "Check audio" step.
+  await page.getByText("Check audio", { exact: true }).click();
   await expect(page.getByLabel("Microphone")).toBeVisible();
 });

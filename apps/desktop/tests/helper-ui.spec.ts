@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { prepareSimulationCall } from "./simulation";
+import { prepareSimulationCall, chooseOutcome, finishCall } from "./simulation";
 
 test("a delayed helper refresh cannot restore a previous call after wrap-up", async ({
   page,
@@ -42,7 +42,7 @@ test("a delayed helper refresh cannot restore a previous call after wrap-up", as
     await page.keyboard.press("F1");
     await pending;
     await page.getByRole("button", { name: "Hang up", exact: true }).click();
-    await page.getByLabel("Disposition").selectOption("no_answer");
+    await chooseOutcome(page, "no_answer");
     await page
       .getByRole("button", { name: "Save outcome", exact: true })
       .click();
@@ -69,18 +69,7 @@ test("a delayed helper refresh cannot restore a previous call after wrap-up", as
   } finally {
     release();
     await page.unrouteAll({ behavior: "wait" });
-    if (
-      await page
-        .getByRole("button", { name: "Hang up", exact: true })
-        .isVisible()
-    )
-      await page.getByRole("button", { name: "Hang up", exact: true }).click();
-    if (await page.getByLabel("Disposition").isVisible()) {
-      await page.getByLabel("Disposition").selectOption("no_answer");
-      await page
-        .getByRole("button", { name: "Save outcome", exact: true })
-        .click();
-    }
+    await finishCall(page);
     await page
       .getByRole("button", { name: "Pause dialing", exact: true })
       .click();
@@ -179,6 +168,8 @@ test("fixed helper remains visible, private controls work and no raw content is 
   await expect
     .poll(() => exposureRequests.some((r) => r.displayed === true))
     .toBe(true);
+  // Rarer feedback reasons sit under the strip's small "More" menu.
+  await strip.getByText("More", { exact: true }).click();
   await page
     .getByRole("button", { name: "I did not use this guidance", exact: true })
     .click();
@@ -189,7 +180,7 @@ test("fixed helper remains visible, private controls work and no raw content is 
   expect(exposureRequests.every((r) => r.conversion === undefined)).toBe(true);
   await page.unrouteAll({ behavior: "wait" });
   await page.getByRole("button", { name: "Hang up", exact: true }).click();
-  await page.getByLabel("Disposition").selectOption("no_answer");
+  await chooseOutcome(page, "no_answer");
   await page.getByRole("button", { name: "Save outcome", exact: true }).click();
   await page
     .getByRole("button", { name: "Pause dialing", exact: true })
@@ -316,7 +307,7 @@ test("duplicate hangup responses cannot replace or stop a newer conversation", a
         page.evaluate(() => (window as any).audioBoundary.stopped.length),
       )
       .toBe(1);
-    await page.getByLabel("Disposition").selectOption("no_answer");
+    await chooseOutcome(page, "no_answer");
     await page
       .getByRole("button", { name: "Save outcome", exact: true })
       .click();
@@ -350,7 +341,7 @@ test("duplicate hangup responses cannot replace or stop a newer conversation", a
     );
     await page.getByRole("button", { name: "Hang up", exact: true }).click();
     await finalHangup;
-    await page.getByLabel("Disposition").selectOption("no_answer");
+    await chooseOutcome(page, "no_answer");
     await page
       .getByRole("button", { name: "Save outcome", exact: true })
       .click();
@@ -468,7 +459,7 @@ test("a same-version stale help read cannot restore withdrawn guidance", async (
     await page.unrouteAll({ behavior: "wait" });
     await page.evaluate(() => (window as any).obsoleteObserver?.disconnect());
     await page.getByRole("button", { name: "Hang up", exact: true }).click();
-    await page.getByLabel("Disposition").selectOption("no_answer");
+    await chooseOutcome(page, "no_answer");
     await page
       .getByRole("button", { name: "Save outcome", exact: true })
       .click();

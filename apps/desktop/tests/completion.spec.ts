@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { finishCall } from "./simulation";
 
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: "wait" });
@@ -260,13 +261,7 @@ for (const connected of [false, true]) {
         page.getByRole("button", { name: "Review", exact: true }),
       ).toBeDisabled();
     } finally {
-      await page.getByRole("button", { name: "Hang up", exact: true }).click();
-      if (await page.getByLabel("Disposition").isVisible()) {
-        await page.getByLabel("Disposition").selectOption("no_answer");
-        await page
-          .getByRole("button", { name: "Save outcome", exact: true })
-          .click();
-      }
+      await finishCall(page);
       if (
         await page
           .getByRole("button", { name: "Pause dialing", exact: true })
@@ -399,20 +394,7 @@ for (const connected of [false, true]) {
           page.getByRole("button", { name: /opt.out/i }),
         ).toBeInViewport();
       } finally {
-        if (
-          await page
-            .getByRole("button", { name: "Hang up", exact: true })
-            .isVisible()
-        )
-          await page
-            .getByRole("button", { name: "Hang up", exact: true })
-            .click();
-        if (await page.getByLabel("Disposition").isVisible()) {
-          await page.getByLabel("Disposition").selectOption("no_answer");
-          await page
-            .getByRole("button", { name: "Save outcome", exact: true })
-            .click();
-        }
+        await finishCall(page);
         if (
           await page
             .getByRole("button", { name: "Pause dialing", exact: true })
