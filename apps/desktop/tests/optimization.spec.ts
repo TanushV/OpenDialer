@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { chooseOutcome } from "./simulation";
 
 async function simulation(page: import("@playwright/test").Page) {
   await page.goto("/");
@@ -224,7 +225,7 @@ test("live events deliver cached guidance and conversion recording without call 
   ).toBeVisible();
   expect(sockets.some((url) => url.endsWith("/v1/live"))).toBeTruthy();
   await page.getByRole("button", { name: "Hang up", exact: true }).click();
-  await page.getByLabel("Disposition").selectOption("qualified_conversation");
+  await chooseOutcome(page, "qualified_conversation");
   await page.getByRole("button", { name: "Save outcome" }).click();
   await page.getByRole("button", { name: "Review", exact: true }).click();
   await page

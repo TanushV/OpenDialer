@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { prepareSimulationCall } from "./simulation";
+import { prepareSimulationCall, chooseOutcome } from "./simulation";
 
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: "wait" });
@@ -43,7 +43,7 @@ for (const connected of [false, true]) {
     const packet = await (await packetResponse).json();
     await page.getByRole("button", { name: "Start call", exact: true }).click();
     await page.getByRole("button", { name: "Hang up", exact: true }).click();
-    await page.getByLabel("Disposition").selectOption("meeting_held");
+    await chooseOutcome(page, "meeting_held");
     await page
       .getByLabel("Who did you speak with?")
       .selectOption("right_party");
@@ -73,7 +73,7 @@ for (const connected of [false, true]) {
     await expect(page.getByLabel("Wrap-up note")).toHaveValue(
       "Keep my original human note through the correction.",
     );
-    await page.getByLabel("Disposition").selectOption("right_party");
+    await chooseOutcome(page, "right_party");
     const correctionBodies: unknown[] = [];
     await page.route("**/v1/calls/*/disposition", async (route) => {
       correctionBodies.push(route.request().postDataJSON());
@@ -208,7 +208,11 @@ test("a suggested outcome requires a rep choice and keeps the rep's note and con
     .click();
   await page.getByRole("button", { name: "Start call", exact: true }).click();
   await page.getByRole("button", { name: "Hang up", exact: true }).click();
-  await expect(page.getByLabel("Disposition")).toHaveValue("right_party");
+  // No outcome is presumed: the rep chooses one before Save is enabled.
+  await expect(page.getByLabel("Disposition")).toHaveValue("");
+  await expect(
+    page.getByRole("button", { name: "Save outcome", exact: true }),
+  ).toBeDisabled();
   await page
     .getByRole("button", { name: "Use suggested outcome", exact: true })
     .click();
@@ -264,7 +268,7 @@ for (const connected of [false, true]) {
       .click();
     await page.getByRole("button", { name: "Start call", exact: true }).click();
     await page.getByRole("button", { name: "Hang up", exact: true }).click();
-    await page.getByLabel("Disposition").selectOption("callback_requested");
+    await chooseOutcome(page, "callback_requested");
     const saved = page.waitForResponse(
       (r) =>
         r.url().endsWith("/disposition") && r.request().method() === "POST",
@@ -275,9 +279,7 @@ for (const connected of [false, true]) {
       .getByRole("button", { name: "Intelligence", exact: true })
       .click();
     const task = page.locator(`[data-call-id="${call.id}"]`);
-    await task
-      .getByLabel("Callback time (your device timezone)")
-      .fill("2026-10-22T13:30");
+    await task.getByLabel(/^Callback time/).fill("2026-10-22T13:30");
     const requests: Record<string, unknown>[] = [];
     await page.route("**/v1/tasks/*", async (route) => {
       if (route.request().method() !== "PATCH") return route.continue();
@@ -292,9 +294,7 @@ for (const connected of [false, true]) {
     expect(requests[0].request_id).toMatch(/^[0-9a-f-]{36}$/);
     expect(requests[1]).toEqual(requests[0]);
     await page.unroute("**/v1/tasks/*");
-    await task
-      .getByLabel("Reminder until (your device timezone)")
-      .fill("2026-10-21T11:00");
+    await task.getByLabel(/^Reminder until/).fill("2026-10-21T11:00");
     const snoozed = page.waitForResponse(
       (r) => r.url().includes("/v1/tasks/") && r.request().method() === "PATCH",
     );
@@ -310,12 +310,12 @@ for (const connected of [false, true]) {
     await page
       .getByRole("button", { name: "Intelligence", exact: true })
       .click();
-    await expect(
-      task.getByLabel("Callback time (your device timezone)"),
-    ).toHaveValue("2026-10-22T13:30");
-    await expect(
-      task.getByLabel("Reminder until (your device timezone)"),
-    ).toHaveValue("2026-10-21T11:00");
+    await expect(task.getByLabel(/^Callback time/)).toHaveValue(
+      "2026-10-22T13:30",
+    );
+    await expect(task.getByLabel(/^Reminder until/)).toHaveValue(
+      "2026-10-21T11:00",
+    );
     await task.getByRole("button", { name: "Complete", exact: true }).click();
     await expect(task.getByText("Completed", { exact: true })).toBeVisible();
   });
@@ -398,7 +398,7 @@ test("a local callback is confirmed, rescheduled, retained on reload and complet
     .click();
   await page.getByRole("button", { name: "Start call", exact: true }).click();
   await page.getByRole("button", { name: "Hang up", exact: true }).click();
-  await page.getByLabel("Disposition").selectOption("callback_requested");
+  await chooseOutcome(page, "callback_requested");
   const saved = page.waitForResponse(
     (r) => r.url().endsWith("/disposition") && r.request().method() === "POST",
   );
@@ -409,20 +409,16 @@ test("a local callback is confirmed, rescheduled, retained on reload and complet
   await expect(
     task.getByText("Needs confirmation", { exact: true }),
   ).toBeVisible();
-  await task
-    .getByLabel("Callback time (your device timezone)")
-    .fill("2026-10-21T11:00");
+  await task.getByLabel(/^Callback time/).fill("2026-10-21T11:00");
   await task.getByRole("button", { name: "Save follow-up" }).click();
   await expect(task.getByText("Open", { exact: true })).toBeVisible();
-  await task
-    .getByLabel("Callback time (your device timezone)")
-    .fill("2026-10-22T13:30");
+  await task.getByLabel(/^Callback time/).fill("2026-10-22T13:30");
   await task.getByRole("button", { name: "Save follow-up" }).click();
   await page.reload();
   await page.getByRole("button", { name: "Intelligence", exact: true }).click();
-  await expect(
-    task.getByLabel("Callback time (your device timezone)"),
-  ).toHaveValue("2026-10-22T13:30");
+  await expect(task.getByLabel(/^Callback time/)).toHaveValue(
+    "2026-10-22T13:30",
+  );
   await task.getByRole("button", { name: "Complete", exact: true }).click();
   await expect(task.getByText("Completed", { exact: true })).toBeVisible();
   await expect(
@@ -460,13 +456,19 @@ test("unfinished wrap-up survives navigation and a full reload", async ({
     .click();
   await page.getByRole("button", { name: "Start call", exact: true }).click();
   await page.getByRole("button", { name: "Hang up", exact: true }).click();
-  await expect(page.getByLabel("Disposition")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Save outcome", exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
-  await expect(page.getByLabel("Disposition")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Save outcome", exact: true }),
+  ).toBeVisible();
   await page.reload();
-  await expect(page.getByLabel("Disposition")).toBeVisible();
-  await page.getByLabel("Disposition").selectOption("no_answer");
+  await expect(
+    page.getByRole("button", { name: "Save outcome", exact: true }),
+  ).toBeVisible();
+  await chooseOutcome(page, "no_answer");
   const sent = page.waitForRequest(
     (r) => r.url().endsWith("/disposition") && r.method() === "POST",
   );
@@ -493,13 +495,15 @@ test("outcome conflict reload and late save preserve the selected review", async
   await prepareSimulationCall(page, "Review response fixture", "+14155550882");
   const calls: { id: string; name: string }[] = [];
   for (let index = 0; index < 2; index++) {
-    const packet = page.waitForResponse((r) =>
-      /\/v1\/leads\/[^/]+\/packet$/.test(r.url()),
+    // A saved wrap-up refreshes its own packet in the background; read the
+    // next lead from its reservation instead.
+    const reserved = page.waitForResponse((r) =>
+      r.url().endsWith("/v1/queue/next"),
     );
     await page
       .getByRole("button", { name: "Get next lead", exact: true })
       .click();
-    const name = (await (await packet).json()).lead.name;
+    const name = (await (await reserved).json()).lead.name;
     const started = page.waitForResponse((r) =>
       r.url().endsWith("/v1/calls/start"),
     );
@@ -507,23 +511,26 @@ test("outcome conflict reload and late save preserve the selected review", async
     const call = await (await started).json();
     calls.push({ id: call.id, name });
     await page.getByRole("button", { name: "Hang up", exact: true }).click();
-    await page.getByLabel("Disposition").selectOption("no_answer");
+    await chooseOutcome(page, "no_answer");
     await page.getByLabel("Wrap-up note").fill(`Human note ${index}`);
     await page
       .getByRole("button", { name: "Save outcome", exact: true })
       .click();
-    await expect(page.getByLabel("Disposition")).toBeHidden();
+    await expect(
+      page.getByRole("button", { name: "Save outcome", exact: true }),
+    ).toBeHidden();
   }
   await page
     .getByRole("button", { name: "Pause dialing", exact: true })
     .click();
   await page.getByRole("button", { name: "Review", exact: true }).click();
+  // The queue may offer the same lead twice, so select each call by identity.
   await page
+    .locator(`tr[data-call-id="${calls[0].id}"]`)
     .getByRole("button", { name: `Review call ${calls[0].name}`, exact: true })
-    .first()
     .click();
   await page.getByText("Correct confirmed outcome", { exact: true }).click();
-  await page.getByLabel("Disposition").selectOption("right_party");
+  await chooseOutcome(page, "right_party");
   let attempts = 0;
   let release!: () => void;
   let received!: () => void;
@@ -555,6 +562,8 @@ test("outcome conflict reload and late save preserve the selected review", async
     await expect(
       page.getByText("Call changed; reload before saving", { exact: true }),
     ).toBeVisible();
+    // A persistent error toast would cover the second call's review action.
+    await page.getByRole("button", { name: "Dismiss notification" }).click();
     await expect(page.getByLabel("Wrap-up note")).toHaveValue("Human note 0");
     const refreshed = page.waitForResponse((r) =>
       r.url().endsWith(`/v1/calls/${calls[0].id}/analysis`),
@@ -563,7 +572,7 @@ test("outcome conflict reload and late save preserve the selected review", async
       .getByRole("button", { name: "Reload confirmed outcome", exact: true })
       .click();
     await refreshed;
-    await page.getByLabel("Disposition").selectOption("right_party");
+    await chooseOutcome(page, "right_party");
     await page
       .getByRole("button", { name: "Save outcome", exact: true })
       .click();
@@ -572,11 +581,11 @@ test("outcome conflict reload and late save preserve the selected review", async
       .getByRole("button", { name: "All conversations", exact: true })
       .click();
     await page
+      .locator(`tr[data-call-id="${calls[1].id}"]`)
       .getByRole("button", {
         name: `Review call ${calls[1].name}`,
         exact: true,
       })
-      .first()
       .click();
     await expect(
       page.getByRole("heading", { name: calls[1].name, exact: true }),

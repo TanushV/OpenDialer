@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { chooseOutcome } from "./simulation";
 
 async function enter(page: Page) {
   await page.goto("/");
@@ -174,7 +175,7 @@ test("a reviewed coaching tip can be published and withdrawn with its source ver
     .click();
   await page.getByRole("button", { name: "Start call", exact: true }).click();
   await page.getByRole("button", { name: "Hang up", exact: true }).click();
-  await page.getByLabel("Disposition").selectOption("no_answer");
+  await chooseOutcome(page, "no_answer");
   await page.getByRole("button", { name: "Save outcome", exact: true }).click();
   await page
     .getByRole("button", { name: "Pause dialing", exact: true })

@@ -37,20 +37,55 @@ export function liveUrl(base: string): string {
 export class LiveConnection {
   private socket: SocketLike | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private stale: ReturnType<typeof setTimeout> | null = null;
   private stopped = true;
-  private cursor = 0;
+  private cursor: number;
   private attempt = 0;
+  private status = "";
   private seen = new Set<string>();
   constructor(
     private options: {
       url: string;
       token: string;
       tenantId: string;
+      /** The workspace snapshot cursor; earlier events are already reflected. */
+      after?: number;
+      /** A socket silent this long is replaced; the authority sends no pings. */
+      staleMs?: number;
       onEvents: (events: LiveEvent[]) => void;
       onStatus: (status: string) => void;
       socketFactory?: (url: string) => SocketLike;
     },
-  ) {}
+  ) {
+    this.cursor = Math.max(0, Math.trunc(options.after ?? 0)) || 0;
+  }
+
+  private report(status: string) {
+    if (status === this.status) return;
+    this.status = status;
+    this.options.onStatus(status);
+  }
+
+  private detach() {
+    if (this.stale) clearTimeout(this.stale);
+    this.stale = null;
+    const socket = this.socket;
+    this.socket = null;
+    if (socket) {
+      socket.onopen = socket.onmessage = socket.onclose = socket.onerror = null;
+      socket.close();
+    }
+  }
+
+  private watch(socket: SocketLike) {
+    if (this.stale) clearTimeout(this.stale);
+    this.stale = setTimeout(() => {
+      if (this.stopped || this.socket !== socket) return;
+      // Quietly replace a possibly half-open socket; the cursor resumes.
+      this.detach();
+      this.connect(true);
+    }, this.options.staleMs ?? 45_000);
+  }
 
   start() {
     this.stopped = false;
@@ -60,17 +95,12 @@ export class LiveConnection {
   stop() {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
-    const socket = this.socket;
-    this.socket = null;
-    if (socket) {
-      socket.onopen = socket.onmessage = socket.onclose = socket.onerror = null;
-      socket.close();
-    }
+    this.detach();
   }
 
-  private connect() {
+  private connect(quiet = false) {
     if (this.stopped) return;
-    this.options.onStatus("connecting");
+    if (!quiet) this.report("connecting");
     try {
       const url = liveUrl(this.options.url);
       const socket = this.options.socketFactory
@@ -83,10 +113,12 @@ export class LiveConnection {
           JSON.stringify({ token: this.options.token, after: this.cursor }),
         );
         this.attempt = 0;
-        this.options.onStatus("live");
+        this.report("live");
+        this.watch(socket);
       };
       socket.onmessage = ({ data }) => {
         if (this.stopped || this.socket !== socket) return;
+        this.watch(socket);
         try {
           const batch = JSON.parse(data) as {
             events: LiveEvent[];
@@ -123,13 +155,14 @@ export class LiveConnection {
         if (this.stopped || this.socket !== socket) return;
         if (code === 4401 || code === 4403) {
           this.stopped = true;
-          this.options.onStatus("session_expired");
+          this.detach();
+          this.report("session_expired");
           return;
         }
         this.reconnect();
       };
       socket.onerror = () => {
-        if (!this.stopped) this.options.onStatus("reconnecting");
+        if (!this.stopped) this.report("reconnecting");
       };
     } catch {
       this.reconnect();
@@ -138,7 +171,8 @@ export class LiveConnection {
 
   private reconnect() {
     if (this.stopped) return;
-    this.options.onStatus("reconnecting");
+    this.detach();
+    this.report("reconnecting");
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(
       () => this.connect(),

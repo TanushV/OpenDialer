@@ -23,6 +23,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { version as desktopVersion } from "../package.json";
 import {
+  ApiError,
   canUseOfflineCache,
   clearSession,
   loadSession,
@@ -48,8 +49,13 @@ import {
 } from "./components/Operations";
 import { ReviewPage } from "./components/ReviewPage";
 import { SettingsPage } from "./components/SettingsPage";
-import { Context } from "./context";
-import type { Runtime, Session, Workspace } from "./types";
+import { Context, type WorkspaceContext } from "./context";
+import {
+  isActiveCall,
+  type Runtime,
+  type Session,
+  type Workspace,
+} from "./types";
 
 type View =
   | "Dialer"
@@ -93,6 +99,8 @@ export function App() {
   const [snapshot, setSnapshot] = useState<Workspace | null>(null);
   const [view, setView] = useState<View>("Dialer");
   const [offline, setOffline] = useState(false);
+  // An authentication failure is not an outage: it needs a new session.
+  const [expired, setExpired] = useState(false);
   const [connection, setConnection] = useState<"local" | "connected">("local");
   const [startup, setStartup] = useState(true);
   const [working, setWorking] = useState(false);
@@ -112,6 +120,40 @@ export function App() {
   });
   const authority = useRef({ runtime, session });
   authority.current = { runtime, session };
+  const snapshotRef = useRef(snapshot);
+  snapshotRef.current = snapshot;
+  // Sessions issued by an automatic renewal; one of these expiring stops retrying.
+  const renewed = useRef(new WeakSet<Session>());
+  const sessionExpired = useCallback(
+    async (rejected: Session) => {
+      const current = authority.current;
+      if (current.session !== rejected || !current.runtime) return;
+      if (
+        connection === "local" &&
+        current.runtime.local_token &&
+        !renewed.current.has(rejected)
+      ) {
+        try {
+          const token = await request<Session>(
+            current.runtime.url,
+            null,
+            "/v1/local/session",
+            "POST",
+            {},
+            { "X-Local-Token": current.runtime.local_token },
+          );
+          if (authority.current.session !== rejected) return;
+          renewed.current.add(token);
+          setSession(token);
+          return;
+        } catch {
+          /* Fall through to an explicit sign-in. */
+        }
+      }
+      if (authority.current.session === rejected) setExpired(true);
+    },
+    [connection],
+  );
   const api = useCallback(
     async <T,>(path: string, method?: string, body?: unknown): Promise<T> => {
       if (!runtime || !session)
@@ -140,6 +182,8 @@ export function App() {
           ) as T;
         return result;
       } catch (error) {
+        if (error instanceof ApiError && error.status === 401)
+          void sessionExpired(session);
         if (cacheable && key && canUseOfflineCache(error)) {
           const cached = await readCache(key, runtime.simulation);
           if (cached) return JSON.parse(cached) as T;
@@ -147,7 +191,7 @@ export function App() {
         throw error;
       }
     },
-    [runtime, session],
+    [runtime, session, sessionExpired],
   );
   const refresh = useMemo(
     () =>
@@ -164,8 +208,11 @@ export function App() {
             if (
               authority.current.runtime === runtime &&
               authority.current.session === session
-            )
-              setOffline(true);
+            ) {
+              if (error instanceof ApiError && error.status === 401)
+                void sessionExpired(session);
+              else setOffline(true);
+            }
             throw error;
           }
         },
@@ -179,6 +226,7 @@ export function App() {
             return;
           setSnapshot(result);
           setOffline(false);
+          setExpired(false);
           void writeCache(
             `workspace-${session.user_id}`,
             { ...result, leads: result.leads.slice(0, 20) },
@@ -186,17 +234,14 @@ export function App() {
           ).catch(() => {});
         },
       ),
-    [runtime, session],
+    [runtime, session, sessionExpired],
   );
   const notice = useCallback((message: string) => setToast({ message }), []);
   useWorkHeartbeat(snapshot, api, refresh, notice);
   const activeConversation =
     !!snapshot &&
     (snapshot.calls.some(
-      (c) =>
-        c.rep_id === snapshot.user.id &&
-        !["ENDED", "FINALIZED"].includes(c.state) &&
-        !c.detached,
+      (c) => c.rep_id === snapshot.user.id && isActiveCall(c),
     ) ||
       snapshot.tasks.some(
         (t) =>
@@ -307,9 +352,12 @@ export function App() {
       url: runtime.url,
       token: session.access_token,
       tenantId: session.tenant_id,
+      // Events up to the shown snapshot are already reflected; do not replay them.
+      after: snapshotRef.current?.event_cursor,
       onStatus: (status) => {
         connected = status === "live";
         setLiveStatus(status);
+        if (status === "session_expired") void sessionExpired(session);
       },
       onEvents: (events) => {
         liveListeners.current.forEach((handler) => handler(events));
@@ -342,7 +390,7 @@ export function App() {
       clearInterval(recovery);
       if (pending) clearTimeout(pending);
     };
-  }, [session, runtime, refresh, run]);
+  }, [session, runtime, refresh, run, sessionExpired]);
   useEffect(() => {
     if (!toast || toast.error) return;
     const id = setTimeout(() => setToast(null), 5000);
@@ -454,6 +502,61 @@ export function App() {
     setWelcomeMode("choose");
     setToast(null);
   }
+  /** The authority rejected this session; sign in again to the same server. */
+  async function signInAgain() {
+    if (connection === "local") {
+      setExpired(false);
+      await beginLocal(runtime?.simulation ?? false);
+      return;
+    }
+    const server = runtime?.url ?? "";
+    await clearSession();
+    setExpired(false);
+    setSession(null);
+    setRuntime(null);
+    setSnapshot(null);
+    setForm((value) => ({ ...value, server, password: "" }));
+    setWelcomeMode("connected");
+  }
+  const configureCredential = useCallback<
+    WorkspaceContext["configureCredential"]
+  >(
+    async (field, version) => {
+      const { runtime: bound, session: current } = authority.current;
+      if (!bound || !current) throw new Error("Choose a workspace first.");
+      await bindAuthority(bound, current, connection === "local");
+      return await protectedProviderInput(field, version);
+    },
+    [connection],
+  );
+  // A stable value: consumers re-render only when something they read changes.
+  const context = useMemo<WorkspaceContext | null>(
+    () =>
+      snapshot && session
+        ? {
+            snapshot,
+            session,
+            api,
+            refresh,
+            notice,
+            run,
+            subscribe,
+            liveStatus,
+            configureCredential,
+          }
+        : null,
+    [
+      snapshot,
+      session,
+      api,
+      refresh,
+      notice,
+      run,
+      subscribe,
+      liveStatus,
+      configureCredential,
+    ],
+  );
   const field = (key: keyof typeof form) => ({
     value: form[key],
     onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -480,7 +583,7 @@ export function App() {
         {message}
       </div>
     );
-  if (!snapshot || !session)
+  if (!snapshot || !session || !context)
     return (
       <div className="welcome">
         <aside className="welcome-story">
@@ -675,23 +778,7 @@ export function App() {
     );
 
   return (
-    <Context.Provider
-      value={{
-        snapshot,
-        session,
-        api,
-        refresh,
-        notice,
-        run,
-        subscribe,
-        liveStatus,
-        configureCredential: async (field, version) => {
-          if (!runtime) throw new Error("Choose a workspace first.");
-          await bindAuthority(runtime, session, connection === "local");
-          return await protectedProviderInput(field, version);
-        },
-      }}
-    >
+    <Context.Provider value={context}>
       <div className="app-shell">
         <aside className="sidebar">
           <Brand />
@@ -768,11 +855,13 @@ export function App() {
                 className={`status-dot ${offline || snapshot.readiness.integrity_ok === false ? "danger" : ""}`}
               />
               <span>
-                {offline
-                  ? "Offline cache"
-                  : connection === "connected"
-                    ? "Connected"
-                    : "Local workspace"}
+                {expired
+                  ? "Session expired"
+                  : offline
+                    ? "Offline cache"
+                    : connection === "connected"
+                      ? "Connected"
+                      : "Local workspace"}
               </span>
               {snapshot.simulation && (
                 <span className="simulation-badge">SIMULATION</span>
@@ -798,7 +887,16 @@ export function App() {
             </div>
           )}
           <div className="page-body">
-            {offline && (
+            {expired && (
+              <div className="alert" role="alert">
+                Session expired. Sign in again to continue; saved notes and
+                pending opt-outs stay on this computer.
+                <button onClick={() => void run(signInAgain)}>
+                  Sign in again
+                </button>
+              </div>
+            )}
+            {offline && !expired && (
               <div className="alert">
                 The shared authority is unavailable. Cached scripts and notes
                 remain readable. New calling requires the authority to

@@ -28,13 +28,15 @@ export function label(value: string) {
     .toLowerCase()
     .replace(/^./, (c) => c.toUpperCase());
 }
-export function date(value?: string | null) {
+/** A short date; with `timeZone`, shown in that zone and labelled with it. */
+export function date(value?: string | null, timeZone?: string) {
   return value
     ? new Date(value).toLocaleString([], {
         month: "short",
         day: "numeric",
         hour: "numeric",
         minute: "2-digit",
+        ...(timeZone ? { timeZone, timeZoneName: "short" } : {}),
       })
     : "Needs confirmation";
 }

@@ -23,9 +23,11 @@ export function ReviewPage() {
   const { snapshot: w, api, run, notice, refresh } = useWorkspace();
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   useSpeechExpiry(analysis, setAnalysis);
+  // Per-call drafts: the human note, a comment and selected evidence.
   const [notes, setNotes] = useState("");
   const [comment, setComment] = useState("");
   const [highlight, setHighlight] = useState<string[]>([]);
+  const savedNotes = useRef<string | null>(null);
   const selectedCall = useRef<string | null>(null);
   const requestVersion = useRef(0);
   useEffect(
@@ -42,10 +44,25 @@ export function ReviewPage() {
     if (selectedCall.current !== id || requestVersion.current !== version)
       return;
     setAnalysis(result);
-    setNotes(result.human_notes ?? result.notes.summary);
+    // Only a human writes "Your notes"; the AI summary is shown separately.
+    // An unchanged draft follows the saved note; an edited draft is kept.
+    const previous = savedNotes.current;
+    savedNotes.current = result.human_notes;
+    setNotes((draft) =>
+      draft === (previous ?? "") ? (result.human_notes ?? "") : draft,
+    );
+  }
+  function select(id: string | null) {
+    if (selectedCall.current === id) return;
+    selectedCall.current = id;
+    requestVersion.current++;
+    savedNotes.current = null;
+    setNotes("");
+    setComment("");
+    setHighlight([]);
   }
   async function open(id: string) {
-    selectedCall.current = id;
+    select(id);
     await reload(id);
   }
   const history = useHistory("calls", w.calls);
@@ -94,7 +111,7 @@ export function ReviewPage() {
             </thead>
             <tbody>
               {calls.map((c) => (
-                <tr key={c.id}>
+                <tr key={c.id} data-call-id={c.id}>
                   <td>
                     <strong>
                       {c.lead_name ||
@@ -145,8 +162,7 @@ export function ReviewPage() {
       <button
         className="text-button back"
         onClick={() => {
-          selectedCall.current = null;
-          requestVersion.current++;
+          select(null);
           setAnalysis(null);
         }}
       >
@@ -210,10 +226,13 @@ export function ReviewPage() {
           <WrapUp
             key={`${analysis.call.id}:${analysis.call.version}`}
             call={analysis.call}
-            onSaved={async (result) => {
-              await reload(result.id);
-              await refresh();
-            }}
+            timezone={analysis.lead_timezone}
+            onSaved={(result) =>
+              void run(async () => {
+                await reload(result.id);
+                await refresh();
+              })
+            }
           />
         </details>
       )}
@@ -327,6 +346,12 @@ export function ReviewPage() {
           <section className="card padded">
             <span className="eyebrow">THE RECORD YOU CONTROL</span>
             <h2>Notes &amp; next steps</h2>
+            <div className="info-note" role="region" aria-label="AI summary">
+              <strong>AI summary · draft, not your note</strong>
+              <p>
+                {analysis.notes.summary || "No AI summary is available yet."}
+              </p>
+            </div>
             <label>
               Your notes
               <textarea
@@ -352,6 +377,7 @@ export function ReviewPage() {
                     "PATCH",
                     { expected_version: latest.notes_version, text: notes },
                   );
+                  savedNotes.current = notes;
                   setAnalysis({
                     ...latest,
                     notes_version: result.notes_version,
@@ -365,13 +391,10 @@ export function ReviewPage() {
               <Check size={15} />
             </button>
             {analysis.suggested_update !== null && (
-              <div className="info-note">
-                A newer analysis is available. Your saved notes are preserved.
-                <details>
-                  <summary>Compare the suggested update</summary>
-                  <p>{analysis.notes.summary}</p>
-                </details>
-              </div>
+              <p className="fine" role="status">
+                The AI summary above changed after your note was saved. Your
+                note is preserved.
+              </p>
             )}
             <h3>Objections</h3>
             {analysis.notes.objections.length ? (

@@ -1077,128 +1077,10 @@ nav button.active svg {
   color: #abb49c;
   margin: 0 0 -4px 29px;
 }
-.script-footer .text-button {
-  margin-left: auto;
-  font-size: 8px;
-}
-.live-grid {
-  display: grid;
-  grid-template-columns: 1.35fr 1fr;
-  gap: 18px;
-}
-.transcript-card,
-.coach-card {
-  padding: 18px 22px;
-  min-height: 242px;
-}
 .transcript-scroll {
-  min-height: 150px;
   max-height: 220px;
   overflow: auto;
   padding-top: 7px;
-}
-.transcript-empty {
-  text-align: center;
-  padding: 36px 0 20px;
-}
-.transcript-empty p {
-  font-size: 10px;
-  color: #9ba78b;
-  margin-top: 12px;
-}
-.transcript-empty small {
-  font-size: 8px;
-  color: #b1baa3;
-}
-.audio-lines {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  height: 22px;
-}
-.audio-lines i {
-  height: 9px;
-  width: 3px;
-  border-radius: 3px;
-  background: #cedbbc;
-}
-.audio-lines i:nth-child(2),
-.audio-lines i:nth-child(4) {
-  height: 17px;
-}
-.audio-lines i:nth-child(3) {
-  height: 25px;
-  background: #b3c792;
-}
-.coach-card {
-  background: #f8faf3;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-}
-.tiny-light {
-  height: 5px;
-  width: 5px;
-  border-radius: 50%;
-  background: #aec58a;
-  box-shadow: 0 0 0 3px #b4ce9120;
-}
-.coach-placeholder {
-  padding-top: 24px;
-  padding-bottom: 12px;
-}
-.coach-placeholder > svg {
-  float: left;
-  color: #b5c49b;
-  margin: 4px 13px 0 0;
-}
-.coach-placeholder h3 {
-  font-family: Georgia, serif;
-  font-size: 18px;
-  line-height: 1.35;
-  color: #71825e;
-  font-weight: 400;
-}
-.coach-placeholder p {
-  font-size: 9px;
-  color: #a3ae91;
-  margin-top: 11px;
-  line-height: 1.8;
-}
-.coach-footer {
-  margin-top: auto;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-top: 1px solid #e7ecdc;
-  padding-top: 12px;
-  color: #aab69a;
-  font-size: 8px;
-}
-.coach-footer button {
-  font-size: 9px;
-}
-.coach-guidance {
-  padding: 22px 0;
-}
-.coach-guidance h3 {
-  font-family: Georgia, serif;
-  font-size: 20px;
-  font-weight: 400;
-  line-height: 1.45;
-  margin: 9px 0;
-  color: #567544;
-}
-.coach-guidance p {
-  font-size: 10px;
-  color: #8a9b74;
-}
-.coach-guidance small {
-  font-size: 8px;
-  color: #a8b68e;
-  display: block;
-  margin-top: 12px;
 }
 .utterance {
   margin: 10px 0;
@@ -1844,7 +1726,7 @@ tbody tr:hover {
     padding: 13px;
   }
   .pause-after {
-    display: none;
+    font-size: 7px;
   }
   .dialer-grid {
     grid-template-columns: 0.9fr 1.3fr;
@@ -1859,9 +1741,6 @@ tbody tr:hover {
   }
   .metric > span {
     font-size: 7px;
-  }
-  .live-grid {
-    gap: 14px;
   }
   .page-heading h1 {
     font-size: 26px;
@@ -1926,11 +1805,6 @@ tbody tr:hover {
   padding: 12px 16px;
   margin-bottom: 18px;
 }
-.dialer-status {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
 .page-heading.calling-heading {
   margin: 8px 0 14px;
 }
@@ -1969,9 +1843,6 @@ tbody tr:hover {
   max-height: calc(100vh - 245px);
   overflow: auto;
 }
-.live-grid {
-  grid-template-columns: 1fr;
-}
 
 .capacity-summary {
   display: flex;
@@ -2004,4 +1875,88 @@ tbody tr:hover {
 }
 .prospect-context p {
   margin: 6px 0;
+}
+
+/* Rep call screen: one-click outcomes, compact disclosures and next work. */
+.wrap-up {
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+.outcome-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex-basis: 100%;
+}
+.wrap-up button.chip {
+  align-self: auto;
+}
+.chip {
+  background: #f4f7ef;
+  border: 1px solid #dfe5d6;
+  color: #4d6145;
+  padding: 7px 11px;
+  border-radius: 16px;
+  font-size: 11px;
+}
+.chip.selected {
+  background: #3f5c3a;
+  border-color: #3f5c3a;
+  color: white;
+}
+.wrap-up details {
+  flex-basis: 100%;
+}
+.wrap-up summary,
+.dialer-details summary,
+.check-audio summary,
+.transcript-card summary,
+.feedback-more summary {
+  cursor: pointer;
+}
+.check-audio,
+.dialer-details,
+.next-work {
+  margin-bottom: 18px;
+}
+.next-work ul {
+  margin: 8px 0;
+  padding-left: 18px;
+}
+.next-work li {
+  margin: 4px 0;
+}
+.next-work .pill {
+  margin-left: 6px;
+}
+details.transcript-card {
+  padding: 12px 22px;
+  margin-bottom: 18px;
+}
+.transcript-card summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #9ba68f;
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+.feedback-more {
+  position: relative;
+}
+.feedback-more summary {
+  font-size: 10px;
+  color: #819473;
+}
+.feedback-more .guidance-feedback {
+  position: absolute;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 190px;
+  padding: 6px;
+  background: white;
+  border: 1px solid #dfe5d6;
+  border-radius: 8px;
 }
