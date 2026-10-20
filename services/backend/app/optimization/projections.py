@@ -57,8 +57,19 @@ def lead_values(lead, calls, events, *, suppressed, config, now):
         and timestamp(call.get("started_at"))
         and timestamp(call["started_at"]) <= now
     ]
+    # The campaign outcome window attributes a conversion event to an attempt, as
+    # training does: it counts only when it occurred within window_days of one.
+    window = timedelta(days=config["window_days"])
+    starts = [
+        at
+        for call in calls
+        if call.get("lead_id") == lead["id"] and (at := timestamp(call.get("started_at"))) and at <= now
+    ]
     known = [
-        derive_labels(value["kind"])
+        (
+            derive_labels(value["kind"]),
+            any(at <= timestamp(value["occurred_at"]) <= at + window for at in starts),
+        )
         for event in events
         if event.get("lead_id") == lead["id"]
         and (value := conversion_at(event, now))
@@ -71,8 +82,16 @@ def lead_values(lead, calls, events, *, suppressed, config, now):
         "eligible_now": int(bool(eligible)),
         "suppressed": int(suppressed),
         "right_party_unique": int(original and any(row["right_party"] is True for row in outcomes)),
-        "held_meetings": int(original and any(row["meeting_held"] is True for row in outcomes + known)),
-        "unique_conversions": int(original and any(row[label] is True for row in outcomes + known)),
+        "held_meetings": int(
+            original and any(row["meeting_held"] is True for row in outcomes + [row for row, _ in known])
+        ),
+        "unique_conversions": int(
+            original
+            and (
+                any(row[label] is True for row in outcomes)
+                or any(row[label] is True and inside for row, inside in known)
+            )
+        ),
         "coverage_overdue": int(bool(eligible and due and due < now and not lead.get("attempt_count"))),
     }
 
@@ -333,12 +352,11 @@ def delta_values(previous, current):
 
 def dirty_source_units(changed, session):
     """Source IDs only; the worker reads current authorized records after commit."""
-    units = {}
+    units = set()
     campaigns = {}
     for row, previous in changed:
         table = row.__tablename__
         scope = (row.tenant_id, row.seller_id)
-        deleted = row in session.deleted
         kind = {
             "leads": "lead",
             "call_attempts": "call",
@@ -346,14 +364,14 @@ def dirty_source_units(changed, session):
             "coach_events": "help",
         }.get(table)
         if kind:
-            units[(*scope, kind, row.id)] = deleted
+            units.add((*scope, kind, row.id))
         if table == "followup_tasks" and (row.data.get("inbound") or (previous or {}).get("inbound")):
-            units[(*scope, "call", "callback:" + row.id)] = deleted
+            units.add((*scope, "call", "callback:" + row.id))
         if table == "campaigns" and any(
             row.data.get(key) != (previous or {}).get(key)
             for key in ("optimization_trial", "controlled_comparisons")
         ):
-            units[(*scope, "campaign-leads", row.id)] = deleted
+            units.add((*scope, "campaign-leads", row.id))
         if table == "outcomes" and row.data.get("kind") == "conversation_lineage":
             # A retraction need not repeat the old guidance link. Its stable
             # observation identity still invalidates that exposure contribution.
@@ -368,10 +386,10 @@ def dirty_source_units(changed, session):
             )
             for value in prior:
                 if value.get("id") == row.data.get("id") and value.get("observed_guidance_id"):
-                    units[(*scope, "help", value["observed_guidance_id"])] = False
+                    units.add((*scope, "help", value["observed_guidance_id"]))
         for value in [row.data, *([previous] if previous else [])]:
             if table == "outcomes" and value.get("kind") == "attempt_work" and value.get("call_id"):
-                units[(*scope, "call", value["call_id"])] = False
+                units.add((*scope, "call", value["call_id"]))
             if table in {
                 "call_attempts",
                 "conversion_events",
@@ -379,9 +397,9 @@ def dirty_source_units(changed, session):
                 "feature_snapshots",
                 "compliance_decisions",
             } and value.get("lead_id"):
-                units[(*scope, "lead", value["lead_id"])] = False
+                units.add((*scope, "lead", value["lead_id"]))
             if table in {"conversion_events", "feature_snapshots"} and value.get("lead_id"):
-                units[(*scope, "lead-calls", value["lead_id"])] = False
+                units.add((*scope, "lead-calls", value["lead_id"]))
             if table == "suppressions" and value.get("phone"):
                 database = session.info["database"]
                 key = hmac.new(database.identity_key, value["phone"].encode(), hashlib.sha256).hexdigest()
@@ -394,11 +412,11 @@ def dirty_source_units(changed, session):
                     )
                 )
                 if endpoint:
-                    units[(*scope, "endpoint-leads", endpoint)] = False
+                    units.add((*scope, "endpoint-leads", endpoint))
             if table == "coaching_feedback" and value.get("coach_event_id"):
-                units[(*scope, "help", value["coach_event_id"])] = False
+                units.add((*scope, "help", value["coach_event_id"]))
             if table == "outcomes" and value.get("observed_guidance_id"):
-                units[(*scope, "help", value["observed_guidance_id"])] = False
+                units.add((*scope, "help", value["observed_guidance_id"]))
             if table not in {"work_intervals", "call_attempts"} or not value.get("rep_id"):
                 continue
             if table == "call_attempts":
@@ -407,14 +425,11 @@ def dirty_source_units(changed, session):
                     start = timestamp(value.get("submitted_at") or value.get("started_at"))
                     end = start
             else:
+                # Lease renewals are not report inputs; an open interval's day is due
+                # again when its lease can next matter. Opening, closing and
+                # corrections dirty every day the interval covers.
                 start = timestamp(value.get("started_at"))
                 end = timestamp(value.get("ended_at") or value.get("lease_until"))
-                # A heartbeat only changes the trailing span. Historical days were
-                # already projected; an actual date correction still touches both ranges.
-                if previous and all(
-                    previous.get(k) == row.data.get(k) for k in ("rep_id", "started_at", "ended_at")
-                ):
-                    start = max(start, timestamp(previous.get("heartbeat_at")) or start) if start else None
             if start and end and end >= start:
                 if scope not in campaigns:
                     model = MODELS["campaigns"]
@@ -431,24 +446,25 @@ def dirty_source_units(changed, session):
                 for index, campaign_id in enumerate(campaigns[scope]):
                     rep = (campaign_id + "|" if index else "") + value["rep_id"]
                     if (end.date() - start.date()).days >= 100:
-                        units[(*scope, "rep-days", f"{rep}:{start.date()}:{end.date()}")] = False
+                        units.add((*scope, "rep-days", f"{rep}:{start.date()}:{end.date()}"))
                         continue
                     day = start.date()
                     while day <= end.date():
-                        units[(*scope, "rep-day", rep + ":" + day.isoformat())] = False
+                        units.add((*scope, "rep-day", rep + ":" + day.isoformat()))
                         day += timedelta(days=1)
     return units
 
 
 def enqueue_units(session, units):
-    """Coalesce before_flush without nested flush or replacement of a running lease."""
+    """Coalesce dirty units without replacing a running lease; job rows lock in key order."""
     pending = {(job.tenant_id, job.key): job for job in session.new if isinstance(job, Job)}
     keys = {}
     for tenant, seller, kind, identity in units:
         key = f"projection:{seller}:{kind}:{identity}"
         if (tenant, key) not in pending:
-            keys.setdefault(tenant, []).append(key)
+            keys.setdefault(tenant, set()).add(key)
     for tenant, identities in sorted(keys.items()):
+        identities = sorted(identities)
         for offset in range(0, len(identities), 100):
             for job in session.scalars(
                 select(Job)
@@ -457,7 +473,7 @@ def enqueue_units(session, units):
                 .with_for_update()
             ):
                 pending[tenant, job.key] = job
-    for (tenant, seller, kind, identity), deleted in sorted(units.items()):
+    for tenant, seller, kind, identity in sorted(units):
         key = f"projection:{seller}:{kind}:{identity}"
         job = pending.get((tenant, key))
         payload = {
@@ -467,7 +483,6 @@ def enqueue_units(session, units):
             "seller_id": seller,
             "source_kind": kind,
             "source_id": identity,
-            "deleted": deleted,
             "desired_generation": (job.payload.get("desired_generation", 0) if job else 0) + 1,
             "claimed_generation": job.payload.get("claimed_generation", 0) if job else 0,
         }
@@ -496,14 +511,16 @@ def enqueue_units(session, units):
 
 
 def definition_version(config, epoch):
+    """Inputs that change saved vectors. Health thresholds apply when read; only the
+    health window decides which attempts enter a number's buckets."""
     return hashlib.sha256(
         json.dumps(
             {
-                "metrics": "cohort-work-v14",
+                "metrics": "cohort-work-v15",
                 "epoch": epoch,
                 "goal": config["conversion_goal"],
                 "window_days": config["window_days"],
-                "health_policy": config.get("health_policy", {}),
+                "health_window_days": config.get("health_policy", {}).get("window_days"),
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -516,237 +533,234 @@ def _scoped_query(p, table):
     return select(model).where(model.tenant_id == p["tenant_id"], model.seller_id == p["seller_id"])
 
 
-def _unit_snapshot(service, p, payload):
+def _unit_snapshot(service, session, p, payload):
     kind, identity = payload["source_kind"], payload["source_id"]
-    with service.db.transaction(False) as session:
-        table = {
-            "lead": "leads",
-            "call": "call_attempts",
-            "usage": "usage_ledger",
-            "help": "coach_events",
-        }.get(kind)
-        callback_source = kind == "call" and identity.startswith("callback:")
-        if callback_source:
-            table = "followup_tasks"
-        source = (
-            session.scalar(
-                _scoped_query(p, table).where(
-                    MODELS[table].id == (identity[9:] if callback_source else identity)
+    table = {
+        "lead": "leads",
+        "call": "call_attempts",
+        "usage": "usage_ledger",
+        "help": "coach_events",
+    }.get(kind)
+    callback_source = kind == "call" and identity.startswith("callback:")
+    if callback_source:
+        table = "followup_tasks"
+    source = (
+        session.scalar(
+            _scoped_query(p, table).where(MODELS[table].id == (identity[9:] if callback_source else identity))
+        )
+        if table
+        else None
+    )
+    row = doc(source) if source else {}
+    if callback_source and not row.get("inbound"):
+        row = {}
+    source_campaign = row.get("campaign_id")
+    if kind == "rep-day" and "|" in identity:
+        source_campaign = identity.split("|", 1)[0]
+    if not source_campaign and row:
+        lead_id = row.get("lead_id")
+        if not lead_id and kind in {"usage", "help"}:
+            related = session.scalar(
+                _scoped_query(p, "call_attempts").where(
+                    MODELS["call_attempts"].id == (row.get("call_id") or row.get("object_id"))
                 )
             )
-            if table
-            else None
-        )
-        row = doc(source) if source else {}
-        if callback_source and not row.get("inbound"):
-            row = {}
-        source_campaign = row.get("campaign_id")
-        if kind == "rep-day" and "|" in identity:
-            source_campaign = identity.split("|", 1)[0]
-        if not source_campaign and row:
-            lead_id = row.get("lead_id")
-            if not lead_id and kind in {"usage", "help"}:
-                related = session.scalar(
-                    _scoped_query(p, "call_attempts").where(
-                        MODELS["call_attempts"].id == (row.get("call_id") or row.get("object_id"))
-                    )
-                )
-                source_campaign = related.data.get("campaign_id") if related else None
-                lead_id = related.data.get("lead_id") if related else None
-            if not source_campaign and lead_id:
-                model = MODELS["leads"]
-                source_campaign = session.scalar(
-                    select(model.op_campaign_id).where(
-                        model.tenant_id == p["tenant_id"],
-                        model.seller_id == p["seller_id"],
-                        model.id == lead_id,
-                    )
-                )
-        if not source_campaign and not row and kind != "rep-day":
-            model = MODELS["metric_contributions"]
+            source_campaign = related.data.get("campaign_id") if related else None
+            lead_id = related.data.get("lead_id") if related else None
+        if not source_campaign and lead_id:
+            model = MODELS["leads"]
             source_campaign = session.scalar(
-                select(model.campaign_id)
-                .where(
+                select(model.op_campaign_id).where(
                     model.tenant_id == p["tenant_id"],
                     model.seller_id == p["seller_id"],
-                    model.source_kind == kind,
-                    model.source_id == identity,
+                    model.id == lead_id,
                 )
-                .order_by(model.created_at)
-                .limit(1)
             )
-        campaign = service.selected_campaign(
-            session, {k: v for k, v in p.items() if k != "campaign_id"}, source_campaign
+    if not source_campaign and not row and kind != "rep-day":
+        model = MODELS["metric_contributions"]
+        source_campaign = session.scalar(
+            select(model.campaign_id)
+            .where(
+                model.tenant_id == p["tenant_id"],
+                model.seller_id == p["seller_id"],
+                model.source_kind == kind,
+                model.source_id == identity,
+            )
+            .order_by(model.created_at)
+            .limit(1)
         )
-        config = service.optimization_config(session, p, campaign.id)
-        definition = definition_version(
-            config, campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
-        )
-        pointer = campaign.data.get("metric_projection", {})
-        namespaces = [pointer.get("active_namespace", "initial")]
-        if pointer.get("building_namespace"):
-            namespaces.append(pointer["building_namespace"])
-        if payload.get("target_namespace"):
-            namespaces = [ns for ns in namespaces if ns == payload["target_namespace"]]
-        targets = {}
-        for ns in namespaces:
-            prefix = "building" if ns == pointer.get("building_namespace") else "active"
-            targets[ns] = {
-                "config": pointer.get(prefix + "_config", config),
-                "definition": pointer.get(prefix + "_definition", definition),
-            }
-        calls, events, intervals, feedback, suppressed, feature = [], [], [], None, False, None
-        work = None
-        assignments, features, decisions, studies, observations = [], [], [], {}, []
-        comparisons = [
-            {k: v for k, v in item.items() if k != "population"}
-            for item in campaign.data.get("controlled_comparisons", [])
+    campaign = service.selected_campaign(
+        session, {k: v for k, v in p.items() if k != "campaign_id"}, source_campaign
+    )
+    config = service.optimization_config(session, p, campaign=campaign)
+    definition = definition_version(
+        config, campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
+    )
+    pointer = campaign.data.get("metric_projection", {})
+    namespaces = [pointer.get("active_namespace", "initial")]
+    if pointer.get("building_namespace"):
+        namespaces.append(pointer["building_namespace"])
+    if payload.get("target_namespace"):
+        namespaces = [ns for ns in namespaces if ns == payload["target_namespace"]]
+    targets = {}
+    for ns in namespaces:
+        prefix = "building" if ns == pointer.get("building_namespace") else "active"
+        targets[ns] = {
+            "config": pointer.get(prefix + "_config", config),
+            "definition": pointer.get(prefix + "_definition", definition),
+        }
+    calls, events, intervals, feedback, suppressed, feature = [], [], [], None, False, None
+    work = None
+    assignments, features, decisions, studies, observations = [], [], [], {}, []
+    comparisons = [
+        {k: v for k, v in item.items() if k != "population"}
+        for item in campaign.data.get("controlled_comparisons", [])
+    ]
+    if kind == "lead" and row:
+        calls = [
+            doc(r)
+            for r in session.scalars(
+                _scoped_query(p, "call_attempts").where(MODELS["call_attempts"].op_lead_id == identity)
+            )
         ]
-        if kind == "lead" and row:
-            calls = [
-                doc(r)
-                for r in session.scalars(
-                    _scoped_query(p, "call_attempts").where(MODELS["call_attempts"].op_lead_id == identity)
+        events = [
+            doc(r)
+            for r in session.scalars(
+                _scoped_query(p, "conversion_events").where(
+                    MODELS["conversion_events"].op_lead_id == identity
                 )
-            ]
-            events = [
+            )
+        ]
+        assignments = [
+            doc(r)
+            for r in session.scalars(
+                _scoped_query(p, "experiment_assignments").where(
+                    MODELS["experiment_assignments"].op_lead_id == identity
+                )
+            )
+        ]
+        features = (
+            [
                 doc(r)
                 for r in session.scalars(
-                    _scoped_query(p, "conversion_events").where(
-                        MODELS["conversion_events"].op_lead_id == identity
+                    _scoped_query(p, "feature_snapshots").where(
+                        MODELS["feature_snapshots"].id.in_([r.get("feature_snapshot_id") for r in calls])
                     )
                 )
             ]
+            if calls
+            else []
+        )
+        decisions = (
+            [
+                doc(r)
+                for r in session.scalars(
+                    _scoped_query(p, "compliance_decisions").where(
+                        MODELS["compliance_decisions"].id.in_(
+                            [r.get("submission_decision_id") for r in calls]
+                        )
+                    )
+                )
+            ]
+            if calls
+            else []
+        )
+        for model_id in {a.get("trial_model_id") for a in assignments} - {None}:
+            model = session.scalar(
+                _scoped_query(p, "model_versions").where(MODELS["model_versions"].id == model_id)
+            )
+            if model and model.data.get("trial_epoch"):
+                studies[model.data["trial_epoch"]] = model.data.get("trial_study", {})
+        epoch = campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
+        studies[epoch] = campaign.data.get("optimization_trial") or {}
+        phone = row.get("phone")
+        if phone:
+            key = hmac.new(service.db.identity_key, phone.encode(), hashlib.sha256).hexdigest()
+            denial = service._by_key(session, p, "suppressions", key)
+            suppressed = bool(denial and denial.data.get("active", True))
+    elif kind == "call" and row and not callback_source:
+        record = service._by_key(session, p, "outcomes", "attempt-work:" + row["id"])
+        work = doc(record) if record and record.data.get("kind") == "attempt_work" else None
+        if work:
+            row.update({k: work[k] for k in ("rep_work_intervals", "rep_work_incomplete") if k in work})
+        record = session.scalar(
+            _scoped_query(p, "feature_snapshots").where(
+                MODELS["feature_snapshots"].id == row.get("feature_snapshot_id")
+            )
+        )
+        feature = doc(record) if record else None
+        events = [
+            doc(r)
+            for r in session.scalars(
+                _scoped_query(p, "conversion_events").where(
+                    MODELS["conversion_events"].op_lead_id == row.get("lead_id")
+                )
+            )
+        ]
+    elif kind == "rep-day":
+        rep, day = identity.split("|", 1)[-1].rsplit(":", 1)
+        start = datetime.fromisoformat(day).replace(tzinfo=UTC)
+        end = start + timedelta(days=1)
+        for relation, end_field, target in [
+            ("work_intervals", "op_due_at", intervals),
+            ("call_attempts", "op_work_end_at", calls),
+        ]:
+            model = MODELS[relation]
+            target.extend(
+                doc(r)
+                for r in session.scalars(
+                    _scoped_query(p, relation).where(
+                        model.op_owner_id == rep,
+                        model.op_at < end,
+                        getattr(model, end_field) >= start,
+                    )
+                )
+            )
+    elif kind == "help" and row:
+        call = session.scalar(
+            _scoped_query(p, "call_attempts").where(MODELS["call_attempts"].id == row.get("call_id"))
+        )
+        rep = row.get("rep_id") or (call.data.get("rep_id") if call else None)
+        if rep:
+            row["rep_id"] = rep
+            record = service._by_key(session, p, "coaching_feedback", identity + ":" + rep)
+            feedback = doc(record) if record else None
+        if call:
+            calls = [doc(call)]
             assignments = [
                 doc(r)
                 for r in session.scalars(
                     _scoped_query(p, "experiment_assignments").where(
-                        MODELS["experiment_assignments"].op_lead_id == identity
+                        MODELS["experiment_assignments"].op_lead_id == call.data.get("lead_id")
                     )
                 )
             ]
-            features = (
-                [
-                    doc(r)
-                    for r in session.scalars(
-                        _scoped_query(p, "feature_snapshots").where(
-                            MODELS["feature_snapshots"].id.in_([r.get("feature_snapshot_id") for r in calls])
-                        )
-                    )
-                ]
-                if calls
-                else []
-            )
-            decisions = (
-                [
-                    doc(r)
-                    for r in session.scalars(
-                        _scoped_query(p, "compliance_decisions").where(
-                            MODELS["compliance_decisions"].id.in_(
-                                [r.get("submission_decision_id") for r in calls]
-                            )
-                        )
-                    )
-                ]
-                if calls
-                else []
-            )
-            for model_id in {a.get("trial_model_id") for a in assignments} - {None}:
-                model = session.scalar(
-                    _scoped_query(p, "model_versions").where(MODELS["model_versions"].id == model_id)
-                )
-                if model and model.data.get("trial_epoch"):
-                    studies[model.data["trial_epoch"]] = model.data.get("trial_study", {})
-            epoch = campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
-            studies[epoch] = campaign.data.get("optimization_trial") or {}
-            phone = row.get("phone")
-            if phone:
-                key = hmac.new(service.db.identity_key, phone.encode(), hashlib.sha256).hexdigest()
-                denial = service._by_key(session, p, "suppressions", key)
-                suppressed = bool(denial and denial.data.get("active", True))
-        elif kind == "call" and row and not callback_source:
-            record = service._by_key(session, p, "outcomes", "attempt-work:" + row["id"])
-            work = doc(record) if record and record.data.get("kind") == "attempt_work" else None
-            if work:
-                row.update({k: work[k] for k in ("rep_work_intervals", "rep_work_incomplete") if k in work})
-            record = session.scalar(
-                _scoped_query(p, "feature_snapshots").where(
-                    MODELS["feature_snapshots"].id == row.get("feature_snapshot_id")
-                )
-            )
-            feature = doc(record) if record else None
-            events = [
-                doc(r)
-                for r in session.scalars(
-                    _scoped_query(p, "conversion_events").where(
-                        MODELS["conversion_events"].op_lead_id == row.get("lead_id")
-                    )
-                )
-            ]
-        elif kind == "rep-day":
-            rep, day = identity.split("|", 1)[-1].rsplit(":", 1)
-            start = datetime.fromisoformat(day).replace(tzinfo=UTC)
-            end = start + timedelta(days=1)
-            for relation, end_field, target in [
-                ("work_intervals", "op_due_at", intervals),
-                ("call_attempts", "op_work_end_at", calls),
-            ]:
-                model = MODELS[relation]
-                target.extend(
-                    doc(r)
-                    for r in session.scalars(
-                        _scoped_query(p, relation).where(
-                            model.op_owner_id == rep,
-                            model.op_at < end,
-                            getattr(model, end_field) >= start,
-                        )
-                    )
-                )
-        elif kind == "help" and row:
-            call = session.scalar(
-                _scoped_query(p, "call_attempts").where(MODELS["call_attempts"].id == row.get("call_id"))
-            )
-            rep = row.get("rep_id") or (call.data.get("rep_id") if call else None)
-            if rep:
-                row["rep_id"] = rep
-                record = service._by_key(session, p, "coaching_feedback", identity + ":" + rep)
-                feedback = doc(record) if record else None
-            if call:
-                calls = [doc(call)]
-                assignments = [
-                    doc(r)
-                    for r in session.scalars(
-                        _scoped_query(p, "experiment_assignments").where(
-                            MODELS["experiment_assignments"].op_lead_id == call.data.get("lead_id")
-                        )
-                    )
-                ]
-                latest = {}
-                for record in service.context_rows(
-                    session,
-                    p,
-                    "outcomes",
-                    call.id,
-                    MODELS["outcomes"].ctx_status == "conversation_lineage",
-                    limit=None,
-                ):
-                    value = record.data
-                    if value["version"] >= latest.get(value["id"], {}).get("version", 0):
-                        latest[value["id"]] = dict(value)
-                observations = list(latest.values())
-        previous = {
-            ns: service._by_key(
-                session, p, "metric_contributions", unit_key(targets[ns]["definition"], ns, kind, identity)
-            )
-            for ns in namespaces
-        }
-        previous = {ns: {"version": r.version, **dict(r.data)} if r else None for ns, r in previous.items()}
-        job = session.scalar(
-            select(Job).where(
-                Job.tenant_id == p["tenant_id"], Job.key == f"projection:{p['seller_id']}:{kind}:{identity}"
-            )
+            latest = {}
+            for record in service.context_rows(
+                session,
+                p,
+                "outcomes",
+                call.id,
+                MODELS["outcomes"].ctx_status == "conversation_lineage",
+                limit=None,
+            ):
+                value = record.data
+                if value["version"] >= latest.get(value["id"], {}).get("version", 0):
+                    latest[value["id"]] = dict(value)
+            observations = list(latest.values())
+    previous = {
+        ns: service._by_key(
+            session, p, "metric_contributions", unit_key(targets[ns]["definition"], ns, kind, identity)
         )
-        generation = job.payload["desired_generation"] if job else 0
+        for ns in namespaces
+    }
+    previous = {ns: {"version": r.version, **dict(r.data)} if r else None for ns, r in previous.items()}
+    job = session.scalar(
+        select(Job).where(
+            Job.tenant_id == p["tenant_id"], Job.key == f"projection:{p['seller_id']}:{kind}:{identity}"
+        )
+    )
+    generation = job.payload["desired_generation"] if job else 0
     return {
         "kind": kind,
         "identity": identity,
@@ -1278,12 +1292,20 @@ def _detail_groups(snapshot, now, namespace):
     ]
 
 
-def _apply_bucket_delta(service, session, p, group, delta, fields=()):
-    key = _group_key(service, group)
-    model = MODELS["metric_buckets"]
-    bucket = session.scalar(
-        _scoped_query(p, "metric_buckets").where(model.external_key == key).with_for_update()
-    )
+_EMPTY_WHEN_ZERO = {
+    "comparison",
+    "number_health",
+    "number_health_stratum",
+    "call_cost",
+    "estimate",
+    "retry",
+    "treatment",
+}
+
+
+def _apply_bucket_delta(service, session, p, group, delta, fields=(), *, bucket=None, key=None):
+    """Add one aggregated delta to a bucket that the caller already locked (or that is absent)."""
+    key = key or _group_key(service, group)
     previous = bucket.data.get("values", {}) if bucket else {}
     total = {**dict.fromkeys(fields, 0), **previous, **{k: previous.get(k, 0) + v for k, v in delta.items()}}
     value = {**group, "group": group, "group_key": key.rsplit(":", 1)[-1], "values": total}
@@ -1291,19 +1313,7 @@ def _apply_bucket_delta(service, session, p, group, delta, fields=()):
     empty = (
         (kind == "drift" and total.get("rows", 0) == 0)
         or (kind == "trial" and total.get("control:leads", 0) + total.get("candidate:leads", 0) == 0)
-        or (
-            kind
-            in {
-                "comparison",
-                "number_health",
-                "number_health_stratum",
-                "call_cost",
-                "estimate",
-                "retry",
-                "treatment",
-            }
-            and not any(total.values())
-        )
+        or (kind in _EMPTY_WHEN_ZERO and not any(total.values()))
     )
     if empty:
         if bucket:
@@ -1315,205 +1325,337 @@ def _apply_bucket_delta(service, session, p, group, delta, fields=()):
     return previous, total
 
 
+def _locked(session, p, table, keys, *, chunk=400):
+    """Derived rows by key, locked in key order (PostgreSQL row locks; one SQLite writer)."""
+    model, found = MODELS[table], {}
+    keys = sorted(set(keys))
+    for offset in range(0, len(keys), chunk):
+        for row in session.scalars(
+            _scoped_query(p, table)
+            .where(model.external_key.in_(keys[offset : offset + chunk]))
+            .order_by(model.external_key)
+            .with_for_update()
+        ):
+            found[row.external_key] = row
+    return found
+
+
+def _unit_error_groups(snapshot, namespace):
+    return [_groups({**snapshot, "row": {}, "kind": "usage"}, namespace)[0]]
+
+
+def _queued_units(service, p, payload, *, limit=99):
+    """Other due source units of this seller, absorbed by one leased page."""
+    own = f"projection:{p['seller_id']}:{payload['source_kind']}:{payload['source_id']}"
+    with service.db.transaction(False) as session:
+        jobs = list(
+            session.scalars(
+                select(Job)
+                .where(
+                    Job.tenant_id == p["tenant_id"],
+                    Job.key.startswith(f"projection:{p['seller_id']}:", autoescape=True),
+                    Job.status == "queued",
+                    Job.available_at <= service.clock(),
+                )
+                .order_by(Job.priority.desc(), Job.available_at, Job.id)
+                .limit(limit * 2)
+            )
+        )
+    return [
+        {**job.payload, "job_id": job.id, "absorbed": True}
+        for job in jobs
+        if job.key != own and job.payload.get("kind") == "metric_refresh"
+    ][:limit]
+
+
+def refresh_units(service, p, payloads):
+    """Compute up to 100 source vectors from one read, then replace them in one write.
+
+    Each unit keeps its own fences (job generation, campaign pointer, definition and
+    contribution version); a fenced unit is skipped, the rest still publish. Bucket
+    deltas are summed in memory and each bucket is written once. A source whose
+    values cannot be computed becomes a per-unit error counted in the totals.
+    """
+    payloads = list(payloads)
+    if len(payloads) > 100:
+        raise ValueError("At most100 source units per write")
+    now = service.clock()
+    snapshots = []
+    with service.db.transaction(False) as session, session.no_autoflush:
+        for payload in payloads:
+            snapshots.append(_unit_snapshot(service, session, p, payload))
+            # Snapshots are plain values; a page-sized identity map would make
+            # every later query of the page pay for the earlier units' rows.
+            session.expunge_all()
+    results = [{"status": "unchanged"} for _ in payloads]
+    work = []
+    for index, (payload, snapshot) in enumerate(zip(payloads, snapshots, strict=True)):
+        if not snapshot["namespaces"]:
+            results[index] = {"status": "unrelated" if payload.get("target_namespace") else "superseded"}
+            continue
+        try:
+            calculated = {}
+            for ns, target in snapshot["targets"].items():
+                values, due = _calculate_unit({**snapshot, **target}, now)
+                details = _detail_groups({**snapshot, **target}, now, ns)
+                details += _call_cost_group({**snapshot, **target}, values, ns)
+                calculated[ns] = (values, due, details, None)
+        except (ValueError, ArithmeticError) as exc:
+            # A corrupt receipt or label replaces this unit's vector with an error
+            # marker; it never blocks the other units or the seller's reports.
+            calculated = {
+                ns: ({"unit_errors": 1}, None, [], type(exc).__name__ + ": " + str(exc)[:200])
+                for ns in snapshot["targets"]
+            }
+        work.append((index, payload, snapshot, calculated))
+    if not work:
+        return results
+    with service.db.transaction() as session:
+        # One flush for the page, not one per replaced row.
+        session.info["defer_flush"] = True
+        # Lock order: campaign rows, job rows (one key-ordered statement), derived rows.
+        campaigns = {
+            c.id: c
+            for c in session.scalars(
+                _scoped_query(p, "campaigns")
+                .where(MODELS["campaigns"].id.in_(sorted({snap["campaign_id"] for _, _, snap, _ in work})))
+                .order_by(MODELS["campaigns"].id)
+                .with_for_update()
+            )
+        }
+        keys = {f"projection:{p['seller_id']}:{snap['kind']}:{snap['identity']}" for _, _, snap, _ in work}
+        leases = {
+            tuple(payload["rebuild_lease"]) for _, payload, _, _ in work if payload.get("rebuild_lease")
+        }
+        jobs = {
+            job.key: job
+            for job in session.scalars(
+                select(Job)
+                .where(
+                    Job.tenant_id == p["tenant_id"],
+                    or_(Job.key.in_(sorted(keys)), Job.id.in_(sorted(lease[0] for lease in leases))),
+                )
+                .order_by(Job.key)
+                .with_for_update()
+            )
+        }
+        owners = {job.id: job for job in jobs.values()}
+        fenced_at = service.clock()  # Leases are judged at write time, not calculation time.
+        for lease in leases:
+            if not _rebuild_owned(owners.get(lease[0]), lease, fenced_at):
+                return [{"status": "lost_lease"} for _ in payloads]
+        from app.jobs.queue import aware
+
+        accepted = []
+        for index, payload, snapshot, calculated in work:
+            key = f"projection:{p['seller_id']}:{snapshot['kind']}:{snapshot['identity']}"
+            job = jobs.get(key)
+            if payload.get("job_id") and not payload.get("absorbed"):
+                if (
+                    not job
+                    or job.id != payload["job_id"]
+                    or job.status != "running"
+                    or job.lease_owner != payload.get("lease_owner")
+                    or not job.lease_expires_at
+                    or aware(job.lease_expires_at) <= fenced_at
+                ):
+                    return [{"status": "lost_lease"} for _ in payloads]
+            if payload.get("absorbed") and (not job or job.id != payload["job_id"] or job.status != "queued"):
+                results[index] = {"status": "superseded"}
+                continue
+            if job and job.payload["desired_generation"] != snapshot["generation"]:
+                results[index] = {"status": "superseded"}
+                continue
+            campaign = campaigns.get(snapshot["campaign_id"])
+            if not campaign or campaign.data.get("metric_projection", {}) != snapshot["pointer"]:
+                results[index] = {"status": "superseded"}
+                continue
+            current = definition_version(
+                service.optimization_config(session, p, campaign=campaign),
+                campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2"),
+            )
+            if current != snapshot["definition"]:
+                results[index] = {"status": "superseded"}
+                continue
+            accepted.append((index, payload, snapshot, calculated, job))
+        contributions = _locked(
+            session,
+            p,
+            "metric_contributions",
+            [
+                unit_key(snap["targets"][ns]["definition"], ns, snap["kind"], snap["identity"])
+                for _, _, snap, _, _ in accepted
+                for ns in snap["namespaces"]
+            ],
+        )
+        current, fenced = {}, set()
+        for index, _, snapshot, _, _ in accepted:
+            for namespace in snapshot["namespaces"]:
+                key = unit_key(
+                    snapshot["targets"][namespace]["definition"],
+                    namespace,
+                    snapshot["kind"],
+                    snapshot["identity"],
+                )
+                previous, expected = contributions.get(key), snapshot["previous"][namespace]
+                if (previous.version if previous else None) != (expected["version"] if expected else None):
+                    fenced.add(index)
+                current[index, namespace] = previous
+        deltas = {}  # bucket key -> [group, summed delta, zero fields]
+
+        def add(group, delta, fields=()):
+            entry = deltas.setdefault(_group_key(service, group), [group, {}, {}])
+            for name, change in delta.items():
+                entry[1][name] = entry[1].get(name, 0) + change
+            entry[2].update(dict.fromkeys(fields, 0))
+
+        changed_units = []
+        for index, payload, snapshot, calculated, job in accepted:
+            if index in fenced:
+                results[index] = {"status": "superseded"}
+                continue
+            campaign = campaigns[snapshot["campaign_id"]]
+            if not snapshot["pointer"] and not campaign.data.get("metric_projection"):
+                campaign.data = {
+                    **campaign.data,
+                    "metric_projection": {
+                        "active_namespace": "initial",
+                        "active_definition": snapshot["definition"],
+                        "active_config": snapshot["config"],
+                    },
+                }
+            kind, identity, changed = snapshot["kind"], snapshot["identity"], False
+            for namespace in snapshot["namespaces"]:
+                previous = current[index, namespace]
+                target = snapshot["targets"][namespace]
+                values, due, details, error = calculated[namespace]
+                if error:
+                    groups, group_values = _unit_error_groups({**snapshot, **target}, namespace), {}
+                else:
+                    groups = (_groups({**snapshot, **target}, namespace) if values else []) + [
+                        g for g, _ in details
+                    ]
+                    group_values = {_group_key(service, g): v for g, v in details}
+                key = unit_key(target["definition"], namespace, kind, identity)
+                saved = previous.data if previous else {}
+                fingerprint = hashlib.sha256(
+                    json.dumps(
+                        [
+                            values,
+                            groups,
+                            group_values,
+                            due,
+                            snapshot["generation"],
+                            snapshot["input_version_fingerprint"],
+                        ],
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode()
+                ).hexdigest()
+                if saved.get("input_fingerprint") == fingerprint:
+                    continue
+                old_groups = {_group_key(service, g): g for g in saved.get("groups", [])}
+                new_groups = {_group_key(service, g): g for g in groups}
+                for group_key in sorted(old_groups.keys() | new_groups.keys()):
+                    delta = delta_values(
+                        saved.get("group_values", {}).get(group_key, saved.get("values", {}))
+                        if group_key in old_groups
+                        else {},
+                        group_values.get(group_key, values) if group_key in new_groups else {},
+                    )
+                    if delta:
+                        add(
+                            new_groups.get(group_key) or old_groups[group_key],
+                            delta,
+                            group_values.get(group_key, values),
+                        )
+                value = {
+                    "source_kind": kind,
+                    "source_id": identity,
+                    "source_version": snapshot["row"].get("version", snapshot["generation"]),
+                    "campaign_id": snapshot["campaign_id"],
+                    "definition_version": target["definition"],
+                    "namespace": namespace,
+                    "input_fingerprint": fingerprint,
+                    "input_version_fingerprint": snapshot["input_version_fingerprint"],
+                    "dirty_generation": snapshot["generation"],
+                    "values": values,
+                    "group_values": group_values,
+                    "groups": groups,
+                    "next_refresh_at": due,
+                    "error": error,
+                    "as_of": now.isoformat(),
+                }
+                if previous:
+                    update(previous, **value)
+                else:
+                    put(
+                        session,
+                        "metric_contributions",
+                        p["tenant_id"],
+                        p["seller_id"],
+                        value,
+                        key=key,
+                        now=now,
+                    )
+                changed = True
+            results[index] = {"status": "error" if any(c[3] for c in calculated.values()) else "ready"}
+            if not changed and results[index]["status"] == "ready":
+                results[index] = {"status": "unchanged"}
+            if changed:
+                changed_units.append(snapshot)
+            if payload.get("absorbed"):
+                job.status, job.error, job.lease_owner, job.lease_expires_at = "completed", None, None, None
+                job.payload = {**job.payload, "claimed_generation": job.payload["desired_generation"]}
+
+        def total_of(group):
+            return {
+                "bucket_kind": "total",
+                "bucket_day": None,
+                "campaign_id": group["campaign_id"],
+                "definition_version": group["definition_version"],
+                "namespace": group["namespace"],
+            }
+
+        # A receipt set's observed-cost change folds into its total: lock that too.
+        for group, _, _ in [entry for entry in deltas.values() if entry[0]["bucket_kind"] == "call_cost"]:
+            add(total_of(group), {})
+        buckets = _locked(session, p, "metric_buckets", deltas)
+        for key in sorted(deltas):
+            group, delta, fields = deltas[key]
+            if group["bucket_kind"] == "call_cost":
+                before, after = _apply_bucket_delta(
+                    service, session, p, group, delta, fields, bucket=buckets.get(key), key=key
+                )
+                add(total_of(group), delta_values(observed_call_cost(before), observed_call_cost(after)))
+        for key in sorted(deltas):
+            group, delta, fields = deltas[key]
+            if group["bucket_kind"] != "call_cost" and delta:
+                _apply_bucket_delta(
+                    service, session, p, group, delta, fields, bucket=buckets.get(key), key=key
+                )
+        active = any(
+            ns == snap["pointer"].get("active_namespace", "initial")
+            for snap in changed_units
+            for ns in snap["namespaces"]
+        )
+    if active:
+        # The dirty chain repairs saved views after this commit, one pending refresh
+        # per view; it never locks, or reads in a write, the seller revision.
+        service.schedule_report_refreshes(p)
+    return results
+
+
 def refresh_unit(service, p, payload):
-    """Compute outside writes, then replace one source vector under a generation fence."""
+    """One source unit; a leased worker also absorbs up to 99 more due units of its seller."""
     if payload["source_kind"] in {"endpoint-leads", "lead-calls", "campaign-leads", "rep-days"}:
         return expand_dependents(service, p, payload)
-    snapshot = _unit_snapshot(service, p, payload)
-    if not snapshot["namespaces"]:
-        return {"status": "unrelated" if payload.get("target_namespace") else "superseded"}
-    calculated = {
-        ns: (
-            *_calculate_unit({**snapshot, **target}, service.clock()),
-            _detail_groups({**snapshot, **target}, service.clock(), ns),
-        )
-        for ns, target in snapshot["targets"].items()
+    absorbed = _queued_units(service, p, payload) if payload.get("job_id") else []
+    results = refresh_units(service, p, [payload, *absorbed])
+    return {
+        **results[0],
+        "absorbed": sum(r["status"] not in {"superseded", "lost_lease"} for r in results[1:]),
     }
-    kind, identity = snapshot["kind"], snapshot["identity"]
-    with service.db.transaction() as session:
-        # Match originating writes' short revision -> job -> data lock order.
-        # This is the existing seller watermark row, never an advisory/global lock.
-        service.report_revision(session, p, lock=True)
-        if rebuild_lease := payload.get("rebuild_lease"):
-            owner = session.get(Job, rebuild_lease[0], with_for_update=True)
-            if not _rebuild_owned(owner, rebuild_lease, service.clock()):
-                return {"status": "lost_lease"}
-        job = session.scalar(
-            select(Job)
-            .where(
-                Job.tenant_id == p["tenant_id"], Job.key == f"projection:{p['seller_id']}:{kind}:{identity}"
-            )
-            .with_for_update()
-        )
-        if payload.get("job_id"):
-            from app.jobs.queue import aware
-
-            if (
-                not job
-                or job.id != payload["job_id"]
-                or job.status != "running"
-                or job.lease_owner != payload.get("lease_owner")
-                or not job.lease_expires_at
-                or aware(job.lease_expires_at) <= service.clock()
-            ):
-                return {"status": "lost_lease"}
-        if job and job.payload["desired_generation"] != snapshot["generation"]:
-            return {"status": "superseded"}
-        campaign = session.scalar(
-            _scoped_query(p, "campaigns")
-            .where(MODELS["campaigns"].id == snapshot["campaign_id"])
-            .with_for_update()
-        )
-        if not campaign or campaign.data.get("metric_projection", {}) != snapshot["pointer"]:
-            return {"status": "superseded"}
-        current_definition = definition_version(
-            {**snapshot["config"], **campaign.data.get("optimization", {})},
-            campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2"),
-        )
-        if current_definition != snapshot["definition"]:
-            return {"status": "superseded"}
-        current = {}
-        for namespace in snapshot["namespaces"]:
-            key = unit_key(snapshot["targets"][namespace]["definition"], namespace, kind, identity)
-            model = MODELS["metric_contributions"]
-            previous = session.scalar(
-                _scoped_query(p, "metric_contributions").where(model.external_key == key).with_for_update()
-            )
-            expected = snapshot["previous"][namespace]
-            if (previous.version if previous else None) != (expected["version"] if expected else None):
-                return {"status": "superseded"}
-            current[namespace] = previous
-        changed = False
-        for namespace, previous in current.items():
-            target = snapshot["targets"][namespace]
-            values, due, details = calculated[namespace]
-            details = details + _call_cost_group({**snapshot, **target}, values, namespace)
-            key = unit_key(target["definition"], namespace, kind, identity)
-            saved = previous.data if previous else {}
-            groups = (_groups({**snapshot, **target}, namespace) if values else []) + [g for g, _ in details]
-            group_values = {_group_key(service, g): v for g, v in details}
-            fingerprint = hashlib.sha256(
-                json.dumps(
-                    [
-                        values,
-                        groups,
-                        group_values,
-                        due,
-                        snapshot["generation"],
-                        snapshot["input_version_fingerprint"],
-                    ],
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ).encode()
-            ).hexdigest()
-            if saved.get("input_fingerprint") == fingerprint:
-                continue
-            old_groups = {_group_key(service, g): g for g in saved.get("groups", [])}
-            new_groups = {_group_key(service, g): g for g in groups}
-            cost_delta = {}
-            for group_key in sorted(old_groups.keys() | new_groups.keys()):
-                delta = delta_values(
-                    saved.get("group_values", {}).get(group_key, saved.get("values", {}))
-                    if group_key in old_groups
-                    else {},
-                    group_values.get(group_key, values) if group_key in new_groups else {},
-                )
-                if not delta:
-                    continue
-                group = new_groups.get(group_key) or old_groups[group_key]
-                before, after = _apply_bucket_delta(
-                    service, session, p, group, delta, group_values.get(group_key, values)
-                )
-                if group["bucket_kind"] == "call_cost":
-                    for name, change in delta_values(
-                        observed_call_cost(before), observed_call_cost(after)
-                    ).items():
-                        cost_delta[name] = cost_delta.get(name, 0) + change
-            if cost_delta:
-                # Same short seller watermark fence as the source replacement.
-                # Receipt and eligibility changes update the total atomically,
-                # without reading the call's ledger history or another job.
-                total_group = _groups({**snapshot, **target}, namespace)[0]
-                _apply_bucket_delta(service, session, p, total_group, cost_delta)
-            value = {
-                "source_kind": kind,
-                "source_id": identity,
-                "source_version": snapshot["row"].get("version", snapshot["generation"]),
-                "campaign_id": snapshot["campaign_id"],
-                "definition_version": target["definition"],
-                "namespace": namespace,
-                "input_fingerprint": fingerprint,
-                "input_version_fingerprint": snapshot["input_version_fingerprint"],
-                "dirty_generation": snapshot["generation"],
-                "values": values,
-                "group_values": group_values,
-                "groups": groups,
-                "next_refresh_at": due,
-                "as_of": service.clock().isoformat(),
-            }
-            if previous:
-                update(previous, **value)
-            else:
-                put(
-                    session,
-                    "metric_contributions",
-                    p["tenant_id"],
-                    p["seller_id"],
-                    value,
-                    key=key,
-                    now=service.clock(),
-                )
-            changed = True
-        if not snapshot["pointer"]:
-            campaign.data = {
-                **campaign.data,
-                "metric_projection": {
-                    "active_namespace": "initial",
-                    "active_definition": snapshot["definition"],
-                    "active_config": snapshot["config"],
-                },
-            }
-        if changed and kind == "lead" and snapshot["row"].get("campaign_id"):
-            # The campaign row is already locked. Keep one not-yet-running
-            # page, and start another at100 IDs or when its owner has begun.
-            # This durable follow-on also survives explicit rebuild/catch-up.
-            pending_id = campaign.data.get("pending_planning_job")
-            pending = session.get(Job, pending_id, with_for_update=True) if pending_id else None
-            reusable = bool(
-                pending
-                and pending.tenant_id == p["tenant_id"]
-                and pending.payload.get("campaign_id") == campaign.id
-                and pending.payload.get("internal")
-                and pending.status == "queued"
-                and (identity in pending.payload["lead_ids"] or len(pending.payload["lead_ids"]) < 100)
-            )
-            ids = sorted(set((pending.payload["lead_ids"] if reusable else []) + [identity]))
-            job = service.jobs.enqueue_in(
-                session,
-                "ml",
-                {
-                    "kind": "retry_plan_refresh",
-                    "seller_id": p["seller_id"],
-                    "campaign_id": snapshot["row"]["campaign_id"],
-                    "lead_ids": ids,
-                    "input_fingerprint": hashlib.sha256(
-                        json.dumps(
-                            [
-                                pending.payload.get("input_fingerprint") if reusable else None,
-                                identity,
-                                snapshot["input_version_fingerprint"],
-                            ]
-                        ).encode()
-                    ).hexdigest(),
-                    "internal": True,
-                },
-                pending.key if reusable else f"planning-page:{campaign.id}:{uid()}",
-                tenant_id=p["tenant_id"],
-                priority=15,
-                latest=True,
-            )
-            campaign.data = {**campaign.data, "pending_planning_job": job["id"]}
-        return {"status": "ready" if changed else "unchanged"}
 
 
 def refresh_due(service, p, *, limit=100):
@@ -1545,8 +1687,9 @@ def refresh_due(service, p, *, limit=100):
                 .limit(limit)
             )
         )
-    for kind, identity in dict.fromkeys(sources):
-        refresh_unit(service, p, {"source_kind": kind, "source_id": identity})
+    units = [{"source_kind": kind, "source_id": identity} for kind, identity in dict.fromkeys(sources)]
+    if units:
+        refresh_units(service, p, units)
     return {"processed": len(sources)}
 
 
@@ -1629,7 +1772,7 @@ def expand_dependents(service, p, payload):
         )
         if current_cursor != cursor:
             return {"status": "superseded", "processed": 0}
-        enqueue_units(session, {(p["tenant_id"], p["seller_id"], target_kind, i): False for i in ids})
+        enqueue_units(session, {(p["tenant_id"], p["seller_id"], target_kind, i) for i in ids})
         job.payload = {
             **job.payload,
             "cursor_generation": generation,
@@ -1655,11 +1798,34 @@ _REBUILD_SOURCES = (
 )
 
 
+def _cleanup(service, session, p, campaign_id, retired):
+    """Queue bounded removal of derived namespaces nothing reads any more."""
+    for item in retired:
+        for table in ("metric_contributions", "metric_buckets"):
+            service.jobs.enqueue_in(
+                session,
+                "ml",
+                {
+                    "kind": "metric_cleanup",
+                    "seller_id": p["seller_id"],
+                    "campaign_id": campaign_id,
+                    **item,
+                    "table": table,
+                },
+                f"metric-cleanup:{p['seller_id']}:{item['definition']}:{item['namespace']}:{table}",
+                tenant_id=p["tenant_id"],
+                priority=1,
+            )
+
+
 def _rebuild_control(service, p, *, start, lease=None):
+    # The seller watermark is read before, never locked by, this write: source
+    # writers take that row last, so a derived writer never waits on it.
+    with service.db.transaction(False) as session:
+        watermark = service.report_revision(session, p)
     with service.db.transaction() as session:
-        watermark = service.report_revision(session, p, lock=True)
         campaign = service.selected_campaign(session, p, lock=True)
-        config = service.optimization_config(session, p, campaign.id)
+        config = service.optimization_config(session, p, campaign=campaign)
         epoch = campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
         definition = definition_version(config, epoch)
         key = f"metric-rebuild:{p['seller_id']}:{campaign.id}"
@@ -1711,6 +1877,15 @@ def _rebuild_control(service, p, *, start, lease=None):
                 "desired_generation": state.get("desired_generation", 0) + 1,
                 "claimed_generation": state.get("claimed_generation", 0),
             }
+            retired = list(pointer.get("retired", []))
+            if pointer.get("building_namespace"):
+                # The replaced partial namespace is never activated or read again.
+                abandoned = {
+                    "namespace": pointer["building_namespace"],
+                    "definition": pointer["building_definition"],
+                }
+                retired.append(abandoned)
+                _cleanup(service, session, p, campaign.id, [abandoned])
             pointer = {
                 **pointer,
                 "active_namespace": pointer.get("active_namespace", "initial"),
@@ -1719,6 +1894,7 @@ def _rebuild_control(service, p, *, start, lease=None):
                 "building_namespace": namespace,
                 "building_definition": definition,
                 "building_config": config,
+                "retired": retired,
             }
             campaign.data = {**campaign.data, "metric_projection": pointer}
             group = {
@@ -1768,7 +1944,7 @@ def _rebuild_control(service, p, *, start, lease=None):
 
 
 def _rebuild_source_page(service, p, state, lease=None):
-    """At most500 indexed source identities; work spans resume within a row."""
+    """At most500 indexed source identities, replaced 100 per write; work spans resume within a row."""
     from sqlalchemy import and_, or_
 
     cursor = dict(state["cursor"])
@@ -1787,66 +1963,70 @@ def _rebuild_source_page(service, p, state, lease=None):
                 or_(model.created_at > at, and_(model.created_at == at, model.id > cursor["after_id"]))
             )
         rows = list(session.execute(query.order_by(model.created_at, model.id).limit(500)))
-    processed, completed_days = 0, set()
+    processed, identities, stop = 0, [], None
     for row in rows:
         if kind == "rep-day":
             rep, begin, end = row[2:]
             day = timestamp(cursor["day"]).date() if cursor.get("day") else begin.date() if begin else None
             while rep and day and end and day <= end.date():
                 if processed == 500:
-                    cursor["day"] = day.isoformat()
-                    return cursor, processed
-                identity = (
+                    stop = {**cursor, "day": day.isoformat()}
+                    break
+                identities.append(
                     (state["campaign_id"] + "|" if state["campaign_id"] != primary else "")
                     + rep
                     + ":"
                     + day.isoformat()
                 )
-                if identity not in completed_days:
-                    key = unit_key(state["definition"], state["namespace"], "rep-day", identity)
-                    with service.db.transaction(False) as session:
-                        already = session.scalar(
-                            _scoped_query(p, "metric_contributions")
-                            .with_only_columns(MODELS["metric_contributions"].id)
-                            .where(MODELS["metric_contributions"].external_key == key)
-                        )
-                    # The new namespace already contains the complete day union.
-                    # Later corrections are fenced/replayed through dirty jobs in
-                    # both namespaces before activation; another source row is
-                    # not another contribution or reason to reread that day.
-                    if not already:
-                        result = refresh_unit(
-                            service,
-                            p,
-                            {
-                                "source_kind": "rep-day",
-                                "source_id": identity,
-                                "target_namespace": state["namespace"],
-                                "rebuild_lease": lease,
-                            },
-                        )
-                        if result["status"] not in {"ready", "unchanged"}:
-                            return state["cursor"], processed
-                    completed_days.add(identity)
                 processed += 1
                 day += timedelta(days=1)
+            if stop:
+                break
         else:
-            result = refresh_unit(
-                service,
-                p,
-                {
-                    "source_kind": kind,
-                    "source_id": "callback:" + row.id if table == "followup_tasks" else row.id,
-                    "target_namespace": state["namespace"],
-                    "rebuild_lease": lease,
-                },
-            )
-            if result["status"] not in {"ready", "unchanged", "unrelated"}:
-                return state["cursor"], processed
+            identities.append("callback:" + row.id if table == "followup_tasks" else row.id)
             processed += 1
         cursor.update(after_id=row.id, after_at=row.created_at.isoformat(), day=None)
         if processed == 500:
-            return cursor, processed
+            stop = dict(cursor)
+            break
+    identities = list(dict.fromkeys(identities))
+    if kind == "rep-day" and identities:
+        # The new namespace already contains each complete day union. Later
+        # corrections are fenced/replayed through dirty jobs in both namespaces
+        # before activation; another source row is not another contribution.
+        keys = {unit_key(state["definition"], state["namespace"], "rep-day", i): i for i in identities}
+        with service.db.transaction(False) as session:
+            contributions = MODELS["metric_contributions"]
+            present = set()
+            names = sorted(keys)
+            for offset in range(0, len(names), 400):
+                present.update(
+                    session.scalars(
+                        _scoped_query(p, "metric_contributions")
+                        .with_only_columns(contributions.external_key)
+                        .where(contributions.external_key.in_(names[offset : offset + 400]))
+                    )
+                )
+        identities = [i for key, i in keys.items() if key not in present]
+    accepted = {"ready", "unchanged", "unrelated", "error"}
+    for offset in range(0, len(identities), 100):
+        results = refresh_units(
+            service,
+            p,
+            [
+                {
+                    "source_kind": kind,
+                    "source_id": identity,
+                    "target_namespace": state["namespace"],
+                    "rebuild_lease": lease,
+                }
+                for identity in identities[offset : offset + 100]
+            ],
+        )
+        if any(r["status"] not in accepted for r in results):
+            return state["cursor"], processed
+    if stop:
+        return stop, processed
     if len(rows) < 500:
         cursor = {"phase": cursor["phase"] + 1, "after_id": "", "after_at": None, "day": None}
     return cursor, processed
@@ -1856,7 +2036,7 @@ def _rebuild_catchup(service, p):
     """Use existing leases and completion, never run arbitrary ML/paid jobs."""
     worker = "projection-replay-" + uid()
     processed = 0
-    for _ in range(100):
+    while processed < 100:
         job = service.jobs.claim(
             "ml", worker, tenant_id=p["tenant_id"], key_prefix=f"projection:{p['seller_id']}:"
         )
@@ -1867,10 +2047,10 @@ def _rebuild_catchup(service, p):
             if result["status"] == "lost_lease":
                 break
             if result["status"] in {"pending", "superseded"}:
-                service.jobs.coalesce_refresh(job["id"], worker)
+                service.jobs.coalesce_refresh(job["id"], worker, progressed=bool(result.get("processed")))
             else:
                 service.jobs.complete(job["id"], worker)
-            processed += 1
+            processed += 1 + result.get("absorbed", 0)
         except Exception as exc:
             service.jobs.fail(job["id"], worker, type(exc).__name__)
             raise
@@ -1914,8 +2094,15 @@ def rebuild_page(service, p, *, start=False, lease=None):
     else:
         next_cursor, processed = cursor, _rebuild_catchup(service, p)
     result = {**empty, "processed": processed, "cursor": next_cursor, "status": "pending"}
+    with service.db.transaction(False) as session:
+        watermark = service.report_revision(session, p)
     with service.db.transaction() as session:
-        watermark = service.report_revision(session, p, lock=True)
+        # Same order as source pages: the campaign row, then job rows.
+        campaign = session.scalar(
+            _scoped_query(p, "campaigns")
+            .where(MODELS["campaigns"].id == state["campaign_id"])
+            .with_for_update()
+        )
         job = session.scalar(
             select(Job)
             .where(
@@ -1926,14 +2113,9 @@ def rebuild_page(service, p, *, start=False, lease=None):
         )
         if lease and not _rebuild_owned(job, lease, service.clock()):
             return {**result, "status": "lost_lease"}
-        campaign = session.scalar(
-            _scoped_query(p, "campaigns")
-            .where(MODELS["campaigns"].id == state["campaign_id"])
-            .with_for_update()
-        )
         pointer = dict(campaign.data.get("metric_projection", {}))
         current = definition_version(
-            service.optimization_config(session, p, campaign.id),
+            service.optimization_config(session, p, campaign=campaign),
             campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2"),
         )
         if (
@@ -1946,19 +2128,21 @@ def rebuild_page(service, p, *, start=False, lease=None):
             return {**result, "status": "superseded"}
         state = {**state, "cursor": next_cursor, "processed": state["processed"] + processed}
         if not scanning:
+            # Units still queued or running would change the new namespace after
+            # activation. A dead unit is a surfaced per-unit error: it does not
+            # hold every later rebuild hostage.
             pending = session.scalar(
-                select(Job.status)
+                select(Job.id)
                 .where(
                     Job.tenant_id == p["tenant_id"],
                     Job.key.startswith(f"projection:{p['seller_id']}:", autoescape=True),
-                    Job.status.in_(["queued", "running", "dead"]),
+                    Job.status.in_(["queued", "running"]),
                 )
-                .order_by(Job.status)
                 .limit(1)
             )
             if pending:
                 job.payload = state
-                return {**result, "status": "blocked" if pending == "dead" else "pending"}
+                return result
             retired = list(pointer.get("retired", []))
             retired.append(
                 {"namespace": pointer["active_namespace"], "definition": pointer["active_definition"]}
@@ -1974,29 +2158,15 @@ def rebuild_page(service, p, *, start=False, lease=None):
             )
             campaign.data = {**campaign.data, "metric_projection": pointer}
             state.update(state="ready", source_watermark=watermark)
-            for retired_namespace in retired:
-                if retired_namespace["definition"] != definition:
-                    continue  # Keep frozen historical definitions; retire only redundant copies.
-                for table in ("metric_contributions", "metric_buckets"):
-                    self_key = f"metric-cleanup:{p['seller_id']}:{definition}:{retired_namespace['namespace']}:{table}"
-                    service.jobs.enqueue_in(
-                        session,
-                        "ml",
-                        {
-                            "kind": "metric_cleanup",
-                            "seller_id": p["seller_id"],
-                            "campaign_id": campaign.id,
-                            **retired_namespace,
-                            "table": table,
-                        },
-                        self_key,
-                        tenant_id=p["tenant_id"],
-                        priority=1,
-                    )
+            # Reads use only the active namespace: every retired one is removable,
+            # including older definitions.
+            _cleanup(service, session, p, campaign.id, retired)
             if job.status != "running":
                 job.status = "completed"
             result.update(published=True, status="ready", source_watermark=watermark)
         job.payload = state
+    if result["published"]:
+        service.schedule_report_refreshes(p)  # Saved views move to the activated totals.
     return result
 
 
@@ -2154,6 +2324,11 @@ def read_number_health_metrics(service, p):
 
     with service.db.transaction(False) as session:
         config, group, _ = _total_in(service, session, p)
+        # Thresholds are read-time policy; the window is part of the saved definition.
+        policy = {
+            **service.optimization_config(session, p, group["campaign_id"])["health_policy"],
+            "window_days": config["health_policy"]["window_days"],
+        }
         prefix = f"v{group['definition_version']}:{group['namespace']}:"
         model = MODELS["metric_buckets"]
         query = _scoped_query(p, "metric_buckets").where(
@@ -2192,7 +2367,7 @@ def read_number_health_metrics(service, p):
         row["group"]["number_id"]: health_from_counts(
             row["values"],
             now=service.clock(),
-            policy=config["health_policy"],
+            policy=policy,
             comparison_strata=distinct.get(row["group"]["number_id"], 0) if len(strata) <= 1000 else None,
             next_expiry_at=timestamp(expiry).isoformat() if expiry else None,
         )
@@ -2330,7 +2505,7 @@ def read_trial_metrics(service, p, *, epoch=None):
 
 def read_metrics(service, p):
     """One total plus bounded rep totals; never source history or a training dataset."""
-    from app.measurement import connect_health_counts, work_summary
+    from app.measurement import WORK_LEASE_SECONDS, WORK_NOTE, connect_health_counts
 
     with service.db.transaction(False) as session:
         config, group, values = _total_in(service, session, p)
@@ -2378,17 +2553,19 @@ def read_metrics(service, p):
             "pending_outcome_windows",
         )
     }
-    work = work_summary([], [], now=service.clock())
-    work.update(
-        seconds=values.get("rep_work_seconds", 0) if values.get("work_evidence_count") else None,
-        by_rep={
+    work = {
+        "seconds": values.get("rep_work_seconds", 0) if values.get("work_evidence_count") else None,
+        "by_rep": {
             r.data["group"]["rep_id"]: r.data["values"]["rep_work_seconds"]
             for r in reps[:500]
             if r.data["values"].get("work_evidence_count")
         },
-        stale_intervals=values.get("stale_intervals", 0),
-        rep_details_complete=len(reps) <= 500,
-    )
+        "stale_intervals": values.get("stale_intervals", 0),
+        "source": "declared_presence_heartbeat_and_verified_calls",
+        "lease_seconds": WORK_LEASE_SECONDS,
+        "note": WORK_NOTE,
+        "rep_details_complete": len(reps) <= 500,
+    }
     health = connect_health_counts(values)
     denominator = counts["original_eligible_denominator"]
     return {
@@ -2433,6 +2610,8 @@ def read_metrics(service, p):
         else None,
         "observed_cost_calls": values.get("observed_cost_calls", 0),
         "unknown_cost_calls": values.get("unknown_cost_calls", 0),
+        # Sources whose receipts or labels could not be computed; their totals are excluded.
+        "unit_errors": values.get("unit_errors", 0),
         "billing_verified": bool(values.get("usage_count")) and not values.get("unverified_usage_count"),
         "simulation": service.settings.simulation,
     }
@@ -2447,22 +2626,23 @@ def cleanup_page(service, p, payload, *, lease=None):
     # The same identity validation as source writes, with no content-derived path.
     unit_key(definition, namespace, "lead", "validation")
     with service.db.transaction() as session:
-        service.report_revision(session, p, lock=True)
-        if lease:
-            job = session.get(Job, lease[0], with_for_update=True)
-            if not _rebuild_owned(job, lease, service.clock()):
-                return {"status": "lost_lease", "processed": 0}
+        # Campaign row, then the job row: the order every projection writer uses.
         campaign = session.scalar(
             _scoped_query(p, "campaigns")
             .where(MODELS["campaigns"].id == payload["campaign_id"])
             .with_for_update()
         )
+        if lease:
+            job = session.get(Job, lease[0], with_for_update=True)
+            if not _rebuild_owned(job, lease, service.clock()):
+                return {"status": "lost_lease", "processed": 0}
         pointer = dict(campaign.data.get("metric_projection", {})) if campaign else {}
-        if (
-            namespace in {pointer.get("active_namespace"), pointer.get("building_namespace")}
-            or definition != pointer.get("active_definition")
-            or {"namespace": namespace, "definition": definition} not in pointer.get("retired", [])
-        ):
+        # Only explicitly retired namespaces, never the active or building one.
+        # Reads use the active namespace alone, so an older definition is not kept.
+        if namespace in {pointer.get("active_namespace"), pointer.get("building_namespace")} or {
+            "namespace": namespace,
+            "definition": definition,
+        } not in pointer.get("retired", []):
             return {"status": "protected", "processed": 0}
         prefix = f"v{definition}:{namespace}:"
         model = MODELS[table]

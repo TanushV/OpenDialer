@@ -127,7 +127,7 @@ def test_forecast_publishes_one_bounded_summary_and_no_per_lead_plans(workspace,
     assert len(report["plans"]) <= 100
 
 
-def test_superseded_forecast_does_not_fan_out_retry_plan_jobs(workspace, app, monkeypatch):
+def test_forecast_changed_during_calculation_publishes_as_of_without_plan_jobs(workspace, app, monkeypatch):
     import app.optimization.capacity as capacity
     import app.optimization.workflows as workflows
     from app.db import Job
@@ -142,8 +142,11 @@ def test_superseded_forecast_does_not_fan_out_retry_plan_jobs(workspace, app, mo
         return result
 
     monkeypatch.setattr(workflows, "capacity_forecast", changed)
-    assert service.build_forecast(p, workspace["campaign_id"])["status"] == "superseded"
+    # Published with the watermark read before the calculation: shown stale, not discarded.
+    result = service.build_forecast(p, workspace["campaign_id"])
+    assert result["status"] == "ready"
     with service.db.transaction(False) as s:
+        assert service.saved_forecast(s, p)["projection"]["status"] == "stale"
         keys = [job.key for job in s.query(Job).all()]
     assert not [k for k in keys if k.startswith(("retry-plans:", "planning-rebalance:"))]
     assert not hasattr(capacity, "plan_changed")
