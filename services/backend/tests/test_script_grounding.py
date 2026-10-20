@@ -123,11 +123,8 @@ async def test_legacy_script_generation_reviews_novel_fields_before_publish(
             return InferenceResult(value, {"cost": 0.001}, "script-generation")
 
     monkeypatch.setattr(service, "inference", lambda *args: Provider())
-    if verdict == "SUPPORTED":
-        await service.prepare(p(workspace), [lead["id"]])
-    else:
-        with pytest.raises(RuntimeError):
-            await service.prepare(p(workspace), [lead["id"]])
+    result = await service.prepare(p(workspace), [lead["id"]])
+    assert result["failed"] == ([] if verdict == "SUPPORTED" else [lead["id"]])
     assert len(calls) == 2
     packet = service.packet(p(workspace), lead["id"])
     assert packet["script"]["fallback"] is (verdict != "SUPPORTED")

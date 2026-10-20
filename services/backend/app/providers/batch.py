@@ -15,7 +15,7 @@ def join_batch_results(expected, rows):
         response = row.get("response", {})
         if not row.get("error") and response.get("status_code", 200) == 200:
             completed[key] = response.get("body", {})
-    return {"completed": completed, "retry": [k for k in expected if k not in completed]}
+    return {"completed": completed}
 
 
 class OpenAIBatch:
