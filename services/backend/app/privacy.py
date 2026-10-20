@@ -2,13 +2,16 @@
 
 import base64
 import copy
+import heapq
+import itertools
 import json
 import math
 import re
 import threading
 import time
 from collections import OrderedDict
-from datetime import timedelta
+from datetime import datetime, timedelta
+from typing import NamedTuple
 
 RAW_TTL_SECONDS = 300
 
@@ -53,7 +56,23 @@ def usage_metadata(value):
     }
 
 
+class _Entry(NamedTuple):
+    deadline: datetime
+    mono: float
+    text: str | None  # Canonical JSON; None is a deadline tombstone.
+    size: int
+    scope: str | None
+    revision: int
+    seq: int
+
+
 class EphemeralBuffer:
+    """Raw content with a fixed lifetime from its original receipt.
+
+    Expiry is ordered by deadline, so a purge touches only expired entries. Values are stored
+    as JSON text: each read returns a fresh copy without a Python deep copy.
+    """
+
     def __init__(
         self,
         *,
@@ -69,65 +88,103 @@ class EphemeralBuffer:
         self.clock, self.ttl, self.max_bytes = clock, ttl_seconds, max_bytes
         self.max_entries = max_entries
         self.per_call_bytes, self.per_call_entries = min(per_call_bytes, max_bytes), per_call_entries
-        self._items = OrderedDict()
-        self._revoked = {}
+        self._items = OrderedDict()  # Original receipt order; a revision keeps its place.
+        self._expiry, self._mono_expiry = [], []  # (deadline, seq, key); stale seqs are skipped.
+        self._scopes = {}  # scope -> {key: size}, in receipt order
+        self._scope_bytes = {}
+        self._revoked = OrderedDict()  # scope -> monotonic deadline; one TTL, so ordered.
+        self._seq = itertools.count()
         self._lock = threading.RLock()
         self.bytes_used = 0
 
+    def _remove(self, key):
+        item = self._items.pop(key, None)
+        if item is None:
+            return
+        self.bytes_used -= item.size
+        if item.scope is not None:
+            keys = self._scopes[item.scope]
+            keys.pop(key, None)
+            self._scope_bytes[item.scope] -= item.size
+            if not keys:
+                del self._scopes[item.scope], self._scope_bytes[item.scope]
+
     def _purge(self):
         now, mono = self.clock(), time.monotonic()
-        self._revoked = {scope: until for scope, until in self._revoked.items() if until > mono}
-        for key, (deadline, monotonic_deadline, _, size, _) in list(self._items.items()):
-            if deadline <= now or monotonic_deadline <= mono:
-                del self._items[key]
-                self.bytes_used -= size
+        while self._revoked and next(iter(self._revoked.values())) <= mono:
+            self._revoked.popitem(last=False)
+        for heap, limit in ((self._expiry, now), (self._mono_expiry, mono)):
+            while heap and heap[0][0] <= limit:
+                _, seq, key = heapq.heappop(heap)
+                item = self._items.get(key)
+                if item is not None and item.seq == seq:
+                    self._remove(key)
+        if len(self._expiry) > 2 * len(self._items) + 1024:
+            # Revisions and evictions leave superseded heap records; rebuild occasionally.
+            self._expiry = [(i.deadline, i.seq, k) for k, i in self._items.items()]
+            self._mono_expiry = [(i.mono, i.seq, k) for k, i in self._items.items()]
+            heapq.heapify(self._expiry)
+            heapq.heapify(self._mono_expiry)
 
     def put(self, key, value, *, expires_at=None, scope=None, revision=None):
         with self._lock:
             self._purge()
             if scope in self._revoked:
                 return
-            deadline = min(
-                expires_at or self.clock() + timedelta(seconds=self.ttl),
-                self.clock() + timedelta(seconds=self.ttl),
-            )
+            now = self.clock()
+            ceiling = now + timedelta(seconds=self.ttl)
+            deadline = min(expires_at or ceiling, ceiling)
             old = self._items.get(key)
-            if revision is not None and old and old[2] and old[2].get("revision", 0) > revision:
+            if revision is not None and old and old.text is not None and old.revision > revision:
                 return
-            mono = time.monotonic() + max(0, (deadline - self.clock()).total_seconds())
+            mono = time.monotonic() + max(0, (deadline - now).total_seconds())
             if old:
-                deadline, mono = min(deadline, old[0]), min(mono, old[1])
-                self.bytes_used -= old[3]
-            size = len(json.dumps(value, ensure_ascii=False).encode())
+                # A revision never renews the original receipt's lifetime.
+                deadline, mono = min(deadline, old.deadline), min(mono, old.mono)
+                if old.scope != scope:
+                    self._remove(key)
+                else:
+                    self.bytes_used -= old.size
+                    if scope is not None:
+                        self._scope_bytes[scope] -= old.size
+            text = json.dumps(value, ensure_ascii=False)
+            size = len(text.encode())
             # Retain a deadline tombstone for oversize revisions: retries never renew a lifetime.
-            if size > (self.per_call_bytes if scope else self.max_bytes) or deadline <= self.clock():
-                value, size = None, 0
-            self._items[key] = (deadline, mono, copy.deepcopy(value), size, scope)
+            if size > (self.per_call_bytes if scope else self.max_bytes) or deadline <= now:
+                text, size = None, 0
+            seq = next(self._seq)
+            stored = value.get("revision", 0) if isinstance(value, dict) else 0
+            self._items[key] = _Entry(deadline, mono, text, size, scope, stored, seq)
+            heapq.heappush(self._expiry, (deadline, seq, key))
+            heapq.heappush(self._mono_expiry, (mono, seq, key))
             self.bytes_used += size
-            if scope:
-                scoped = [(k, item[3]) for k, item in self._items.items() if item[4] == scope]
-                scoped_bytes, scoped_count = sum(size for _, size in scoped), len(scoped)
-                for old_key, old_size in scoped:
-                    if scoped_bytes <= self.per_call_bytes and scoped_count <= self.per_call_entries:
-                        break
-                    self.discard(old_key)
-                    scoped_bytes -= old_size
-                    scoped_count -= 1
+            if scope is not None:
+                keys = self._scopes.setdefault(scope, {})
+                keys[key] = size
+                self._scope_bytes[scope] = self._scope_bytes.get(scope, 0) + size
+                while scope in self._scopes and (
+                    self._scope_bytes[scope] > self.per_call_bytes or len(keys) > self.per_call_entries
+                ):
+                    self._remove(next(iter(keys)))
             while self.bytes_used > self.max_bytes or len(self._items) > self.max_entries:
-                _, removed = self._items.popitem(last=False)
-                self.bytes_used -= removed[3]
+                self._remove(next(iter(self._items)))
 
     def get(self, key):
         with self._lock:
             self._purge()
             item = self._items.get(key)
-            return copy.deepcopy(item[2]) if item else None
+            return json.loads(item.text) if item and item.text is not None else None
+
+    def has(self, key):
+        """Presence without copying the content."""
+        with self._lock:
+            self._purge()
+            item = self._items.get(key)
+            return bool(item and item.text is not None)
 
     def discard(self, key):
         with self._lock:
-            item = self._items.pop(key, None)
-            if item:
-                self.bytes_used -= item[3]
+            self._remove(key)
 
     def purge(self):
         with self._lock:
@@ -136,16 +193,20 @@ class EphemeralBuffer:
     def clear(self):
         with self._lock:
             self._items.clear()
+            self._expiry.clear()
+            self._mono_expiry.clear()
+            self._scopes.clear()
+            self._scope_bytes.clear()
             self._revoked.clear()
             self.bytes_used = 0
 
     def revoke_scope(self, scope):
         with self._lock:
             self._purge()
+            self._revoked.pop(scope, None)
             self._revoked[scope] = time.monotonic() + self.ttl
-            for key, item in list(self._items.items()):
-                if item[4] == scope:
-                    self.discard(key)
+            for key in list(self._scopes.get(scope, ())):
+                self._remove(key)
 
 
 def event_metadata(payload):
