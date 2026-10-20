@@ -439,6 +439,71 @@ async def test_paging_refresh_that_made_progress_continues_without_backoff(
 
 
 @pytest.mark.asyncio
+async def test_work_a_sibling_drain_creates_runs_in_the_same_call(workspace, app, clock, monkeypatch):
+    service, p = app.state.service, principal(workspace)
+    defer_existing_jobs(service, clock)
+    created = {}
+
+    async def train_model_job(principal, payload):
+        await asyncio.sleep(0.3)  # The maintenance-class drain has already found nothing due.
+        created.update(
+            await asyncio.to_thread(ml_refresh, service, p, "created-by-training", "report_refresh")
+        )
+
+    monkeypatch.setattr(service, "train_model_job", train_model_job)
+    monkeypatch.setattr(service, "rebuild_optimization_report", lambda *a, **k: {"status": "ready"})
+    service.jobs.enqueue(
+        "ml",
+        {"seller_id": p["seller_id"], "user_id": p["user_id"]},
+        "operational-train:sibling",
+        tenant_id=p["tenant_id"],
+    )
+    result = await service.run_jobs(p["tenant_id"], ["ml"])
+    assert service.jobs.get(created["id"])["status"] == "completed", (
+        "Sibling-created work waited for a later call"
+    )
+    assert result["processed"] == 2
+
+
+@pytest.mark.asyncio
+async def test_refresh_superseded_by_newer_input_does_not_end_the_pass(workspace, app, clock, monkeypatch):
+    service, p = app.state.service, principal(workspace)
+    defer_existing_jobs(service, clock)
+    payload = {"kind": "home_refresh", "seller_id": p["seller_id"], "user_id": p["user_id"], "role": "admin"}
+
+    def newer_input(epoch):
+        with service.db.transaction() as s:
+            return service.jobs.enqueue_in(
+                s,
+                "ml",
+                {**payload, "epoch": epoch},
+                "renewed-home",
+                tenant_id=p["tenant_id"],
+                priority=18,
+                latest=True,
+            )
+
+    renewed = newer_input(0)
+    runs = []
+
+    def home(*args, **kwargs):
+        runs.append(len(runs))
+        if len(runs) < 3:
+            newer_input(len(runs))  # A source write lands while this run computes.
+            return {"status": "superseded"}
+        return {"status": "ready"}
+
+    monkeypatch.setattr(service, "rebuild_home_metrics", home)
+    monkeypatch.setattr(service, "rebuild_optimization_report", lambda *a, **k: {"status": "ready"})
+    behind = ml_refresh(service, p, "report-behind", kind="report_refresh")
+    result = await service.run_jobs(p["tenant_id"], ["ml"])
+    assert runs == [0, 1, 2], "Each newer generation is fresh work in the same pass"
+    assert service.jobs.get(renewed["id"])["status"] == "completed"
+    assert service.jobs.get(behind["id"])["status"] == "completed", "Lower-priority work still ran"
+    assert result["processed"] == 2
+
+
+@pytest.mark.asyncio
 async def test_heartbeat_failure_in_one_job_does_not_cancel_its_siblings(workspace, app, clock, monkeypatch):
     service, p = app.state.service, principal(workspace)
     defer_existing_jobs(service, clock)

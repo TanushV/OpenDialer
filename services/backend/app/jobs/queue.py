@@ -298,9 +298,10 @@ class JobQueue:
         A page that made progress is due again at once. A refresh that keeps
         being superseded or keeps waiting retries at once twice, then backs off
         (5 s doubling to 60 s) until it next completes, so it cannot spin.
-        Neither path consumes an attempt.
+        Neither path consumes an attempt. Returns True when newer input arrived
+        during the run, so the requeued job is fresh work rather than a retry.
         """
-        self._finish(job_id, worker, coalesced=True, progressed=progressed)
+        return self._finish(job_id, worker, coalesced=True, progressed=progressed)
 
     def _finish(self, job_id, worker, error=None, retry_seconds=0, *, coalesced=False, progressed=False):
         with self.db.transaction() as s:
@@ -338,7 +339,7 @@ class JobQueue:
                 elif job.attempts >= job.max_attempts:
                     job.status = "dead"
                 job.lease_owner, job.lease_expires_at = None, None
-                return
+                return True
             job.error = error[:500] if error else None
             streak = previous = job.payload.get("coalesced", 0)
             if coalesced:
@@ -364,6 +365,7 @@ class JobQueue:
             )
             job.available_at = self.clock() + timedelta(seconds=retry_seconds)
             job.lease_owner, job.lease_expires_at = None, None
+            return False
 
     def heartbeat(self, job_id, worker, seconds=60):
         with self.db.transaction() as s:
