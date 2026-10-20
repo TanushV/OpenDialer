@@ -19,7 +19,7 @@ def run_tool(name, *args):
         cwd=ROOT,
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=120,  # Hang guard only; a loaded parallel run can start interpreters slowly.
         env={**os.environ, "OPENDIALER_COMPLETION_TEST": "1"},
     )
 
@@ -115,15 +115,68 @@ def test_mutation_inventory_names_real_assertions_and_disposable_execution():
     assert data["success_requires"] == "unmutated_pass_and_designated_mutated_assertion_failure"
 
 
+def ci_workflow():
+    import yaml
+
+    source = (ROOT / ".github/workflows/ci.yml").read_text()
+    workflow = yaml.safe_load(source)
+    # YAML 1.1 reads the bare `on` key as boolean true.
+    return source, workflow, workflow.get("on", workflow.get(True))
+
+
+def pytest_steps(job):
+    return [
+        step for step in job["steps"] if "uv run pytest services/backend/tests tests" in step.get("run", "")
+    ]
+
+
 def test_ci_enforces_each_database_statement_and_branch_floor():
-    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-    for mode in ("sqlite", "postgres"):
-        assert f"--cov-report=json:work/remediation/completion/{mode}-coverage.json" in workflow
-        assert f"--junitxml=work/remediation/completion/{mode}-junit.xml" in workflow
-    assert workflow.count("--cov=app --cov-branch") == 2
-    assert "check_completion_coverage.py --statements 90 --branches 80" in workflow
-    assert "name: software-acceptance-receipts" in workflow
-    assert "if: always()" in workflow
+    source, workflow, triggers = ci_workflow()
+    jobs = workflow["jobs"]
+    assert {"pull_request", "schedule", "workflow_dispatch", "push"} <= set(triggers)
+    full = workflow["env"]["POSTGRES_FULL"]
+    for condition in (
+        "github.event_name == 'schedule'",
+        "github.event_name == 'workflow_dispatch'",
+        "github.event_name == 'pull_request' && github.base_ref == 'main'",
+    ):
+        assert condition in full, (
+            "The complete PostgreSQL suite must run for PRs to main, nightly and on demand"
+        )
+    coverage_runs = {}
+    for name in ("backend-sqlite", "backend-postgres"):
+        for step in pytest_steps(jobs[name]):
+            command = step["run"]
+            assert " -n auto" in command, "Backend suites run on parallel workers"
+            if "--cov" in command:
+                mode = "sqlite" if name == "backend-sqlite" else "postgres"
+                assert " -m " not in command, "A coverage floor must be measured over the complete suite"
+                assert "--cov=app --cov-branch" in command
+                assert f"--cov-report=json:work/remediation/completion/{mode}-coverage.json" in command
+                assert f"--junitxml=work/remediation/completion/{mode}-junit.xml" in command
+                coverage_runs[mode] = step
+    assert set(coverage_runs) == {"sqlite", "postgres"} and source.count("--cov=app --cov-branch") == 2
+    assert "if" not in coverage_runs["sqlite"], "The complete SQLite suite runs on every event"
+    assert coverage_runs["postgres"]["if"] == "env.POSTGRES_FULL == 'true'"
+    postgres = jobs["backend-postgres"]
+    assert postgres["services"]["postgres"]["env"]["POSTGRES_DB"] == "opendialer_test"
+    assert postgres["env"]["OPENDIALER_TEST_POSTGRES_URL"].endswith("@localhost:5432/opendialer_test")
+    (subset,) = [step for step in pytest_steps(postgres) if step is not coverage_runs["postgres"]]
+    assert subset["if"] == "env.POSTGRES_FULL != 'true'" and '-m "postgres or database"' in subset["run"]
+    gate = jobs["coverage"]
+    assert set(gate["needs"]) == {"backend-sqlite", "backend-postgres"}
+    (check,) = [s for s in gate["steps"] if "check_completion_coverage.py" in s.get("run", "")]
+    assert "check_completion_coverage.py --statements 90 --branches 80" in check["run"]
+    assert "reports=(work/remediation/completion/sqlite-coverage.json)" in check["run"]
+    assert (
+        'if [ "$POSTGRES_FULL" = "true" ]; then reports+=(work/remediation/completion/postgres-coverage.json)'
+        in check["run"]
+    ), "PostgreSQL floors are enforced whenever its complete suite ran"
+    (receipts,) = [
+        s for s in gate["steps"] if s.get("with", {}).get("name") == "software-acceptance-receipts"
+    ]
+    assert receipts["if"] == "always()"
+    assert all(job.get("timeout-minutes") for job in jobs.values()), "Every CI job needs a time limit"
 
 
 def test_historical_receipt_cache_cannot_bypass_final_source_check(tmp_path, monkeypatch):
@@ -226,7 +279,13 @@ def test_handoff_manifest_scope(tmp_path, bad):
 
 
 def test_ci_installs_the_locked_ast_parser_before_backend_acceptance():
-    workflow = (ROOT / ".github/workflows/ci.yml").read_text().split("  native:")[0]
-    assert workflow.index("- run: npm ci") < workflow.index("- run: uv run pytest"), (
-        "The backend acceptance includes the TypeScript AST parser and needs locked node_modules"
-    )
+    _, workflow, _ = ci_workflow()
+    for name in ("backend-sqlite", "backend-postgres"):
+        steps = workflow["jobs"][name]["steps"]
+        installs = [i for i, s in enumerate(steps) if s.get("run") == "npm ci"]
+        suites = [i for i, s in enumerate(steps) if s in pytest_steps(workflow["jobs"][name])]
+        assert suites and installs and installs[0] < min(suites), (
+            "The backend acceptance includes the TypeScript AST parser and needs locked node_modules",
+            name,
+        )
+        assert all(s.get("working-directory") == "apps/desktop" for s in steps if s.get("run") == "npm ci")

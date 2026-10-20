@@ -292,6 +292,7 @@ def test_connect_warning_requires_supported_comparison_and_keeps_unknown_visible
     assert connect_health([{"started_at": clock.now.isoformat()}], now=clock.now)["unknown"] == 1
 
 
+@pytest.mark.database
 def test_work_table_migration_preserves_previous_rows(tmp_path):
     from app.migrate import migrate_database
     from sqlalchemy import create_engine, inspect

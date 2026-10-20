@@ -2,7 +2,6 @@
 
 import hashlib
 import re
-from datetime import UTC, datetime
 
 from app.coaching.contracts import ConversationStateV2, FieldAudit, ObservationDelta, StateDelta
 from app.coaching.engine import CardRejected, validate_card
@@ -72,17 +71,22 @@ def evidence(segment):
     }
 
 
-def build_context(segments, *, version, facts, commitments, prior=None):
+def build_context(segments, *, version, facts, commitments, prior=None, at=None):
+    """`at` is the authority clock time stamped on invalidations; prior state requires it."""
     stable = [s for s in segments if s.get("is_final") and not s.get("system_audio")]
     prior = prior or {}
     current = upgrade_state(prior)
     current["transcript_version"] = version
+    if at is None and (
+        prior.get("_lineage") or any(current[k] for k in ("observations", "rubric_items", "tracker_matches"))
+    ):
+        raise ValueError("Invalidating prior conversation state requires the service clock time")
     for segment in stable:
         current = invalidate_state(
             current,
             segment["segment_id"],
             segment.get("revision", 1),
-            at=datetime.now(UTC),
+            at=at,
             lineage=prior.get("_lineage", {}),
         )
     state = {
@@ -123,7 +127,7 @@ def retrieve_cards(state, cards):
             continue
         tokens = words(text + " " + " ".join(card.get("tags", [])))
         score = len(tokens & query) / max(1, len(tokens | query))
-        if score or "discovery" in card.get("tags", []):
+        if score:
             relevant.append((score, card))
     return [c for _, c in sorted(relevant, key=lambda item: (-item[0], item[1]["id"]))[:4]]
 
@@ -224,11 +228,30 @@ def guidance_fields(card, *, progressive=False):
     return fields
 
 
+def nonassertive_fields(card):
+    """Fields the generator audited, exactly once, as nonassertive with no implied premise."""
+    try:
+        audits = [FieldAudit.model_validate(a) for a in card.get("field_audit") or []]
+    except (TypeError, ValueError):
+        return set()
+    counts = {}
+    for item in audits:
+        counts[item.field] = counts.get(item.field, 0) + 1
+    return {
+        item.field
+        for item in audits
+        if counts[item.field] == 1 and item.classification == "nonassertive" and not item.implied_premises
+    }
+
+
 def guidance_review_request(card, request, *, progressive=False):
+    # A reviewer's NON_FACTUAL verdict supports only a field the generator itself declared
+    # nonassertive; it never approves a factual, premise-bearing or unaudited field.
+    allowed = nonassertive_fields(card)
     return review_request(
         "guidance",
         [
-            {"field": field, "value": value, "evidence": [], "allows_non_factual": True}
+            {"field": field, "value": value, "evidence": [], "allows_non_factual": field in allowed}
             for field, value in guidance_fields(card, progressive=progressive).items()
         ],
         [{**source, "id": source["kind"] + ":" + source["id"]} for source in guidance_sources(request)],
@@ -304,11 +327,56 @@ def ground_guidance(card, request, *, review=None, cached=False, progressive=Fal
         or any(a.classification != "nonassertive" or a.sources or a.implied_premises for a in selected)
         or not progressive
         and {a.field for a in audits} != expected
-        or isinstance(card.get("state_update"), dict)
-        and any(card["state_update"].get(key) for key in ("commitments", "score_items"))
+        or material_update(card.get("state_update"))
     ):
         raise MeaningReviewRequired("Complete independent review required")
     return True
+
+
+def material_update(update):
+    """A proposed commitment or rating keeps guidance off the single-inference path."""
+    if not isinstance(update, dict):
+        return False
+
+    def items(key):
+        value = update.get(key)
+        return [i for i in value if isinstance(i, dict)] if isinstance(value, list) else []
+
+    return bool(
+        update.get("commitments")  # Legacy untyped interpretation field.
+        or any(i.get("kind") == "commitment" or i.get("commitment") for i in items("observations"))
+        or any(i.get("status") == "scored" or i.get("score") is not None for i in items("rubric_items"))
+    )
+
+
+def reviewed_guidance(card, request, receipt):
+    """Publishable guidance after one complete independent review of every visible field.
+
+    After any rejection no factual field is shown. A field the generator audited nonassertive,
+    and the reviewer accepted, may still be shown as the primary help.
+    """
+    ground_guidance(card, request, review=receipt)
+    if not receipt.rejected:
+        return {**card, "meaning_review": receipt.metadata()}
+    safe = nonassertive_fields(card) - set(receipt.rejected)
+    fields = guidance_fields(card)
+    clarifications = [field for field in fields if field != "reason" and field in safe]
+    if not clarifications:
+        raise CardRejected("Independent review withheld every displayable field")
+    primary, *others = clarifications
+    shown = {primary: "say_or_ask"}
+    if primary == "say_or_ask" and "reason" in safe:
+        shown["reason"] = "reason"  # A reason explains only its own primary suggestion.
+    shown.update({field: f"alternatives.{i}" for i, field in enumerate(others)})
+    audits = {audit["field"]: audit for audit in card["field_audit"]}
+    return {
+        **card,
+        "say_or_ask": fields[primary],
+        "reason": fields["reason"] if "reason" in shown else "",
+        "alternatives": [fields[field] for field in others],
+        "field_audit": [{**audits[field], "field": name} for field, name in shown.items()],
+        "meaning_review": {**receipt.metadata(), "displayed_fields": list(shown)},
+    }
 
 
 # The canonical record owns interpretation; former arrays are read-only serializers.
@@ -676,7 +744,6 @@ def merge_semantic_state(
     import hashlib
     import hmac
     from copy import deepcopy
-    from datetime import UTC, datetime
     from uuid import NAMESPACE_URL, uuid5
 
     from app.privacy import paraphrased
@@ -692,7 +759,7 @@ def merge_semantic_state(
     prior = {i["id"]: i for i in value["observations"]}
     for item in prior.values():
         history[lineage_key(item["id"], item["version"])] = lineage_metadata(item)
-    now = (at or datetime.now(UTC)).isoformat()
+    now = at.isoformat() if at is not None else None
     live = {s["segment_id"]: s for s in segments if s.get("is_final") and not s.get("system_audio")}
     allowed = {(s["kind"], s["id"], s["version"]): s for s in catalog or []}
     for identity, item in prior.items():
@@ -805,6 +872,8 @@ def merge_semantic_state(
             live[r["id"]].get("side") == "unknown" for r in refs if r["kind"] == "segment"
         ):
             status = "open"
+        if now is None:
+            raise ValueError("Conversation interpretation requires the service clock time")
         commitment = None
         if item.get("outcome") and item["kind"] != "signal":
             raise CardRejected("An outcome suggestion belongs to a source-linked signal")

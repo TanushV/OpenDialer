@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { chooseOutcome } from "./simulation";
 
 test("keypad preserves a lost-response identity through reload and distinguishes a new press", async ({
   page,
@@ -58,7 +59,7 @@ test("keypad preserves a lost-response identity through reload and distinguishes
   await expect.poll(() => posts.length).toBe(3);
   expect(posts[2].idempotency_key).not.toEqual(posts[0].idempotency_key);
   await page.getByRole("button", { name: "Hang up", exact: true }).click();
-  await page.getByLabel("Disposition").selectOption("no_answer");
+  await chooseOutcome(page, "no_answer");
   await page.getByRole("button", { name: "Save outcome", exact: true }).click();
   await page
     .getByRole("button", { name: "Pause dialing", exact: true })
@@ -106,7 +107,7 @@ test("uncertain keypad lets the rep explicitly resume after checking the live me
   await expect(digit).toBeEnabled();
   expect(submissions).toBe(1);
   await page.getByRole("button", { name: "Hang up", exact: true }).click();
-  await page.getByLabel("Disposition").selectOption("no_answer");
+  await chooseOutcome(page, "no_answer");
   await page.getByRole("button", { name: "Save outcome", exact: true }).click();
   await page
     .getByRole("button", { name: "Pause dialing", exact: true })

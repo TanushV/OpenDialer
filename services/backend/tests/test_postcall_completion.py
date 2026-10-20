@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 from app.db import doc
-from conftest import disposition_body, start
+from conftest import NOW, disposition_body, start
 from test_remediation_rep_workflow import p
 
 
@@ -225,7 +225,7 @@ def merge_test_analysis(body, segments):
     }
     state = upgrade_state({}, call_id="fixture", rubric=effective({}))
     return merge_semantic_state(
-        state, conversation_turn(body, context)["state_delta"], segments, request_id="fixture"
+        state, conversation_turn(body, context)["state_delta"], segments, request_id="fixture", at=NOW
     )
 
 
@@ -513,6 +513,7 @@ async def test_omission_preserves_promise_and_explicit_reviewed_retraction_close
 
 
 @pytest.mark.asyncio
+@pytest.mark.database
 async def test_postcall_disposition_race_does_not_publish_old_interpretation(workspace, app, monkeypatch):
     call, state = setup_analysis(workspace, app, monkeypatch)
     service = app.state.service

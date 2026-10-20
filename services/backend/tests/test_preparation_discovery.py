@@ -202,16 +202,40 @@ async def test_duplicate_company_waits_for_single_current_research(workspace, ap
                 "singleflight-receipt",
             )
 
+    joined = asyncio.Event()
+
+    class Shared(asyncio.Future):
+        def add_done_callback(self, *args, **kwargs):
+            joined.set()  # A sibling is now suspended on the in-process research result.
+            return super().add_done_callback(*args, **kwargs)
+
+    class Flights(dict):
+        """Hand siblings an observable mirror of the owner's in-process completion."""
+
+        def get(self, key, default=None):
+            flight = super().get(key, default)
+            if flight is None:
+                return flight
+            mirror = Shared()
+            flight.add_done_callback(lambda done: mirror.done() or mirror.set_result(done.result()))
+            return mirror
+
     monkeypatch.setattr(SafeFetcher, "fetch", fetch)
     monkeypatch.setattr(service, "inference", lambda *args: Extract())
+    monkeypatch.setattr(service, "research_flights", Flights())
     first = asyncio.create_task(service.research_company(p, domain, {"company": "Company", "domain": domain}))
-    await asyncio.wait_for(entered.wait(), 3)
+    await asyncio.wait_for(entered.wait(), 60)
     second = asyncio.create_task(
         service.research_company(p, domain, {"company": "Company", "domain": domain})
     )
     try:
-        await asyncio.sleep(0.1)
-        assert not second.done(), "A sibling must await the facts, not prematurely prepare an empty fallback"
+        # Ordering, not a sleep: either the sibling parks on the shared result or it finishes.
+        waiting = asyncio.ensure_future(joined.wait())
+        await asyncio.wait({second, waiting}, timeout=60, return_when=asyncio.FIRST_COMPLETED)
+        waiting.cancel()
+        assert joined.is_set() and not second.done(), (
+            "A sibling must await the facts, not prematurely prepare an empty fallback"
+        )
     finally:
         release.set()
         await asyncio.gather(first, second)

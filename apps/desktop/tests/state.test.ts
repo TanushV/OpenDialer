@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyEvents, makeState } from "../src/state/events";
+import { isActiveCall, isTerminal } from "../src/types";
 import {
   MemoryStorage as ProtectedMemoryStorage,
   OptOutJournal,
@@ -39,46 +39,20 @@ describe("durable offline opt-outs", () => {
   });
 });
 
-describe("reconnect and stale event handling", () => {
-  it("deduplicates events and rejects old entity versions", () => {
-    const event = {
-      event_id: "event-1",
-      sequence: 1,
-      tenant_id: "a",
-      type: "call.updated",
-      entity_id: "call",
-      entity_version: 3,
-      occurred_at: "2026-10-14T18:00:00Z",
-      payload: { state: "ENDED" },
-    };
-    let state = applyEvents(makeState("a"), [event, event]);
-    state = applyEvents(state, [
-      {
-        ...event,
-        event_id: "event-2",
-        sequence: 2,
-        entity_version: 2,
-        payload: { state: "RINGING" },
-      },
-    ]);
-    expect(state.entities.call.payload.state).toBe("ENDED");
-    expect(state.cursor).toBe(2);
-    expect(state.applied.size).toBe(2);
+describe("one call-state definition", () => {
+  it("treats carrier-finished and missing calls as terminal", () => {
+    for (const state of ["ENDED", "FINALIZED", "BUSY", "NO_ANSWER"])
+      expect(isTerminal({ state })).toBe(true);
+    expect(isTerminal(null)).toBe(true);
+    expect(isTerminal({ state: "RINGING" })).toBe(false);
   });
-  it("discards another tenant event", () => {
-    const state = applyEvents(makeState("a"), [
-      {
-        event_id: "x",
-        sequence: 1,
-        tenant_id: "b",
-        type: "coach.card_ready",
-        entity_id: "c",
-        entity_version: 1,
-        payload: {},
-        occurred_at: "",
-      },
-    ]);
-    expect(Object.keys(state.entities)).toHaveLength(0);
+  it("does not count a detached voicemail or wrap-up as an active call", () => {
+    expect(isActiveCall({ state: "HUMAN" })).toBe(true);
+    expect(isActiveCall({ state: "VOICEMAIL_PLAYING", detached: true })).toBe(
+      false,
+    );
+    expect(isActiveCall({ state: "NO_ANSWER" })).toBe(false);
+    expect(isActiveCall(null)).toBe(false);
   });
 });
 

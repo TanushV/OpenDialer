@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { chooseOutcome } from "./simulation";
 
 async function enter(page: Page, connected = false) {
   await page.goto("/");
@@ -55,7 +56,7 @@ for (const connected of [false, true]) {
       page.getByRole("button", { name: "Hang up", exact: true }),
     ).toBeInViewport();
     await page.getByRole("button", { name: "Hang up", exact: true }).click();
-    await page.getByLabel("Disposition").selectOption("meeting_booked");
+    await chooseOutcome(page, "meeting_booked");
     await page.getByRole("button", { name: "Save outcome" }).click();
     await expect(page.getByText(/Meeting recorded.*rep/i)).toBeVisible();
     await expect(

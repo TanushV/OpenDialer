@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { prepareSimulationCall } from "./simulation";
+import { prepareSimulationCall, chooseOutcome } from "./simulation";
 
 test("leaving review prevents an in-flight refresh from reopening the old call", async ({
   page,
@@ -33,6 +33,8 @@ test("leaving review prevents an in-flight refresh from reopening the old call",
   });
   await page.getByRole("button", { name: "Start call", exact: true }).click();
   await page.getByRole("button", { name: "Hang up", exact: true }).click();
+  // The former implicit default outcome, now an explicit rep choice.
+  await chooseOutcome(page, "right_party");
   await page.getByRole("button", { name: "Save outcome", exact: true }).click();
   await page.getByRole("button", { name: "Review", exact: true }).click();
   await reviewCall.click();
@@ -152,7 +154,7 @@ test("campaign scoring anchors persist and a rep can correct the call purpose", 
   });
   await page.getByRole("button", { name: "Start call", exact: true }).click();
   await page.getByRole("button", { name: "Hang up", exact: true }).click();
-  await page.getByLabel("Disposition").selectOption("right_party");
+  await chooseOutcome(page, "right_party");
   await page.getByRole("button", { name: "Save outcome", exact: true }).click();
   await page
     .getByRole("button", { name: "Pause dialing", exact: true })

@@ -109,11 +109,13 @@ async def test_replay_total_deadline_stops_new_work_and_counts_timeouts_in_laten
     class Slow(Quiet):
         async def suggest(self, request, deadline_ms):
             called.append(request)
-            await asyncio.sleep(0.1)
-            return {"action": "NO_ACTION"}
+            # Never answers: only the replay deadline can end this sample. A 100 ms sleep raced
+            # the identical 100 ms deadline and could finish first on a loaded machine.
+            await asyncio.Event().wait()
 
-    report = await evaluate(
-        [case("one"), case("two")], Slow(), model="fixture", deadline_ms=100, max_duration_ms=20
+    report = await asyncio.wait_for(
+        evaluate([case("one"), case("two")], Slow(), model="fixture", deadline_ms=100, max_duration_ms=20),
+        60,
     )
     assert len(called) == 1
     assert report["attempted_samples"] == 1 and report["unattempted_samples"] == 1
@@ -249,11 +251,11 @@ async def test_response_returned_after_cancelled_deadline_cannot_be_counted_vali
     class Late(Quiet):
         async def suggest(self, request, deadline_ms):
             try:
-                await asyncio.sleep(0.1)
+                await asyncio.Event().wait()  # Answers only after the deadline cancelled it.
             except asyncio.CancelledError:
                 return {"action": "NO_ACTION"}
 
-    result = await evaluate([case()], Late(), model="fixture", deadline_ms=10)
+    result = await asyncio.wait_for(evaluate([case()], Late(), model="fixture", deadline_ms=10), 60)
     assert result["valid_fraction"] == 0
     assert result["results"][0]["failure"] == "TimeoutError"
 
@@ -295,7 +297,7 @@ def test_cli_does_not_offer_a_route_that_bypasses_required_privacy():
         env={**os.environ, "PYTHONPATH": str(root / "services/backend")},
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=120,  # Hang guard only; a loaded parallel run can start interpreters slowly.
         check=False,
     )
     assert result.returncode == 0, result.stderr

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   LoaderCircle,
   Mic,
@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { useWorkspace } from "../context";
 import { Keypad } from "./Keypad";
-import { terminal, type Call, type Reservation } from "../types";
+import { isActiveCall, type Call, type Reservation } from "../types";
 import type { Telephony } from "../telephony/client";
 
 type Props = {
@@ -21,6 +21,8 @@ type Props = {
   blocked: boolean;
   dialing: boolean;
   canOptOut: boolean;
+  /** The ended call's outcome is unsaved; the next lead would discard it. */
+  wrapUpPending: boolean;
   onNext: () => Promise<void>;
   onStart: () => Promise<void>;
   onOptOut: () => Promise<void>;
@@ -35,6 +37,7 @@ export function CallControls({
   blocked,
   dialing,
   canOptOut,
+  wrapUpPending,
   onNext,
   onStart,
   onOptOut,
@@ -44,27 +47,31 @@ export function CallControls({
   const [mute, setMute] = useState(false);
   const [keypad, setKeypad] = useState(false);
   const [pauseAfter, setPauseAfter] = useState(false);
-  const active = !call?.detached && !terminal(call);
+  const active = isActiveCall(call);
   useEffect(() => {
     setMute(false);
     setKeypad(false);
   }, [call?.id]);
+  // F2/F4 read the latest call state; the listener is registered once.
+  const keys = useRef({ active, controller, onHangup, pauseAfter });
+  keys.current = { active, controller, onHangup, pauseAfter };
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if (!active) return;
+      const current = keys.current;
+      if (!current.active) return;
       if (event.key === "F2") {
         event.preventDefault();
-        controller.mute();
+        current.controller.mute();
         setMute((value) => !value);
       }
       if (event.key === "F4") {
         event.preventDefault();
-        void run(() => onHangup(pauseAfter));
+        void run(() => current.onHangup(current.pauseAfter));
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [active, controller, onHangup, pauseAfter, run]);
+  }, [run]);
   return (
     <>
       <div className="call-dock">
@@ -79,9 +86,11 @@ export function CallControls({
                   : "Session paused"}
             </strong>
             <small>
-              {reservation
-                ? `${reservation.number.phone} · Your calling identity`
-                : audioStatus || "One active prospect at a time"}
+              {wrapUpPending
+                ? "Save this call's outcome before the next lead."
+                : reservation
+                  ? `${reservation.number.phone} · Your calling identity`
+                  : audioStatus || "One active prospect at a time"}
             </small>
           </div>
         </div>
@@ -117,6 +126,7 @@ export function CallControls({
           {active ? (
             <button
               className="danger-button"
+              title="Hang up · F4"
               onClick={() => void run(() => onHangup(pauseAfter))}
             >
               <PhoneOff size={17} />
@@ -138,7 +148,7 @@ export function CallControls({
           ) : (
             <button
               className="primary dial-button"
-              disabled={!ready || blocked}
+              disabled={!ready || blocked || wrapUpPending}
               onClick={() => void run(onNext)}
             >
               <Phone size={17} />

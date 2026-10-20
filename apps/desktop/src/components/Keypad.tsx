@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { ApiError, native, readCache, writeCache } from "../api/client";
 import { useWorkspace } from "../context";
+import { boundKeypad, KEYPAD_REPLAY_MS } from "../state/privacy";
 
 type Pending = {
   call_id: string;
@@ -21,7 +22,7 @@ function cacheOperation<T>(operation: () => Promise<T> | T): Promise<T> {
 const fresh = (value: Pending) =>
   Number.isFinite(value.created_at) &&
   Date.now() - value.created_at >= 0 &&
-  Date.now() - value.created_at < 10_000;
+  Date.now() - value.created_at < KEYPAD_REPLAY_MS;
 
 export function Keypad({
   callId,
@@ -41,7 +42,9 @@ export function Keypad({
   const namespace = `keypad-${session.user_id}`;
   const storageKey = `opendialer.${namespace}`;
 
-  async function save(value: Pending | null) {
+  async function save(next: Pending | null) {
+    // Digits are kept only for the short replay window; the key remains checkable.
+    const value = boundKeypad(next);
     await cacheOperation(async () => {
       if (!mounted.current) return;
       if (native()) await writeCache(namespace, value, snapshot.simulation);
@@ -50,6 +53,14 @@ export function Keypad({
     });
     if (mounted.current) setPending(value);
   }
+  useEffect(() => {
+    if (!pending?.digits) return;
+    const timer = setTimeout(
+      () => void save(pending).catch(() => {}),
+      Math.max(0, pending.created_at + KEYPAD_REPLAY_MS - Date.now()),
+    );
+    return () => clearTimeout(timer);
+  }, [pending]);
   async function receive(value: Receipt) {
     if (!mounted.current) return;
     setRetry(false);
@@ -100,20 +111,18 @@ export function Keypad({
             : sessionStorage.getItem(storageKey),
         );
         if (disposed) return;
-        const value = stored ? (JSON.parse(stored) as Pending | null) : null;
+        const saved = stored ? (JSON.parse(stored) as Pending | null) : null;
         if (
-          value &&
-          (typeof value.call_id !== "string" ||
-            !/^[A-Za-z0-9_-]{1,128}$/.test(value.idempotency_key) ||
-            !/^[0-9*#]{1,30}$/.test(value.digits))
+          saved &&
+          (typeof saved.call_id !== "string" ||
+            !/^[A-Za-z0-9_-]{1,128}$/.test(saved.idempotency_key) ||
+            !/^[0-9*#]{0,30}$/.test(saved.digits))
         )
           throw new Error("Invalid saved keypad state");
         loaded = true;
-        if (
-          value?.call_id === callId &&
-          /^[A-Za-z0-9_-]{1,128}$/.test(value.idempotency_key) &&
-          /^[0-9*#]{1,30}$/.test(value.digits)
-        ) {
+        const value = boundKeypad(saved);
+        if (value !== saved) await save(value);
+        if (value?.call_id === callId) {
           setPending(value);
           await check(value);
         }

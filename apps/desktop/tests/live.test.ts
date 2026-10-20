@@ -108,4 +108,57 @@ describe("authenticated live events", () => {
     expect(status).toHaveBeenCalledWith("session_expired");
     live.stop();
   });
+
+  it("starts from the workspace snapshot cursor instead of replaying history", () => {
+    const sockets: Socket[] = [];
+    const live = new LiveConnection({
+      url: "https://dialer.example.test",
+      token: "t",
+      tenantId: "t",
+      after: 42,
+      onEvents: vi.fn(),
+      onStatus: vi.fn(),
+      socketFactory: () => {
+        sockets.push(new Socket());
+        return sockets.at(-1)!;
+      },
+    });
+    live.start();
+    sockets[0].onopen?.();
+    expect(JSON.parse(sockets[0].sent[0]).after).toBe(42);
+    live.stop();
+  });
+
+  it("replaces a silent stale socket without announcing an outage", () => {
+    vi.useFakeTimers();
+    const sockets: Socket[] = [];
+    const status = vi.fn();
+    const live = new LiveConnection({
+      url: "https://dialer.example.test",
+      token: "t",
+      tenantId: "t",
+      staleMs: 1000,
+      onEvents: vi.fn(),
+      onStatus: status,
+      socketFactory: () => {
+        sockets.push(new Socket());
+        return sockets.at(-1)!;
+      },
+    });
+    live.start();
+    sockets[0].onopen?.();
+    sockets[0].onmessage?.({ data: JSON.stringify({ cursor: 3, events: [] }) });
+    vi.advanceTimersByTime(999);
+    expect(sockets).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(sockets[0].close).toHaveBeenCalled();
+    expect(sockets).toHaveLength(2);
+    sockets[1].onopen?.();
+    expect(JSON.parse(sockets[1].sent[0]).after).toBe(3);
+    expect(status.mock.calls.map(([value]) => value)).toEqual([
+      "connecting",
+      "live",
+    ]);
+    live.stop();
+  });
 });

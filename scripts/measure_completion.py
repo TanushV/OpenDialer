@@ -2,6 +2,9 @@
 
 The source workload and native resource proof have separate receipts. Run profiles
 one at a time on idle hardware. Progress JSON retains failures and interrupted work.
+The load phase runs the production runtime lanes on a business clock that follows
+real elapsed time, and gates each rep-visible path. Exit status 0 means every
+requested profile passed (and the native receipt, when required).
 """
 
 import argparse
@@ -10,18 +13,21 @@ import base64
 import contextvars
 import hashlib
 import hmac
+import inspect
 import json
 import math
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid4, uuid5
@@ -37,6 +43,23 @@ PROFILES = {
     "shift": {"leads": 503, "attempts": 0, "reps": 1, "simulated_hours": 8},
 }
 CURRENT = contextvars.ContextVar("measurement", default=None)
+# Rep-visible request boundaries under load. Start includes the simulated dial;
+# cleanup and pause are retained and reported, not gated.
+LOAD_TARGETS_MS = {
+    "selection": 250,
+    "event_ack": 100,
+    "event_state": 250,
+    "live_context": 100,
+    "hangup": 250,
+    "wrapup": 250,
+}
+LOAD_REPORTED = ("start", "cleanup_hangup", "pause")
+RECOVERY_SECONDS = 120
+MAINTENANCE_LANES = {"maintenance", "call_control"}
+# Writer attribution skips transaction and executor plumbing; the first frame is the caller.
+SKIPPED_MODULES = {"contextlib", "threading", "app.db"}
+SKIPPED_PREFIXES = ("concurrent.futures", "asyncio")
+LABEL = re.compile(r"[A-Za-z_][A-Za-z0-9_.\-]{0,79}")
 
 
 def validate_output(path):
@@ -60,27 +83,33 @@ def profile_database(name, directory):
     return "sqlite:///" + str(directory / "measurement.db")
 
 
+def percentile(times, q):
+    """Nearest-rank percentile of already sorted values."""
+    return times[max(0, math.ceil(q * len(times)) - 1)]
+
+
 def summarize(rows, *, target_ms):
     if not rows or any(not math.isfinite(r["ms"]) or r["ms"] < 0 for r in rows):
         raise ValueError("Missing or invalid measurement samples")
     times = sorted(r["ms"] for r in rows)
     failures = sum(r.get("ok") is not True for r in rows)
-
-    def percentile(q):
-        return times[max(0, math.ceil(q * len(times)) - 1)]
-
     return {
         "samples": len(rows),
         "failures": failures,
-        "p50_ms": percentile(0.50),
-        "p95_ms": percentile(0.95),
-        "p99_ms": percentile(0.99),
+        "p50_ms": percentile(times, 0.50),
+        "p95_ms": percentile(times, 0.95),
+        "p99_ms": percentile(times, 0.99),
         "max_ms": max(times),
         "sql_max": max(r.get("sql", 0) for r in rows),
         "decrypted_max": max(r.get("decrypted", 0) for r in rows),
         "target_ms": target_ms,
-        "status": "passed" if not failures and percentile(0.95) < target_ms else "failed",
+        "status": "passed" if not failures and percentile(times, 0.95) < target_ms else "failed",
     }
+
+
+def reported(rows):
+    """The same distribution without a release target."""
+    return {**summarize(rows, target_ms=math.inf), "target_ms": None, "status": "reported"}
 
 
 def run_for(seconds, operation, *, monotonic=time.monotonic, pause=time.sleep, cadence=10):
@@ -443,22 +472,86 @@ def shared_reference():
 
 
 class Clock:
+    """Business time for the fixture: frozen by default, real elapsed time under load."""
+
     now = datetime(2026, 10, 14, 18, tzinfo=UTC)
 
+    def __init__(self):
+        self._lock, self._following = threading.Lock(), None
+
     def __call__(self):
-        return self.now
+        with self._lock:
+            if self._following is None:
+                return self.now
+            monotonic, origin = self._following
+            return self.now + timedelta(seconds=monotonic() - origin)
+
+    @contextmanager
+    def following(self, monotonic=time.monotonic):
+        """clock() == now + real elapsed; leaving keeps the elapsed time in now."""
+        with self._lock:
+            if self._following is not None:
+                raise RuntimeError("Clock already follows elapsed time")
+            self._following = (monotonic, monotonic())
+        try:
+            yield self
+        finally:
+            with self._lock:
+                monotonic, origin = self._following
+                self.now = self.now + timedelta(seconds=monotonic() - origin)
+                self._following = None
+
+
+def caller_identity(frame, limit=3):
+    """Up to three module:qualname frames above the transaction plumbing."""
+    names = []
+    try:
+        while frame is not None and len(names) < limit:
+            module = frame.f_globals.get("__name__", "")
+            filename = frame.f_code.co_filename.replace("\\", "/")
+            if not (
+                module in SKIPPED_MODULES
+                or module.startswith(SKIPPED_PREFIXES)
+                or filename.endswith("/app/db.py")
+            ):
+                names.append(f"{module}:{frame.f_code.co_qualname}")
+            frame = frame.f_back
+    finally:
+        del frame
+    return " < ".join(names) or "unknown"
+
+
+class WriterAdmission:
+    """Wraps the SQLite writer lock and records each thread's admission wait."""
+
+    def __init__(self, lock):
+        self.lock, self.local = lock, threading.local()
+
+    def acquire(self, *args, **kwargs):
+        begun = time.perf_counter()
+        try:
+            return self.lock.acquire(*args, **kwargs)
+        finally:
+            self.local.wait_ms = (time.perf_counter() - begun) * 1000
+
+    def release(self):
+        return self.lock.release()
 
 
 class Measurements:
     def __init__(self, service, *, stall_ms=0):
         self.service, self.writes, self.lock = service, [], threading.Lock()
         self.stall_ms = stall_ms
+        self.phase = None  # Set by run_profile around each measured phase.
 
     @contextmanager
     def instrument(self):
         from sqlalchemy import event
 
-        decrypt, transaction = self.service.db.cipher.decrypt, self.service.db.transaction
+        db = self.service.db
+        decrypt, transaction = db.cipher.decrypt, db.transaction
+        writer = db._sqlite_writer if getattr(db, "sqlite", False) else None
+        admission = WriterAdmission(writer) if writer is not None else None
 
         def query(*args):
             row = CURRENT.get()
@@ -476,24 +569,44 @@ class Measurements:
 
         @contextmanager
         def timed(write=True, *, session=None):
+            recorded = write and session is None
+            caller = caller_identity(inspect.currentframe().f_back) if recorded else None
+            if recorded and admission is not None:
+                admission.local.wait_ms = None
             begun = time.perf_counter()
-            ok = False
+            ok, error = False, None
             try:
                 with transaction(write, session=session) as s:
                     yield s
                 ok = True
+            except BaseException as exc:
+                error = type(exc).__name__
+                raise
             finally:
-                if write and session is None:
+                if recorded:
+                    row = {
+                        "ms": (time.perf_counter() - begun) * 1000,
+                        "ok": ok,
+                        "caller": caller,
+                        "phase": self.phase,
+                        "admission_ms": admission.local.wait_ms if admission is not None else None,
+                    }
+                    if error:
+                        row["error"] = error
                     with self.lock:
-                        self.writes.append({"ms": (time.perf_counter() - begun) * 1000, "ok": ok})
+                        self.writes.append(row)
 
-        event.listen(self.service.db.engine, "before_cursor_execute", query)
-        self.service.db.cipher.decrypt, self.service.db.transaction = counted_decrypt, timed
+        event.listen(db.engine, "before_cursor_execute", query)
+        db.cipher.decrypt, db.transaction = counted_decrypt, timed
+        if admission is not None:
+            db._sqlite_writer = admission
         try:
             yield self
         finally:
-            self.service.db.cipher.decrypt, self.service.db.transaction = decrypt, transaction
-            event.remove(self.service.db.engine, "before_cursor_execute", query)
+            if admission is not None:
+                db._sqlite_writer = writer
+            db.cipher.decrypt, db.transaction = decrypt, transaction
+            event.remove(db.engine, "before_cursor_execute", query)
 
     def sample(self, function):
         row = {"sql": 0, "decrypted": 0, "ok": False}
@@ -508,6 +621,41 @@ class Measurements:
             row["ms"] = (time.perf_counter() - begun) * 1000
             CURRENT.reset(token)
         return row, result
+
+
+def summarize_writes(rows, *, target_ms=25):
+    """Overall writer gate plus who wrote, in which phase, and how long admission took."""
+    overall = summarize(rows, target_ms=target_ms)
+    callers, phases = {}, {}
+    for row in rows:
+        callers.setdefault(row.get("caller") or "unknown", []).append(row)
+        phases.setdefault(row.get("phase") or "unassigned", []).append(row)
+    attribution = []
+    for caller, items in callers.items():
+        times = sorted(r["ms"] for r in items)
+        waits = sorted(r["admission_ms"] for r in items if r.get("admission_ms") is not None)
+        attribution.append(
+            {
+                "caller": caller,
+                "count": len(items),
+                "failures": sum(r.get("ok") is not True for r in items),
+                "p50_ms": percentile(times, 0.50),
+                "p95_ms": percentile(times, 0.95),
+                "max_ms": times[-1],
+                "total_ms": sum(times),
+                "admission_p95_ms": percentile(waits, 0.95) if waits else None,
+                "errors": dict(sorted(Counter(r["error"] for r in items if r.get("error")).items())),
+            }
+        )
+    attribution.sort(key=lambda a: (-a["total_ms"], a["caller"]))
+    waits = [{"ms": r["admission_ms"], "ok": True} for r in rows if r.get("admission_ms") is not None]
+    return {
+        **overall,
+        "attribution": attribution,
+        "phases": {name: summarize(items, target_ms=target_ms) for name, items in sorted(phases.items())},
+        "admission": reported(waits) if waits else {"samples": 0, "status": "not_applicable"},
+        "boundary": "every write transaction, background lanes included; admission is the SQLite writer-lock wait",
+    }
 
 
 def source_metadata():
@@ -838,7 +986,11 @@ def run_requests(service, p, campaign, reps, measurement, checkpoint):
             if i % 20 == 0:
                 checkpoint({"measured_decisions": len(rows), "warmups": len(warmups)})
     return {
-        "cold": summarize(cold, target_ms=1000),
+        "cold": {
+            **summarize(cold, target_ms=1000),
+            "samples_per_rep": 1,
+            "sampling": "one first decision per rep after startup; percentiles are order statistics of n=reps",
+        },
         "warm": summarize(rows, target_ms=250),
         "sql_budget_met": max(r["sql"] for r in rows) <= 30 if reps == 1 else None,
         "warmups": warmups,
@@ -1122,7 +1274,267 @@ def maintain_and_drain(client, service, *, waves=1):
     }
 
 
-def run_load(client, headers, campaign, measured, seconds, checkpoint, *, p, reps):
+def aware(value):
+    """SQLite returns naive UTC datetimes; PostgreSQL returns aware ones."""
+    return value.replace(tzinfo=UTC) if value is not None and value.tzinfo is None else value
+
+
+def label(value, default="unclassified"):
+    """Only short identifiers leave the store; anything else could be content."""
+    return value if isinstance(value, str) and LABEL.fullmatch(value) else default
+
+
+def job_kind(payload):
+    kind = payload.get("kind") if isinstance(payload, dict) else None
+    return "default" if kind is None else label(kind)
+
+
+def describe_jobs(service, ids):
+    """Content-free description of jobs: no payload values, key suffixes or error text."""
+    from app.db import Job
+    from sqlalchemy import select
+
+    ids, rows = list(dict.fromkeys(i for i in ids if i))[:500], []
+    with service.db.transaction(False) as s:
+        for job in s.scalars(select(Job).where(Job.id.in_(ids))) if ids else ():
+            rows.append(
+                {
+                    "id": job.id,
+                    "queue": job.queue,
+                    "kind": job_kind(job.payload),
+                    "key_prefix": label(job.key.split(":", 1)[0]) if ":" in job.key else "unclassified",
+                    "status": job.status,
+                    "attempts": job.attempts,
+                    "error_type": label(job.error) if job.error else None,
+                }
+            )
+    return sorted(rows, key=lambda row: (row["queue"], row["kind"], row["id"]))
+
+
+def queue_composition(service):
+    """Counts of unfinished work by (queue, kind, status, due, has_error)."""
+    from app.db import Job
+    from sqlalchemy import select
+
+    now, counts = aware(service.clock()), Counter()
+    with service.db.transaction(False) as s:
+        query = select(Job.queue, Job.payload, Job.status, Job.available_at, Job.error).where(
+            Job.status != "completed"
+        )
+        for queue, payload, status, available_at, error in s.execute(query):
+            due = status in {"queued", "retry"} and available_at is not None and aware(available_at) <= now
+            counts[(queue, job_kind(payload), status, due, error is not None)] += 1
+    return [
+        {"queue": queue, "kind": kind, "status": status, "due": due, "has_error": error, "count": count}
+        for (queue, kind, status, due, error), count in sorted(counts.items())
+    ]
+
+
+def unresolved_job_ids(service, limit=200):
+    from app.db import Job
+    from sqlalchemy import and_, or_, select
+
+    with service.db.transaction(False) as s:
+        return list(
+            s.scalars(
+                select(Job.id)
+                .where(
+                    or_(
+                        Job.status.in_(["dead", "retry"]),
+                        and_(Job.status == "queued", Job.error.is_not(None)),
+                    )
+                )
+                .order_by(Job.id)
+                .limit(limit)
+            )
+        )
+
+
+def queue_snapshot(service, job_ids=()):
+    return {
+        "state": queue_state(service),
+        "composition": queue_composition(service),
+        "jobs": describe_jobs(service, [*job_ids, *unresolved_job_ids(service)]),
+    }
+
+
+def runtime_lanes(queues):
+    return list(dict.fromkeys("maintenance_tick" if q in MAINTENANCE_LANES else q for q in queues))
+
+
+class BackgroundRecorder:
+    """Production lanes swallow exceptions; wrapping their service calls retains every error."""
+
+    FIELDS = ("kind", "job_id", "queue", "user_id", "error_type")
+
+    def __init__(self, service, *, monotonic=time.monotonic):
+        self.service, self.monotonic, self.lock = service, monotonic, threading.Lock()
+        self.errors, self.started, self.processed, self.finished = [], Counter(), Counter(), {}
+        self.begun = monotonic()
+
+    def _error(self, lane, source, error):
+        with self.lock:
+            self.errors.append(
+                {"lane": lane, "source": source, "at_seconds": self.monotonic() - self.begun, **error}
+            )
+
+    async def _observed(self, lane, source, call):
+        with self.lock:
+            index = self.started[lane]
+            self.started[lane] += 1
+        try:
+            receipt = await call()
+        except Exception as exc:
+            self._error(lane, source, {"kind": "raised", "error_type": type(exc).__name__})
+            raise
+        else:
+            if isinstance(receipt, dict):
+                for error in receipt.get("errors") or ():
+                    self._error(lane, source, {k: error[k] for k in self.FIELDS if k in error})
+                with self.lock:
+                    self.processed[lane] += receipt.get("processed") or 0
+            return receipt
+        finally:
+            with self.lock:
+                self.finished[lane] = max(self.finished.get(lane, -1), index)
+
+    @contextmanager
+    def recording(self):
+        service = self.service
+        owned = {name: name in vars(service) for name in ("run_jobs", "maintenance_tick")}
+        run_jobs, maintenance_tick = service.run_jobs, service.maintenance_tick
+
+        async def recorded_run_jobs(*args, **kwargs):
+            queues = kwargs.get("queues", args[1] if len(args) > 1 else None)
+            lane = ",".join(queues) if queues else "all"
+            return await self._observed(lane, "run_jobs", lambda: run_jobs(*args, **kwargs))
+
+        async def recorded_maintenance_tick(*args, **kwargs):
+            return await self._observed(
+                "maintenance_tick", "maintenance_tick", lambda: maintenance_tick(*args, **kwargs)
+            )
+
+        service.run_jobs, service.maintenance_tick = recorded_run_jobs, recorded_maintenance_tick
+        try:
+            yield self
+        finally:
+            for name, original in (("run_jobs", run_jobs), ("maintenance_tick", maintenance_tick)):
+                if owned[name]:
+                    setattr(service, name, original)
+                else:
+                    delattr(service, name)
+
+    def mark(self):
+        with self.lock:
+            return dict(self.started)
+
+    def passed_since(self, mark, lanes):
+        """Every lane finished a pass that started after the mark."""
+        with self.lock:
+            return all(self.finished.get(lane, -1) >= mark.get(lane, 0) for lane in lanes)
+
+    def error_count(self):
+        with self.lock:
+            return len(self.errors)
+
+    def job_ids(self):
+        with self.lock:
+            return [error["job_id"] for error in self.errors if error.get("job_id")]
+
+    def receipt(self):
+        with self.lock:
+            return {
+                "status": "failed" if self.errors else "passed",
+                "errors": list(self.errors),
+                "lane_calls": dict(sorted(self.started.items())),
+                "processed": dict(sorted(self.processed.items())),
+            }
+
+
+@contextmanager
+def production_runtime(client, service):
+    """The authority's own lanes, as production runs them, in the app's event loop."""
+    from app.runtime import AuthorityRuntime
+
+    queues, previous, runtime = list(service.settings.worker_queues), service.settings.worker_enabled, None
+
+    async def build():
+        return AuthorityRuntime(service, queues=queues)
+
+    service.settings.worker_enabled = True
+    try:
+        runtime = client.portal.call(build)
+        client.portal.call(runtime.start)
+        yield runtime
+    finally:
+        try:
+            if runtime is not None:
+                client.portal.call(runtime.close)
+        finally:
+            service.settings.worker_enabled = previous
+
+
+def load_paths(samples, reps):
+    """Per-path distributions under load; a cycle missing a path is a failed sample of it."""
+    rows = {name: [] for name in [*LOAD_TARGETS_MS, *LOAD_REPORTED]}
+    for cycle in samples:
+        journeys = cycle.get("reps") or [{"elapsed_ms": cycle.get("ms", 0.0)}] * reps
+        for journey in journeys:
+            paths = journey.get("paths") or {}
+            fallback = journey.get("elapsed_ms", cycle.get("ms", 0.0))
+            for name, values in rows.items():
+                values.append(paths.get(name) or {"ok": False, "ms": fallback, "unattempted": True})
+    return {
+        name: {
+            **(
+                summarize(values, target_ms=LOAD_TARGETS_MS[name])
+                if name in LOAD_TARGETS_MS
+                else reported(values)
+            ),
+            "unattempted": sum(bool(v.get("unattempted")) for v in values),
+        }
+        for name, values in rows.items()
+    }
+
+
+def await_recovery(
+    service,
+    recorder,
+    lanes,
+    *,
+    follows,
+    seconds=RECOVERY_SECONDS,
+    poll=0.25,
+    monotonic=time.monotonic,
+    pause=time.sleep,
+):
+    """After the last cycle the lanes keep running; the queue must settle on its own."""
+    mark, begun, samples = recorder.mark(), monotonic(), []
+    while True:
+        state, elapsed = queue_state(service), monotonic() - begun
+        samples.append({**state, "at_seconds": elapsed})
+        passes = recorder.passed_since(mark, lanes)
+        # A frozen clock never brings a retry due; waiting for it would only burn the window.
+        settled = passes and not state["due"] and not state["running"] and not (state["retry"] and follows)
+        if settled or elapsed >= seconds:
+            break
+        pause(poll)
+    unresolved = [key for key in ("due", "running", "retry", "dead") if state[key]]
+    return {
+        "status": "passed" if settled and not unresolved else "failed",
+        "settled": settled,
+        "lane_pass_after_load": passes,
+        "seconds": elapsed,
+        "limit_seconds": seconds,
+        "unresolved": unresolved,
+        "samples": samples,
+    }
+
+
+def run_load(
+    client, headers, campaign, measured, seconds, checkpoint, *, p, reps, recovery_seconds=RECOVERY_SECONDS
+):
+    """Rep journeys against the production runtime lanes, on a clock that follows real time."""
     service = client.app.state.service
     from app.security import issue_session
 
@@ -1133,34 +1545,67 @@ def run_load(client, headers, campaign, measured, seconds, checkpoint, *, p, rep
                 token = issue_session(s, service.settings, user, service.clock())["access_token"]
                 rep_headers.append({"Authorization": "Bearer " + token})
     assert len(rep_headers) == reps
+    queues = list(service.settings.worker_queues)
+    lanes, recorder = runtime_lanes(queues), BackgroundRecorder(service)
+    follow = getattr(service.clock, "following", None)
 
     def cycle(index):
-        # Preparation, interpretation, recovery and projections share the real
-        # worker admission. Unconfigured inference retains the declared fallback.
-        with ThreadPoolExecutor(max_workers=reps + 1) as pool:
-            background = pool.submit(maintain_and_drain, client, service)
+        with ThreadPoolExecutor(max_workers=reps) as pool:
             calls = [
                 pool.submit(call_cycle, client, h, campaign, measured, f"load-{index}-{rep}")
                 for rep, h in enumerate(rep_headers)
             ]
             results = [future.result() for future in calls]
-            result = {"ok": all(r["ok"] for r in results), "reps": results}
-            try:
-                result["background"] = background.result(timeout=30)
-                result["ok"] = result["ok"] and result["background"]["status"] == "passed"
-            except Exception as exc:
-                result.update(ok=False, background_error=type(exc).__name__)
-        checkpoint({"load_cycles": index + 1, "latest_ok": result["ok"]})
+        result = {"ok": all(r.get("ok") is True for r in results), "reps": results}
+        checkpoint(
+            {"load_cycles": index + 1, "latest_ok": result["ok"], "background_errors": recorder.error_count()}
+        )
         return result
 
-    result = run_for(seconds, cycle)
-    if "samples" in result:
-        recovered = maintain_and_drain(client, service, waves=200)
-        result["queue_recovery"] = recovered
-        remaining = recovered["queue_samples"][-1]
-        if recovered["status"] != "passed" or any(remaining[k] for k in ("due", "running", "retry", "dead")):
-            result["status"] = "failed"
-    return result
+    with (
+        recorder.recording(),
+        follow() if follow else nullcontext(),
+        production_runtime(client, service),
+    ):
+        began = service.clock()
+        cycles = run_for(seconds, cycle)
+        end = queue_snapshot(service, recorder.job_ids())
+        recovery = await_recovery(
+            service, recorder, lanes, follows=follow is not None, seconds=recovery_seconds
+        )
+        recovery.update(queue_snapshot(service, recorder.job_ids()))
+        followed = (service.clock() - began).total_seconds()
+    background = recorder.receipt()
+    samples = cycles.get("samples") or []
+    paths = load_paths(samples, reps) if samples else {}
+    gate_failures = [] if follow else ["clock_not_following"]
+    if not samples:
+        gate_failures.append("no_load_cycles")
+    if any(sample.get("ok") is not True for sample in samples):
+        gate_failures.append("cycle_failures")
+    gate_failures += [f"path:{name}" for name, row in paths.items() if row["status"] == "failed"]
+    if background["errors"]:
+        gate_failures.append("background_errors")
+    if recovery["status"] != "passed":
+        gate_failures.append("queue_recovery")
+    status = "failed" if gate_failures else "passed"
+    return {
+        **cycles,
+        "status": status,
+        "ok": status == "passed",
+        "gate_failures": gate_failures,
+        "paths": paths,
+        "runtime": {
+            "queues": queues,
+            "lanes": lanes,
+            "worker_enabled": True,
+            "clock_followed_seconds": followed,
+        },
+        "background": background,
+        "queue_end": end,
+        "queue_recovery": recovery,
+        "boundary": "HTTP rep journeys with production AuthorityRuntime lanes; business clock follows real time",
+    }
 
 
 def run_shift(settings, clock, headers, campaign, hours, checkpoint):
@@ -1335,17 +1780,24 @@ def run_profile(name, directory, seed, checkpoint):
             service.rebuild_optimization_report(p)
             measured = Measurements(service)
             with measured.instrument():
+                measured.phase = "selection"
                 result["selection"] = run_requests(service, p, campaign, spec["reps"], measured, checkpoint)
+                measured.phase = "cached_workspace"
                 reports = [measured.sample(lambda: service.snapshot(p))[0] for _ in range(WARMUPS + SAMPLES)]
                 result["cached_workspace"] = {
                     "summary": summarize(reports[WARMUPS:], target_ms=250),
                     "samples": reports[WARMUPS:],
                 }
+                measured.phase = "six_coach"
                 result["six_coach"] = client.portal.call(coach_fixture, service, p)
+                measured.phase = "live_admission"
                 result["live_admission"] = client.portal.call(admission_fixture, service, spec["reps"])
+                measured.phase = "workload_capacity"
                 result["workload_capacity"] = workload_capacity(service, p, spec["reps"])
+                measured.phase = "control_paths"
                 result["control_paths"] = run_control_paths(client, headers, campaign, measured, checkpoint)
                 if "load_seconds" in spec:
+                    measured.phase = "load"
                     result["load"] = run_load(
                         client,
                         headers,
@@ -1357,12 +1809,14 @@ def run_profile(name, directory, seed, checkpoint):
                         reps=spec["reps"],
                     )
                 if name in {"shared", "saturation"}:
+                    measured.phase = "stalled_selection"
                     measured.stall_ms = 100
                     result["stalled_selection"] = run_requests(
                         service, p, campaign, spec["reps"], measured, checkpoint
                     )
                     measured.stall_ms = 0
-            result["writer_transactions"] = summarize(measured.writes, target_ms=25)
+                measured.phase = None
+            result["writer_transactions"] = summarize_writes(measured.writes, target_ms=25)
             result["training_imported"] = any(m in sys.modules for m in ("numpy", "scipy", "sklearn"))
             result["integrity"] = service.db.integrity()
         if "simulated_hours" in spec:
@@ -1377,23 +1831,50 @@ def run_profile(name, directory, seed, checkpoint):
     return result
 
 
-def main():
+def native_gates(path, metadata):
+    """Native proof is a separate receipt; a missing one is incomplete, never a pass."""
+    if path is None:
+        return {**resource_gates({}), "receipt": None}
+    try:
+        receipt = json.loads(Path(path).read_text())
+        gates = resource_gates(receipt)
+    except (OSError, ValueError, TypeError, AttributeError) as exc:
+        return {
+            "status": "failed",
+            "missing": [],
+            "failures": ["unreadable_receipt"],
+            "error_type": type(exc).__name__,
+        }
+    if receipt.get("source_commit") != metadata.get("source_commit"):
+        gates = {**gates, "status": "failed", "failures": [*gates["failures"], "source_commit_mismatch"]}
+    return {**gates, "receipt": str(path), "receipt_source_commit": receipt.get("source_commit")}
+
+
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", choices=[*PROFILES, "all"], required=True)
     parser.add_argument("--seed", type=int, default=20261018)
     parser.add_argument("--output-dir", type=Path, required=True)
-    args = parser.parse_args()
+    parser.add_argument("--native-receipt", type=Path, help="JSON receipt from measure_native_resources")
+    parser.add_argument(
+        "--require-native-resources",
+        action="store_true",
+        help="Fail unless a current native resource receipt passes; by default it is reported only",
+    )
+    args = parser.parse_args(argv)
     try:
         output = validate_output(args.output_dir)
     except ValueError as exc:
         parser.error(str(exc))
     output.mkdir(parents=True, exist_ok=True)
     metadata = source_metadata()
+    native = native_gates(args.native_receipt, metadata)
     summary = {
         **metadata,
         "seed": args.seed,
         "profiles": {},
-        "resource_gates": resource_gates({}),
+        "resource_gates": native,
+        "native_resources_required": args.require_native_resources,
         "status": "running",
     }
     for name in PROFILES if args.profile == "all" else [args.profile]:
@@ -1413,9 +1894,16 @@ def main():
             summary["profiles"][name] = profile["status"]
             save(output / "summary.json", summary)
             print(json.dumps({"profile": name, "status": profile["status"]}), flush=True)
-    summary["status"] = "failed" if "failed" in summary["profiles"].values() else "incomplete"
+    statuses = list(summary["profiles"].values())
+    native_ok = native["status"] == "passed" or not args.require_native_resources
+    if "failed" in statuses or not native_ok:
+        summary["status"] = "failed"
+    elif statuses and all(status == "passed" for status in statuses):
+        summary["status"] = "passed"
+    else:
+        summary["status"] = "incomplete"
     save(output / "summary.json", summary)
-    return 1
+    return 0 if summary["status"] == "passed" else 1
 
 
 if __name__ == "__main__":

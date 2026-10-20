@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { Telephony } from "../src/telephony/client";
+import { pausesPresence, Telephony } from "../src/telephony/client";
 
 const sdk = vi.hoisted(() => ({ clients: [] as any[] }));
 vi.mock("@telnyx/webrtc", () => ({
   TelnyxRTC: class {
     handlers = new Map<string, (event?: any) => void>();
     disconnect = vi.fn();
-    constructor() {
+    constructor(public options: { login_token: string }) {
       sdk.clients.push(this);
     }
     on(name: string, handler: (event?: any) => void) {
@@ -164,10 +164,47 @@ test("disconnect while microphone permission is pending cannot register later", 
   expect(sdk.clients).toHaveLength(0);
 });
 
-test("reusing a ready registration does not leave a second SDK client", async () => {
+test("reusing a ready registration with its token keeps one SDK client", async () => {
   const { phone } = await connected();
-  await phone.connect("new-short-lived-token", {} as HTMLAudioElement);
+  await phone.connect("synthetic-token", {} as HTMLAudioElement);
   expect(sdk.clients).toHaveLength(1);
+});
+
+test("a new token replaces an idle registration instead of being discarded", async () => {
+  const { phone, client } = await connected();
+  await phone.connect("new-short-lived-token", {} as HTMLAudioElement);
+  expect(client.disconnect).toHaveBeenCalledTimes(1);
+  expect(sdk.clients).toHaveLength(2);
+  expect(sdk.clients[1].options.login_token).toBe("new-short-lived-token");
+  expect(sdk.clients[1].disconnect).not.toHaveBeenCalled();
+});
+
+test("a new token never tears down a pending incoming callback", async () => {
+  const { phone, client } = await connected();
+  phone.expectReturnLeg("return");
+  client.emit(call("return"));
+  await expect(
+    phone.connect("new-short-lived-token", {} as HTMLAudioElement),
+  ).rejects.toThrow(/incoming call/);
+  expect(client.disconnect).not.toHaveBeenCalled();
+});
+
+test("a failed answer is not cached and the rep can retry the same leg", async () => {
+  const { phone, client } = await connected();
+  phone.expectReturnLeg("return");
+  const incoming = call("return");
+  incoming.answer.mockRejectedValueOnce(new Error("media failed"));
+  client.emit(incoming);
+  await expect(phone.acceptIncoming("return")).rejects.toThrow("media failed");
+  await phone.acceptIncoming("return");
+  expect(incoming.answer).toHaveBeenCalledTimes(2);
+});
+
+test("a transient socket reconnect during a call does not pause presence", () => {
+  expect(pausesPresence("reconnecting", true)).toBe(false);
+  expect(pausesPresence("reconnecting", false)).toBe(true);
+  expect(pausesPresence("agent-disconnected", true)).toBe(true);
+  expect(pausesPresence("registered", false)).toBe(false);
 });
 
 test("ending a callback preserves agent ownership and rejects a late callback active event", async () => {

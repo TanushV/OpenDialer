@@ -4,13 +4,17 @@ import { HistoryMore } from "./HistoryMore";
 import { date, label, useWorkspace } from "../context";
 import type { FollowupTask } from "../types";
 import { localEdit } from "../api/client";
+import {
+  chooseZone,
+  zoneCaption,
+  zonedInput,
+  zonedInstant,
+} from "../state/zones";
 
-export function localDateInput(value?: string | null) {
-  if (!value) return "";
-  const d = new Date(value);
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60_000)
-    .toISOString()
-    .slice(0, 16);
+const CLOSED = ["completed", "cancelled"];
+/** A task keeps its own zone; otherwise the lead's explicit zone applies. */
+function taskZone(task: FollowupTask, leadZone?: string | null) {
+  return chooseZone(task.timezone, task.time_window?.timezone, leadZone);
 }
 
 function Task({
@@ -23,18 +27,24 @@ function Task({
   onSaved: (task: FollowupTask) => void;
 }) {
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
-  const [when, setWhen] = useState(localDateInput(task.due_at));
+  const lead = w.leads.find((l) => l.id === task.lead_id);
+  const zone = taskZone(task, lead?.timezone);
+  const [when, setWhen] = useState(zonedInput(task.due_at, zone.zone));
   const [owner, setOwner] = useState(task.owner_id || "");
-  const [reminder, setReminder] = useState(localDateInput(task.snoozed_until));
+  const [reminder, setReminder] = useState(
+    zonedInput(task.snoozed_until, zone.zone),
+  );
   const [reason, setReason] = useState("");
   const routing = task.inbound && task.inbound_state !== "ended";
-  const closed = ["completed", "cancelled"].includes(task.status) || routing;
-  const name =
-    task.lead_name ||
-    w.leads.find((l) => l.id === task.lead_id)?.name ||
-    "Incoming callback";
-  function change(edits: Record<string, unknown>) {
+  const closed = CLOSED.includes(task.status) || routing;
+  const name = task.lead_name || lead?.name || "Incoming callback";
+  const confirmation = task.review_required
+    ? { confirmation_reason: reason }
+    : {};
+  /** Edits are built inside run() so an invalid local time reports an error. */
+  function change(edits: () => Record<string, unknown>) {
     return run(async () => {
+      const values = edits();
       try {
         const saved = await localEdit<FollowupTask>(
           api,
@@ -43,7 +53,7 @@ function Task({
           {
             request_id: crypto.randomUUID(),
             expected_version: task.version,
-            ...edits,
+            ...values,
           },
         );
         onSaved(saved);
@@ -59,13 +69,12 @@ function Task({
         {name} · {task.action}
       </strong>
       <p>
-        <span>{label(task.status)}</span> · {date(task.due_at)}{" "}
-        {task.timezone ? `(${task.timezone})` : ""}
+        <span>{label(task.status)}</span> · {date(task.due_at, zone.zone)}
       </p>
       {task.snoozed_until && (
         <p>
-          Reminder snoozed until {date(task.snoozed_until)}. The promised
-          callback time is unchanged.
+          Reminder snoozed until {date(task.snoozed_until, zone.zone)}. The
+          promised callback time is unchanged.
         </p>
       )}
       {task.source_conflicts?.length ? (
@@ -123,7 +132,7 @@ function Task({
         </label>
       )}
       <label>
-        Callback time (your device timezone)
+        Callback time ({zoneCaption(zone)})
         <input
           type="datetime-local"
           value={when}
@@ -132,7 +141,7 @@ function Task({
         />
       </label>
       <label>
-        Reminder until (your device timezone)
+        Reminder until ({zoneCaption(zone)})
         <input
           type="datetime-local"
           value={reminder}
@@ -165,14 +174,14 @@ function Task({
             (!!task.review_required && reason.trim().length < 3)
           }
           onClick={() =>
-            void change({
+            void change(() => ({
               status: "open",
               confirmation_state: "confirmed",
-              ...(task.review_required ? { confirmation_reason: reason } : {}),
-              due_at: new Date(when).toISOString(),
+              ...confirmation,
+              due_at: zonedInstant(when, zone.zone),
               owner_id: owner,
-              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-            })
+              timezone: zone.zone,
+            }))
           }
         >
           Save follow-up
@@ -181,10 +190,10 @@ function Task({
           className="small secondary"
           disabled={closed || !task.due_at || !reminder}
           onClick={() =>
-            void change({
+            void change(() => ({
               status: "snoozed",
-              snoozed_until: new Date(reminder).toISOString(),
-            })
+              snoozed_until: zonedInstant(reminder, zone.zone),
+            }))
           }
         >
           Snooze reminder
@@ -195,10 +204,7 @@ function Task({
             closed || (!!task.review_required && reason.trim().length < 3)
           }
           onClick={() =>
-            void change({
-              status: "completed",
-              ...(task.review_required ? { confirmation_reason: reason } : {}),
-            })
+            void change(() => ({ status: "completed", ...confirmation }))
           }
         >
           Complete
@@ -209,10 +215,7 @@ function Task({
             closed || (!!task.review_required && reason.trim().length < 3)
           }
           onClick={() =>
-            void change({
-              status: "cancelled",
-              ...(task.review_required ? { confirmation_reason: reason } : {}),
-            })
+            void change(() => ({ status: "cancelled", ...confirmation }))
           }
         >
           Cancel
@@ -231,8 +234,7 @@ export function FollowupTasks() {
   );
   const sorted = [...history.items].sort(
     (a, b) =>
-      Number(["completed", "cancelled"].includes(a.status)) -
-        Number(["completed", "cancelled"].includes(b.status)) ||
+      Number(CLOSED.includes(a.status)) - Number(CLOSED.includes(b.status)) ||
       (a.due_at || "").localeCompare(b.due_at || ""),
   );
   return (
@@ -253,8 +255,9 @@ export function FollowupTasks() {
       </label>
       {sorted.length ? (
         sorted.map((t) => (
+          // Keyed by identity: a refreshed version must not discard an open draft.
           <Task
-            key={`${t.id}:${t.version}`}
+            key={t.id}
             task={t}
             owners={owners.items}
             onSaved={history.update}
@@ -268,5 +271,49 @@ export function FollowupTasks() {
       <HistoryMore history={history} label="Load more follow-ups" />
       <HistoryMore history={owners} label="Load more task owners" />
     </>
+  );
+}
+
+/** Due and overdue callbacks, shown as the rep's next work on the dialer. */
+export function DueTasks() {
+  const { snapshot: w } = useWorkspace();
+  const now = Date.now();
+  const due = w.tasks
+    .filter(
+      (t) =>
+        !t.inbound &&
+        !CLOSED.includes(t.status) &&
+        (t.owner_id ?? w.user.id) === w.user.id &&
+        !!t.due_at &&
+        Date.parse(t.due_at) <= now + 24 * 3600_000 &&
+        !(t.snoozed_until && Date.parse(t.snoozed_until) > now),
+    )
+    .sort((a, b) => a.due_at!.localeCompare(b.due_at!));
+  if (!due.length) return null;
+  return (
+    <section className="card padded next-work" aria-label="Next work">
+      <h3>Next work</h3>
+      <ul>
+        {due.slice(0, 5).map((t) => {
+          const lead = w.leads.find((l) => l.id === t.lead_id);
+          const zone = taskZone(t, lead?.timezone);
+          return (
+            <li key={t.id}>
+              <strong>{t.lead_name || lead?.name || "Lead"}</strong> ·{" "}
+              {t.action} · {date(t.due_at, zone.zone)} (
+              {zone.zone.replaceAll("_", " ")})
+              {Date.parse(t.due_at!) <= now && (
+                <span className="pill subtle">Overdue</span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      <p className="fine">
+        Due callbacks come first when you get the next lead and calling policy
+        permits.
+        {due.length > 5 ? ` ${due.length - 5} more in Intelligence.` : ""}
+      </p>
+    </section>
   );
 }

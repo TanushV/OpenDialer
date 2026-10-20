@@ -79,13 +79,12 @@ def forbidden(*args, **kwargs):
     raise AssertionError("Ordinary workspace view performed full history/integrity work")
 
 
+@pytest.mark.sqlite_only
 def test_open_call_queries_skip_finalized_history_in_the_database(workspace, app, clock):
     """Bound SQL work, not only decrypted rows: LIMIT alone hid a historical scan."""
     from sqlalchemy import event
 
     service, p = app.state.service, principal(workspace)
-    if not service.db.sqlite:
-        pytest.skip("SQLite VM work oracle; result/index parity is checked on both databases")
     with service.db.transaction() as s:
         for i in range(600):
             put(
@@ -496,7 +495,12 @@ def test_job_scope_backfill_preserves_identity_content_and_status(workspace, app
 
 
 @pytest.mark.asyncio
-async def test_concurrent_source_changes_do_not_exhaust_or_delay_metric_refresh(workspace, app, monkeypatch):
+@pytest.mark.database
+async def test_concurrent_source_changes_do_not_exhaust_or_delay_metric_refresh(
+    workspace, app, clock, monkeypatch
+):
+    from app.jobs.queue import aware
+
     service, p = app.state.service, principal(workspace)
     original = service.metrics
     changes = []
@@ -520,6 +524,11 @@ async def test_concurrent_source_changes_do_not_exhaust_or_delay_metric_refresh(
         assert job.status == "queued"
         assert job.attempts == 0
         assert job.error is None
+        # W1: a refresh superseded on every run backs off instead of spinning; the
+        # delay is bounded by the 60 s maximum, never an exhausted or failed job.
+        delay = (aware(job.available_at) - clock()).total_seconds()
+    assert 0 <= delay <= 60
+    clock.now += timedelta(seconds=delay)
     assert completed_home_metrics(workspace)["projection"]["status"] == "ready"
 
 
@@ -580,3 +589,23 @@ def test_refresh_coalescing_cannot_refund_paid_work_or_take_another_lease(worksp
     assert stored["status"] == "running"
     assert stored["attempts"] == 1
     assert stored["lease_owner"] == "original-worker"
+
+
+def test_snapshot_carries_the_live_cursor_so_clients_skip_replay(workspace, app):
+    from app.db import Event
+    from sqlalchemy import func
+
+    def latest():
+        with app.state.service.db.transaction(False) as s:
+            return s.scalar(select(func.max(Event.sequence)).where(Event.tenant_id == workspace["tenant_id"]))
+
+    first = snapshot(workspace)
+    assert first["event_cursor"] == (latest() or 0)
+    start(workspace)
+    later = workspace["client"].get(
+        "/v1/events", headers=workspace["headers"], params={"after": first["event_cursor"]}
+    )
+    assert later.status_code == 200, later.text
+    found = later.json()["events"]
+    assert found and all(event["sequence"] > first["event_cursor"] for event in found)
+    assert snapshot(workspace)["event_cursor"] == latest() > first["event_cursor"]
