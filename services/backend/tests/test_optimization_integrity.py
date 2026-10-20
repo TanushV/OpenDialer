@@ -344,32 +344,23 @@ def test_reviewed_owned_candidate_can_run_a_bounded_pilot_and_expire_without_ful
     workspace, app, clock, reviewable, changed_baseline
 ):
     import hashlib
+    import pickle
 
-    import joblib
     from app.db import put, update
+    from app.ml import serving
     from app.ml.training import FEATURE_ORDER
     from app.scheduling.models import EstimatePolicy
-    from sklearn.dummy import DummyClassifier
+    from model_artifacts import constant_stage, write
 
     root = app.state.settings.data_dir / "models" / "fixture"
     root.mkdir(parents=True)
-    artifact = root / "candidate.joblib"
-    estimator = DummyClassifier(strategy="prior").fit([[0] * len(FEATURE_ORDER)] * 4, [0, 1, 0, 1])
-    joblib.dump(
-        {"human": estimator}
-        if reviewable is None
-        else {
-            "feature_schema_version": 2,
-            "stages": {
-                "human": {
-                    "estimator": estimator,
-                    "feature_order": ["local_hour"],
-                    "vocabulary": {"segments": [], "concepts": []},
-                }
-            },
-        },
-        artifact,
-    )
+    if reviewable is None:
+        # A v1 artifact from before pure serving is retired: never unpickled or piloted.
+        artifact = root / "candidate.joblib"
+        artifact.write_bytes(pickle.dumps({"human": "legacy estimator"}))
+    else:
+        artifact = root / "candidate.json"
+        write(artifact, {"human": constant_stage(0.5)})
     baseline = {"estimate_policy": EstimatePolicy().model_dump(mode="json"), "handling_seconds": 120}
     with app.state.db.transaction() as s:
         dataset = put(
@@ -398,7 +389,11 @@ def test_reviewed_owned_candidate_can_run_a_bounded_pilot_and_expire_without_ful
                 "artifact": str(artifact),
                 "checksum": hashlib.sha256(artifact.read_bytes()).hexdigest(),
                 "feature_order": FEATURE_ORDER,
-                **({"feature_schema_version": 2, "reviewable": reviewable} if reviewable is not None else {}),
+                **(
+                    {"feature_schema_version": 2, "reviewable": reviewable, "artifact_format": serving.FORMAT}
+                    if reviewable is not None
+                    else {}
+                ),
                 "baseline": baseline,
                 "window_days": 14,
                 "metrics": {"brier": 0.1, "pooled_baseline_brier": 0.2},
@@ -416,6 +411,10 @@ def test_reviewed_owned_candidate_can_run_a_bounded_pilot_and_expire_without_ful
         headers=h,
         json={"review_reference": "Explicit synthetic pilot review", "max_leads": 100, "duration_days": 1},
     )
+    if reviewable is None:
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"] == serving.RETIRED
+        return
     if reviewable is False or changed_baseline:
         assert response.status_code == 409, response.text
         return

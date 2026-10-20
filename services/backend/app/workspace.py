@@ -6,6 +6,7 @@ import hmac
 from sqlalchemy import and_, func, literal_column, or_, select
 
 from app.db import MODELS, ActiveClaim, Event, Job, doc
+from app.ml.training import retired_reason
 from app.operational_schema import PAGE_TABLES
 from app.service import fail
 
@@ -154,6 +155,8 @@ class WorkspaceReads:
                     value.update(self.number_readiness_in(s, p, row))
                 if section == "registries":
                     value = {k: v for k, v in value.items() if k in REGISTRY_FIELDS}
+                if section == "models" and (reason := retired_reason(value)):
+                    value["serving_block"] = reason
                 selected.append(value)
                 if len(selected) >= limit:
                     break
