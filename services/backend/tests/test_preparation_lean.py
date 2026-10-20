@@ -267,3 +267,179 @@ async def test_unconfigured_research_takes_no_company_lease(workspace, app, monk
     with service.db.transaction(False) as s:
         assert not service.scoped(s, "companies", principal), "No provider means no research claim"
     assert service.packet(principal, lead["id"])["preparation"]["status"] == "fallback"
+
+
+class Extractor:
+    """Extracts every supplied source as one fact, with whole-field review approval."""
+
+    def __init__(self, stability="stable"):
+        self.extractions, self.stability = [], stability
+
+    async def complete(self, instructions, context, schema):
+        from app.providers.inference import InferenceResult
+        from test_grounding_review import review_response
+
+        if "fingerprint" in context:
+            # Provider request IDs are unique receipts; a repeated ID is a conflicting charge.
+            return InferenceResult(
+                review_response(context), {"cost": 0.001}, f"lean-review-{len(self.extractions)}"
+            )
+        self.extractions.append(context)
+        stability = self.stability
+        return InferenceResult(
+            {
+                "facts": [
+                    {
+                        "statement": source["text"],
+                        "quote": source["text"],
+                        "source_id": source["id"],
+                        "stability": stability(source) if callable(stability) else stability,
+                        "conflicts": [],
+                    }
+                    for source in context["sources"]
+                ],
+                "unknowns": [],
+            },
+            {"cost": 0.001},
+            f"lean-extract-{len(self.extractions)}",
+        )
+
+
+def company(service, principal, domain):
+    with service.db.transaction(False) as s:
+        row = service._by_key(s, principal, "companies", domain)
+        return dict(row.data) if row else None
+
+
+@pytest.mark.asyncio
+async def test_research_page_fetches_never_use_the_shared_background_pool(workspace, app, monkeypatch):
+    import httpx
+    from app.research import fetch
+
+    service, principal = app.state.service, p(workspace)
+    monkeypatch.setattr(service.settings, "simulation", False)
+    shared = []
+    monkeypatch.setattr(
+        service,
+        "background_http",
+        httpx.AsyncClient(transport=httpx.MockTransport(lambda r: shared.append(r) or httpx.Response(500))),
+        raising=False,
+    )
+    monkeypatch.setattr(fetch, "validate_url", lambda url: ["93.184.216.34"])
+    original, clients = httpx.AsyncClient, []
+
+    def page(request):
+        links = "<a href='/services'>Services</a><a href='/about'>About</a>"
+        return httpx.Response(
+            200, headers={"content-type": "text/html"}, text=f"<p>Page {request.url.path}</p>{links}"
+        )
+
+    def factory(**kwargs):
+        client = original(transport=httpx.MockTransport(page), **kwargs)
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(fetch.httpx, "AsyncClient", factory)
+    monkeypatch.setattr(service, "inference", lambda *args: Extractor())
+    domain = "pooled.example.test"
+    await service.research_company(principal, domain, {"company": "Pooled", "domain": domain})
+    assert not shared, "Page fetches must not occupy the shared LLM/background connections"
+    assert len(clients) == 3 and all(client.is_closed for client in clients)
+
+
+@pytest.mark.asyncio
+async def test_company_fetch_deadline_bounds_a_slow_unit_and_records_lost_sources(
+    workspace, app, monkeypatch
+):
+    import asyncio
+
+    import app.intelligence as intelligence
+    from app.research.fetch import SafeFetcher
+
+    service, principal = app.state.service, p(workspace)
+    monkeypatch.setattr(service.settings, "simulation", False)
+    monkeypatch.setattr(intelligence, "COMPANY_FETCH_SECONDS", 0.3)
+    domain = "slow.example.test"
+
+    async def fetch(fetcher, url):
+        if url == f"https://{domain}":
+            return {
+                "url": url,
+                "title": "Slow",
+                "text": "The company repairs commercial ovens.",
+                "links": [{"url": f"https://{domain}/services", "text": "Services"}],
+            }
+        await asyncio.sleep(30)  # A drip that each per-fetch timer alone would keep renewing.
+
+    monkeypatch.setattr(SafeFetcher, "fetch", fetch)
+    extractor = Extractor()
+    monkeypatch.setattr(service, "inference", lambda *args: extractor)
+    await asyncio.wait_for(
+        service.research_company(principal, domain, {"company": "Slow", "domain": domain}), 10
+    )
+    assert len(extractor.extractions) == 1 and len(extractor.extractions[0]["sources"]) == 1
+    lost = company(service, principal, domain)["sources_lost"]
+    assert lost == [{"url": f"https://{domain}/services", "error": "deadline"}]
+
+
+@pytest.mark.asyncio
+async def test_home_page_failure_is_recorded_not_cached_as_empty_research(workspace, app, monkeypatch):
+    from app.research.fetch import SafeFetcher, UnsafeURL
+
+    service, principal = app.state.service, p(workspace)
+    monkeypatch.setattr(service.settings, "simulation", False)
+    domain = "down.example.test"
+
+    async def fetch(fetcher, url):
+        raise UnsafeURL("synthetic unreachable origin")
+
+    monkeypatch.setattr(SafeFetcher, "fetch", fetch)
+    extractor = Extractor()
+    monkeypatch.setattr(service, "inference", lambda *args: extractor)
+    with pytest.raises(RuntimeError, match="sources"):
+        await service.research_company(principal, domain, {"company": "Down", "domain": domain})
+    state = company(service, principal, domain)
+    assert state["sources_lost"] == [{"url": f"https://{domain}", "error": "UnsafeURL"}]
+    assert not state.get("empty_research_key"), "Lost sources are a failed attempt, not an empty result"
+    assert not extractor.extractions
+
+
+@pytest.mark.asyncio
+async def test_expired_time_sensitive_fact_refreshes_without_duplicating_stable_facts(
+    workspace, app, clock, monkeypatch
+):
+    from app.research.fetch import SafeFetcher
+
+    service, principal = app.state.service, p(workspace)
+    monkeypatch.setattr(service.settings, "simulation", False)
+    domain = "fresh.example.test"
+    stable, offer = "The company repairs commercial roofs.", "Roof inspections are discounted this week."
+
+    async def fetch(fetcher, url):
+        if url == f"https://{domain}":
+            return {
+                "url": url,
+                "title": "Fresh",
+                "text": stable,
+                "links": [{"url": f"https://{domain}/services", "text": "Services"}],
+            }
+        return {"url": url, "title": "Offer", "text": offer, "links": []}
+
+    monkeypatch.setattr(SafeFetcher, "fetch", fetch)
+    extractor = Extractor(lambda source: "time_sensitive" if source["text"] == offer else "stable")
+    monkeypatch.setattr(service, "inference", lambda *args: extractor)
+    lead = {"company": "Fresh", "domain": domain}
+    await service.research_company(principal, domain, lead)
+    await service.research_company(principal, domain, lead)
+    assert len(extractor.extractions) == 1, "Current facts are reused"
+    clock.now += timedelta(hours=25)
+    # The stable fact is still current, but the time-sensitive one expired: refresh this company.
+    await service.research_company(principal, domain, lead)
+    assert len(extractor.extractions) == 2
+    with service.db.transaction(False) as s:
+        current = [
+            f.data
+            for f in service.scoped(s, "research_facts", principal)
+            if f.data["domain"] == domain and datetime.fromisoformat(f.data["expires_at"]) > clock.now
+        ]
+    assert sorted(f["statement"] for f in current) == sorted([stable, offer])

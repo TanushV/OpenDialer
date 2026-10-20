@@ -13,6 +13,8 @@ class ProviderDefaults(BaseModel):
     coach_provider: Literal["openrouter", "static"] = "openrouter"
     coach_model: str = "openai/gpt-oss-120b"
     research_search: Literal["disabled", "openai_web_search"] = "disabled"
+    # Budget hold for one optional metered request before its receipt settles the actual cost.
+    optional_request_estimate_usd: float = 0.10
 
 
 PROVIDER_DEFAULTS = ProviderDefaults()
