@@ -23,8 +23,9 @@ from app.research.fetch import SafeFetcher, discovery_links
 from app.research.validation import ValidationFailure, script_review_request, validate_script
 from app.service import Service, dt, fail
 
-# Outcome of one claimed job in a drain pass.
-DONE, PAGED, IDLE = "completed", "progressed", "idle"
+# Outcome of one claimed job in a drain pass: completed; requeued with progress
+# or newer input; or handled without progress (coalesced, failed, lost lease).
+DONE, ADVANCED, IDLE = "completed", "advanced", "idle"
 
 RESEARCH_SCHEMA = {
     "type": "object",
@@ -1288,8 +1289,11 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             paged = receipt.get("status") == "pending" and bool(
                 receipt.get("processed") or receipt.get("cursor", cursor) != cursor
             )
-            await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id, progressed=paged)
-            return PAGED if paged else IDLE
+            renewed = await asyncio.to_thread(
+                self.jobs.coalesce_refresh, job["id"], worker_id, progressed=paged
+            )
+            # Newer input that arrived during the run is fresh work, not a retry.
+            return ADVANCED if paged or renewed else IDLE
 
         async def execute(lane, job):
             p = {
@@ -1449,7 +1453,8 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 with contextlib.suppress(asyncio.CancelledError):
                     await pulse
 
-        async def drain(lane, execution_class=None):
+        async def drain(lane, execution_class, seen):
+            """Returns (completed, exhausted): exhausted means a claim found nothing due."""
             processed = 0
             limits = self.settings.runtime_limits
             capacity = (
@@ -1487,12 +1492,13 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             if not await asyncio.to_thread(
                 self.jobs.has_due, lane, tenant_id, execution_class=execution_class
             ):
-                return processed
-            seen = set()
+                return processed, True
             for offset in range(0, 20, capacity):
                 active = [asyncio.create_task(admitted_job()) for _ in range(min(capacity, 20 - offset))]
                 try:
                     claimed = [result for result in await asyncio.gather(*active) if result is not None]
+                    if not claimed:
+                        return processed, True
                     processed += sum(outcome == DONE for _, outcome in claimed)
                     # Completions, pages with progress and newly claimed jobs advance
                     # the drain. A job re-claimed only to coalesce again ends the pass.
@@ -1505,23 +1511,34 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                         if not task.done():
                             task.cancel()
                     await asyncio.gather(*active, return_exceptions=True)
-            return processed
+            return processed, False
 
-        # One runner, independently admitted live/I/O/CPU work. A slow fit or
-        # background lease cannot stop a different lane from making progress.
-        tasks = [
-            asyncio.create_task(drain(lane, kind))
+        async def drains(specs):
+            # One runner, independently admitted live/I/O/CPU work. A slow fit or
+            # background lease cannot stop a different lane from making progress.
+            tasks = [asyncio.create_task(drain(lane, kind, seen[lane, kind])) for lane, kind in specs]
+            try:
+                return await asyncio.gather(*tasks)
+            finally:
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+
+        specs = [
+            (lane, kind)
             for lane in queues or ["webhook", "live_coach", "postcall", "scripts", "research", "ml"]
             for kind in (("maintenance", "training") if lane == "ml" else (None,))
         ]
-        try:
-            processed = sum(await asyncio.gather(*tasks))
-            return {"processed": processed, "status": "failed" if errors else "passed", "errors": errors}
-        finally:
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+        seen = {spec: set() for spec in specs}
+        results = await drains(specs)
+        processed = sum(done for done, _ in results)
+        if processed and len(specs) > 1:
+            # A sibling's commits can make work due after a lane found nothing; one
+            # bounded follow-up runs it in this call (the runtime is woken by commit).
+            again = [spec for spec, (_, exhausted) in zip(specs, results, strict=True) if exhausted]
+            processed += sum(done for done, _ in await drains(again))
+        return {"processed": processed, "status": "failed" if errors else "passed", "errors": errors}
 
     def _training_source(self, s, p, payload):
         user = self.required(s, "users", p["user_id"], p)
