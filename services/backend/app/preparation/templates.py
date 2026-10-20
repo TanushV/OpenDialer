@@ -151,8 +151,9 @@ def fill(candidate, template, *, lead, seller, rep, facts):
                 raise ValidationFailure("Every inserted factual slot requires supported facts")
             # This checks structure and source identity only. The caller must pass
             # the rendered fields through validate_script with approved_template.
+            # An empty slot cites nothing, so it never pins evidence it does not use.
+            used.update(ids)
         text[key] = slot["text"]
-        used.update(ids)
     return {
         **render(template, lead=lead, seller=seller, rep=rep, slots=text),
         "lead_id": lead["id"],

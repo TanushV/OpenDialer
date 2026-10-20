@@ -6,7 +6,6 @@ import logging
 import time
 from datetime import timedelta
 
-import httpx
 from sqlalchemy import case, func, select
 
 from app.accounting import RequestAccounting
@@ -74,6 +73,9 @@ SCRIPT_SCHEMA = {
     },
     "required": ["lead_id", "opener", "screening_intro", "discovery_questions", "fact_ids_used", "claims"],
 }
+OPTIONAL_REQUEST_ESTIMATE_USD = PROVIDER_DEFAULTS.optional_request_estimate_usd
+# Total page-fetch time for one company, so a slow origin cannot hold a heartbeat-renewed unit.
+COMPANY_FETCH_SECONDS = 45
 
 
 class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Service):
@@ -298,56 +300,55 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             leads = [self.required(s, "leads", lead_id, p) for lead_id in dict.fromkeys(lead_ids)]
+            for lead in leads:
+                state = lead.data.get("preparation") or {}
+                if state.get("status") == "failed" and (
+                    state.get("attempts") or state.get("next_attempt_at")
+                ):
+                    # An explicit request grants one new bounded attempt budget.
+                    update(lead, preparation={**state, "attempts": 0, "next_attempt_at": None})
             config = self.preparation_settings(s, p)["preparation"]
             jobs = self.queue_preparation_in(s, p, leads, config["batch_size"])
         return {"work_units": len(jobs), "jobs": jobs}
 
     async def prepare(self, p, lead_ids):
-        failures = []
+        """Prepare each lead independently; a failure is that lead's attempt state, not a failed job."""
+        from app.coaching.engine import finish_shielded
+
+        result = {"prepared": [], "failed": [], "skipped": []}
         pending = iter(dict.fromkeys(lead_ids))
 
         async def work():
             for lead_id in pending:
                 async with self.preparation_capacity:
-                    owner = await asyncio.to_thread(self.claim_preparation, p, lead_id)
+                    owner = await asyncio.to_thread(self.claim_preparation, p, lead_id, retry_gate=True)
                     if not owner:
+                        result["skipped"].append(lead_id)
                         continue
+                    failure = None
                     try:
                         async with self.preparation_heartbeat(p, "leads", lead_id, owner):
-                            if not await self.prepare_one(p, lead_id, owner):
-                                failures.append(lead_id)
-                    except Exception:
-                        failures.append(lead_id)
+                            prepared = await self.prepare_one(p, lead_id, owner)
+                    except Exception as exc:
+                        prepared, failure = False, type(exc).__name__
                     finally:
-                        from app.coaching.engine import finish_shielded
-
-                        await finish_shielded(asyncio.to_thread(self.release_preparation, p, lead_id, owner))
+                        await finish_shielded(
+                            asyncio.to_thread(self.release_preparation, p, lead_id, owner, failure)
+                        )
+                    result["prepared" if prepared else "failed"].append(lead_id)
 
         # Two workers consume a bounded iterator, rather than creating a task per lead.
         async with asyncio.TaskGroup() as group:
             for _ in range(self.settings.runtime_limits.company_units):
                 group.create_task(work())
-        if failures:
-            raise RuntimeError(
-                f"Optional script preparation failed for {len(failures)} objects; generic scripts remain available for bounded retry"
-            )
+        return result
 
     async def prepare_one(self, p, lead_id, owner):
         def research_context():
             with self.db.transaction(False) as session:
                 lead = self.required(session, "leads", lead_id, p)
                 domain = lead.data["domain"]
-                model = MODELS["research_facts"]
-                existing = self.context_rows(
-                    session,
-                    p,
-                    "research_facts",
-                    domain,
-                    model.ctx_status == "supported",
-                    model.ctx_expires_at > self.clock(),
-                    limit=1,
-                )
-                return domain, dict(lead.data), bool(existing)
+                return domain, dict(lead.data), bool(domain) and self.research_current(session, p, domain)
 
         domain, data, existing = await asyncio.to_thread(research_context)
         if not existing and domain:
@@ -407,7 +408,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 self.reserve_optional_budget,
                 p,
                 request_key,
-                0.10,
+                OPTIONAL_REQUEST_ESTIMATE_USD,
                 object_id=lead_id,
                 work_kind="script_write",
             ):
@@ -567,54 +568,48 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                         sort_keys=True,
                     ).encode()
                 ).hexdigest()
-                obj = self._by_key(s, p, "script_versions", cache_key)
-                if not obj:
-                    version = uid()
-                    script.update(
-                        script_version=version,
-                        input_cache_key=input_key
+                self.publish_script_in(
+                    s,
+                    p,
+                    current_lead,
+                    {
+                        **script,
+                        "script_version": uid(),
+                        "input_cache_key": input_key
                         if not provider_failed and (not provider or not script.get("fallback"))
                         else None,
-                        prompt_version="template-slots-v1" if template else "script-v2",
-                        created_at=self.clock().isoformat(),
-                        previous_version=previous.id if previous else None,
-                        diff={
+                        "prompt_version": "template-slots-v1" if template else "script-v2",
+                        "previous_version": previous.id if previous else None,
+                        "diff": {
                             "previous_opener": previous.data["opener"] if previous else None,
                             "opener": script["opener"],
                         },
-                    )
-                    obj = put(
-                        s,
-                        "script_versions",
-                        p["tenant_id"],
-                        p["seller_id"],
-                        script,
-                        object_id=version,
-                        key=cache_key,
-                        now=self.clock(),
-                    )
-                update(
-                    current_lead,
-                    preparation={
-                        "status": "failed"
-                        if provider_failed
-                        else "fallback"
-                        if script["fallback"]
-                        else "ready",
-                        "script_id": obj.id,
-                        "key": source_key,
-                        "as_of": self.clock().isoformat(),
-                        "expires_at": min(
-                            (f["expires_at"] for f in packet["research"]["facts"]),
-                            default=(self.clock() + timedelta(days=1)).isoformat(),
-                        ),
-                        "attempt": current_lead.data.get("preparation", {}).get("attempt", 0) + 1,
                     },
+                    key=cache_key,
+                    source_key=source_key,
+                    facts=packet["research"]["facts"],
+                    failure="provider_result_rejected" if provider_failed else None,
                 )
-                emit(s, p["tenant_id"], "lead.packet_ready", obj, self.clock(), {"lead_id": lead_id})
             return not provider_failed
 
         return await asyncio.to_thread(publish, script, provider_failed)
+
+    def research_current(self, s, p, domain):
+        """Current while a supported fact lives and the earliest fact of the last run has not expired."""
+        model = MODELS["research_facts"]
+        if not self.context_rows(
+            s,
+            p,
+            "research_facts",
+            domain,
+            model.ctx_status == "supported",
+            model.ctx_expires_at > self.clock(),
+            limit=1,
+        ):
+            return False
+        company = self._by_key(s, p, "companies", domain)
+        refresh_at = company.data.get("refresh_at") if company else None
+        return not refresh_at or dt(refresh_at) > self.clock()
 
     async def research_company(self, p, domain, lead):
         # One in-process result is shared; the database lease also fences other processes.
@@ -655,6 +650,14 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 return
         except (ValueError, TypeError):
             return
+        provider = None
+        if not self.settings.simulation:
+            # Without configured inference there is no research work, so take no company lease.
+            provider = await asyncio.to_thread(
+                self.inference, p["tenant_id"], "research_extract", p["user_id"]
+            )
+            if not provider:
+                return
         owner = uid()
         provider_config = await asyncio.to_thread(self.vault.read, p["tenant_id"])
         research_key = hashlib.sha256(
@@ -693,16 +696,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 ):
                     raise RuntimeError("Company research is owned by another active worker")
                 # A completed current source is reusable even if another caller arrived just after publication.
-                model = MODELS["research_facts"]
-                if self.context_rows(
-                    s,
-                    p,
-                    "research_facts",
-                    domain,
-                    model.ctx_status == "supported",
-                    model.ctx_expires_at > self.clock(),
-                    limit=1,
-                ):
+                if self.research_current(s, p, domain):
                     return
                 if not company:
                     company = put(
@@ -722,7 +716,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
         company_id = await asyncio.to_thread(claim)
         if not company_id:
             return
-        source_data, extracted, review = [], [], None
+        source_data, extracted, review, lost = [], [], None, []
 
         def release():
             with self.db.transaction() as s:
@@ -746,46 +740,50 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     ]
                     extracted = [{"statement": text, "source_id": source_id, "quote": text}]
                 else:
-                    provider = await asyncio.to_thread(
-                        self.inference, p["tenant_id"], "research_extract", p["user_id"]
-                    )
-                    if not provider:
-                        return
                     limits = self.settings.runtime_limits
-                    fetcher = SafeFetcher(
-                        max_bytes=limits.research_bytes,
-                        allowed_domains={domain},
-                        http=getattr(self, "background_http", None),
-                    )
-                    fetch_attempts = 1
-                    try:
-                        home = await fetcher.fetch("https://" + domain)
-                        source_data = [{"id": uid(), **home}]
-                        remaining = limits.research_bytes - home.get(
-                            "decoded_bytes", len(home["text"].encode())
+                    # Each fetch uses its own short-lived pinned client, never the shared LLM pool.
+                    fetcher = SafeFetcher(max_bytes=limits.research_bytes, allowed_domains={domain})
+                    loop = asyncio.get_running_loop()
+                    deadline = loop.time() + COMPANY_FETCH_SECONDS
+                    fetch_attempts, remaining = 0, limits.research_bytes
+
+                    async def fetch_source(url):
+                        """One bounded page; a failure is recorded as lost evidence, never hidden."""
+                        nonlocal fetch_attempts, remaining
+                        fetcher.max_bytes = min(
+                            remaining, limits.research_bytes - fetcher.decoded_bytes_total
                         )
-                        for url in discovery_links(home, limits.research_pages - 1):
-                            if (
-                                remaining <= 0
-                                or fetch_attempts >= limits.research_pages
-                                or fetcher.decoded_bytes_total >= limits.research_bytes
-                            ):
-                                break
-                            fetcher.max_bytes = min(
-                                remaining, limits.research_bytes - fetcher.decoded_bytes_total
-                            )
-                            fetch_attempts += 1
-                            try:
+                        fetch_attempts += 1
+                        try:
+                            async with asyncio.timeout_at(deadline):
                                 page = await fetcher.fetch(url)
-                            except (ValueError, OSError, RuntimeError, httpx.HTTPError):
-                                continue
-                            size = page.get("decoded_bytes", len(page["text"].encode()))
-                            if size > remaining:
-                                break
-                            remaining -= size
-                            source_data.append({"id": uid(), **page})
-                    except Exception:
-                        source_data = []
+                        except TimeoutError:
+                            lost.append({"url": url, "error": "deadline"})
+                            return None
+                        except Exception as exc:
+                            lost.append({"url": url, "error": type(exc).__name__})
+                            return None
+                        size = page.get("decoded_bytes", len(page["text"].encode()))
+                        if size > remaining:
+                            lost.append({"url": url, "error": "byte_budget"})
+                            return None
+                        remaining -= size
+                        source_data.append({"id": uid(), **page})
+                        return page
+
+                    def exhausted():
+                        return (
+                            fetch_attempts >= limits.research_pages
+                            or remaining <= 0
+                            or fetcher.decoded_bytes_total >= limits.research_bytes
+                            or loop.time() >= deadline
+                        )
+
+                    home = await fetch_source("https://" + domain)
+                    for url in discovery_links(home, limits.research_pages - 1) if home else []:
+                        if exhausted():
+                            break
+                        await fetch_source(url)
                     extracted, review = await self._extract_company_facts(
                         p, company_id, domain, lead, provider, source_data
                     )
@@ -794,25 +792,20 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
 
                         from app.research.fetch import same_origin
 
-                        seen = {v["url"].rstrip("/") for v in source_data}
-                        remaining = limits.research_bytes - sum(
-                            v.get("decoded_bytes", len(v["text"].encode())) for v in source_data
-                        )
+                        seen = {v["url"].rstrip("/") for v in source_data} | {
+                            v["url"].rstrip("/") for v in lost
+                        }
                         for query in ("services and products", "company location and business activity")[
                             : limits.research_searches
                         ]:
-                            if (
-                                fetch_attempts >= limits.research_pages
-                                or remaining <= 0
-                                or fetcher.decoded_bytes_total >= limits.research_bytes
-                            ):
+                            if exhausted():
                                 break
                             key = "research-search:" + company_id + ":" + uid()
                             if not await asyncio.to_thread(
                                 self.reserve_optional_budget,
                                 p,
                                 key,
-                                0.10,
+                                OPTIONAL_REQUEST_ESTIMATE_USD,
                                 object_id=company_id,
                                 work_kind="research_search",
                             ):
@@ -849,31 +842,14 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                             )
                             added = False
                             for raw_url in result.data.get("urls", [])[:10]:
-                                if (
-                                    fetch_attempts >= limits.research_pages
-                                    or remaining <= 0
-                                    or fetcher.decoded_bytes_total >= limits.research_bytes
-                                ):
+                                if exhausted():
                                     break
                                 url = urldefrag(raw_url)[0]
                                 if url.rstrip("/") in seen or not same_origin("https://" + domain, url):
                                     continue
                                 seen.add(url.rstrip("/"))
-                                fetcher.max_bytes = min(
-                                    remaining, limits.research_bytes - fetcher.decoded_bytes_total
-                                )
-                                fetch_attempts += 1
-                                try:
-                                    page = await fetcher.fetch(url)
-                                except (ValueError, OSError, RuntimeError, httpx.HTTPError):
-                                    continue
-                                size = page.get("decoded_bytes", len(page["text"].encode()))
-                                if size > remaining:
-                                    break
-                                remaining -= size
-                                source_data.append({"id": uid(), **page})
-                                added = True
-                                if len(source_data) == limits.research_pages or remaining <= 0:
+                                added = bool(await fetch_source(url)) or added
+                                if len(source_data) == limits.research_pages:
                                     break
                             if added:
                                 extracted, review = await self._extract_company_facts(
@@ -881,6 +857,8 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                                 )
                                 if extracted:
                                     break
+                # Nothing fetched and something lost is a failed attempt, not a completed empty result.
+                unavailable = not source_data and bool(lost)
 
                 def publish():
                     with self.db.transaction() as s:
@@ -892,6 +870,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                             or dt(company.data["lease_until"]) <= self.clock()
                             or not self._coach_authority(s, p)
                         ):
+                            return
+                        if unavailable:
+                            update(company, sources_lost=lost, failed_at=self.clock().isoformat())
                             return
                         for source in source_data:
                             put(
@@ -913,7 +894,35 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                             )
                         sources = {v["id"]: v for v in source_data}
                         freshness = self.preparation_settings(s, p)["preparation"]
+                        model = MODELS["research_facts"]
+                        current = {
+                            row.data["statement"].casefold(): row.data["expires_at"]
+                            for row in self.context_rows(
+                                s,
+                                p,
+                                "research_facts",
+                                domain,
+                                model.ctx_status == "supported",
+                                model.ctx_expires_at > self.clock(),
+                                limit=64,
+                            )
+                        }
+                        expiries = []
                         for fact in extracted:
+                            expires_at = (
+                                self.clock()
+                                + timedelta(
+                                    hours=(
+                                        freshness["stable_fact_days"] * 24
+                                        if fact.get("stability") == "stable"
+                                        else freshness["time_sensitive_fact_hours"]
+                                    )
+                                )
+                            ).isoformat()
+                            if not fact.get("conflicts") and fact["statement"].casefold() in current:
+                                # The current version stays; scripts pinned to it remain valid.
+                                expiries.append(current[fact["statement"].casefold()])
+                                continue
                             source = sources[fact["source_id"]]
                             fact_id = uid()
                             put(
@@ -934,36 +943,33 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                                     "stability": fact.get("stability", "unknown"),
                                     "conflicts": fact.get("conflicts", []),
                                     "evidence_quote": fact["quote"],
-                                    "expires_at": (
-                                        self.clock()
-                                        + timedelta(
-                                            hours=(
-                                                freshness["stable_fact_days"] * 24
-                                                if fact.get("stability") == "stable"
-                                                else freshness["time_sensitive_fact_hours"]
-                                            )
-                                        )
-                                    ).isoformat(),
+                                    "expires_at": expires_at,
                                     "grounding": review.metadata() if review else {"status": "synthetic"},
                                     "synthetic": self.settings.simulation,
                                 },
                                 object_id=fact_id,
                                 now=self.clock(),
                             )
+                            if not fact.get("conflicts"):
+                                expiries.append(expires_at)
+                        empty = not expiries
                         update(
                             company,
                             researched_at=self.clock().isoformat(),
-                            empty_research_key=research_key
-                            if not any(not f.get("conflicts") for f in extracted)
-                            else None,
+                            # Refresh when the earliest current fact expires, not only when all do.
+                            refresh_at=min(expiries, key=dt) if expiries else None,
+                            sources_lost=lost,
+                            empty_research_key=research_key if empty else None,
                             empty_research_until=(
                                 self.clock() + timedelta(hours=freshness["time_sensitive_fact_hours"])
                             ).isoformat()
-                            if not any(not f.get("conflicts") for f in extracted)
+                            if empty
                             else None,
                         )
 
                 await asyncio.to_thread(publish)
+                if unavailable:
+                    raise RuntimeError("Company sources unavailable; generic preparation remains available")
         finally:
             await finish_shielded(asyncio.to_thread(release))
 
@@ -980,7 +986,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             self.reserve_optional_budget,
             p,
             request_key,
-            0.10,
+            OPTIONAL_REQUEST_ESTIMATE_USD,
             object_id=company_id,
             work_kind="research_extract",
         ):
