@@ -556,6 +556,7 @@ This inventory includes locked application, build and test dependencies. Not eve
 | Python | cryptography | 50.0.2 | Apache-2.0 OR BSD-3-Clause | 3e0c7c091a948b82, 602c4c7482de6479, aac73b3148f6d1d7 |
 | Python | cyclonedx-python-lib | 11.12.0 | Apache-2.0 | 1c3bd67b96888a4c, c71d239df91726fc |
 | Python | defusedxml | 0.7.1 | PSFL | b80ce9da8c42a1f9 |
+| Python | execnet | 2.1.2 | MIT | e89eed1074d3a943 |
 | Python | fastapi | 0.143.1 | MIT | 4ec89ffc81485b97 |
 | Python | filelock | 4.2.0 | MIT | 608c89d5060ae992 |
 | Python | h11 | 0.16.0 | MIT | 37db5bb85926db28 |
@@ -564,16 +565,11 @@ This inventory includes locked application, build and test dependencies. Not eve
 | Python | httpx | 0.28.1 | BSD-3-Clause | 4ec59d544f12b5f5 |
 | Python | idna | 3.20 | BSD-3-Clause | 1a9a4f0e3d479a27 |
 | Python | iniconfig | 2.3.1 | MIT | 3409fa91f7ace557 |
-| Python | jaraco.classes | 3.4.0 | See included license text | 86da0f01aeae4634 |
-| Python | jaraco.context | 6.1.2 | MIT | 9755a18519666e5f |
-| Python | jaraco.functools | 4.6.0 | MIT | 9755a18519666e5f |
 | Python | joblib | 1.6.0 | BSD-3-Clause | 42612911c1872c5e |
-| Python | keyring | 25.7.0 | MIT | 5a57cb4db85e2a2d |
 | Python | license-expression | 30.4.4 | Apache-2.0 | 2a82ac9bbc3e3ee0, c71d239df91726fc, ef97db07e32f6e5d, fb5ce1f2dbd2bedc |
 | Python | macholib | 1.16.4 | MIT | 47082ab2bc018412 |
 | Python | markdown-it-py | 4.2.0 | See included license text | 4a2260d6e2cd0f5a, 792c48c5a849a15f |
 | Python | mdurl | 0.1.2 | See included license text | 7c605df6e28667a9 |
-| Python | more-itertools | 11.2.1 | MIT | 09f1c8c9e941af3e |
 | Python | msgpack | 1.2.3 | Apache-2.0 | 492dedba85da5872 |
 | Python | narwhals | 2.27.1 | MIT | 811445f30147b8f0 |
 | Python | numpy | 2.5.4 | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 | 05f3b88351988ecf, 0e111337b25494a7, 103166b62b80443a, 211e7d737d6179a0, 268b0ca06759d31e, 3f2c1ffa76383a55, 469778be8f33d54e, 649a589ab31076e7, 6f5828a57223d4cc, 9d4098846018319c, a14cc25e10d40a3a, a85ca13fdf90160b, c17011467b4fe6e2, e340270d4f643845, e7d4f4fb20358f31, f7b14309e5f54e50, fbc539f47d0cf83b |
@@ -604,6 +600,7 @@ This inventory includes locked application, build and test dependencies. Not eve
 | Python | pytest | 9.1.1 | MIT | ca836a5f9ecca3b2 |
 | Python | pytest-asyncio | 1.4.0 | Apache-2.0 | a8ad31b1c3f40dca |
 | Python | pytest-cov | 7.1.0 | MIT | 835586ae156766a2 |
+| Python | pytest-xdist | 3.8.0 | MIT | 36c15bf831b218a2 |
 | Python | python-dotenv | 1.2.4 | BSD-3-Clause | 80619b7049f08c81 |
 | Python | requests | 2.34.2 | Apache-2.0 | 09e8a9bcec806710, f5110972dedad2b4 |
 | Python | rich | 15.0.0 | MIT | deed7c17a4318158 |
@@ -9549,6 +9546,33 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+
+```
+
+## License text 36c15bf831b218a2
+
+```text
+MIT License
+
+Copyright (c) 2010 Holger Krekel and contributors.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ```
 
@@ -32611,6 +32635,30 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+```
+
+## License text e89eed1074d3a943
+
+```text
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
 
 ```
 
