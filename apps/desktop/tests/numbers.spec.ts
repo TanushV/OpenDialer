@@ -22,7 +22,7 @@ test("number review distinguishes operational evidence from unknown external rep
   ])
     await expect(
       page
-        .getByRole("region", { name: "Displayed inventory status" })
+        .getByRole("region", { name: "Inventory status" })
         .getByText(state, { exact: true }),
     ).toBeVisible();
   await page
@@ -122,9 +122,8 @@ for (const connected of [false, true]) {
     await expect(page.getByLabel("Reviewed daily limit")).toHaveValue(
       String(original - 1),
     );
-    await page
-      .getByRole("button", { name: "Intelligence", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByText("Advanced", { exact: true }).click();
     await page
       .getByText("Advanced number evidence policy", { exact: true })
       .click();
@@ -135,13 +134,12 @@ for (const connected of [false, true]) {
         r.request().method() === "PUT",
     );
     await page
-      .getByRole("button", { name: "Save optimization settings" })
+      .getByRole("button", { name: "Save planning assumptions" })
       .click();
     expect((await policy).ok()).toBeTruthy();
     await page.reload();
-    await page
-      .getByRole("button", { name: "Intelligence", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByText("Advanced", { exact: true }).click();
     await page
       .getByText("Advanced number evidence policy", { exact: true })
       .click();
@@ -181,10 +179,17 @@ for (const connected of [false, true]) {
         .getByRole("button", { name: "Try a simulated workspace" })
         .click();
     }
+    const schedule = async () => {
+      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await page
+        .getByTestId("setup-schedule")
+        .locator(":scope > summary")
+        .click();
+    };
+    await schedule();
     await page
-      .getByRole("button", { name: "Intelligence", exact: true })
-      .click();
-    await page.getByLabel("Staffing time zone").fill("America/Los_Angeles");
+      .getByRole("combobox", { name: "Staffing time zone" })
+      .selectOption("America/Los_Angeles");
     await page.getByLabel("Staffing starts (hour)").fill("10");
     await page.getByLabel("Staffing ends (hour)").fill("16");
     await page.getByLabel("Simple staffed reps").fill("2");
@@ -193,20 +198,18 @@ for (const connected of [false, true]) {
         r.url().endsWith("/v1/admin/optimization") &&
         r.request().method() === "PUT",
     );
-    await page
-      .getByRole("button", { name: "Save optimization settings" })
-      .click();
+    await page.getByRole("button", { name: "Save rep schedule" }).click();
     expect((await saved).ok()).toBeTruthy();
     await page.reload();
-    await page
-      .getByRole("button", { name: "Intelligence", exact: true })
-      .click();
+    await schedule();
     await expect(page.getByLabel("Staffing time zone")).toHaveValue(
       "America/Los_Angeles",
     );
     await expect(page.getByLabel("Simple staffed reps")).toHaveValue("2");
     // Reset saved assumptions for subsequent existing tests.
-    await page.getByLabel("Staffing time zone").fill("UTC");
+    await page
+      .getByRole("combobox", { name: "Staffing time zone" })
+      .selectOption("UTC");
     await page.getByLabel("Staffing starts (hour)").fill("9");
     await page.getByLabel("Staffing ends (hour)").fill("20");
     await page.getByLabel("Simple staffed reps").fill("1");
@@ -215,21 +218,25 @@ for (const connected of [false, true]) {
         r.url().endsWith("/v1/admin/optimization") &&
         r.request().method() === "PUT",
     );
-    await page
-      .getByRole("button", { name: "Save optimization settings" })
-      .click();
+    await page.getByRole("button", { name: "Save rep schedule" }).click();
     expect((await reset).ok()).toBeTruthy();
+    // The saved plan is read with GET; a queued job is shown as pending.
     let publish = false;
-    await page.route("**/v1/admin/numbers/proposal", async (route) => {
+    await page.route("**/v1/admin/numbers/summary", async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
       if (!publish)
-        return route.fulfill({
-          json: {
-            regions: [],
-            purchased: false,
-            projection: { status: "pending", job_id: "fixture" },
+        body.forecast = {
+          regions: [],
+          staffing_shortfall: null,
+          number_shortfall: null,
+          projection: {
+            status: "pending",
+            job_id: "fixture",
+            refresh_status: "queued",
           },
-        });
-      return route.continue();
+        };
+      await route.fulfill({ response, json: body });
     });
     await page.getByRole("button", { name: "Numbers", exact: true }).click();
     await page
@@ -243,7 +250,9 @@ for (const connected of [false, true]) {
     await expect(page.getByTestId("capacity-proposal")).toBeHidden();
     publish = true;
     await page.getByRole("button", { name: "Check capacity plan" }).click();
-    await expect(page.getByTestId("capacity-proposal")).toBeVisible();
+    await expect(page.getByTestId("capacity-proposal")).toBeVisible({
+      timeout: 20000,
+    });
     await expect(
       page
         .getByTestId("capacity-proposal")
@@ -306,15 +315,18 @@ test("incomplete allocation remains readable with unknown costs and bottlenecks"
       },
     ],
   };
-  await page.route("**/v1/optimization", async (route) => {
+  await page.route("**/v1/admin/numbers/summary", async (route) => {
     const response = await route.fetch();
     await route.fulfill({
-      json: { ...(await response.json()), forecast: incomplete },
+      json: {
+        ...(await response.json()),
+        forecast: {
+          ...incomplete,
+          projection: { status: "ready", as_of: "2026-10-14T18:00:00Z" },
+        },
+      },
     });
   });
-  await page.route("**/v1/admin/numbers/proposal", (route) =>
-    route.fulfill({ json: incomplete }),
-  );
   await page.goto("/");
   await expect(page.getByText("Opening your workspace…")).toBeHidden();
   if (
@@ -328,12 +340,9 @@ test("incomplete allocation remains readable with unknown costs and bottlenecks"
   await page.getByRole("button", { name: "Numbers", exact: true }).click();
   await expect(
     page.getByText(
-      "Allocation is incomplete; remaining bottlenecks are not established.",
+      /Allocation is incomplete; remaining bottlenecks are not established./,
     ),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Plan regional capacity", exact: true })
-    .click();
   const proposal = page.getByTestId("capacity-proposal");
   await expect(proposal).toBeVisible();
   await expect(
@@ -349,7 +358,7 @@ test("incomplete allocation remains readable with unknown costs and bottlenecks"
   ).toBeEnabled();
 });
 
-test("number capacity distinguishes bottlenecks and quotes cannot start rentals", async ({
+test("number capacity distinguishes bottlenecks and offers no rental quotes", async ({
   page,
 }) => {
   await page.goto("/");
@@ -369,7 +378,7 @@ test("number capacity distinguishes bottlenecks and quotes cannot start rentals"
   const proposal = page.getByTestId("capacity-proposal");
   await expect(
     proposal.getByText("Existing-only capacity", { exact: true }),
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 20000 });
   await expect(
     proposal.getByText("Staffing shortfall", { exact: true }),
   ).toBeVisible();
@@ -379,12 +388,10 @@ test("number capacity distinguishes bottlenecks and quotes cannot start rentals"
   await expect(
     proposal.getByText("Minimum additional numbers", { exact: true }),
   ).toBeVisible();
-  await page.getByLabel("Procurement area code").fill("415");
-  await page.getByRole("button", { name: "Get carrier quotes" }).click();
-  await expect(page.getByText("+14155550188", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Procurement area code")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /purchase/i })).toHaveCount(0);
   await expect(
-    page.getByText("New rentals blocked", { exact: true }),
+    proposal.getByText(/minimum addition is a proposal only/),
   ).toBeVisible();
 });
 
@@ -500,17 +507,18 @@ test("declared staffing and setup time survive reload and explain the capacity p
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await openAdvanced(page);
   await page.getByRole("button", { name: "Add staffed period" }).click();
   await page.getByLabel("Staffed start 1").fill("2026-10-19T09:00");
   await page.getByLabel("Staffed end 1").fill("2026-10-19T12:00");
   await page.getByLabel("Available reps 1").fill("2");
   await page.getByLabel("New number setup delay (hours)").fill("24");
-  await page
-    .getByRole("button", { name: "Save optimization settings" })
-    .click();
+  await page.getByRole("button", { name: "Save planning assumptions" }).click();
+  await expect(
+    page.getByText("Planning assumptions saved").first(),
+  ).toBeVisible();
   await page.reload();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await openAdvanced(page);
   await expect(page.getByLabel("Staffed start 1")).toHaveValue(
     "2026-10-19T09:00",
   );
@@ -525,19 +533,20 @@ test("declared staffing and setup time survive reload and explain the capacity p
   const proposal = page.getByTestId("capacity-proposal");
   await expect(
     proposal.getByText("Declared staffed periods", { exact: true }),
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 20000 });
   await expect(
     proposal.getByText("Stable-identity shortfall", { exact: true }),
   ).toBeVisible();
   await expect(
     proposal.getByText("Setup-delay shortfall", { exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await openAdvanced(page);
   await page.getByRole("button", { name: "Remove staffed period 1" }).click();
   await page.getByLabel("New number setup delay (hours)").fill("0");
-  await page
-    .getByRole("button", { name: "Save optimization settings" })
-    .click();
+  await page.getByRole("button", { name: "Save planning assumptions" }).click();
+  await expect(
+    page.getByText("Planning assumptions saved").first(),
+  ).toBeVisible();
 });
 
 test("named staffing survives reload and explains callbacks without an available owner", async ({
@@ -553,7 +562,7 @@ test("named staffing survives reload and explains callbacks without an available
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await openAdvanced(page);
   await page.getByRole("button", { name: "Add staffed period" }).click();
   await page.getByLabel("Use named reps 1").check();
   const select = page.getByLabel("Named reps 1", { exact: true });
@@ -567,17 +576,18 @@ test("named staffing survives reload and explains callbacks without an available
       request.method() === "PUT" &&
       request.url().endsWith("/v1/admin/optimization"),
   );
-  await page
-    .getByRole("button", { name: "Save optimization settings" })
-    .click();
+  await page.getByRole("button", { name: "Save planning assumptions" }).click();
   const body = (await saved).postDataJSON();
   expect(body.staffed_windows[0].rep_ids).toEqual([owner]);
   expect(body.staffed_windows[0].reps).toBe(1);
   await expect(
-    page.getByRole("button", { name: "Save optimization settings" }),
+    page.getByRole("button", { name: "Save planning assumptions" }),
   ).toBeEnabled();
+  await expect(
+    page.getByText("Planning assumptions saved").first(),
+  ).toBeVisible();
   await page.reload();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await openAdvanced(page);
   await expect(page.getByLabel("Use named reps 1")).toBeChecked();
   await expect(page.getByLabel("Named reps 1", { exact: true })).toHaveValues([
     owner!,
@@ -587,32 +597,34 @@ test("named staffing survives reload and explains callbacks without an available
       exact: false,
     }),
   ).toBeVisible();
-  await page.route("**/v1/admin/numbers/proposal", (route) =>
-    route.fulfill({
+  await page.route("**/v1/admin/numbers/summary", async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({
       json: {
-        forecast_attempts: 1,
-        existing_only_capacity: 0,
-        staffing_shortfall: 1,
-        number_shortfall: 0,
-        binding_shortfall: 0,
-        setup_shortfall: 0,
-        minimum_additional_numbers: 0,
-        proposed_additional_numbers: 0,
-        monthly_rental_estimate_usd: 0,
-        schedule_scope: "declared_staffed_windows",
-        owner_unavailable_attempts: 1,
-        unavailable_staff_count: 1,
-        occupied_rep_count: 1,
-        regions: [],
-        optimality_scope:
-          "One next attempt per lead on the declared staffing grid",
+        ...(await response.json()),
+        forecast: {
+          projection: { status: "ready", as_of: "2026-10-14T18:00:00Z" },
+          forecast_attempts: 1,
+          existing_only_capacity: 0,
+          staffing_shortfall: 1,
+          number_shortfall: 0,
+          binding_shortfall: 0,
+          setup_shortfall: 0,
+          minimum_additional_numbers: 0,
+          proposed_additional_numbers: 0,
+          monthly_rental_estimate_usd: 0,
+          schedule_scope: "declared_staffed_windows",
+          owner_unavailable_attempts: 1,
+          unavailable_staff_count: 1,
+          occupied_rep_count: 1,
+          regions: [],
+          optimality_scope:
+            "One next attempt per lead on the declared staffing grid",
+        },
       },
-    }),
-  );
+    });
+  });
   await page.getByRole("button", { name: "Numbers", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Plan regional capacity", exact: true })
-    .click();
   const proposal = page.getByTestId("capacity-proposal");
   await expect(
     proposal.getByText("Callbacks without owner availability", { exact: true }),
@@ -629,9 +641,16 @@ test("named staffing survives reload and explains callbacks without an available
       { exact: true },
     ),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await openAdvanced(page);
   await page.getByRole("button", { name: "Remove staffed period 1" }).click();
-  await page
-    .getByRole("button", { name: "Save optimization settings" })
-    .click();
+  await page.getByRole("button", { name: "Save planning assumptions" }).click();
+  await expect(
+    page.getByText("Planning assumptions saved").first(),
+  ).toBeVisible();
 });
+
+/** Dated periods and planning assumptions live in Settings → Advanced. */
+async function openAdvanced(page: import("@playwright/test").Page) {
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByText("Advanced", { exact: true }).click();
+}

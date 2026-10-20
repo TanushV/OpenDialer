@@ -1,6 +1,12 @@
 import { expect, test } from "@playwright/test";
 import { chooseOutcome } from "./simulation";
 
+/** The campaign goal is a setup step; it opens collapsed. */
+async function openGoal(page: import("@playwright/test").Page) {
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByTestId("setup-campaign").locator(":scope > summary").click();
+}
+
 test("campaign goal changes are previewed before application and survive reload", async ({
   page,
 }) => {
@@ -14,7 +20,7 @@ test("campaign goal changes are previewed before application and survive reload"
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await openGoal(page);
   const before = await page
     .getByRole("combobox", { name: "Conversion goal", exact: true })
     .inputValue();
@@ -22,9 +28,7 @@ test("campaign goal changes are previewed before application and survive reload"
   await page
     .getByRole("combobox", { name: "Conversion goal", exact: true })
     .selectOption(after);
-  await page
-    .getByRole("button", { name: "Save optimization settings" })
-    .click();
+  await page.getByRole("button", { name: "Save campaign goal" }).click();
   await expect(
     page.getByRole("region", { name: "Review goal change" }),
   ).toBeVisible();
@@ -32,24 +36,22 @@ test("campaign goal changes are previewed before application and survive reload"
     page.getByText(/Previously completed prospects.*review/i),
   ).toBeVisible();
   await page.reload();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await openGoal(page);
   await expect(
     page.getByRole("combobox", { name: "Conversion goal", exact: true }),
   ).toHaveValue(before);
   await page
     .getByRole("combobox", { name: "Conversion goal", exact: true })
     .selectOption(after);
-  await page
-    .getByRole("button", { name: "Save optimization settings" })
-    .click();
+  await page.getByRole("button", { name: "Save campaign goal" }).click();
   await page
     .getByRole("button", { name: "Apply reviewed goal change" })
     .click();
   await expect(
-    page.getByText("Optimization settings saved", { exact: true }),
+    page.getByText("Campaign goal saved", { exact: true }),
   ).toBeVisible();
   await page.reload();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await openGoal(page);
   await expect(
     page.getByRole("combobox", { name: "Conversion goal", exact: true }),
   ).toHaveValue(after);
@@ -75,7 +77,7 @@ test("rep explicitly reviews a reopened prospect before resuming outreach", asyn
       "name,phone,company,timezone,region\nGoal Fixture,+14155550181,Example,America/Los_Angeles,415",
     );
   await page.getByRole("button", { name: "Import leads", exact: true }).click();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await openGoal(page);
   if (
     (await page.getByLabel("Conversion goal").inputValue()) !==
     "qualified_conversation"
@@ -83,12 +85,11 @@ test("rep explicitly reviews a reopened prospect before resuming outreach", asyn
     await page
       .getByLabel("Conversion goal")
       .selectOption("qualified_conversation");
-    await page
-      .getByRole("button", { name: "Save optimization settings" })
-      .click();
+    await page.getByRole("button", { name: "Save campaign goal" }).click();
     await page
       .getByRole("button", { name: "Apply reviewed goal change" })
       .click();
+    await expect(page.getByText("Campaign goal saved").first()).toBeVisible();
   }
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
   if (
@@ -108,42 +109,53 @@ test("rep explicitly reviews a reopened prospect before resuming outreach", asyn
   await page
     .getByRole("button", { name: "Pause dialing", exact: true })
     .click();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await openGoal(page);
   await page.getByLabel("Conversion goal").selectOption("sale_won");
-  await page
-    .getByRole("button", { name: "Save optimization settings" })
-    .click();
+  await page.getByRole("button", { name: "Save campaign goal" }).click();
   await page
     .getByRole("button", { name: "Apply reviewed goal change" })
     .click();
+  await expect(page.getByText("Campaign goal saved").first()).toBeVisible();
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   await page
     .getByRole("button", { name: `Open lead ${name}`, exact: true })
     .click();
+  // Scope to the packet dialog: the paused dialer keeps its last brief mounted.
   await page
+    .getByRole("dialog", { name: "Lead packet" })
     .getByText("Prior conversation & next step", { exact: true })
     .click();
   await expect(
-    page.getByText("Outreach paused: Goal changed", { exact: true }),
+    page
+      .getByRole("dialog", { name: "Lead packet" })
+      .getByText("Outreach paused: Goal changed", { exact: true }),
   ).toBeVisible();
   await page
+    .getByRole("dialog", { name: "Lead packet" })
     .getByLabel("Goal review reason", { exact: true })
     .fill("Reviewed relationship; resume when eligible");
   await page
+    .getByRole("dialog", { name: "Lead packet" })
     .getByRole("button", { name: "Resume outreach after review", exact: true })
     .click();
   await expect(
-    page.getByText("Outreach paused: Goal changed", { exact: true }),
+    page
+      .getByRole("dialog", { name: "Lead packet" })
+      .getByText("Outreach paused: Goal changed", { exact: true }),
   ).toBeHidden();
   await page.reload();
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   await page
     .getByRole("button", { name: `Open lead ${name}`, exact: true })
     .click();
+  // Scope to the packet dialog: the paused dialer keeps its last brief mounted.
   await page
+    .getByRole("dialog", { name: "Lead packet" })
     .getByText("Prior conversation & next step", { exact: true })
     .click();
   await expect(
-    page.getByText("Outreach paused: Goal changed", { exact: true }),
+    page
+      .getByRole("dialog", { name: "Lead packet" })
+      .getByText("Outreach paused: Goal changed", { exact: true }),
   ).toBeHidden();
 });

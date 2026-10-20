@@ -8,6 +8,8 @@ async function activeHelper(page: Page, coach?: Record<string, unknown>) {
     call = {
       id: "helper-cancel-call",
       version: 1,
+      // A real call always carries its transcript version; updates compare it.
+      transcript_version: 0,
       lead_id: data.leads[0].id,
       rep_id: data.user.id,
       state: "HUMAN",

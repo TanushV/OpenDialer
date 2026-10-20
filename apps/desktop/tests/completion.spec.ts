@@ -79,6 +79,7 @@ test("setup shows capability evidence and uses protected native credential entry
     "Software verified",
   );
   await expect(page.locator('input[type="password"]')).toHaveCount(0);
+  await page.getByTestId("setup-helper").locator(":scope > summary").click();
   await page
     .getByRole("button", { name: "OpenRouter API key", exact: true })
     .click();
@@ -125,7 +126,7 @@ test("settings preserve saved budgets and expose only supported treatments", asy
     });
   });
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Operations", exact: true }).click();
+  await page.getByTestId("setup-budget").locator(":scope > summary").click();
   await expect(page.getByLabel("Daily optional-work limit (USD)")).toHaveValue(
     "23",
   );
@@ -164,8 +165,9 @@ test("inbound arrival exposes call controls while an admin page is open", async 
     });
     await route.fulfill({ response, json: data });
   });
+  await page.getByTestId("setup-telnyx").locator(":scope > summary").click();
   await page
-    .getByRole("button", { name: "Save provider settings", exact: true })
+    .getByRole("button", { name: "Save Telnyx settings", exact: true })
     .click();
   await expect(
     page.getByRole("region", { name: "Active return call", exact: true }),

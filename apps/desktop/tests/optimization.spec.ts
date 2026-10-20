@@ -20,33 +20,31 @@ async function simulation(page: import("@playwright/test").Page) {
 test("missing and stale capacity estimates are explicit", async ({ page }) => {
   await simulation(page);
   let state = "pending";
-  await page.route("**/v1/optimization", async (route) => {
+  await page.route("**/v1/admin/numbers/summary", async (route) => {
     const response = await route.fetch();
     const body = await response.json();
-    if (body.forecast) {
-      body.forecast = {
-        regions: [],
-        capacity_shortfall: null,
-        staffing_shortfall: null,
-        number_shortfall: null,
-        projection: { status: state, as_of: null },
-      };
-    }
+    body.forecast = {
+      regions: [],
+      capacity_shortfall: null,
+      staffing_shortfall: null,
+      number_shortfall: null,
+      projection: { status: state, as_of: null },
+    };
     await route.fulfill({ response, json: body });
   });
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page.getByRole("button", { name: "Numbers", exact: true }).click();
   await expect(
     page.getByText(
-      "Capacity estimate pending. Refresh learning and capacity to prepare it.",
+      "No capacity plan yet. Plan regional capacity to prepare one.",
       { exact: true },
     ),
   ).toBeVisible();
   state = "stale";
   await page.reload();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page.getByRole("button", { name: "Numbers", exact: true }).click();
   await expect(
     page.getByText(
-      "Capacity estimate is out of date. Refresh before acting on it.",
+      "Capacity plan is out of date. Plan regional capacity before acting on it.",
       { exact: true },
     ),
   ).toBeVisible();
@@ -61,19 +59,25 @@ test("capacity discloses screening exclusions without spending on refresh", asyn
     if (request.method() === "POST" && /screen|registry/.test(request.url()))
       paidRequests.push(request.url());
   });
-  await page.route("**/v1/optimization", async (route) => {
+  await page.route("**/v1/admin/numbers/summary", async (route) => {
     const response = await route.fetch();
     const body = await response.json();
-    if (body.forecast)
-      body.forecast.screening = {
+    body.forecast = {
+      regions: [],
+      forecast_attempts: 3,
+      staffing_shortfall: 0,
+      number_shortfall: 0,
+      projection: { status: "ready", as_of: "2026-10-14T18:00:00Z" },
+      screening: {
         cleared_count: 1,
         blocked_count: 2,
         blocked_reasons: { prepaid_result_missing: 1, source_expired: 1 },
         as_of: "2026-10-14T18:00:00Z",
-      };
+      },
+    };
     await route.fulfill({ response, json: body });
   });
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page.getByRole("button", { name: "Numbers", exact: true }).click();
   const capacity = page.getByRole("region", {
     name: "Capacity before procurement",
   });
@@ -99,9 +103,10 @@ test("capacity discloses screening exclusions without spending on refresh", asyn
 
 test("pending report refresh preserves comparison input", async ({ page }) => {
   await simulation(page);
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByText("Advanced", { exact: true }).click();
   await page
-    .getByLabel("Comparison review reference")
+    .getByLabel("Experiment review reference")
     .fill("Retain this draft during refresh");
   await page.route("**/v1/optimization", async (route) => {
     const response = await route.fetch();
@@ -118,22 +123,22 @@ test("pending report refresh preserves comparison input", async ({ page }) => {
       },
     });
   });
-  await page
-    .getByRole("button", { name: "Refresh learning and capacity" })
-    .click();
+  // Saving planning assumptions reloads the shared report while a draft is open.
+  await page.getByRole("button", { name: "Save planning assumptions" }).click();
   await expect(
     page.getByText("Preparing the first report in the background.", {
       exact: true,
     }),
   ).toBeVisible();
-  await expect(page.getByLabel("Comparison review reference")).toHaveValue(
+  await expect(page.getByLabel("Experiment review reference")).toHaveValue(
     "Retain this draft during refresh",
   );
-  await page.unroute("**/v1/optimization");
+  // Wait for an in-flight fixture handler before real reads resume.
+  await page.unrouteAll({ behavior: "wait" });
   await page
     .getByRole("button", { name: "Check report status", exact: true })
     .click();
-  await expect(page.getByLabel("Comparison review reference")).toHaveValue(
+  await expect(page.getByLabel("Experiment review reference")).toHaveValue(
     "Retain this draft during refresh",
   );
 });
@@ -142,33 +147,34 @@ test("optimization goals, forecast, learning state and provider settings persist
   page,
 }) => {
   await simulation(page);
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByTestId("setup-campaign").locator(":scope > summary").click();
   await page.getByLabel("Conversion goal").selectOption("sale_won");
   await page.getByLabel("Outcome window (days)").fill("30");
-  await page
-    .getByRole("button", { name: "Save optimization settings" })
-    .click();
+  await page.getByRole("button", { name: "Save campaign goal" }).click();
   await page
     .getByRole("button", { name: "Apply reviewed goal change" })
     .click();
+  await expect(page.getByText("Campaign goal saved").first()).toBeVisible();
+  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
   await page
     .getByRole("button", { name: "Refresh learning and capacity" })
     .click();
   await expect(
     page.getByText("Future calling opportunities", { exact: true }),
   ).toBeVisible();
+  await expect(page.getByTestId("saved-goal")).toContainText("Sale won");
+  // Latency breakdowns are diagnostics that no longer sit in the normal view.
+  await expect(page.getByText(/p95 inference/)).toHaveCount(0);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByText("Advanced", { exact: true }).click();
   await expect(
     page.getByText("Operational training dataset", { exact: true }),
   ).toBeVisible();
-  await expect(
-    page.getByText("Reviewed model pilot", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByText(/Latency percentiles are upper estimates/),
-  ).toBeVisible();
-  await expect(page.getByText(/0 recorded inference timings/)).toBeVisible();
+  await expect(page.getByLabel("Experiment type")).toHaveValue("model_pilot");
+  await page.getByLabel("Experiment type").selectOption("coaching");
   await page
-    .getByLabel("Comparison review reference")
+    .getByLabel("Experiment review reference")
     .fill("Synthetic protocol review");
   await page
     .getByRole("button", { name: "Start coaching comparison", exact: true })
@@ -179,17 +185,26 @@ test("optimization goals, forecast, learning state and provider settings persist
   await page
     .getByRole("button", { name: "Stop coaching comparison", exact: true })
     .click();
+  await page.getByLabel("Experiment type").selectOption("model_pilot");
+  await page.getByText("Train, stop, roll back or promote a candidate").click();
   await page
     .getByRole("button", { name: "Generate trial report", exact: true })
     .click();
   await expect(page.getByText(/Saved cohort report:/)).toBeVisible();
   await page.reload();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
-  await expect(page.getByLabel("Conversion goal")).toHaveValue("sale_won");
   await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByTestId("setup-campaign").locator(":scope > summary").click();
+  await expect(page.getByLabel("Conversion goal")).toHaveValue("sale_won");
+  await page.getByText("Advanced", { exact: true }).click();
   await page.getByLabel("Live coach provider").selectOption("openrouter");
+  await expect(
+    page
+      .getByRole("region", { name: "Optional model routes" })
+      .getByText(/Cerebras only/),
+  ).toBeVisible();
+  // The key itself is entered once, from the live-helper setup step.
+  await page.getByTestId("setup-helper").locator(":scope > summary").click();
   await expect(page.getByLabel("OpenRouter API key")).toBeVisible();
-  await expect(page.getByText(/Cerebras only/)).toBeVisible();
 });
 
 test("live events deliver cached guidance and conversion recording without call polling", async ({

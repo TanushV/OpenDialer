@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { label, useWorkspace } from "../context";
+import { LONG_REQUEST_MS } from "../api/client";
+import { useDefinitions } from "../state/definitions";
 
 interface Screening {
   id: string;
@@ -22,7 +24,6 @@ interface Screens {
     phase: string;
     inspected: number;
     submitted: number;
-    reserved_micro_usd: number;
     complete: boolean;
     reason: string | null;
   } | null;
@@ -30,6 +31,7 @@ interface Screens {
 
 export function DncScreeningPanel() {
   const { api } = useWorkspace();
+  const maximum = useDefinitions()?.screening?.phones?.max_items;
   const [data, setData] = useState<Screens | null>(null);
   const [phones, setPhones] = useState("");
   const [accepted, setAccepted] = useState<Record<string, boolean>>({});
@@ -96,9 +98,12 @@ export function DncScreeningPanel() {
         onSubmit={(event) => {
           event.preventDefault();
           void perform(() =>
-            api("/v1/admin/dnc/screen", "POST", {
-              phones: phones.split(/[,\s]+/).filter(Boolean),
-            }),
+            api(
+              "/v1/admin/dnc/screen",
+              "POST",
+              { phones: phones.split(/[,\s]+/).filter(Boolean) },
+              { timeoutMs: LONG_REQUEST_MS },
+            ),
           );
         }}
       >
@@ -108,7 +113,7 @@ export function DncScreeningPanel() {
             aria-label="US phone numbers to check"
             value={phones}
             onChange={(event) => setPhones(event.target.value)}
-            placeholder="Up to 500 numbers, separated by commas or new lines"
+            placeholder={`Up to ${maximum ?? "the permitted number of"} numbers, separated by commas or new lines`}
           />
         </label>
         <button
@@ -132,8 +137,8 @@ export function DncScreeningPanel() {
         <p className="fine">
           Scheduled screening: {label(data.refresh.status)} ·{" "}
           {data.refresh.inspected} endpoints inspected ·{" "}
-          {data.refresh.submitted} lookups submitted · allowance reserved $
-          {(data.refresh.reserved_micro_usd / 1_000_000).toFixed(6)}.
+          {data.refresh.submitted} lookups submitted. Charges are reconciled
+          from provider receipts under Operations.
           {data.refresh.reason &&
             ` ${label(data.refresh.reason)}. Review the configured budget or source before authorizing further work.`}
           {!data.refresh.complete &&

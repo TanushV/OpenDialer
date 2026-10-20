@@ -90,6 +90,11 @@ const savedReport = {
   coaching: { reviewed_cards: 0 },
 };
 
+async function openAdvanced(page: import("@playwright/test").Page) {
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByText("Advanced", { exact: true }).click();
+}
+
 async function openIntelligence(page: import("@playwright/test").Page) {
   await page.goto("/");
   await expect(page.getByText("Opening your workspace…")).toBeHidden();
@@ -134,6 +139,8 @@ test("stale totals disclose their definition and failed refresh without losing s
   await expect(
     page.getByText(/Calculated for meeting held, 14 days/),
   ).toBeVisible();
+  // Planning assumptions are edited in Settings → Advanced from the same report.
+  await openAdvanced(page);
   await expect(page.getByLabel("Available rep minutes")).toHaveValue("1");
 });
 
@@ -175,6 +182,8 @@ test("checking a pending historical cohort keeps the selected cohort", async ({
     });
   });
   await openIntelligence(page);
+  // Cohort comparison is experiment detail in Settings → Advanced.
+  await openAdvanced(page);
   await page.getByLabel("Cohort history").selectOption("historical");
   await expect(
     page.getByText("Preparing the first report in the background.", {
