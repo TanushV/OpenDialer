@@ -108,6 +108,7 @@ def test_lead_and_call_vectors_keep_distinct_units_and_asof_evidence(clock):
             "started_at": (now - timedelta(days=2)).isoformat(),
             "submitted_at": (now - timedelta(days=2)).isoformat(),
             "outcome": "right_party",
+            "outcome_source": "rep_reported",
             "outcome_available_at": (now - timedelta(days=2)).isoformat(),
         }
         for i in range(2)
@@ -171,6 +172,7 @@ def test_call_vector_conditioning_is_not_invented(clock, outcome, role, classifi
         "submitted_at": (now - timedelta(days=14)).isoformat(),
         "outcome": outcome,
         "contact_role": role,
+        "outcome_source": "rep_reported",
         "outcome_available_at": now.isoformat(),
     }
     config = {"conversion_goal": "meeting_held", "window_days": 14}

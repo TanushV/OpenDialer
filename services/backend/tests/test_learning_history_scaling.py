@@ -2,7 +2,8 @@
 
 from datetime import timedelta
 
-from app.optimization.learning import training_rows, trial_report
+from app.optimization.learning import training_rows
+from comparison_oracle import trial_report
 
 
 class CountedIdentity(str):
@@ -113,7 +114,9 @@ def test_new_comparison_assignment_does_not_read_assignment_history(workspace, a
         first = service.comparison_assignment(s, p, campaign, rows[0], "coaching", rep_id=p["user_id"])
         second = service.comparison_assignment(s, p, campaign, rows[1], "coaching", rep_id=p["user_id"])
     assert first["arm"] != second["arm"]
-    assert (first["propensity"], second["propensity"]) == (0.5, 1)
+    # Both block positions are marginally randomized at one half; the position is recorded.
+    assert (first["propensity"], second["propensity"]) == (0.5, 0.5)
+    assert (first["block_position"], second["block_position"]) == (0, 1)
     assert len(seen) < 25, "Assignment must count indexed metadata and read only the preceding arm"
 
 
@@ -125,7 +128,9 @@ def test_training_keeps_call_specific_and_unassigned_events_separate(clock):
     assert [row["conversion"] for row in rows] == [0, 1]
     events.append({**events[0], "id": "unassigned", "call_id": None})
     rows = training_rows(calls, snapshots, events, now=clock.now, goal="meeting_held", window_days=14)
-    assert [row["conversion_event_ids"] for row in rows] == [["unassigned"], ["event-0", "unassigned"]]
+    # An unattributed lead outcome credits exactly one (the latest earlier) attempt.
+    assert [row["conversion_event_ids"] for row in rows] == [[], ["event-0", "unassigned"]]
+    assert rows[0]["conversion"] is None and rows[0]["attribution"] == "ambiguous_lead_level_outcome"
 
 
 def test_cohort_keeps_first_enrollment_and_only_events_inside_its_window(clock):

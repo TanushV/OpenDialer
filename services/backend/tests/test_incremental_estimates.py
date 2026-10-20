@@ -424,14 +424,17 @@ def test_unchanged_ticks_and_changed_counts_keep_one_pending_learning_job(worksp
     assert updated[0][1] > first[0][1]
 
 
-def test_published_future_slots_keep_conditional_estimates(workspace, app):
+def test_published_future_slots_keep_conditional_estimates(workspace, app, clock):
+    from zoneinfo import ZoneInfo
+
     service, p = app.state.service, principal(workspace)
     with service.db.transaction() as s:
         lead = service.scoped(s, "leads", p)[0]
+        local = clock.now.astimezone(ZoneInfo(lead.data.get("timezone") or "UTC"))
         row = {
             "segment": lead.data.get("segment", "unknown"),
-            "local_hour": 10,
-            "local_weekday": 0,
+            "local_hour": local.hour,
+            "local_weekday": local.weekday(),
             "attempt_count": 0,
             "outcome": "right_party",
             "rep_work_seconds": 60,
@@ -454,14 +457,12 @@ def test_published_future_slots_keep_conditional_estimates(workspace, app):
         profile = service.selection_profile(s, p, statistics, config)
         campaign = get(s, "campaigns", workspace["campaign_id"])
         update(campaign, selection_profile=profile)
-    service.refresh_schedule_plans(p, workspace["campaign_id"])
-    with service.db.transaction(False) as s:
-        plans = [r.data for r in service.scoped(s, "scheduling_plans", p)]
-    predictions = [v["predictions"] for r in plans for v in r["alternatives"]]
+    assert service.build_forecast(p, workspace["campaign_id"])["status"] == "ready"
+    predictions = [r["estimate"] for r in service.optimization_report(p)["plans"]]
     assert predictions, "The fixture must exercise actual permitted future slots"
     assert any(
         v["observations"] == 1 and v["estimate_level"] == "segment_time_attempt" for v in predictions
-    ), "Saved plans silently lost their conditional estimates"
+    ), "The saved summary silently lost its conditional estimates"
 
 
 def test_changed_source_during_dataset_read_cannot_be_published(workspace, app, monkeypatch):

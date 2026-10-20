@@ -290,7 +290,7 @@ def test_legacy_fixture_track_is_still_recognized():
 
 
 def test_delayed_labels_do_not_leak_past_the_validation_start():
-    from app.ml.training import independent_partitions
+    from comparison_oracle import independent_partitions
 
     now = datetime(2026, 9, 1, 10, tzinfo=UTC)
     rows = [
