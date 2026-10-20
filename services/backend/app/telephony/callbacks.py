@@ -735,11 +735,18 @@ class InboundCallbacks:
                         attempt["state"] = "cancelled"
                 update(task, routing_attempts=attempts)
                 self._release_inbound_claim(s, task)
+                # No-cost fallback: end the answered call without paid transfer or speech, and keep
+                # an ordinary dated return-call task for the responsible rep (not a recovery item).
                 update(
                     task,
                     inbound_state="ending",
-                    review_required=True,
-                    recovery_reason="Optional routing budget exhausted; call ended and return task retained",
+                    status="open"
+                    if task.data["status"] not in {"completed", "cancelled"}
+                    else task.data["status"],
+                    action="Return call",
+                    owner_id=task.data.get("owner_id") or task.data.get("responsible_rep_id"),
+                    due_at=task.data.get("due_at") or self.clock().isoformat(),
+                    routing_fallback="budget_exhausted_no_cost",
                 )
                 self._inbound_command(s, p, task, "hangup", suffix="inbound-budget-end")
                 return False

@@ -6,6 +6,7 @@ import json
 import logging
 import threading
 from datetime import datetime, timedelta
+from decimal import ROUND_HALF_EVEN, Decimal
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -492,7 +493,10 @@ class Service(ReservationPlanner):
             ]
 
     def budget_ok(self, s, p, estimated=0.001):
-        from sqlalchemy import case, func
+        from sqlalchemy import BigInteger, case, cast, func
+
+        def micro(value):
+            return int((Decimal(str(value)) * 1_000_000).to_integral_value(ROUND_HALF_EVEN))
 
         budget = self.scoped(s, "budgets", p)[0].data
         now = self.clock()
@@ -504,10 +508,13 @@ class Service(ReservationPlanner):
         key = ("budget_totals", p["tenant_id"], p["seller_id"])
         totals = s.info.get(key)
         if totals is None:
+            # Each stored amount is rounded to whole micro-dollars before summing, so totals are
+            # exact integers rather than accumulated binary floating point.
+            amount = cast(func.round(usage.op_amount * 1_000_000), BigInteger)
             totals = s.execute(
                 select(
-                    func.coalesce(func.sum(case((usage.op_at >= day, usage.op_amount), else_=0)), 0),
-                    func.coalesce(func.sum(usage.op_amount), 0),
+                    func.coalesce(func.sum(case((usage.op_at >= day, amount), else_=0)), 0),
+                    func.coalesce(func.sum(amount), 0),
                 ).where(
                     usage.tenant_id == p["tenant_id"],
                     usage.seller_id == p["seller_id"],
@@ -517,9 +524,10 @@ class Service(ReservationPlanner):
             ).one()
             if "row_cache" in s.info:
                 s.info[key] = totals
-        daily, monthly = totals
-        return daily + estimated <= budget.get("daily_limit_usd", 0) and monthly + estimated <= budget.get(
-            "monthly_limit_usd", 0
+        daily, monthly = (int(total) for total in totals)
+        extra = micro(estimated)
+        return daily + extra <= micro(budget.get("daily_limit_usd", 0)) and monthly + extra <= micro(
+            budget.get("monthly_limit_usd", 0)
         )
 
     def context(self, s, p, lead, number, *, permission="live", active=False):
@@ -1088,6 +1096,9 @@ class Service(ReservationPlanner):
                     update(leg, state="ENDED", ended_at=call.data.get("ended_at"))
         for claim in list(s.scalars(select(ActiveClaim).where(ActiveClaim.call_id == call.id))):
             s.delete(claim)
+        from app.billing import settle_call_estimate
+
+        settle_call_estimate(self, s, p, call)
         emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": call.data["state"]})
 
     def _claim_hangup(self, p, call_id, owner, recovery_expected=None):
