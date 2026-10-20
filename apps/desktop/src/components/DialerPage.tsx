@@ -137,21 +137,26 @@ export function DialerPage() {
     let dirty = false;
     const load = () => {
       if (disposed) return;
-      const generation = ++callReadGeneration.current;
       if (pending) {
+        // The in-flight read predates this event: it is discarded on arrival
+        // and read again. A slow read must not also discard a newer explicit
+        // reload (a rep's own mute or help request) issued meanwhile.
         dirty = true;
         return;
       }
+      const generation = ++callReadGeneration.current;
       pending = true;
+      const current = () =>
+        !disposed && !dirty && generation === callReadGeneration.current;
       void api<Call>("/v1/calls/" + call.id)
         .then((value) => {
-          if (!disposed && generation === callReadGeneration.current) {
+          if (current()) {
             responseReceived.current = performance.now();
             applyCallUpdate(value);
           }
         })
         .catch(() => {
-          if (!disposed && generation === callReadGeneration.current)
+          if (current())
             setAudioStatus("Authority unavailable; calling is paused.");
         })
         .finally(() => {
@@ -948,7 +953,14 @@ export function DialerPage() {
         canOptOut={Boolean(selectedLead)}
         wrapUpPending={wrapUpPending}
         blocked={
-          pendingOptouts || !journalReady || Boolean(inbound) || incomingAudio
+          pendingOptouts ||
+          !journalReady ||
+          Boolean(inbound) ||
+          incomingAudio ||
+          // Dial only once the rep can see who they are calling and the script.
+          Boolean(
+            reservation && !call && packet?.lead.id !== reservation.lead.id,
+          )
         }
         onStart={startCall}
         onNext={getNext}

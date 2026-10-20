@@ -102,3 +102,34 @@ export async function finishCall(page: Page) {
     await expect(save).toBeHidden();
   }
 }
+
+/** After a test, reopen the workspace and end any call it left behind. */
+export async function leaveNoCall(page: Page) {
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    return;
+  const dialer = page.getByRole("button", { name: "Dialer", exact: true });
+  if (await dialer.isEnabled()) await dialer.click();
+  const pause = page.getByRole("button", {
+    name: "Pause dialing",
+    exact: true,
+  });
+  const ready = page.getByRole("button", { name: "Go ready", exact: true });
+  await expect(ready.or(pause)).toBeVisible();
+  // Let the dialer restore a current call from the workspace before checking.
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  await finishCall(page);
+  if (await pause.isVisible()) await pause.click();
+  await expect(ready).toBeVisible();
+}
