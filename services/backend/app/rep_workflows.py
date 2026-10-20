@@ -536,6 +536,19 @@ class RepWorkflows:
             available_at=self.clock(),
         )
 
+    def refresh_continuity(self, p, lead_ids):
+        """Background half of a packet refresh: lead features and goal state.
+
+        A rep's save only marks the brief dirty; this recomputation over the lead's
+        history runs in the packet_refresh job, one short write per lead.
+        """
+        for lead_id in dict.fromkeys(lead_ids):
+            with self.db.transaction() as s:
+                lead = self.required(s, "leads", lead_id, p)
+                s.refresh(lead, with_for_update=True)
+                self.refresh_conversation_features_in(s, p, lead)
+                self.reconcile_goal_status(s, p, lead)
+
     def refresh_conversation_features_in(self, s, p, lead):
         from app.optimization.conversations import prior_features
 
@@ -1116,13 +1129,7 @@ class RepWorkflows:
 
                 invalidate_report(self, s, p, lead.data["campaign_id"])
                 self.refresh_packet_in(s, p, lead)
-                self.jobs.enqueue_in(
-                    s,
-                    "postcall",
-                    {"call_id": call_id, "seller_id": p["seller_id"], "user_id": p["user_id"]},
-                    f"wrapup:{call_id}:{call.version}",
-                    tenant_id=p["tenant_id"],
-                )
+                self.enqueue_finalize(s, p, call, "wrapup")
                 emit(s, p["tenant_id"], "call.updated", call, self.clock())
             receipt = identity[2] or self.local_edit_receipt(s, p, identity, call)
             task = next(

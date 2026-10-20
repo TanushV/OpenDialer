@@ -22,7 +22,8 @@ class ScoreReview(Strict):
     dimension: str | None = Field(default=None, max_length=64)
     score: int | None = Field(default=None, ge=0, le=2, strict=True)
     evidence: list[str] = Field(default_factory=list, max_length=20)
-    expected_version: int | None = Field(default=None, ge=1)
+    # 0 names a scorecard no writer has materialized yet (see the analysis read).
+    expected_version: int | None = Field(default=None, ge=0)
     request_id: str | None = Field(default=None, min_length=1, max_length=128)
     resolves_review_id: str | None = Field(default=None, max_length=36)
 
@@ -87,25 +88,37 @@ def bind_api(app, service, principal):
         fingerprint = hashlib.sha256(json.dumps(data.model_dump(), sort_keys=True).encode()).hexdigest()
         key = f"score-review:{p['user_id']}:{data.request_id}" if data.request_id else None
         with service.db.transaction() as s:
-            card = service.required(s, "scorecards", scorecard_id, p)
-            call = service.required(s, "call_attempts", card.data["call_id"], p)
+            if get(s, "scorecards", scorecard_id, p["tenant_id"]):
+                card = service.required(s, "scorecards", scorecard_id, p)
+                call = service.required(s, "call_attempts", card.data["call_id"], p)
+            else:
+                # The analysis read never creates the scorecard; until a writer does, the
+                # read addresses it by its call (the scorecard's own key), version 0.
+                call = service.required(s, "call_attempts", scorecard_id, p)
             s.refresh(call, with_for_update=True)
-            s.refresh(card, with_for_update=True)
+            card = service._by_key(s, p, "scorecards", call.id)
+            if card:
+                s.refresh(card, with_for_update=True)
             previous = service._by_key(s, p, "reviews", key) if key else None
             if previous:
                 if (
                     previous.data.get("fingerprint") != fingerprint
-                    or previous.data["scorecard_id"] != card.id
+                    or not card
+                    or (previous.data["scorecard_id"] != card.id)
                 ):
                     fail(409, "This review request was already used with different content")
                 return doc(previous)
-            if (
-                (data.expected_version is not None and data.expected_version != card.version)
-                or card.data.get("stale")
+            outdated = card is not None and (
+                card.data.get("stale")
                 or card.data["transcript_version"] != call.data["transcript_version"]
                 or card.data["rubric_version"] != effective(call.data)["rubric_version"]
+            )
+            if (data.expected_version is None and outdated) or (
+                data.expected_version is not None and data.expected_version != (card.version if card else 0)
             ):
                 fail(409, "The assessment changed; reload before reviewing")
+            # The reviewer read the current generated view at this version: record it.
+            _, card = service._materialize_views_in(s, p, call, notes=False)
             dimensions = {item["dimension"] for item in card.data["items"]}
             if data.dimension is not None and data.dimension not in dimensions:
                 fail(422, "Review dimension is not in this call's rubric")

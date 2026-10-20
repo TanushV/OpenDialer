@@ -47,9 +47,17 @@ def test_analysis_writers_wait_for_the_same_call_without_blocking_other_calls(
         # own boundary, independently of the preceding analysis refresh.
         monkeypatch.setattr(service, "analysis", lambda *args, **kwargs: initial)
 
+    def finalize_views(call_id):
+        # The finalization writer materializes views under the call lock; reads never do.
+        with service.db.transaction() as s:
+            row = service.required(s, "call_attempts", call_id, p)
+            s.refresh(row, with_for_update=True)
+            service._materialize_views_in(s, p, row, finalized=True)
+        return analysis(p, call_id)
+
     def write():
         if writer == "analysis":
-            return analysis(p, call["id"], force=True)
+            return finalize_views(call["id"])
         return service.edit_notes(p, call["id"], initial["notes_version"], "Keep the rep's correction.")
 
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix="waiting-note") as pool:
@@ -60,7 +68,7 @@ def test_analysis_writers_wait_for_the_same_call_without_blocking_other_calls(
             future = pool.submit(write)
             # Observed lock state, not a lock_timeout race: the writer waits on this call's owner.
             blocked_by(service.db.engine, writers, holder, future)
-            assert analysis(p, other_id, force=True)["status"] == "ai_finalized"
+            assert finalize_views(other_id)["status"] == "ai_finalized"
             assert not future.done(), "Another call finished while this call's writer still waits"
             blocked_by(service.db.engine, writers, holder, future)
         result = future.result(timeout=120)
@@ -84,7 +92,8 @@ def test_analysis_writers_wait_for_the_same_call_without_blocking_other_calls(
                         model.external_key == call["id"],
                     )
                 )
-                == 1
+                # Never duplicated; a human note alone materializes no scorecard.
+                == (1 if kind == "notes" or writer == "analysis" else 0)
             )
 
 
@@ -337,7 +346,10 @@ async def test_review_publication_rechecks_sources_and_owner_inside_commit(
         with service.db.transaction() as s:
             if change == "note":
                 update(
-                    service._by_key(s, p, "notes", call["id"]), human_text="Rep correction takes priority."
+                    service._materialize_views_in(
+                        s, p, service.required(s, "call_attempts", call["id"], p), scorecard=False
+                    )[0],
+                    human_text="Rep correction takes priority.",
                 )
             elif change == "capture":
                 update(service.required(s, "call_attempts", call["id"], p), transcription_disabled=True)
@@ -387,7 +399,10 @@ async def test_finalizer_publication_cannot_accept_context_changed_after_respons
     else:
         with service.db.transaction() as s:
             if change == "note":
-                update(service._by_key(s, p, "notes", call["id"]), human_text="Corrected after generation.")
+                note, _ = service._materialize_views_in(
+                    s, p, service.required(s, "call_attempts", call["id"], p), scorecard=False
+                )
+                update(note, human_text="Corrected after generation.")
             else:
                 update(service.required(s, "users", p["user_id"], p), role="rep")
                 update(service.required(s, "call_attempts", call["id"], p), rep_id="other-rep")
@@ -578,7 +593,7 @@ def test_reviewed_checkpoint_keeps_early_lineage_for_correction_without_unbounde
 
 @pytest.mark.asyncio
 async def test_review_cannot_turn_unknown_speaker_into_an_automatic_callback(workspace, app, monkeypatch):
-    from test_postcall_completion import setup_analysis
+    from test_postcall_completion import finalize, setup_analysis
     from test_remediation_privacy import principal
 
     call, _ = setup_analysis(workspace, app, monkeypatch)
@@ -596,7 +611,7 @@ async def test_review_cannot_turn_unknown_speaker_into_an_automatic_callback(wor
         None,
         True,
     )
-    await service.analyze_postcall(p, call["id"])
+    await finalize(service, p, call["id"])
     with service.db.transaction(False) as s:
         tasks = service.lead_records(s, p, "followup_tasks", call["lead_id"])
         assert tasks and all(t.data["status"] == "needs_confirmation" for t in tasks)
@@ -837,7 +852,9 @@ async def test_merge_correction_and_missing_source(workspace, app, clock, monkey
     assert not view["transcript"][0]["segment_id"] == "original"
     # Current human text must survive a late interpretation/correction.
     with service.db.transaction() as s:
-        note = service._by_key(s, p, "notes", call["id"])
+        note, _ = service._materialize_views_in(
+            s, p, service.required(s, "call_attempts", call["id"], p), scorecard=False
+        )
         update(note, human_text="Rep verified the current requirement directly.")
     turn(service, p, call, "original", revision=2, text="The original statement was incorrect.")
     corrected = service.analysis(p, call["id"])
@@ -866,7 +883,7 @@ async def test_finalization_cannot_be_completed_by_an_expired_owner(workspace, a
 async def test_failed_finalization_can_retry_the_same_context_without_recharging_success(
     workspace, app, monkeypatch, failure
 ):
-    from test_postcall_completion import ConversationProvider, setup_analysis
+    from test_postcall_completion import ConversationProvider, finalize, setup_analysis
     from test_remediation_privacy import principal
 
     call, state = setup_analysis(workspace, app, monkeypatch)
@@ -886,7 +903,7 @@ async def test_failed_finalization_can_retry_the_same_context_without_recharging
     assert before["finalization"]["status"] == "partial"
     assert before["finalization"].get("completed_fingerprint") is None
     monkeypatch.setattr(service, "configured_coach", lambda _: (ConversationProvider(state), "openrouter"))
-    await service.analyze_postcall(p, call["id"])
+    await finalize(service, p, call["id"])
     result = service.analysis(p, call["id"])
     assert result["finalization"]["status"] == "ready"
     assert result["call"]["transcript_version"] == before["call"]["transcript_version"]
@@ -1151,11 +1168,12 @@ async def test_human_observation_retraction_invalidates_the_existing_brief(
 ):
     from app.coaching.context import merge_semantic_state
     from test_conversation_learning import observed_call
+    from test_postcall_completion import finalize
     from test_remediation_privacy import principal
 
     service, p = app.state.service, principal(workspace)
     call, _ = observed_call(workspace, app, monkeypatch)
-    await service.analyze_postcall(p, call["id"])
+    await finalize(service, p, call["id"])
     original = service.analysis(p, call["id"])["observations"][0]
     request = service._conversation_context(p, call["id"], "review")
     with service.db.transaction() as s:
@@ -1257,3 +1275,278 @@ def test_finalizer_rejects_a_different_context_fingerprint(workspace, app, monke
                 "context_fingerprint": "different-input",
             },
         )
+
+
+def counted_transactions(service, monkeypatch):
+    """Records True for every independent write transaction the service opens."""
+    from contextlib import contextmanager
+
+    original, seen = service.db.transaction, []
+
+    @contextmanager
+    def observed(write=True, **kwargs):
+        seen.append(bool(write) and kwargs.get("session") is None)
+        with original(write, **kwargs) as s:
+            yield s
+
+    monkeypatch.setattr(service.db, "transaction", observed)
+    return seen
+
+
+def postcall_jobs(service, call_id):
+    from app.db import Job
+    from sqlalchemy import select
+
+    with service.db.transaction(False) as s:
+        return [
+            (j.key, j.payload.get("kind"), j.status)
+            for j in s.scalars(select(Job).where(Job.queue == "postcall"))
+            if j.payload.get("call_id") == call_id
+        ]
+
+
+@pytest.mark.asyncio
+async def test_analysis_get_writes_nothing_and_never_changes_status(workspace, app, carrier, monkeypatch):
+    from test_live_memory import turn
+
+    call, p, _, _ = setup(workspace, app, monkeypatch)
+    service, c, h = app.state.service, workspace["client"], workspace["headers"]
+    monkeypatch.setattr(service, "carrier", lambda _: carrier)
+    turn(service, p, call, "read-only")
+    writes = counted_transactions(service, monkeypatch)
+    first = c.get(f"/v1/calls/{call['id']}/analysis", headers=h).json()
+    assert True not in writes, "A first read must not materialize notes or scorecards"
+    assert (first["notes_version"], first["scorecard_version"], first["status"]) == (0, 0, "draft")
+    assert first["derived_state_revision"] == first["call_memory"]["version"]
+    with service.db.transaction(False) as s:
+        assert not any(service._by_key(s, p, kind, call["id"]) for kind in ("notes", "scorecards"))
+    assert c.post(f"/v1/calls/{call['id']}/hangup", headers=h).status_code == 200
+    await service.analyze_postcall(p, call["id"])
+    finalized = service.analysis(p, call["id"])
+    assert finalized["status"] == "ai_finalized" and finalized["notes_version"] >= 1
+    with service.db.transaction() as s:
+        record = service._by_key(s, p, "conversation_states", call["id"])
+        state = dict(record.data, version=record.data["version"] + 1)
+        service._store_conversation(s, p, service.required(s, "call_attempts", call["id"], p), state, record)
+        stored = service._by_key(s, p, "scorecards", call["id"]).data["items"]
+        assert all("explanation" not in item for item in stored), "Narrative lives once, in the state"
+    writes.clear()
+    drifted = c.get(f"/v1/calls/{call['id']}/analysis", headers=h).json()
+    assert True not in writes, "Revision drift is reported, never repaired, by a read"
+    assert drifted["status"] == "ai_finalized", "A read never demotes a finalized rundown"
+    assert drifted["derived_state_revision"] == finalized["derived_state_revision"] + 1
+    assert (drifted["notes_version"], drifted["scorecard_version"]) == (
+        finalized["notes_version"],
+        finalized["scorecard_version"],
+    )
+
+
+def test_note_edit_creates_its_row_in_one_write_without_a_preceding_read_refresh(workspace, app, monkeypatch):
+    from conftest import start
+    from test_remediation_privacy import principal
+
+    service, p = app.state.service, principal(workspace)
+    call = start(workspace)
+    view = service.analysis(p, call["id"])
+    writes = counted_transactions(service, monkeypatch)
+    saved = service.edit_notes(p, call["id"], view["notes_version"], "Rep-confirmed purchasing owner.")
+    assert writes.count(True) == 1, "The edit is one write; the GET never materializes for it"
+    assert saved["human_notes"] == "Rep-confirmed purchasing owner." and saved["notes_version"] >= 1
+    with pytest.raises(Exception) as stale:
+        service.edit_notes(p, call["id"], view["notes_version"], "A second editor's older view.")
+    assert getattr(stale.value, "status_code", None) == 409
+    assert service.analysis(p, call["id"])["human_notes"] == "Rep-confirmed purchasing owner."
+
+
+def test_owned_finalize_triggers_share_one_signature_keyed_job_with_an_explicit_kind(workspace, app):
+    from conftest import disposition_body, start
+    from test_call_rubrics import choose
+    from test_remediation_privacy import principal
+
+    service, p = app.state.service, principal(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    call = start(workspace)
+    service._receive_transcript(
+        p,
+        call["id"],
+        {"segment_id": "trigger", "revision": 1, "side": "remote", "is_final": True, "text": "Hello."},
+        None,
+        False,
+    )
+    assert c.post(f"/v1/calls/{call['id']}/hangup", headers=h).status_code == 200
+    with service.db.transaction() as s:
+        row = service.required(s, "call_attempts", call["id"], p)
+        first = service.enqueue_finalize(s, p, row, "hangup")
+        second = service.enqueue_finalize(s, p, row, "webhook")
+    assert first["id"] == second["id"], "Duplicate triggers for one input are one job"
+    assert first["key"].startswith(f"conversation-finalize:{call['id']}:")
+    assert first["payload"]["kind"] == "conversation_finalize"
+    saved = c.post(
+        f"/v1/calls/{call['id']}/disposition",
+        headers=h,
+        json=disposition_body(c, h, call["id"], outcome="right_party"),
+    )
+    assert saved.status_code == 200, saved.text
+    current = c.get(f"/v1/calls/{call['id']}", headers=h).json()
+    assert choose(workspace, current, "follow_up").status_code == 200
+    jobs = postcall_jobs(service, call["id"])
+    assert not [key for key, *_ in jobs if key.startswith(("wrapup:", "rubric:"))]
+    owned = [(key, kind) for key, kind, _ in jobs if key.startswith("conversation-finalize:")]
+    assert len(owned) == 3 and {kind for _, kind in owned} == {"conversation_finalize"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("lane", ["postcall", "research", "scripts", "ml"])
+async def test_unknown_job_kind_fails_closed_instead_of_running_a_default_handler(
+    workspace, app, monkeypatch, lane
+):
+    from test_remediation_privacy import principal
+
+    service, p, ran = app.state.service, principal(workspace), []
+
+    async def forbidden(*args, **kwargs):
+        ran.append(args)
+
+    for name in ("analyze_postcall", "review_conversation", "prepare", "train_model_job"):
+        monkeypatch.setattr(service, name, forbidden)
+    job = service.jobs.enqueue(
+        lane,
+        {"kind": "invented_work", "call_id": "x", "lead_ids": ["x"], "seller_id": p["seller_id"]},
+        "invented-work:" + lane,
+        tenant_id=p["tenant_id"],
+    )
+    result = await service.run_jobs(p["tenant_id"], [lane])
+    assert not ran, "A kind without a registered handler must not fall through to another one"
+    assert [e["error_type"] for e in result["errors"] if e["job_id"] == job["id"]] == ["UnknownJobKind"]
+    assert service.jobs.get(job["id"])["status"] != "completed"
+
+
+@pytest.mark.asyncio
+async def test_no_provider_publishes_one_partial_rundown_without_warnings_or_ledger_churn(
+    workspace, app, carrier, monkeypatch, caplog
+):
+    import logging
+
+    from test_live_memory import turn
+
+    call, p, _, _ = setup(workspace, app, monkeypatch)
+    service, c, h = app.state.service, workspace["client"], workspace["headers"]
+    monkeypatch.setattr(service, "carrier", lambda _: carrier)
+    turn(service, p, call, "unconfigured")
+    monkeypatch.setattr(service, "configured_coach", lambda _: (None, "unavailable"))
+    assert c.post(f"/v1/calls/{call['id']}/hangup", headers=h).status_code == 200
+    ledger, contexts = [], []
+    for name in ("reserve_optional_budget", "release_unsubmitted_budget"):
+        monkeypatch.setattr(service, name, lambda *args, name=name, **kwargs: ledger.append(name))
+    original = service._conversation_context
+    monkeypatch.setattr(
+        service, "_conversation_context", lambda *args: contexts.append(args) or original(*args)
+    )
+    with caplog.at_level(logging.WARNING):
+        await service.analyze_postcall(p, call["id"])
+        view = service.analysis(p, call["id"])
+        assert view["finalization"]["status"] == "partial"
+        assert view["status"] == "ai_finalized" and view["notes_version"] >= 1
+        writes = counted_transactions(service, monkeypatch)
+        for _ in range(3):
+            await service.analyze_postcall(p, call["id"])
+    assert True not in writes, "An unchanged unavailable rundown is published exactly once"
+    assert not ledger and not contexts, "No provider means no request context and no budget ledger"
+    assert not [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    final = service.analysis(p, call["id"])["finalization"]
+    assert final.get("completed_fingerprint") is None, "Configuring AI later can still finalize"
+
+
+@pytest.mark.asyncio
+async def test_finalization_queues_its_one_review_instead_of_also_running_it_inline(
+    workspace, app, monkeypatch
+):
+    from test_postcall_completion import setup_analysis
+    from test_remediation_privacy import principal
+
+    call, state = setup_analysis(workspace, app, monkeypatch)
+    service, p = app.state.service, principal(workspace)
+    await service.analyze_postcall(p, call["id"])
+    assert state["requests"] == 1, "The finalizer generates; selective review is the queued job"
+    queued = [j for j in postcall_jobs(service, call["id"]) if j[1] == "conversation_review"]
+    assert [(key, status) for key, _, status in queued] == [(f"conversation-review:{call['id']}", "queued")]
+    assert service.analysis(p, call["id"])["finalization"]["status"] == "partial"
+    await service.run_jobs(p["tenant_id"], ["postcall"])
+    assert state["requests"] == 2
+    view = service.analysis(p, call["id"])
+    assert view["finalization"]["status"] == "ready"
+    await service.run_jobs(p["tenant_id"], ["postcall"])
+    await service.analyze_postcall(p, call["id"])
+    assert state["requests"] == 2, "A reviewed, finalized input is complete: no second charge"
+
+
+@pytest.mark.asyncio
+async def test_finalizer_request_is_read_only_with_every_live_chunk_and_human_task_corrections(
+    workspace, app, monkeypatch
+):
+    from app.db import put
+    from test_live_memory import turn
+    from test_postcall_completion import ConversationProvider, analysis_body
+
+    call, p, _, _ = setup(workspace, app, monkeypatch)
+    service = app.state.service
+    for index in range(40):
+        turn(service, p, call, f"chunk-{index:02d}")
+    with service.db.transaction() as s:
+        for index in range(6):
+            promise = put(
+                s,
+                "commitments",
+                p["tenant_id"],
+                p["seller_id"],
+                {
+                    "lead_id": call["lead_id"],
+                    "call_id": call["id"],
+                    "kind": "followup",
+                    "action": f"Send the requested material {index}",
+                    "status": "confirmed",
+                },
+                now=service.clock(),
+            )
+        put(
+            s,
+            "followup_tasks",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "lead_id": call["lead_id"],
+                "call_id": call["id"],
+                "commitment_id": promise.id,
+                "kind": "followup",
+                "source": "inferred",
+                "status": "cancelled",
+                "human_edited": True,
+                "note": "The rep withdrew this follow-up.",
+            },
+            key="commitment:" + promise.id,
+            now=service.clock(),
+        )
+    writes = counted_transactions(service, monkeypatch)
+    request = service._conversation_context(p, call["id"], "finalize")
+    assert True not in writes, "Building the finalizer input must not write the live state"
+    assert [r["segment_id"] for r in request["recent_dialogue"]] == [f"chunk-{i:02d}" for i in range(32)]
+    assert len(request["prior_commitments"]) == 6, "Every current promise, not the newest five"
+    corrected = [t for t in request["followup_tasks"] if t["human_edited"]]
+    assert corrected and corrected[0]["status"] == "cancelled"
+    assert corrected[0]["note"] == "The rep withdrew this follow-up."
+    # A finalizer that interprets one bounded page leaves the remaining live chunks queued.
+    body = {**analysis_body(), "summary_evidence": ["chunk-00"], "commitments": []}
+    monkeypatch.setattr(
+        service,
+        "configured_coach",
+        lambda *args: (ConversationProvider({"body": body, "requests": 0}), "openrouter"),
+    )
+    await service.analyze_postcall(p, call["id"])
+    rest = service._conversation_context(p, call["id"], "finalize")
+    assert [r["segment_id"] for r in rest["recent_dialogue"]] == [f"chunk-{i:02d}" for i in range(32, 40)]
+    assert service.analysis(p, call["id"])["finalization"]["status"] == "pending"
+    assert [
+        k
+        for k, kind, s in postcall_jobs(service, call["id"])
+        if s == "queued" and kind == "conversation_finalize"
+    ]
