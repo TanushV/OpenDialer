@@ -6,6 +6,7 @@ import pytest
 from app.db import Job, get, put, update
 from sqlalchemy import select
 from test_context_reads import count_decrypted
+from test_projection_replay import attempted
 from test_remediation_privacy import principal
 
 
@@ -45,7 +46,7 @@ def test_home_snapshot_runs_after_metric_sources_but_before_unrelated_planning(w
         tenant_id=p["tenant_id"],
         priority=20,
     )
-    home = service.enqueue_report(p, "fair-home", 1, None, home=True)
+    home = service.enqueue_report(p, "fair-home", None, home=True)
     claimed = []
     for _ in range(4):
         job = service.jobs.claim("ml", "fair-reader", tenant_id=p["tenant_id"])
@@ -122,6 +123,7 @@ async def test_source_change_marks_previous_report_stale_until_worker_publishes(
     previous = read(workspace)
     with service.db.transaction() as s:
         lead = service.scoped(s, "leads", p)[0]
+        attempted(s, p, lead.id, clock.now - timedelta(hours=1))
         put(
             s,
             "conversion_events",
@@ -190,6 +192,8 @@ async def test_report_failure_preserves_old_evidence_and_does_not_queue_on_every
     before = read(workspace)
     clock.now += timedelta(minutes=11)
     read(workspace)
+    # Expiry is repaired by the maintenance sweep, never by the read.
+    service.schedule_report_refreshes(p)
     monkeypatch.setattr(service, "optimization_report", no_calculation)
     await service.run_jobs(queues=["ml"])
     later = [read(workspace) for _ in range(3)]
@@ -213,9 +217,12 @@ def test_concurrent_source_change_cannot_publish_a_falsely_fresh_report(workspac
         return result
 
     monkeypatch.setattr(service, "optimization_report", changing)
-    assert service.rebuild_optimization_report(p)["status"] == "superseded"
+    # Published with the watermark read before calculation, so the newer source
+    # change shows it stale; it is never discarded or labelled current.
+    assert service.rebuild_optimization_report(p)["status"] == "ready"
     current = read(workspace)
     assert current["projection"]["status"] == "stale"
+    assert current["projection"]["source_revision"] < current["projection"]["current_revision"]
     assert current["metrics"] == previous["metrics"]
 
 
@@ -252,24 +259,27 @@ def test_repeated_changes_coalesce_one_pending_calculation(workspace, app):
 
 
 @pytest.mark.asyncio
-async def test_superseded_worker_retries_instead_of_claiming_completion(workspace, app, clock, monkeypatch):
+async def test_concurrent_change_publishes_as_of_and_the_dirty_chain_repairs_it(
+    workspace, app, clock, monkeypatch
+):
     service, p = app.state.service, principal(workspace)
     first = read(workspace)
-    original = service.optimization_report
+    original, changes = service.optimization_report, []
 
     def changing(*args, **kwargs):
         result = original(*args, **kwargs)
-        with service.db.transaction() as s:
-            lead = service.scoped(s, "leads", p)[0]
-            update(lead, status="eligible" if lead.data["status"] == "needs_review" else "needs_review")
+        if len(changes) < 2:
+            with service.db.transaction() as s:
+                lead = service.scoped(s, "leads", p)[0]
+                update(lead, status="eligible" if lead.data["status"] == "needs_review" else "needs_review")
+            changes.append(1)
         return result
 
     with monkeypatch.context() as m:
         m.setattr(service, "optimization_report", changing)
         await service.run_jobs(queues=["ml"])
     job = service.jobs.get(first["projection"]["job_id"])
-    assert job["status"] == "queued"
-    assert job["error"] is None and job["attempts"] == 0, (
+    assert job["error"] is None and job["attempts"] <= 1, (
         "A concurrent source correction is fresh work, not a failed attempt with ten-second backoff"
     )
     await service.run_jobs(queues=["ml"])
@@ -344,7 +354,10 @@ def test_historical_cohort_is_loaded_through_a_separate_projection(workspace, ap
         "/v1/admin/optimization", headers=workspace["headers"], json={"conversion_goal": "sale_won"}
     )
     assert changed.status_code == 200
-    assert service.rebuild_optimization_report(p, epoch)["status"] == "pending"
+    # Published from the still-active totals and marked incomplete until the
+    # changed definition's rebuild activates; then the saved view is refreshed.
+    assert service.rebuild_optimization_report(p, epoch)["id"], "Published, not discarded"
+    assert service.cached_optimization_report(p, epoch)["projection"]["complete"] is False
     past = completed_report(workspace, params={"epoch": epoch}).json()
     assert past["trial"]["epoch"] == epoch
     assert past["trial"]["goal"] == "meeting_held"

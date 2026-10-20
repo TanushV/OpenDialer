@@ -7,12 +7,15 @@ from sqlalchemy import select
 
 from app.db import MODELS, audit, doc, put, update
 from app.operational_schema import call_work_bounds
-from app.optimization.learning import derive_labels, outcome_at
 from app.optimization.numbering import timestamp, wilson
 from app.service import fail
 from app.telephony.reducer import TERMINAL
 
 WORK_LEASE_SECONDS = 90
+WORK_NOTE = (
+    "Working time is declared availability supported by heartbeats plus verified call occupancy; "
+    "breaks and disconnected gaps are excluded. Correct your intervals when needed."
+)
 
 
 def work_summary(intervals, calls, *, now, start_at=None, end_at=None):
@@ -61,32 +64,8 @@ def work_summary(intervals, calls, *, now, start_at=None, end_at=None):
         "stale_intervals": stale,
         "source": "declared_presence_heartbeat_and_verified_calls",
         "lease_seconds": WORK_LEASE_SECONDS,
-        "note": "Working time is declared availability supported by heartbeats plus verified call occupancy; breaks and disconnected gaps are excluded. Correct your intervals when needed.",
+        "note": WORK_NOTE,
     }
-
-
-def connect_health(calls, *, now, min_support=30):
-    current, reference, unknown = [], [], 0
-    for call in calls:
-        at = timestamp(call.get("started_at"))
-        if not at or at > now or at < now - timedelta(days=28):
-            continue
-        outcome = outcome_at(call, now)
-        label = derive_labels(outcome or {})["human"]
-        if label is None:
-            unknown += at >= now - timedelta(days=1)
-            continue
-        (current if at >= now - timedelta(days=1) else reference).append(label)
-    return connect_health_counts(
-        {
-            "connect_recent_n": len(current),
-            "connect_recent_s": sum(current),
-            "connect_recent_unknown": unknown,
-            "connect_reference_n": len(reference),
-            "connect_reference_s": sum(reference),
-        },
-        min_support=min_support,
-    )
 
 
 def connect_health_counts(values, *, min_support=30):
@@ -320,9 +299,6 @@ class Measurement:
                 },
             )
             return {"interval": interval, "activity": activity, "presence": user.data["presence"]}
-
-    def work_in(self, s, p, calls):
-        return work_summary([doc(r) for r in self.scoped(s, "work_intervals", p)], calls, now=self.clock())
 
     def work_intervals(self, p):
         with self.db.transaction(False) as s:

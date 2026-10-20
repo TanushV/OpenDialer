@@ -5,6 +5,7 @@ from datetime import timedelta
 import pytest
 from app.db import MODELS, doc, get, put, update
 from conftest import completed_report
+from test_projection_replay import attempted
 from test_remediation_privacy import principal
 
 
@@ -16,6 +17,8 @@ async def test_contribution_replay_oracle(workspace, app, clock):
     events = []
     for lead in ids[:2]:
         with service.db.transaction() as s:
+            # Conversions count within the campaign outcome window of an attempt.
+            attempted(s, p, lead["id"], clock.now - timedelta(hours=1))
             for i in range(2):
                 row = put(
                     s,

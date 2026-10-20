@@ -1554,33 +1554,51 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             processed += sum(done for done, _ in await drains(again))
         return {"processed": processed, "status": "failed" if errors else "passed", "errors": errors}
 
-    def _training_source(self, s, p, payload):
+    def _training_source(self, s, p, payload, *, rows=True):
+        """The named immutable dataset, re-verified by content; the job carries no rows.
+
+        Publication passes rows=False: an unchanged row version is the same content,
+        so the write transaction neither decrypts nor rehashes the snapshot."""
+        from app.optimization.workflows import dataset_checksum
+
         user = self.required(s, "users", p["user_id"], p)
         if user.data.get("disabled") or user.data.get("role") not in {"owner", "admin"}:
             fail(403, "Current administrator authority is required for training")
-        dataset = self.required(s, "learning_datasets", payload.get("source_dataset_id"), p)
         config = self.optimization_config(s, p)
-        if (
-            dataset.data.get("source") != "immutable_operational_feature_snapshots"
-            or dataset.data.get("rows") != payload["rows"]
-            or dataset.data.get("goal") != payload.get("goal")
-            or dataset.data.get("baseline") != payload.get("baseline")
-            or config["conversion_goal"] != payload.get("goal")
-            or (
-                payload.get("window_days") is not None
-                and (
-                    dataset.data.get("window_days") != payload["window_days"]
-                    or config["window_days"] != payload["window_days"]
+        changed = config["conversion_goal"] != payload.get("goal") or (
+            payload.get("window_days") is not None and config["window_days"] != payload["window_days"]
+        )
+        changed |= payload.get("baseline") is not None and payload["baseline"] != {
+            k: config[k] for k in ("estimate_policy", "handling_seconds")
+        }
+        if rows:
+            dataset = self.required(s, "learning_datasets", payload.get("source_dataset_id"), p)
+            identity, version, data = dataset.id, dataset.version, dataset.data
+            changed |= (
+                data.get("source") != "immutable_operational_feature_snapshots"
+                or data.get("checksum") != payload.get("input_fingerprint")
+                or dataset_checksum(data) != payload.get("input_fingerprint")
+                or data.get("goal") != payload.get("goal")
+                or data.get("baseline") != payload.get("baseline")
+                or (
+                    payload.get("window_days") is not None
+                    and data.get("window_days") != payload["window_days"]
                 )
             )
-            or (
-                payload.get("baseline") is not None
-                and payload["baseline"] != {k: config[k] for k in ("estimate_policy", "handling_seconds")}
+        else:
+            model = MODELS["learning_datasets"]
+            identity, data = payload.get("source_dataset_id"), {}
+            version = s.scalar(
+                select(model.version).where(
+                    model.id == identity, model.tenant_id == p["tenant_id"], model.seller_id == p["seller_id"]
+                )
             )
-        ):
+            if version is None:
+                fail(404, "learning_datasets not found")
+        if changed:
             fail(409, "Training source or goal changed; prepare the current owned dataset")
-        prior = self._by_key(s, p, "model_versions", "training:" + dataset.id)
-        return dataset.version, doc(prior) if prior else None
+        prior = self._by_key(s, p, "model_versions", "training:" + identity)
+        return version, doc(prior) if prior else None, data.get("rows")
 
     def _training_snapshot(self, p, payload):
         with self.db.transaction(False) as s:
@@ -1589,7 +1607,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
     def _training_publish(self, p, payload, version, result):
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
-            current, prior = self._training_source(s, p, payload)
+            current, prior, _ = self._training_source(s, p, payload, rows=False)
             if current != version:
                 fail(409, "Training dataset changed during fitting")
             if prior:
@@ -1616,13 +1634,13 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
 
         from app.ml.worker import train_isolated
 
-        version, prior = await asyncio.to_thread(self._training_snapshot, p, payload)
+        version, prior, rows = await asyncio.to_thread(self._training_snapshot, p, payload)
         if prior:
             return
         directory = self.settings.data_dir / "models" / uid()
         published = False
         try:
-            result = await train_isolated(payload["rows"], directory, baseline=payload.get("baseline"))
+            result = await train_isolated(rows, directory, baseline=payload.get("baseline"))
             publication = asyncio.create_task(
                 asyncio.to_thread(self._training_publish, p, payload, version, result)
             )

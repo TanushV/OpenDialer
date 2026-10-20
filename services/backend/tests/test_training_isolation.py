@@ -33,21 +33,26 @@ def training_rows():
     ]
 
 
-def source(service, p):
-    data = training_rows()
+def source(service, p, **fields):
+    """An immutable dataset and the job that names it; the job carries no rows."""
+    from app.optimization.workflows import dataset_checksum
+
+    value = {"rows": training_rows(), "goal": "meeting_held", **fields}
+    checksum = dataset_checksum(value)
     with service.db.transaction() as s:
         dataset = put(
             s,
             "learning_datasets",
             p["tenant_id"],
             p["seller_id"],
-            {
-                "rows": data,
-                "goal": "meeting_held",
-                "source": "immutable_operational_feature_snapshots",
-            },
+            {**value, "checksum": checksum, "source": "immutable_operational_feature_snapshots"},
         )
-        return {"rows": data, "goal": "meeting_held", "source_dataset_id": dataset.id}
+        return {
+            "goal": "meeting_held",
+            "source_dataset_id": dataset.id,
+            "input_fingerprint": checksum,
+            **{k: v for k, v in fields.items() if k in {"baseline", "window_days"}},
+        }
 
 
 def test_operational_training_admission_keeps_unclassified_outcomes_unknown(workspace, app, monkeypatch):
@@ -79,13 +84,7 @@ async def test_training_freezes_and_uses_the_actual_configured_baseline(workspac
         update(campaign, optimization={**service.optimization_config(s, p), **baseline})
     snapshot = service.save_operational_dataset(p)
     assert snapshot.get("baseline") == baseline
-    payload = source(service, p)
-    with service.db.transaction() as s:
-        update(get(s, "learning_datasets", payload["source_dataset_id"]), baseline=baseline)
-    payload["baseline"] = baseline
-    payload["window_days"] = 14
-    with service.db.transaction() as s:
-        update(get(s, "learning_datasets", payload["source_dataset_id"]), window_days=14)
+    payload = source(service, p, baseline=baseline, window_days=14)
     await service.train_model_job(p, payload)
     with service.db.transaction(False) as s:
         model = service._by_key(s, p, "model_versions", "training:" + payload["source_dataset_id"])
@@ -97,10 +96,7 @@ def test_training_source_rejects_changed_window_before_publication(workspace, ap
     from fastapi import HTTPException
 
     service, p = app.state.service, principal(workspace)
-    payload = source(service, p)
-    payload["window_days"] = 7
-    with service.db.transaction() as s:
-        update(get(s, "learning_datasets", payload["source_dataset_id"]), window_days=7)
+    payload = source(service, p, window_days=7)
     with service.db.transaction(False) as s, pytest.raises(HTTPException) as failure:
         service._training_source(s, p, payload)
     assert failure.value.status_code == 409
@@ -173,7 +169,10 @@ async def test_training_requires_the_exact_owned_dataset_before_spawning(workspa
     if change == "missing":
         payload["source_dataset_id"] = "absent"
     elif change == "altered_rows":
-        payload["rows"][0]["human"] = 1
+        # The named dataset no longer matches the content the job was queued for.
+        with service.db.transaction() as s:
+            dataset = get(s, "learning_datasets", payload["source_dataset_id"])
+            update(dataset, rows=[{**dataset.data["rows"][0], "human": 1}, *dataset.data["rows"][1:]])
     else:
         with service.db.transaction() as s:
             get(s, "learning_datasets", payload["source_dataset_id"]).seller_id = "another-seller"
@@ -446,10 +445,9 @@ async def test_changed_authority_or_dataset_cannot_publish_trained_candidate(
     service, p = app.state.service, principal(workspace)
     payload = source(service, p)
     if changed == "baseline":
-        with service.db.transaction() as s:
+        with service.db.transaction(False) as s:
             config = service.optimization_config(s, p)
-            payload["baseline"] = {k: config[k] for k in ("estimate_policy", "handling_seconds")}
-            update(get(s, "learning_datasets", payload["source_dataset_id"]), baseline=payload["baseline"])
+        payload = source(service, p, baseline={k: config[k] for k in ("estimate_policy", "handling_seconds")})
 
     async def fitted(rows, output_dir, **kwargs):
         output_dir.mkdir(parents=True)
