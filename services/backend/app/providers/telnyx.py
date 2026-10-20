@@ -106,7 +106,7 @@ class TelnyxCarrier:
     async def list_numbers(self):
         found, page, expected_pages = [], 1, None
         while page <= 100:
-            response = await self.request("GET", f"/phone_numbers?page[number]={page}&page[size]=100")
+            response = await self.request("GET", f"/phone_numbers?page[number]={page}&page[size]=250")
             if (
                 not isinstance(response, dict)
                 or not isinstance(response.get("data"), list)
@@ -154,11 +154,6 @@ class TelnyxCarrier:
             {"phone_numbers": [{"phone_number": n} for n in numbers], "connection_id": self.connection_id},
         )
 
-    async def lookup(self, phone):
-        from urllib.parse import quote
-
-        return await self.request("GET", f"/number_lookup/{quote(phone, safe='')}?type=carrier")
-
     async def configure_number(self, number_id, connection_id):
         from urllib.parse import quote
 
@@ -183,10 +178,6 @@ class TelnyxCarrier:
         from urllib.parse import quote
 
         return await self.request("GET", f"/number_orders/{quote(order_id, safe='')}")
-
-    async def rnd(self, phone, reference_date):
-        # RND requires an independently authorized account adapter; carrier lookup is not a substitute.
-        raise ValueError("Configure an authorized Reassigned Numbers Database subscription adapter")
 
     async def verify_incoming_only_credential(self, credential_id):
         credential = await self.request("GET", f"/telephony_credentials/{credential_id}")
