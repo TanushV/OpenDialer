@@ -79,13 +79,12 @@ def forbidden(*args, **kwargs):
     raise AssertionError("Ordinary workspace view performed full history/integrity work")
 
 
+@pytest.mark.sqlite_only
 def test_open_call_queries_skip_finalized_history_in_the_database(workspace, app, clock):
     """Bound SQL work, not only decrypted rows: LIMIT alone hid a historical scan."""
     from sqlalchemy import event
 
     service, p = app.state.service, principal(workspace)
-    if not service.db.sqlite:
-        pytest.skip("SQLite VM work oracle; result/index parity is checked on both databases")
     with service.db.transaction() as s:
         for i in range(600):
             put(
@@ -496,6 +495,7 @@ def test_job_scope_backfill_preserves_identity_content_and_status(workspace, app
 
 
 @pytest.mark.asyncio
+@pytest.mark.database
 async def test_concurrent_source_changes_do_not_exhaust_or_delay_metric_refresh(workspace, app, monkeypatch):
     service, p = app.state.service, principal(workspace)
     original = service.metrics

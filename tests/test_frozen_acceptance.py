@@ -19,7 +19,7 @@ def test_importing_frozen_acceptance_does_not_parse_cli_or_launch_an_authority()
         cwd=ROOT,
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=120,  # Hang guard only; a loaded parallel run can start interpreters slowly.
         check=False,
     )
     assert result.returncode == 0, result.stderr
@@ -107,11 +107,19 @@ def test_owned_cleanup_waits_for_ignoring_and_reparented_descendants(tmp_path, p
     process = launch([sys.executable, "-c", script], start_new_session=True)
     child = None
     try:
-        deadline = time.monotonic() + 5
-        while not ready.exists() and time.monotonic() < deadline:
+        # Generous bounds only limit how long a broken launcher takes to fail; they are not
+        # latency assertions. A loaded machine may start the interpreter slowly.
+        deadline = time.monotonic() + 60
+        while not (ready.exists() and ready.read_text()) and time.monotonic() < deadline:
             time.sleep(0.02)
         child = psutil.Process(int(ready.read_text()))
-        time.sleep(0.3)  # Ownership watcher must see this still-parented child.
+        owned = getattr(process, "_owned", None)
+        if owned is not None:
+            # Wait for the ownership watcher to record this still-parented child, instead of
+            # sleeping and hoping its 0.1 s poll ran before the parent exits and reparents it.
+            while child.pid not in owned and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert owned.get(child.pid) == child, "Ownership watcher never recorded the child"
         if parent_exits_first:
             leave.touch()
             process.wait(timeout=5)

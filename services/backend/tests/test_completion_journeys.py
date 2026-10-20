@@ -1,6 +1,5 @@
 """E03/C009: public rep journey, persisted edits and a real authority restart."""
 
-import os
 from datetime import timedelta
 from uuid import uuid4
 
@@ -159,10 +158,8 @@ async def test_restored_conversation_new_interpretation_and_old_source_correctio
         target.db.engine.dispose()
 
 
-@pytest.mark.parametrize("mode", ["local", "connected"])
+@pytest.mark.parametrize("mode", ["local", pytest.param("connected", marks=pytest.mark.postgres)])
 def test_full_rep_journey_both_authorities(workspace, app, clock, carrier, monkeypatch, mode):
-    if mode == "connected" and not os.getenv("OPENDIALER_TEST_POSTGRES_URL"):
-        pytest.skip("Connected journey requires the explicitly guarded PostgreSQL run")
     if mode == "connected":
         assert not app.state.db.sqlite
     monkeypatch.setattr(

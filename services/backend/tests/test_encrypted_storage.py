@@ -3,6 +3,8 @@ from pathlib import Path
 import pytest
 from app.db import Database
 
+pytestmark = pytest.mark.database
+
 
 def test_independent_provider_writers_preserve_each_others_fields(tmp_path):
     from concurrent.futures import ThreadPoolExecutor
@@ -27,12 +29,13 @@ def test_provider_source_fence_does_not_publish_over_a_new_config(tmp_path):
     assert "ingress_evidence" not in vault.read("tenant")
 
 
+@pytest.mark.sqlite_only
 def test_persistent_database_and_wal_do_not_expose_phone_email_or_notes(workspace):
     app = workspace["client"].app
     app.state.db.engine.dispose()
     path = Path(app.state.db.url.removeprefix("sqlite:///"))
-    if not path.exists():
-        pytest.skip("Byte-level storage check applies to SQLite; PostgreSQL uses the same encrypted codec")
+    # Byte-level storage check applies to SQLite; PostgreSQL uses the same encrypted codec.
+    assert path.is_file(), "The SQLite oracle must inspect the actual store file"
     blobs = b"".join(p.read_bytes() for p in path.parent.glob(path.name + "*") if p.is_file())
     assert b"+14155550101" not in blobs
     assert b"operator@example.test" not in blobs
