@@ -685,20 +685,21 @@ def create_app(settings=None, *, clock=None, carrier=None):
     async def telephony_token(p=Depends(principal)):
         def context():
             provider = service.carrier(p["tenant_id"])
+            conf = service.vault.read(p["tenant_id"])
+            admin = p["role"] in {"owner", "admin"}
             with db.transaction(False) as s:
                 user = service.required(s, "users", p["user_id"], p)
                 credential = user.data.get("telephony_credential_id") or (
-                    service.vault.read(p["tenant_id"]).get("telephony_credential_id")
-                    if p["role"] in {"owner", "admin"}
-                    else None
+                    conf.get("telephony_credential_id") if admin else None
                 )
-            return provider, credential
+                sip = user.data.get("sip_username") or (conf.get("sip_username") if admin else None)
+            return provider, credential, sip
 
-        provider, credential = await asyncio.to_thread(context)
+        provider, credential, sip = await asyncio.to_thread(context)
         if not credential and not settings.simulation:
             fail(503, "Scoped rep telephony credential is not configured")
         if not settings.simulation:
-            await provider.verify_incoming_only_credential(credential)
+            await service.verified_credential(provider, credential, sip)
         return {"token": await provider.token(credential or "simulated"), "simulation": settings.simulation}
 
     @app.post("/v1/admin/policies/{policy_id}/publish")

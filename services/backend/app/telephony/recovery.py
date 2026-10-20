@@ -250,7 +250,7 @@ class CommandRecovery:
                         p["tenant_id"], {"call_control_id": identity}, "call.hangup", session=s
                     )
                 elif identity == call.data.get("provider_id"):
-                    self.finish_call(s, p, call, "provider_terminal_reconciliation")
+                    self.finish_terminal_in(s, p, call, receipt)
                 else:
                     self.agent_event(p["tenant_id"], {"call_control_id": identity}, "call.hangup", session=s)
             if not command.data.get("inbound"):
@@ -346,7 +346,19 @@ class CommandRecovery:
                 [doc(c) for c in configurations(s)],
             )
 
-    def _finish_orphan(self, p, snapshot):
+    def finish_terminal_in(self, s, p, call, receipt):
+        """Carrier evidence says the prospect leg is gone; an expired status read needs review."""
+        if not receipt.get("status_expired"):
+            return self.finish_call(s, p, call, "provider_terminal_reconciliation")
+        self.finish_call(s, p, call, "carrier_status_expired")
+        update(
+            call,
+            review_required=True,
+            recovery_reason="Carrier status is kept only ten minutes after a call ends; "
+            "confirm the end time and duration from the carrier statement",
+        )
+
+    def _finish_orphan(self, p, snapshot, receipt):
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", snapshot["id"], p)
             s.refresh(call, with_for_update=True)
@@ -356,7 +368,7 @@ class CommandRecovery:
                 or call.data.get("provider_id") != snapshot.get("provider_id")
             ):
                 return
-            self.finish_call(s, p, call, "provider_terminal_reconciliation")
+            self.finish_terminal_in(s, p, call, receipt)
 
     def _expired_agents(self, p):
         """Keep an interrupted setup actionable without placing another carrier dial."""
@@ -446,7 +458,7 @@ class CommandRecovery:
                     logging.getLogger(__name__).warning("Call status unavailable: %s", type(exc).__name__)
                 verified = call_receipt(receipt, call["provider_id"], simulation=self.settings.simulation)
                 if verified and not verified[1]:
-                    await asyncio.to_thread(self._finish_orphan, p, call)
+                    await asyncio.to_thread(self._finish_orphan, p, call, receipt)
                     continue
             if call.get("started_at") and (self.clock() - dt(call["started_at"])).total_seconds() >= call.get(
                 "max_call_seconds", self.settings.max_call_seconds

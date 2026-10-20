@@ -150,9 +150,7 @@ class InboundCallbacks:
         candidates.sort(key=lambda u: (u.id != task.data.get("responsible_rep_id"), u.id))
         rep = candidates[0] if candidates and len(attempts) < 3 else None
         config = task.data["routing_config"]
-        target = (
-            f"sip:{rep.data['sip_username']}@sip.telnyx.com;secure=srtp" if rep else config["destination"]
-        )
+        target = f"sip:{rep.data['sip_username']}@sip.telnyx.com" if rep else config["destination"]
         if not rep and any(a.get("kind") == "business_fallback" for a in attempts):
             target = ""
         if target in {task.data.get("callback_phone"), task.data.get("called_phone")}:

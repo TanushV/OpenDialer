@@ -24,6 +24,9 @@ from app.scheduling.queue import ReservationPlanner
 from app.security import PASSWORDS, Vault, issue_session
 from app.telephony.reducer import TERMINAL, owns_effect, reduce_state
 
+# Telnyx detection modes that report `beep_detected` (greeting_end reports only `ended`).
+AMD_MODES = {"detect_beep", "detect_words", "premium"}
+
 
 def dt(value):
     return datetime.fromisoformat(value) if value else None
@@ -636,6 +639,16 @@ class Service(ReservationPlanner):
             now=self.clock(),
         )
 
+    def final_voicemail_possible(self, s, p, lead, number, policy):
+        """Policy and permission allow a message; the caller supplies the final-attempt fact."""
+        return bool(
+            policy.get("voicemail_enabled")
+            and policy.get("voicemail_optout_supported")
+            and policy.get("approved_assets")
+            and policy.get("answering_machine_detection", "detect_beep") in AMD_MODES
+            and authorize(self.context(s, p, lead, number, permission="prerecorded", active=True)).allowed
+        )
+
     def agent_leg_in(self, s, p, *, provider_id=None, leg_id=None, rep_id=None, active=False):
         model = MODELS["call_legs"]
         query = select(model).where(model.tenant_id == p["tenant_id"])
@@ -787,11 +800,13 @@ class Service(ReservationPlanner):
             )
             claim.call_id = call.id
             update(reservation, status="active", call_id=call.id)
-            presence = self.required(s, "users", p["user_id"], p).data["presence"]
+            agent = self.required(s, "users", p["user_id"], p).data["presence"]["agent_call_control_id"]
+            # The persistent agent leg carries the rep's own speech stream for this call.
+            update(call, agent_provider_id=agent)
             payload = {
                 "to": lead.data["phone"],
                 "from": number.data["phone"],
-                "link_to": presence["agent_call_control_id"],
+                "link_to": agent,
                 "bridge_on_answer": True,
                 "park_after_unbridge": "self",
                 "prevent_double_bridge": True,
@@ -874,7 +889,21 @@ class Service(ReservationPlanner):
                 update(command, status="cancelled", reasons=decision.reasons)
                 self.finish_call(s, p, call, "policy_cancelled")
                 return
+            policy = self.required(
+                s,
+                "policy_versions",
+                self.required(s, "campaigns", lead.data["campaign_id"], p).data["policy_id"],
+                p,
+            )
+            ordinal = lead.data.get("attempt_count", 0) + 1
+            allowance = max(lead.data.get("attempt_allowance", 0), policy.data.get("max_attempts", 4))
             payload = command.data["payload"]
+            if ordinal >= allowance and self.final_voicemail_possible(s, p, lead, number, policy.data):
+                # Only this dial may leave a message, so only it pays for beep detection.
+                # Bridging still happens on answer; detection runs beside the live conversation.
+                mode = policy.data.get("answering_machine_detection", "detect_beep")
+                payload = {**payload, "answering_machine_detection": mode}
+                update(command, payload=payload)
             update(
                 command,
                 status="sending",
@@ -890,14 +919,6 @@ class Service(ReservationPlanner):
                 submission_decision_id=submission_decision.id,
                 submitted_at=self.clock().isoformat(),
             )
-            policy = self.required(
-                s,
-                "policy_versions",
-                self.required(s, "campaigns", lead.data["campaign_id"], p).data["policy_id"],
-                p,
-            )
-            ordinal = lead.data.get("attempt_count", 0) + 1
-            allowance = max(lead.data.get("attempt_allowance", 0), policy.data.get("max_attempts", 4))
             update(call, attempt_ordinal=ordinal, attempt_allowance=allowance)
             update(
                 lead,
@@ -1082,6 +1103,7 @@ class Service(ReservationPlanner):
                 else "Await the signed dial receipt or attach a verified carrier call reference",
             )
             update(call, state="ENDING")
+            self.stop_agent_transcription_in(s, p, call)
             self.journal_effect_in(
                 s,
                 p,

@@ -205,17 +205,45 @@ def claim(service, p, phone=None, identity=None, retry=None, *, refresh=None):
         return doc(row), None, config
 
 
-def finish(service, p, intent, result):
+def query_charge(service, s, p, intent, result):
+    """Estimated charge of one definitive answer, from the credit balance when it is unambiguous.
+
+    With two lookups in flight a balance can move by two; larger moves include use outside this
+    seller, so the configured per-query price is used instead. Never estimates below one credit.
+    """
+    rate = Decimal(str(intent.get("estimate_usd", QUERY_ESTIMATE)))
+    credits, source = 1, "configured_per_query_rate"
+    if result:
+        seller = service.required(s, "sellers", p["seller_id"], p)
+        prior = seller.data.get("dnc_credit_observation") or {}
+        current = result["credits_remaining"]
+        if type(prior.get("credits")) is int and 1 <= prior["credits"] - current <= 2:
+            credits, source = prior["credits"] - current, "credits_remaining_delta"
+        if not prior.get("checked_at") or prior["checked_at"] <= result["checked_at"]:
+            update(seller, dnc_credit_observation={"credits": current, "checked_at": result["checked_at"]})
+    return float(rate * credits), source
+
+
+def finish(service, p, intent, result, refusal=None):
     # Billing is recorded even when current authority/source versions reject publication.
-    service.usage(
-        p,
-        "donotcalldnc",
-        "dnc_screen",
-        InferenceResult({}, {"credits_remaining": result["credits_remaining"]} if result else {}, None),
-        object_id=screening_key(service, intent["phone"]),
-        request_key=intent["request_key"],
-        reserved=intent.get("estimate_usd", QUERY_ESTIMATE),
-    )
+    if refusal in {"DNC_PROVIDER_KEY_INVALID", "DNC_PROVIDER_CREDITS_EXHAUSTED"}:
+        # The provider refused before any lookup: there is no charge to hold.
+        service.release_refused_budget(p, intent["request_key"], refusal)
+    elif result or refusal:
+        with service.db.transaction() as s:
+            service.db.authorize_stream(s, p)
+            cost, source = query_charge(service, s, p, intent, result)
+            service.settle_estimate_in(s, p, intent["request_key"], cost, source)
+    else:
+        service.usage(
+            p,
+            "donotcalldnc",
+            "dnc_screen",
+            InferenceResult({}, {}, None),
+            object_id=screening_key(service, intent["phone"]),
+            request_key=intent["request_key"],
+            reserved=intent.get("estimate_usd", QUERY_ESTIMATE),
+        )
     config = service.vault.read(p["tenant_id"])
     rejected = False
     with service.db.transaction() as s:
@@ -245,6 +273,10 @@ def finish(service, p, intent, result):
                 synthetic=service.settings.simulation,
                 lease_owner=None,
                 lease_until=None,
+            )
+        elif refusal and not rejected:
+            update(
+                row, status="failed", listed=None, lease_owner=None, lease_until=None, recovery_reason=refusal
             )
         else:
             update(
@@ -447,8 +479,11 @@ async def refresh_screening(service, p, job, worker_id):
                 intent, _, config = result
                 try:
                     await execute(service, p, intent, config)
-                except HTTPException:
-                    pass  # Original intent/uncertain liability is the recovery owner.
+                except HTTPException as exc:
+                    # Original intent/uncertain liability is the recovery owner. A refused key
+                    # or exhausted credit refuses every later number too, so the run stops.
+                    if exc.detail in {"DNC_PROVIDER_KEY_INVALID", "DNC_PROVIDER_CREDITS_EXHAUSTED"}:
+                        return 1, exc.detail
                 return 1, None
             except HTTPException as exc:
                 return 0, str(exc.detail) if "BUDGET_EXHAUSTED" in str(
@@ -504,6 +539,11 @@ async def execute(service, p, intent, config):
     except asyncio.CancelledError:
         await asyncio.shield(asyncio.to_thread(finish, service, p, intent, None))
         raise
+    except DNCError as exc:
+        # A definitive refusal is an answer, not an outage: never cleared, never retried as-is.
+        refusal = exc.reason if exc.definitive else None
+        await asyncio.to_thread(finish, service, p, intent, None, refusal)
+        fail(409 if refusal else 503, refusal or "DNC_SCREENING_UNAVAILABLE_NO_CLEARANCE")
     except Exception:
         # A transport/adapter failure is not proof that the provider did not charge.
         # Store only the generic recovery state, never the raw response/exception.
