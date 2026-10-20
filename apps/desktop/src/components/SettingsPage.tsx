@@ -30,7 +30,6 @@ import {
   ApiError,
   LONG_REQUEST_MS,
   native,
-  openSource,
   tunnelStatus,
   saveTunnel,
   assertNoPendingOptouts,
@@ -50,6 +49,7 @@ type SettingsData = {
   version: number;
   effective: Record<string, string>;
   configured: Record<string, boolean>;
+  retired?: { inference_mode?: string };
   budget: BudgetData;
   optimization: OptimizationSettings;
   defaults: { optimization: OptimizationSettings };
@@ -1771,7 +1771,7 @@ function AdvancedView({ settings }: { settings: AdminSettingsState }) {
 }
 
 function AdvancedProviders({ settings }: { settings: AdminSettingsState }) {
-  const { snapshot: w, api, run, notice } = useWorkspace();
+  const { snapshot: w, run, notice } = useWorkspace();
   const form = useProviderDraft(settings, [
     "coach_provider",
     "coach_model",
@@ -1824,15 +1824,20 @@ function AdvancedProviders({ settings }: { settings: AdminSettingsState }) {
             setDraft({ ...draft, inference_mode: e.target.value })
           }
         >
+          {!draft.inference_mode && <option value="">Choose a route</option>}
           <option value="api">OpenAI Responses API</option>
           <option value="litellm">
             Explicit OpenAI-compatible LiteLLM endpoint
           </option>
-          <option value="chatgpt_plan">
-            Official eligible ChatGPT plan usage
-          </option>
         </select>
       </label>
+      {settings.data?.retired?.inference_mode && (
+        <p className="notice" role="status">
+          ChatGPT plan usage was removed. Choose the OpenAI API or an
+          OpenAI-compatible endpoint to resume personalized research and
+          scripts; approved scripts remain available.
+        </p>
+      )}
       <CredentialButton
         field="openai_api_key"
         title={
@@ -1848,25 +1853,6 @@ function AdvancedProviders({ settings }: { settings: AdminSettingsState }) {
           "Inference base URL",
           "http://127.0.0.1:4000/v1",
         )}
-      {draft.inference_mode === "chatgpt_plan" && w.mode === "local" && (
-        <button
-          className="secondary"
-          onClick={() =>
-            void run(async () => {
-              const flow = await api<{ authorization_url: string }>(
-                "/v1/inference/chatgpt/start",
-                "POST",
-              );
-              await openSource(flow.authorization_url);
-              notice(
-                "Complete the official authorization in your browser, then return here.",
-              );
-            })
-          }
-        >
-          Continue with ChatGPT
-        </button>
-      )}
       {form.field("model", "Default evaluated model")}
       <label>
         Optional research search
