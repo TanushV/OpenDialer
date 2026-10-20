@@ -1,14 +1,181 @@
 import argparse
 import asyncio
+import json
 import os
 import secrets
+import signal
+import sys
+import threading
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-import uvicorn
-
 from app.config import Settings
-from app.main import create_app
+
+AUTHORITY_BUSY_EXIT = 75  # EX_TEMPFAIL; the desktop maps it to an actionable message.
+SECRET_FIELDS = frozenset({"local_token", "secret_key"})
+SECRET_LINE_LIMIT = 16384
+SECRET_WAIT_SECONDS = 30
+STORE_ENTRIES = ("opendialer.db", "secrets", "backups")
+
+
+class AuthorityBusy(RuntimeError):
+    pass
+
+
+@contextmanager
+def authority_lock(directory):
+    """Hold an exclusive, non-inheritable lock on one authority data directory."""
+    path = Path(directory) / "authority.lock"
+    if path.is_symlink():
+        raise AuthorityBusy(f"The authority lock at {path} cannot be a symbolic link")
+    descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                if os.fstat(descriptor).st_size == 0:
+                    os.write(descriptor, b"\0")
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise AuthorityBusy(
+                f"Another OpenDialer authority is already using {Path(directory)}. "
+                "Quit the other OpenDialer window or process, then retry; no data was changed."
+            ) from None
+        yield
+    finally:
+        os.close(descriptor)  # Closing the only descriptor releases the lock.
+
+
+def read_launch_secrets(stream, timeout=SECRET_WAIT_SECONDS):
+    """Read the desktop's one JSON line; further stdin bytes are never parsed."""
+    received = {}
+
+    def read():
+        try:
+            received["line"] = stream.readline(SECRET_LINE_LIMIT + 1)
+        except (OSError, ValueError):
+            received["line"] = b""
+
+    reader = threading.Thread(target=read, name="launch-secrets", daemon=True)
+    reader.start()
+    reader.join(timeout)
+    if reader.is_alive():
+        raise SystemExit("The desktop launcher did not provide authority secrets on standard input")
+    line = received.get("line", b"")
+    if not line.endswith(b"\n") or len(line) > SECRET_LINE_LIMIT:
+        raise SystemExit("Authority secrets on standard input are missing or exceed their bound")
+    try:
+        payload = json.loads(line)
+    except ValueError:
+        raise SystemExit("Authority secrets on standard input are not valid JSON") from None
+    if not isinstance(payload, dict) or set(payload) != SECRET_FIELDS:
+        raise SystemExit(
+            "Authority secrets on standard input must contain exactly local_token and secret_key"
+        )
+    for value in payload.values():
+        if (
+            not isinstance(value, str)
+            or not 32 <= len(value) <= 4096
+            or not all(33 <= ord(character) < 127 for character in value)
+        ):
+            raise SystemExit("Authority secrets on standard input are invalid")
+    return payload
+
+
+def _launcher_lost():
+    # Graceful shutdown through the server's own signal handling, then a bounded hard stop.
+    stopper = threading.Timer(20, os._exit, args=(0,))
+    stopper.daemon = True
+    stopper.start()
+    signal.raise_signal(signal.SIGTERM)
+
+
+def watch_launcher(stream, on_lost=_launcher_lost):
+    """The desktop holds the only writer; EOF means it exited, even after a crash."""
+
+    def watch():
+        try:
+            while stream.read(4096):
+                pass  # Discard; the secret line was the only accepted input.
+        except (OSError, ValueError):
+            pass
+        on_lost()
+
+    watcher = threading.Thread(target=watch, name="launcher-liveness", daemon=True)
+    watcher.start()
+    return watcher
+
+
+def _sync_directory(path):
+    if os.name != "nt":
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+
+def _store_present(directory):
+    for name in STORE_ENTRIES:
+        path = directory / name
+        if path.is_file() or (path.is_dir() and any(path.iterdir())):
+            return True
+    return any(directory.glob("*-journal.enc")) or any(directory.glob("*-journal.head"))
+
+
+def _checked_secret(path, value):
+    if len(value.strip()) < 32:
+        raise SystemExit(
+            f"The authority key at {path} is empty or damaged. Restore authority-secret from your "
+            "recovery backup; OpenDialer did not replace it because encrypted data depends on it."
+        )
+    return value
+
+
+def load_or_create_authority_secret(directory):
+    """Create the CLI authority key once: private temp file, fsync, no-clobber publish, directory fsync."""
+    directory = Path(directory)
+    path = directory / "authority-secret"
+    if path.exists() or path.is_symlink():
+        return _checked_secret(path, path.read_text())
+    if _store_present(directory):
+        raise SystemExit(
+            f"{directory} already contains authority data but authority-secret is missing. Restore it "
+            "from your recovery backup or set OPENDIALER_SECRET_KEY; OpenDialer did not create a new key."
+        )
+    temporary = directory / f".authority-secret.{secrets.token_hex(8)}.tmp"
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        try:
+            encoded = secrets.token_urlsafe(48).encode()
+            if os.write(descriptor, encoded) != len(encoded):
+                raise OSError("Incomplete authority key write")
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        try:
+            os.link(temporary, path)  # Never replaces a key another process published first.
+        except FileExistsError:
+            pass
+        except OSError:
+            if not path.exists():  # File systems without hard links.
+                os.replace(temporary, path)
+        _sync_directory(directory)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return _checked_secret(path, path.read_text())
+
+
+@contextmanager
+def _no_lock():
+    yield
 
 
 def main():
@@ -20,41 +187,65 @@ def main():
     parser.add_argument("--mode", choices=["local", "connected"], default=None)
     parser.add_argument("--simulation", action="store_true", default=None)
     parser.add_argument("--queue", action="append")
-    args = parser.parse_args()
-    settings = Settings(
-        **{k: v for k, v in vars(args).items() if k in {"data_dir", "mode", "simulation"} and v is not None}
+    parser.add_argument(
+        "--secrets-stdin",
+        action="store_true",
+        help="Read local_token and secret_key from one JSON line on stdin (desktop launcher)",
     )
+    args = parser.parse_args()
+    launch = read_launch_secrets(sys.stdin.buffer) if args.secrets_stdin else None
+    overrides = {
+        k: v for k, v in vars(args).items() if k in {"data_dir", "mode", "simulation"} and v is not None
+    }
+    if launch:
+        # Launcher-provided secrets win, and are never passed on through the environment.
+        for name in ("OPENDIALER_LOCAL_TOKEN", "OPENDIALER_SECRET_KEY"):
+            os.environ.pop(name, None)
+        overrides.update(launch)
+    settings = Settings(**overrides)
     settings.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        lock = authority_lock(settings.data_dir) if settings.mode == "local" else _no_lock()
+        with lock:
+            run(args, settings, launch is not None)
+    except AuthorityBusy as busy:
+        print(busy, file=sys.stderr)
+        raise SystemExit(AUTHORITY_BUSY_EXIT) from None
+
+
+def run(args, settings, watch_stdin):
     if not os.getenv("OPENDIALER_DATABASE_URL"):
         settings.database_url = "sqlite:///" + str((settings.data_dir / "opendialer.db").resolve())
     if not settings.secret_key:
-        key_path = settings.data_dir / "authority-secret"
-        if not key_path.exists():
-            descriptor = os.open(key_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-            with os.fdopen(descriptor, "w") as key_file:
-                key_file.write(secrets.token_urlsafe(48))
-        settings.secret_key = key_path.read_text()
+        settings.secret_key = load_or_create_authority_secret(settings.data_dir)
     if settings.mode == "local" and not settings.local_token:
         raise SystemExit(
-            "Set OPENDIALER_LOCAL_TOKEN or launch through the desktop; no unauthenticated local API"
+            "Set OPENDIALER_LOCAL_TOKEN, use --secrets-stdin, or launch through the desktop; "
+            "no unauthenticated local API"
         )
     if settings.mode == "connected" and settings.database_url.startswith("sqlite"):
         raise SystemExit("Connected deployments require OPENDIALER_DATABASE_URL=postgresql+psycopg://...")
+    import uvicorn
+
+    from app.main import create_app
+
     clock = (lambda: datetime(2026, 10, 14, 18, 0, tzinfo=UTC)) if settings.simulation else None
     app = create_app(settings, clock=clock)
     if args.command == "migrate":
         app.state.db.engine.dispose()
         return
+    if watch_stdin:
+        watch_launcher(sys.stdin.buffer)  # After migrations, so launcher loss never interrupts them.
     if args.command == "worker":
         settings.worker_enabled = True  # Separate worker processes also own bounded automatic scheduling.
 
-        async def run():
+        async def work():
             from app.runtime import authority_lifetime
 
             async with authority_lifetime(app.state.service, queues=args.queue or settings.worker_queues):
                 await asyncio.Event().wait()
 
-        asyncio.run(run())
+        asyncio.run(work())
     else:
         host = args.host or ("127.0.0.1" if settings.mode == "local" else "0.0.0.0")  # noqa: S104 - connected deployment behind the private proxy
         if settings.mode == "local" and host != "127.0.0.1":
