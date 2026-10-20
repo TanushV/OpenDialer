@@ -35,12 +35,14 @@ jobs:
         working-directory: apps/desktop
       - run: npm run build && npm test
         working-directory: apps/desktop
-      - run: uv run python scripts/build_sidecar.py
+      - name: Freeze the authority and trainer sidecars
+        run: uv run python scripts/build_sidecar.py
       - name: Exercise the packaged authority without developer runtimes
         shell: pwsh
         run: |
           $version = (Get-Content apps/desktop/src-tauri/tauri.conf.json | ConvertFrom-Json).version
           $env:OPENDIALER_TEST_BINARY = (Resolve-Path apps/desktop/src-tauri/binaries/opendialer-backend-x86_64-pc-windows-msvc.exe).Path
+          $env:OPENDIALER_TEST_TRAINER = (Resolve-Path apps/desktop/src-tauri/binaries/opendialer-trainer-x86_64-pc-windows-msvc.exe).Path
           uv run python scripts/frozen_acceptance.py --expected-version $version --output work/windows-native/frozen-runtime.json
           if ($LASTEXITCODE -ne 0) { throw 'Frozen runtime acceptance failed' }
       - run: cargo test --release --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
