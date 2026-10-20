@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { prepareSimulationCall, chooseOutcome } from "./simulation";
+import { expect, test } from "./fixtures";
+import { importLead, prepareSimulationCall, chooseOutcome } from "./simulation";
 
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: "wait" });
@@ -502,6 +502,7 @@ test("a local callback is confirmed, rescheduled, retained on reload and complet
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await importLead(page, "Local callback fixture", "+14155550703");
   if (await page.getByRole("button", { name: "Pause dialing" }).isVisible())
     await page.getByRole("button", { name: "Pause dialing" }).click();
   await page.getByRole("button", { name: "Go ready" }).click();

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import {
   prepareSimulationCall,
   chooseOutcome,
@@ -23,7 +23,10 @@ test("a delayed helper refresh cannot restore a previous call after wrap-up", as
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
-  await prepareSimulationCall(page, "Delayed helper fixture", "+14155550881");
+  // This journey calls twice: it brings its own second lead.
+  await prepareSimulationCall(page, "Delayed helper fixture", "+14155550881", [
+    { name: "Delayed helper next fixture", phone: "+14155550891" },
+  ]);
   await page
     .getByRole("button", { name: "Get next lead", exact: true })
     .click();
@@ -285,7 +288,9 @@ test("duplicate hangup responses cannot replace or stop a newer conversation", a
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
-  await prepareSimulationCall(page, "Delayed hangup fixture", "+14155550883");
+  await prepareSimulationCall(page, "Delayed hangup fixture", "+14155550883", [
+    { name: "Delayed hangup next fixture", phone: "+14155550893" },
+  ]);
   await page
     .getByRole("button", { name: "Get next lead", exact: true })
     .click();

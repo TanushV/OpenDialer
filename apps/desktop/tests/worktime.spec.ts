@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { isolatedSimulationWorkspace } from "./simulation";
 
 test("work time is visible, supported by a heartbeat and correctable after pause", async ({

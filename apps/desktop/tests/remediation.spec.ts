@@ -1,5 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
-import { chooseOutcome } from "./simulation";
+import { expect, test, type Page } from "./fixtures";
+import { importLead, chooseOutcome } from "./simulation";
 
 async function enter(page: Page, connected = false) {
   await page.goto("/");
@@ -32,6 +32,11 @@ for (const connected of [false, true]) {
   }) => {
     await page.setViewportSize({ width: 1028, height: 749 });
     await enter(page, connected);
+    await importLead(
+      page,
+      `Proactive coaching fixture ${connected ? "connected" : "local"}`,
+      connected ? "+14155550708" : "+14155550707",
+    );
     if (await page.getByRole("button", { name: "Pause dialing" }).isVisible())
       await page.getByRole("button", { name: "Pause dialing" }).click();
     await page.getByRole("button", { name: "Go ready" }).click();

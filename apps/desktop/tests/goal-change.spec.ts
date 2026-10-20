@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { chooseOutcome } from "./simulation";
 
 /** The campaign goal is a setup step; it opens collapsed. */

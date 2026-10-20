@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { chooseOutcome } from "./simulation";
+import { expect, test } from "./fixtures";
+import { importLead, chooseOutcome } from "./simulation";
 
 test("keypad preserves a lost-response identity through reload and distinguishes a new press", async ({
   page,
@@ -30,6 +30,7 @@ test("keypad preserves a lost-response identity through reload and distinguishes
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await importLead(page, "Keypad identity fixture", "+14155550704");
   await page.getByRole("button", { name: "Go ready" }).click();
   await page
     .getByRole("button", { name: "Get next lead", exact: true })
@@ -90,6 +91,7 @@ test("uncertain keypad lets the rep explicitly resume after checking the live me
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await importLead(page, "Keypad resume fixture", "+14155550705");
   await page.getByRole("button", { name: "Go ready" }).click();
   await page
     .getByRole("button", { name: "Get next lead", exact: true })
