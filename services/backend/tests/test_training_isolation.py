@@ -232,15 +232,22 @@ async def test_training_child_failures_are_bounded_reaped_and_sanitized(tmp_path
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", observed)
     output = tmp_path / "models" / "candidate"
-    task = asyncio.create_task(worker.train_isolated(training_rows(), output, timeout_seconds=0.3))
+    # Only the timeout case uses a short budget: its child sleeps for 30 s, so the timeout is
+    # the sole possible outcome. Every other child gets a budget it cannot plausibly hit, so a
+    # slow interpreter start under load cannot turn its failure into a timeout (or a cancel
+    # into a timeout), and the message below identifies which mechanism actually fired.
+    budget = 0.3 if failure == "timeout" else 120
+    task = asyncio.create_task(worker.train_isolated(training_rows(), output, timeout_seconds=budget))
     if failure == "cancel":
-        await asyncio.wait_for(started.wait(), 3)
+        await asyncio.wait_for(started.wait(), 60)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
     else:
         with pytest.raises(RuntimeError) as error:
-            await asyncio.wait_for(task, 5)
+            await asyncio.wait_for(task, 150)
+        expected = "Training timed out" if failure == "timeout" else "Training failed validation"
+        assert str(error.value).startswith(expected), (failure, str(error.value))
         assert "synthetic" not in str(error.value) and len(str(error.value)) < 200
     assert processes and all(p.returncode is not None for p in processes)
     assert not output.exists(), "Failed or cancelled candidates leave no partial model directory"

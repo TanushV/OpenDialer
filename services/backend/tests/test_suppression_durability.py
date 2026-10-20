@@ -260,6 +260,7 @@ async def test_restore_release_requires_original_missing_suppression_receipt(wor
     assert error.value.status_code == 409
 
 
+@pytest.mark.database
 def test_concurrent_repeated_optout_writes_one_receipt(workspace, app):
     from concurrent.futures import ThreadPoolExecutor
 

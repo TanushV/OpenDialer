@@ -143,9 +143,14 @@ async def test_refresh_budget_is_atomic_and_uncertain_query_is_not_automatically
     )
     assert policy.status_code == 200, policy.text
 
+    from conftest import JobClaims
+
+    claims = JobClaims(monkeypatch, service.jobs)
+
     async def lost(provider, phone):
         calls.append(phone)
-        await asyncio.sleep(0.01)
+        # Held until every admissible concurrent refresh has started, instead of a 10 ms sleep.
+        await claims.settle()
         raise DNCError("uncertain")
 
     monkeypatch.setattr(PrepaidDNC, "check", lost)

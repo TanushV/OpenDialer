@@ -26,14 +26,17 @@ TEMPLATE = {
 @pytest.mark.asyncio
 async def test_bounded_parallel_preparation(workspace, app, monkeypatch):
     """C015: two simultaneous batches share two company slots, not one cap each."""
+    from conftest import ThreadWork
+
     service = app.state.service
     active, peak, finished = 0, 0, []
+    offloaded = ThreadWork(monkeypatch)
 
     async def unit(principal, identity, owner):
         nonlocal active, peak
         active += 1
         peak = max(peak, active)
-        await asyncio.sleep(0.01)
+        await offloaded.settle()  # Held until every admissible sibling has claimed and started.
         active -= 1
         if identity in failures:
             raise RuntimeError("Synthetic per-company failure")
@@ -79,12 +82,16 @@ async def test_concurrent_preparation_jobs_share_authority_capacity(workspace, a
             for i in range(12)
         ]
 
+    from conftest import ThreadWork
+
+    offloaded = ThreadWork(monkeypatch)
+
     async def prepare(principal, identity, owner):
         nonlocal active, peak
         active += 1
         peak = max(peak, active)
         try:
-            await asyncio.sleep(0.04)
+            await offloaded.settle()  # Held until every admissible sibling has claimed and started.
             return True
         finally:
             active -= 1
@@ -148,7 +155,12 @@ async def test_lost_preparation_lease_is_failed_work_and_preserves_new_owner(wor
                     "expires_at": (service.clock() + timedelta(minutes=5)).isoformat(),
                 },
             )
-        await asyncio.sleep(0.15)
+        try:
+            # Ends when the heartbeat notices the replacement owner and cancels this unit,
+            # instead of hoping a 0.15 s sleep outlasts the renewal thread on a loaded machine.
+            await asyncio.wait_for(asyncio.Event().wait(), 60)
+        except TimeoutError:
+            pass  # An unnoticed lost lease lets the unit finish normally, failing the test.
         return True
 
     monkeypatch.setattr(service, "prepare_one", prepare)
@@ -481,6 +493,7 @@ async def test_partial_template_failures_do_not_regenerate_successes(workspace, 
 
 
 @pytest.mark.asyncio
+@pytest.mark.database
 async def test_concurrent_preparation_pays_for_one_generation(workspace, app, monkeypatch):
     configure(workspace)
     service, lead_id = app.state.service, workspace["lead_ids"][0]
@@ -832,24 +845,40 @@ async def test_hundred_lead_preparation_keeps_health_responsive(workspace, app, 
                 active -= 1
 
     monkeypatch.setattr(service, "inference", lambda *args: Provider())
+    from conftest import LoopResponsiveness
+    from sqlalchemy import event
+
+    loop = LoopResponsiveness()
+
+    def statement(*args):
+        # Every preparation/health statement must leave the loop serving other requests.
+        loop.wait_for_loop()
+
     started = time.monotonic()
-    task = asyncio.gather(*(service.prepare(principal, ids[i : i + 20]) for i in range(0, 100, 20)))
-    delays = []
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
-    ) as client:
-        while not task.done():
-            before = time.monotonic()
-            assert (await client.get("/health")).status_code == 200
-            delays.append(time.monotonic() - before)
-            await asyncio.sleep(0.03)
-    await task
+    event.listen(service.db.engine, "before_cursor_execute", statement)
+    try:
+        task = asyncio.gather(*(service.prepare(principal, ids[i : i + 20]) for i in range(0, 100, 20)))
+        delays = []
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
+        ) as client:
+            while not task.done():
+                before = time.monotonic()
+                assert (await client.get("/health")).status_code == 200
+                delays.append(time.monotonic() - before)
+                await asyncio.sleep(0.03)
+        await task
+    finally:
+        event.remove(service.db.engine, "before_cursor_execute", statement)
     elapsed = time.monotonic() - started
     p95 = sorted(delays)[int((len(delays) - 1) * 0.95)]
+    # Wall-clock figures are retained as measurements, not as a load-sensitive pass/fail bound.
     record_property("preparation_100_seconds", elapsed)
     record_property("health_p95_seconds", p95)
     record_property("health_samples", len(delays))
-    assert peak <= 2 and p95 < 0.1, (peak, p95)
+    assert delays, "Health must be served while preparation is in flight"
+    assert peak <= 2, peak
+    loop.assert_responsive()
     with service.db.transaction(False) as s:
         assert all(
             service.required(s, "leads", identity, principal).data["preparation"]["status"] == "ready"

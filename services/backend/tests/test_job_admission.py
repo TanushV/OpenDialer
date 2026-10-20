@@ -5,6 +5,7 @@ import threading
 
 import pytest
 from app.db import Job
+from conftest import JobClaims
 from sqlalchemy import select
 from test_remediation_privacy import principal
 
@@ -105,6 +106,7 @@ def test_job_owner_expires_at_the_deadline(workspace, app, clock, action):
         getattr(service.jobs, action)(job["id"], "boundary-owner")
 
 
+@pytest.mark.postgres
 def test_completion_cannot_lose_a_concurrent_new_generation(workspace, app, clock, monkeypatch):
     """Force the finish/enqueue race on real PostgreSQL, not a mock lock assertion."""
     from concurrent.futures import ThreadPoolExecutor
@@ -114,8 +116,6 @@ def test_completion_cannot_lose_a_concurrent_new_generation(workspace, app, cloc
     from sqlalchemy.orm import Session
 
     service, p = app.state.service, principal(workspace)
-    if service.db.sqlite:
-        pytest.skip("SQLite has one serialized writer; row-lock interleaving requires PostgreSQL")
     payload = {"kind": "packet_refresh", "seller_id": p["seller_id"], "lead_ids": [], "desired_generation": 1}
     job = service.jobs.enqueue("scripts", payload, "finish-generation-race", tenant_id=p["tenant_id"])
     service.jobs.claim("scripts", "finishing-owner", key_prefix=job["key"])
@@ -166,6 +166,7 @@ def test_completion_cannot_lose_a_concurrent_new_generation(workspace, app, cloc
 
 
 @pytest.mark.asyncio
+@pytest.mark.database
 async def test_claim_only_running_capacity(workspace, app, monkeypatch):
     service, p = app.state.service, principal(workspace)
     entered, release, started = asyncio.Event(), asyncio.Event(), []
@@ -177,6 +178,7 @@ async def test_claim_only_running_capacity(workspace, app, monkeypatch):
         await release.wait()
 
     monkeypatch.setattr(service, "prepare", held_prepare)
+    claims = JobClaims(monkeypatch, service.jobs)
     for i in range(24):
         service.jobs.enqueue(
             "scripts",
@@ -186,8 +188,9 @@ async def test_claim_only_running_capacity(workspace, app, monkeypatch):
         )
     task = asyncio.create_task(service.run_jobs(p["tenant_id"], queues=["scripts"]))
     try:
-        await asyncio.wait_for(entered.wait(), 3)
-        await asyncio.sleep(0.05)
+        await asyncio.wait_for(entered.wait(), 60)
+        # Every admissible claim has finished: a third lease would now be visible.
+        await claims.settle()
         with service.db.transaction(False) as s:
             jobs = list(s.scalars(select(Job).where(Job.queue == "scripts")))
             running = [job for job in jobs if job.status == "running"]
@@ -201,6 +204,7 @@ async def test_claim_only_running_capacity(workspace, app, monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.database
 async def test_two_workers_share_job_identity_and_global_capacity(workspace, app, monkeypatch):
     service, p = app.state.service, principal(workspace)
     active, peak, seen = 0, 0, []
@@ -210,10 +214,11 @@ async def test_two_workers_share_job_identity_and_global_capacity(workspace, app
         seen.extend(lead_ids)
         active += 1
         peak = max(peak, active)
-        await asyncio.sleep(0.03)
+        await claims.settle()  # Held until every admissible sibling has started.
         active -= 1
 
     monkeypatch.setattr(service, "prepare", prepare)
+    claims = JobClaims(monkeypatch, service.jobs)
     for i in range(12):
         service.jobs.enqueue(
             "scripts",
@@ -223,8 +228,9 @@ async def test_two_workers_share_job_identity_and_global_capacity(workspace, app
         )
     await asyncio.gather(*(service.run_jobs(p["tenant_id"], queues=["scripts"]) for _ in range(2)))
     assert sorted(seen) == sorted(str(i) for i in range(12))
-    assert peak <= 2, (
-        "Script generation capacity is authority-wide, not a fresh semaphore for every worker tick"
+    assert peak == 2, (
+        "Script generation capacity is authority-wide, not a fresh semaphore for every worker tick",
+        peak,
     )
 
 
@@ -239,10 +245,11 @@ async def test_research_and_script_ticks_share_company_job_capacity(workspace, a
         active += 1
         peak = max(peak, active)
         seen.extend(lead_ids)
-        await asyncio.sleep(0.05)
+        await claims.settle()  # Held until every admissible sibling has started.
         active -= 1
 
     monkeypatch.setattr(service, "prepare", prepare)
+    claims = JobClaims(monkeypatch, service.jobs)
     for queue in ("research", "scripts"):
         for i in range(4):
             service.jobs.enqueue(
@@ -257,7 +264,7 @@ async def test_research_and_script_ticks_share_company_job_capacity(workspace, a
             )
     await asyncio.gather(*(service.run_jobs(p["tenant_id"], queues=[q]) for q in ("research", "scripts")))
     assert len(seen) == len(set(seen)) == 8
-    assert peak <= service.settings.runtime_limits.company_units
+    assert peak == service.settings.runtime_limits.company_units, peak
 
 
 @pytest.mark.asyncio
@@ -295,6 +302,7 @@ async def test_legacy_live_backlog_coalesces_without_leasing_waiting_requests(wo
 
 
 @pytest.mark.asyncio
+@pytest.mark.database
 async def test_separate_runners_share_database_admission(workspace, app, monkeypatch):
     service, p = app.state.service, principal(workspace)
     other = type(service)(service.db, service.settings, service.clock)
@@ -305,11 +313,12 @@ async def test_separate_runners_share_database_admission(workspace, app, monkeyp
         seen.extend(lead_ids)
         active += 1
         peak = max(peak, active)
-        await asyncio.sleep(0.05)
+        await claims.settle()  # Held until every admissible sibling in either runner has started.
         active -= 1
 
     for runner in (service, other):
         monkeypatch.setattr(runner, "prepare", prepare)
+    claims = JobClaims(monkeypatch, service.jobs, other.jobs)
     for i in range(8):
         service.jobs.enqueue(
             "scripts",
@@ -321,7 +330,7 @@ async def test_separate_runners_share_database_admission(workspace, app, monkeyp
         *(runner.run_jobs(p["tenant_id"], queues=["scripts"]) for runner in (service, other))
     )
     assert len(seen) == len(set(seen)) == 8
-    assert peak <= service.settings.runtime_limits.company_units
+    assert peak == service.settings.runtime_limits.company_units, peak
 
 
 def test_rebuild_claim_prefix_cannot_run_training_or_another_seller(app, clock):

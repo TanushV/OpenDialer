@@ -1,10 +1,12 @@
 """E09/C036: consistent snapshots survive churn and irrelevant field changes."""
 
+import pytest
 from app.db import update
 from conftest import completed_report
 from test_remediation_privacy import principal
 
 
+@pytest.mark.database
 def test_interrupted_inactive_rebuild_replays_concurrent_dirty_units(workspace, app, clock, carrier):
     import importlib.util
 
@@ -589,15 +591,13 @@ def test_late_conversion_dirties_related_attempt_units(workspace, app, clock):
     )
 
 
+@pytest.mark.postgres
 def test_dependent_expansion_locks_parent_and_children_in_source_order(workspace, app, clock):
-    import pytest
     from app.db import put
     from app.optimization.projections import expand_dependents
     from sqlalchemy import event
 
     service, p = app.state.service, principal(workspace)
-    if service.db.sqlite:
-        pytest.skip("SQLite owns the writer; PostgreSQL requires ordered row locks")
     with service.db.transaction() as session:
         lead = service.scoped(session, "leads", p)[0]
         call = put(

@@ -116,6 +116,7 @@ def test_review_retry_is_idempotent_and_changed_payload_conflicts(workspace, app
     assert len(app.state.service.analysis(p(workspace), a["call"]["id"])["reviews"]) == 1
 
 
+@pytest.mark.database
 def test_concurrent_reviews_cannot_silently_replace_a_rating(workspace, app):
     a = setup(workspace, app)
     assert submit(workspace, a, body(a)).status_code == 200
