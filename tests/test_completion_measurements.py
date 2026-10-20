@@ -288,38 +288,441 @@ def test_shift_duration_without_maintenance_and_queue_recovery_is_not_acceptance
     assert "shift_queue_recovery" in result["missing"]
 
 
-@pytest.mark.parametrize("failed", [False, True])
-def test_normal_load_runs_real_maintenance_and_retains_its_failure(monkeypatch, failed):
+MEASURED_PATHS = (
+    "selection",
+    "start",
+    "event_ack",
+    "event_state",
+    "live_context",
+    "hangup",
+    "wrapup",
+    "cleanup_hangup",
+    "pause",
+)
+GATED_PATHS = {
+    "selection": 250,
+    "event_ack": 100,
+    "event_state": 250,
+    "live_context": 100,
+    "hangup": 250,
+    "wrapup": 250,
+}
+
+
+def completed_cycle(**slow):
+    return {
+        "ok": True,
+        "elapsed_ms": 5.0,
+        "paths": {
+            name: {"ok": True, "ms": slow.get(name, 1.0), "sql": 1, "decrypted": 0} for name in MEASURED_PATHS
+        },
+    }
+
+
+class Lanes:
+    """Async stand-ins for the service methods the production runtime lanes call."""
+
+    def __init__(self, settings, *, failing_queue=None, raise_maintenance=False):
+        self.settings, self.calls, self.enabled = settings, [], []
+        self.failing_queue, self.raise_maintenance = failing_queue, raise_maintenance
+
+    async def run_jobs(self, tenant_id=None, queues=None):
+        lane = tuple(queues or ())
+        self.calls.append(lane)
+        self.enabled.append(self.settings.worker_enabled)
+        errors = []
+        if lane == (self.failing_queue,) and self.calls.count(lane) == 1:
+            errors.append({"kind": "job", "job_id": "job-1", "queue": lane[0], "error_type": "TimeoutError"})
+        return {"processed": 0, "status": "failed" if errors else "passed", "errors": errors}
+
+    async def maintenance_tick(self):
+        self.calls.append("maintenance_tick")
+        self.enabled.append(self.settings.worker_enabled)
+        if self.raise_maintenance and self.calls.count("maintenance_tick") == 1:
+            raise RuntimeError("synthetic maintenance exception")
+        return {"status": "passed", "completed": 0, "errors": []}
+
+
+def lane_service(tmp_path, m, **failures):
+    from types import SimpleNamespace
+
+    from app.config import Settings
+    from app.db import Database
+    from app.jobs.queue import JobQueue
+
+    settings = Settings(
+        database_url="sqlite:///" + str(tmp_path / "load.db"),
+        data_dir=tmp_path,
+        simulation=True,
+        worker_enabled=False,
+        secret_key="synthetic-measurement-" + "a" * 48,
+    )
+    clock, db = m.Clock(), Database(settings.database_url, settings.secret_key)
+    lanes = Lanes(settings, **failures)
+    service = SimpleNamespace(
+        settings=settings,
+        clock=clock,
+        db=db,
+        jobs=JobQueue(db, clock),
+        scoped=lambda *args: [],
+        run_jobs=lanes.run_jobs,
+        maintenance_tick=lanes.maintenance_tick,
+    )
+    return service, lanes
+
+
+def run_load_with_portal(m, service, seconds=0.2):
+    from types import SimpleNamespace
+
+    from anyio.from_thread import start_blocking_portal
+
+    with start_blocking_portal() as portal:
+        client = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(service=service)), portal=portal)
+        try:
+            return m.run_load(client, {}, "campaign", None, seconds, lambda _: None, p={}, reps=1)
+        finally:
+            service.db.engine.dispose()
+
+
+def expected_lanes(settings):
+    return list(
+        dict.fromkeys(
+            "maintenance_tick" if queue in {"maintenance", "call_control"} else (queue,)
+            for queue in settings.worker_queues
+        )
+    )
+
+
+def test_load_runs_production_lanes_for_every_configured_queue_at_their_own_cadence(tmp_path, monkeypatch):
+    import time
+
+    import app.runtime as runtime
+
+    m = measurement()
+    service, lanes = lane_service(tmp_path, m)
+    constructed, within_cycle = [], []
+
+    class ProductionRuntime(runtime.AuthorityRuntime):
+        def __init__(self, service, *, queues):
+            constructed.append(list(queues))
+            super().__init__(service, queues=queues)
+
+    def cycle(*args):
+        # One 10-second load cycle used to run maintenance and one drain once.
+        # Production lanes keep running inside a single cycle.
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline and not all(
+            lanes.calls.count(lane) >= 2 for lane in expected_lanes(service.settings)
+        ):
+            time.sleep(0.02)
+        within_cycle.append({str(lane): lanes.calls.count(lane) for lane in expected_lanes(service.settings)})
+        return completed_cycle()
+
+    monkeypatch.setattr(runtime, "AuthorityRuntime", ProductionRuntime)
+    monkeypatch.setattr(m, "call_cycle", cycle)
+    result = run_load_with_portal(m, service)
+    assert constructed == [list(service.settings.worker_queues)], "The real runtime owns the lanes"
+    assert all(count >= 2 for count in within_cycle[0].values()), within_cycle
+    assert all(call == "maintenance_tick" or len(call) == 1 for call in lanes.calls), (
+        "The harness must not substitute its own all-queue drain for production lanes"
+    )
+    assert lanes.enabled and set(lanes.enabled) == {True}, "Lanes run with the worker enabled"
+    assert service.settings.worker_enabled is False, "Worker setting is restored after the load"
+    assert service.run_jobs == lanes.run_jobs and service.maintenance_tick == lanes.maintenance_tick
+    assert result["status"] == "passed", result["gate_failures"]
+    assert result["gate_failures"] == []
+    assert all(
+        result["background"]["lane_calls"][lane] >= 2 for lane in ("maintenance_tick", "webhook", "ml")
+    )
+    assert result["queue_recovery"]["status"] == "passed"
+
+
+def test_load_keeps_swallowed_lane_errors_and_maintenance_exceptions_and_fails(tmp_path, monkeypatch):
+    m = measurement()
+    service, lanes = lane_service(tmp_path, m, failing_queue="postcall", raise_maintenance=True)
+    monkeypatch.setattr(m, "call_cycle", lambda *args: completed_cycle())
+    result = run_load_with_portal(m, service)
+    errors = result["background"]["errors"]
+    assert any(
+        e["lane"] == "postcall" and e["kind"] == "job" and e["error_type"] == "TimeoutError" for e in errors
+    ), errors
+    assert any(
+        e["lane"] == "maintenance_tick" and e["kind"] == "raised" and e["error_type"] == "RuntimeError"
+        for e in errors
+    ), errors
+    assert result["background"]["status"] == "failed"
+    assert "background_errors" in result["gate_failures"]
+    assert result["status"] == "failed" and result["ok"] is False
+    assert all(sample["ok"] for sample in result["samples"]), "Cycles alone looked healthy"
+    assert service.run_jobs == lanes.run_jobs and service.maintenance_tick == lanes.maintenance_tick
+
+
+def test_slow_selection_under_load_fails_even_when_every_cycle_was_ok(tmp_path, monkeypatch):
+    m = measurement()
+    service, _ = lane_service(tmp_path, m)
+    monkeypatch.setattr(m, "call_cycle", lambda *args: completed_cycle(selection=400.0, start=5000.0))
+    result = run_load_with_portal(m, service)
+    assert all(sample["ok"] for sample in result["samples"])
+    assert result["paths"]["selection"]["status"] == "failed"
+    assert result["paths"]["selection"]["target_ms"] == 250
+    assert "path:selection" in result["gate_failures"]
+    assert result["status"] == "failed"
+    for name, target in GATED_PATHS.items():
+        assert result["paths"][name]["target_ms"] == target
+        if name != "selection":
+            assert result["paths"][name]["status"] == "passed"
+    for name in ("start", "cleanup_hangup", "pause"):
+        assert result["paths"][name]["status"] == "reported"
+        assert result["paths"][name]["target_ms"] is None
+    assert result["paths"]["start"]["p95_ms"] == 5000.0, "Start includes the simulated dial and is reported"
+
+
+def test_cycle_missing_paths_counts_failed_samples_for_those_paths():
+    m = measurement()
+    partial = {"ok": False, "error": "RuntimeError", "elapsed_ms": 7.0, "paths": {}}
+    partial["paths"]["selection"] = completed_cycle()["paths"]["selection"]
+    samples = [
+        {"ok": False, "reps": [completed_cycle(), partial], "ms": 20.0},
+        {"ok": False, "error": "TimeoutError", "ms": 9000.0},
+    ]
+    paths = m.load_paths(samples, reps=2)
+    assert paths["selection"]["samples"] == 4 and paths["selection"]["failures"] == 2
+    for name in GATED_PATHS:
+        assert paths[name]["samples"] == 4, name
+        assert paths[name]["status"] == "failed", name
+        if name != "selection":
+            assert paths[name]["failures"] == 3 and paths[name]["unattempted"] == 3, name
+    assert paths["pause"]["status"] == "reported" and paths["pause"]["failures"] == 3
+
+
+def test_measurement_clock_follows_elapsed_time_and_keeps_it():
+    from datetime import timedelta
+
+    m = measurement()
+    clock, now = m.Clock(), [100.0]
+    start = clock()
+    with clock.following(monotonic=lambda: now[0]):
+        assert clock() == start
+        now[0] += 5
+        assert clock() == start + timedelta(seconds=5), "Retry backoffs and leases must come due"
+        clock.now += timedelta(seconds=60)
+        assert clock() == start + timedelta(seconds=65)
+        with pytest.raises(RuntimeError):
+            with clock.following(monotonic=lambda: now[0]):
+                pass
+    now[0] += 100
+    assert clock() == start + timedelta(seconds=65), "Leaving the load keeps the elapsed time"
+    assert m.Clock.now == start, "The fixture origin remains the class default"
+
+
+def writer_measurement(tmp_path, m):
+    from types import SimpleNamespace
+
+    from app.db import Database
+
+    db = Database("sqlite:///" + str(tmp_path / "writer.db"), "synthetic-measurement-" + "b" * 48)
+    return db, m.Measurements(SimpleNamespace(db=db))
+
+
+def test_writer_attribution_identifies_callers_and_admission_wait(tmp_path):
+    import threading
+    import time
+
+    m = measurement()
+    db, measured = writer_measurement(tmp_path, m)
+    holding, release = threading.Event(), threading.Event()
+
+    def holder_transaction():
+        with db.transaction():
+            holding.set()
+            release.wait(5)
+
+    def contending_transaction():
+        with db.transaction():
+            pass
+
+    try:
+        with measured.instrument():
+            measured.phase = "contention"
+            first = threading.Thread(target=holder_transaction)
+            first.start()
+            assert holding.wait(5)
+            second = threading.Thread(target=contending_transaction)
+            second.start()
+            time.sleep(0.2)
+            release.set()
+            first.join(5)
+            second.join(5)
+        assert db._sqlite_writer.acquire(timeout=1), "The original writer lock is restored"
+        db._sqlite_writer.release()
+    finally:
+        db.engine.dispose()
+    rows = {row["caller"].split(" < ")[0].rsplit(".", 1)[-1]: row for row in measured.writes}
+    assert set(rows) == {"holder_transaction", "contending_transaction"}, measured.writes
+    for row in measured.writes:
+        assert not any(skip in row["caller"] for skip in ("contextlib", "app.db:", "threading")), row
+        assert row["phase"] == "contention" and row["ok"] is True
+    assert rows["contending_transaction"]["admission_ms"] >= 150
+    assert rows["holder_transaction"]["admission_ms"] < 150
+    summary = m.summarize_writes(measured.writes, target_ms=25)
+    assert summary["samples"] == 2 and summary["target_ms"] == 25
+    assert [a["count"] for a in summary["attribution"]] == [1, 1]
+    totals = [a["total_ms"] for a in summary["attribution"]]
+    assert totals == sorted(totals, reverse=True)
+    assert summary["attribution"][0]["admission_p95_ms"] is not None
+    assert summary["phases"]["contention"]["samples"] == 2
+    assert summary["admission"]["samples"] == 2
+    assert summary["admission"]["max_ms"] >= 150
+    assert summary["status"] == ("passed" if summary["p95_ms"] < 25 else "failed")
+
+
+def test_failed_writes_keep_their_error_type(tmp_path):
+    m = measurement()
+    db, measured = writer_measurement(tmp_path, m)
+
+    def failing_write():
+        with db.transaction():
+            raise LookupError("synthetic rollback")
+
+    try:
+        with measured.instrument(), pytest.raises(LookupError):
+            failing_write()
+    finally:
+        db.engine.dispose()
+    (row,) = measured.writes
+    assert row["ok"] is False and row["error"] == "LookupError"
+    assert row["caller"].split(" < ")[0].endswith("failing_write")
+    summary = m.summarize_writes(measured.writes, target_ms=25)
+    assert summary["attribution"][0]["errors"] == {"LookupError": 1}
+    assert summary["status"] == "failed"
+
+
+def test_job_descriptions_and_queue_composition_carry_no_payload_content(tmp_path):
+    import json
+    from datetime import timedelta
+    from types import SimpleNamespace
+
+    from app.db import Database, Job
+    from app.jobs.queue import JobQueue
+
+    m = measurement()
+    clock = m.Clock()
+    db = Database("sqlite:///" + str(tmp_path / "jobs.db"), "synthetic-measurement-" + "c" * 48)
+    service = SimpleNamespace(db=db, clock=clock, jobs=JobQueue(db, clock))
+    try:
+        failed = service.jobs.enqueue(
+            "postcall",
+            {"kind": "conversation_review", "call_id": "CANARY-call", "seller_id": "CANARY-seller"},
+            "review:CANARY-key",
+            tenant_id="tenant",
+        )
+        service.jobs.claim("postcall", "worker", key_prefix="review:")
+        service.jobs.fail(failed["id"], "worker", "TimeoutError", retry_seconds=60)
+        free_text = service.jobs.enqueue(
+            "scripts", {"lead_ids": ["CANARY-lead"]}, "CANARY free key", tenant_id="tenant"
+        )
+        with db.transaction() as s:
+            s.get(Job, free_text["id"]).error = "CANARY detail with private words"
+        service.jobs.enqueue("ml", {"kind": "home_refresh"}, "home:CANARY", tenant_id="tenant")
+        clock.now += timedelta(seconds=1)
+        described = m.describe_jobs(service, [failed["id"], free_text["id"], failed["id"]])
+        composition = m.queue_composition(service)
+    finally:
+        db.engine.dispose()
+    assert "CANARY" not in json.dumps(described) + json.dumps(composition)
+    by_queue = {row["queue"]: row for row in described}
+    assert len(described) == 2
+    assert by_queue["postcall"] == {
+        "id": failed["id"],
+        "queue": "postcall",
+        "kind": "conversation_review",
+        "key_prefix": "review",
+        "status": "queued",
+        "attempts": 1,
+        "error_type": "TimeoutError",
+    }
+    assert by_queue["scripts"]["kind"] == "default"
+    assert by_queue["scripts"]["key_prefix"] == "unclassified"
+    assert by_queue["scripts"]["error_type"] == "unclassified"
+    counts = {(r["queue"], r["kind"], r["status"], r["due"], r["has_error"]): r["count"] for r in composition}
+    assert counts == {
+        ("postcall", "conversation_review", "queued", False, True): 1,
+        ("scripts", "default", "queued", True, True): 1,
+        ("ml", "home_refresh", "queued", True, False): 1,
+    }
+
+
+def test_cold_selection_is_labelled_as_one_decision_per_rep(monkeypatch):
     from contextlib import nullcontext
     from types import SimpleNamespace
 
     m = measurement()
-    ticks = []
-
-    def maintenance():
-        ticks.append(True)
-        if failed:
-            raise TimeoutError("synthetic maintenance failure")
-        return {"status": "passed", "errors": [], "reconciled": 1}
-
     service = SimpleNamespace(
-        db=SimpleNamespace(transaction=lambda: nullcontext(None)),
+        db=SimpleNamespace(transaction=lambda *args, **kwargs: nullcontext(None)),
         scoped=lambda *args: [],
-        run_jobs=lambda **kwargs: {"processed": 0, "errors": []},
-        maintenance_tick=maintenance,
+        presence=lambda *args: None,
+        reserve=lambda *args: {"reservation_id": "r"},
+        clock=m.Clock(),
     )
-    client = SimpleNamespace(
-        app=SimpleNamespace(state=SimpleNamespace(service=service)),
-        portal=SimpleNamespace(call=lambda fn: fn()),
+    monkeypatch.setattr(m, "WARMUPS", 0)
+    monkeypatch.setattr(m, "SAMPLES", 3)
+    result = m.run_requests(service, {"user_id": "u"}, "c", 1, m.Measurements(service), lambda _: None)
+    assert result["cold"]["samples"] == 1 and result["cold"]["samples_per_rep"] == 1
+    assert "one" in result["cold"]["sampling"]
+    assert result["warm"]["samples"] == 3
+
+
+def passing_native_receipt(commit):
+    return {
+        "source_commit": commit,
+        "source_hash": "s" * 64,
+        "frozen_native_processes": [[1, 1, "app.exe"]],
+        "binary_sha256": {"app.exe": "a" * 64},
+        "idle_seconds": 300,
+        "desktop_rss_mib": 300,
+        "authority_rss_mib": 120,
+        "idle_cpu_percent": 0.5,
+        "cpu_accounting_complete": True,
+        "authority_process_count": 1,
+    }
+
+
+@pytest.mark.parametrize(
+    ("statuses", "options", "receipt", "code"),
+    [
+        ({"historical": "passed"}, [], None, 0),
+        ({"historical": "failed"}, [], None, 1),
+        ({"historical": "incomplete"}, [], None, 1),
+        ({"historical": "passed"}, ["--require-native-resources"], None, 1),
+        ({"historical": "passed"}, ["--require-native-resources"], "current", 0),
+        ({"historical": "passed"}, ["--require-native-resources"], "stale", 1),
+        ({"historical": "passed", "local": "failed"}, [], None, 1),
+    ],
+)
+def test_exit_code_reports_requested_profiles_and_separate_native_gate(
+    tmp_path, monkeypatch, statuses, options, receipt, code
+):
+    import json
+
+    m = measurement()
+    monkeypatch.setattr(m, "source_metadata", lambda: {"source_commit": "c" * 40, "source_hash": "h"})
+    monkeypatch.setattr(m, "run_profile", lambda name, *args: {"profile": name, "status": statuses[name]})
+    argv = ["--output-dir", str(tmp_path / "out"), *options]
+    argv += ["--profile", next(iter(statuses))] if len(statuses) == 1 else ["--profile", "all"]
+    if len(statuses) > 1:
+        monkeypatch.setattr(m, "PROFILES", {name: {} for name in statuses})
+    if receipt:
+        path = tmp_path / "native.json"
+        path.write_text(json.dumps(passing_native_receipt("c" * 40 if receipt == "current" else "0" * 40)))
+        argv += ["--native-receipt", str(path)]
+    assert m.main(argv) == code
+    summary = json.loads((tmp_path / "out/summary.json").read_text())
+    assert summary["profiles"] == statuses
+    assert summary["status"] == (
+        "passed" if code == 0 else "failed" if "failed" in statuses.values() or options else "incomplete"
     )
-    monkeypatch.setattr(m, "call_cycle", lambda *args: {"ok": True})
-    monkeypatch.setattr(m, "queue_state", lambda *args: {"due": 0, "running": 0, "retry": 0, "dead": 0})
-    monkeypatch.setattr(m, "run_for", lambda seconds, cycle: cycle(0))
-    result = m.run_load(client, {}, "campaign", None, 1, lambda _: None, p={}, reps=1)
-    assert ticks == [True], "Normal load must include maintenance contention, not only drain queued jobs"
-    assert result["ok"] is not failed
-    if failed:
-        assert result["background_error"] == "TimeoutError"
+    if not options:
+        assert summary["resource_gates"]["status"] == "incomplete", "Native proof stays separate by default"
 
 
 def reference_manifest():
