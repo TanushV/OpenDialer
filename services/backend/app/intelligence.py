@@ -21,10 +21,6 @@ from app.research.fetch import SafeFetcher, discovery_links
 from app.research.validation import ValidationFailure, script_review_request, validate_script
 from app.service import Service, dt, fail
 
-OPTIONAL_REQUEST_ESTIMATE_USD = PROVIDER_DEFAULTS.optional_request_estimate_usd
-# Total page-fetch time for one company, so a slow origin cannot hold a heartbeat-renewed unit.
-COMPANY_FETCH_SECONDS = 45
-
 RESEARCH_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -72,6 +68,9 @@ SCRIPT_SCHEMA = {
     },
     "required": ["lead_id", "opener", "screening_intro", "discovery_questions", "fact_ids_used", "claims"],
 }
+OPTIONAL_REQUEST_ESTIMATE_USD = PROVIDER_DEFAULTS.optional_request_estimate_usd
+# Total page-fetch time for one company, so a slow origin cannot hold a heartbeat-renewed unit.
+COMPANY_FETCH_SECONDS = 45
 
 
 class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Service):
