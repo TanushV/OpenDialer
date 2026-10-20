@@ -760,13 +760,7 @@ class SpeechPrivacy:
             from app.telephony.reducer import TERMINAL
 
             if call.data["state"] in TERMINAL | {"ENDING"}:
-                self.jobs.enqueue_in(
-                    s,
-                    "postcall",
-                    {"call_id": call_id, "seller_id": p["seller_id"], "user_id": p["user_id"]},
-                    f"conversation-finalize:{call_id}:{call.data['transcript_version']}",
-                    tenant_id=p["tenant_id"],
-                )
+                self.enqueue_finalize(s, p, call, "late_segment")
             else:
                 self._defer_help(
                     s,
