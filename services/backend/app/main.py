@@ -706,8 +706,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
         return service.publish(p, policy_id, data.model_dump(exclude_none=True))
 
     @app.get("/v1/admin/preflight")
-    def preflight(p=Depends(administrator)):
-        return service.preflight(p)
+    def preflight(deep: bool = False, p=Depends(administrator)):
+        return service.preflight(p, deep=deep)
 
     @app.post("/v1/admin/ingress-check")
     async def ingress_check(data: IngressCheck, p=Depends(administrator)):
