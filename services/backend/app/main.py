@@ -31,7 +31,7 @@ from app.measurement import WorkEdit
 from app.providers.telnyx import verify_webhook
 from app.rep_workflows import MeetingEdit, OutreachEdit, TaskEdit
 from app.scheduling.models import ContactRole, OutcomeCode
-from app.security import DUMMY_HASH, PASSWORDS, admin, decode_session, issue_session
+from app.security import PASSWORDS, admin, decode_session, dummy_hash, issue_session
 from app.service import fail
 from app.telephony.callbacks import CallbackRoutingEdit
 
@@ -481,7 +481,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
             fail(429, "Too many login attempts; retry later")
         with db.transaction() as s:
             user = next((u for u in rows(s, "users") if u.data["email"] == data.email.casefold()), None)
-            verified = PASSWORDS.verify(data.password, user.data["password_hash"] if user else DUMMY_HASH)
+            fallback = dummy_hash()  # Requested for every login, known account or not.
+            verified = PASSWORDS.verify(data.password, user.data["password_hash"] if user else fallback)
             if not verified or not user or user.data.get("disabled"):
                 login_failures[key] = [*failures, time.monotonic()]
                 fail(401, "Email or password is invalid")
