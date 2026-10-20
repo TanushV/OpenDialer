@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test("an unfinished report shows pending evidence without invented totals", async ({
   page,

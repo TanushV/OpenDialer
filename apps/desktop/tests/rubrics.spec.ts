@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { prepareSimulationCall, chooseOutcome } from "./simulation";
 
 test("leaving review prevents an in-flight refresh from reopening the old call", async ({

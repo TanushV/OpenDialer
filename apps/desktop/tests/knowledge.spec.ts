@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test("reviewed business knowledge and current version survive publication and reload", async ({
   page,
@@ -236,10 +236,12 @@ test("published knowledge withdraws obsolete live advice without changing the ac
           name: "Updated seller knowledge",
           opener: current.opener,
           screening_intro: current.screening_intro,
-          claims: [],
-          cards: [],
+          // Keep the approved examples: later specs share this authority and
+          // its cached-knowledge tips.
+          claims: current.claims ?? [],
+          cards: current.cards ?? [],
           product_description: "Updated business capabilities.",
-          prohibited_claims: [],
+          prohibited_claims: current.prohibited_claims ?? [],
           approved: true,
           reason: "Reviewed new product facts",
           expected_previous_id: current.id,

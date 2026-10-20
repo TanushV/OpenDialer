@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test("number route recovery preserves its original target and does not offer call controls", async ({
   page,

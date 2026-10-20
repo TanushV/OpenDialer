@@ -1,5 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
-import { finishCall } from "./simulation";
+import { expect, test, type Page } from "./fixtures";
+import { importLead, finishCall } from "./simulation";
 
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: "wait" });
@@ -181,6 +181,7 @@ test("selected prepared lead survives navigation before dialing", async ({
   page,
 }) => {
   await enter(page, false);
+  await importLead(page, "Selected lead fixture", "+14155550701");
   if (await page.getByRole("button", { name: "Go ready" }).isVisible())
     await page.getByRole("button", { name: "Go ready" }).click();
   await page
