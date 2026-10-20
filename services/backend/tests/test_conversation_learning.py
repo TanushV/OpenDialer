@@ -464,8 +464,8 @@ def test_background_report_cannot_publish_an_outdated_dataset_after_a_correction
     service = app.state.service
     original = service.save_operational_dataset
 
-    def changed(principal):
-        dataset = original(principal)
+    def changed(principal, *, lease=None):
+        dataset = original(principal, lease=lease)
         with service.db.transaction() as s:
             campaign = service.required(s, "campaigns", workspace["campaign_id"], principal)
             update(campaign, conversation_revision=campaign.data.get("conversation_revision", 0) + 1)

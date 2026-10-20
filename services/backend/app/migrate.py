@@ -9,10 +9,11 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, select
 from sqlalchemy.engine import make_url
 
 from app.db import (
+    MODELS,
     STARTUP_CONTRACT,
     Base,
     Database,
@@ -20,6 +21,7 @@ from app.db import (
     database_cipher,
     put,
     startup_contract_current,
+    update,
 )
 
 
@@ -35,15 +37,24 @@ def migrate_business_state(service):
     service.migrate_conversation_states()
     service.migrate_followthrough()
     with service.db.transaction() as session:
-        put(
-            session,
-            "audit_events",
-            "",
-            "",
-            {"contract": STARTUP_CONTRACT},
-            key="completion-startup",
-            now=service.clock(),
+        model = MODELS["audit_events"]
+        marker = session.scalar(
+            select(model).where(
+                model.tenant_id == "", model.seller_id == "", model.external_key == "completion-startup"
+            )
         )
+        if marker is not None:
+            update(marker, contract=STARTUP_CONTRACT)
+        else:
+            put(
+                session,
+                "audit_events",
+                "",
+                "",
+                {"contract": STARTUP_CONTRACT},
+                key="completion-startup",
+                now=service.clock(),
+            )
 
 
 def _save_manifest(path, value, cipher):
@@ -67,7 +78,6 @@ def _stage_manifest(source, stage, cipher):
         raise ValueError("Staging directory is not protected")
     stage.mkdir(mode=0o700, exist_ok=True)
     manifest = stage / "manifest.enc"
-    identity = {"source": str(source), "contract": STARTUP_CONTRACT}
     if any(p.is_symlink() for p in stage.rglob("*")):
         raise ValueError("Staging content is not protected")
     saved = None
@@ -76,7 +86,10 @@ def _stage_manifest(source, stage, cipher):
             saved = json.loads(cipher.decrypt(manifest.read_bytes()))
         except Exception as exc:
             raise ValueError("Staging manifest cannot be authenticated") from exc
-        if any(saved.get(k) != v for k, v in identity.items()):
+        if saved.get("source") != str(source) or saved.get("contract") not in {
+            STARTUP_CONTRACT,
+            "completion-0017-raw2-v1",
+        }:
             raise ValueError("Staging manifest belongs to a different authority or contract")
     elif any(stage.iterdir()):
         raise ValueError("Staging directory contains unowned content")
@@ -101,7 +114,12 @@ def _stage_copy(original, source, stage, cipher):
     identity = {"source": str(source), "contract": STARTUP_CONTRACT}
     with source.open("rb") as handle:
         fingerprint = hashlib.file_digest(handle, "sha256").hexdigest()
-    if not saved or saved.get("source_sha256") != fingerprint or saved.get("phase") != "copied":
+    if (
+        not saved
+        or saved.get("contract") != STARTUP_CONTRACT
+        or saved.get("source_sha256") != fingerprint
+        or saved.get("phase") != "copied"
+    ):
         saved = {**identity, "source_sha256": fingerprint, "phase": "copying"}
         _save_manifest(manifest, saved, cipher)
         for suffix in ("", "-wal", "-shm", "-journal"):

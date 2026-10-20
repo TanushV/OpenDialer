@@ -1939,7 +1939,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 owner=None,
                 source_version=state["version"],
                 completed_at=self.clock().isoformat(),
-                completed_fingerprint=None if changed else signature,
+                # Only an accepted merge completes this input. An unavailable
+                # provider or lost response must allow an explicit, budgeted retry.
+                completed_fingerprint=signature if success and not changed else None,
             )
             self._store_conversation(s, p, call, state, row)
             if changed:

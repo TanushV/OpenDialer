@@ -1003,12 +1003,12 @@
         {
           "id": "E13.4",
           "task": "Frozen semantic120-case matrix and independent review",
-          "status": "Fourth independent bounded review found six harness defects, now tests-first repaired (9red/61green). No new scoped concurrency/cgroup product defect. Human semantic quality remains open."
+          "status": "Fifth independent bounded review found retained0017 stores skipping new indexes. Tests-first startup contract/staging repair: two red cases,18 SQLite migration passes/two explicit native skips; corrected PostgreSQL node pending. Human semantic evaluation remains external."
         },
         {
           "id": "E13.5",
           "task": "Version-consistent candidate and full SQLite/PostgreSQL coverage",
-          "status": "Prior ecea269 full SQLite:2413 passed,18 failed,15 skipped;92.52% statements/83.24% branches. Seven workspace fixtures repaired; remaining contracts being aligned/rechecked; failed-finalization completion marker reproduced and repair under test. Fresh complete dual-database acceptance remains open."
+          "status": "Prior full SQLite18 failures are resolved in focused scopes or unreproduced field-audit case with28 covered passes. New retained-startup repair has18 SQLite passes; final exact-source CI next."
         },
         {
           "id": "E13.6",
@@ -1083,10 +1083,10 @@
         {
           "id": "E13.fullsuite-contracts",
           "task": "Resolve every full-suite failure at current interfaces without weakening behavior",
-          "status": "10 of11 remaining failures reproduced locally; field-audit case passes locally and needs exact-source coverage repeat. Registry migration fixtures, worker-page boundary, asynchronous budget and shared conversation contracts under test. Three new failure/retry red cases before finalization marker repair."
+          "status": "210 SQLite reconciliation passes plus20 repaired registry checks;64 PostgreSQL passes;28 covered live-field-review passes. Shared finalization retry repair has three red counterexamples. Full current-source CI remains required."
         }
       ],
-      "checkpoint": "E13: full CI exposed18 failures with coverage floors met;7 workspace fixtures resolved. Current query scopes pass both databases. Writer admission and remaining full-suite failures/recovery repair under focused checks; final freeze/load/native delivery open."
+      "checkpoint": "E13: focused full-suite reconciliation and retained-cutover repair; commit/refreeze, rerun changed migration in PostgreSQL, then final CI/load/resource/native gates."
     },
     {
       "id": "E14",

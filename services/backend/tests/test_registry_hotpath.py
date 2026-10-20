@@ -7,10 +7,21 @@ import pytest
 from app.compliance.operating import authority_stamp, screening_key
 from app.compliance.policy import authorize
 from app.compliance.registry import RegistryBitmap
-from app.db import get, put, update
+from app.db import MODELS, get, put, update
 from conftest import ready
+from sqlalchemy import select
 from test_context_reads import count_decrypted
 from test_remediation_privacy import principal
+
+
+def unfinished_legacy_cutover(session):
+    # The fixture creates legacy content after current startup. Remove its completion
+    # receipt so reopening exercises migration, not the already-migrated fast path.
+    marker = session.scalar(
+        select(MODELS["audit_events"]).where(MODELS["audit_events"].external_key == "completion-startup")
+    )
+    assert marker is not None
+    session.delete(marker)
 
 
 def test_replaying_retired_publication_returns_original_receipt_and_current_state(workspace, clock):
@@ -73,6 +84,8 @@ def test_legacy_country_publication_is_chunked_on_restart_without_losing_authori
             authorization_expires_at=(clock.now + timedelta(hours=2)).isoformat(),
         )
         original_id, refreshed = row.id, row.data["refreshed_at"]
+        unfinished_legacy_cutover(s)
+    service.db.engine.dispose()
     restarted = create_app(service.settings, clock=clock, carrier=service.carrier).state.service
     with restarted.db.transaction(False) as s:
         row = get(s, "registry_snapshots", original_id)
@@ -83,6 +96,7 @@ def test_legacy_country_publication_is_chunked_on_restart_without_losing_authori
         assert registry_contains(s, row, "+14155550101")
         assert not registry_contains(s, row, "+14155550102")
         before = row.version
+    restarted.db.engine.dispose()
     twice = create_app(service.settings, clock=clock, carrier=service.carrier).state.service
     with twice.db.transaction(False) as s:
         assert get(s, "registry_snapshots", original_id).version == before
@@ -100,6 +114,7 @@ def test_legacy_chunk_backfill_resumes_after_committed_chunk(workspace, app, clo
             row, bitmap=base64.b64encode(bitmap.dump()).decode(), checksum=bitmap.checksum, listed_numbers=[]
         )
         original = row.id
+        unfinished_legacy_cutover(s)
     real, writes = registry.put, []
 
     def crash(s, kind, tenant, seller, data, **kwargs):
@@ -110,12 +125,14 @@ def test_legacy_chunk_backfill_resumes_after_committed_chunk(workspace, app, clo
         return real(s, kind, tenant, seller, data, **kwargs)
 
     monkeypatch.setattr(registry, "put", crash)
+    service.db.engine.dispose()
     with pytest.raises(RuntimeError, match="simulated restart"):
         create_app(service.settings, clock=clock, carrier=service.carrier)
     with service.db.transaction(False) as s:
         assert get(s, "registry_snapshots", original).data["published"]
         assert "chunks" not in get(s, "registry_snapshots", original).data
     monkeypatch.setattr(registry, "put", real)
+    service.db.engine.dispose()
     restarted = create_app(service.settings, clock=clock, carrier=service.carrier).state.service
     with restarted.db.transaction(False) as s:
         row = get(s, "registry_snapshots", original)

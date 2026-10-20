@@ -296,6 +296,8 @@ def test_delayed_labels_do_not_leak_past_the_validation_start():
             "lead_id": str(i),
             "endpoint_id": "e" + str(i),
             "at": (now + timedelta(minutes=i)).isoformat(),
+            "outcome_available_at": (now + timedelta(minutes=i, seconds=1)).isoformat(),
+            "label_available_at": (now + timedelta(minutes=i, days=14)).isoformat(),
             "window_ends_at": (now + timedelta(minutes=i, days=14)).isoformat(),
             "window_closed": True,
             "conversion": 0,
@@ -303,10 +305,10 @@ def test_delayed_labels_do_not_leak_past_the_validation_start():
         for i in range(100)
     ]
     train, calibration, validation = independent_partitions(rows)
-    validation_start = datetime.fromisoformat(validation[0]["at"])
-    assert all(
-        datetime.fromisoformat(r["window_ends_at"]) <= validation_start for r in train + calibration
-    ), {"validation_start": validation[0]["at"], "training_last_label_known": train[-1]["window_ends_at"]}
+    # Every training/calibration label matures after both cutoffs; neither partition
+    # may use it, even when the eventual full-dataset snapshot says window_closed.
+    assert train == calibration == []
+    assert validation == rows[80:]
 
 
 def test_app_score_coverage_counts_all_rubric_dimensions():
@@ -393,7 +395,12 @@ def test_negated_budget_approval_does_not_resolve_an_objection():
     }
     result = build_context(segments, version=2, facts=[], commitments=[], prior=prior)
     # Removing the regex classifier must not erase or resolve the earlier evidenced objection.
-    assert result["objections"] == prior["objections"]
+    assert len(result["objections"]) == 1
+    objection = result["objections"][0]
+    assert {key: objection[key] for key in prior["objections"][0]} == prior["objections"][0]
+    assert objection["state"] == "unresolved"
+    assert objection["sources"][0]["id"] == "s1"
+    assert objection["sources"][0]["version"] == 1
     assert result["trigger"] == "conversation"
 
 

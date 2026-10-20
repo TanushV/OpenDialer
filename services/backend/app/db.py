@@ -56,7 +56,7 @@ from app.operational_schema import (
 
 _DATABASE_CIPHER = contextvars.ContextVar("opendialer_database_cipher", default=None)
 _DATABASE_LOOKUP_KEY = contextvars.ContextVar("opendialer_database_lookup_key", default=None)
-STARTUP_CONTRACT = "completion-0017-raw2-v1"
+STARTUP_CONTRACT = "completion-0017-raw2-v2"
 
 
 def database_cipher(key):

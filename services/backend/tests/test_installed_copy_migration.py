@@ -134,6 +134,45 @@ def test_current_startup_does_not_repeat_history_authentication(tmp_path, monkey
     reopened.state.db.engine.dispose()
 
 
+def test_completed_earlier_cutover_reconciles_current_call_indexes(workspace, app, clock):
+    """Retained0017 stores, not just fresh schemas, receive the bounded-call lookups."""
+    from app.db import MODELS, update
+    from app.main import create_app
+    from sqlalchemy import select
+
+    service, p = app.state.service, principal(workspace)
+    names = {
+        "ix_call_attempts_provider_identity",
+        "ix_call_attempts_open_owner_page",
+        "ix_call_attempts_live_scope",
+    }
+    with service.db.transaction() as session:
+        marker = session.scalar(
+            select(MODELS["audit_events"]).where(MODELS["audit_events"].external_key == "completion-startup")
+        )
+        update(marker, contract="completion-0017-raw2-v1")
+        note = put(
+            session,
+            "notes",
+            p["tenant_id"],
+            p["seller_id"],
+            {"human_text": "Keep the rep's own relationship context"},
+        )
+        identity, version, content = note.id, note.version, dict(note.data)
+        for name in sorted(names):
+            session.execute(text(f'DROP INDEX "{name}"'))
+    service.db.engine.dispose()
+    reopened = create_app(service.settings, clock=clock, carrier=service.carrier)
+    try:
+        present = {item["name"] for item in inspect(reopened.state.db.engine).get_indexes("call_attempts")}
+        assert names <= present, "An earlier completed cutover must not skip new operational indexes"
+        with reopened.state.db.transaction(False) as session:
+            current = get(session, "notes", identity)
+            assert (current.version, current.data) == (version, content)
+    finally:
+        reopened.state.db.engine.dispose()
+
+
 def test_upgrade_does_not_publish_before_recovery_directory_is_durable(tmp_path, monkeypatch):
     import sqlite3
 
@@ -203,6 +242,53 @@ def test_upgrade_restarts_copy_if_original_was_edited_after_interruption(tmp_pat
     with upgraded.state.db.transaction(False) as session:
         assert get(session, "notes", "human").data["human_text"] == "A newer human correction must survive"
     upgraded.state.db.engine.dispose()
+
+
+def test_interrupted_earlier_contract_rebuilds_only_its_owned_working_copy(tmp_path, monkeypatch):
+    import sqlite3
+
+    import app.db as storage
+    import app.migrate as migration
+    import app.privacy as privacy
+    from app.main import create_app
+
+    settings = legacy_upgrade_store(tmp_path)
+    source = tmp_path / "legacy.db"
+    with closing(sqlite3.connect(source)) as original:
+        before = list(original.iterdump())
+    sanitize, seen = privacy.persistent_document, []
+
+    def interrupted(kind, data, **kwargs):
+        if kind == "transcript_segments":
+            seen.append(data.get("segment_id"))
+            if len(seen) == 501:
+                raise OSError("Synthetic earlier-contract interruption")
+        return sanitize(kind, data, **kwargs)
+
+    with monkeypatch.context() as old:
+        old.setattr(storage, "STARTUP_CONTRACT", "completion-0017-raw2-v1")
+        old.setattr(migration, "STARTUP_CONTRACT", "completion-0017-raw2-v1")
+        old.setattr(privacy, "persistent_document", interrupted)
+        with pytest.raises(OSError, match="earlier-contract"):
+            create_app(settings)
+    with closing(sqlite3.connect(source)) as original:
+        assert list(original.iterdump()) == before
+    seen.clear()
+
+    def counted(kind, data, **kwargs):
+        if kind == "transcript_segments":
+            seen.append(data.get("segment_id"))
+        return sanitize(kind, data, **kwargs)
+
+    monkeypatch.setattr(privacy, "persistent_document", counted)
+    upgraded = create_app(settings)
+    try:
+        assert len(seen) == 603, "Changed contracts revalidate a fresh copy of the unchanged original"
+        with upgraded.state.db.transaction(False) as session:
+            assert get(session, "notes", "human").data["human_text"] == "Retain this relationship note"
+    finally:
+        upgraded.state.db.engine.dispose()
+    assert not (tmp_path / ".opendialer-upgrade-v1").exists()
 
 
 def test_upgrade_keeps_other_authority_out_until_copy_is_published(tmp_path, monkeypatch):

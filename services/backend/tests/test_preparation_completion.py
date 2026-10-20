@@ -574,9 +574,16 @@ async def test_template_change_during_generation_cannot_publish_old_work(workspa
             )
 
     monkeypatch.setattr(service, "inference", lambda *args: Provider())
-    with pytest.raises(RuntimeError):
-        await service.prepare(p(workspace), [lead_id])
+    # A changed template supersedes work; it must not count as a provider failure.
+    await service.prepare(p(workspace), [lead_id])
     assert service.packet(p(workspace), lead_id)["script"]["opener"] == "New purpose from Example Seller."
+    with service.db.transaction(False) as s:
+        pending = [
+            j
+            for j in s.scalars(select(Job))
+            if j.queue == "scripts" and lead_id in j.payload.get("lead_ids", [])
+        ]
+        assert pending and all(j.status == "queued" and not j.attempts for j in pending)
 
 
 def test_readiness_query_count_does_not_grow_per_candidate(workspace, app):

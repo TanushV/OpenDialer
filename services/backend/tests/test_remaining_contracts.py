@@ -1,7 +1,6 @@
 import httpx
 import pytest
 from app.coaching.engine import CoachEngine
-from app.providers.inference import InferenceResult
 from app.providers.telnyx import TelnyxCarrier
 from conftest import start
 
@@ -50,7 +49,11 @@ def test_optional_inference_budget_is_reserved_atomically(workspace):
     assert service.reserve_optional_budget(p, "test-one", 0.04)
 
 
-def test_provider_postcall_validates_evidence_and_preserves_human_notes(workspace):
+@pytest.mark.asyncio
+async def test_provider_postcall_validates_evidence_and_preserves_human_notes(workspace, monkeypatch):
+    from test_postcall_completion import ConversationProvider
+    from test_remediation_privacy import principal
+
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
     c.post(
@@ -65,49 +68,54 @@ def test_provider_postcall_validates_evidence_and_preserves_human_notes(workspac
         },
     )
 
-    class Provider:
-        async def complete(self, instructions, context, schema):
-            if "fingerprint" in context:
-                from test_grounding_review import review_response
-
-                return InferenceResult(review_response(context), {}, "mock-meaning-review")
-            return InferenceResult(
+    state = {
+        "requests": 0,
+        "body": {
+            "summary": "The prospect requested repair help and a callback.",
+            "summary_evidence": ["evidence-1"],
+            "problems": [
                 {
-                    "summary": "The prospect requested repair help and a callback.",
-                    "summary_evidence": ["evidence-1"],
-                    "problems": [
-                        {
-                            "text": "Need repair help",
-                            "evidence": ["evidence-1"],
-                            "quote": "We need help with repair.",
-                        }
-                    ],
-                    "objections": [],
-                    "commitments": [
-                        {
-                            "owner": "rep",
-                            "action": "Call back",
-                            "due_at": None,
-                            "verbatim_time_expression": "next week",
-                            "evidence": ["evidence-1"],
-                            "needs_time_confirmation": True,
-                        }
-                    ],
-                    "unknowns": ["Exact callback time"],
-                    "score_items": [],
-                },
-                {"input_tokens": 50, "output_tokens": 25},
-                "mock-analysis-request",
-            )
+                    "text": "Need repair help",
+                    "evidence": ["evidence-1"],
+                    "quote": "We need help with repair.",
+                }
+            ],
+            "objections": [],
+            "commitments": [
+                {
+                    "owner": "rep",
+                    "action": "Call back",
+                    "due_at": None,
+                    "verbatim_time_expression": "next week",
+                    "evidence": ["evidence-1"],
+                    "needs_time_confirmation": True,
+                }
+            ],
+            "unknowns": ["Exact callback time"],
+            "score_items": [],
+        },
+    }
 
     service = c.app.state.service
-    service.inference = lambda *args: Provider()
-    c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
-    c.post("/v1/admin/jobs/run", headers=h)
+    monkeypatch.setattr(
+        service, "configured_coach", lambda *args: (ConversationProvider(state), "openrouter")
+    )
+    before = service.analysis(principal(workspace), call["id"])
+    service.edit_notes(
+        principal(workspace), call["id"], before["notes_version"], "Rep requested a precise callback time."
+    )
+    assert c.post(f"/v1/calls/{call['id']}/hangup", headers=h).status_code == 200
+    await service.analyze_postcall(principal(workspace), call["id"])
     analysis = c.get(f"/v1/calls/{call['id']}/analysis", headers=h).json()
-    assert analysis["provider"] == "configured_inference"
-    assert analysis["notes"]["problems"][0]["evidence"] == ["evidence-1"]
-    assert c.get(f"/v1/leads/{call['lead_id']}/packet", headers=h).json()["commitments"]
+    assert state["requests"] == 2
+    assert analysis["finalization"]["status"] == "ready"
+    assert analysis["human_notes"] == "Rep requested a precise callback time."
+    assert analysis["notes"]["problems"][0]["evidence_segment_ids"] == ["evidence-1"]
+    assert analysis["notes"]["problems"][0]["evidence_revisions"] == {"evidence-1": 1}
+    packet = c.get(f"/v1/leads/{call['lead_id']}/packet", headers=h).json()
+    assert len(packet["commitments"]) == len(packet["tasks"]) == 1
+    assert packet["tasks"][0]["status"] == "needs_confirmation"
+    assert packet["tasks"][0]["due_at"] is None
 
 
 def test_tracker_matches_have_evidence_and_are_versioned(workspace):
@@ -166,7 +174,6 @@ def test_cdr_reconciliation_is_idempotent_and_keeps_leg_units(workspace):
 
 
 def test_live_coach_respects_the_optional_budget_before_provider_effect(workspace, monkeypatch):
-    from app.providers.groq import GroqCoach
     from conftest import start
 
     call = start(workspace)
@@ -184,23 +191,22 @@ def test_live_coach_respects_the_optional_budget_before_provider_effect(workspac
     )
     service = c.app.state.service
     service.settings.simulation = False
-    service.vault.write(workspace["tenant_id"], {"groq_api_key": "contract-only-key"})
     c.put("/v1/admin/budget", headers=h, json={"daily_limit_usd": 0, "monthly_limit_usd": 0})
     calls = []
 
-    async def suggest(self, request, deadline_ms):
-        calls.append(request)
-        return {"action": "NO_ACTION"}
+    class Provider:
+        async def suggest(self, request, **kwargs):
+            calls.append(request)
+            return {"action": "NO_ACTION"}
 
-    monkeypatch.setattr(GroqCoach, "suggest", suggest)
+    monkeypatch.setattr(service, "configured_coach", lambda *args: (Provider(), "openrouter"))
     r = c.post(f"/v1/calls/{call['id']}/coach", headers=h)
     assert r.status_code == 200
     assert not calls
 
 
-def test_repeated_failed_provider_attempts_each_need_a_fresh_budget_hold(workspace, monkeypatch):
-    import asyncio
-
+@pytest.mark.asyncio
+async def test_repeated_failed_provider_attempts_each_need_a_fresh_budget_hold(workspace, monkeypatch):
     from conftest import start
 
     call = start(workspace)
@@ -219,24 +225,35 @@ def test_repeated_failed_provider_attempts_each_need_a_fresh_budget_hold(workspa
     service = c.app.state.service
     with service.db.transaction(False) as s:
         base = sum(r.data.get("reserved_usd", 0) for r in service.scoped(s, "usage_ledger", workspace))
-    c.put(
-        "/v1/admin/budget", headers=h, json={"daily_limit_usd": base + 0.21, "monthly_limit_usd": base + 0.21}
+    assert (
+        c.put(
+            "/v1/admin/budget",
+            headers=h,
+            json={"daily_limit_usd": base + 0.021, "monthly_limit_usd": base + 0.021},
+        ).status_code
+        == 200
     )
     calls = []
 
     class Failing:
-        async def complete(self, *args):
+        last_usage, last_request_id = {}, None
+        last_provider, last_model = "Cerebras", "fixture"
+
+        async def suggest(self, *args, **kwargs):
             calls.append(True)
             raise TimeoutError("No provider receipt")
 
-    monkeypatch.setattr(service, "inference", lambda *args: Failing())
+    monkeypatch.setattr(service, "configured_coach", lambda *args: (Failing(), "openrouter"))
+    assert c.post(f"/v1/calls/{call['id']}/hangup", headers=h).status_code == 200
     for _ in range(3):
-        asyncio.run(service.analyze_postcall(workspace, call["id"]))
+        await service.analyze_postcall(workspace, call["id"])
     assert len(calls) == 2
     with service.db.transaction(False) as s:
         attempts = [
             r
             for r in service.scoped(s, "usage_ledger", workspace)
-            if r.data.get("work_kind") == "postcall_extract"
+            if r.data.get("work_kind") == "conversation_finalize"
         ]
         assert len(attempts) == 2 and all(r.data["object_id"] == call["id"] for r in attempts)
+        assert all(r.data["status"] == "uncertain" and r.data["reserved_usd"] == 0.01 for r in attempts)
+        assert len({r.data["request_key"] for r in attempts}) == 2

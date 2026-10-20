@@ -171,6 +171,7 @@ async def test_whole_list_refresh_resumes_after_one_500_endpoint_page(
     screening,  # noqa: F811 - imported fixture
     monkeypatch,
 ):
+    from app.compliance.screening import refresh_screening
     from app.main import create_app
     from app.providers.dnc import PrepaidDNC
     from fastapi.testclient import TestClient
@@ -222,9 +223,19 @@ async def test_whole_list_refresh_resumes_after_one_500_endpoint_page(
 
     monkeypatch.setattr(PrepaidDNC, "check", funded_check)
     await service.maintenance_tick()
-    await service.run_jobs(p["tenant_id"], queues=["research"])
+    # A runner invocation can execute several bounded pages. Crash after the
+    # first page commits its cursor, before acknowledgement, then recover its lease.
+    job = service.jobs.claim("research", "page-before-restart", tenant_id=p["tenant_id"])
+    assert job["payload"]["kind"] == "dnc_refresh"
+    await refresh_screening(service, p, job, "page-before-restart")
     assert 0 < len(calls) <= 500
+    with service.db.transaction(False) as s:
+        saved = s.get(Job, job["id"])
+        assert saved.payload["inspected"] == 500 and saved.payload["cursor"]
+        assert saved.payload["complete"] is False
+        assert saved.status == "running"
     first = set(calls)
+    clock.now += timedelta(seconds=61)
     restarted = create_app(service.settings, clock=clock, carrier=carrier)
     with TestClient(restarted):
         for _ in range(4):
@@ -232,3 +243,6 @@ async def test_whole_list_refresh_resumes_after_one_500_endpoint_page(
             await restarted.state.service.run_jobs(p["tenant_id"], queues=["research"])
     assert set(calls) == set(numbers) and len(calls) == 501
     assert first <= set(calls)
+    with restarted.state.service.db.transaction(False) as s:
+        saved = s.get(Job, job["id"])
+        assert saved.status == "completed" and saved.payload["complete"] is True

@@ -386,7 +386,7 @@ async def test_complete_field_audit(workspace, app, monkeypatch, visible_field):
         candidate[visible_field] = unsupported
     options["result"] = candidate
     result = await service.coach_turn(p, call["id"], urgent=True, question="Help now")
-    assert [kind for kind, _ in requests] == ["suggest", "review"]
+    assert [kind for kind, _ in requests] == ["suggest", "review"], result
     fields = {item["field"] for item in requests[-1][1]["fields"]}
     assert {"say_or_ask", "reason"} <= fields
     if candidate["alternatives"]:

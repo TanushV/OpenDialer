@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
+import pytest
 from conftest import disposition_body, ready, reserve, start
 
 
@@ -216,13 +217,31 @@ def test_events_have_durable_cursor_and_no_replay_duplicates(workspace):
     assert all(e["tenant_id"] == workspace["tenant_id"] for e in events["events"])
 
 
-def test_budget_exhaustion_does_not_break_hangup(workspace):
+@pytest.mark.asyncio
+async def test_budget_exhaustion_does_not_break_hangup(workspace, monkeypatch):
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
-    c.put("/v1/admin/budget", headers=h, json={"daily_limit_usd": 0, "monthly_limit_usd": 0})
+    service, requests = c.app.state.service, []
+
+    class Provider:
+        async def complete(self, *args):
+            requests.append(args)
+            raise AssertionError("An exhausted budget cannot submit optional work")
+
+    monkeypatch.setattr(service, "inference", lambda *args: Provider())
+    assert (
+        c.put("/v1/admin/budget", headers=h, json={"daily_limit_usd": 0, "monthly_limit_usd": 0}).status_code
+        == 200
+    )
     assert c.post(f"/v1/calls/{call['id']}/hangup", headers=h).status_code == 200
     r = c.post("/v1/research/batches", headers=h, json={"lead_ids": [call["lead_id"]]})
-    assert r.status_code == 403
+    # Enqueueing is free; the worker admits paid attempts individually and keeps
+    # approved fallback preparation usable when optional spending is exhausted.
+    assert r.status_code == 200
+    result = await service.run_jobs(workspace["tenant_id"], queues=["research", "scripts"])
+    assert not result["errors"] and not requests
+    packet = c.get(f"/v1/leads/{call['lead_id']}/packet", headers=h).json()
+    assert packet["script"]["fallback"] and packet["script"]["opener"]
 
 
 def test_nonexistent_and_cross_scope_objects_do_not_leak(workspace):

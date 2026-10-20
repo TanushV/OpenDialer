@@ -863,6 +863,40 @@ async def test_finalization_cannot_be_completed_by_an_expired_owner(workspace, a
         assert final["status"] != "ready"
 
 
+@pytest.mark.parametrize("failure", ["timeout", "unconfigured"])
+@pytest.mark.asyncio
+async def test_failed_finalization_can_retry_the_same_context_without_recharging_success(
+    workspace, app, monkeypatch, failure
+):
+    from test_postcall_completion import ConversationProvider, setup_analysis
+    from test_remediation_privacy import principal
+
+    call, state = setup_analysis(workspace, app, monkeypatch)
+    service, p = app.state.service, principal(workspace)
+
+    class Failing(ConversationProvider):
+        async def suggest(self, *args, **kwargs):
+            raise TimeoutError("Synthetic lost response")
+
+    monkeypatch.setattr(
+        service,
+        "configured_coach",
+        lambda _: (Failing(state) if failure == "timeout" else None, "openrouter"),
+    )
+    await service.analyze_postcall(p, call["id"])
+    before = service.analysis(p, call["id"])
+    assert before["finalization"]["status"] == "partial"
+    assert before["finalization"].get("completed_fingerprint") is None
+    monkeypatch.setattr(service, "configured_coach", lambda _: (ConversationProvider(state), "openrouter"))
+    await service.analyze_postcall(p, call["id"])
+    result = service.analysis(p, call["id"])
+    assert result["finalization"]["status"] == "ready"
+    assert result["call"]["transcript_version"] == before["call"]["transcript_version"]
+    assert state["requests"] == 2
+    await service.analyze_postcall(p, call["id"])
+    assert state["requests"] == 2, "An accepted identical finalization must not charge again"
+
+
 @pytest.mark.asyncio
 async def test_review_cannot_certify_a_changed_derived_source(workspace, app, clock, monkeypatch):
     from app.coaching.context import lineage_metadata, merge_semantic_state
