@@ -13,7 +13,7 @@ from app.config import PROVIDER_DEFAULTS, inference_model
 from app.db import MODELS, audit, doc, emit, get, put, rows, uid, update
 from app.postcall.analysis import build_analysis
 from app.preparation.templates import SLOT_SCHEMA, approved_template, fill, render, template_version
-from app.preparation.workflows import Preparation, failure_state
+from app.preparation.workflows import Preparation
 from app.privacy import SpeechPrivacy
 from app.providers.inference import InferenceClient
 from app.providers.openrouter import OpenRouterCoach
@@ -564,54 +564,28 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                         sort_keys=True,
                     ).encode()
                 ).hexdigest()
-                obj = self._by_key(s, p, "script_versions", cache_key)
-                if not obj:
-                    version = uid()
-                    script.update(
-                        script_version=version,
-                        input_cache_key=input_key
+                self.publish_script_in(
+                    s,
+                    p,
+                    current_lead,
+                    {
+                        **script,
+                        "script_version": uid(),
+                        "input_cache_key": input_key
                         if not provider_failed and (not provider or not script.get("fallback"))
                         else None,
-                        prompt_version="template-slots-v1" if template else "script-v2",
-                        created_at=self.clock().isoformat(),
-                        previous_version=previous.id if previous else None,
-                        diff={
+                        "prompt_version": "template-slots-v1" if template else "script-v2",
+                        "previous_version": previous.id if previous else None,
+                        "diff": {
                             "previous_opener": previous.data["opener"] if previous else None,
                             "opener": script["opener"],
                         },
-                    )
-                    obj = put(
-                        s,
-                        "script_versions",
-                        p["tenant_id"],
-                        p["seller_id"],
-                        script,
-                        object_id=version,
-                        key=cache_key,
-                        now=self.clock(),
-                    )
-                update(
-                    current_lead,
-                    preparation=failure_state(
-                        current_lead.data.get("preparation") or {},
-                        source_key,
-                        self.clock(),
-                        "provider_result_rejected",
-                        script_id=obj.id,
-                    )
-                    if provider_failed
-                    else {
-                        "status": "fallback" if script["fallback"] else "ready",
-                        "script_id": obj.id,
-                        "key": source_key,
-                        "as_of": self.clock().isoformat(),
-                        "expires_at": min(
-                            (f["expires_at"] for f in packet["research"]["facts"]),
-                            default=(self.clock() + timedelta(days=1)).isoformat(),
-                        ),
                     },
+                    key=cache_key,
+                    source_key=source_key,
+                    facts=packet["research"]["facts"],
+                    failure="provider_result_rejected" if provider_failed else None,
                 )
-                emit(s, p["tenant_id"], "lead.packet_ready", obj, self.clock(), {"lead_id": lead_id})
             return not provider_failed
 
         return await asyncio.to_thread(publish, script, provider_failed)

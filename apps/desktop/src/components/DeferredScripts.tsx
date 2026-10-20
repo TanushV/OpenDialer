@@ -72,7 +72,7 @@ export function DeferredScripts() {
   );
   const leads = w.leads
     .filter((lead) => !lead.suppressed)
-    .slice(0, 500)
+    .slice(0, 20)
     .map((lead) => lead.id)
     .sort();
   return (

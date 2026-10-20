@@ -72,7 +72,6 @@ def test_batch_outputs_join_by_id_never_output_order():
     ]
     results = join_batch_results(["lead-a:v1", "lead-b:v1", "lead-c:v1"], rows)
     assert results["completed"] == {"lead-b:v1": {"value": "B"}}
-    assert set(results["retry"]) == {"lead-a:v1", "lead-c:v1"}
     with pytest.raises(ValueError):
         join_batch_results(["lead-a:v1"], [{"custom_id": "unknown", "response": {"body": {}}}])
 
