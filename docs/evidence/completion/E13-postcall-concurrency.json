@@ -1,0 +1,42 @@
+{
+  "step_id": "E13",
+  "status": "scoped-repairs-only; full-freeze-open",
+  "source_commit": "744944a915571b4b28fc15b2232e48ac9496e387",
+  "production_tree_digest": "5295dfc186583e081b337765a2039cc174342213f478d6ee08e11757b80f08e1",
+  "test_tree_digest": "1e50a2fe1abdfc71a64522d599191d3a28e43ff03f8544af54ed6e5d0ec88b73",
+  "external_calls": false,
+  "raw_logs": {
+    "E13-analysis-retry-red.txt": "8f27d6d26188f04a6cdfe22f84e4dadc9208d09a9dd50d583ff1e91bc3bc968e",
+    "E13-finalization-preparation-red.txt": "5193c6e7a39ed763e2bb548c04d2e0f85bfa0e575941d71a14aa954d38bdfce7",
+    "E13-preparation-superseded-red.txt": "240a0caab46ebaf406332351de90c2be3b31e86fde3cb02ca5437ac20a8dbc02",
+    "E13-preparation-superseded-sqlite.txt": "a8a1e273d8b583e3652da2ab067b4c1f2e4686c26b7bb7d475235704e6ece8af",
+    "E13-postcall-concurrency-postgres.txt": "b9c6e506b9407e11c21de9db82c42fa0256d1ef42a3fb96c4b899be904287188",
+    "E13-postcall-preparation-sqlite.txt": "e57f09e630e3d56ca9e95c458b02d55e2da6a6168c0226e5567fd0b6b88bc3e8"
+  },
+  "results": {
+    "final_sqlite": {
+      "passed": 7,
+      "seconds": 31.52
+    },
+    "final_postgres": {
+      "passed": 10,
+      "seconds": 145.95
+    },
+    "broader_sqlite_before_supersession_repair": {
+      "passed": 123,
+      "skipped": 3,
+      "seconds": 382.4
+    }
+  },
+  "repairs": [
+    "Serialize same-call analysis and human-note materialization",
+    "Serialize same-lead finalization and preparation lease/publication writes",
+    "Coalesce obsolete preparation without consuming failure attempts; preserve real provider failures",
+    "Retain future queued retry errors in acceptance measurements"
+  ],
+  "known_limitations": [
+    "Full exact-source acceptance remains open",
+    "Installed0.2.1 unchanged",
+    "Provider and hardware evidence unavailable"
+  ]
+}

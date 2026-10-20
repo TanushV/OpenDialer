@@ -1097,7 +1097,8 @@
         "A52",
         "A53",
         "A55"
-      ]
+      ],
+      "checkpoint": "Harness prepared tests-first while E13 runs: isolated environment/version/owned-process tests and current twelve-minute public journey pass on source SQLite and PostgreSQL. Actual frozen binaries and installed updates remain open; no installed change."
     },
     {
       "id": "E15",

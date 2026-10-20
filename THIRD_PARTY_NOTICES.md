@@ -257,7 +257,7 @@ This inventory includes locked application, build and test dependencies. Not eve
 | Cargo | once_cell | 1.21.4 | MIT OR Apache-2.0 | 23f18e03dc49df91, a60eea8175145316 |
 | Cargo | opaque-debug | 0.3.1 | MIT OR Apache-2.0 | a9040321c3712d8f, f59f5a78193597e0 |
 | Cargo | open | 5.4.4 | MIT | e63690624d604aa6 |
-| Cargo | opendialer-desktop | 0.1.1 | Apache-2.0 |  |
+| Cargo | opendialer-desktop | 0.3.0 | Apache-2.0 |  |
 | Cargo | openssl-probe | 0.2.1 | MIT OR Apache-2.0 | 378f5840b258e277, a60eea8175145316 |
 | Cargo | option-ext | 0.2.0 | MPL-2.0 | 66a3107d5ad6a058 |
 | Cargo | ordered-stream | 0.2.0 | MIT OR Apache-2.0 | 23f18e03dc49df91, a60eea8175145316 |
