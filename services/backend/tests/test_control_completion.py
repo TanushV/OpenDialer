@@ -574,8 +574,14 @@ async def test_recovered_suppressed_dial_is_stopped_not_left_ringing(workspace, 
     with service.db.transaction(False) as s:
         phone = get(s, "leads", call["lead_id"]).data["phone"]
     service.suppress(p, phone, "opt_out")
+    # Telnyx cannot be queried by command ID, so the simulator no longer can either: the signed
+    # event carries the original carrier reference that lets recovery stop the ringing leg.
+    leg = carrier.calls[call["id"]]["call_control_id"]
+    await asyncio.to_thread(
+        service.event, p, "late-initiated", "call.initiated", call["id"], {"call_control_id": leg}
+    )
     await service.recover(p)
-    assert carrier.hangups
+    assert [h["provider_id"] for h in carrier.hangups] == [leg]
     assert len(carrier.dials) == 1
 
 

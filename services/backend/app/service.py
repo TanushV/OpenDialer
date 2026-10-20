@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import HTTPException
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 
 from app.compliance.phone import normalize_phone
 from app.compliance.policy import CallContext, authorize
@@ -18,7 +18,7 @@ from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, rows, uid, u
 from app.jobs.queue import JobQueue
 from app.optimization.numbering import select_number
 from app.privacy import event_metadata
-from app.providers.simulated import SimulatedCarrier
+from app.providers.simulated import CarrierNotSubmitted, SimulatedCarrier
 from app.providers.telnyx import TelnyxCarrier
 from app.scheduling.queue import ReservationPlanner
 from app.security import PASSWORDS, Vault, issue_session
@@ -702,11 +702,14 @@ class Service(ReservationPlanner):
             update(user, presence={**user.data.get("presence", {}), **data, "at": self.clock().isoformat()})
             return user.data["presence"]
 
+    def _expirable(self):
+        # Unstarted reservations, and inbound routing claims (keyed by their task) past the
+        # carrier call time limit, which no live inbound leg can outlast.
+        return or_(ActiveClaim.call_id.is_(None), ActiveClaim.call_id == ActiveClaim.reservation_id)
+
     def _expired_claims(self):
-        """Unstarted claims whose reservation lapsed; one row per rep at most."""
-        return select(ActiveClaim.id).where(
-            ActiveClaim.call_id.is_(None), ActiveClaim.expires_at <= self.clock()
-        )
+        """Lapsed claims that no carrier leg can still need; one row per rep at most."""
+        return select(ActiveClaim.id).where(self._expirable(), ActiveClaim.expires_at <= self.clock())
 
     def _expire_claims(self, s):
         # One bounded statement instead of loading every tenant's claims. The outer
@@ -715,7 +718,7 @@ class Service(ReservationPlanner):
             delete(ActiveClaim)
             .where(
                 ActiveClaim.id.in_(self._expired_claims().limit(500)),
-                ActiveClaim.call_id.is_(None),
+                self._expirable(),
                 ActiveClaim.expires_at <= self.clock(),
             )
             .execution_options(synchronize_session=False)
@@ -733,6 +736,18 @@ class Service(ReservationPlanner):
             if selection["number_id"]
             else None
         )
+
+    def agent_ready_in(self, s, p):
+        """The rep's audio leg that the dial links to, rechecked at start rather than assumed."""
+        presence = self.required(s, "users", p["user_id"], p).data.get("presence", {})
+        agent = presence.get("agent_call_control_id")
+        ready = bool(agent and presence.get("audio_ready") and presence.get("telephony_ready"))
+        if ready and not self.settings.simulation:
+            leg = self.agent_leg_in(s, p, provider_id=agent, rep_id=p["user_id"])
+            ready = bool(leg and leg.data.get("state") == "answered")
+        if not ready:
+            fail(409, {"code": "REP_AUDIO_NOT_READY", "message": "Reconnect rep audio, then start the call"})
+        return agent
 
     def _prepare_call(self, p, data):
         now = self.clock()
@@ -756,6 +771,7 @@ class Service(ReservationPlanner):
             claim = s.scalar(select(ActiveClaim).where(ActiveClaim.reservation_id == reservation.id))
             if not claim:
                 fail(409, "Reservation claim is no longer valid")
+            agent = self.agent_ready_in(s, p)
             lead = self.required(s, "leads", reservation.data["lead_id"], p)
             number = self.required(s, "number_inventory", reservation.data["number_id"], p)
             decision = authorize(self.context(s, p, lead, number))
@@ -800,7 +816,6 @@ class Service(ReservationPlanner):
             )
             claim.call_id = call.id
             update(reservation, status="active", call_id=call.id)
-            agent = self.required(s, "users", p["user_id"], p).data["presence"]["agent_call_control_id"]
             # The persistent agent leg carries the rep's own speech stream for this call.
             update(call, agent_provider_id=agent)
             payload = {
@@ -912,6 +927,10 @@ class Service(ReservationPlanner):
                 sent_at=self.clock().isoformat(),
                 lease_owner=owner,
                 lease_until=(self.clock() + timedelta(seconds=30)).isoformat(),
+                # Restored only if the request provably never reached the carrier.
+                prior_attempt={
+                    k: lead.data.get(k) for k in ("attempt_count", "last_attempt_at", "next_attempt_at")
+                },
             )
             update(
                 call,
@@ -940,15 +959,22 @@ class Service(ReservationPlanner):
             s.refresh(command, with_for_update=True)
             call = self.required(s, "call_attempts", call_id, p)
             if owns_effect(command.data, owner, self.clock()) and command.data["status"] == "sending":
+                unsent = isinstance(exc, CarrierNotSubmitted)
                 rejected = isinstance(exc, httpx.HTTPStatusError) and 400 <= exc.response.status_code < 500
                 update(
                     command,
-                    status="failed" if rejected else "uncertain",
+                    status="failed" if rejected or unsent else "uncertain",
                     error=type(exc).__name__,
                     lease_owner=None,
                     lease_until=None,
                 )
-                if rejected:
+                if unsent:
+                    # Nothing reached the carrier: no contact, so the attempt is not counted.
+                    lead = self.required(s, "leads", call.data["lead_id"], p)
+                    if lead.data.get("attempt_count") == call.data.get("attempt_ordinal"):
+                        update(lead, **command.data.get("prior_attempt", {}))
+                    self.finish_call(s, p, call, "carrier_not_submitted")
+                elif rejected:
                     self.finish_call(s, p, call, "provider_rejected")
                 elif call.data["state"] == "DIALING" and not call.data.get("provider_id"):
                     update(call, state="RECONCILING")
@@ -994,7 +1020,11 @@ class Service(ReservationPlanner):
         if not claimed:
             return
         try:
-            provider = await asyncio.to_thread(self.carrier, p["tenant_id"])
+            try:
+                provider = await asyncio.to_thread(self.carrier, p["tenant_id"])
+            except Exception as exc:
+                # Configuration fails before any request exists; nothing can be live.
+                raise CarrierNotSubmitted(type(exc).__name__) from exc
             receipt = await provider.dial(claimed[3])
         except Exception as exc:
             await asyncio.to_thread(self._dial_failed, p, call_id, claimed[0], owner, exc)
@@ -1012,9 +1042,14 @@ class Service(ReservationPlanner):
             command
             and command.data.get("call_id") == call.id
             and command.data.get("kind") == "dial"
-            and command.data.get("status") in {"sending", "uncertain", "reconciling", "review_required"}
+            and command.data.get("status")
+            in {"sending", "uncertain", "reconciling", "review_required", "unconfirmed"}
         ):
             update(command, status="completed", provider_id=provider_id, lease_owner=None, lease_until=None)
+        stop = self._by_key(s, p, "command_outbox", call.id + ":hangup")
+        if stop and stop.data.get("status") == "unconfirmed":
+            # A requested end that lacked a carrier reference can now stop the actual leg.
+            update(stop, status="pending", provider_id=provider_id, recovery_reason=None)
         prior = self._by_key(s, p, "call_legs", provider_id)
         if not prior:
             put(

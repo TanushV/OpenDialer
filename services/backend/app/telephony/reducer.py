@@ -9,6 +9,8 @@ ORDER = {
             "RESERVED",
             "AUTHORIZED",
             "RECONCILING",
+            # No carrier reference or event before the dial deadline; operator review owns it.
+            "DIAL_UNCONFIRMED",
             "DIALING",
             "RINGING",
             "ANSWERED_UNCLASSIFIED",
