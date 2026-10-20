@@ -34,9 +34,19 @@ async def test_coach_circuit_breaker_falls_back_without_backlog(monkeypatch):
 @pytest.mark.parametrize("profile,allowed", [(None, True), ("outbound-pstn-profile", False)])
 async def test_scoped_credential_must_not_bypass_backend_pstn_gate(profile, allowed):
     def handler(request):
+        # Documented shapes: the credential names its connection only as resource_id.
         if "/telephony_credentials/" in request.url.path:
-            return httpx.Response(200, json={"data": {"connection_id": "incoming-only"}})
-        return httpx.Response(200, json={"data": {"outbound": {"outbound_voice_profile_id": profile}}})
+            return httpx.Response(200, json={"data": {"resource_id": "connection:incoming-only"}})
+        assert request.url.path == "/v2/credential_connections/incoming-only"
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "sip_uri_calling_preference": "internal",
+                    "outbound": {"outbound_voice_profile_id": profile},
+                }
+            },
+        )
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         provider = TelnyxCarrier("secret", "callcontrol", http=client)
@@ -231,8 +241,13 @@ async def test_repeated_failed_provider_attempts_each_need_a_fresh_budget_hold(w
         },
     )
     service = c.app.state.service
+    # The ended call's hold settles to its estimate, so the base is measured after hangup.
+    assert c.post(f"/v1/calls/{call['id']}/hangup", headers=h).status_code == 200
     with service.db.transaction(False) as s:
-        base = sum(r.data.get("reserved_usd", 0) for r in service.scoped(s, "usage_ledger", workspace))
+        base = sum(
+            r.data["cost_usd"] if r.data.get("cost_usd") is not None else r.data.get("reserved_usd", 0)
+            for r in service.scoped(s, "usage_ledger", workspace)
+        )
     assert (
         c.put(
             "/v1/admin/budget",
@@ -252,7 +267,6 @@ async def test_repeated_failed_provider_attempts_each_need_a_fresh_budget_hold(w
             raise TimeoutError("No provider receipt")
 
     monkeypatch.setattr(service, "configured_coach", lambda *args: (Failing(), "openrouter"))
-    assert c.post(f"/v1/calls/{call['id']}/hangup", headers=h).status_code == 200
     for _ in range(3):
         await service.analyze_postcall(workspace, call["id"])
     assert len(calls) == 2

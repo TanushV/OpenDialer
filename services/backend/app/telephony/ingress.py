@@ -11,7 +11,11 @@ from sqlalchemy.exc import IntegrityError
 from app.db import MODELS, Job, emit, get, put, uid, update
 from app.privacy import RAW_TTL_SECONDS, event_metadata
 from app.service import dt, fail
+from app.telephony.reducer import TERMINAL
 from app.transcripts import normalize_transcription
+
+# Final segments of the rep's last utterance may trail the prospect hangup by a few seconds.
+AGENT_SPEECH_GRACE = 10
 
 
 class WebhookIngress:
@@ -65,7 +69,7 @@ class WebhookIngress:
             receipt_id, expires = receipt.id, dt(receipt.data["raw_expires_at"])
             scope = None
             if event["event_type"] == "call.transcription":
-                call = self._webhook_call(s, tenant_id, event["payload"])
+                call, _ = self._transcription_call(s, tenant_id, event["payload"])
                 if call:
                     p = {"tenant_id": tenant_id, "seller_id": call.seller_id}
                     scope = tenant_id + ":" + call.id
@@ -132,7 +136,7 @@ class WebhookIngress:
                     if result.get("unmatched"):
                         status = "unmatched"
                 else:
-                    call = self._webhook_call(s, tenant_id, data["payload"])
+                    call, _ = self._transcription_call(s, tenant_id, data["payload"])
                     if call and self.speech_revoked(
                         s, {"tenant_id": tenant_id, "seller_id": call.seller_id}, call
                     ):
@@ -168,17 +172,6 @@ class WebhookIngress:
                     processed_at=self.clock().isoformat() if status == "processed" else None,
                 )
 
-    async def _apply_webhook(self, tenant_id, receipt, payload):
-        # Also used by the isolated carrier-fixture driver; live processing owns the inbox transaction.
-        def apply():
-            raw_writes = []
-            with self.db.transaction() as s:
-                result = self._apply_webhook_in(s, tenant_id, receipt, payload, raw_writes)
-            self._publish_transcripts(raw_writes)
-            return result
-
-        return await asyncio.to_thread(apply)
-
     def _webhook_call(self, s, tenant_id, payload):
         provider_id = payload.get("call_control_id")
         if not isinstance(provider_id, str) or not provider_id:
@@ -209,8 +202,55 @@ class WebhookIngress:
                 pass
         return call
 
+    def _transcription_call(self, s, tenant_id, payload):
+        """Return (call, leg). The persistent agent leg names its call in transcription client state."""
+        call = self._webhook_call(s, tenant_id, payload)
+        if call:
+            return call, "prospect"
+        provider_id = payload.get("call_control_id")
+        try:
+            context = json.loads(base64.b64decode(payload.get("client_state", "")))
+        except (ValueError, TypeError):
+            context = None
+        if (
+            isinstance(provider_id, str)
+            and provider_id
+            and isinstance(context, dict)
+            and context.get("tenant_id") == tenant_id
+            and isinstance(context.get("transcript_call_id"), str)
+        ):
+            call = get(s, "call_attempts", context["transcript_call_id"], tenant_id)
+            if call and call.data.get("agent_provider_id") == provider_id:
+                return call, "agent"
+        return None, None
+
+    def _agent_transcript_in(self, s, call, receipt, payload, raw_writes):
+        """Rep speech from the agent leg: no reducer event, no prospect-leg identity binding."""
+        received = dt(receipt["received_at"])
+        ended = dt(call.data.get("ended_at"))
+        if (
+            call.data["state"] in TERMINAL
+            and ended
+            and (received - ended).total_seconds() > AGENT_SPEECH_GRACE
+        ):
+            # The agent leg outlives the call; later speech belongs to no prospect conversation.
+            return {"received": True, "ignored": "speech_after_call"}
+        p = {"tenant_id": call.tenant_id, "seller_id": call.seller_id, "user_id": call.data["rep_id"]}
+        p["role"] = "rep"
+        leg = "agent" if call.data.get("transcription_layout") == "leg_inbound" else None
+        for segment in normalize_transcription(payload, call.id, receipt["event_id"], leg=leg):
+            segment.pop("content_hash", None)
+            segment.pop("call_id", None)
+            self._transcript_in(s, p, call.id, segment, received, raw_writes)
+        return {"received": True, "agent_transcript": True}
+
     def _apply_webhook_in(self, s, tenant_id, receipt, payload, raw_writes):
         event_type, event_id = receipt["event_type"], receipt["event_id"]
+        leg = None
+        if event_type == "call.transcription":
+            call, leg = self._transcription_call(s, tenant_id, payload)
+            if leg == "agent":
+                return self._agent_transcript_in(s, call, receipt, payload, raw_writes)
         if self.agent_event(tenant_id, payload, event_type, session=s):
             return {"received": True, "agent_event": True}
         if self.inbound_event(tenant_id, payload, event_type, session=s, receipt=receipt):
@@ -240,18 +280,14 @@ class WebhookIngress:
         result = self.event(p, event_id, normalized_type, call_id, event_payload, session=s)
         # Reducer deduplication does not imply transcript processing completed.
         if event_type == "call.transcription":
-            for segment in normalize_transcription(payload, call_id, event_id):
+            layout = call.data.get("transcription_layout") == "leg_inbound"
+            for segment in normalize_transcription(payload, call_id, event_id, leg=leg if layout else None):
                 segment.pop("content_hash", None)
                 segment.pop("call_id", None)
                 self._transcript_in(s, p, call_id, segment, dt(receipt["received_at"]), raw_writes)
         if event_type == "call.hangup":
-            self.jobs.enqueue_in(
-                s,
-                "postcall",
-                {"call_id": call_id, "seller_id": p["seller_id"], "user_id": p["user_id"]},
-                "postcall-webhook:" + event_id,
-                tenant_id=tenant_id,
-            )
+            # The call row is locked by the event write above, as the finalize enqueue requires.
+            self.enqueue_finalize(s, p, call, "webhook")
         return result
 
     def queue_unfinished_webhooks(self):

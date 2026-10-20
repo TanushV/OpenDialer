@@ -108,6 +108,18 @@ def test_competing_updates_cannot_silently_overwrite_a_newer_record(workspace, a
         second.rollback()
 
 
+def next_after_scan(workspace, limit=5):
+    """Follow retryable scan continuations, as a client must, within a fixed bound."""
+    for _ in range(limit):
+        result = workspace["client"].post(
+            "/v1/queue/next", headers=workspace["headers"], json={"campaign_id": workspace["campaign_id"]}
+        )
+        detail = result.json().get("detail") if result.status_code == 409 else None
+        if not (isinstance(detail, dict) and detail.get("code") == "QUEUE_SCAN_CONTINUES"):
+            return result
+    raise AssertionError("Queue scan did not finish within the bounded continuations")
+
+
 def test_denied_first_page_does_not_hide_eligible_work(workspace, app, clock):
     from datetime import timedelta
 
@@ -138,9 +150,9 @@ def test_denied_first_page_does_not_hide_eligible_work(workspace, app, clock):
                 },
             )
         allowed_id = allowed.id
-    result = workspace["client"].post(
-        "/v1/queue/next", headers=workspace["headers"], json={"campaign_id": workspace["campaign_id"]}
-    )
+    # Each request reads at most three 32-lead pages; a retryable continuation resumes from the
+    # saved cursor, so 280 denied leads ahead of it cannot hide the eligible one.
+    result = next_after_scan(workspace)
     assert result.status_code == 200, result.text
     assert result.json()["lead"]["id"] == allowed_id
 
@@ -182,8 +194,6 @@ def test_bounded_scan_reports_exhaustion_after_all_pages_are_denied(workspace, a
             update(lead, outreach_hold=True)
         for i in range(280):
             put(s, "leads", p["tenant_id"], p["seller_id"], {**leads[0].data, "name": str(i)})
-    result = workspace["client"].post(
-        "/v1/queue/next", headers=workspace["headers"], json={"campaign_id": workspace["campaign_id"]}
-    )
+    result = next_after_scan(workspace)
     assert result.status_code == 409
     assert result.json()["detail"]["code"] == "NO_ELIGIBLE_LEADS"

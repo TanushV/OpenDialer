@@ -8,7 +8,7 @@ from app.compliance.operating import authority_stamp, screening_key
 from app.compliance.policy import authorize
 from app.compliance.registry import RegistryBitmap
 from app.db import MODELS, get, put, update
-from conftest import ready
+from conftest import ready, reserve
 from sqlalchemy import select
 from test_context_reads import count_decrypted
 from test_remediation_privacy import principal
@@ -469,11 +469,14 @@ def test_new_registry_publication_between_ranking_and_claim_is_authoritative(wor
         },
     )
     assert response.status_code == 200, response.text
-    from fastapi import HTTPException
+    from app.scheduling.queue import SelectionChanged
 
-    with pytest.raises(HTTPException) as denied:
+    # The claim-time recheck is authoritative; it now hands back to bounded reselection.
+    with pytest.raises(SelectionChanged) as denied:
         service._claim_selection(p, workspace["campaign_id"], selection)
-    assert denied.value.status_code == 403 and "REGISTRY_LISTED" in denied.value.detail
+    assert "REGISTRY_LISTED" in denied.value.args[0]
+    packet = reserve(workspace)
+    assert packet.status_code != 200 or packet.json()["lead"]["id"] != lead.id
 
 
 def test_registry_replacement_does_not_rewrite_retired_source_history(workspace, app, clock, monkeypatch):

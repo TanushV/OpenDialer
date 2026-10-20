@@ -1,10 +1,9 @@
 """Bounded queue reads, batched ranking, and a short authoritative resource claim."""
 
-import secrets
 from collections import OrderedDict
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
-from sqlalchemy import delete, func, or_, select, tuple_
+from sqlalchemy import and_, delete, or_, select, tuple_
 
 from app.compliance.policy import authorize
 from app.db import MODELS, ActiveClaim, audit, doc, emit, prefetch, put, update
@@ -19,6 +18,10 @@ from app.optimization.learning import (
 from app.optimization.numbering import select_number, timestamp
 from app.scheduling.models import company_group, profile_current, saved_prediction
 from app.scheduling.policy import queue_decision, rank_candidates
+
+# Top K per page: only these leads and their endpoints are decrypted, scored and checked.
+# Another page is read only when every candidate on this one is denied.
+PAGE_SIZE, PAGES = 32, 3
 
 
 class SelectionChanged(Exception):
@@ -95,24 +98,22 @@ class ReservationPlanner:
 
         # Keyset pages bound each request while preserving progress past denied candidates.
         # This is a ranking hint only; every eventual claim rechecks permission.
+        # A pass starts at the head and may continue over several requests; reaching its end
+        # reports exhaustion, and the next request starts a fresh pass at the head, so newly due
+        # or changed work there is never skipped.
         cursors = self.__dict__.setdefault("_queue_cursors", OrderedDict())
         key = (p["tenant_id"], p["seller_id"], p["user_id"], campaign_id)
-        after = cursors.pop(key, None)
-        revisit_head = after is not None
-        reasons = set()
-        for _ in range(4):
+        after, reasons = cursors.pop(key, (None, frozenset()))
+        reasons = set(reasons)
+        for _ in range(PAGES):
             plan, last, denied, complete = self._selection_page(p, campaign_id, after)
             reasons.update(denied)
             if plan:
                 return plan
             if complete:
-                if revisit_head:
-                    # Revisit the head once so newly due/changed work is not skipped.
-                    after, revisit_head = None, False
-                    continue
                 fail(409, {"code": "NO_ELIGIBLE_LEADS", "reasons": sorted(reasons)})
             after = last
-        cursors[key] = after
+        cursors[key] = (after, frozenset(reasons))
         while len(cursors) > 256:
             cursors.popitem(last=False)
         fail(409, {"code": "QUEUE_SCAN_CONTINUES", "reasons": sorted(reasons), "retryable": True})
@@ -121,11 +122,20 @@ class ReservationPlanner:
         from app.service import fail
 
         now, model = self.clock(), MODELS["leads"]
-        order = (
-            -func.coalesce(model.op_priority, 0),
-            func.coalesce(model.op_coverage_at, datetime(1970, 1, 1, tzinfo=UTC)),
-            model.id,
-        )
+        # Exactly ix_leads_queue: promised callbacks (2), requested contact (1), then coverage
+        # deadline order (overdue first). Only these top K rows are read and decrypted.
+        page = []
+        if after is not None:
+            priority, coverage, identity = after
+            page.append(
+                or_(
+                    model.op_priority < priority,
+                    and_(
+                        model.op_priority == priority,
+                        tuple_(model.op_coverage_at, model.id) > tuple_(coverage, identity),
+                    ),
+                )
+            )
         with self.db.transaction(False) as s:
             leads = list(
                 s.scalars(
@@ -136,10 +146,10 @@ class ReservationPlanner:
                         model.op_campaign_id == campaign_id,
                         model.op_status == "eligible",
                         or_(model.op_due_at <= now, model.op_due_at.is_(None)),
-                        *([tuple_(*order) > tuple_(*after)] if after is not None else []),
+                        *page,
                     )
-                    .order_by(*order)
-                    .limit(256)
+                    .order_by(model.op_priority.desc(), model.op_coverage_at, model.id)
+                    .limit(PAGE_SIZE)
                 )
             )
             self._queue_context(s, p, campaign_id, leads)
@@ -260,21 +270,12 @@ class ReservationPlanner:
                     }
                     for c in probes
                 ],
-                now=now,
-                draw=secrets.randbelow(1000000) / 1000000,
+                now=now,  # The cohort draw is the candidate's stable hash, not process randomness.
             )
             if not selection:
                 last = leads[-1] if leads else None
-                cursor = (
-                    (
-                        -(last.op_priority or 0),
-                        last.op_coverage_at or datetime(1970, 1, 1, tzinfo=UTC),
-                        last.id,
-                    )
-                    if last
-                    else None
-                )
-                return None, cursor, denied, len(leads) < 256
+                cursor = (last.op_priority, last.op_coverage_at, last.id) if last else None
+                return None, cursor, denied, len(leads) < PAGE_SIZE
             identifier = selection["lead_id"]
             return (
                 {
@@ -298,13 +299,14 @@ class ReservationPlanner:
     def reserve(self, p, campaign_id):
         from app.service import fail
 
+        reasons = set()
         for _ in range(3):
             plan = self._selection(p, campaign_id)
             try:
                 return self._claim_selection(p, campaign_id, plan)
-            except SelectionChanged:
-                continue
-        fail(409, {"code": "QUEUE_CHANGED", "retryable": True})
+            except SelectionChanged as changed:
+                reasons.update(*changed.args)
+        fail(409, {"code": "QUEUE_CHANGED", "retryable": True, "reasons": sorted(reasons)})
 
     def _claim_selection(self, p, campaign_id, plan):
         from app.service import fail
@@ -347,7 +349,8 @@ class ReservationPlanner:
             )
             decision = authorize(self.context(s, p, lead, number))
             if not decision.allowed:
-                fail(403, decision.reasons)
+                # Eligibility changed after ranking; select again within the bounded retry.
+                raise SelectionChanged(decision.reasons)
             campaign = self.required(s, "campaigns", campaign_id, p)
             config = self.optimization_config(s, p, campaign_id)
             if campaign.data["policy_id"] != plan["policy_id"] or any(

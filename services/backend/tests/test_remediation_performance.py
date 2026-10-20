@@ -228,6 +228,101 @@ def test_next_lead_query_count_does_not_grow_per_candidate(workspace, app):
     assert len(queries) <= 30, {"queries": len(queries), "elapsed": time.perf_counter() - begun}
 
 
+def load_leads(workspace, count, **fields):
+    c, h = workspace["client"], workspace["headers"]
+    records = [
+        {
+            "name": f"Load {i}",
+            "phone": f"+1415{5600000 + i:07d}",
+            "company": "Load fixture",
+            "timezone": "America/Los_Angeles",
+            **fields,
+        }
+        for i in range(count)
+    ]
+    r = c.post("/v1/leads/import", headers=h, json={"campaign_id": workspace["campaign_id"], "rows": records})
+    assert r.status_code == 200, r.text
+    return r.json()["leads"]
+
+
+def measured_selection(workspace, app, monkeypatch):
+    from test_context_reads import count_decrypted
+
+    c, h = workspace["client"], workspace["headers"]
+    ready(workspace)
+    queries = []
+
+    def count(*args):
+        queries.append(args[2])
+
+    decrypted = count_decrypted(app, monkeypatch)
+    event.listen(app.state.db.engine, "before_cursor_execute", count)
+    try:
+        response = c.post("/v1/queue/next", headers=h, json={"campaign_id": workspace["campaign_id"]})
+    finally:
+        event.remove(app.state.db.engine, "before_cursor_execute", count)
+    assert response.status_code == 200, response.text
+    return response.json(), len(queries), len(decrypted)
+
+
+def test_next_lead_decrypts_a_bounded_top_k_not_the_whole_page(workspace, app, monkeypatch):
+    load_leads(workspace, 500)
+    _, statements, decrypted = measured_selection(workspace, app, monkeypatch)
+    assert statements <= 30, statements
+    assert decrypted <= 130, decrypted  # 794 before: 256 leads, 256 endpoints, then context
+
+
+def test_next_lead_page_query_is_served_in_index_order(workspace, app):
+    from sqlalchemy import text
+
+    load_leads(workspace, 50)
+    with app.state.db.engine.connect() as connection:
+        plan = connection.execute(
+            text(
+                "EXPLAIN QUERY PLAN SELECT id FROM leads WHERE tenant_id=:t AND seller_id=:s AND "
+                "op_campaign_id=:c AND op_status='eligible' AND (op_due_at <= :n OR op_due_at IS NULL) "
+                "ORDER BY op_priority DESC, op_coverage_at, id LIMIT 32"
+            ),
+            {
+                "t": workspace["tenant_id"],
+                "s": workspace["seller_id"],
+                "c": workspace["campaign_id"],
+                "n": "9999",
+            },
+        ).all()
+    details = " ".join(str(row[-1]) for row in plan)
+    assert "ix_leads_queue" in details and "TEMP B-TREE" not in details, details
+
+
+def test_due_callback_outranks_every_coverage_lead_beyond_the_top_k(workspace, app, monkeypatch, clock):
+    from app.db import get, update
+
+    leads = load_leads(workspace, 120)
+    last = leads[-1]["id"]
+    with app.state.db.transaction() as s:
+        update(
+            get(s, "leads", last),
+            callback_due_at=clock.now.isoformat(),
+            callback_owner_id=workspace["user_id"],
+            coverage_due_at=(clock.now + timedelta(days=30)).isoformat(),
+        )
+    packet, _, _ = measured_selection(workspace, app, monkeypatch)
+    assert packet["lead"]["id"] == last
+
+
+def test_denied_head_of_queue_does_not_starve_later_eligible_leads(workspace, app, monkeypatch, clock):
+    from app.db import get, update
+
+    leads = load_leads(workspace, 80)
+    with app.state.db.transaction() as s:
+        for lead in leads[:70]:
+            update(get(s, "leads", lead["id"]), timezone=None, timezone_confidence="unknown")
+        for lead in leads[70:]:
+            update(get(s, "leads", lead["id"]), coverage_due_at=(clock.now + timedelta(days=9)).isoformat())
+    packet, _, _ = measured_selection(workspace, app, monkeypatch)
+    assert packet["lead"]["id"] not in {lead["id"] for lead in leads[:70]}
+
+
 def test_cached_report_does_not_run_future_scheduling_on_view(workspace, app, monkeypatch):
     c, h = workspace["client"], workspace["headers"]
     c.post("/v1/admin/optimization/refresh", headers=h)

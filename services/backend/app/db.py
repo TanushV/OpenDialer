@@ -59,7 +59,7 @@ _DATABASE_LOOKUP_KEY = contextvars.ContextVar("opendialer_database_lookup_key", 
 STARTUP_CONTRACT = "completion-0017-raw2-v2"
 # Additive schema heads reuse the business cutover contract above; a store
 # behind this head is upgraded, a store at it skips re-initialization.
-SCHEMA_HEAD = "0018_job_due_probe"
+SCHEMA_HEAD = "0019_lead_queue_order"
 
 
 def database_cipher(key):

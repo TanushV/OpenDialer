@@ -291,13 +291,9 @@ def test_inbound_unavailable_rep_has_actual_fallback_action(workspace, app, carr
     service.vault.write(
         workspace["tenant_id"], {"inbound_fallback_destination": "sip:reception@example.test"}
     )
-    result = asyncio.run(
-        service.inbound_callback(
-            workspace["tenant_id"],
-            {"call_control_id": "incoming-fallback", "to": "+14155550100", "from": "+14155550101"},
-            "fallback-event",
-        )
-    )
+    from test_inbound_completion import incoming
+
+    result = incoming(workspace, provider_id="incoming-fallback", event_id="fallback-event")
     asyncio.run(service.dispatch_controls(p(workspace)))
     assert result["route"] in {"business_fallback", "callback_queue"}
     assert any(

@@ -13,7 +13,7 @@ from app.service import dt, fail
 from app.telephony.recovery import CALL_COMMAND_KINDS, call_receipt
 from app.telephony.reducer import owns_effect
 
-UNFINISHED = {"pending", "sending", "uncertain", "reconciling", "review_required"}
+UNFINISHED = {"pending", "sending", "uncertain", "reconciling", "review_required", "unconfirmed"}
 
 
 def error_code(value, fallback):
@@ -141,6 +141,7 @@ class RecoveryActions:
                         and not data.get("sent_at")
                         and not data.get("submitted_at"),
                         "can_end": bool(target),
+                        "can_confirm_not_placed": data["status"] == "unconfirmed" and not target,
                     }
                 )
             jobs = []
@@ -199,7 +200,20 @@ class RecoveryActions:
                 or len(failed) == 200,
             }
 
-    def _recovery_action(self, p, identity, expected_version, action):
+    def _confirm_not_placed(self, s, p, call, reason):
+        """Operator attestation, from the carrier account, that an unconfirmed dial never rang."""
+        if call.data.get("provider_id") or call.data["state"] != "DIAL_UNCONFIRMED":
+            fail(409, "Only an unconfirmed dial without a carrier reference can be confirmed as not placed")
+        for key in (call.id, call.id + ":hangup"):
+            command = self._by_key(s, p, "command_outbox", key)
+            if command and command.data.get("status") in UNFINISHED:
+                update(
+                    command, status="cancelled", recovery_reason="Operator confirmed not placed: " + reason
+                )
+        update(call, not_placed_reason=reason, not_placed_by=p["user_id"])
+        self.finish_call(s, p, call, "operator_confirmed_not_placed")
+
+    def _recovery_action(self, p, identity, expected_version, action, reason=None):
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             command = self.required(s, "command_outbox", identity, p)
@@ -215,7 +229,11 @@ class RecoveryActions:
             call = self.required(
                 s, "followup_tasks" if data.get("inbound") else "call_attempts", data["call_id"], p
             )
-            if action == "cancel_unsent":
+            if action == "confirm_not_placed":
+                if data["status"] != "unconfirmed" or data.get("inbound"):
+                    fail(409, "Carrier evidence may still arrive; wait for the dial to become unconfirmed")
+                self._confirm_not_placed(s, p, call, reason)
+            elif action == "cancel_unsent":
                 if data["status"] != "pending" or data.get("sent_at") or data.get("submitted_at"):
                     fail(409, "A possibly submitted effect cannot be canceled as unsent")
                 update(command, status="cancelled", recovery_reason="Operator canceled unsent intent")
@@ -240,11 +258,18 @@ class RecoveryActions:
                         update(call, state="ENDING")
                 update(command, recovery_reason="Stop requested; awaiting terminal carrier evidence")
             audit(
-                s, p["tenant_id"], p["seller_id"], p["user_id"], "recovery." + action, identity, self.clock()
+                s,
+                p["tenant_id"],
+                p["seller_id"],
+                p["user_id"],
+                "recovery." + action,
+                identity,
+                self.clock(),
+                {"reason": reason} if reason else None,
             )
             return doc(command)
 
-    async def recovery_action(self, p, identity, expected_version, action, provider_id=None):
+    async def recovery_action(self, p, identity, expected_version, action, provider_id=None, reason=None):
         def kind():
             with self.db.transaction(False) as s:
                 return self.required(s, "command_outbox", identity, p).data.get("kind")
@@ -259,7 +284,7 @@ class RecoveryActions:
             return await self.reconcile_command(
                 p, identity, provider_id=provider_id, expected_version=expected_version
             )
-        result = await asyncio.to_thread(self._recovery_action, p, identity, expected_version, action)
+        result = await asyncio.to_thread(self._recovery_action, p, identity, expected_version, action, reason)
         if action == "end_call":
             await self.dispatch_controls(p)
         return result

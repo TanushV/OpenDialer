@@ -6,23 +6,26 @@ import json
 import logging
 import threading
 from datetime import datetime, timedelta
+from decimal import ROUND_HALF_EVEN, Decimal
 from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import HTTPException
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 
 from app.compliance.phone import normalize_phone
 from app.compliance.policy import CallContext, authorize
 from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, rows, uid, update
 from app.jobs.queue import JobQueue
-from app.optimization.numbering import select_number
 from app.privacy import event_metadata
-from app.providers.simulated import SimulatedCarrier
+from app.providers.simulated import CarrierNotSubmitted, SimulatedCarrier
 from app.providers.telnyx import TelnyxCarrier
 from app.scheduling.queue import ReservationPlanner
 from app.security import PASSWORDS, Vault, issue_session
 from app.telephony.reducer import TERMINAL, owns_effect, reduce_state
+
+# Telnyx detection modes that report `beep_detected` (greeting_end reports only `ended`).
+AMD_MODES = {"detect_beep", "detect_words", "premium"}
 
 
 def dt(value):
@@ -489,7 +492,10 @@ class Service(ReservationPlanner):
             ]
 
     def budget_ok(self, s, p, estimated=0.001):
-        from sqlalchemy import case, func
+        from sqlalchemy import BigInteger, case, cast, func
+
+        def micro(value):
+            return int((Decimal(str(value)) * 1_000_000).to_integral_value(ROUND_HALF_EVEN))
 
         budget = self.scoped(s, "budgets", p)[0].data
         now = self.clock()
@@ -501,10 +507,13 @@ class Service(ReservationPlanner):
         key = ("budget_totals", p["tenant_id"], p["seller_id"])
         totals = s.info.get(key)
         if totals is None:
+            # Each stored amount is rounded to whole micro-dollars before summing, so totals are
+            # exact integers rather than accumulated binary floating point.
+            amount = cast(func.round(usage.op_amount * 1_000_000), BigInteger)
             totals = s.execute(
                 select(
-                    func.coalesce(func.sum(case((usage.op_at >= day, usage.op_amount), else_=0)), 0),
-                    func.coalesce(func.sum(usage.op_amount), 0),
+                    func.coalesce(func.sum(case((usage.op_at >= day, amount), else_=0)), 0),
+                    func.coalesce(func.sum(amount), 0),
                 ).where(
                     usage.tenant_id == p["tenant_id"],
                     usage.seller_id == p["seller_id"],
@@ -514,9 +523,10 @@ class Service(ReservationPlanner):
             ).one()
             if "row_cache" in s.info:
                 s.info[key] = totals
-        daily, monthly = totals
-        return daily + estimated <= budget.get("daily_limit_usd", 0) and monthly + estimated <= budget.get(
-            "monthly_limit_usd", 0
+        daily, monthly = (int(total) for total in totals)
+        extra = micro(estimated)
+        return daily + extra <= micro(budget.get("daily_limit_usd", 0)) and monthly + extra <= micro(
+            budget.get("monthly_limit_usd", 0)
         )
 
     def context(self, s, p, lead, number, *, permission="live", active=False):
@@ -636,6 +646,16 @@ class Service(ReservationPlanner):
             now=self.clock(),
         )
 
+    def final_voicemail_possible(self, s, p, lead, number, policy):
+        """Policy and permission allow a message; the caller supplies the final-attempt fact."""
+        return bool(
+            policy.get("voicemail_enabled")
+            and policy.get("voicemail_optout_supported")
+            and policy.get("approved_assets")
+            and policy.get("answering_machine_detection", "detect_beep") in AMD_MODES
+            and authorize(self.context(s, p, lead, number, permission="prerecorded", active=True)).allowed
+        )
+
     def agent_leg_in(self, s, p, *, provider_id=None, leg_id=None, rep_id=None, active=False):
         model = MODELS["call_legs"]
         query = select(model).where(model.tenant_id == p["tenant_id"])
@@ -689,11 +709,14 @@ class Service(ReservationPlanner):
             update(user, presence={**user.data.get("presence", {}), **data, "at": self.clock().isoformat()})
             return user.data["presence"]
 
+    def _expirable(self):
+        # Unstarted reservations, and inbound routing claims (keyed by their task) past the
+        # carrier call time limit, which no live inbound leg can outlast.
+        return or_(ActiveClaim.call_id.is_(None), ActiveClaim.call_id == ActiveClaim.reservation_id)
+
     def _expired_claims(self):
-        """Unstarted claims whose reservation lapsed; one row per rep at most."""
-        return select(ActiveClaim.id).where(
-            ActiveClaim.call_id.is_(None), ActiveClaim.expires_at <= self.clock()
-        )
+        """Lapsed claims that no carrier leg can still need; one row per rep at most."""
+        return select(ActiveClaim.id).where(self._expirable(), ActiveClaim.expires_at <= self.clock())
 
     def _expire_claims(self, s):
         # One bounded statement instead of loading every tenant's claims. The outer
@@ -702,24 +725,23 @@ class Service(ReservationPlanner):
             delete(ActiveClaim)
             .where(
                 ActiveClaim.id.in_(self._expired_claims().limit(500)),
-                ActiveClaim.call_id.is_(None),
+                self._expirable(),
                 ActiveClaim.expires_at <= self.clock(),
             )
             .execution_options(synchronize_session=False)
         )
 
-    def choose_number(self, s, p, lead):
-        bindings = [r for r in self.scoped(s, "lead_number_bindings", p) if r.data["lead_id"] == lead.id]
-        selection = select_number(
-            doc(lead),
-            self.inventory_evidence(s, p),
-            bound_id=bindings[0].data["number_id"] if bindings else None,
-        )
-        return (
-            get(s, "number_inventory", selection["number_id"], p["tenant_id"])
-            if selection["number_id"]
-            else None
-        )
+    def agent_ready_in(self, s, p):
+        """The rep's audio leg that the dial links to, rechecked at start rather than assumed."""
+        presence = self.required(s, "users", p["user_id"], p).data.get("presence", {})
+        agent = presence.get("agent_call_control_id")
+        ready = bool(agent and presence.get("audio_ready") and presence.get("telephony_ready"))
+        if ready and not self.settings.simulation:
+            leg = self.agent_leg_in(s, p, provider_id=agent, rep_id=p["user_id"])
+            ready = bool(leg and leg.data.get("state") == "answered")
+        if not ready:
+            fail(409, {"code": "REP_AUDIO_NOT_READY", "message": "Reconnect rep audio, then start the call"})
+        return agent
 
     def _prepare_call(self, p, data):
         now = self.clock()
@@ -743,6 +765,7 @@ class Service(ReservationPlanner):
             claim = s.scalar(select(ActiveClaim).where(ActiveClaim.reservation_id == reservation.id))
             if not claim:
                 fail(409, "Reservation claim is no longer valid")
+            agent = self.agent_ready_in(s, p)
             lead = self.required(s, "leads", reservation.data["lead_id"], p)
             number = self.required(s, "number_inventory", reservation.data["number_id"], p)
             decision = authorize(self.context(s, p, lead, number))
@@ -787,11 +810,12 @@ class Service(ReservationPlanner):
             )
             claim.call_id = call.id
             update(reservation, status="active", call_id=call.id)
-            presence = self.required(s, "users", p["user_id"], p).data["presence"]
+            # The persistent agent leg carries the rep's own speech stream for this call.
+            update(call, agent_provider_id=agent)
             payload = {
                 "to": lead.data["phone"],
                 "from": number.data["phone"],
-                "link_to": presence["agent_call_control_id"],
+                "link_to": agent,
                 "bridge_on_answer": True,
                 "park_after_unbridge": "self",
                 "prevent_double_bridge": True,
@@ -874,22 +898,6 @@ class Service(ReservationPlanner):
                 update(command, status="cancelled", reasons=decision.reasons)
                 self.finish_call(s, p, call, "policy_cancelled")
                 return
-            payload = command.data["payload"]
-            update(
-                command,
-                status="sending",
-                attempts=1,
-                submitted_at=self.clock().isoformat(),
-                sent_at=self.clock().isoformat(),
-                lease_owner=owner,
-                lease_until=(self.clock() + timedelta(seconds=30)).isoformat(),
-            )
-            update(
-                call,
-                state="DIALING",
-                submission_decision_id=submission_decision.id,
-                submitted_at=self.clock().isoformat(),
-            )
             policy = self.required(
                 s,
                 "policy_versions",
@@ -898,6 +906,32 @@ class Service(ReservationPlanner):
             )
             ordinal = lead.data.get("attempt_count", 0) + 1
             allowance = max(lead.data.get("attempt_allowance", 0), policy.data.get("max_attempts", 4))
+            payload = command.data["payload"]
+            if ordinal >= allowance and self.final_voicemail_possible(s, p, lead, number, policy.data):
+                # Only this dial may leave a message, so only it pays for beep detection.
+                # Bridging still happens on answer; detection runs beside the live conversation.
+                mode = policy.data.get("answering_machine_detection", "detect_beep")
+                payload = {**payload, "answering_machine_detection": mode}
+                update(command, payload=payload)
+            update(
+                command,
+                status="sending",
+                attempts=1,
+                submitted_at=self.clock().isoformat(),
+                sent_at=self.clock().isoformat(),
+                lease_owner=owner,
+                lease_until=(self.clock() + timedelta(seconds=30)).isoformat(),
+                # Restored only if the request provably never reached the carrier.
+                prior_attempt={
+                    k: lead.data.get(k) for k in ("attempt_count", "last_attempt_at", "next_attempt_at")
+                },
+            )
+            update(
+                call,
+                state="DIALING",
+                submission_decision_id=submission_decision.id,
+                submitted_at=self.clock().isoformat(),
+            )
             update(call, attempt_ordinal=ordinal, attempt_allowance=allowance)
             update(
                 lead,
@@ -919,15 +953,22 @@ class Service(ReservationPlanner):
             s.refresh(command, with_for_update=True)
             call = self.required(s, "call_attempts", call_id, p)
             if owns_effect(command.data, owner, self.clock()) and command.data["status"] == "sending":
+                unsent = isinstance(exc, CarrierNotSubmitted)
                 rejected = isinstance(exc, httpx.HTTPStatusError) and 400 <= exc.response.status_code < 500
                 update(
                     command,
-                    status="failed" if rejected else "uncertain",
+                    status="failed" if rejected or unsent else "uncertain",
                     error=type(exc).__name__,
                     lease_owner=None,
                     lease_until=None,
                 )
-                if rejected:
+                if unsent:
+                    # Nothing reached the carrier: no contact, so the attempt is not counted.
+                    lead = self.required(s, "leads", call.data["lead_id"], p)
+                    if lead.data.get("attempt_count") == call.data.get("attempt_ordinal"):
+                        update(lead, **command.data.get("prior_attempt", {}))
+                    self.finish_call(s, p, call, "carrier_not_submitted")
+                elif rejected:
                     self.finish_call(s, p, call, "provider_rejected")
                 elif call.data["state"] == "DIALING" and not call.data.get("provider_id"):
                     update(call, state="RECONCILING")
@@ -973,7 +1014,11 @@ class Service(ReservationPlanner):
         if not claimed:
             return
         try:
-            provider = await asyncio.to_thread(self.carrier, p["tenant_id"])
+            try:
+                provider = await asyncio.to_thread(self.carrier, p["tenant_id"])
+            except Exception as exc:
+                # Configuration fails before any request exists; nothing can be live.
+                raise CarrierNotSubmitted(type(exc).__name__) from exc
             receipt = await provider.dial(claimed[3])
         except Exception as exc:
             await asyncio.to_thread(self._dial_failed, p, call_id, claimed[0], owner, exc)
@@ -991,9 +1036,14 @@ class Service(ReservationPlanner):
             command
             and command.data.get("call_id") == call.id
             and command.data.get("kind") == "dial"
-            and command.data.get("status") in {"sending", "uncertain", "reconciling", "review_required"}
+            and command.data.get("status")
+            in {"sending", "uncertain", "reconciling", "review_required", "unconfirmed"}
         ):
             update(command, status="completed", provider_id=provider_id, lease_owner=None, lease_until=None)
+        stop = self._by_key(s, p, "command_outbox", call.id + ":hangup")
+        if stop and stop.data.get("status") == "unconfirmed":
+            # A requested end that lacked a carrier reference can now stop the actual leg.
+            update(stop, status="pending", provider_id=provider_id, recovery_reason=None)
         prior = self._by_key(s, p, "call_legs", provider_id)
         if not prior:
             put(
@@ -1032,6 +1082,9 @@ class Service(ReservationPlanner):
                     update(leg, state="ENDED", ended_at=call.data.get("ended_at"))
         for claim in list(s.scalars(select(ActiveClaim).where(ActiveClaim.call_id == call.id))):
             s.delete(claim)
+        from app.billing import settle_call_estimate
+
+        settle_call_estimate(self, s, p, call)
         emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": call.data["state"]})
 
     def _claim_hangup(self, p, call_id, owner, recovery_expected=None):
@@ -1082,6 +1135,7 @@ class Service(ReservationPlanner):
                 else "Await the signed dial receipt or attach a verified carrier call reference",
             )
             update(call, state="ENDING")
+            self.stop_agent_transcription_in(s, p, call)
             self.journal_effect_in(
                 s,
                 p,
@@ -1097,32 +1151,31 @@ class Service(ReservationPlanner):
             return doc(call), {"id": existing.id, "provider_id": provider_id, "command_id": command_id}
 
     def _hangup_completed(self, p, call_id, command_id, owner, error=None):
+        """Record a sent stop's receipt (if any), then queue wrap-up once the call has ended."""
         with self.db.transaction() as s:
-            current = self.required(s, "command_outbox", command_id, p)
-            s.refresh(current, with_for_update=True)
-            if current.data["status"] != "sending" or not owns_effect(current.data, owner, self.clock()):
-                return
-            if error is not None:
-                update(current, status="uncertain", lease_owner=None, lease_until=None)
-            elif current.data["status"] == "sending":
-                update(current, status="completed", lease_owner=None, lease_until=None)
-                if self.settings.simulation:
-                    self.finish_call(
-                        s, p, self.required(s, "call_attempts", call_id, p), "simulated_hangup_receipt"
-                    )
-            self.journal_effect_in(s, p, "hangup", current.external_key, "receipt", [current], emergency=True)
-
-    def _hangup_result(self, p, call_id):
-        with self.db.transaction() as s:
+            current = self.required(s, "command_outbox", command_id, p) if command_id else None
+            if current:
+                s.refresh(current, with_for_update=True)
+            if (
+                current
+                and current.data["status"] == "sending"
+                and owns_effect(current.data, owner, self.clock())
+            ):
+                if error is not None:
+                    update(current, status="uncertain", lease_owner=None, lease_until=None)
+                else:
+                    update(current, status="completed", lease_owner=None, lease_until=None)
+                    if self.settings.simulation:
+                        self.finish_call(
+                            s, p, self.required(s, "call_attempts", call_id, p), "simulated_hangup_receipt"
+                        )
+                self.journal_effect_in(
+                    s, p, "hangup", current.external_key, "receipt", [current], emergency=True
+                )
             call = self.required(s, "call_attempts", call_id, p)
             if call.data["state"] in TERMINAL:
-                self.jobs.enqueue_in(
-                    s,
-                    "postcall",
-                    {"call_id": call_id, "seller_id": p["seller_id"], "user_id": p["user_id"]},
-                    "postcall:" + call_id + ":" + str(call.version),
-                    tenant_id=p["tenant_id"],
-                )
+                s.refresh(call, with_for_update=True)
+                self.enqueue_finalize(s, p, call, "hangup")
             return doc(call)
 
     async def hangup(self, p, call_id, *, recovery_expected=None):
@@ -1130,16 +1183,16 @@ class Service(ReservationPlanner):
         call, command = await asyncio.to_thread(self._claim_hangup, p, call_id, owner, recovery_expected)
         if not command:
             return call
+        error = None
         if command["provider_id"]:
             try:
                 provider = await asyncio.to_thread(self.carrier, p["tenant_id"])
                 await provider.hangup(command["provider_id"], command["command_id"])
             except Exception as exc:
-                await asyncio.to_thread(self._hangup_completed, p, call_id, command["id"], owner, exc)
+                error = exc
                 logging.getLogger(__name__).warning("Durable hangup pending: %s", type(exc).__name__)
-            else:
-                await asyncio.to_thread(self._hangup_completed, p, call_id, command["id"], owner)
-        return await asyncio.to_thread(self._hangup_result, p, call_id)
+        sent = command["id"] if command["provider_id"] else None
+        return await asyncio.to_thread(self._hangup_completed, p, call_id, sent, owner, error)
 
     def suppress(self, p, phone, reason, *, event_id=None, session=None):
         from app.compliance.suppressions import record
