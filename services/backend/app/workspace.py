@@ -3,7 +3,7 @@
 import hashlib
 import hmac
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, literal_column, or_, select
 
 from app.db import MODELS, ActiveClaim, Job, doc
 from app.operational_schema import PAGE_TABLES
@@ -49,7 +49,8 @@ class WorkspaceReads:
         local = self.settings.mode == "local"
         reasons = []
         for table, condition, reason in (
-            ("call_attempts", MODELS["call_attempts"].op_status.not_in(TERMINAL), "ACTIVE_CALL"),
+            # Recovery metadata is non-null for every nonterminal/unknown call.
+            ("call_attempts", MODELS["call_attempts"].op_due_at.is_not(None), "ACTIVE_CALL"),
             (
                 "call_legs",
                 MODELS["call_legs"].op_status.not_in([*TERMINAL, "ended", "failed", "cancelled"]),
@@ -237,7 +238,10 @@ class WorkspaceReads:
             owed = list(
                 s.scalars(
                     scoped_query(call_model, p)
-                    .where(call_model.op_owner_id == p["user_id"], call_model.op_status != "FINALIZED")
+                    .where(
+                        call_model.op_owner_id == p["user_id"],
+                        call_model.op_status != literal_column("'FINALIZED'"),
+                    )
                     .order_by(call_model.created_at.desc(), call_model.id.desc())
                     .limit(50)
                 )

@@ -1018,7 +1018,7 @@
         {
           "id": "E13.7",
           "task": "Full resource/performance targets and repairs",
-          "status": "Large diagnostic exposed repeated rep-day rebuild; regression red12 versus1 then green; SQLite126 passes/1skip, PostgreSQL running; diagnostic interruption retained"
+          "status": "Local 10k/100k elapsed load complete:180 successful cycles, due queues drained. Warm selection p95 329.46ms/workspace1056.19ms/writer201.55ms/event-state253.19ms miss targets; prior-source diagnostic retained. Repair actual SQL scans and profile remaining writes before repeating."
         },
         {
           "id": "E13.8",
@@ -1069,9 +1069,14 @@
           "id": "E13.admission-expiry",
           "task": "Reject elapsed live admission before budget/provider submission even if semaphore completion races timeout",
           "status": "Deterministic regression red, then original monotonic deadline and post-acquire rejection pass82 SQLite/44 PostgreSQL focused checks. Exact-source load/full freeze remains open."
+        },
+        {
+          "id": "E13.workspace-history",
+          "task": "Remove SQLite finalized-call scans from outstanding-call/quiescence reads; retain unknown/unfinished obligations and migrate indexes",
+          "status": "53 SQLite workspace/capability/migration passes(two native skips),23 PostgreSQL workspace passes(one VM skip),99 SQLite carrier/control passes(five PG-only skips). Three new carrier-ID regressions repaired; PostgreSQL scope pending. Diagnostic workspace48.79ms p95; final load remains open."
         }
       ],
-      "checkpoint": "E13: final scoped admission expiry repaired after deterministic red;82 SQLite/44 PostgreSQL green. ecea269 full CI/local elapsed load are still running and remain prior-source evidence. Complete current source full coverage/performance/frozen resources, then E14 updates; installed0.2.1 unchanged."
+      "checkpoint": "E13: current-call history scans repaired tests-first; scoped SQLite and workspace PostgreSQL green, provider PostgreSQL running. Measured SQLite writer contention has a new red regression and requires repair; exact-source full load/coverage/resources and native delivery still open."
     },
     {
       "id": "E14",

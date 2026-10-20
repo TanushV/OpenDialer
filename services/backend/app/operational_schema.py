@@ -243,6 +243,7 @@ def indexes(name):
         ),
         *(
             (
+                Index("ix_call_attempts_provider_identity", "tenant_id", "op_provider_id"),
                 Index(
                     "ix_call_attempts_work_overlap",
                     "tenant_id",
@@ -250,6 +251,26 @@ def indexes(name):
                     "op_owner_id",
                     "op_work_end_at",
                     "op_at",
+                ),
+                Index(
+                    "ix_call_attempts_open_owner_page",
+                    "tenant_id",
+                    "seller_id",
+                    "op_owner_id",
+                    "created_at",
+                    "id",
+                    sqlite_where=text("op_status != 'FINALIZED'"),
+                    postgresql_where=text("op_status != 'FINALIZED'"),
+                ),
+                Index(
+                    "ix_call_attempts_live_scope",
+                    "tenant_id",
+                    "op_due_at",
+                    "seller_id",
+                    "op_owner_id",
+                    "id",
+                    sqlite_where=text("op_due_at IS NOT NULL"),
+                    postgresql_where=text("op_due_at IS NOT NULL"),
                 ),
             )
             if name == "call_attempts"

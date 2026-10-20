@@ -72,6 +72,7 @@ def upgrade():
             "ix_work_intervals_overlap": ["tenant_id", "seller_id", "op_owner_id", "op_due_at", "op_at"]
         },
         "call_attempts": {
+            "ix_call_attempts_provider_identity": ["tenant_id", "op_provider_id"],
             "ix_call_attempts_work_overlap": [
                 "tenant_id",
                 "seller_id",
@@ -107,6 +108,27 @@ def upgrade():
         for index, columns in definitions.items():
             if index not in present:
                 op.create_index(index, name, columns)
+    present = {item["name"] for item in sa.inspect(op.get_bind()).get_indexes("call_attempts")}
+    for name, columns, predicate in (
+        (
+            "ix_call_attempts_open_owner_page",
+            ["tenant_id", "seller_id", "op_owner_id", "created_at", "id"],
+            "op_status != 'FINALIZED'",
+        ),
+        (
+            "ix_call_attempts_live_scope",
+            ["tenant_id", "op_due_at", "seller_id", "op_owner_id", "id"],
+            "op_due_at IS NOT NULL",
+        ),
+    ):
+        if name not in present:
+            op.create_index(
+                name,
+                "call_attempts",
+                columns,
+                sqlite_where=sa.text(predicate),
+                postgresql_where=sa.text(predicate),
+            )
 
 
 def downgrade():

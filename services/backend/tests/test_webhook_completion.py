@@ -17,6 +17,80 @@ from sqlalchemy import event as sql_event
 from sqlalchemy import select
 
 
+@pytest.mark.parametrize("present", [False, True])
+def test_provider_call_lookup_has_bounded_sql_work(workspace, app, clock, present):
+    service, p = app.state.service, principal(workspace)
+    if not service.db.sqlite:
+        pytest.skip("SQLite VM-work oracle; provider identity behavior is checked on both databases")
+    with service.db.transaction() as session:
+        for i in range(600):
+            put(
+                session,
+                "call_attempts",
+                p["tenant_id"],
+                p["seller_id"],
+                {"provider_id": f"historical-{i}", "state": "FINALIZED"},
+                now=clock.now,
+            )
+        target = put(
+            session,
+            "call_attempts",
+            p["tenant_id"],
+            p["seller_id"],
+            {"provider_id": "actual-target", "state": "DIALING"},
+            now=clock.now,
+        )
+        target_id = target.id
+    steps = [0]
+    with service.db.transaction(False) as session:
+        connection = session.connection().connection.driver_connection
+
+        def tick():
+            steps[0] += 1
+            return 0
+
+        connection.set_progress_handler(tick, 1)
+        try:
+            call = service._webhook_call(
+                session, p["tenant_id"], {"call_control_id": "actual-target" if present else "missing"}
+            )
+            assert (call.id if call else None) == (target_id if present else None)
+        finally:
+            connection.set_progress_handler(None, 0)
+    assert steps[0] < 200, "A tenant's call history must not be scanned for each event"
+
+
+def test_ambiguous_provider_call_cannot_apply_event_to_arbitrary_call(workspace, app, clock):
+    from fastapi import HTTPException
+    from sqlalchemy import inspect
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as session:
+        calls = [
+            put(
+                session,
+                "call_attempts",
+                p["tenant_id"],
+                p["seller_id"],
+                {"provider_id": "duplicate-provider-id", "state": "DIALING"},
+                now=clock.now,
+            )
+            for _ in range(2)
+        ]
+        target = calls[0].id
+    payload = {
+        "call_control_id": "duplicate-provider-id",
+        "client_state": base64.b64encode(json.dumps({"call_id": target}).encode()).decode(),
+    }
+    with service.db.transaction(False) as session, pytest.raises(HTTPException) as error:
+        service._webhook_call(session, p["tenant_id"], payload)
+    assert error.value.status_code == 409
+    assert "ambiguous" in str(error.value.detail).lower()
+    assert "ix_call_attempts_provider_identity" in {
+        row["name"] for row in inspect(service.db.engine).get_indexes("call_attempts")
+    }
+
+
 def principal(w):
     return {k: w[k] for k in ("tenant_id", "seller_id", "user_id")} | {"role": "owner"}
 

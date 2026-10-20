@@ -3,8 +3,8 @@
 from datetime import timedelta
 
 import pytest
-from app.db import ActiveClaim, Job, get, put, update
-from conftest import start
+from app.db import MODELS, ActiveClaim, Job, get, put, update
+from conftest import completed_home_metrics, start
 from sqlalchemy import inspect, select
 from test_context_reads import count_decrypted
 from test_remediation_privacy import principal
@@ -77,6 +77,98 @@ def fill(w, app, clock, count=130):
 
 def forbidden(*args, **kwargs):
     raise AssertionError("Ordinary workspace view performed full history/integrity work")
+
+
+def test_open_call_queries_skip_finalized_history_in_the_database(workspace, app, clock):
+    """Bound SQL work, not only decrypted rows: LIMIT alone hid a historical scan."""
+    from sqlalchemy import event
+
+    service, p = app.state.service, principal(workspace)
+    if not service.db.sqlite:
+        pytest.skip("SQLite VM work oracle; result/index parity is checked on both databases")
+    with service.db.transaction() as s:
+        for i in range(600):
+            put(
+                s,
+                "call_attempts",
+                p["tenant_id"],
+                p["seller_id"],
+                {"rep_id": p["user_id"], "state": "FINALIZED"},
+                now=clock.now + timedelta(seconds=i),
+            )
+    counts, active = [], [None]
+
+    def before(conn, cursor, statement, parameters, context, many):
+        if (
+            statement.startswith("SELECT")
+            and "FROM call_attempts" in statement
+            and (
+                "op_status !=" in statement or "LIMIT" in statement and "SELECT call_attempts.id" in statement
+            )
+        ):
+            counts.append([statement, 0])
+            active[0] = counts[-1]
+
+            def tick():
+                active[0][1] += 1
+                return 0
+
+            conn.connection.driver_connection.set_progress_handler(tick, 1)
+
+    def after(conn, *args):
+        conn.connection.driver_connection.set_progress_handler(None, 0)
+        active[0] = None
+
+    event.listen(service.db.engine, "before_cursor_execute", before)
+    event.listen(service.db.engine, "after_cursor_execute", after)
+    try:
+        result = service.snapshot(p)
+    finally:
+        event.remove(service.db.engine, "before_cursor_execute", before)
+        event.remove(service.db.engine, "after_cursor_execute", after)
+    assert result["quiescence"]["can_disconnect"]
+    assert len(counts) == 2, "Exercise both unfinished-call and authority-quiescence reads"
+    assert max(n for _, n in counts) < 300, counts
+
+
+def test_indexed_call_obligations_keep_old_unfinished_and_unknown_calls(workspace, app, clock):
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        lead = service.scoped(s, "leads", p)[0]
+        old = put(
+            s,
+            "call_attempts",
+            p["tenant_id"],
+            p["seller_id"],
+            {"lead_id": lead.id, "rep_id": p["user_id"], "state": "ENDED"},
+            now=clock.now - timedelta(days=5),
+        )
+        for _ in range(60):
+            put(
+                s,
+                "call_attempts",
+                p["tenant_id"],
+                p["seller_id"],
+                {"rep_id": p["user_id"], "state": "FINALIZED"},
+                now=clock.now,
+            )
+        unknown = put(
+            s,
+            "call_attempts",
+            p["tenant_id"],
+            p["seller_id"],
+            {"rep_id": p["user_id"], "state": "UNRECOGNIZED_RECOVERY_STATE"},
+            now=clock.now,
+        )
+        old_id, unknown_id = old.id, unknown.id
+    result = service.snapshot(p)
+    assert {old_id, unknown_id} <= {row["id"] for row in result["calls"]}
+    assert "ACTIVE_CALL" in result["quiescence"]["reasons"]
+    with service.db.transaction() as s:
+        update(get(s, "call_attempts", unknown_id), state="FINALIZED")
+    assert service.snapshot(p)["quiescence"]["can_disconnect"]
+    names = {i["name"] for i in inspect(service.db.engine).get_indexes("call_attempts")}
+    assert {"ix_call_attempts_open_owner_page", "ix_call_attempts_live_scope"} <= names
 
 
 def test_workspace_refresh_never_computes_history_or_full_integrity(workspace, app, monkeypatch):
@@ -256,6 +348,7 @@ def test_rep_call_pages_and_cursors_cannot_expose_another_rep(workspace, app, cl
 
 
 def test_workspace_hides_foreign_jobs_raw_errors_and_registry_members(workspace, app, clock):
+    existing = {j["id"] for j in page(workspace, "jobs")["items"]}
     service, p = app.state.service, principal(workspace)
     service.jobs.enqueue(
         "research",
@@ -289,7 +382,7 @@ def test_workspace_hides_foreign_jobs_raw_errors_and_registry_members(workspace,
         j["id"] != job["id"] or j["error"] == "Job failed; inspect recovery status" for j in result["jobs"]
     )
     assert all(j["id"] != "foreign" for j in result["jobs"])
-    assert len(result["jobs"]) == 1
+    assert {j["id"] for j in result["jobs"]} == existing | {job["id"]}
 
 
 @pytest.mark.asyncio
@@ -298,8 +391,7 @@ async def test_home_metrics_are_saved_invalidated_and_rebuilt_without_planning(w
     monkeypatch.setattr(service, "forecast", forbidden)
     first = snapshot(workspace)
     assert first["metrics"]["projection"]["status"] == "pending"
-    await service.run_jobs(queues=["ml"])
-    before = snapshot(workspace)["metrics"]
+    before = completed_home_metrics(workspace)
     assert before["projection"]["status"] == "ready"
     assert before["original_cohort"] == 3
     with service.db.transaction() as s:
@@ -308,8 +400,7 @@ async def test_home_metrics_are_saved_invalidated_and_rebuilt_without_planning(w
     stale = snapshot(workspace)["metrics"]
     assert stale["projection"]["status"] == "stale"
     assert stale["eligible_now"] == before["eligible_now"]
-    await service.run_jobs(queues=["ml"])
-    after = snapshot(workspace)["metrics"]
+    after = completed_home_metrics(workspace)
     assert after["eligible_now"] == before["eligible_now"] - 1
     with monkeypatch.context() as m:
         m.setattr(service, "metrics", forbidden)
@@ -336,6 +427,7 @@ def test_invalid_page_parameters_and_deleted_cursor_require_reload(workspace, ap
 
 def test_foreign_job_history_cannot_starve_scoped_pages(workspace, app, clock, monkeypatch):
     service, p = app.state.service, principal(workspace)
+    existing = {j["id"] for j in page(workspace, "jobs")["items"]}
     own = service.jobs.enqueue(
         "research",
         {"seller_id": p["seller_id"], "user_id": p["user_id"]},
@@ -352,7 +444,7 @@ def test_foreign_job_history_cannot_starve_scoped_pages(workspace, app, clock, m
         )
     reads = count_decrypted(app, monkeypatch)
     result = page(workspace, "jobs")
-    assert [j["id"] for j in result["items"]] == [own["id"]]
+    assert {j["id"] for j in result["items"]} == existing | {own["id"]}
     assert result["next_cursor"] is None
     assert len(reads) < 10
 
@@ -385,6 +477,12 @@ def test_job_scope_backfill_preserves_identity_content_and_status(workspace, app
     with service.db.transaction() as s:
         row = s.get(Job, job["id"])
         row.seller_id, row.owner_id = None, None
+        # Model an unfinished legacy cutover, not corruption after its completion.
+        marker = s.scalar(
+            select(MODELS["audit_events"]).where(MODELS["audit_events"].external_key == "completion-startup")
+        )
+        assert marker is not None
+        s.delete(marker)
     reopened = Database(service.settings.database_url, service.settings.secret_key)
     try:
         with reopened.transaction(False) as s:
@@ -401,27 +499,28 @@ def test_job_scope_backfill_preserves_identity_content_and_status(workspace, app
 async def test_concurrent_source_changes_do_not_exhaust_or_delay_metric_refresh(workspace, app, monkeypatch):
     service, p = app.state.service, principal(workspace)
     original = service.metrics
+    changes = []
 
     def changing(current):
         result = original(current)
         with service.db.transaction() as s:
             lead = service.scoped(s, "leads", p)[0]
-            update(lead, name="Another corrected name")
+            update(lead, status="needs_review" if lead.data["status"] == "eligible" else "eligible")
+            changes.append(lead.id)
         return result
 
-    snapshot(workspace)
+    job_id = snapshot(workspace)["metrics"]["projection"]["job_id"]
     with monkeypatch.context() as m:
         m.setattr(service, "metrics", changing)
         for _ in range(4):
             await service.run_jobs(queues=["ml"])
     with service.db.transaction(False) as s:
-        jobs = list(s.scalars(select(Job).where(Job.queue == "ml")))
-        assert len(jobs) == 1
-        assert jobs[0].status == "queued"
-        assert jobs[0].attempts == 0
-        assert jobs[0].error is None
-    await service.run_jobs(queues=["ml"])
-    assert snapshot(workspace)["metrics"]["projection"]["status"] == "ready"
+        job = s.get(Job, job_id)
+        assert changes, "Exercise a real report-source change during publication"
+        assert job.status == "queued"
+        assert job.attempts == 0
+        assert job.error is None
+    assert completed_home_metrics(workspace)["projection"]["status"] == "ready"
 
 
 def test_unknown_task_status_is_not_hidden_as_if_closed(workspace, app, clock):
@@ -467,6 +566,7 @@ def test_refresh_coalescing_cannot_refund_paid_work_or_take_another_lease(worksp
         {"kind": "home_refresh" if case != "paid_work" else "prepare", **p},
         "coalescing-boundary",
         tenant_id=p["tenant_id"],
+        priority=10000,
     )
     claimed = service.jobs.claim(job["queue"], "original-worker")
     assert claimed["id"] == job["id"]

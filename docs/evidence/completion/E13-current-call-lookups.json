@@ -1,0 +1,72 @@
+{
+  "step_id": "E13",
+  "scope": "Outstanding-call/quiescence and carrier-event identity lookup repairs; full acceptance open",
+  "source_commit": "f78d785912967ed0624970eb7f1d0748eb856c4d",
+  "source_hash": "aa4aee5bd8c5cedf06b087814381068f6fe0dba307a057b9cd0989b02285ef70",
+  "test_tree_digest": "3e2303547fe91c1348ef3d982f1cf54df011d2f5e33fba35cd6efca97dfbf4e0",
+  "harness_sha256": "87be04b75327ee2e9aa4a3447d7d207e0f07ad5b653f01f0f7c05962f887e1ad",
+  "dirty_files": [
+    " M docs/EXECUTION_SPEC.md",
+    " M docs/EXECUTION_TASKS.json",
+    " M docs/STATUS.md",
+    " M services/backend/app/operational_schema.py",
+    " M services/backend/app/telephony/ingress.py",
+    " M services/backend/app/workspace.py",
+    " M services/backend/migrations/versions/0017_metric_projections.py",
+    " M services/backend/tests/test_remediation_performance.py",
+    " M services/backend/tests/test_webhook_completion.py",
+    " M services/backend/tests/test_workspace_pages.py"
+  ],
+  "locks": {
+    "pyproject.toml": "41bce21672c814f61945ba642636bb72ca4a2089b3ccb2ceb367d256c8c09dc6",
+    "uv.lock": "79e1e2de60e0bc1b1db8d168ee707b06a205379a264435b856e8ab7af12798cf",
+    "apps/desktop/package.json": "3a7ac17f0fdc84067e112781bad974623c33c2484c2bac2b58a84f1f05632959",
+    "apps/desktop/package-lock.json": "fa38442672fb0585458bb3e364e6ef92bfca4ee9b2f1ba8328b92433cdcb2211",
+    "apps/desktop/src-tauri/Cargo.toml": "caf0cbc378ab3b011718580ab8835db63907875dd4bf59f53d6c08786aff9e64",
+    "apps/desktop/src-tauri/Cargo.lock": "943c2c1ce0204beb6779875200e289b89019677c4b84d4f8cd6d50d0807c66e9"
+  },
+  "platform": "macOS-26.5.1-arm64-arm-64bit",
+  "python": "3.12.13",
+  "logical_cpus": 10,
+  "external_calls": false,
+  "candidate_files": {
+    "services/backend/app/workspace.py": "160eab60ff95537a7655d7b03aea6b40a56d9094b2c41206271dbe83eae56ff5",
+    "services/backend/app/operational_schema.py": "bb0c1dc324d25bac964135483bcacb06dce71e1308dc6acf49de9cd7c89a720c",
+    "services/backend/app/telephony/ingress.py": "9f05ec272090852518f9669eabd2fa97965c1139ee3a88fcbb27b02e36a58c85",
+    "services/backend/migrations/versions/0017_metric_projections.py": "852745334c1f5680d09823004d281d9394615f90a81c7cec2c8940e6f3623061",
+    "services/backend/tests/test_workspace_pages.py": "e03fb8347341511c938de42f352f1083bdbae32b99372c6fce6ed14d3ad57e2f",
+    "services/backend/tests/test_webhook_completion.py": "1c3aadc039b24f6961c56a47e9d8009061d6ffe765038df8a16006897c88c198"
+  },
+  "result_counts": {
+    "new_workspace_red": 2,
+    "new_provider_identity_red": 3,
+    "workspace_sqlite_passed": 53,
+    "workspace_sqlite_skipped": 2,
+    "workspace_postgres_passed": 23,
+    "workspace_postgres_skipped": 1,
+    "provider_sqlite_passed": 99,
+    "provider_sqlite_skipped": 5
+  },
+  "raw_log_sha256": {
+    "E13-open-calls-red.txt": "504af81176c8fb4b3719ccdd84adb496d7a7a0e9cf9bdf73518c23790166b664",
+    "E13-workspace-sqlite-v2.txt": "35e4b3e3eac4db090024deffa5ab1fa55cb8a0fdb48d8c9609cf6a15685adf84",
+    "E13-workspace-postgres-v2.txt": "0a96f49e851b03667a5059c1af5af0177cf06e9e1832ca53086b279a808ad1a5",
+    "E13-provider-call-red.txt": "5e9e3be9cea646c2ef5b389d70a1c78c6d252384193c7137c5acb4e8328ef75e",
+    "E13-provider-call-sqlite.txt": "60eb2115510c77d39b126baa97b349deac13da56e167d423e9bc16f74fff346b",
+    "E13-hotpath-current.txt": "db9a7aa1c0dbb91767c45f9cff72418ac02eff80b88d66913f7c7b3f6a94e4c8"
+  },
+  "diagnostic": {
+    "fixture": "owned synthetic10000 leads/100000 historical attempts; not final acceptance",
+    "workspace_200_p95_ms": 48.78862504847348,
+    "selection_200_p95_ms": 161.0795829910785,
+    "competing_focused_tests": true,
+    "projection_rebuilt": false
+  },
+  "mechanism": "Three indexes on existing call metadata in unreleased0017; bounded exact carrier lookup rejects ambiguity; finalized history excluded from current obligations",
+  "test_alignment": "Older workspace tests now retain original security/freshness/recovery assertions while accommodating multiple projection jobs, asynchronous waves and a genuinely incomplete legacy migration marker. Source-change case now mutates a relevant status rather than an irrelevant name.",
+  "known_limitations": [
+    "Provider PostgreSQL scope still running",
+    "SQLite writer-admission regression is red and being repaired",
+    "Final exact-source load/full coverage/native updates remain open"
+  ]
+}

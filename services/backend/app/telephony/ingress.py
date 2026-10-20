@@ -184,9 +184,16 @@ class WebhookIngress:
         if not isinstance(provider_id, str) or not provider_id:
             return None
         model = MODELS["call_attempts"]
-        call = s.scalar(
-            select(model).where(model.tenant_id == tenant_id, model.op_provider_id == provider_id)
+        matches = list(
+            s.scalars(
+                select(model)
+                .where(model.tenant_id == tenant_id, model.op_provider_id == provider_id)
+                .limit(2)
+            )
         )
+        if len(matches) > 1:
+            fail(409, "Call provider identity is ambiguous; review original call records")
+        call = next(iter(matches), None)
         if not call and payload.get("client_state"):
             try:
                 context = json.loads(base64.b64decode(payload["client_state"]))
