@@ -1008,7 +1008,7 @@
         {
           "id": "E13.5",
           "task": "Version-consistent candidate and full SQLite/PostgreSQL coverage",
-          "status": "Production6baea72 cache repair verified in both databases; final five-case assertion refinement also passes. Replacement exact-source CI follows this checkpoint; older7b run canceled as superseded, no full passing claim."
+          "status": "Full exact-source CI39360919490 running at17e654e. Production6baea72 cache fix has117 SQLite/114 PostgreSQL focused passes plus five strengthened lifetime cases in each mode. No full-suite passing claim yet."
         },
         {
           "id": "E13.6",
@@ -1018,7 +1018,7 @@
         {
           "id": "E13.7",
           "task": "Full resource/performance targets and repairs",
-          "status": "7b75210 historical503 warm selection251.168ms p95 narrowly fails250ms; workspace15.287ms/writer18.732ms pass. Tail attribution shows cyclic-GC pauses retaining closed-session context. Five valid red lifetime regressions precede cache-release repair; dual-database focused checks active. Original failures retained, targets unchanged."
+          "status": "17e654e historical503 passes all gates:selection176.30ms/workspace30.21ms/writer15.28ms/six-coach750.35ms p95;27 SQL maximum. Original7b failure retained. Local10k/100k elapsed profile running; shared/saturation/scaling/shift/native resources open."
         },
         {
           "id": "E13.8",

@@ -1,0 +1,197 @@
+{
+  "step_id": "E13",
+  "scope": "Historical503 only; remaining load/native resource gates open",
+  "source_commit": "17e654e15a062ce7010596a78f48e340cf6f3e78",
+  "production_tree_digest": "79e854f7a55b3eca089f2b05184543d6316d0f2791af25eb103f487eadf5e887",
+  "test_tree_digest": "9ae1fc9d5666a80f2b480fe45e9af39c065f498f5ffcbb19e16c984b68155496",
+  "actual_production_digest": "c63e7b5dc4bb60a6d952f675960d038e494035f12ad34ba564401ca44ddf3a2a",
+  "case_ids": [
+    "A25",
+    "A50"
+  ],
+  "mode": "SQLite, macOS ARM64, synthetic providers",
+  "fixture_seed": 20261018,
+  "commands": [
+    "python scripts/measure_completion.py --profile historical --seed 20261018 --output-dir work/remediation/completion/performance-17e654e-historical"
+  ],
+  "environment": {
+    "platform": "macOS-26.5.1-arm64-arm-64bit",
+    "python": "3.12.13",
+    "logical_cpus": 10,
+    "locks": {
+      "pyproject.toml": "41bce21672c814f61945ba642636bb72ca4a2089b3ccb2ceb367d256c8c09dc6",
+      "uv.lock": "79e1e2de60e0bc1b1db8d168ee707b06a205379a264435b856e8ab7af12798cf",
+      "apps/desktop/package.json": "3a7ac17f0fdc84067e112781bad974623c33c2484c2bac2b58a84f1f05632959",
+      "apps/desktop/package-lock.json": "fa38442672fb0585458bb3e364e6ef92bfca4ee9b2f1ba8328b92433cdcb2211",
+      "apps/desktop/src-tauri/Cargo.toml": "caf0cbc378ab3b011718580ab8835db63907875dd4bf59f53d6c08786aff9e64",
+      "apps/desktop/src-tauri/Cargo.lock": "943c2c1ce0204beb6779875200e289b89019677c4b84d4f8cd6d50d0807c66e9"
+    }
+  },
+  "finished_at": "2026-10-20T02:51:09.721892+00:00",
+  "profile_status": "passed",
+  "failed_cases": [],
+  "selection": {
+    "cold": {
+      "samples": 1,
+      "failures": 0,
+      "p50_ms": 206.55445801094174,
+      "p95_ms": 206.55445801094174,
+      "p99_ms": 206.55445801094174,
+      "max_ms": 206.55445801094174,
+      "sql_max": 28,
+      "decrypted_max": 792,
+      "target_ms": 1000,
+      "status": "passed"
+    },
+    "warm": {
+      "samples": 200,
+      "failures": 0,
+      "p50_ms": 78.89554207213223,
+      "p95_ms": 176.3014169409871,
+      "p99_ms": 207.0814169710502,
+      "max_ms": 218.38537498842925,
+      "sql_max": 27,
+      "decrypted_max": 796,
+      "target_ms": 250,
+      "status": "passed"
+    },
+    "sql_budget_met": true,
+    "boundary": "complete authority selection and claim; presence before/after excluded; no carrier I/O"
+  },
+  "workspace": {
+    "samples": 200,
+    "failures": 0,
+    "p50_ms": 13.988749939016998,
+    "p95_ms": 30.209666001610458,
+    "p99_ms": 50.418791943229735,
+    "max_ms": 67.24050000775605,
+    "sql_max": 43,
+    "decrypted_max": 69,
+    "target_ms": 250,
+    "status": "passed"
+  },
+  "control_paths": {
+    "event_ack": {
+      "samples": 200,
+      "failures": 0,
+      "p50_ms": 2.0144159207120538,
+      "p95_ms": 4.840499954298139,
+      "p99_ms": 11.423333082348108,
+      "max_ms": 71.74625003244728,
+      "sql_max": 5,
+      "decrypted_max": 0,
+      "target_ms": 100,
+      "status": "passed"
+    },
+    "event_state": {
+      "samples": 200,
+      "failures": 0,
+      "p50_ms": 11.165834031999111,
+      "p95_ms": 21.69033291283995,
+      "p99_ms": 29.336499981582165,
+      "max_ms": 121.26412498764694,
+      "sql_max": 42,
+      "decrypted_max": 25,
+      "target_ms": 250,
+      "status": "passed"
+    },
+    "live_context": {
+      "samples": 200,
+      "failures": 0,
+      "p50_ms": 6.14779198076576,
+      "p95_ms": 9.991375030949712,
+      "p99_ms": 22.662917035631835,
+      "max_ms": 128.77037504222244,
+      "sql_max": 20,
+      "decrypted_max": 9,
+      "target_ms": 100,
+      "status": "passed"
+    },
+    "wrapup": {
+      "samples": 200,
+      "failures": 0,
+      "p50_ms": 13.323792023584247,
+      "p95_ms": 25.768875028006732,
+      "p99_ms": 38.847124902531505,
+      "max_ms": 121.40154105145484,
+      "sql_max": 41,
+      "decrypted_max": 18,
+      "target_ms": 250,
+      "status": "passed"
+    },
+    "hangup": {
+      "samples": 200,
+      "failures": 0,
+      "p50_ms": 16.290291910991073,
+      "p95_ms": 29.110083007253706,
+      "p99_ms": 50.02375005278736,
+      "max_ms": 90.83341702353209,
+      "sql_max": 37,
+      "decrypted_max": 18,
+      "target_ms": 250,
+      "status": "passed"
+    }
+  },
+  "six_coach": {
+    "samples": 30,
+    "failures": 0,
+    "p50_ms": 723.9999999292195,
+    "p95_ms": 750.3530830144882,
+    "p99_ms": 755.9074170421809,
+    "max_ms": 755.9074170421809,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 1500,
+    "status": "passed"
+  },
+  "live_admission": {
+    "status": "passed",
+    "opportunities": 30,
+    "accepted": 30,
+    "rejected": 0,
+    "queue": {
+      "samples": 30,
+      "failures": 0,
+      "p50_ms": 0.14350004494190216,
+      "p95_ms": 0.4214169457554817,
+      "p99_ms": 0.44716696720570326,
+      "max_ms": 0.44716696720570326,
+      "sql_max": 0,
+      "decrypted_max": 0,
+      "target_ms": 100,
+      "status": "passed"
+    }
+  },
+  "writer_transactions": {
+    "samples": 5465,
+    "failures": 0,
+    "p50_ms": 4.482958931475878,
+    "p95_ms": 15.282041975297034,
+    "p99_ms": 23.47754198126495,
+    "max_ms": 210.8077920274809,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "passed"
+  },
+  "rebuild": {
+    "seconds": 5.095891583012417,
+    "pages": 14,
+    "published": true,
+    "status": "passed"
+  },
+  "startup_ms": 1576.439708005637,
+  "training_imported": false,
+  "integrity": true,
+  "raw_log_sha256": {
+    "performance-17e654e-historical/historical.json": "9709482d1f419d643559fe9375759eac8aba2831486fed9a5fac063f553d80c2",
+    "E13-historical-17e654e.txt": "5cb9366fb101f30e193309c0ebfbb60036e2466187a64b04023503f0e9317e09"
+  },
+  "retired_paths": [],
+  "known_limitations": [
+    "Historical503 profile only; normal, shared, saturation, scaling, shift and installed resources remain open",
+    "Prior failed7b measurement retained in E13-selection-diagnosis.json",
+    "Runner overall exit1 intentionally retains the separate incomplete native resource gate"
+  ],
+  "external_calls": false
+}
