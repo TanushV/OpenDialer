@@ -1068,10 +1068,10 @@
         {
           "id": "E13.admission-expiry",
           "task": "Reject elapsed live admission before budget/provider submission even if semaphore completion races timeout",
-          "status": "New deterministic regression red after broader harness scope admitted late work; repair pending"
+          "status": "Deterministic regression red, then original monotonic deadline and post-acquire rejection pass82 SQLite/44 PostgreSQL focused checks. Exact-source load/full freeze remains open."
         }
       ],
-      "checkpoint": "E13: same-call note and same-lead finalization/preparation races repaired tests-first; superseded preparation coalesces while provider failures remain counted. Final scope10 PostgreSQL/7 SQLite passes; preceding broader SQLite123 passes/3 PG-only skips. Continue exact-source full coverage and elapsed performance before native delivery; installed0.2.1 unchanged."
+      "checkpoint": "E13: final scoped admission expiry repaired after deterministic red;82 SQLite/44 PostgreSQL green. ecea269 full CI/local elapsed load are still running and remain prior-source evidence. Complete current source full coverage/performance/frozen resources, then E14 updates; installed0.2.1 unchanged."
     },
     {
       "id": "E14",

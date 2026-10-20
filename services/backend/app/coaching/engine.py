@@ -114,7 +114,9 @@ class CoachEngine:
         owner_key=None,
     ):
         manual = bool(request.get("manual_help") or request.get("private_question"))
-        deadline = time.monotonic() + deadline_ms / 1000
+        began = time.monotonic()
+        deadline = began + deadline_ms / 1000
+        admission_deadline = min(deadline, began + 0.1)
 
         def current():
             with self._lock:
@@ -125,9 +127,14 @@ class CoachEngine:
             result = fallback
             try:
                 try:
-                    await asyncio.wait_for(self.capacity.acquire(), min(deadline_ms / 1000, 0.1))
+                    remaining = admission_deadline - time.monotonic()
+                    if remaining <= 0:
+                        return {"action": "NO_ACTION", "status": "busy"}
+                    await asyncio.wait_for(self.capacity.acquire(), remaining)
                     acquired = True
                 except TimeoutError:
+                    return {"action": "NO_ACTION", "status": "busy"}
+                if time.monotonic() >= admission_deadline:
                     return {"action": "NO_ACTION", "status": "busy"}
                 if not current():
                     return {"action": "NO_ACTION", "status": "superseded"}

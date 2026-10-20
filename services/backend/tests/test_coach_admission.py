@@ -11,6 +11,44 @@ FALLBACK = {"action": "NO_ACTION"}
 
 
 @pytest.mark.asyncio
+async def test_late_capacity_acquisition_does_not_spend_after_admission_deadline(monkeypatch):
+    """A delayed event loop may deliver a semaphore before its timeout callback."""
+    from types import SimpleNamespace
+
+    import app.coaching.engine as engine_module
+
+    clock, calls, settled, released = [0.0], [], [], []
+    monkeypatch.setattr(engine_module, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    engine = CoachEngine()
+
+    class Capacity:
+        async def acquire(self):
+            clock[0] = 0.101
+            return True
+
+        def release(self):
+            released.append(True)
+
+    class Provider:
+        async def suggest(self, *args, **kwargs):
+            calls.append("provider")
+            return FALLBACK
+
+    async def admit(*args):
+        calls.append("budget")
+        return True
+
+    async def settle(submitted):
+        settled.append(submitted)
+
+    engine.capacity = Capacity()
+    result = await engine.suggest("late", {}, Provider(), FALLBACK, admit=admit, settle=settle)
+    assert result.get("status") == "busy"
+    assert calls == [] and settled == [False] and released == [True]
+    assert not engine.active and not engine._pending
+
+
+@pytest.mark.asyncio
 async def test_continuous_final_chunks_cannot_starve_earlier_pending_context(
     workspace, app, clock, monkeypatch
 ):

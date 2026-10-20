@@ -227,6 +227,46 @@ class NativeUI:
         assert self.field("Callback time (your device timezone)").get_attribute("value") == due
         return call_id
 
+    def open_details(self, text):
+        summary = self.wait(
+            lambda: next(
+                (
+                    item
+                    for item in self.driver.find_elements(By.TAG_NAME, "summary")
+                    if item.is_displayed() and item.text == text
+                ),
+                None,
+            )
+        )
+        summary.click()
+
+    def correct_contact_role(self, note):
+        self.open_details("Correct confirmed outcome")
+        assert self.field("Disposition").get_attribute("value") == "callback_requested"
+        assert self.field("Wrap-up note").get_attribute("value") == note
+        Select(self.field("Who did you speak with?")).select_by_value("gatekeeper")
+        self.click("Save outcome")
+        self.visible("Outcome saved")
+        self.wait(lambda: self.field("Who did you speak with?").get_attribute("value") == "gatekeeper")
+        assert self.element('textarea[aria-label="Your notes"]').get_attribute("value") == note
+
+    def check_next_call_context(self, receipt):
+        self.click("Leads")
+        matches = [
+            item
+            for item in self.driver.find_elements(By.CSS_SELECTOR, 'button[aria-label^="Open lead "]')
+            if item.get_attribute("aria-label") == "Open lead " + receipt["lead_name"]
+        ]
+        assert len(matches) == 1, "Next-call lead identity is missing or ambiguous"
+        matches[0].click()
+        self.element(".modal")
+        self.open_details("Prior conversation & next step")
+        brief = self.element('.modal [data-testid="prospect-brief"]').text
+        assert receipt["note"] in brief and "Last outcome: Callback requested" in brief
+        assert "Next question:" in brief
+        self.screenshot("next-call-context")
+        self.element(".modal .close-modal").click()
+
     def preflight(self, version, mode):
         self.click("Settings")
         self.click("Run preflight")
@@ -408,6 +448,7 @@ def current_journey(ui, mode):
     ui.visible("Outcome saved")
     ui.pause()
     assert ui.review(lead_name) == note
+    ui.correct_contact_role(note)
     ui.screenshot(mode + "-rundown")
     ui.click("All conversations")
     ui.click("Intelligence")
@@ -437,7 +478,10 @@ def check_journey_restart(ui, receipt, mode, version):
     assert len(tasks) == 1 and tasks[0].get_attribute("data-call-id") == receipt["task_call_id"]
     assert ui.field("Callback time (your device timezone)").get_attribute("value") == receipt["due"]
     assert ui.review(receipt["lead_name"]) == receipt["note"]
+    ui.open_details("Correct confirmed outcome")
+    assert ui.field("Who did you speak with?").get_attribute("value") == "gatekeeper"
     ui.click("All conversations")
+    ui.check_next_call_context(receipt)
     ui.click("Numbers")
     ui.click("Plan regional capacity")
     ui.element('[data-testid="capacity-proposal"]')
@@ -458,6 +502,7 @@ def check_journey_restart(ui, receipt, mode, version):
         "callback_time_preserved": True,
         "raw_expiry_elapsed_seconds": receipt["raw_expiry_elapsed_seconds"],
         "session_restored": True,
+        "source_correction_verified": True,
     }
 
 

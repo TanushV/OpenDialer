@@ -167,3 +167,13 @@ def test_msi_acceptance_extracts_its_own_bytes_and_checks_the_exact_manifest_ent
     assert "TARGETDIR=" in source and "'/a'" in source
     assert "check_installer_manifest" in source
     assert "OPENDIALER_INSTALLER_KIND" in source
+
+
+def test_installed_journey_requires_outcome_correction_and_next_call_context():
+    import inspect
+
+    journey = inspect.getsource(native().current_journey)
+    restart = inspect.getsource(native().check_journey_restart)
+    assert "correct_contact_role" in journey
+    assert "check_next_call_context" in restart
+    assert '"source_correction_verified"' in restart

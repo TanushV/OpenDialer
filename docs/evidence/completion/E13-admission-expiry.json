@@ -1,0 +1,30 @@
+{
+  "step_id": "E13",
+  "scope": "late live admission deadline; whole-system freeze remains open",
+  "source_commit": "0ceee646f457065d283eb40f05c66978b2ac7daa",
+  "production_tree_digest": "df5ea23d5c4d6ac48c9e72e65d95b33a7a7b43b4c3198f734e08d3e3e86571f9",
+  "candidate_files": {
+    "services/backend/app/coaching/engine.py": "5a77ebae9a1c939ebc282f98f1615c17eb107ad859a783bda1bcdb7ffa4aa487",
+    "services/backend/tests/test_coach_admission.py": "62bc3ef9fdac9277dbac4819f2c65df3971f6a3b95941bc30f409e37343397bf"
+  },
+  "result_counts": {
+    "red": 1,
+    "sqlite_passed": 82,
+    "postgres_passed": 44
+  },
+  "seconds": {
+    "sqlite": 24.16,
+    "postgres": 74.3
+  },
+  "raw_log_sha256": {
+    "E13-admission-expiry-red.txt": "c70486204e641e1f84d0678d9e654ef749895eadc983443fdf0e663be599c8cb",
+    "E13-admission-expiry-green-sqlite.txt": "f5d1378637f64c365b2ac2cc7b7ee63b74d54a2cf769f903dce4dafc004af068",
+    "E13-admission-expiry-green-postgres.txt": "a96b0d2c0c60bad58ab5777536ab74b9a1a906ef014be2da43ac22060782ebd8"
+  },
+  "mechanism": "Bound admission to the original monotonic start; recheck after semaphore acquisition before budget/provider work; release capacity and settle unsent state on rejection",
+  "external_calls": false,
+  "known_limitations": [
+    "Previous running ecea269 full/load checks remain historical for their source; final impacted freeze must include this repair",
+    "Native delivered update and provider/device acceptance remain open"
+  ]
+}
