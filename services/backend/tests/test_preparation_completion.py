@@ -26,14 +26,17 @@ TEMPLATE = {
 @pytest.mark.asyncio
 async def test_bounded_parallel_preparation(workspace, app, monkeypatch):
     """C015: two simultaneous batches share two company slots, not one cap each."""
+    from conftest import ThreadWork
+
     service = app.state.service
     active, peak, finished = 0, 0, []
+    offloaded = ThreadWork(monkeypatch)
 
     async def unit(principal, identity, owner):
         nonlocal active, peak
         active += 1
         peak = max(peak, active)
-        await asyncio.sleep(0.01)
+        await offloaded.settle()  # Held until every admissible sibling has claimed and started.
         active -= 1
         if identity in failures:
             raise RuntimeError("Synthetic per-company failure")
@@ -79,12 +82,16 @@ async def test_concurrent_preparation_jobs_share_authority_capacity(workspace, a
             for i in range(12)
         ]
 
+    from conftest import ThreadWork
+
+    offloaded = ThreadWork(monkeypatch)
+
     async def prepare(principal, identity, owner):
         nonlocal active, peak
         active += 1
         peak = max(peak, active)
         try:
-            await asyncio.sleep(0.04)
+            await offloaded.settle()  # Held until every admissible sibling has claimed and started.
             return True
         finally:
             active -= 1
@@ -148,7 +155,12 @@ async def test_lost_preparation_lease_is_failed_work_and_preserves_new_owner(wor
                     "expires_at": (service.clock() + timedelta(minutes=5)).isoformat(),
                 },
             )
-        await asyncio.sleep(0.15)
+        try:
+            # Ends when the heartbeat notices the replacement owner and cancels this unit,
+            # instead of hoping a 0.15 s sleep outlasts the renewal thread on a loaded machine.
+            await asyncio.wait_for(asyncio.Event().wait(), 60)
+        except TimeoutError:
+            pass  # An unnoticed lost lease lets the unit finish normally, failing the test.
         return True
 
     monkeypatch.setattr(service, "prepare_one", prepare)

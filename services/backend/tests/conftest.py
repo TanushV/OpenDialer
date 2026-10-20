@@ -1,8 +1,11 @@
 """Acceptance harness written before application implementation (TDD baseline)."""
 
+import asyncio
 import os
 import shutil
 import sqlite3
+import threading
+import time
 from contextlib import closing
 from datetime import UTC, datetime
 
@@ -11,6 +14,7 @@ from app.config import Settings
 from app.main import create_app
 from app.providers.simulated import SimulatedCarrier
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
 from scripts.disposable_database import (
     PostgresTestStore,
@@ -47,17 +51,12 @@ class LoopResponsiveness:
     """
 
     def __init__(self, limit=30.0):
-        import asyncio
-        import threading
-
         self.loop = asyncio.get_running_loop()
         self.loop_thread = threading.get_ident()
         self.limit = limit
         self.observations = []
 
     def wait_for_loop(self):
-        import threading
-
         if threading.get_ident() == self.loop_thread:
             self.observations.append("ran on the event loop thread")
             return
@@ -70,6 +69,28 @@ class LoopResponsiveness:
         assert set(self.observations) == {"loop served"}, self.observations
 
 
+def blocked_by(engine, waiters, holder, future=None, limit=60.0):
+    """Return once a waiter backend is blocked by ``holder`` (PostgreSQL ``pg_blocking_pids``).
+
+    This observes the lock wait itself instead of racing a short ``lock_timeout``: it cannot
+    mistake a wait on some other lock for the intended one, and machine load cannot make a
+    correct implementation fail. A waiter that completes instead of waiting fails at once;
+    ``limit`` only bounds how long a broken implementation takes to fail.
+    """
+    deadline = time.monotonic() + limit
+    with engine.connect() as connection:
+        while True:
+            for pid in list(waiters):
+                blockers = connection.execute(text("SELECT pg_blocking_pids(:pid)"), {"pid": pid}).scalar()
+                if holder in blockers:
+                    return pid
+            if future is not None and future.done():
+                future.result()  # Surface the waiter's own error first.
+                raise AssertionError("The waiter completed without waiting for the lock holder")
+            assert time.monotonic() < deadline, "The waiter never blocked on the lock holder"
+            time.sleep(0.005)
+
+
 class JobClaims:
     """Track job claims in flight so a concurrency test can wait for the scheduler to settle.
 
@@ -80,8 +101,6 @@ class JobClaims:
     """
 
     def __init__(self, monkeypatch, *queues):
-        import threading
-
         self.lock = threading.Lock()
         self.in_flight = 0
         for jobs in queues:
@@ -100,14 +119,28 @@ class JobClaims:
         return tracked
 
     async def settle(self, turns=5, limit=60.0):
-        import asyncio
-        import time
-
         deadline, quiet = time.monotonic() + limit, 0
         while quiet < turns:
             assert time.monotonic() < deadline, "Job scheduler did not settle"
             await asyncio.sleep(0 if self.in_flight == 0 else 0.001)
             quiet = quiet + 1 if self.in_flight == 0 else 0
+
+
+class ThreadWork(JobClaims):
+    """Like ``JobClaims``, for work offloaded with ``asyncio.to_thread`` (lease claims, releases)."""
+
+    def __init__(self, monkeypatch):
+        self.in_flight = 0
+        offload = asyncio.to_thread
+
+        async def tracked(function, /, *args, **kwargs):
+            self.in_flight += 1  # Only ever changed on the event loop thread.
+            try:
+                return await offload(function, *args, **kwargs)
+            finally:
+                self.in_flight -= 1
+
+        monkeypatch.setattr(asyncio, "to_thread", tracked)
 
 
 def fixture_settings(database_url, data_dir):

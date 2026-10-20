@@ -19,9 +19,8 @@ def test_analysis_writers_wait_for_the_same_call_without_blocking_other_calls(
     from threading import current_thread
 
     from app.db import MODELS, put
-    from conftest import start
+    from conftest import blocked_by, start
     from sqlalchemy import func, select, text
-    from sqlalchemy.exc import OperationalError
     from test_control_completion import principal
 
     service, p = app.state.service, principal(workspace)
@@ -33,15 +32,16 @@ def test_analysis_writers_wait_for_the_same_call_without_blocking_other_calls(
         other_id = other.id
     service.analysis(p, other_id)
     transaction, analysis = service.db.transaction, service.analysis
+    writers = []
 
     @contextmanager
-    def bounded_transaction(*args, **kwargs):
+    def observed_transaction(*args, **kwargs):
         with transaction(*args, **kwargs) as s:
             if current_thread().name.startswith("waiting-note"):
-                s.execute(text("SET LOCAL lock_timeout = '200ms'"))
+                writers.append(s.execute(text("SELECT pg_backend_pid()")).scalar())
             yield s
 
-    monkeypatch.setattr(service.db, "transaction", bounded_transaction)
+    monkeypatch.setattr(service.db, "transaction", observed_transaction)
     if writer == "human_note":
         # The initial read has already completed: exercise the human write's
         # own boundary, independently of the preceding analysis refresh.
@@ -56,11 +56,14 @@ def test_analysis_writers_wait_for_the_same_call_without_blocking_other_calls(
         with transaction() as s:
             locked = service.required(s, "call_attempts", call["id"], p)
             s.refresh(locked, with_for_update=True)
+            holder = s.execute(text("SELECT pg_backend_pid()")).scalar()
             future = pool.submit(write)
+            # Observed lock state, not a lock_timeout race: the writer waits on this call's owner.
+            blocked_by(service.db.engine, writers, holder, future)
             assert analysis(p, other_id, force=True)["status"] == "ai_finalized"
-            with pytest.raises(OperationalError, match="lock timeout"):
-                future.result(timeout=10)
-        result = pool.submit(write).result(timeout=10)
+            assert not future.done(), "Another call finished while this call's writer still waits"
+            blocked_by(service.db.engine, writers, holder, future)
+        result = future.result(timeout=120)
     if writer == "analysis":
         assert result["status"] == "ai_finalized"
     else:
@@ -111,9 +114,8 @@ def test_finalization_and_preparation_release_preserve_each_others_lead_changes(
     from contextlib import contextmanager
     from threading import Event, current_thread
 
-    from conftest import start
+    from conftest import blocked_by, start
     from sqlalchemy import text
-    from sqlalchemy.exc import OperationalError
     from test_control_completion import principal
 
     service, p = app.state.service, principal(workspace)
@@ -126,41 +128,39 @@ def test_finalization_and_preparation_release_preserve_each_others_lead_changes(
     assert owner and preparation_owner
     entered, release = Event(), Event()
     transaction, refresh = service.db.transaction, service.refresh_packet_in
+    finalizers, preparers = [], []
 
     def held_refresh(s, principal, lead):
         if current_thread().name.startswith("finishing-call"):
+            finalizers.append(s.execute(text("SELECT pg_backend_pid()")).scalar())
             entered.set()
-            assert release.wait(10), "Finalizer was not released"
+            assert release.wait(120), "Finalizer was not released"
         return refresh(s, principal, lead)
 
     @contextmanager
-    def timed_transaction(*args, **kwargs):
+    def observed_transaction(*args, **kwargs):
         with transaction(*args, **kwargs) as s:
             if current_thread().name.startswith("waiting-preparation"):
-                s.execute(text("SET LOCAL lock_timeout = '200ms'"))
+                preparers.append(s.execute(text("SELECT pg_backend_pid()")).scalar())
             yield s
 
     monkeypatch.setattr(service, "refresh_packet_in", held_refresh)
-    monkeypatch.setattr(service.db, "transaction", timed_transaction)
-    blocked = False
+    monkeypatch.setattr(service.db, "transaction", observed_transaction)
     with (
         ThreadPoolExecutor(max_workers=1, thread_name_prefix="finishing-call") as finalizer,
         ThreadPoolExecutor(max_workers=1, thread_name_prefix="waiting-preparation") as preparer,
     ):
         finished = finalizer.submit(service._finish_finalization, p, call["id"], owner, True)
         try:
-            assert entered.wait(10)
+            assert entered.wait(120)
             prepared = preparer.submit(service.release_preparation, p, call["lead_id"], preparation_owner)
-            try:
-                prepared.result(timeout=10)
-            except OperationalError as error:
-                assert "lock timeout" in str(error)
-                blocked = True
+            # Observed lock state, not a lock_timeout race: preparation cannot publish over the
+            # finalizer's already-read lead and waits on that exact transaction.
+            blocked_by(service.db.engine, preparers, finalizers[-1], prepared)
         finally:
             release.set()
-        finished.result(timeout=10)
-    assert blocked, "Preparation published over a finalizer's already-read lead"
-    service.release_preparation(p, call["lead_id"], preparation_owner)
+        finished.result(timeout=120)
+        prepared.result(timeout=120)
     with transaction(False) as s:
         lead = service.required(s, "leads", call["lead_id"], p)
         assert lead.data["preparation_lease"] is None
