@@ -46,7 +46,9 @@ def test_case_mix_adjustment_does_not_blame_harder_leads(clock):
 
 def test_repeated_delivery_errors_trigger_investigation_not_spam_certification(clock):
     bad = [{"outcome": "temporary_failure", "delivery_failed": True} for _ in range(30)]
-    result = number_health(bad, pooled_attempts=bad, now=clock.now)
+    # The pooled reference describes other numbers; a number is never its own comparison.
+    result = number_health(bad, pooled_attempts=[], now=clock.now)
+    assert result["delivery_reference"]["source"] == "assumed_complete_delivery"
     assert result["status"] == "investigating"
     assert result["score"] < 0.5 and not result["spam_label_confirmed"]
 
@@ -163,13 +165,7 @@ def test_existing_inventory_waiting_for_setup_or_review_does_not_trigger_identit
         }
         for i in range(7)
     ]
-    for state in [
-        "purchased",
-        "identity_configured",
-        "callback_tested",
-        "investigating",
-        "paused_for_outbound",
-    ]:
+    for state in ["purchased", "identity_configured", "callback_tested"]:
         result = capacity_forecast(
             leads,
             [number(lifecycle=state, daily_limit=20)],
@@ -181,6 +177,19 @@ def test_existing_inventory_waiting_for_setup_or_review_does_not_trigger_identit
         assert region["usable_existing_capacity"] == 0
         assert region["capacity_waiting_for_review"] >= 7
         assert region["proposed_additional"] == 0
+    # Held numbers are not assumed to return healthy; the shortfall is disclosed, never bought.
+    for state in ["investigating", "paused_for_outbound"]:
+        result = capacity_forecast(
+            leads,
+            [number(lifecycle=state, daily_limit=20)],
+            now=clock.now,
+            daily_capacity_per_number=20,
+            policy={"max_attempts": 1},
+        )
+        region = result["regions"][0]
+        assert region["usable_existing_capacity"] == 0
+        assert region["capacity_waiting_for_review"] == 0
+        assert result["proposed_additional_numbers"] >= 1 and result["purchase_allowed"] is False
 
 
 @pytest.mark.parametrize(

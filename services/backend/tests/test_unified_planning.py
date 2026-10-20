@@ -309,7 +309,7 @@ def test_unhealthy_binding_requires_explicit_reassignment_evidence():
 
 
 def test_scored_slot_choice_uses_supported_time_estimates_without_moving_a_promise():
-    estimates = {"0:9:general": 0.1, "0:10:general": 0.8}
+    estimates = {"0:9": 0.1, "0:10": 0.8}
     result = plan(
         [lead("flexible", slot_estimates=estimates)], [number()], staffed_windows=[window(minutes=120)]
     )
@@ -367,7 +367,7 @@ def test_new_number_daily_limit_is_not_treated_as_a_parallel_call_allowance():
 
 def test_burst_block_at_first_bucket_does_not_hide_later_capacity():
     result = plan(
-        [lead(str(i), predicted_work_seconds=30, slot_estimates={"0:9:general": 0.5}) for i in range(9)],
+        [lead(str(i), predicted_work_seconds=30, slot_estimates={"0:9": 0.5}) for i in range(9)],
         [number(daily_limit=20, burst_limit=1, burst_seconds=60)],
         staffed_windows=[window(minutes=10)],
     )
@@ -628,68 +628,23 @@ def test_background_forecast_releases_read_transaction_and_fences_publication(
     "blocked", [{"outreach_hold": {"kind": "meeting"}}, {"active_obligation": True}, {"goal_completed": True}]
 )
 def test_future_suggestions_share_current_work_eligibility(blocked):
-    from app.optimization.learning import future_slots
-
-    assert future_slots(lead("one", **blocked), [], now=NOW, policy={}) == []
+    # Suggestions are the whole-list schedule's next attempts; one eligibility rule.
+    assert plan([lead("one", **blocked)], [number()])["known_next_attempts"] == 0
 
 
 def test_future_suggestion_cannot_overrun_an_agreed_window():
-    from app.optimization.learning import future_slots
-
-    options = future_slots(
-        lead(
-            "callback",
-            callback_due_at=NOW.isoformat(),
-            callback_window_end=(NOW + timedelta(seconds=30)).isoformat(),
-            predicted_work_seconds=120,
-        ),
-        [],
-        now=NOW,
-        policy={},
+    result = plan(
+        [
+            lead(
+                "callback",
+                callback_due_at=NOW.isoformat(),
+                callback_window_end=(NOW + timedelta(seconds=30)).isoformat(),
+                predicted_work_seconds=120,
+            )
+        ],
+        [number()],
     )
-    assert options == []
-
-
-def test_future_suggestions_use_the_same_feasibility_engine(monkeypatch):
-    from app.optimization.capacity import Assignment
-    from app.optimization.learning import future_slots
-
-    calls, solve = [], Assignment.solve
-
-    def observed(self, *args, **kwargs):
-        calls.append(True)
-        return solve(self, *args, **kwargs)
-
-    monkeypatch.setattr(Assignment, "solve", observed)
-    assert future_slots(lead("one"), [], now=NOW, policy={})
-    assert calls, "Future scheduling used another feasibility calculation"
-
-
-def test_retry_slot_computation_does_not_hold_a_database_transaction(workspace, app, monkeypatch):
-    from contextlib import contextmanager
-
-    import app.optimization.workflows as workflows
-    from test_remediation_privacy import principal
-
-    service, p = app.state.service, principal(workspace)
-    active, transaction, future = [], service.db.transaction, workflows.future_slots
-
-    @contextmanager
-    def observed(*args, **kwargs):
-        with transaction(*args, **kwargs) as s:
-            active.append(s)
-            try:
-                yield s
-            finally:
-                active.pop()
-
-    def outside(*args, **kwargs):
-        assert not active, "Future-slot planning retained a transaction"
-        return future(*args, **kwargs)
-
-    monkeypatch.setattr(service.db, "transaction", observed)
-    monkeypatch.setattr(workflows, "future_slots", outside)
-    service.refresh_schedule_plans(p, workspace["campaign_id"])
+    assert result["existing_schedule"] == []
 
 
 def test_schedule_publication_rechecks_changed_leads(workspace, app, monkeypatch):
@@ -698,8 +653,6 @@ def test_schedule_publication_rechecks_changed_leads(workspace, app, monkeypatch
     from test_remediation_privacy import principal
 
     service, p = app.state.service, principal(workspace)
-    refresh = getattr(service, "refresh_schedule_plans", None)
-    assert callable(refresh), "Retry plans need a bounded publication entrypoint"
     with service.db.transaction() as s:
         first = service.scoped(s, "leads", p)[0]
         identity = first.id
@@ -714,41 +667,12 @@ def test_schedule_publication_rechecks_changed_leads(workspace, app, monkeypatch
         return result
 
     monkeypatch.setattr(workflows, "capacity_forecast", changed)
-    result = refresh(p, workspace["campaign_id"])
-    assert result["superseded"] >= 1
+    assert service.build_forecast(p, workspace["campaign_id"])["status"] == "superseded"
+    monkeypatch.setattr(workflows, "capacity_forecast", calculate)
+    assert service.build_forecast(p, workspace["campaign_id"])["status"] == "ready"
     with service.db.transaction(False) as s:
         assert service.required(s, "leads", identity, p).data["outreach_hold"]["kind"] == "human_booked"
-        assert not [
-            r
-            for r in service.scoped(s, "scheduling_plans", p)
-            if r.data["lead_id"] == identity and r.data.get("status") == "ready"
-        ]
-
-
-def test_future_model_predictions_are_batched_once_outside_the_snapshot(workspace, app, monkeypatch):
-    from types import SimpleNamespace
-
-    from app.ml import training
-    from test_remediation_privacy import principal
-
-    service, p = app.state.service, principal(workspace)
-    calls = []
-    monkeypatch.setattr(service, "serving_model", lambda *args: SimpleNamespace(data={}))
-    monkeypatch.setattr(service, "prediction_features", lambda *args, **kwargs: {})
-    monkeypatch.setattr(training, "predict_funnel", lambda *args: {})
-
-    def predict(model, rows, path):
-        calls.append(len(rows))
-        return [{"p_human": row["local_hour"] / 24} for row in rows]
-
-    monkeypatch.setattr(training, "predict_funnel_batch", predict)
-    with service.db.transaction(False) as s:
-        first = service.scoped(s, "leads", p)[0]
-        predictor = service.slot_predictor(s, p, first, service.optimization_config(s, p))
-        assert calls == [], "Model computation ran while snapshot transaction was held"
-    assert predictor(6, 0)["p_human"] == 0.25
-    assert predictor(12, 2)["p_human"] == 0.5
-    assert calls == [168]
+    assert all(row["lead_id"] != identity for row in service.optimization_report(p)["future_slots"])
 
 
 def test_published_retry_schedule_conserves_the_whole_inventory(workspace, app):
@@ -771,12 +695,9 @@ def test_published_retry_schedule_conserves_the_whole_inventory(workspace, app):
         )
         for row in service.scoped(s, "leads", p):
             update(row, timezone="UTC")
-    service.refresh_schedule_plans(p, workspace["campaign_id"])
-    with service.db.transaction(False) as s:
-        plans = [
-            row.data for row in service.scoped(s, "scheduling_plans", p) if row.data.get("status") == "ready"
-        ]
-        assert len(plans) == 1, "Independent per-lead plans spent the same number capacity repeatedly"
+    assert service.build_forecast(p, workspace["campaign_id"])["status"] == "ready"
+    report = service.optimization_report(p)
+    assert len(report["plans"]) == 1, "Per-lead suggestions spent the same number capacity repeatedly"
 
 
 def test_unavailable_current_plan_cannot_resurrect_a_legacy_suggestion(workspace, app):
@@ -800,64 +721,9 @@ def test_unavailable_current_plan_cannot_resurrect_a_legacy_suggestion(workspace
             now=service.clock(),
         )
         update(row, outreach_hold={"kind": "booked"})
-    service.refresh_schedule_plans(p, workspace["campaign_id"])
+    service.build_forecast(p, workspace["campaign_id"])
     report = service.optimization_report(p)
     assert all(row["lead_id"] != identity for row in report["future_slots"])
-
-
-def test_schedule_writes_are_paged_and_unchanged_source_is_reused(workspace, app, monkeypatch):
-    from contextlib import contextmanager
-
-    from sqlalchemy import event
-    from test_remediation_privacy import principal
-
-    service, p = app.state.service, principal(workspace)
-    response = workspace["client"].post(
-        "/v1/leads/import",
-        headers=workspace["headers"],
-        json={
-            "campaign_id": workspace["campaign_id"],
-            "rows": [
-                {
-                    "name": f"Page {i}",
-                    "phone": f"+141556{i:05d}",
-                    "company": "Synthetic paging",
-                    "timezone": "UTC",
-                }
-                for i in range(203)
-            ],
-        },
-    )
-    assert response.status_code == 200, response.text
-    counts, active, transaction = [], [], service.db.transaction
-
-    @contextmanager
-    def observed(write=True):
-        counter = [0]
-        with transaction(write) as s:
-            active.append(counter)
-            try:
-                yield s
-                s.flush()
-            finally:
-                active.pop()
-        if counter[0]:
-            counts.append(counter[0])
-
-    def count(conn, cursor, statement, parameters, context, executemany):
-        if statement.startswith("INSERT INTO scheduling_plans"):
-            active[-1][0] += len(parameters) if executemany else 1
-
-    monkeypatch.setattr(service.db, "transaction", observed)
-    event.listen(service.db.engine, "after_cursor_execute", count)
-    try:
-        result = service.refresh_schedule_plans(p, workspace["campaign_id"])
-        assert result["saved"] == 206 and result["superseded"] == 0
-        assert len(counts) == 3 and max(counts) <= 100
-        again = service.refresh_schedule_plans(p, workspace["campaign_id"])
-        assert again["saved"] == 0 and again["unchanged"] == 206
-    finally:
-        event.remove(service.db.engine, "after_cursor_execute", count)
 
 
 def test_retry_evidence_uses_observed_progress_and_pending_work_not_censored_failures():

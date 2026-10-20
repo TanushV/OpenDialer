@@ -9,21 +9,13 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validato
 
 from app.db import audit, doc, emit, put, uid, update
 from app.optimization.goals import goal_plan
-from app.optimization.numbering import timestamp
+from app.optimization.numbering import HealthPolicy, timestamp
 from app.scheduling.models import EstimatePolicy
 from app.service import fail
 
 
 class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
-
-class HealthPolicy(Strict):
-    min_comparable: int = Field(default=30, ge=10, le=1000, strict=True)
-    material_drop: float = Field(default=0.20, gt=0, lt=1, allow_inf_nan=False)
-    confidence: float = Field(default=0.95, ge=0.8, le=0.999, allow_inf_nan=False)
-    window_days: int = Field(default=90, ge=1, le=365, strict=True)
-    callback_proof_days: int = Field(default=30, ge=1, le=90, strict=True)
 
 
 class StaffedWindow(Strict):
@@ -68,6 +60,7 @@ class OptimizationSettings(Strict):
     )
     account_channel_limit: int | None = Field(default=None, ge=1, le=1000)
     minimum_expansion_age_hours: int | None = Field(default=None, ge=1, le=168)
+    production_holdout_fraction: float | None = Field(default=None, ge=0.01, le=0.5, allow_inf_nan=False)
     health_policy: HealthPolicy | None = None
     estimate_policy: EstimatePolicy | None = None
 
@@ -612,6 +605,7 @@ def register_optimization(app, service, principal, administrator):
         from datetime import timedelta
 
         from app.ml.training import predict_funnel
+        from app.optimization.learning import TRIAL_CONTROL_FRACTION
 
         with service.db.transaction() as s:
             model = service.required(s, "model_versions", model_id, p)
@@ -650,7 +644,7 @@ def register_optimization(app, service, principal, administrator):
                 "max_leads": body.max_leads,
                 "review_reference": body.review_reference,
                 "reviewed_by": p["user_id"],
-                "control_fraction": 0.1,
+                "control_fraction": TRIAL_CONTROL_FRACTION,
             }
             update(campaign, optimization_epoch=uid(), optimization_trial=study)
             epoch = service.ensure_experiment_cohort(s, p)

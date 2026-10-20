@@ -278,11 +278,17 @@ def test_connect_warning_requires_supported_comparison_and_keeps_unknown_visible
         {
             "started_at": (clock.now - timedelta(days=2)).isoformat(),
             "outcome": "right_party" if i % 2 else "no_answer",
+            "outcome_available_at": (clock.now - timedelta(days=2)).isoformat(),
         }
         for i in range(80)
     ]
+    # Outcomes without an availability time are excluded from as-of evidence.
     recent = [
-        {"started_at": (clock.now - timedelta(minutes=i)).isoformat(), "outcome": "no_answer"}
+        {
+            "started_at": (clock.now - timedelta(minutes=i)).isoformat(),
+            "outcome": "no_answer",
+            "outcome_available_at": (clock.now - timedelta(minutes=i)).isoformat(),
+        }
         for i in range(80)
     ]
     report = connect_health(baseline + recent, now=clock.now)

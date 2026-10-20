@@ -690,7 +690,7 @@ class Dialer(
             }
 
     def proposal(self, p, campaign_id, capacity=None):
-        if capacity is not None and (type(capacity) is not int or not 1 <= capacity <= 10000):
+        if capacity is not None and (type(capacity) is not int or not 1 <= capacity <= 1000):
             fail(422, "Positive daily capacity required")
         from app.db import Job
         from app.service import dt

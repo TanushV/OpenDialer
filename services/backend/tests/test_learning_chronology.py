@@ -3,8 +3,9 @@
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from app.ml.training import independent_partitions, train_challenger
+from app.ml.training import train_challenger
 from app.optimization.learning import freeze_features, training_rows
+from comparison_oracle import independent_partitions
 from conftest import disposition_body, start
 from test_remediation_rep_workflow import p
 
@@ -272,11 +273,14 @@ def test_future_disposition_is_excluded_and_provisional_labels_are_not_training_
 
 
 def test_legacy_unknown_label_availability_is_not_backdated(clock):
+    # Unknown availability is excluded entirely; it is neither backdated nor set to the cutoff.
     call, snapshot, event = outcome_fixture(clock)
     del event["recorded_at"]
     row = dataset(call, snapshot, [event], clock.now)[0]
-    assert row["label_available_at"] == clock.now.isoformat()
-    assert row["label_timing_quality"] == "observation_time_unknown"
+    assert row["conversion_event_ids"] == [] and row["conversion"] == 0
+    assert row["label_timing_quality"] == "observed"
+    del call["outcome_available_at"]
+    assert dataset(call, snapshot, [event], clock.now) == []
 
 
 def test_future_callback_does_not_change_frozen_pre_call_features(clock):

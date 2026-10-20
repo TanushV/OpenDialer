@@ -1,7 +1,7 @@
 """E08/C033: finite response approaches are distinct from generated sentences."""
 
 import pytest
-from app.optimization.learning import learn_distribution
+from comparison_oracle import learn_distribution
 from test_live_memory import setup, turn
 
 

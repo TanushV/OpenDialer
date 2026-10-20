@@ -7,14 +7,26 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from app.optimization.conversations import conversation_associations as conversation_associations
 from app.optimization.numbering import timestamp
 from app.scheduling.models import (
+    OPTIMIZATION_DEFAULTS,
+    EstimatePolicy,
     attempt_work_seconds,
     derive_labels,
     pooled_predictions,
-    prediction_key,
     wilson,
 )
 
 GOALS = {"qualified_conversation", "meeting_held", "sale_won"}
+# Approved trials use their declared two-arm allocation (EXECUTION_SPEC E08.13: default 50/50).
+# Outside an active trial a persistent stable control holdout (configurable, default 10%) keeps
+# measuring a promoted model without withholding it from half of the leads. Both use the same
+# hash draw, so the production holdout is nested inside a trial's control arm.
+TRIAL_CONTROL_FRACTION = 0.5
+PRODUCTION_HOLDOUT_FRACTION = 0.10
+
+
+def hashed_draw(key):
+    """Deterministic uniform draw in [0, 1): the one randomization primitive; log its probability."""
+    return int(hashlib.sha256(key.encode()).hexdigest()[:16], 16) / 2**64
 
 
 def outcome_at(call, now):
@@ -25,9 +37,10 @@ def outcome_at(call, now):
         available = timestamp(version.get("outcome_available_at"))
         if not version.get("outcome") or version.get("outcome_source") == "llm_provisional":
             continue
-        if available and available > now:
+        # An unknown availability time is excluded, never assumed known at the cutoff.
+        if not available or available > now:
             continue
-        known.append({**version, "available": available or now, "timing_known": available is not None})
+        known.append({**version, "available": available, "timing_known": True})
     # Stored order breaks ties when two corrections share a clock tick.
     return max(reversed(known), key=lambda value: value["available"], default=None)
 
@@ -40,20 +53,21 @@ def conversion_at(event, now):
         available = timestamp(
             version.get("label_available_at") or version.get("observed_at") or version.get("recorded_at")
         )
-        if not occurred or occurred > now or (available and available > now):
+        if not occurred or occurred > now or not available or available > now:
             continue
         if version.get("source") == "llm_provisional":
             continue
-        retracted_at = timestamp(version.get("retracted_at"))
-        retracted = bool(version.get("retracted")) and (retracted_at is None or retracted_at <= now)
+        # A retraction without its own time takes effect when its version became available.
+        retracted_at = timestamp(version.get("retracted_at")) or available
+        retracted = bool(version.get("retracted")) and retracted_at <= now
         known.append(
             {
                 **version,
                 "id": event["id"],
-                "available": max(occurred, available or now),
-                "timing_known": available is not None,
+                "available": max(occurred, available),
+                "timing_known": True,
                 "retracted": retracted,
-                "correction_available": (retracted_at or now) if retracted else None,
+                "correction_available": retracted_at if retracted else None,
             }
         )
     return max(reversed(known), key=lambda value: value["available"], default=None)
@@ -102,6 +116,8 @@ def freeze_features(lead, *, health, now, calls=()):
 
 
 def training_rows(calls, snapshots, events, *, now, goal, window_days, include_unclassified=False):
+    """As-of rows. Negatives mature only after window close with a classified outcome and known
+    attribution; an unattributed lead outcome credits exactly the latest earlier attempt."""
     if goal not in GOALS or not 1 <= window_days <= 180:
         raise ValueError("Reviewed conversion goal and bounded outcome window required")
     by_id = {r["id"]: r for r in snapshots}
@@ -111,6 +127,18 @@ def training_rows(calls, snapshots, events, *, now, goal, window_days, include_u
         if known and known.get("kind") == goal:
             key = (known.get("lead_id"), known.get("call_id") or None)
             known_events.setdefault(key, []).append(known)
+    window = timedelta(days=window_days)
+    starts, credited = {}, {}
+    for call in calls:
+        at = timestamp(call.get("started_at"))
+        if at and at <= now:
+            starts.setdefault(call.get("lead_id"), []).append((at, call["id"]))
+    for (lead_id, call_id), versions in known_events.items():
+        if call_id is None:
+            for event in versions:
+                occurred = timestamp(event["occurred_at"])
+                touching = [(at, c) for at, c in starts.get(lead_id, []) if at <= occurred <= at + window]
+                credited[event["id"]] = max(touching)[1] if touching else None
     result = []
     for call in sorted(calls, key=lambda c: c.get("started_at", "")):
         at = timestamp(call.get("started_at"))
@@ -118,29 +146,27 @@ def training_rows(calls, snapshots, events, *, now, goal, window_days, include_u
         if not at or at > now or not snapshot or timestamp(snapshot.get("as_of")) is None:
             continue
         outcome = outcome_at(call, now)
+        classified = outcome is not None
         if not outcome and include_unclassified and timestamp(call.get("submitted_at")):
-            outcome = {
-                "outcome": None,
-                "available": now,
-                "timing_known": False,
-                "outcome_source": "unobserved",
-            }
+            outcome = {"outcome": None, "available": None, "outcome_source": "unobserved"}
         if timestamp(snapshot["as_of"]) > at or not outcome:
             continue
-        end = at + timedelta(days=window_days)
-        relevant = [
-            e
-            for e in (
-                *known_events.get((call["lead_id"], None), []),
-                *known_events.get((call["lead_id"], call["id"]), []),
-            )
-            if at <= timestamp(e["occurred_at"]) <= min(now, end)
+        end = at + window
+
+        def inside(event, end=end, at=at):
+            return at <= timestamp(event["occurred_at"]) <= min(now, end)
+
+        lead_level = [e for e in known_events.get((call["lead_id"], None), []) if inside(e)]
+        relevant = [e for e in lead_level if credited.get(e["id"]) == call["id"]] + [
+            e for e in known_events.get((call["lead_id"], call["id"]), []) if inside(e)
         ]
+        ambiguous = any(not e["retracted"] and credited.get(e["id"]) != call["id"] for e in lead_level)
         matched = [e for e in relevant if not e["retracted"]]
         labels = derive_labels(outcome)
-        direct = labels.get(goal if goal != "qualified_conversation" else "qualified", False)
+        direct = bool(labels.get(goal if goal != "qualified_conversation" else "qualified"))
         positive = bool(matched or direct)
         closed = now >= end
+        negative = closed and classified and not ambiguous and not positive
         positive_times = [e["available"] for e in matched] + ([outcome["available"]] if direct else [])
         label_available = (
             min(positive_times)
@@ -152,7 +178,7 @@ def training_rows(calls, snapshots, events, *, now, goal, window_days, include_u
                     *[e["correction_available"] for e in relevant if e["correction_available"]],
                 ]
             )
-            if closed
+            if negative
             else None
         )
         result.append(
@@ -168,12 +194,11 @@ def training_rows(calls, snapshots, events, *, now, goal, window_days, include_u
                 "features": dict(snapshot["features"]),
                 **labels,
                 "outcome": outcome["outcome"],
-                "outcome_available_at": outcome["available"].isoformat(),
+                "outcome_available_at": outcome["available"].isoformat() if classified else None,
                 "label_available_at": label_available.isoformat() if label_available else None,
-                "label_timing_quality": "observed"
-                if outcome["timing_known"] and all(e["timing_known"] for e in matched)
-                else "observation_time_unknown",
-                "conversion": int(positive) if positive or closed else None,
+                "label_timing_quality": "observed" if classified else "observation_time_unknown",
+                "conversion": 1 if positive else 0 if negative else None,
+                "attribution": "ambiguous_lead_level_outcome" if ambiguous and not positive else "known",
                 "goal": goal,
                 "window_status": "matured" if closed else "resolved" if positive else "pending",
                 "window_closed": closed,
@@ -204,18 +229,30 @@ def training_rows(calls, snapshots, events, *, now, goal, window_days, include_u
     return result
 
 
-def funnel_predictions(history, features, *, handling_seconds=120, estimate_policy=None):
+def funnel_predictions(
+    history, features, *, handling_seconds=OPTIMIZATION_DEFAULTS["handling_seconds"], estimate_policy=None
+):
     return pooled_predictions(
         history, features=features, handling_seconds=handling_seconds, estimate_policy=estimate_policy
     )
 
 
-def conversion_score(prediction):
+def prior_means(estimate_policy=None):
+    policy = EstimatePolicy.model_validate(estimate_policy or {})
+    return tuple(a / (a + b) for a, b in (policy.human_prior, policy.right_prior, policy.goal_prior))
+
+
+_PRIOR_MEANS = prior_means()
+
+
+def conversion_score(prediction, estimate_policy=None):
+    """Rank value p_h * p_r * p_g / max(10, work); a missing stage uses the policy's prior mean."""
+    means = _PRIOR_MEANS if estimate_policy is None else prior_means(estimate_policy)
     return (
-        prediction.get("p_human", 0.2)
-        * prediction.get("p_right_party_given_human", 0.33)
-        * prediction.get("p_conversion_given_right_party", 0.1)
-        / max(10, prediction.get("expected_rep_seconds", 120))
+        prediction.get("p_human", means[0])
+        * prediction.get("p_right_party_given_human", means[1])
+        * prediction.get("p_conversion_given_right_party", means[2])
+        / max(10, prediction.get("expected_rep_seconds", OPTIMIZATION_DEFAULTS["handling_seconds"]))
     )
 
 
@@ -292,29 +329,27 @@ def retry_statistics(rows, leads, *, now, max_attempts):
 
 
 def reward_counts(history, *, segment=None):
+    """The one IPW reward definition (weight 1/propensity, capped at 20).
+
+    A logged propensity must be a finite probability in (0, 1]; anything else is rejected and
+    counted, never coerced into certainty.
+    """
     counts = {}
     for row in history:
         if row.get("window_status") != "matured" or row.get("conversion") is None or not row.get("action"):
             continue
-        action = row["action"]
-        weight = min(20.0, 1 / max(0.01, float(row.get("propensity") or 1)))
-        vector = {"all_n": 1, "all_success": row["conversion"]}
-        if segment is None or row.get("segment") == segment:
-            vector.update(n=1, weight=weight, weighted_success=weight * row["conversion"])
+        action, propensity = row["action"], row.get("propensity")
+        if type(propensity) not in (int, float) or not math.isfinite(propensity) or not 0 < propensity <= 1:
+            vector = {"rejected_propensity": 1}
+        else:
+            weight = min(20.0, 1 / propensity)
+            vector = {"all_n": 1, "all_success": row["conversion"]}
+            if segment is None or row.get("segment") == segment:
+                vector.update(n=1, weight=weight, weighted_success=weight * row["conversion"])
         for key, value in vector.items():
             name = f"reward:{action}:{key}"
             counts[name] = counts.get(name, 0) + value
     return counts
-
-
-def learn_distribution(actions, history, *, segment=None, exploration=0.1, control=False, urgent=False):
-    return distribution_from_counts(
-        actions,
-        reward_counts((r for r in history if r.get("action") in actions), segment=segment),
-        exploration=exploration,
-        control=control,
-        urgent=urgent,
-    )
 
 
 def distribution_from_counts(actions, counts, *, exploration=0.1, control=False, urgent=False):
@@ -348,146 +383,6 @@ def distribution_from_counts(actions, counts, *, exploration=0.1, control=False,
         "observations": observations,
         "policy_version": "pooled-ipw-epsilon-v2",
     }
-
-
-def future_slots(
-    lead,
-    history,
-    *,
-    now,
-    policy,
-    horizon_days=3,
-    predictor=None,
-    estimates=None,
-    staffed_windows=None,
-    rep_minutes=None,
-    inventory=None,
-    rep_busy_until=None,
-):
-    """Bounded suggestions through the same attempt/occupancy engine as capacity.
-
-    Callers without declared staff/inventory receive explicitly policy-only
-    possibilities; the runtime always supplies its saved staffing and inventory.
-    """
-    from app.optimization.capacity import (
-        MAX_SLOTS,
-        Assignment,
-        normalize_availability,
-        staffed_slots,
-        work_items,
-    )
-
-    end = now + timedelta(days=horizon_days)
-    try:
-        zone = ZoneInfo(lead.get("timezone") or "unknown")
-    except (ValueError, ZoneInfoNotFoundError):
-        return []
-    # Cache each local day/hour once; no model or database call per grid point.
-    predictions = {}
-    for day in range(7):
-        for hour in range(24):
-            estimate = dict(
-                (estimates or {}).get(
-                    prediction_key(
-                        {
-                            "segment": lead.get("segment", "unknown"),
-                            "local_hour": hour,
-                            "local_weekday": day,
-                            "attempt_count": lead.get("attempt_count", 0),
-                        }
-                    )
-                )
-                or (estimates or {}).get("pooled")
-                or funnel_predictions(
-                    history,
-                    {
-                        "segment": lead.get("segment", "unknown"),
-                        "local_hour": hour,
-                        "local_weekday": day,
-                        "attempt_count": lead.get("attempt_count", 0),
-                    },
-                    handling_seconds=policy.get("handling_seconds", 120),
-                    estimate_policy=policy.get("estimate_policy"),
-                )
-            )
-            if predictor is not None:
-                estimate.update(predictor(hour, day) or {})
-            predictions[day, hour] = estimate
-    regions = {
-        "general",
-        lead.get("region") or "general",
-        *(n.get("region") or "general" for n in (inventory or [])),
-    }
-    # Work estimate is fixed for this attempt; differences in optional slot
-    # outcome predictions do not create different physical call durations.
-    duration = lead.get("predicted_work_seconds", policy.get("handling_seconds", 120))
-    row = {
-        **lead,
-        "predicted_work_seconds": duration,
-        "slot_estimates": {
-            f"{day}:{hour}:{region}": math.prod(
-                estimate.get(k, 0)
-                for k in ("p_human", "p_right_party_given_human", "p_conversion_given_right_party")
-            )
-            for (day, hour), estimate in predictions.items()
-            for region in regions
-        },
-    }
-    work, _ = work_items([row], now, end, policy, duration)
-    if not work:
-        return []
-    # Honor a reachable coverage deadline before considering later alternatives.
-    deadline = timestamp(lead.get("coverage_due_at"))
-    minutes = rep_minutes if rep_minutes is not None else horizon_days * 1440
-    windows = (
-        staffed_windows if staffed_windows is not None else [{"start_at": now, "end_at": end, "reps": 1}]
-    )
-    availability = normalize_availability(windows, now, end, minutes, policy)
-    grid = max(30, math.ceil((end - now).total_seconds() / (MAX_SLOTS * 30)) * 30)
-    slots, owners, _ = staffed_slots(availability, now, end, grid, rep_busy_until)
-    assignment = Assignment(work, slots, now, policy, grid, 1, owners, work_budget=minutes * 60)
-    if deadline and deadline > work[0].earliest_at:
-        before = sum(1 << i for i, at in enumerate(assignment.starts) if at <= deadline)
-        if assignment.allowed[0] & before:
-            assignment.allowed[0] &= before
-    numbers = (
-        inventory
-        if inventory is not None
-        else [
-            {
-                "id": lead.get("bound_number_id") or "policy-only",
-                "region": "general",
-                "lifecycle": "healthy",
-                "daily_limit": 1,
-                "capacity": 1,
-            }
-        ]
-    )
-    choices, _ = assignment.solve(numbers, alternatives=8)
-    result = []
-    for choice in choices:
-        at = timestamp(choice["at"])
-        local = at.astimezone(zone)
-        estimate = predictions[local.weekday(), local.hour]
-        result.append(
-            {
-                **choice,
-                "local_hour": local.hour,
-                "reason": "requested_callback"
-                if lead.get("callback_due_at")
-                else "coverage_deadline"
-                if deadline and at >= deadline
-                else "expected_conversion_per_rep_minute",
-                "score": conversion_score(estimate),
-                "predictions": estimate,
-                "constraint_scope": "declared_staff_and_inventory"
-                if staffed_windows is not None and inventory is not None
-                else "policy_only",
-            }
-        )
-    return sorted(
-        result, key=lambda r: (r["at"] if lead.get("callback_due_at") else "", -r["score"], r["at"])
-    )[:8]
 
 
 DRIFT_POLICY = {
@@ -634,29 +529,18 @@ def drift_from_counts(reference, recent):
     }
 
 
-def drift_report(reference, recent):
-    """Offline adapter; normal reports read the same sufficient statistics."""
-    groups = []
-    for rows in (reference, recent):
-        counts = {}
-        for row in rows:
-            group = counts.setdefault(drift_stratum(row), {})
-            for key, value in drift_values(row).items():
-                group[key] = group.get(key, 0) + value
-        groups.append(counts)
-    return drift_from_counts(*groups)
-
-
 def trial_values(assignment, events, *, now, goal, window_days):
+    """Intent-to-treat counts from evidence known by now, as strategy rewards are."""
     start = timestamp(assignment["assigned_at"])
     end = start + timedelta(days=window_days)
     converted = any(
-        event.get("lead_id") == assignment["lead_id"]
-        and event.get("kind") == goal
-        and not event.get("retracted")
-        and (at := timestamp(event.get("occurred_at")))
-        and start <= at <= min(now, end)
+        known["lead_id"] == assignment["lead_id"]
+        and known.get("kind") == goal
+        and not known["retracted"]
+        and start <= timestamp(known["occurred_at"]) <= min(now, end)
         for event in events
+        if event.get("lead_id") == assignment["lead_id"]
+        and (known := conversion_at({"id": None, **event}, now))
     )
     matured = end <= now
     prefix = assignment["arm"] + ":"
@@ -728,28 +612,25 @@ def trial_from_counts(values, *, goal, window_days=14, baseline_rate=0.1, minimu
     }
 
 
-def trial_report(assignments, events, *, now, goal, window_days=14, baseline_rate=0.1, minimum_effect=0.05):
-    """Offline/cohort-unit adapter using the same count definitions as projections."""
-    unique, by_lead, counts = {}, {}, {}
-    for assignment in sorted(assignments, key=lambda a: a.get("assigned_at", "")):
-        unique.setdefault(assignment["lead_id"], assignment)
-    for event in events:
-        by_lead.setdefault(event.get("lead_id"), []).append(event)
-    for assignment in unique.values():
-        for key, value in trial_values(
-            assignment, by_lead.get(assignment["lead_id"], []), now=now, goal=goal, window_days=window_days
-        ).items():
-            counts[key] = counts.get(key, 0) + value
-    return trial_from_counts(
-        counts, goal=goal, window_days=window_days, baseline_rate=baseline_rate, minimum_effect=minimum_effect
-    )
+def stable_control(lead_id, control_fraction=PRODUCTION_HOLDOUT_FRACTION):
+    return hashed_draw("cohort:" + lead_id) < control_fraction
 
 
-def stable_control(lead_id):
-    return int(hashlib.sha256(lead_id.encode()).hexdigest()[:8], 16) % 10 == 0
+def cohort_fraction(campaign, config, now):
+    """An active trial's declared allocation, otherwise the configured production holdout."""
+    study = campaign.get("optimization_trial") or {}
+    ends = timestamp(study.get("ends_at"))
+    if study and ends and ends > now:
+        return study.get("control_fraction", TRIAL_CONTROL_FRACTION)
+    return config.get("production_holdout_fraction", PRODUCTION_HOLDOUT_FRACTION)
 
 
-def choose_cohort_candidate(candidates, *, now, draw):
+def cohort_arm(lead_id, control_fraction=PRODUCTION_HOLDOUT_FRACTION):
+    """The one optimization arm definition for enrollment, serving and decision records."""
+    return "control" if stable_control(lead_id, control_fraction) else "candidate"
+
+
+def choose_cohort_candidate(candidates, *, now, draw=None, control_fraction=PRODUCTION_HOLDOUT_FRACTION):
     urgent = [
         r
         for r in candidates
@@ -774,8 +655,10 @@ def choose_cohort_candidate(candidates, *, now, draw):
         if not control and not candidate:
             return None
         if control and candidate:
-            selected = control[0] if draw < 0.1 else candidate[0]
-            probability = 0.1 if selected["arm"] == "control" else 0.9
+            if draw is None:
+                draw = hashed_draw(f"selection:{now.isoformat()}:{control[0]['id']}:{candidate[0]['id']}")
+            selected = control[0] if draw < control_fraction else candidate[0]
+            probability = control_fraction if selected["arm"] == "control" else 1 - control_fraction
         else:
             selected = (control or candidate)[0]
             probability = 1.0

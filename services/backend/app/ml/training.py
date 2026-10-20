@@ -1,23 +1,21 @@
-"""Bounded CPU funnel challengers with independent chronological calibration."""
+"""Bounded CPU funnel challengers with independent chronological calibration.
+
+NumPy/scikit-learn load only inside fitting and model serving, so the authority can check
+review-policy support without importing them.
+"""
 
 import hashlib
 import io
+import math
 import pickle
 import threading
 from collections import Counter, defaultdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import joblib
-import numpy as np
-from sklearn.calibration import CalibratedClassifierCV
-from sklearn.ensemble import HistGradientBoostingClassifier
-from sklearn.frozen import FrozenEstimator
-from sklearn.metrics import brier_score_loss, log_loss
-
 from app.optimization.learning import funnel_predictions
 from app.optimization.numbering import timestamp
-from app.scheduling.models import EstimatePolicy, prediction_key
+from app.scheduling.models import OPTIMIZATION_DEFAULTS, EstimatePolicy, prediction_key
 
 FEATURE_ORDER = [
     "local_hour",
@@ -119,7 +117,7 @@ def vector_v2(features, order, vocabulary):
         else:
             value = features.get(name)
             value = float(value) if type(value) in (int, float, bool) else float("nan")
-            if not np.isfinite(value):
+            if not math.isfinite(value):
                 value = float("nan")
         values.append(value)
     return values
@@ -183,19 +181,6 @@ def partition_at(rows, label, cutoffs):
     return result, dropped
 
 
-def independent_partitions(rows, *, label=None):
-    ordered = sorted(rows, key=lambda r: timestamp(r["at"]))
-    if len(ordered) < 3:
-        return [], [], []
-    cut, calibration_cut = int(len(ordered) * 0.6), int(len(ordered) * 0.8)
-    calibration_at = timestamp(ordered[cut]["at"])
-    validation_at = timestamp(ordered[calibration_cut]["at"])
-    # Legacy split reader has no evaluation as-of; new rolling fits always supply one.
-    return tuple(
-        partition_at(ordered, label, (calibration_at, validation_at, datetime.max.replace(tzinfo=UTC)))[0]
-    )
-
-
 def calibration_diagnostics(rows, probabilities, *, train, label="human"):
     pairs = list(zip(rows, probabilities, strict=True))
     bins = []
@@ -256,6 +241,8 @@ def train_challenger(rows, output_dir, *, baseline=None):
 
 def paired_bootstrap(candidate_losses, reference_losses, groups):
     """Paired attempt loss, resampling complete linked entities in bounded waves."""
+    import numpy as np
+
     totals = defaultdict(lambda: [0.0, 0])
     for candidate, reference, group in zip(candidate_losses, reference_losses, groups, strict=True):
         totals[group][0] += float(candidate) - float(reference)
@@ -302,8 +289,42 @@ def stage_partitions(rows, label, cutoffs):
     return selected, dropped
 
 
-def fit_stage(partitions, label, *, conversation):
+def stage_supported(partitions, label):
+    """The review policy's fitting floor: rows, both training classes, and ten of each class in
+    calibration and evaluation. Shared by the parent admission check and the fitting child."""
     support = [Counter(int(r[label]) for r in part) for part in partitions]
+    return support, bool(
+        sum(map(len, partitions)) >= REVIEW_POLICY["minimum_rows"]
+        and all(support[0][v] for v in (0, 1))
+        and min(support[1][0], support[1][1], support[2][0], support[2][1])
+        >= REVIEW_POLICY["minimum_calibration_validation_class"]
+    )
+
+
+def training_support(rows):
+    """None when some funnel stage could be fitted in some rolling fold, else the reason.
+
+    Pure Python and bounded (at most three folds by three stages), so tiny or clumped data
+    never starts the bounded training child just to report every stage as pooled.
+    """
+    if len(rows) < REVIEW_POLICY["minimum_rows"]:
+        return "No funnel stage can meet the review policy's minimum rows"
+    ordered = sorted(rows, key=lambda r: timestamp(r["at"]))
+    for cutoffs in rolling_cutoffs(ordered):
+        for label in STAGES.values():
+            if stage_supported(stage_partitions(ordered, label, cutoffs)[0], label)[1]:
+                return None
+    return "No funnel stage meets the review policy's calibration and evaluation support"
+
+
+def fit_stage(partitions, label, *, conversation):
+    import numpy as np
+    from sklearn.calibration import CalibratedClassifierCV
+    from sklearn.ensemble import HistGradientBoostingClassifier
+    from sklearn.frozen import FrozenEstimator
+    from sklearn.metrics import brier_score_loss, log_loss
+
+    support, supported = stage_supported(partitions, label)
     vocabulary = fitted_vocabulary(partitions[0])
     order = feature_order(vocabulary, conversation=conversation)
     report = {
@@ -319,12 +340,7 @@ def fit_stage(partitions, label, *, conversation):
         "vocabulary": vocabulary,
         "partition_policy": "as-of-grouped-embargo-v2",
     }
-    if (
-        report["samples"] < REVIEW_POLICY["minimum_rows"]
-        or not all(support[0][v] for v in (0, 1))
-        or min(report["calibration_min_class"], report["validation_min_class"])
-        < REVIEW_POLICY["minimum_calibration_validation_class"]
-    ):
+    if not supported:
         return None, report, []
 
     def xy(part):
@@ -387,6 +403,9 @@ def baseline_probabilities(train, validation, stage, baseline):
 
 
 def _train_challenger(rows, output_dir, *, baseline=None):
+    import joblib
+    from sklearn.metrics import brier_score_loss
+
     if len(rows) < REVIEW_POLICY["minimum_rows"]:
         raise ValueError("At least 100 outcome-labeled rows required for a challenger")
     baseline = baseline or {}
@@ -394,7 +413,7 @@ def _train_challenger(rows, output_dir, *, baseline=None):
         "estimate_policy": EstimatePolicy.model_validate(baseline.get("estimate_policy", {})).model_dump(
             mode="json"
         ),
-        "handling_seconds": baseline.get("handling_seconds", 120),
+        "handling_seconds": baseline.get("handling_seconds", OPTIMIZATION_DEFAULTS["handling_seconds"]),
     }
     funnel_predictions([], {}, **baseline)  # Validate even when every stage remains pooled.
     groups = linked_entities(rows)
@@ -588,6 +607,9 @@ def promotion_allowed(model):
 def predict_funnel_batch(model, features, artifact_root):
     if not features:
         return []
+    import joblib
+    import numpy as np
+
     try:
         path = Path(model["artifact"]).resolve()
         if not path.is_relative_to(Path(artifact_root).resolve()) or not path.is_file():
@@ -669,10 +691,6 @@ def predict_funnel_batch(model, features, artifact_root):
 
 def predict_funnel(model, features, artifact_root):
     return predict_funnel_batch(model, [features], artifact_root)[0]
-
-
-def predict_challenger(model, features, artifact_root):
-    return predict_funnel(model, features, artifact_root).get("p_human")
 
 
 _MODELS = {}
