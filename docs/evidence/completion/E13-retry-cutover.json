@@ -1,0 +1,83 @@
+{
+  "step_id": "E13",
+  "scope": "Post-call retry, registry restart, retained startup and protected-copy contract reconciliation",
+  "source_commit": "7b75210634826a6200c0900e3a3564da9ac0fffd",
+  "production_tree_digest": "275122bac4cbe70cde48b39ddb15f642872ebb291eaf8d14071c522aeaecaf16",
+  "test_tree_digest": "51bb4ac9f189006dd28b0a750b04c979b5b492be318a33b0d2d7dcafb7814bea",
+  "case_ids": [
+    "A01",
+    "A04",
+    "A36",
+    "A40",
+    "A49",
+    "A50",
+    "A54"
+  ],
+  "mode": "SQLite and disposable PostgreSQL",
+  "fixture_seed": null,
+  "commands": [
+    "pytest test_installed_copy_migration.py -q (SQLite)",
+    "pytest test_registry_hotpath.py plus failed-finalization retry and fresh-budget-hold nodes -q (SQLite)",
+    "pytest test_installed_copy_migration.py plus failed-finalization retry and fresh-budget-hold nodes -q (PostgreSQL)"
+  ],
+  "environment": {
+    "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+    "python": "3.12.13"
+  },
+  "started_at": "2026-10-20T02:16:50.674702+00:00",
+  "finished_at": "2026-10-20T02:21:02.576121+00:00",
+  "timestamp_boundary": "Approximate run bounds from final log modification time and pytest elapsed seconds",
+  "result_counts": {
+    "passed": 62,
+    "failed": 0,
+    "skipped": 4,
+    "sqlite_passed": 41,
+    "postgres_passed": 21
+  },
+  "failed_cases": [],
+  "runs": [
+    {
+      "log": "E13-cutover-final-sqlite.txt",
+      "passed": 18,
+      "skipped": 2,
+      "seconds": 27.1
+    },
+    {
+      "log": "E13-cutover-retry-final-sqlite.txt",
+      "passed": 23,
+      "skipped": 0,
+      "seconds": 51.79
+    },
+    {
+      "log": "E13-cutover-retry-final-postgres.txt",
+      "passed": 21,
+      "skipped": 2,
+      "seconds": 89.64
+    }
+  ],
+  "raw_log_sha256": {
+    "E13-cutover-final-sqlite.txt": "7ed43d8da23ce2f06990a4b318e648350c38b83d6e45fe190bccc5a4fa1e7f43",
+    "E13-cutover-retry-final-sqlite.txt": "38cac2d907400ec3b2e4934e494a7058684efef668d5b8a410f300bed184a919",
+    "E13-cutover-retry-final-postgres.txt": "e53cc81a5ae2fb02b81caee0e575eb8e52e4aa8eca8c0afbb39d546f2c6003b3",
+    "E13-finalization-retry-boundary-red.txt": "e8504bb4f58d2dc6d3bb086b03f718024ca9d338f1cb7d60cfad9d9d67bced4a",
+    "E13-current-index-restart-red.txt": "c347ad844206379a4b4274f9ee72e1bbb4160d23258f284d64f39ad7720b6aab",
+    "E13-old-stage-contract-red.txt": "09980852f648254ec4057f5f48cb9cbc99b2c90b70ffa3d60a7084606dc2f2bf"
+  },
+  "red_evidence": {
+    "failed_finalization": 3,
+    "retained_startup_indexes": 1,
+    "known_older_interrupted_copy": 1
+  },
+  "retired_paths": [
+    "Stamping failed finalization input as completed",
+    "Treating earlier0017 startup markers as the current index contract",
+    "Refusing an authenticated known-old working copy without rebuilding it from its unchanged source"
+  ],
+  "known_limitations": [
+    "Not a full-suite or elapsed load certification",
+    "Four skip executions correspond to the same two pending native installed-update gates",
+    "Broader historical reconciliation:210 SQLite passes with two registry failures subsequently repaired,64 PostgreSQL passes and28 covered field-audit passes; these are not relabeled as current-source whole-suite evidence",
+    "No installed update, carrier traffic or funded inference"
+  ],
+  "external_calls": false
+}
