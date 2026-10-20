@@ -307,7 +307,6 @@ def setting_bounds():
         NumberReview,
         OptimizationSettings,
     )
-    from app.preparation.batches import BatchInput
     from app.preparation.templates import PreparationPolicy
     from app.scheduling.models import EstimatePolicy
     from app.telephony.callbacks import CallbackRoutingEdit
@@ -330,7 +329,6 @@ def setting_bounds():
             "number_review": NumberReview,
             "setup": Setup,
             "screening": ScreeningRequest,
-            "deferred_batch": BatchInput,
         }.items()
     }
 
@@ -1735,8 +1733,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
             return doc(model)
 
     from app.optimization.api import register_optimization
-    from app.preparation.batches import register_batches
 
-    register_batches(app, service, administrator)
     register_optimization(app, service, principal, administrator)
     return app

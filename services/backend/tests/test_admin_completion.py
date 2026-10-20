@@ -80,31 +80,6 @@ def test_authority_change_refuses_unresolved_obligations(workspace, app, obligat
     assert c.post("/v1/auth/logout", headers=h).status_code == 200
 
 
-@pytest.mark.parametrize(
-    "status", ["validating", "in_progress", "finalizing", "cancelling", "awaiting_publication"]
-)
-def test_pending_external_batch_prevents_authority_switch(workspace, app, status):
-    from app.db import put
-    from test_remediation_privacy import principal
-
-    p = principal(workspace)
-    with app.state.db.transaction() as session:
-        put(
-            session,
-            "command_outbox",
-            p["tenant_id"],
-            p["seller_id"],
-            {
-                "kind": "script_batch",
-                "status": status,
-                "rep_id": p["user_id"],
-                "provider_batch_id": "batch-fixture",
-            },
-        )
-    response = workspace["client"].post("/v1/auth/logout", headers=workspace["headers"])
-    assert response.status_code == 409
-
-
 @pytest.mark.parametrize("action", ["logout", "pause"])
 def test_quiescent_logout_releases_only_unused_rep_reservation(workspace, app, action):
     from app.db import ActiveClaim, get
