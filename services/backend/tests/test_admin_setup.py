@@ -206,10 +206,26 @@ def test_settings_defaults_carry_the_bounds_the_ui_renders(workspace):
     assert bounds["callback_routing"]["ring_seconds"] == {"type": "integer", "min": 5, "max": 30}
     assert bounds["model_trial"]["max_leads"] == {"type": "integer", "min": 20, "max": 10000, "default": 200}
     assert bounds["comparison"]["candidate_probability"]["max"] == 0.9
+    assert bounds["setup"]["password"]["min_length"] == 12
+    assert bounds["screening"]["phones"]["max_items"] == 500
     assert defaults["optimization"]["staffing_timezone"] == "UTC"
     assert defaults["optimization"]["conversion_goal"] == "meeting_held"
     # The same definitions are readable by every role for shared forms.
     assert c.get("/v1/definitions", headers=h).json()["bounds"] == bounds
+
+
+def test_settings_read_carries_current_campaign_goal_and_schedule(workspace):
+    c, h = workspace["client"], workspace["headers"]
+    saved = c.put(
+        "/v1/admin/optimization",
+        headers=h,
+        json={"staffing_timezone": "America/Chicago", "staffing_start_hour": 8, "staffing_end_hour": 17},
+    )
+    assert saved.status_code == 200, saved.text
+    current = c.get("/v1/admin/settings", headers=h).json()["optimization"]
+    assert current["staffing_timezone"] == "America/Chicago"
+    assert (current["staffing_start_hour"], current["staffing_end_hour"]) == (8, 17)
+    assert current["conversion_goal"] == "meeting_held" and current["window_days"] == 14
 
 
 def test_definitions_are_readable_by_a_rep_but_settings_are_not(workspace):
