@@ -7,7 +7,12 @@ from test_postcall_completion import finalize
 
 
 @pytest.mark.asyncio
-async def test_coach_circuit_breaker_falls_back_without_backlog():
+async def test_coach_circuit_breaker_falls_back_without_backlog(monkeypatch):
+    import app.coaching.engine as engine_module
+
+    # A frozen deadline clock keeps admission on time under machine load; the breaker is under test.
+    monkeypatch.setattr(engine_module, "monotonic", lambda: 0.0)
+
     class Failing:
         count = 0
 
