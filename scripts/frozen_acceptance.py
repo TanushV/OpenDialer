@@ -82,6 +82,17 @@ def start_owned(*args, **kwargs):
     return process
 
 
+def start_authority(command, secrets_line, **kwargs):
+    """Launch like the desktop: secrets as one stdin JSON line, never environment variables.
+
+    The pipe stays open for the authority's life; closing it is the launcher-loss signal.
+    """
+    process = start_owned(command, stdin=subprocess.PIPE, **kwargs)
+    process.stdin.write(secrets_line)
+    process.stdin.flush()
+    return process
+
+
 def stop_owned(process, *, platform_name=os.name, system_root=None):
     import psutil
 
@@ -363,10 +374,15 @@ def main():
             port = listener.getsockname()[1]
         nonce = secrets.token_urlsafe(32)
         environment = isolated_environment(os.environ)
-        environment.update(OPENDIALER_LOCAL_TOKEN=nonce, OPENDIALER_SECRET_KEY=secrets.token_urlsafe(48))
+        for name in ("OPENDIALER_LOCAL_TOKEN", "OPENDIALER_SECRET_KEY"):
+            environment.pop(name, None)
+        secrets_line = (
+            json.dumps({"local_token": nonce, "secret_key": secrets.token_urlsafe(48)}) + "\n"
+        ).encode()
         command = [
             str(binary),
             "serve",
+            "--secrets-stdin",
             "--simulation",
             "--mode",
             "local",
@@ -377,8 +393,9 @@ def main():
         ]
         process = None
         try:
-            process = start_owned(  # noqa: S603 - selected binary, isolated data and fixed arguments
+            process = start_authority(  # noqa: S603 - selected binary, isolated data and fixed arguments
                 command,
+                secrets_line,
                 env=environment,
                 cwd=directory,
                 stdout=subprocess.DEVNULL,
@@ -412,8 +429,9 @@ def main():
                 journey = call_journey(client, headers, seed["campaign_id"], pause=pause)
                 training = train_child(binary, directory, isolated_environment(os.environ), process.pid)
                 stop_owned(process)
-                process = start_owned(  # noqa: S603 - restart same verified binary/data, never reinstall
+                process = start_authority(  # noqa: S603 - restart same verified binary/data, never reinstall
                     command,
+                    secrets_line,
                     env=environment,
                     cwd=directory,
                     stdout=subprocess.DEVNULL,
@@ -422,7 +440,8 @@ def main():
                 )
                 await_ready(client, args.expected_version)
                 retained = check_persisted(client, headers, journey)
-                assert b"frozen@example.test" not in (directory / "opendialer.db").read_bytes()
+                for store in directory.glob("opendialer.db*"):  # include -wal/-shm, not only the main file
+                    assert b"frozen@example.test" not in store.read_bytes(), store.name
             stop_owned(process)
             process = None
             receipt = {
