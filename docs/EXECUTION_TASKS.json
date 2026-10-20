@@ -1003,7 +1003,7 @@
         {
           "id": "E13.4",
           "task": "Frozen semantic120-case matrix and independent review",
-          "status": "Three separate read-only reviews complete. Last four concrete findings repaired tests-first; independent repair verification and human semantic quality remain open."
+          "status": "Fourth independent bounded review found six harness defects, now tests-first repaired (9red/61green). No new scoped concurrency/cgroup product defect. Human semantic quality remains open."
         },
         {
           "id": "E13.5",
@@ -1064,6 +1064,11 @@
           "id": "E13.postcall-concurrency",
           "task": "Serialize same-call derived/human note writes; retain failed future retry liabilities",
           "status": "Focused final10 PostgreSQL/7 SQLite passes; forced row interleaving, superseded context versus real provider failure, and future retry liability covered. Full acceptance remains open."
+        },
+        {
+          "id": "E13.admission-expiry",
+          "task": "Reject elapsed live admission before budget/provider submission even if semaphore completion races timeout",
+          "status": "New deterministic regression red after broader harness scope admitted late work; repair pending"
         }
       ],
       "checkpoint": "E13: same-call note and same-lead finalization/preparation races repaired tests-first; superseded preparation coalesces while provider failures remain counted. Final scope10 PostgreSQL/7 SQLite passes; preceding broader SQLite123 passes/3 PG-only skips. Continue exact-source full coverage and elapsed performance before native delivery; installed0.2.1 unchanged."
@@ -1098,7 +1103,7 @@
         "A53",
         "A55"
       ],
-      "checkpoint": "Source-only native acceptance prepared tests-first:14 absent contracts red;51 harness/distribution checks green. Current UI, both authorities, actual TTL, task/note/session preservation, NSIS/MSI matrix and frozen runtime before draft are wired. Actual native execution, resources and installed updates remain OPEN, pending E13 freeze."
+      "checkpoint": "Nine independent-review counterexamples red,61 focused harness/package checks green. Selected NSIS/MSI bytes/manifest/exit, unambiguous review, task remount and owned descendant cleanup repaired. Actual frozen/native/update acceptance remains open."
     },
     {
       "id": "E15",

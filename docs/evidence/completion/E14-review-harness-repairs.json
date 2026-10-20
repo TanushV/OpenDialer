@@ -1,0 +1,48 @@
+{
+  "step_id": "E14",
+  "scope": "independently identified native/frozen acceptance defects",
+  "source_commit": "83da55619426eea5298ee3b640be3d21d5486876",
+  "candidate_files": {
+    "scripts/frozen_acceptance.py": "92917cea8c4d7bb2ff5e2c28e95f8325104b65da5ac1edbf6b59c0622e5d9d84",
+    "scripts/windows_native_smoke.py": "1ee9451722ce90d2ceda807cb23cb6fe263b4a320dd72fa8e36f9fd07313fc21",
+    "scripts/native_update.py": "ed4b4aad58172c4d22bee351ad340bfe074d88c7e7c42e843c0e9e7943a66803",
+    ".github/workflows/windows-acceptance.yml": "e3ad3aab252a9da4459118f4bffbd14e501ed918de2648c0e6c2e5313a78b4d4",
+    "tests/test_frozen_acceptance.py": "dc9256f150ddfc6ec7efda85adad2aaee39eec3acc6ddb667c76700c5cf7c215",
+    "tests/test_native_update_wait.py": "6078be947d6622ea3b12c1d167cd99bc7202973487e0f552443908971829dffe",
+    "tests/test_windows_native_contract.py": "f7cec5dba1853e99ad132d05e18fcfe44688c6fc58fbc675e1b84426eee84e1d"
+  },
+  "result_counts": {
+    "red": 9,
+    "focused_green": 61,
+    "broader_run_pass": 98,
+    "broader_run_fail": 1
+  },
+  "failed_cases": [
+    "test_admission_measurement_counts_rejection_and_noisy_owner_without_hiding_latency: separate backend late-admission counterexample now reproduced and open"
+  ],
+  "raw_log_sha256": {
+    "E14-review-contract-red.txt": "8446442a0b25524075a0c427a1a96ce71fe0b34e732d7d42abe03597dac5220f",
+    "E14-review-native-green.txt": "4d13a4100ea6550c9ca354116d62d414ccd255b317c930548382a2971132b95e",
+    "E14-review-contract-green.txt": "121c4260835d5a72d1f8a66a97127b331e81b29cf4e35d8bef8d54d83a58d0f0"
+  },
+  "repairs": [
+    "Await scoped NSIS and MSI updater processes plus actual format/payload and installed backend hashes",
+    "Extract selected installer format and require its matching signed manifest entry",
+    "Select only the unambiguous journey lead review; verify wrap-up note without rewriting it; recheck original baseline note",
+    "Reacquire follow-up row after version remount",
+    "Use actual recovery heading",
+    "Retain child birth identities across reparenting and require exit before success receipt"
+  ],
+  "references": [
+    "https://learn.microsoft.com/windows-server/administration/windows-commands/msiexec",
+    "https://learn.microsoft.com/en-us/windows/win32/msi/administrative-installation",
+    "https://psutil.readthedocs.io/stable/"
+  ],
+  "external_calls": false,
+  "installed_app_changed": false,
+  "known_limitations": [
+    "No installed acceptance yet",
+    "Unique controlled fixture lead identity is used in the current UI; ambiguity fails instead of selecting the first row",
+    "Full E13 remains open"
+  ]
+}

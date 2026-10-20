@@ -5,10 +5,10 @@ import hashlib
 import json
 import os
 import secrets
-import signal
 import socket
 import subprocess
 import tempfile
+import threading
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -53,20 +53,91 @@ def await_ready(client, expected_version, *, timeout=30):
     raise TimeoutError("Frozen authority did not become ready")
 
 
+def start_owned(*args, **kwargs):
+    """Retain descendant birth identities before a launcher can exit/reparent them."""
+    import psutil
+
+    kwargs.setdefault("start_new_session", True)
+    process = subprocess.Popen(*args, **kwargs)  # noqa: S603 - acceptance callers supply fixed commands
+    process._owned = {process.pid: psutil.Process(process.pid)}
+    process._ownership_stop = threading.Event()
+    process._ownership_errors = []
+
+    def observe():
+        while not process._ownership_stop.is_set():
+            for parent in list(process._owned.values()):
+                try:
+                    if parent.is_running():
+                        for child in parent.children(recursive=True):
+                            child.create_time()  # Cache identity before PID reuse.
+                            process._owned.setdefault(child.pid, child)
+                except psutil.NoSuchProcess:
+                    pass
+                except psutil.AccessDenied:
+                    process._ownership_errors.append("descendant_access_denied")
+            process._ownership_stop.wait(0.1)
+
+    process._ownership_thread = threading.Thread(target=observe, daemon=True)
+    process._ownership_thread.start()
+    return process
+
+
 def stop_owned(process, *, platform_name=os.name, system_root=None):
-    if process.poll() is not None:
-        return
-    if platform_name == "nt":
+    import psutil
+
+    tracked = getattr(process, "_owned", None)
+    if tracked is None and process.poll() is not None:
+        return  # An arbitrary, already-reaped PID is never ownership proof.
+    if tracked is None and platform_name == "nt":
         tool = Path(system_root or os.environ["SystemRoot"]) / "System32" / "taskkill.exe"
         subprocess.run(  # noqa: S603 - absolute OS utility; exact owned PID, never a process-name kill
             [str(tool), "/PID", str(process.pid), "/T", "/F"], check=True, capture_output=True, timeout=20
         )
     else:
-        os.killpg(process.pid, signal.SIGTERM)
-        try:
-            process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
+        if tracked is not None:
+            process._ownership_stop.set()
+            process._ownership_thread.join(timeout=2)
+            if process._ownership_thread.is_alive():
+                raise RuntimeError("Owned process watcher did not stop")
+        else:
+            root = psutil.Process(process.pid)
+            tracked = {child.pid: child for child in [root, *root.children(recursive=True)]}
+        # Capture last still-parented descendants, retaining reparented handles.
+        for parent in list(tracked.values()):
+            try:
+                for child in parent.children(recursive=True):
+                    tracked.setdefault(child.pid, child)
+            except psutil.NoSuchProcess:
+                pass
+
+        def alive():
+            result = []
+            for child in tracked.values():
+                try:
+                    if child.is_running() and child.status() != psutil.STATUS_ZOMBIE:
+                        result.append(child)
+                except psutil.NoSuchProcess:
+                    pass
+            return result
+
+        for child in reversed(alive()):
+            try:
+                child.terminate()  # psutil rechecks the retained PID/birth identity.
+            except psutil.NoSuchProcess:
+                pass
+        deadline = time.monotonic() + 2
+        while alive() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        for child in alive():
+            try:
+                child.kill()
+            except psutil.NoSuchProcess:
+                pass
+        deadline = time.monotonic() + 10
+        while alive() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if alive() or getattr(process, "_ownership_errors", []):
+            raise RuntimeError("Owned process cleanup is incomplete")
     process.wait(timeout=10)
 
 
@@ -254,7 +325,7 @@ def train_child(binary, directory, environment, authority_pid):
         }
         for i in range(120)
     ]
-    process = subprocess.Popen(  # noqa: S603 - selected verified binary, fixed training entrypoint
+    process = start_owned(  # noqa: S603 - selected verified binary, fixed training entrypoint
         [str(binary), "--train-child"],
         cwd=directory,
         env=environment,
@@ -306,7 +377,7 @@ def main():
         ]
         process = None
         try:
-            process = subprocess.Popen(  # noqa: S603 - selected binary, isolated data and fixed arguments
+            process = start_owned(  # noqa: S603 - selected binary, isolated data and fixed arguments
                 command,
                 env=environment,
                 cwd=directory,
@@ -341,7 +412,7 @@ def main():
                 journey = call_journey(client, headers, seed["campaign_id"], pause=pause)
                 training = train_child(binary, directory, isolated_environment(os.environ), process.pid)
                 stop_owned(process)
-                process = subprocess.Popen(  # noqa: S603 - restart same verified binary/data, never reinstall
+                process = start_owned(  # noqa: S603 - restart same verified binary/data, never reinstall
                     command,
                     env=environment,
                     cwd=directory,
@@ -352,6 +423,8 @@ def main():
                 await_ready(client, args.expected_version)
                 retained = check_persisted(client, headers, journey)
                 assert b"frozen@example.test" not in (directory / "opendialer.db").read_bytes()
+            stop_owned(process)
+            process = None
             receipt = {
                 "version": args.expected_version,
                 "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),

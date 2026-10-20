@@ -4,6 +4,7 @@ import importlib
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import httpx
@@ -85,6 +86,45 @@ def test_cleanup_does_not_signal_an_already_reaped_process(monkeypatch):
     monkeypatch.setattr(os, "killpg", forbidden, raising=False)
     monkeypatch.setattr(subprocess, "run", forbidden)
     module().stop_owned(SimpleNamespace(pid=43210, poll=lambda: 0))
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX fork/termination regression")
+@pytest.mark.parametrize("parent_exits_first", [False, True])
+def test_owned_cleanup_waits_for_ignoring_and_reparented_descendants(tmp_path, parent_exits_first):
+    import psutil
+
+    ready = tmp_path / "child.pid"
+    leave = tmp_path / "parent-exit"
+    script = (
+        "import os,signal,time,pathlib; child=os.fork(); "
+        f"ready=pathlib.Path({str(ready)!r}); leave=pathlib.Path({str(leave)!r})\n"
+        "if child==0:\n"
+        " signal.signal(signal.SIGTERM,signal.SIG_IGN); ready.write_text(str(os.getpid()))\n"
+        " while True: time.sleep(.01)\n"
+        "while not leave.exists(): time.sleep(.01)\n"
+    )
+    launch = getattr(module(), "start_owned", subprocess.Popen)
+    process = launch([sys.executable, "-c", script], start_new_session=True)
+    child = None
+    try:
+        deadline = time.monotonic() + 5
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        child = psutil.Process(int(ready.read_text()))
+        time.sleep(0.3)  # Ownership watcher must see this still-parented child.
+        if parent_exits_first:
+            leave.touch()
+            process.wait(timeout=5)
+        module().stop_owned(process)
+        assert not child.is_running() or child.status() == psutil.STATUS_ZOMBIE, (
+            "Owned descendant survived cleanup"
+        )
+    finally:
+        if child and child.is_running() and child.status() != psutil.STATUS_ZOMBIE:
+            child.kill()
+        if process.poll() is None:
+            process.kill()
+        process.wait(timeout=5)
 
 
 @pytest.mark.parametrize("change", ["checksum", "pid", "threads", "artifact"])

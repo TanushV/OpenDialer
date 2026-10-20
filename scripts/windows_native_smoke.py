@@ -26,8 +26,8 @@ from selenium.webdriver.support.ui import Select, WebDriverWait
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.disposable_database import validate_database_url
-from scripts.frozen_acceptance import await_ready, isolated_environment, request, stop_owned
-from scripts.native_update import installation_ready, update_installed_or_window_closed
+from scripts.frozen_acceptance import await_ready, isolated_environment, request, start_owned, stop_owned
+from scripts.native_update import installation_ready, read_updaters, update_installed_or_window_closed
 
 RAW_EXPIRY_WAIT_SECONDS = 305
 NATIVE_MODES = ("local", "connected")
@@ -199,15 +199,33 @@ class NativeUI:
         self.visible("Go ready")
         assert "Hang up" not in self.body(), "Native journey left an active call"
 
-    def review(self, note=None, *, legacy=False):
+    def review(self, lead_name, note=None, *, legacy=False):
         self.click("Review")
-        self.element('button[aria-label^="Review call"]').click()
+        self.element('button[aria-label^="Review call"]')
+        matches = [
+            element
+            for element in self.driver.find_elements(By.CSS_SELECTOR, 'button[aria-label^="Review call"]')
+            if element.get_attribute("aria-label") == "Review call " + lead_name
+        ]
+        assert len(matches) == 1, "Selected journey review is missing or ambiguous"
+        matches[0].click()
         box = self.element("textarea" if legacy else 'textarea[aria-label="Your notes"]')
         if note is not None:
             self.fill(box, note)
             self.click("Save notes")
             self.visible("Notes saved")
         return box.get_attribute("value")
+
+    def save_followup(self, due):
+        call_id = self.element(".followup-task").get_attribute("data-call-id")
+        assert call_id
+        self.date("Callback time (your device timezone)", due)
+        self.click("Save follow-up")
+        self.visible("Follow-up saved")
+        current = self.element(f'.followup-task[data-call-id="{call_id}"]')
+        assert current.get_attribute("data-call-id") == call_id
+        assert self.field("Callback time (your device timezone)").get_attribute("value") == due
+        return call_id
 
     def preflight(self, version, mode):
         self.click("Settings")
@@ -224,6 +242,7 @@ def legacy_baseline(ui):
     ui.visible("SIMULATION")
     ui.click("Go ready")
     ui.click("Get next lead")
+    lead_name = ui.element('[data-testid="lead-name"]').text
     ui.click("Start call")
     ui.visible("RINGING")
     ui.click("Simulate human answer")
@@ -233,19 +252,24 @@ def legacy_baseline(ui):
     Select(ui.element(".wrap-up select")).select_by_value("opt_out")
     ui.click("Save outcome")
     ui.pause()
-    assert ui.review(NOTE, legacy=True) == NOTE
+    assert ui.review(lead_name, NOTE, legacy=True) == NOTE
     ui.screenshot("baseline-note")
     ui.click("All conversations")
+    return lead_name
 
 
-def wait_installed(application, version, output):
+def wait_installed(application, version, output, *, not_before):
     powershell = shutil.which("pwsh.exe") or shutil.which("powershell.exe")
     if not powershell:
         raise RuntimeError("Official Windows installation probe is unavailable")
     env = {**os.environ, "OPENDIALER_INSTALL_PATH": str(application)}
     env.pop("PSModulePath", None)
     expected_hash = os.environ["OPENDIALER_EXPECTED_BACKEND_SHA256"]
+    temporary = Path(os.environ["TEMP"])
+    extension = "msi" if os.environ["OPENDIALER_INSTALLER_KIND"] == "msi" else "exe"
+    expected_installer = os.environ["OPENDIALER_EXPECTED_INSTALLER_SHA256"]
     for _ in range(180):
+        active_before = read_updaters(version, str(temporary))
         value = subprocess.check_output(  # noqa: S603 - read-only exact-installation probe
             [
                 powershell,
@@ -253,19 +277,33 @@ def wait_installed(application, version, output):
                 "-Command",
                 "$ErrorActionPreference='Stop';"
                 "$version=[Diagnostics.FileVersionInfo]::GetVersionInfo($env:OPENDIALER_INSTALL_PATH).ProductVersion;"
-                "$prefix='OpenDialer-'+$env:OPENDIALER_UPDATE_TO_VERSION+'-updater-';"
-                "$active=@(Get-CimInstance Win32_Process -Filter \"Name LIKE 'OpenDialer-%-installer.exe'\" | "
-                "Where-Object { $_.ExecutablePath -and [IO.Path]::GetFileName([IO.Path]::GetDirectoryName($_.ExecutablePath)).StartsWith($prefix) });"
                 "$hash=$null;$backend=Join-Path (Split-Path $env:OPENDIALER_INSTALL_PATH) 'opendialer-backend.exe';"
-                "if($active.Count -eq 0 -and (Test-Path $backend)) {$hash=(Get-FileHash $backend -Algorithm SHA256).Hash.ToLower()};"
-                "@{version=$version;active_updaters=$active.Count;backend_sha256=$hash}|ConvertTo-Json -Compress",
+                "if(Test-Path $backend) {$hash=(Get-FileHash $backend -Algorithm SHA256).Hash.ToLower()};"
+                "@{version=$version;backend_sha256=$hash}|ConvertTo-Json -Compress",
             ],
             env=env,
             text=True,
         )
-        status = {**json.loads(value), "expected_backend_sha256": expected_hash}
+        active = sorted(set(active_before + read_updaters(version, str(temporary))))
+        payloads = [
+            path
+            for path in temporary.glob(
+                f"OpenDialer-{version}-updater-*/OpenDialer-{version}-installer.{extension}"
+            )
+            if path.stat().st_mtime >= not_before - 1
+        ]
+        payload_ok = (
+            len(payloads) == 1 and hashlib.sha256(payloads[0].read_bytes()).hexdigest() == expected_installer
+        )
+        status = {
+            **json.loads(value),
+            "active_updaters": len(active),
+            "expected_backend_sha256": expected_hash,
+            "installer_format": extension,
+            "actual_update_payload_verified": payload_ok,
+        }
         (output / "installation-probe.json").write_text(json.dumps(status, indent=2))
-        if installation_ready(status, version, expected_hash):
+        if payload_ok and installation_ready(status, version, expected_hash):
             (output / "completed-installation.json").write_text(json.dumps(status, indent=2))
             return status
         time.sleep(1)
@@ -275,7 +313,7 @@ def wait_installed(application, version, output):
 
 
 def upgrade(ui, version, database):
-    legacy_baseline(ui)
+    lead_name = legacy_baseline(ui)
     before = saved_ids(database)
     assert before["notes"] and before["suppressions"] and before["sessions"]
     ui.click("Settings")
@@ -283,6 +321,7 @@ def upgrade(ui, version, database):
     ui.click("Check for updates")
     ui.visible("Version " + version)
     ui.screenshot("signed-update-offer")
+    not_before = time.time()
     try:
         ui.click("Install signed update")
         WebDriverWait(ui.driver, 120).until(update_installed_or_window_closed)
@@ -292,10 +331,10 @@ def upgrade(ui, version, database):
         ui.close()
     except WebDriverException:
         pass
-    installed = wait_installed(ui.application, version, ui.output)
+    installed = wait_installed(ui.application, version, ui.output, not_before=not_before)
     ui.open(restored=True)
     require_continuity(before, saved_ids(database))
-    assert ui.review() == NOTE
+    assert ui.review(lead_name) == NOTE
     ui.screenshot("updated-baseline-note")
     ui.click("All conversations")
     ui.preflight(version, "local")
@@ -303,6 +342,7 @@ def upgrade(ui, version, database):
         "installed": installed,
         "identity_counts": {k: len(v) for k, v in before.items()},
         "human_note_sha256": hashlib.sha256(NOTE.encode()).hexdigest(),
+        "lead_name": lead_name,
     }
 
 
@@ -327,6 +367,7 @@ def current_journey(ui, mode):
         ui.click("Go ready")
     ui.click("Get next lead")
     ui.visible("Start call")
+    lead_name = ui.element('[data-testid="lead-name"]').text
     ui.in_view('[data-testid="live-coaching-strip"]')
     ui.in_view(".script-opening")
     assert ui.element('[data-testid="prepared-script"]').text
@@ -366,21 +407,19 @@ def current_journey(ui, mode):
     ui.click("Save outcome")
     ui.visible("Outcome saved")
     ui.pause()
-    assert ui.review(note) == note
+    assert ui.review(lead_name) == note
     ui.screenshot(mode + "-rundown")
     ui.click("All conversations")
     ui.click("Intelligence")
-    task = ui.element(".followup-task")
+    ui.element(".followup-task")
     assert len(ui.driver.find_elements(By.CSS_SELECTOR, ".followup-task")) == 1, "Duplicate callback task"
     due = ui.field("Callback time (your device timezone)").get_attribute("value")
     assert due
-    ui.date("Callback time (your device timezone)", "2026-10-22T14:00")
-    ui.click("Save follow-up")
-    ui.visible("Follow-up saved")
-    task_call_id = task.get_attribute("data-call-id")
+    task_call_id = ui.save_followup("2026-10-22T14:00")
     ui.screenshot(mode + "-followup")
     return {
         "note": note,
+        "lead_name": lead_name,
         "task_call_id": task_call_id,
         "due": "2026-10-22T14:00",
         "raw_expiry_elapsed_seconds": time.monotonic() - began,
@@ -397,7 +436,7 @@ def check_journey_restart(ui, receipt, mode, version):
         tasks = ui.driver.find_elements(By.CSS_SELECTOR, ".followup-task")
     assert len(tasks) == 1 and tasks[0].get_attribute("data-call-id") == receipt["task_call_id"]
     assert ui.field("Callback time (your device timezone)").get_attribute("value") == receipt["due"]
-    assert ui.review() == receipt["note"]
+    assert ui.review(receipt["lead_name"]) == receipt["note"]
     ui.click("All conversations")
     ui.click("Numbers")
     ui.click("Plan regional capacity")
@@ -408,11 +447,12 @@ def check_journey_restart(ui, receipt, mode, version):
     ui.visible("National")
     ui.screenshot(mode + "-dnc-costs")
     ui.click("Operations")
-    ui.visible("Recovery")
+    ui.visible("Work needing recovery")
     ui.screenshot(mode + "-recovery")
     ui.pause()
     return {
         "mode": mode,
+        "lead_name": receipt["lead_name"],
         "task_call_id": receipt["task_call_id"],
         "human_note_sha256": hashlib.sha256(receipt["note"].encode()).hexdigest(),
         "callback_time_preserved": True,
@@ -433,7 +473,7 @@ def connected_authority(application, version, output):
         bootstrap = secrets.token_urlsafe(32)
         environment.update(OPENDIALER_DATABASE_URL=url, OPENDIALER_BOOTSTRAP_TOKEN=bootstrap)
         with (output / "connected-authority.log").open("w") as log:
-            process = subprocess.Popen(  # noqa: S603 - exact installed backend, owned temporary data
+            process = start_owned(  # noqa: S603 - exact installed backend, owned temporary data
                 [
                     str(binary),
                     "serve",
@@ -537,8 +577,14 @@ def main():
                 ui.element('button[title="Sign out"]').click()
                 ui.click("Try a simulated workspace")
                 ui.visible("SIMULATION")
-                assert hashlib.sha256(ui.review().encode()).hexdigest() == local["human_note_sha256"]
+                assert (
+                    hashlib.sha256(ui.review(local["lead_name"]).encode()).hexdigest()
+                    == local["human_note_sha256"]
+                )
                 ui.click("All conversations")
+                if update:
+                    assert ui.review(update["lead_name"]) == NOTE
+                    ui.click("All conversations")
                 ui.pause()
                 ui.preflight(version, "local")
             result = {

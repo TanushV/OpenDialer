@@ -105,3 +105,65 @@ def test_release_builds_run_the_frozen_runtime_before_drafting():
     source = (root / ".github/workflows/release.yml").read_text()
     assert "scripts/frozen_acceptance.py" in source
     assert "--expected-version" in source and "--output" in source
+
+
+def test_review_requires_an_unambiguous_selected_journey_instead_of_history_order():
+    from types import SimpleNamespace
+
+    opened = []
+    buttons = [
+        SimpleNamespace(get_attribute=lambda _: "Review call Old lead", click=lambda: opened.append("old")),
+        SimpleNamespace(
+            get_attribute=lambda _: "Review call Current lead", click=lambda: opened.append("current")
+        ),
+    ]
+    ui = native().NativeUI(Path("unused"), Path("unused"))
+    ui.driver = SimpleNamespace(find_elements=lambda *_: buttons)
+    ui.click = lambda _: None
+    ui.visible = lambda _: None
+    ui.fill = lambda *_: None
+    ui.wait = lambda action, **_: action()
+    ui.element = lambda selector: (
+        buttons[0]
+        if selector.startswith("button[")
+        else SimpleNamespace(get_attribute=lambda _: "existing human note")
+    )
+    assert ui.review("Current lead") == "existing human note"
+    assert opened == ["current"]
+    buttons.append(buttons[-1])
+    with pytest.raises(AssertionError, match="ambiguous"):
+        ui.review("Current lead")
+
+
+def test_followup_save_reacquires_the_remounted_row():
+    from types import SimpleNamespace
+
+    saved = []
+
+    def old_identity(_):
+        assert not saved, "Pre-save element was reused after remount"
+        return "selected-call"
+
+    before = SimpleNamespace(get_attribute=old_identity)
+    after = SimpleNamespace(get_attribute=lambda _: "selected-call")
+    ui = native().NativeUI(Path("unused"), Path("unused"))
+    ui.element = lambda _: after if saved else before
+    ui.click = lambda _: saved.append(True)
+    ui.visible = lambda _: None
+    ui.date = lambda *_: None
+    ui.field = lambda _: SimpleNamespace(get_attribute=lambda _: "2026-10-22T14:00")
+    assert ui.save_followup("2026-10-22T14:00") == "selected-call"
+
+
+def test_recovery_assertion_uses_the_existing_visible_heading():
+    import inspect
+
+    assert '"Work needing recovery"' in inspect.getsource(native().check_journey_restart)
+
+
+def test_msi_acceptance_extracts_its_own_bytes_and_checks_the_exact_manifest_entry():
+    root = Path(__file__).resolve().parents[1]
+    source = (root / ".github/workflows/windows-acceptance.yml").read_text()
+    assert "TARGETDIR=" in source and "'/a'" in source
+    assert "check_installer_manifest" in source
+    assert "OPENDIALER_INSTALLER_KIND" in source
