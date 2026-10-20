@@ -1,5 +1,14 @@
-import { expect, test } from "@playwright/test";
-import { prepareSimulationCall, chooseOutcome, finishCall } from "./simulation";
+import { expect, test } from "./fixtures";
+import {
+  prepareSimulationCall,
+  chooseOutcome,
+  finishCall,
+  leaveNoCall,
+} from "./simulation";
+
+// The local authority is shared by every test in this file: a failed test
+// must not leave its call active for the next one.
+test.afterEach(async ({ page }) => leaveNoCall(page));
 
 test("a delayed helper refresh cannot restore a previous call after wrap-up", async ({
   page,
@@ -14,7 +23,10 @@ test("a delayed helper refresh cannot restore a previous call after wrap-up", as
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
-  await prepareSimulationCall(page, "Delayed helper fixture", "+14155550881");
+  // This journey calls twice: it brings its own second lead.
+  await prepareSimulationCall(page, "Delayed helper fixture", "+14155550881", [
+    { name: "Delayed helper next fixture", phone: "+14155550891" },
+  ]);
   await page
     .getByRole("button", { name: "Get next lead", exact: true })
     .click();
@@ -113,7 +125,9 @@ test("fixed helper remains visible, private controls work and no raw content is 
   expect(openerBox!.y + openerBox!.height).toBeLessThan(hangupBox!.y);
   await page
     .getByLabel("Simulation transcript")
-    .fill("Our approvals depend on a union committee.");
+    // Simulated cached knowledge needs a turn that matches an approved
+    // example; a discovery card is no longer eligible for every turn.
+    .fill("We have no budget for another provider right now.");
   await page.getByRole("button", { name: "Add prospect turn" }).click();
   const strip = page.getByTestId("live-coaching-strip");
   await expect(strip).toBeVisible();
@@ -187,6 +201,45 @@ test("fixed helper remains visible, private controls work and no raw content is 
     .click();
 });
 
+test("a reserved lead cannot be dialed before its brief and talk track load", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await prepareSimulationCall(page, "Brief first fixture", "+14155550885");
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(/\/v1\/leads\/[^/]+\/packet$/, async (route) => {
+    const response = await route.fetch();
+    await held;
+    await route.fulfill({ response });
+  });
+  try {
+    await page
+      .getByRole("button", { name: "Get next lead", exact: true })
+      .click();
+    const start = page.getByRole("button", { name: "Start call", exact: true });
+    await expect(start).toBeVisible();
+    await expect(start).toBeDisabled();
+    release();
+    await expect(page.getByTestId("lead-name")).toBeVisible();
+    await expect(start).toBeEnabled();
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: "wait" });
+  }
+});
+
 test("settings display the authority cost register, including changed rates", async ({
   page,
 }) => {
@@ -235,7 +288,9 @@ test("duplicate hangup responses cannot replace or stop a newer conversation", a
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
-  await prepareSimulationCall(page, "Delayed hangup fixture", "+14155550883");
+  await prepareSimulationCall(page, "Delayed hangup fixture", "+14155550883", [
+    { name: "Delayed hangup next fixture", phone: "+14155550893" },
+  ]);
   await page
     .getByRole("button", { name: "Get next lead", exact: true })
     .click();

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 /** An active fixture call whose saved state carries the helper's last receipt. */
 async function callWithHelper(page: Page, helper: Record<string, unknown>) {

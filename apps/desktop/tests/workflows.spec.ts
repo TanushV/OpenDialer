@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { chooseOutcome } from "./simulation";
 
 async function enterSimulation(page: import("@playwright/test").Page) {
@@ -38,6 +38,13 @@ test("local setup, readiness, calling, evidence, human notes and opt-out", async
   await page.getByRole("button", { name: "Go ready" }).click();
   await page.getByRole("button", { name: "Get next lead" }).click();
   await expect(page.getByTestId("lead-name")).not.toBeEmpty();
+  // Reopen this journey's own call: other specs add calls to the shared list.
+  const reviewCall = page
+    .getByRole("button", {
+      name: `Review call ${await page.getByTestId("lead-name").innerText()}`,
+      exact: true,
+    })
+    .first();
   await page.getByRole("button", { name: "Start call", exact: true }).click();
   await expect(page.getByText("RINGING", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Simulate human answer" }).click();
@@ -55,10 +62,7 @@ test("local setup, readiness, calling, evidence, human notes and opt-out", async
   await chooseOutcome(page, "callback_requested");
   await page.getByRole("button", { name: "Save outcome" }).click();
   await page.getByRole("button", { name: "Review", exact: true }).click();
-  await page
-    .getByRole("button", { name: /Review call/ })
-    .first()
-    .click();
+  await reviewCall.click();
   await page
     .getByLabel("Your notes")
     .fill("Keep this human correction after final processing.");
@@ -66,10 +70,7 @@ test("local setup, readiness, calling, evidence, human notes and opt-out", async
   await expect(page.getByText("Notes saved")).toBeVisible();
   await page.reload();
   await page.getByRole("button", { name: "Review", exact: true }).click();
-  await page
-    .getByRole("button", { name: /Review call/ })
-    .first()
-    .click();
+  await reviewCall.click();
   await expect(page.getByLabel("Your notes")).toHaveValue(
     "Keep this human correction after final processing.",
   );

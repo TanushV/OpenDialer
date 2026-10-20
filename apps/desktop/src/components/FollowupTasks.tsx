@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useHistory } from "../state/useHistory";
 import { HistoryMore } from "./HistoryMore";
 import { date, label, useWorkspace } from "../context";
@@ -26,9 +26,16 @@ function Task({
   owners: { id: string; name: string }[];
   onSaved: (task: FollowupTask) => void;
 }) {
-  const { snapshot: w, api, run, refresh, notice } = useWorkspace();
+  const { snapshot: w, api, run, refresh, notice, focusTask } = useWorkspace();
   const lead = w.leads.find((l) => l.id === task.lead_id);
   const zone = taskZone(task, lead?.timezone);
+  const article = useRef<HTMLElement>(null);
+  const focused = focusTask === task.id;
+  useEffect(() => {
+    if (!focused) return;
+    article.current?.scrollIntoView({ block: "center" });
+    article.current?.focus();
+  }, [focused]);
   const [when, setWhen] = useState(zonedInput(task.due_at, zone.zone));
   const [owner, setOwner] = useState(task.owner_id || "");
   const [reminder, setReminder] = useState(
@@ -64,13 +71,29 @@ function Task({
     });
   }
   return (
-    <article className="followup-task" data-call-id={task.call_id}>
+    <article
+      className="followup-task"
+      data-call-id={task.call_id}
+      id={`followup-task-${task.id}`}
+      ref={article}
+      tabIndex={-1}
+    >
       <strong>
         {name} · {task.action}
       </strong>
       <p>
         <span>{label(task.status)}</span> · {date(task.due_at, zone.zone)}
       </p>
+      {task.callback_suggestion_until && !closed && (
+        <p role="status">
+          Suggested callback, confirm by{" "}
+          {date(
+            task.callback_suggestion_until,
+            chooseZone(lead?.timezone, task.timezone).zone,
+          )}
+          . Outreach waits until then; it is not a confirmed time.
+        </p>
+      )}
       {task.snoozed_until && (
         <p>
           Reminder snoozed until {date(task.snoozed_until, zone.zone)}. The
@@ -302,6 +325,9 @@ export function DueTasks() {
               <strong>{t.lead_name || lead?.name || "Lead"}</strong> ·{" "}
               {t.action} · {date(t.due_at, zone.zone)} (
               {zone.zone.replaceAll("_", " ")})
+              {t.callback_suggestion_until && (
+                <span className="pill subtle">Suggested · confirm</span>
+              )}
               {Date.parse(t.due_at!) <= now && (
                 <span className="pill subtle">Overdue</span>
               )}

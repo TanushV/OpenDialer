@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import { importLead } from "./simulation";
 
 // The workspace fixture route stays active for the whole journey; wait for an
 // in-flight handler before the context closes (its response is otherwise disposed).
@@ -72,6 +73,11 @@ for (const connected of [false, true]) {
         .click();
     }
     await expect(page.getByText("SIMULATION", { exact: true })).toBeVisible();
+    await importLead(
+      page,
+      `Strategy fixture ${connected ? "postgres" : "local"}`,
+      connected ? "+14155550710" : "+14155550709",
+    );
     if (await page.getByRole("button", { name: "Go ready" }).isVisible())
       await page.getByRole("button", { name: "Go ready" }).click();
     await page

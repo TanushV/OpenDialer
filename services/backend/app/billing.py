@@ -455,7 +455,8 @@ def bind_api(app, service, administrator):
             if status == "unresolved":
                 query = query.where(
                     or_(
-                        model.op_status.in_(["uncertain", "submitted", "reserved"]),
+                        # An estimate counts against budgets but still needs its carrier statement.
+                        model.op_status.in_(["uncertain", "submitted", "reserved", "estimated"]),
                         and_(model.op_status.is_(None), model.op_amount > 0),
                     )
                 )

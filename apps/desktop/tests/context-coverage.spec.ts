@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test("compact prospect context discloses omitted history", async ({ page }) => {
   await page.route("**/v1/leads/*/packet", async (route) => {

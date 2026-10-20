@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { chooseOutcome } from "./simulation";
+import { expect, test } from "./fixtures";
+import { importLead, chooseOutcome } from "./simulation";
 
 async function simulation(page: import("@playwright/test").Page) {
   await page.goto("/");
@@ -215,6 +215,7 @@ test("live events deliver cached guidance and conversion recording without call 
   page.on("websocket", (ws) => sockets.push(ws.url()));
   await page.reload();
   await expect(page.getByRole("button", { name: "Go ready" })).toBeVisible();
+  await importLead(page, "Live events fixture", "+14155550706");
   await page.getByRole("button", { name: "Go ready" }).click();
   await page.getByRole("button", { name: "Get next lead" }).click();
   await page.getByRole("button", { name: "Start call", exact: true }).click();

@@ -12,6 +12,8 @@ interface RecoveryItem {
   can_end?: boolean;
   can_cancel?: boolean;
   can_reconcile?: boolean;
+  /** A dial with no carrier reference after the evidence window. */
+  can_confirm_not_placed?: boolean;
   connection_id?: string;
 }
 interface RecoveryState {
@@ -32,6 +34,7 @@ export function RecoveryPanel() {
   const { api, refresh } = useWorkspace();
   const [data, setData] = useState<RecoveryState | null>(null);
   const [references, setReferences] = useState<Record<string, string>>({});
+  const [evidence, setEvidence] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   async function load() {
@@ -111,6 +114,12 @@ export function RecoveryPanel() {
                 {label(item.action || item.kind || "Call command")} ·{" "}
                 {label(item.status)}
               </strong>
+              {item.status === "unconfirmed" && (
+                <p role="status">
+                  Dial unconfirmed: no carrier reference arrived. The rep is
+                  free; this prospect stays held until you resolve it.
+                </p>
+              )}
               <p>{item.reason}</p>
               {reference(item)}
               <button
@@ -120,6 +129,43 @@ export function RecoveryPanel() {
               >
                 Verify carrier status
               </button>{" "}
+              {item.can_confirm_not_placed && (
+                <>
+                  <label>
+                    Carrier evidence it was not placed
+                    <input
+                      value={evidence[item.id] ?? ""}
+                      maxLength={500}
+                      onChange={(event) =>
+                        setEvidence({
+                          ...evidence,
+                          [item.id]: event.target.value,
+                        })
+                      }
+                    />
+                  </label>
+                  <button
+                    className="secondary"
+                    disabled={
+                      busy !== null ||
+                      (evidence[item.id] ?? "").trim().length < 3
+                    }
+                    onClick={() =>
+                      void act(
+                        item.id,
+                        `/v1/admin/recovery/commands/${item.id}`,
+                        {
+                          expected_version: item.version,
+                          action: "confirm_not_placed",
+                          reason: evidence[item.id].trim(),
+                        },
+                      )
+                    }
+                  >
+                    Confirm not placed
+                  </button>{" "}
+                </>
+              )}
               {item.can_end && (
                 <button
                   className="secondary"

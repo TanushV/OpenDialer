@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test("reviewed business knowledge and current version survive publication and reload", async ({
   page,
@@ -221,6 +221,11 @@ test("published knowledge withdraws obsolete live advice without changing the ac
     });
     if (await sample.isVisible()) await sample.click();
     await expect(page.getByText(advice, { exact: true })).toBeVisible();
+    // Capture the call's loaded script, not the placeholder shown until its
+    // packet arrives: a late first packet is not a mid-call replacement.
+    await expect(
+      page.getByTestId("prepared-script").locator(".card-eyebrow .pill"),
+    ).not.toHaveText("Approved playbook");
     const script = await page.getByTestId("prepared-script").innerText();
     published = true;
     const result = await page.request.post(
@@ -231,10 +236,12 @@ test("published knowledge withdraws obsolete live advice without changing the ac
           name: "Updated seller knowledge",
           opener: current.opener,
           screening_intro: current.screening_intro,
-          claims: [],
-          cards: [],
+          // Keep the approved examples: later specs share this authority and
+          // its cached-knowledge tips.
+          claims: current.claims ?? [],
+          cards: current.cards ?? [],
           product_description: "Updated business capabilities.",
-          prohibited_claims: [],
+          prohibited_claims: current.prohibited_claims ?? [],
           approved: true,
           reason: "Reviewed new product facts",
           expected_previous_id: current.id,
