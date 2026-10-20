@@ -7,7 +7,6 @@ import {
   Check,
   Clock3,
   FileText,
-  Globe2,
   Headphones,
   Layers3,
   Pause,
@@ -19,12 +18,17 @@ import { useEffect, useRef, useState } from "react";
 import { native, openSource, readCache, writeCache } from "../api/client";
 import { label, useWorkspace } from "../context";
 import { MemoryStorage, OptOutJournal, type OptOut } from "../state/optouts";
-import { Telephony } from "../telephony/client";
+import { pausesPresence, Telephony } from "../telephony/client";
 import { InboundCall } from "./InboundCall";
 import { CallControls } from "./CallControls";
 import { WrapUp } from "./WrapUp";
+import { DueTasks } from "./FollowupTasks";
 import type { Call, Packet, Reservation } from "../types";
-import { terminal } from "../types";
+import { isActiveCall, isTerminal } from "../types";
+
+/** The rep owes an outcome: the call ended and its wrap-up is unsaved. */
+const owesWrapUp = (call: Call | null) =>
+  !!call && isTerminal(call) && call.state !== "FINALIZED";
 
 export function DialerPage() {
   const {
@@ -46,10 +50,11 @@ export function DialerPage() {
   const hangupGeneration = useRef(0);
   useSpeechExpiry(call, setCall);
   const [dialing, setDialing] = useState(false);
+  const [readying, setReadying] = useState(false);
+  const readyingNow = useRef(false);
   const [transcript, setTranscript] = useState("");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [audioStatus, setAudioStatus] = useState("");
-  const [showDevices, setShowDevices] = useState(false);
   const [vmAsset, setVMAsset] = useState("");
   const eventReceived = useRef<number | null>(null);
   const responseReceived = useRef<number | null>(null);
@@ -64,7 +69,8 @@ export function DialerPage() {
     journal.current.blocksCalling,
   );
   const ready = w.user.presence.status === "ready";
-  const active = !call?.detached && !terminal(call);
+  const active = isActiveCall(call);
+  const wrapUpPending = owesWrapUp(call);
   const inbound = w.tasks.find(
     (t) =>
       t.inbound && t.routed_rep_id === w.user.id && t.inbound_state !== "ended",
@@ -79,6 +85,17 @@ export function DialerPage() {
     )?.provider_id;
   const incomingAudio = telephony.current.hasIncoming;
   const selectedLead = packet?.lead;
+  const callingNumber =
+    reservation?.number ??
+    w.numbers.find(
+      (n) => n.id === (call?.number_id ?? packet?.bound_number_id),
+    );
+  // The backend makes the final decision; this only hides an unusable control.
+  const finalAttempt =
+    !!call?.attempt_ordinal &&
+    !!call.attempt_allowance &&
+    call.attempt_ordinal >=
+      Math.max(call.attempt_allowance, w.policy.max_attempts ?? 4);
 
   useEffect(() => {
     const controller = telephony.current;
@@ -105,8 +122,7 @@ export function DialerPage() {
   useEffect(() => {
     const owned = w.calls.filter((c) => c.rep_id === w.user.id);
     const current =
-      owned.find((c) => !terminal(c)) ||
-      owned.find((c) => c.state !== "FINALIZED" && terminal(c));
+      owned.find((c) => !isTerminal(c)) || owned.find((c) => owesWrapUp(c));
     if (current && !call && !reservation) {
       setCall(current);
       void run(async () =>
@@ -166,19 +182,18 @@ export function DialerPage() {
   useEffect(() => {
     telephony.current.onStatus = (status) => {
       setAudioStatus(status);
+      // A transient reconnect mid-call, or the registration that Go ready is
+      // replacing, must not post a paused presence.
       if (
-        [
-          "agent-disconnected",
-          "reconnecting",
-          "disconnected",
-          "return-ended",
-        ].includes(status)
+        readyingNow.current ||
+        !pausesPresence(status, isActiveCall(currentCall.current))
       )
-        void api("/v1/rep/presence", "POST", {
-          status: "paused",
-          audio_ready: false,
-          telephony_ready: false,
-        }).catch(() => {});
+        return;
+      void api("/v1/rep/presence", "POST", {
+        status: "paused",
+        audio_ready: false,
+        telephony_ready: false,
+      }).catch(() => {});
     };
   }, [api]);
   useEffect(() => {
@@ -237,62 +252,72 @@ export function DialerPage() {
     return () => window.removeEventListener("online", handler);
   }, [journalReady]);
   async function goReady() {
-    if (inbound || telephony.current.hasIncoming)
-      throw new Error(
-        "Complete the incoming call before becoming ready for outbound calls.",
-      );
-    if (!journalReady)
-      throw new Error("Wait for the protected opt-out journal to open.");
-    await syncOptouts();
-    if (journal.current.blocksCalling)
-      throw new Error(
-        "Sync the pending opt-out before further outbound calls.",
-      );
-    let agent = "agent-simulated";
-    if (!w.simulation) {
-      setAudioStatus("Checking microphone and registering…");
-      const result = await api<{ token: string }>(
-        "/v1/telephony/token",
-        "POST",
-      );
-      await telephony.current.connect(result.token, audio.current!);
-      const leg = await api<{ agent_call_control_id: string }>(
-        "/v1/telephony/agent",
-        "POST",
-      );
-      agent = leg.agent_call_control_id;
-      telephony.current.expectAgentLeg(agent);
-      let answered = false;
-      for (let i = 0; i < 60; i++) {
-        const status = await api<{ state: string }>(
-          `/v1/telephony/agent/${encodeURIComponent(agent)}`,
+    // One registration at a time: a second click must not create another agent leg.
+    if (readyingNow.current) return;
+    readyingNow.current = true;
+    setReadying(true);
+    try {
+      if (inbound || telephony.current.hasIncoming)
+        throw new Error(
+          "Complete the incoming call before becoming ready for outbound calls.",
         );
-        if (status.state === "answered") {
-          answered = true;
-          break;
+      if (!journalReady)
+        throw new Error("Wait for the protected opt-out journal to open.");
+      await syncOptouts();
+      if (journal.current.blocksCalling)
+        throw new Error(
+          "Sync the pending opt-out before further outbound calls.",
+        );
+      let agent = "agent-simulated";
+      if (!w.simulation) {
+        setAudioStatus("Checking microphone and registering…");
+        const result = await api<{ token: string }>(
+          "/v1/telephony/token",
+          "POST",
+        );
+        await telephony.current.connect(result.token, audio.current!);
+        const leg = await api<{ agent_call_control_id: string }>(
+          "/v1/telephony/agent",
+          "POST",
+        );
+        agent = leg.agent_call_control_id;
+        telephony.current.expectAgentLeg(agent);
+        let answered = false;
+        for (let i = 0; i < 60; i++) {
+          const status = await api<{ state: string }>(
+            `/v1/telephony/agent/${encodeURIComponent(agent)}`,
+          );
+          if (status.state === "answered") {
+            answered = true;
+            break;
+          }
+          await new Promise((r) => setTimeout(r, 500));
         }
-        await new Promise((r) => setTimeout(r, 500));
+        if (!answered)
+          throw new Error("The verified agent audio leg did not become ready.");
       }
-      if (!answered)
-        throw new Error("The verified agent audio leg did not become ready.");
+      await api("/v1/rep/presence", "POST", {
+        status: "ready",
+        audio_ready: true,
+        telephony_ready: true,
+        agent_call_control_id: agent,
+        pending_optouts: 0,
+      });
+      setAudioStatus(w.simulation ? "Simulated audio ready" : "Audio ready");
+      await refresh();
+    } finally {
+      readyingNow.current = false;
+      setReadying(false);
     }
-    await api("/v1/rep/presence", "POST", {
-      status: "ready",
-      audio_ready: true,
-      telephony_ready: true,
-      agent_call_control_id: agent,
-      pending_optouts: 0,
-    });
-    setAudioStatus(w.simulation ? "Simulated audio ready" : "Audio ready");
-    await refresh();
   }
-  async function pause() {
+  async function pause(afterHangup = false) {
     await api("/v1/rep/presence", "POST", {
       status: "paused",
       audio_ready: w.user.presence.audio_ready ?? false,
       telephony_ready: false,
     });
-    if (!active) {
+    // Read the current call rather than this render's: a hang-up just ended it.
+    if (afterHangup || !isActiveCall(currentCall.current)) {
       await telephony.current.releaseIdleAgent();
       setReservation(null);
     }
@@ -307,6 +332,8 @@ export function DialerPage() {
       throw new Error(
         "A pending opt-out must synchronize before another call.",
       );
+    if (owesWrapUp(currentCall.current))
+      throw new Error("Save this call's outcome before the next lead.");
     const next = await api<Reservation>("/v1/queue/next", "POST", {
       campaign_id: w.campaign.id,
     });
@@ -353,22 +380,44 @@ export function DialerPage() {
       throw e;
     }
     if (!current()) return;
-    if (pauseAfter) await pause();
+    if (pauseAfter) await pause(true);
     await refresh();
   }
   async function optOut() {
     if (!selectedLead) return;
+    // Journal locally, end the conversation at once, then synchronize.
     journal.current.add(selectedLead.phone, "opt_out");
     setPendingOptouts(true);
-    await persistJournal();
+    const [saved, ended] = await Promise.allSettled([
+      persistJournal(),
+      isActiveCall(currentCall.current) ? hangup() : Promise.resolve(),
+    ]);
+    if (saved.status === "rejected") throw saved.reason;
     await syncOptouts();
-    if (call && active) await hangup();
-    await refresh();
+    void refresh().catch(() => {});
     notice(
       journal.current.blocksCalling
         ? "Opt-out saved locally. Outbound calling is blocked until synchronization."
         : "Opt-out saved. This endpoint is suppressed.",
     );
+    if (ended.status === "rejected") throw ended.reason;
+  }
+  function wrapUpSaved(result: Call) {
+    setCall(result);
+    // The outcome is final. Refreshing next-call context reports separately.
+    void run(async () => {
+      try {
+        await refresh();
+        const updated = await api<Packet>(`/v1/leads/${result.lead_id}/packet`);
+        setPacket((shown) =>
+          shown?.lead.id === result.lead_id ? updated : shown,
+        );
+      } catch (error) {
+        throw new Error(
+          `Outcome saved. Refreshing the lead brief failed: ${error instanceof Error ? error.message : "unknown error"}`,
+        );
+      }
+    });
   }
   async function simulate(type: string) {
     if (!call) return;
@@ -392,6 +441,9 @@ export function DialerPage() {
     await reloadCall(call.id);
     await refresh();
   }
+  const idle = !packet && !call;
+  // Next work shows between calls: not mid-call, owed a wrap-up or about to dial.
+  const betweenCalls = !active && !wrapUpPending && !(reservation && !call);
   return (
     <>
       <audio ref={audio} autoPlay />
@@ -421,30 +473,55 @@ export function DialerPage() {
           }}
         />
       )}
-      <LiveCoach
-        deliveryTiming={{
-          receivedAt: responseReceived.current,
-          eventAt: eventReceived.current,
-        }}
-        call={call}
-        onChange={() => (call ? reloadCall(call.id) : Promise.resolve())}
-      />
-      <div className="dialer-status">
-        <span className="fine">Conversation updates: {label(liveStatus)}</span>
+      {!idle && (
+        <LiveCoach
+          deliveryTiming={{
+            receivedAt: responseReceived.current,
+            eventAt: eventReceived.current,
+          }}
+          call={call}
+          onChange={() => (call ? reloadCall(call.id) : Promise.resolve())}
+        />
+      )}
+      <div className={`page-heading ${packet ? "calling-heading" : ""}`}>
+        <div>
+          <span className="eyebrow">{w.campaign.name}</span>
+          {!packet && (
+            <>
+              <h1>
+                Your next conversation<span className="soft-dot">.</span>
+              </h1>
+              <p>Arrive prepared. Listen closely. Leave a clear next step.</p>
+            </>
+          )}
+        </div>
         <button
-          className="text-button"
-          onClick={() =>
-            void run(async () => {
-              setShowDevices(!showDevices);
-              if (!w.simulation) setDevices(await telephony.current.devices());
-            })
-          }
+          className={ready ? "secondary ready-button" : "primary"}
+          disabled={pendingOptouts || !journalReady || readying}
+          onClick={() => void run(ready ? pause : goReady)}
         >
-          Audio devices
+          {ready ? <Pause size={16} /> : <Headphones size={17} />}{" "}
+          {ready ? "Pause dialing" : readying ? "Getting ready…" : "Go ready"}
         </button>
       </div>
-      {showDevices && (
-        <section className="card padded">
+      {pendingOptouts && (
+        <div className="alert">
+          <ShieldCheck size={18} /> A local opt-out is awaiting synchronization.
+          New calls are blocked.
+          <button onClick={() => void run(syncOptouts)}>Retry sync</button>
+        </div>
+      )}
+      {!ready && !active && !wrapUpPending && (
+        <details
+          className="card padded check-audio"
+          onToggle={(event) => {
+            if (event.currentTarget.open && !w.simulation)
+              void run(async () =>
+                setDevices(await telephony.current.devices()),
+              );
+          }}
+        >
+          <summary>Check audio</summary>
           <div className="two-column">
             <label>
               Microphone
@@ -486,62 +563,47 @@ export function DialerPage() {
               ? "Simulation uses no microphone or carrier audio."
               : "Device names appear after microphone permission. Bluetooth, routing and long-call behavior need a hardware check."}
           </p>
-        </section>
+        </details>
       )}
-      <div className={`page-heading ${packet ? "calling-heading" : ""}`}>
-        <div>
-          <span className="eyebrow">{w.campaign.name}</span>
-          {!packet && (
-            <>
-              <h1>
-                Your next conversation<span className="soft-dot">.</span>
-              </h1>
-              <p>Arrive prepared. Listen closely. Leave a clear next step.</p>
-            </>
-          )}
-        </div>
-        <button
-          className={ready ? "secondary ready-button" : "primary"}
-          disabled={pendingOptouts || !journalReady}
-          onClick={() => void run(ready ? pause : goReady)}
-        >
-          {ready ? <Pause size={16} /> : <Headphones size={17} />}{" "}
-          {ready ? "Pause dialing" : "Go ready"}
-        </button>
-      </div>
-      {pendingOptouts && (
-        <div className="alert">
-          <ShieldCheck size={18} /> A local opt-out is awaiting synchronization.
-          New calls are blocked.
-          <button onClick={() => void run(syncOptouts)}>Retry sync</button>
-        </div>
+      {betweenCalls && <DueTasks />}
+      {idle && <CallingHealth />}
+      {idle && (
+        <details className="dialer-details">
+          <summary>Details</summary>
+          <p className="fine">Conversation updates: {label(liveStatus)}</p>
+          <div className="metric-row">
+            <Metric
+              title="LEADS IN YOUR COHORT"
+              value={String(w.metrics.original_cohort ?? "—")}
+              detail={`${w.metrics.eligible_now ?? "Unknown"} currently eligible`}
+            />
+            <Metric
+              title="UNIQUE RIGHT-PARTY REACH"
+              value={String(w.metrics.right_party_unique ?? "—")}
+              detail="Across the original cohort"
+            />
+            <Metric
+              title="HELD MEETINGS"
+              value={String(w.metrics.held_meetings ?? "—")}
+              detail="Confirmed outcomes"
+            />
+            <Metric
+              title="COVERAGE OVERDUE"
+              value={String(w.metrics.coverage_overdue ?? "—")}
+              detail="No lead left behind"
+              last
+            />
+          </div>
+        </details>
       )}
-      {!packet && (
-        <div className="metric-row">
-          <Metric
-            title="LEADS IN YOUR COHORT"
-            value={String(w.metrics.original_cohort ?? "—")}
-            detail={`${w.metrics.eligible_now ?? "Unknown"} currently eligible`}
-          />
-          <Metric
-            title="UNIQUE RIGHT-PARTY REACH"
-            value={String(w.metrics.right_party_unique ?? "—")}
-            detail="Across the original cohort"
-          />
-          <Metric
-            title="HELD MEETINGS"
-            value={String(w.metrics.held_meetings ?? "—")}
-            detail="Confirmed outcomes"
-          />
-          <Metric
-            title="COVERAGE OVERDUE"
-            value={String(w.metrics.coverage_overdue ?? "—")}
-            detail="No lead left behind"
-            last
-          />
-        </div>
+      {call && wrapUpPending && (
+        <WrapUp
+          key={call.id}
+          call={call}
+          timezone={packet?.lead.timezone}
+          onSaved={wrapUpSaved}
+        />
       )}
-      {!packet && <CallingHealth />}
       <div className="dialer-grid">
         <section className="card lead-card">
           <div className="card-eyebrow">
@@ -573,11 +635,6 @@ export function DialerPage() {
                   {selectedLead.phone}
                 </p>
                 <p>
-                  <Globe2 size={14} />
-                  {selectedLead.timezone?.replaceAll("_", " ") ||
-                    "Timezone needs review"}
-                </p>
-                <p>
                   <Clock3 size={14} />
                   {selectedLead.attempt_count} previous attempts
                 </p>
@@ -587,6 +644,7 @@ export function DialerPage() {
                 key={packet.lead.id}
                 packet={packet}
                 onChange={setPacket}
+                number={callingNumber}
               />
               <span className="eyebrow">WHAT WE KNOW</span>
               {packet.research.facts.length ? (
@@ -720,43 +778,22 @@ export function DialerPage() {
             </div>
           )}
           <div className="script-footer">
-            {packet?.script.final_voicemail_asset && (
-              <p className="fine">
-                A reviewed voicemail message is referenced for the final
-                permitted attempt. Use the call controls only when playback is
-                authorized.
-              </p>
-            )}
             <Layers3 size={13} />
             <span>
               Version{" "}
               {packet?.script.script_version.slice(0, 12) || "approved-v1"}
             </span>
-            <button
-              className="text-button"
-              onClick={() =>
-                notice(
-                  "Flag this script in Intelligence for review before publishing a new version.",
-                )
-              }
-            >
-              Flag an inaccuracy
-            </button>
           </div>
         </section>
       </div>
-      <div className="live-grid">
-        <section className="card transcript-card">
-          <div className="card-eyebrow">
-            <span>
-              <ActivityIcon /> LIVE CONVERSATION
-            </span>
-            <span className="pill subtle">
-              {call ? call.state : "Standing by"}
-            </span>
-          </div>
+      {call && (
+        <details className="card transcript-card">
+          <summary>
+            <ActivityIcon /> Live transcript{" "}
+            <span className="pill subtle">{call.state}</span>
+          </summary>
           <div className="transcript-scroll">
-            {call?.transcript?.length ? (
+            {call.transcript?.length ? (
               call.transcript.map((s) => (
                 <div key={s.segment_id} className={`utterance ${s.side}`}>
                   <span>
@@ -770,118 +807,93 @@ export function DialerPage() {
                 </div>
               ))
             ) : (
-              <div className="transcript-empty">
-                <span className="audio-lines">
-                  <i />
-                  <i />
-                  <i />
-                  <i />
-                  <i />
-                </span>
-                <p>
-                  {active
-                    ? "Listening for permitted transcript events…"
-                    : "The conversation lives here."}
-                </p>
-                <small>
-                  Speaker labels describe the audio side, not a verified
-                  identity.
-                </small>
-              </div>
+              <p className="fine">
+                {active
+                  ? "Listening for permitted transcript events…"
+                  : "No transcript is available."}
+              </p>
             )}
           </div>
-          {w.simulation && active && (
-            <div className="simulation-tools">
-              <div className="simulation-buttons">
-                <button
-                  className="small secondary"
-                  onClick={() =>
-                    void run(async () => {
-                      await simulate("call.answered");
-                      await simulate("call.machine.detection.ended:human");
-                    })
-                  }
-                >
-                  Simulate human answer
-                </button>
-                <button
-                  className="small text-button"
-                  onClick={() =>
-                    void run(async () => {
-                      await simulate("call.answered");
-                      await simulate("call.machine.detection.ended:machine");
-                    })
-                  }
-                >
-                  Mailbox greeting
-                </button>
-                <button
-                  className="small text-button"
-                  onClick={() =>
-                    void run(() =>
-                      simulate("call.machine.greeting.ended:beep_detected"),
-                    )
-                  }
-                >
-                  Mailbox beep
-                </button>
-              </div>
-              <div className="input-row">
-                <input
-                  aria-label="Simulation transcript"
-                  value={transcript}
-                  placeholder="Add a fictional prospect turn…"
-                  onChange={(e) => setTranscript(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void run(addTurn);
-                  }}
-                />
-                <button
-                  className="icon-button"
-                  aria-label="Add prospect turn"
-                  onClick={() => void run(addTurn)}
-                >
-                  <Plus size={19} />
-                </button>
-              </div>
-            </div>
-          )}
-        </section>
-      </div>
-      {call?.state === "VOICEMAIL_READY" && w.policy.voicemail_enabled && (
-        <section className="card padded">
-          <h3>Mailbox ready</h3>
-          <label>
-            Approved voicemail
-            <select
-              value={vmAsset}
-              onChange={(e) => setVMAsset(e.target.value)}
+          <small className="fine">
+            Speaker labels describe the audio side, not a verified identity.
+            Transcript text expires within five minutes.
+          </small>
+        </details>
+      )}
+      {w.simulation && active && (
+        <div className="simulation-tools">
+          <div className="simulation-buttons">
+            <button
+              className="small secondary"
+              onClick={() =>
+                void run(async () => {
+                  await simulate("call.answered");
+                  await simulate("call.machine.detection.ended:human");
+                })
+              }
             >
-              <option value="">Choose a reviewed message</option>
-              {w.policy.approved_assets?.map((a) => (
-                <option key={a} value={a}>
-                  {a}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            className="secondary"
-            disabled={!vmAsset}
-            onClick={() =>
-              void run(async () => {
-                setCall(
-                  await api(`/v1/calls/${call.id}/voicemail`, "POST", {
-                    asset_id: vmAsset,
-                    detach: false,
-                  }),
-                );
-              })
-            }
-          >
-            Start monitored voicemail
-          </button>
-          {w.policy.detached_topology_verified && (
+              Simulate human answer
+            </button>
+            <button
+              className="small text-button"
+              onClick={() =>
+                void run(async () => {
+                  await simulate("call.answered");
+                  await simulate("call.machine.detection.ended:machine");
+                })
+              }
+            >
+              Mailbox greeting
+            </button>
+            <button
+              className="small text-button"
+              onClick={() =>
+                void run(() =>
+                  simulate("call.machine.greeting.ended:beep_detected"),
+                )
+              }
+            >
+              Mailbox beep
+            </button>
+          </div>
+          <div className="input-row">
+            <input
+              aria-label="Simulation transcript"
+              value={transcript}
+              placeholder="Add a fictional prospect turn…"
+              onChange={(e) => setTranscript(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void run(addTurn);
+              }}
+            />
+            <button
+              className="icon-button"
+              aria-label="Add prospect turn"
+              onClick={() => void run(addTurn)}
+            >
+              <Plus size={19} />
+            </button>
+          </div>
+        </div>
+      )}
+      {call?.state === "VOICEMAIL_READY" &&
+        (w.policy.voicemail_enabled && finalAttempt ? (
+          <section className="card padded" aria-label="Voicemail">
+            <h3>Mailbox ready · final permitted attempt</h3>
+            <label>
+              Approved voicemail
+              <select
+                value={vmAsset}
+                onChange={(e) => setVMAsset(e.target.value)}
+              >
+                <option value="">Choose a reviewed message</option>
+                {w.policy.approved_assets?.map((a) => (
+                  <option key={a} value={a}>
+                    {a}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button
               className="secondary"
               disabled={!vmAsset}
@@ -890,28 +902,42 @@ export function DialerPage() {
                   setCall(
                     await api(`/v1/calls/${call.id}/voicemail`, "POST", {
                       asset_id: vmAsset,
-                      detach: true,
+                      detach: false,
                     }),
                   );
                 })
               }
             >
-              Start verified detached workflow
+              Start monitored voicemail
             </button>
-          )}
-        </section>
-      )}
-      {call && terminal(call) && call.state !== "FINALIZED" && (
-        <WrapUp
-          key={call.id}
-          call={call}
-          onSaved={async (result) => {
-            setCall(result);
-            await refresh();
-            setPacket(await api<Packet>(`/v1/leads/${call.lead_id}/packet`));
-          }}
-        />
-      )}
+            {w.policy.detached_topology_verified && (
+              <details>
+                <summary>Other voicemail options</summary>
+                <button
+                  className="secondary"
+                  disabled={!vmAsset}
+                  onClick={() =>
+                    void run(async () => {
+                      setCall(
+                        await api(`/v1/calls/${call.id}/voicemail`, "POST", {
+                          asset_id: vmAsset,
+                          detach: true,
+                        }),
+                      );
+                    })
+                  }
+                >
+                  Start verified detached workflow
+                </button>
+              </details>
+            )}
+          </section>
+        ) : (
+          <p className="fine" role="status">
+            Mailbox reached. A message is left only on the final permitted
+            attempt; hang up when ready.
+          </p>
+        ))}
       <CallControls
         call={call}
         reservation={reservation}
@@ -920,6 +946,7 @@ export function DialerPage() {
         audioStatus={audioStatus}
         dialing={dialing}
         canOptOut={Boolean(selectedLead)}
+        wrapUpPending={wrapUpPending}
         blocked={
           pendingOptouts || !journalReady || Boolean(inbound) || incomingAudio
         }

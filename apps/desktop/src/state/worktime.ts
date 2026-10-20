@@ -1,17 +1,11 @@
+import { isTerminal } from "../types";
+
 type WorkCall = {
   rep_id: string;
   state: string;
   ended_at?: string;
   detached?: boolean;
 };
-const ended = new Set([
-  "ENDED",
-  "FINALIZED",
-  "BUSY",
-  "NO_ANSWER",
-  "TEMPORARY_FAILURE",
-  "INVALID_ENDPOINT",
-]);
 export function heartbeatActivity(
   state: { presence: string; repId: string; calls: WorkCall[] },
   idleMs: number,
@@ -20,7 +14,7 @@ export function heartbeatActivity(
   const owned = state.calls.filter(
     (call) => call.rep_id === state.repId && !call.detached,
   );
-  if (owned.some((call) => !ended.has(call.state))) return "call";
+  if (owned.some((call) => !isTerminal(call))) return "call";
   if (
     idleMs < 15 * 60_000 &&
     owned.some(

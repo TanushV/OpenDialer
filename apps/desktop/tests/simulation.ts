@@ -62,3 +62,43 @@ export async function prepareSimulationCall(
   ).toBeVisible();
   if (await ready.isVisible()) await ready.click();
 }
+
+const PRIMARY_OUTCOMES: Record<string, string> = {
+  no_answer: "No answer",
+  voicemail: "Voicemail",
+  gatekeeper: "Gatekeeper / wrong person",
+  not_interested: "Talked: not interested",
+  callback_requested: "Talked: callback requested",
+  meeting_booked: "Meeting booked",
+};
+
+/** Choose a wrap-up outcome: one click when common, otherwise "More outcomes". */
+export async function chooseOutcome(page: Page, code: string) {
+  const wrapUp = page.locator(".wrap-up").last();
+  await expect(
+    wrapUp.getByRole("button", { name: "Save outcome", exact: true }),
+  ).toBeVisible();
+  const primary = PRIMARY_OUTCOMES[code]
+    ? wrapUp.getByRole("button", { name: PRIMARY_OUTCOMES[code], exact: true })
+    : null;
+  if (primary && (await primary.count())) return await primary.click();
+  const select = wrapUp.getByLabel("Disposition");
+  if (!(await select.isVisible()))
+    await wrapUp.getByText("More outcomes", { exact: true }).click();
+  await select.selectOption(code);
+}
+
+/** End any live call and save its owed wrap-up so the next journey starts clean. */
+export async function finishCall(page: Page) {
+  const hangup = page.getByRole("button", { name: "Hang up", exact: true });
+  const save = page.getByRole("button", { name: "Save outcome", exact: true });
+  if (await hangup.isVisible()) {
+    await hangup.click();
+    await expect(save).toBeVisible();
+  }
+  if (await save.isVisible()) {
+    await chooseOutcome(page, "no_answer");
+    await save.click();
+    await expect(save).toBeHidden();
+  }
+}

@@ -1,8 +1,20 @@
 import { useState, useEffect, useRef } from "react";
 import { Sparkles, Pin, MicOff, X } from "lucide-react";
 import { useWorkspace } from "../context";
-import type { Call } from "../types";
-import { terminal } from "../types";
+import { isActiveCall, type Call } from "../types";
+
+/** Primary helper feedback stays one click away; rarer reasons sit under "More". */
+const PRIMARY_FEEDBACK: [string, string, Record<string, boolean>][] = [
+  ["Useful", "Guidance was useful", { useful: true }],
+  ["Not useful", "Guidance was not useful", { useful: false }],
+  ["Wrong", "Guidance was wrong", { grounded: false }],
+];
+const MORE_FEEDBACK: [string, Record<string, boolean>][] = [
+  ["Guidance arrived too late", { timely: false }],
+  ["Guidance was distracting", { distracting: true }],
+  ["I used this guidance", { used_by_rep: true }],
+  ["I did not use this guidance", { used_by_rep: false }],
+];
 
 export function LiveCoach({
   call,
@@ -39,7 +51,7 @@ export function LiveCoach({
     setExpanded(false);
   }, [call?.id]);
   const advice = call?.coach?.id !== dismissed ? call?.coach : null;
-  const active = !!call && !terminal(call) && call.state !== "ENDING";
+  const active = isActiveCall(call) && call?.state !== "ENDING";
   useEffect(() => {
     if (!advice || !call || !active) return;
     const id = advice.id,
@@ -123,22 +135,26 @@ export function LiveCoach({
         });
     };
   }, [call?.id, active, api]);
+  // One window listener reads the latest state instead of re-registering per render.
+  const keys = useRef({ expanded, waiting, active, help, cancelHelp });
+  keys.current = { expanded, waiting, active, help, cancelHelp };
   useEffect(() => {
     const hotkey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && expanded) {
+      const current = keys.current;
+      if (event.key === "Escape" && current.expanded) {
         event.preventDefault();
-        if (waiting) void run(cancelHelp);
+        if (current.waiting) void run(current.cancelHelp);
         setExpanded(false);
         expandButton.current?.focus();
         return;
       }
-      if (event.key !== "F1" || !active) return;
+      if (event.key !== "F1" || !current.active) return;
       event.preventDefault();
-      if (!event.repeat) void run(help);
+      if (!event.repeat) void run(current.help);
     };
     window.addEventListener("keydown", hotkey);
     return () => window.removeEventListener("keydown", hotkey);
-  });
+  }, [run]);
   async function preference(fields: { muted?: boolean; pinned?: boolean }) {
     if (!call) return;
     await api(`/v1/calls/${call.id}/coach`, "PATCH", fields);
@@ -262,6 +278,32 @@ export function LiveCoach({
         </p>
         {advice && (
           <div className="helper-actions">
+            {PRIMARY_FEEDBACK.map(([text, name, fields]) => (
+              <button
+                key={name}
+                className="text-button"
+                aria-label={name}
+                disabled={savingFeedback}
+                onClick={() => void run(() => saveFeedback(fields))}
+              >
+                {text}
+              </button>
+            ))}
+            <details className="feedback-more">
+              <summary>More</summary>
+              <div className="guidance-feedback" aria-label="More feedback">
+                {MORE_FEEDBACK.map(([name, fields]) => (
+                  <button
+                    key={name}
+                    className="text-button"
+                    disabled={savingFeedback}
+                    onClick={() => void run(() => saveFeedback(fields))}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            </details>
             <button
               className="icon-button"
               aria-label={advice.pinned ? "Unpin guidance" : "Pin guidance"}
@@ -300,30 +342,6 @@ export function LiveCoach({
                     ? "Seller-approved example · AI unavailable"
                     : "Model suggestion"}
               </small>
-              <div className="guidance-feedback" aria-label="Guidance feedback">
-                {[
-                  ["I used this guidance", { used_by_rep: true }],
-                  ["I did not use this guidance", { used_by_rep: false }],
-                  ["Guidance was useful", { useful: true }],
-                  ["Guidance was not useful", { useful: false }],
-                  ["Guidance was distracting", { distracting: true }],
-                  ["Guidance arrived too late", { timely: false }],
-                  ["Guidance was wrong", { grounded: false }],
-                ].map(([title, fields]) => (
-                  <button
-                    key={String(title)}
-                    className="text-button"
-                    disabled={savingFeedback}
-                    onClick={() =>
-                      void run(() =>
-                        saveFeedback(fields as Record<string, boolean>),
-                      )
-                    }
-                  >
-                    {String(title)}
-                  </button>
-                ))}
-              </div>
             </>
           )}
           <form
