@@ -2,7 +2,7 @@
 
 import math
 import time
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from app.optimization.numbering import capacity_forecast
@@ -276,22 +276,28 @@ def test_next_lead_page_query_is_served_in_index_order(workspace, app):
     from sqlalchemy import text
 
     load_leads(workspace, 50)
+    query = (
+        "SELECT id FROM leads WHERE tenant_id=:t AND seller_id=:s AND "
+        "op_campaign_id=:c AND op_status='eligible' AND (op_due_at <= :n OR op_due_at IS NULL) "
+        "ORDER BY op_priority DESC, op_coverage_at, id LIMIT 32"
+    )
+    values = {"t": workspace["tenant_id"], "s": workspace["seller_id"], "c": workspace["campaign_id"]}
     with app.state.db.engine.connect() as connection:
-        plan = connection.execute(
-            text(
-                "EXPLAIN QUERY PLAN SELECT id FROM leads WHERE tenant_id=:t AND seller_id=:s AND "
-                "op_campaign_id=:c AND op_status='eligible' AND (op_due_at <= :n OR op_due_at IS NULL) "
-                "ORDER BY op_priority DESC, op_coverage_at, id LIMIT 32"
-            ),
-            {
-                "t": workspace["tenant_id"],
-                "s": workspace["seller_id"],
-                "c": workspace["campaign_id"],
-                "n": "9999",
-            },
-        ).all()
-    details = " ".join(str(row[-1]) for row in plan)
-    assert "ix_leads_queue" in details and "TEMP B-TREE" not in details, details
+        if app.state.db.sqlite:
+            plan = connection.execute(text("EXPLAIN QUERY PLAN " + query), {**values, "n": "9999"}).all()
+            details = " ".join(str(row[-1]) for row in plan)
+            assert "ix_leads_queue" in details and "TEMP B-TREE" not in details, details
+        else:
+            # A 50-row table makes any scan plus a sort cheapest, so forbid both: the planner can
+            # then only answer with an index that already serves this exact ORDER BY.
+            with connection.begin():
+                connection.execute(text("SET LOCAL enable_seqscan = off"))
+                connection.execute(text("SET LOCAL enable_sort = off"))
+                plan = connection.execute(
+                    text("EXPLAIN " + query), {**values, "n": datetime(9999, 1, 1, tzinfo=UTC)}
+                ).all()
+            details = "\n".join(str(row[0]) for row in plan)
+            assert "ix_leads_queue" in details and "Sort" not in details, details
 
 
 def test_due_callback_outranks_every_coverage_lead_beyond_the_top_k(workspace, app, monkeypatch, clock):
