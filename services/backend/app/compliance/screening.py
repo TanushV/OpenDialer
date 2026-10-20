@@ -25,7 +25,7 @@ from app.compliance.operating import (
 )
 from app.compliance.phone import normalize_phone
 from app.db import MODELS, Job, audit, doc, put, uid, update
-from app.jobs.queue import aware
+from app.jobs.queue import aware, jobdoc
 from app.providers.dnc import DNCError, PrepaidDNC
 from app.providers.inference import InferenceResult
 from app.service import dt, fail
@@ -294,17 +294,32 @@ def reserve_refresh_in(service, s, p, refresh, estimate):
 
 
 def schedule_refresh(service, p):
-    with service.db.transaction() as s:
-        service.db.authorize_stream(s, p)
+    def due(s):
+        """This window's refresh identity, or None when disabled or not authorized."""
         if not active_admin(service, s, p):
-            return
+            return None
         seller = service.required(s, "sellers", p["seller_id"], p)
         policy = DncRefreshPolicy(**seller.data.get("operating_policy", {}).get("dnc_refresh", {}))
         if not policy.enabled:
-            return
+            return None
         window = int(service.clock().timestamp()) // (policy.interval_hours * 3600)
         version = seller.data.get("operating_policy_version", 1)
-        key = f"dnc-refresh:{p['seller_id']}:{version}:{window}"
+        return version, f"dnc-refresh:{p['seller_id']}:{version}:{window}"
+
+    # Read first: a disabled policy or an already scheduled window needs no writer.
+    with service.db.transaction(False) as s:
+        identity = due(s)
+        if identity is None:
+            return None
+        scheduled = s.scalar(select(Job).where(Job.tenant_id == p["tenant_id"], Job.key == identity[1]))
+        if scheduled is not None:
+            return jobdoc(scheduled)
+    with service.db.transaction() as s:
+        service.db.authorize_stream(s, p)
+        identity = due(s)
+        if identity is None:
+            return None
+        version, key = identity
         horizon = service.clock() + timedelta(hours=service.optimization_config(s, p)["horizon_hours"])
         return service.jobs.enqueue_in(
             s,
