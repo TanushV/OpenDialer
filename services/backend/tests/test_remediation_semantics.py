@@ -3,6 +3,7 @@
 import pytest
 from app.coaching.context import build_context, ground_guidance, merge_semantic_state
 from app.coaching.engine import CardRejected
+from conftest import NOW
 from test_remediation_coach import advice
 
 
@@ -37,6 +38,7 @@ def test_interpreted_state_is_paraphrased_and_quoted_evidence_is_only_for_valida
             ],
         },
         segments,
+        at=NOW,
     )
     assert result["objections"][0]["text"] == "Spending authorization remains pending."
     assert "quote" not in result["objections"][0]
