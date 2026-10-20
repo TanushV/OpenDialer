@@ -208,7 +208,7 @@ def test_settings_defaults_carry_the_bounds_the_ui_renders(workspace):
     assert bounds["comparison"]["candidate_probability"]["max"] == 0.9
     assert bounds["setup"]["password"]["min_length"] == 12
     assert bounds["screening"]["phones"]["max_items"] == 500
-    assert bounds["deferred_batch"]["lead_ids"]["max_items"] == 20
+    assert "deferred_batch" not in bounds
     assert defaults["optimization"]["staffing_timezone"] == "UTC"
     assert defaults["optimization"]["conversion_goal"] == "meeting_held"
     # The same definitions are readable by every role for shared forms.
