@@ -26,7 +26,7 @@ def test_bounded_normal_reads_and_short_writes(workspace, app, monkeypatch):
         finally:
             state.writing = prior
 
-    slots, seen = workflows.future_slots, []
+    slots, seen = workflows.capacity_forecast, []
 
     def checked(*args, **kwargs):
         seen.append(True)
@@ -34,8 +34,8 @@ def test_bounded_normal_reads_and_short_writes(workspace, app, monkeypatch):
         return slots(*args, **kwargs)
 
     monkeypatch.setattr(service.db, "transaction", traced)
-    monkeypatch.setattr(workflows, "future_slots", checked)
-    service.refresh_schedule_plans(p, workspace["campaign_id"])
+    monkeypatch.setattr(workflows, "capacity_forecast", checked)
+    service.build_forecast(p, workspace["campaign_id"])
     assert seen, "The fixture must actually exercise due-work planning"
 
 

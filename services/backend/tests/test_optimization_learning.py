@@ -6,7 +6,6 @@ from app.optimization.learning import (
     derive_labels,
     drift_report,
     freeze_features,
-    future_slots,
     learn_distribution,
     training_rows,
     trial_report,
@@ -424,8 +423,8 @@ def test_forecast_shares_weekday_and_attempt_estimates_with_selection(workspace,
     with app.state.db.transaction(False) as s:
         inputs, _ = service.forecast_input(s, p)
     for lead in inputs["leads"]:
-        assert lead["slot_estimates"]["0:10:general"] == pytest.approx(0.2)
-        assert lead["slot_estimates"]["6:10:general"] == pytest.approx(0.1)
+        assert lead["slot_estimates"]["0:10"] == pytest.approx(0.2)
+        assert lead["slot_estimates"]["6:10"] == pytest.approx(0.1)
         assert lead["predicted_work_seconds"] == 180
 
 
@@ -531,63 +530,47 @@ def test_pending_outcomes_cannot_promote_a_treatment():
     assert learn_distribution(["a", "b"], rows)["best"] == "a"
 
 
-def test_future_slots_respect_timezone_retry_callback_and_coverage(clock):
+def test_forecast_respects_timezone_retry_callback_and_window(clock):
+    # Per-lead suggestions now come from the one whole-list schedule (no alternatives path).
+    from app.optimization.numbering import capacity_forecast
+
     callback = clock.now + timedelta(hours=2)
     lead = {
         "id": "l",
+        "status": "eligible",
         "timezone": "America/Los_Angeles",
         "segment": "roofing",
         "attempt_count": 1,
         "callback_due_at": callback.isoformat(),
         "next_attempt_at": (clock.now + timedelta(hours=1)).isoformat(),
-        "coverage_due_at": (clock.now + timedelta(days=1)).isoformat(),
     }
-    slots = future_slots(
-        lead,
-        [],
-        now=clock.now,
-        policy={"local_start_hour": 9, "local_end_hour": 17, "min_retry_seconds": 3600, "max_attempts": 4},
-    )
-    assert slots[0]["at"] == callback.isoformat() and slots[0]["reason"] == "requested_callback"
-    assert all(s["local_hour"] in range(9, 17) for s in slots)
-    assert all(s["at"] >= lead["next_attempt_at"] for s in slots)
+    window = {
+        "start_at": clock.now.isoformat(),
+        "end_at": (clock.now + timedelta(hours=8)).isoformat(),
+        "reps": 1,
+    }
+    policy = {"local_start_hour": 9, "local_end_hour": 17, "min_retry_seconds": 3600, "max_attempts": 4}
+    inventory = [{"id": "n", "region": "general", "lifecycle": "healthy", "daily_limit": 5, "capacity": 1}]
+    rows = capacity_forecast([lead], inventory, now=clock.now, policy=policy, staffed_windows=[window])[
+        "existing_schedule"
+    ]
+    assert rows[0]["at"] == callback.isoformat() and rows[0]["callback"]
+    later = capacity_forecast(
+        [{**lead, "callback_due_at": None}], inventory, now=clock.now, policy=policy, staffed_windows=[window]
+    )["existing_schedule"]
+    assert later and later[0]["at"] >= lead["next_attempt_at"]
 
 
 def test_no_timezone_and_exhausted_leads_are_not_scheduled(clock):
-    assert future_slots({"id": "l", "timezone": None}, [], now=clock.now, policy={}) == []
-    assert (
-        future_slots(
-            {"id": "l", "timezone": "UTC", "attempt_count": 4}, [], now=clock.now, policy={"max_attempts": 4}
-        )
-        == []
-    )
+    from app.optimization.numbering import capacity_forecast
 
-
-def test_a_possible_coverage_deadline_is_not_replaced_with_a_later_slot(clock):
-    deadline = clock.now + timedelta(hours=2)
-    slots = future_slots(
-        {"id": "covered", "timezone": "America/Los_Angeles", "coverage_due_at": deadline.isoformat()},
+    result = capacity_forecast(
+        [{"id": "l", "timezone": None}, {"id": "x", "timezone": "UTC", "attempt_count": 4}],
         [],
         now=clock.now,
-        policy={"local_start_hour": 9, "local_end_hour": 20},
+        policy={"max_attempts": 4},
     )
-    assert slots and slots[0]["at"] <= deadline.isoformat()
-
-
-def test_future_slots_can_use_the_verified_active_model_instead_of_only_the_pooled_baseline(clock):
-    slots = future_slots(
-        {"id": "active-model", "timezone": "America/Los_Angeles"},
-        [],
-        now=clock.now,
-        policy={"local_start_hour": 9, "local_end_hour": 17},
-        predictor=lambda hour, weekday: {
-            "p_human": 0.9 if hour == 16 else 0.1,
-            "p_right_party_given_human": 0.8,
-            "p_conversion_given_right_party": 0.4,
-            "expected_rep_seconds": 60,
-        },
-    )
-    assert slots[0]["local_hour"] == 16
+    assert result["known_next_attempts"] == 0 and result["window_unknown_leads"] == 1
 
 
 def test_trial_reports_use_unique_matured_leads_and_do_not_claim_lift_from_tiny_samples(clock):

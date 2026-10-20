@@ -241,47 +241,47 @@ def test_report_decisions_follow_scoped_reservation_identities(workspace, app, c
 
 
 def test_report_uses_only_current_versioned_plans(workspace, app, clock):
+    # Plans are one bounded forecast summary; stale lead versions, holds and expiry are filtered.
     from test_projection_replay import project_pending
 
     service, p = app.state.service, principal(workspace)
     with service.db.transaction() as s:
         leads = service.scoped(s, "leads", p)
-        for i, lead in enumerate(leads):
-            value = {
+        rows = [
+            {
                 "lead_id": lead.id,
-                "status": "ready",
-                "source_lead_version": lead.version,
-                "selected": {"lead_id": lead.id, "at": clock.now.isoformat(), "reason": "fixture"},
-                "expires_at": (clock.now + timedelta(minutes=10)).isoformat(),
+                "lead_version": lead.version - (i == 1),
+                "at": clock.now.isoformat(),
+                "reason": "fixture",
+                "local_hour": 9,
             }
-            if i == 1:
-                value["source_lead_version"] -= 1
-            if i == 2:
-                value["expires_at"] = (clock.now - timedelta(seconds=1)).isoformat()
-            put(
-                s,
-                "scheduling_plans",
-                p["tenant_id"],
-                p["seller_id"],
-                value,
-                key="current:" + lead.id,
-                now=clock.now,
-            )
-            put(
-                s,
-                "scheduling_plans",
-                p["tenant_id"],
-                p["seller_id"],
-                value,
-                key="historical:" + lead.id,
-                now=clock.now + timedelta(seconds=1),
-            )
+            for i, lead in enumerate(leads[:3])
+        ]
+        update(leads[2], outreach_hold={"kind": "human_booked"})
+        rows[2]["lead_version"] = leads[2].version
+        put(
+            s,
+            "report_projections",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                "report": {
+                    "next_attempts": rows,
+                    "next_attempts_expire_at": (clock.now + timedelta(minutes=10)).isoformat(),
+                },
+                "campaign_id": workspace["campaign_id"],
+            },
+            key=f"planning:{workspace['campaign_id']}:configured",
+            now=clock.now,
+        )
         expected_id = leads[0].id
     project_pending(service, p)
     report = service.optimization_report(p)
     assert [v["lead_id"] for v in report["future_slots"]] == [expected_id]
     assert len(report["plans"]) == 3
     assert report["detail_coverage"]["plans_inspected"] == 3
+    clock.now += timedelta(minutes=11)
+    assert service.optimization_report(p)["future_slots"] == []
 
 
 def test_report_publication_reads_bucket_metrics_not_source_history(workspace, app, clock, monkeypatch):

@@ -238,7 +238,7 @@ def test_cached_report_does_not_run_future_scheduling_on_view(workspace, app, mo
     def forbidden(*args, **kwargs):
         raise AssertionError("Report GET recomputed an operational plan")
 
-    monkeypatch.setattr("app.optimization.workflows.future_slots", forbidden)
+    monkeypatch.setattr("app.optimization.workflows.capacity_forecast", forbidden)
     result = c.get("/v1/optimization", headers=h)
     assert result.status_code == 200, result.text
     assert result.json()["as_of"]

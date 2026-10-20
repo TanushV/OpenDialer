@@ -45,7 +45,10 @@ class NumberOperations:
                 errors.append("recording_not_disabled")
         callback_valid = callback_current(value, self.clock(), config["version"])
         external = assess_number_health(
-            [], {"as_of": self.clock().isoformat()}, value.get("external_reputation"), {}
+            [],
+            {"as_of": self.clock().isoformat()},
+            value.get("external_reputation"),
+            self.health_policy_in(s, p),
         )
 
         return {

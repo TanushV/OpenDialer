@@ -4,8 +4,21 @@ import math
 import statistics
 from datetime import UTC, datetime, timedelta
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from app.scheduling.models import contact_labels
 from app.scheduling.models import wilson as wilson
+
+
+class HealthPolicy(BaseModel):
+    """Versioned health review defaults; the domain owner, serialized by the settings API."""
+
+    model_config = ConfigDict(extra="forbid")
+    min_comparable: int = Field(default=30, ge=10, le=1000, strict=True)
+    material_drop: float = Field(default=0.20, gt=0, lt=1, allow_inf_nan=False)
+    confidence: float = Field(default=0.95, ge=0.8, le=0.999, allow_inf_nan=False)
+    window_days: int = Field(default=90, ge=1, le=365, strict=True)
+    callback_proof_days: int = Field(default=30, ge=1, le=90, strict=True)
 
 
 def timestamp(value):
@@ -73,8 +86,6 @@ def health_stratum(row):
 
 def health_from_counts(counts, *, now, policy, comparison_strata, next_expiry_at=None):
     """The same descriptive intervals for incremental and explicit offline reads."""
-    from app.optimization.api import HealthPolicy
-
     policy = HealthPolicy.model_validate(policy or {}).model_dump(exclude={"callback_proof_days"})
     fields = (
         "samples",
@@ -162,9 +173,11 @@ def _observed_health(observed, now, policy):
 
 
 def assess_number_health(observed, baseline, external, policy):
-    """Assess observations or saved statistics; current metadata never reuses an old green badge."""
-    from app.optimization.api import HealthPolicy
+    """Assess observations or saved statistics; current metadata never reuses an old green badge.
 
+    Delivery deterioration is a drop relative to a supported comparable reference (other
+    numbers' delivery in the same window), never the policy margin read as an absolute rate.
+    """
     policy = HealthPolicy.model_validate(policy or {}).model_dump(exclude={"callback_proof_days"})
     version = hashlib.sha256(json.dumps(policy, sort_keys=True).encode()).hexdigest()[:16]
     now = timestamp(baseline["as_of"])
@@ -180,9 +193,19 @@ def assess_number_health(observed, baseline, external, policy):
     pickup_drop = bool(
         stats["case_mix_interval"] and stats["case_mix_interval"][1] < -policy["material_drop"]
     )
-    delivery_drop = (
+    reference = dict(baseline.get("delivery_reference") or {})
+    if baseline.get("attempts"):
+        pooled = _observed_health(baseline["attempts"], now, policy)
+        reference = {"samples": pooled["delivery_samples"], "failures": pooled["delivery_failures"]}
+    reference_n, reference_failures = reference.get("samples", 0), reference.get("failures", 0)
+    z = statistics.NormalDist().inv_cdf((1 + policy["confidence"]) / 2)
+    # Without a supported comparable reference, the drop is measured from complete delivery
+    # and labeled as that assumption; it is never compared to the margin as a raw rate.
+    supported_reference = reference_n >= policy["min_comparable"]
+    reference_high = wilson(reference_failures, reference_n, z=z)[1] if supported_reference else 0.0
+    delivery_drop = bool(
         stats["delivery_samples"] >= policy["min_comparable"]
-        and stats["delivery_failure_interval"][0] > policy["material_drop"]
+        and stats["delivery_failure_interval"][0] - reference_high > policy["material_drop"]
     )
     errors = list(baseline.get("configuration_errors", []))
     if stats["hard_provider_error"]:
@@ -233,6 +256,12 @@ def assess_number_health(observed, baseline, external, policy):
         "spam_label_confirmed": False,
         "external": external,
         "external_fresh": fresh,
+        "delivery_reference": {
+            "source": "other_numbers" if supported_reference else "assumed_complete_delivery",
+            "samples": reference_n,
+            "failures": reference_failures,
+            "failure_upper": reference_high,
+        },
         "assessed_at": now.isoformat(),
         "evidence_scope": "first_party_with_separate_imported_evidence",
         "reason_codes": reasons,
@@ -250,10 +279,24 @@ def assess_number_health(observed, baseline, external, policy):
     }
 
 
-def number_health(attempts, *, pooled_attempts, now, external=None, policy=None, configuration_errors=()):
+def number_health(
+    attempts,
+    *,
+    pooled_attempts,
+    now,
+    external=None,
+    policy=None,
+    configuration_errors=(),
+    delivery_reference=None,
+):
     return assess_number_health(
         attempts,
-        {"as_of": now.isoformat(), "attempts": pooled_attempts, "configuration_errors": configuration_errors},
+        {
+            "as_of": now.isoformat(),
+            "attempts": pooled_attempts,
+            "configuration_errors": configuration_errors,
+            "delivery_reference": delivery_reference,
+        },
         external,
         policy,
     )
