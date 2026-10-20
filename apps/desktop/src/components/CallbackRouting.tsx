@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useWorkspace } from "../context";
+import { limits, useDefinitions } from "../state/definitions";
 
 type Routing = {
   version: number;
@@ -14,12 +15,37 @@ type Routing = {
 
 export function CallbackRouting() {
   const { api, run, snapshot: w } = useWorkspace();
+  const bounds = useDefinitions();
   const [value, setValue] = useState<Routing | null>(null);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+  const load = async () => {
+    try {
+      setValue(await api<Routing>("/v1/admin/callback-routing"));
+      setError("");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  };
   useEffect(() => {
-    void run(async () => setValue(await api("/v1/admin/callback-routing")));
+    void load();
   }, []);
-  if (!value) return null;
+  if (!value)
+    return (
+      <section className="card padded" aria-label="Inbound callbacks">
+        <h2>Inbound callbacks</h2>
+        <p role="status">
+          {error
+            ? `Callback routing could not be loaded: ${error}`
+            : "Loading callback routing…"}
+        </p>
+        {error && (
+          <button className="secondary" onClick={() => void load()}>
+            Retry loading callback routing
+          </button>
+        )}
+      </section>
+    );
   return (
     <section className="card padded" aria-label="Inbound callbacks">
       <h2>Inbound callbacks</h2>
@@ -43,8 +69,7 @@ export function CallbackRouting() {
         Ring timeout (seconds)
         <input
           type="number"
-          min={5}
-          max={30}
+          {...limits(bounds?.callback_routing?.ring_seconds)}
           value={value.ring_seconds}
           onChange={(e) => {
             setSaved(false);

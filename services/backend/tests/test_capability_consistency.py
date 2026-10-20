@@ -49,12 +49,16 @@ def test_settings_serialize_domain_defaults_and_never_secret_values(workspace):
     value = c.get("/v1/admin/settings", headers=h).json()
     assert secret not in str(value)
     assert value.get("version") == 1
-    assert value.get("defaults") == {
+    defaults = value.get("defaults")
+    # The payload also carries optimization defaults and the shared bounds the UI renders
+    # (test_admin_setup.py); the domain owners' serialized defaults stay exactly as before.
+    assert {k: defaults[k] for k in ("providers", "runtime", "operating", "preparation")} == {
         "providers": PROVIDER_DEFAULTS.model_dump(mode="json"),
         "runtime": RuntimeLimits().model_dump(mode="json"),
         "operating": OperatingPolicy().model_dump(mode="json"),
         "preparation": PreparationPolicy().model_dump(mode="json"),
     }
+    assert set(defaults) == {"providers", "runtime", "operating", "preparation", "optimization", "bounds"}
 
 
 def test_settings_load_the_saved_budget_instead_of_replacing_it_with_ui_defaults(workspace):

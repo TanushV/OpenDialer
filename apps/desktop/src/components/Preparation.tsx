@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { useWorkspace } from "../context";
 import { localEdit } from "../api/client";
+import { limits, useDefinitions } from "../state/definitions";
+import { ZonePicker } from "./Staffing";
 
 type Template = {
   topic: string;
@@ -118,23 +120,68 @@ export function PreparationRunway() {
 
 export function PreparationSettings() {
   const { api, run, notice, snapshot: workspace } = useWorkspace();
+  const bounds = useDefinitions();
+  const b = bounds?.preparation;
   const [config, setConfig] = useState<Configuration | null>(null);
   const [template, setTemplate] = useState<Template | null>(null);
+  // Questions are edited as text; blank lines are dropped only when saving.
+  const [questions, setQuestions] = useState("");
+  const [error, setError] = useState("");
+  const apply = (result: Configuration) => {
+    const next = result.script_template || result.template_defaults;
+    setConfig(result);
+    setTemplate(next);
+    setQuestions(next.discovery_questions.join("\n"));
+  };
+  const load = async () => {
+    try {
+      apply(await api<Configuration>("/v1/admin/operating-policy"));
+      setError("");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  };
   useEffect(() => {
     let current = true;
-    void run(async () => {
-      const result = await api<Configuration>("/v1/admin/operating-policy");
-      if (!current) return;
-      setConfig(result);
-      setTemplate(result.script_template || result.template_defaults);
-    });
+    void api<Configuration>("/v1/admin/operating-policy").then(
+      (result) => current && apply(result),
+      (reason: unknown) =>
+        current &&
+        setError(reason instanceof Error ? reason.message : String(reason)),
+    );
     return () => {
       current = false;
     };
   }, []);
-  if (!config || !template) return null;
+  if (!config || !template)
+    return (
+      <section className="card padded" aria-label="Script and preparation">
+        <h2>Script and advance preparation</h2>
+        <p role="status">
+          {error
+            ? `Script and preparation settings could not be loaded: ${error}`
+            : "Loading script and preparation settings…"}
+        </p>
+        {error && (
+          <button className="secondary" onClick={() => void load()}>
+            Retry loading preparation settings
+          </button>
+        )}
+      </section>
+    );
   const setPolicy = (patch: Partial<PreparationPolicy>) =>
     setConfig({ ...config, preparation: { ...config.preparation, ...patch } });
+  const number = (key: keyof PreparationPolicy, title: string) => (
+    <label key={key}>
+      {title}
+      <input
+        type="number"
+        {...limits(b?.[key])}
+        value={config.preparation[key] as number}
+        onChange={(e) => setPolicy({ [key]: Number(e.target.value) })}
+      />
+    </label>
+  );
   return (
     <section className="card padded">
       <h2>Script and advance preparation</h2>
@@ -154,11 +201,17 @@ export function PreparationSettings() {
               {
                 request_id: crypto.randomUUID(),
                 expected_version: config.version,
-                script_template: template,
+                script_template: {
+                  ...template,
+                  discovery_questions: questions
+                    .split("\n")
+                    .map((q) => q.trim())
+                    .filter(Boolean),
+                },
                 preparation: config.preparation,
               },
             );
-            setConfig(saved);
+            apply(saved);
             notice("Script and preparation saved");
           });
         }}
@@ -167,13 +220,9 @@ export function PreparationSettings() {
           type="button"
           className="text-button"
           onClick={() =>
-            void run(async () => {
-              const current = await api<Configuration>(
-                "/v1/admin/operating-policy",
-              );
-              setConfig(current);
-              setTemplate(current.script_template || current.template_defaults);
-            })
+            void run(async () =>
+              apply(await api<Configuration>("/v1/admin/operating-policy")),
+            )
           }
         >
           Reload preparation settings
@@ -221,13 +270,8 @@ export function PreparationSettings() {
           <textarea
             aria-label="Discovery questions (one per line)"
             rows={3}
-            value={template.discovery_questions.join("\n")}
-            onChange={(e) =>
-              setTemplate({
-                ...template,
-                discovery_questions: e.target.value.split("\n"),
-              })
-            }
+            value={questions}
+            onChange={(e) => setQuestions(e.target.value)}
           />
         </label>
         <label className="check-label">
@@ -264,98 +308,21 @@ export function PreparationSettings() {
           the current call's authorization.
         </p>
         <div className="two-column">
-          <label>
-            Prepared-ahead target
-            <input
-              type="number"
-              min={1}
-              max={100}
-              value={config.preparation.ahead_count}
-              onChange={(e) =>
-                setPolicy({ ahead_count: Number(e.target.value) })
-              }
-            />
-          </label>
-          <label>
-            Workspace preparation cap
-            <input
-              type="number"
-              min={1}
-              max={500}
-              value={config.preparation.workspace_ahead_cap}
-              onChange={(e) =>
-                setPolicy({ workspace_ahead_cap: Number(e.target.value) })
-              }
-            />
-          </label>
-          <label>
-            Stable fact cache (days)
-            <input
-              type="number"
-              min={1}
-              max={30}
-              value={config.preparation.stable_fact_days}
-              onChange={(e) =>
-                setPolicy({ stable_fact_days: Number(e.target.value) })
-              }
-            />
-          </label>
-          <label>
-            Time-sensitive fact cache (hours)
-            <input
-              type="number"
-              min={1}
-              max={24}
-              value={config.preparation.time_sensitive_fact_hours}
-              onChange={(e) =>
-                setPolicy({ time_sensitive_fact_hours: Number(e.target.value) })
-              }
-            />
-          </label>
-          <label>
-            Leads per work unit
-            <input
-              type="number"
-              min={1}
-              max={20}
-              value={config.preparation.batch_size}
-              onChange={(e) =>
-                setPolicy({ batch_size: Number(e.target.value) })
-              }
-            />
-          </label>
-          <label>
-            Preparation starts at hour
-            <input
-              type="number"
-              min={0}
-              max={23}
-              value={config.preparation.off_hours_start}
-              onChange={(e) =>
-                setPolicy({ off_hours_start: Number(e.target.value) })
-              }
-            />
-          </label>
-          <label>
-            Preparation ends at hour
-            <input
-              type="number"
-              min={0}
-              max={24}
-              value={config.preparation.off_hours_end}
-              onChange={(e) =>
-                setPolicy({ off_hours_end: Number(e.target.value) })
-              }
-            />
-          </label>
-          <label>
-            Preparation timezone
-            <input
-              value={config.preparation.timezone}
-              onChange={(e) => setPolicy({ timezone: e.target.value })}
-              required
-            />
-          </label>
+          {number("ahead_count", "Prepared-ahead target")}
+          {number("workspace_ahead_cap", "Workspace preparation cap")}
+          {number("stable_fact_days", "Stable fact cache (days)")}
+          {number(
+            "time_sensitive_fact_hours",
+            "Time-sensitive fact cache (hours)",
+          )}
+          {number("batch_size", "Leads per work unit")}
+          {number("off_hours_start", "Preparation starts at hour")}
+          {number("off_hours_end", "Preparation ends at hour")}
+          <ZonePicker
+            title="Preparation timezone"
+            value={config.preparation.timezone}
+            onChange={(timezone) => setPolicy({ timezone })}
+          />
         </div>
         <p className="fine">
           Hours use 24-hour time; 18 to 8 runs overnight. Automatic work

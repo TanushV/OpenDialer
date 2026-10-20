@@ -178,6 +178,17 @@ export interface Call {
     stage: string;
     trigger: string;
     version: number;
+    /** Metadata-only receipt of the last helper attempt; never content. */
+    helper_status?: {
+      status: "available" | "unavailable" | "cached_knowledge";
+      reason?:
+        | "transport_fault"
+        | "invalid_response"
+        | "provider_unverified"
+        | "provider_mismatch"
+        | null;
+      at?: string;
+    } | null;
   } | null;
 }
 export interface Script {
@@ -345,6 +356,8 @@ export interface Readiness {
 }
 export interface Policy {
   id: string;
+  /** Row version of this immutable publication; publishing an older one is a conflict. */
+  version?: number;
   approved: boolean;
   registry_required: boolean;
   state_registry_required: boolean;

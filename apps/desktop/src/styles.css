@@ -1960,3 +1960,65 @@ details.transcript-card {
   border: 1px solid #dfe5d6;
   border-radius: 8px;
 }
+
+/* Admin setup checklist: one row per step, essential controls on expansion. */
+.setup-checklist {
+  margin-bottom: 20px;
+}
+.setup-step {
+  background: #fff;
+  border: 1px solid #e0e5d9;
+  border-radius: 11px;
+  margin-bottom: 10px;
+}
+.setup-step > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  cursor: pointer;
+}
+.setup-step[open] > summary {
+  border-bottom: 1px solid #edf0e7;
+}
+.setup-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #eff4e6;
+  font-size: 11px;
+}
+.setup-summary {
+  flex-basis: 100%;
+  margin-left: 32px;
+}
+.setup-body {
+  padding: 16px 18px 20px 50px;
+}
+.setup-form {
+  margin-bottom: 18px;
+}
+.pill.amber {
+  background: #f8f0dd;
+  color: #8a6a1f;
+}
+.weekday-row {
+  border: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+.advanced-view > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.helper-status {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #eef2ea;
+}
