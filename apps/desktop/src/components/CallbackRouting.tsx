@@ -19,16 +19,24 @@ export function CallbackRouting() {
   const [value, setValue] = useState<Routing | null>(null);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
-  const load = async () => {
+  const load = async (current = () => true) => {
     try {
-      setValue(await api<Routing>("/v1/admin/callback-routing"));
+      const loaded = await api<Routing>("/v1/admin/callback-routing");
+      if (!current()) return;
+      setValue(loaded);
       setError("");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      if (current())
+        setError(reason instanceof Error ? reason.message : String(reason));
     }
   };
   useEffect(() => {
-    void load();
+    // A superseded read must not replace an operator's draft when it lands late.
+    let mounted = true;
+    void load(() => mounted);
+    return () => {
+      mounted = false;
+    };
   }, []);
   if (!value)
     return (
