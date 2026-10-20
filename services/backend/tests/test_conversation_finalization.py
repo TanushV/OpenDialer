@@ -1568,3 +1568,23 @@ async def test_finalizer_request_is_read_only_with_every_live_chunk_and_human_ta
         for k, kind, s in postcall_jobs(service, call["id"])
         if s == "queued" and kind == "conversation_finalize"
     ]
+
+
+def test_late_final_segment_after_hangup_uses_the_single_explicit_finalize_enqueue(workspace, app):
+    from conftest import start
+    from test_remediation_privacy import principal
+
+    service, p = app.state.service, principal(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    call = start(workspace)
+    assert c.post(f"/v1/calls/{call['id']}/hangup", headers=h).status_code == 200
+    service._receive_transcript(
+        p,
+        call["id"],
+        {"segment_id": "late", "revision": 1, "side": "remote", "is_final": True, "text": "One more thing."},
+        None,
+        True,  # queue follow-on work, as the HTTP/webhook ingress does
+    )
+    finalize = [(key, kind) for key, kind, _ in postcall_jobs(service, call["id"]) if "finalize" in key]
+    assert finalize, "A late final segment after hangup must queue finalization"
+    assert {kind for _, kind in finalize} == {"conversation_finalize"}, finalize
