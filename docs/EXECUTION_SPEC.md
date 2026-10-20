@@ -1,6 +1,6 @@
 # OpenDialer completion execution specification
 
-Date: October 18, 2026. Implementation baseline: `63f4d4242f60672777f596177fe98fe57f715bf9`; latest product/test revision: `6611d3c2fb486b0aac65df2bb42e20663457552a`. Installed release: 0.2.1. This document specifies the remaining implementation; its existence does not close implementation or release checks.
+Date: October 18, 2026; execution checkpoint updated October 19. Implementation baseline: `63f4d4242f60672777f596177fe98fe57f715bf9`; current product/test candidate: `17e654e15a062ce7010596a78f48e340cf6f3e78` (production last changed in `6baea721a3ac8b92aaed70f0d787670da364c5e4`). Installed release: 0.2.1. E00–E12 have scoped software receipts; E13 whole-system acceptance, E14 installed updates and E15 handoff remain open.
 
 This is the executable detail beneath [REMEDIATION_PLAN.md](REMEDIATION_PLAN.md), using the [architecture review](ARCHITECTURE_REVIEW_2026-10-18.html) and current source. The remediation plan owns requirements and M/A/OD identifiers. This document owns the chosen implementation, order, data contracts, tests and removals. [EXECUTION_TASKS.json](EXECUTION_TASKS.json) maps every current M/X checklist item, every A family, every OD finding and every original specification section to an execution step. Update both records as evidence arrives; do not create a third competing roadmap.
 
@@ -731,7 +731,7 @@ Primary provider references above were checked October 18, 2026. They inform ada
 
 ## 23 Execution checklist and exact next action
 
-These boxes are deliberately open. This planning pass does not perform implementation or certify new binaries.
+These boxes record scoped implementation evidence. A completed earlier step does not certify the pending full-system checks, installed binaries or live provider gates.
 
 - [x] E00 All remaining cases authored, real baseline red/green captured, traceability committed before product changes. See E00 receipts in STATUS.md; baseline failures do not accept product behavior.
 - [x] E01 Freeform live help and selective whole-field review pass; lexical semantic gates deleted.

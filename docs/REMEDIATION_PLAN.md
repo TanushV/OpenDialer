@@ -1,6 +1,6 @@
 # OpenDialer completion and simplification plan
 
-Date: October 17, 2026. Status: **implementation authorized; M0 tests-first baseline complete; remediation active across M1–M7, with milestones still partial**. Baseline: `2bad067c20d23bce84b78538ab00ef009b4c7e9f`, released desktop 0.2.1.
+Date: October 17, 2026; execution checkpoint updated October 19. Status: **implementation authorized; E00–E12 scoped software checks accepted; E13 whole-system acceptance active; E14–E15 delivery/handoff open**. M parent boxes still require their mapped integrated or external evidence. Baseline: `2bad067c20d23bce84b78538ab00ef009b4c7e9f`, installed desktop 0.2.1.
 
 OpenDialer should help a rep reach the right people, have better conversations, and reliably complete the agreed next steps. It should do this with a small local application, fast statistical models, Telnyx telephony and number intelligence, and a live Cerebras assistant that can reason and write freely using the actual conversation and business context.
 
@@ -769,7 +769,7 @@ Freeze the candidate source before complete SQLite/PostgreSQL, UI/native and rel
 
 ## 21. Ordered execution checklist
 
-**Current authorization is to implement the entire revised plan, tests first, with frequent commits/pushes and native Mac/Windows updates. No reinstall or database reset.** All unchecked items below are outstanding. M1 is active; do not reinterpret the older all-checked release plans as completion of these requirements.
+**Current authorization is to implement the entire revised plan, tests first, with frequent commits/pushes and native Mac/Windows updates. No reinstall or database reset.** All unchecked parent items below still require integrated revalidation or the stated external evidence. The single execution cursor is E13; accepted scoped E00–E12 evidence is in `EXECUTION_TASKS.json` and `STATUS.md`. Do not reinterpret the older all-checked release plans as completion of these requirements.
 
 Each milestone ends with its focused red/green evidence, a reviewed documentation/status update and a coherent Git commit. Push accepted milestones to `TanushV/OpenDialer`. Mark an item complete only when its stated behavior and tests pass; attach the test/evidence IDs, exact source and remaining external gate in `STATUS.md`. Read this plan, the original specification, earlier plans and current status after every compaction. Keep one current execution cursor so a continuation resumes rather than restarts.
 
