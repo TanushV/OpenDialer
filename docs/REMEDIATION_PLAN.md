@@ -1,6 +1,6 @@
 # OpenDialer completion and simplification plan
 
-Date: October 17, 2026; execution checkpoint updated October 19. Status: **implementation authorized; E00–E12 scoped software checks accepted; E13 whole-system acceptance active; E14–E15 delivery/handoff open**. M parent boxes still require their mapped integrated or external evidence. Baseline: `2bad067c20d23bce84b78538ab00ef009b4c7e9f`, installed desktop 0.2.1.
+Date: October 17, 2026; execution checkpoint updated October 20. Status: **lean completion integrated on branch `lean-completion`; mechanism amendments are binding in [EXECUTION_SPEC.md §0](EXECUTION_SPEC.md#0-october-20-lean-completion-amendments); installed-update delivery (E14) and external gates remain open**. Removed optional adapters (§0.9): deferred OpenAI Batch, the ChatGPT-plan OAuth route and Groq. M parent boxes still require their mapped integrated or external evidence. Baseline: `2bad067c20d23bce84b78538ab00ef009b4c7e9f`, installed desktop 0.2.1.
 
 OpenDialer should help a rep reach the right people, have better conversations, and reliably complete the agreed next steps. It should do this with a small local application, fast statistical models, Telnyx telephony and number intelligence, and a live Cerebras assistant that can reason and write freely using the actual conversation and business context.
 
