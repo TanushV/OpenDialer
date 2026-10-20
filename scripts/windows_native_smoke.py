@@ -1,269 +1,561 @@
-"""Run the installed Windows executable in its real WebView2; use fictional local data only."""
+"""Use the installed Windows WebView2 in both modes, never reinstall/reset it."""
 
+import hashlib
 import json
+import ntpath
 import os
 import re
+import secrets
 import shutil
+import socket
 import sqlite3
 import subprocess
+import sys
+import tempfile
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import httpx
-from native_update import installation_ready, update_installed_or_window_closed
 from selenium import webdriver
 from selenium.common.exceptions import StaleElementReferenceException, WebDriverException
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.options import ArgOptions
 from selenium.webdriver.support.ui import Select, WebDriverWait
 
-application = Path(os.environ["OPENDIALER_TEST_APPLICATION"]).resolve()
-native_driver = Path(os.environ["OPENDIALER_EDGE_DRIVER"]).resolve()
-output = Path("work/windows-native")
-output.mkdir(parents=True, exist_ok=True)
-launcher = shutil.which("tauri-driver")
-if not launcher or not application.is_file() or not native_driver.is_file():
-    raise SystemExit("An installed test app and official native drivers are required")
-process = subprocess.Popen(  # noqa: S603 - validated official driver executable and fixed arguments
-    [launcher, "--native-driver", str(native_driver)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts.disposable_database import validate_database_url
+from scripts.frozen_acceptance import await_ready, isolated_environment, request, stop_owned
+from scripts.native_update import installation_ready, update_installed_or_window_closed
+
+RAW_EXPIRY_WAIT_SECONDS = 305
+NATIVE_MODES = ("local", "connected")
+IDENTITY_TABLES = (
+    "leads",
+    "call_attempts",
+    "notes",
+    "suppressions",
+    "followup_tasks",
+    "sessions",
+    "command_outbox",
 )
-options = ArgOptions()
-options.set_capability("browserName", "wry")
-options.set_capability("tauri:options", {"application": str(application)})
-driver = None
-note = "Windows native acceptance: preserve this human note across restart."
-update_to = os.environ.get("OPENDIALER_UPDATE_TO_VERSION")
-baseline_ids = None
+NOTE = "Windows native acceptance: preserve this human note across restart."
 
 
-def saved_ids():
-    database = Path(os.environ["APPDATA"]) / "com.opendialer.desktop" / "simulation" / "opendialer.db"
+def desktop_environment(source):
+    allowed = {"SystemRoot", "WINDIR", "TEMP", "TMP", "APPDATA", "LOCALAPPDATA", "USERPROFILE", "COMSPEC"}
+    return {
+        **{k: v for k, v in source.items() if k in allowed},
+        "PATH": ntpath.join(source["SystemRoot"], "System32"),
+        "PYTHONNOUSERSITE": "1",
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+    }
+
+
+def saved_ids(database):
     if not database.is_file():
-        raise RuntimeError("Native sample database is missing")
-    with sqlite3.connect("file:" + str(database) + "?mode=ro", uri=True) as connection:
+        raise FileNotFoundError("Native sample database is missing")
+    with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True) as connection:
+        present = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         return {
-            table: sorted(row[0] for row in connection.execute("SELECT id FROM " + table))  # noqa: S608 - fixed table allowlist
-            for table in ("leads", "call_attempts", "notes", "suppressions")
+            table: sorted(row[0] for row in connection.execute("SELECT id FROM " + table))  # noqa: S608 - fixed allowlist
+            for table in IDENTITY_TABLES
+            if table in present
         }
 
 
-def click_button(text):
-    def click_current(d):
-        element = d.find_element(By.XPATH, f"//button[normalize-space(.)='{text}']")
-        if not element.is_displayed() or not element.is_enabled():
-            return False
-        # Leave the fixed call controls clear in the runner's small desktop viewport.
-        # Keep the actual interaction a WebDriver click, with normal hit testing.
-        d.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", element)
-        element.click()
-        return True
-
-    # React can replace a button between lookup and click while refreshing a packet.
-    WebDriverWait(driver, 60, ignored_exceptions=(StaleElementReferenceException,)).until(click_current)
+def require_continuity(before, after):
+    for table, ids in before.items():
+        assert set(ids) <= set(after.get(table, [])), f"Update changed a saved {table} identity"
 
 
-def visible(text):
-    WebDriverWait(driver, 60).until(lambda d: text in d.find_element(By.TAG_NAME, "body").text)
+def check_preflight(text, expected_version, mode):
+    match = re.search(r"·\s*(\d+\.\d+\.\d+)\s*·\s*(local|connected)", text)
+    assert match and match.group(1) == expected_version and match.group(2) == mode, (
+        "Wrong native authority/version"
+    )
+    assert "Simulation checks passed" in text and "integrity" in text.lower(), "Native preflight failed"
+    return match.group(1)
 
 
-try:
-    for _attempt in range(100):
-        try:
-            if httpx.get("http://127.0.0.1:4444/status", timeout=1).status_code == 200:
-                break
-        except httpx.HTTPError:
-            pass
-        time.sleep(0.1)
-    driver = webdriver.Remote("http://127.0.0.1:4444", options=options)
-    click_button("Try a simulated workspace")
-    visible("SIMULATION")
-    click_button("Go ready")
-    click_button("Get next lead")
-    click_button("Start call")
-    visible("RINGING")
-    click_button("Simulate human answer")
-    visible("HUMAN")
-    box = driver.find_element(By.CSS_SELECTOR, 'input[aria-label="Simulation transcript"]')
-    box.send_keys("We already use another provider.")
-    driver.find_element(By.CSS_SELECTOR, 'button[aria-label="Add prospect turn"]').click()
-    visible("We already use another provider.")
-    click_button("Opt out")
-    visible("How did the conversation go?")
-    Select(driver.find_element(By.CSS_SELECTOR, ".wrap-up select")).select_by_value("callback_requested")
-    click_button("Save outcome")
-    click_button("Review")
-    WebDriverWait(driver, 30).until(
-        lambda d: d.find_element(By.CSS_SELECTOR, 'button[aria-label^="Review call"]')
-    ).click()
-    textarea = WebDriverWait(driver, 30).until(lambda d: d.find_element(By.CSS_SELECTOR, "textarea"))
-    textarea.clear()
-    textarea.send_keys(note)
-    click_button("Save notes")
-    visible("Notes saved")
-    driver.save_screenshot(str(output / "review-before-restart.png"))
-    if update_to:
-        baseline_ids = saved_ids()
-        assert baseline_ids["notes"] and baseline_ids["suppressions"]
-        click_button("All conversations")
-        click_button("Settings")
-        click_button("App updates")
-        click_button("Check for updates")
-        visible("Version " + update_to)
-        driver.save_screenshot(str(output / "signed-update-offer.png"))
-        try:
-            click_button("Install signed update")
-            WebDriverWait(driver, 120).until(update_installed_or_window_closed)
-        except WebDriverException:
-            pass  # Windows updater may exit the old process after verified download.
-    try:
-        driver.quit()
-    except WebDriverException:
-        if not update_to:
-            raise
-    driver = None
-    if update_to:
-        # The updater exits the old app and finishes its verified installer asynchronously.
-        probe_env = {**os.environ, "OPENDIALER_INSTALL_PATH": str(application)}
-        probe_env.pop("PSModulePath", None)
-        powershell = shutil.which("pwsh.exe") or shutil.which("powershell.exe")
-        if not powershell:
-            raise RuntimeError("The official Windows version probe is unavailable")
-        expected_backend_hash = os.environ["OPENDIALER_EXPECTED_BACKEND_SHA256"]
-        for _attempt in range(120):
-            installed = subprocess.check_output(  # noqa: S603 - fixed read-only installation probe
-                [
-                    powershell,
-                    "-NoProfile",
-                    "-Command",
-                    "$ErrorActionPreference='Stop';"
-                    "$version=[Diagnostics.FileVersionInfo]::GetVersionInfo($env:OPENDIALER_INSTALL_PATH).ProductVersion;"
-                    "$prefix='OpenDialer-'+$env:OPENDIALER_UPDATE_TO_VERSION+'-updater-';"
-                    "$active=@(Get-CimInstance Win32_Process -Filter \"Name LIKE 'OpenDialer-%-installer.exe'\" | "
-                    "Where-Object { $_.ExecutablePath -and "
-                    "[IO.Path]::GetFileName([IO.Path]::GetDirectoryName($_.ExecutablePath)).StartsWith($prefix) });"
-                    "$hash=$null; $backend=Join-Path (Split-Path $env:OPENDIALER_INSTALL_PATH) 'opendialer-backend.exe';"
-                    "if($active.Count -eq 0 -and (Test-Path $backend)) {"
-                    "$hash=(Get-FileHash $backend -Algorithm SHA256).Hash.ToLower() };"
-                    "@{version=$version;active_updaters=$active.Count;backend_sha256=$hash}|ConvertTo-Json -Compress",
-                ],
-                env=probe_env,
-                text=True,
-            ).strip()
-            status = json.loads(installed)
-            status["expected_backend_sha256"] = expected_backend_hash
-            (output / "installation-probe.json").write_text(json.dumps(status, indent=2))
-            if installation_ready(status, update_to, expected_backend_hash):
-                (output / "completed-installation.json").write_text(json.dumps(status, indent=2))
-                break
-            time.sleep(1)
-        else:
-            raise RuntimeError(
-                "The verified installer did not finish with the expected desktop and backend bytes"
+class NativeUI:
+    def __init__(self, application, output):
+        self.application, self.output = application, output
+        self.driver = None
+        self.startup_ms = []
+
+    def open(self, *, restored=False):
+        options = ArgOptions()
+        options.set_capability("browserName", "wry")
+        options.set_capability("tauri:options", {"application": str(self.application)})
+        began = time.monotonic()
+        self.driver = webdriver.Remote("http://127.0.0.1:4444", options=options)
+        self.driver.set_window_size(1024, 720)
+        self.wait(
+            lambda: (
+                "Opening your workspace…" not in self.body()
+                and ("SIMULATION" in self.body() or "Try a simulated workspace" in self.body())
             )
-    driver = webdriver.Remote("http://127.0.0.1:4444", options=options)
-    # A new WebDriver session may use a fresh webview profile; the native store is independent.
-    WebDriverWait(driver, 60).until(
-        lambda d: (
-            "SIMULATION" in d.find_element(By.TAG_NAME, "body").text
-            or d.find_elements(By.XPATH, "//button[normalize-space(.)='Try a simulated workspace']")
         )
+        if restored:
+            # Do not conceal a lost native session with another login or demo setup.
+            self.visible("SIMULATION")
+        self.startup_ms.append((time.monotonic() - began) * 1000)
+
+    def close(self):
+        if self.driver:
+            try:
+                self.driver.quit()
+            finally:
+                self.driver = None
+
+    def wait(self, action, timeout=60):
+        return WebDriverWait(
+            self.driver, timeout, ignored_exceptions=(StaleElementReferenceException,)
+        ).until(lambda _driver: action())
+
+    def body(self):
+        return self.driver.find_element(By.TAG_NAME, "body").text or ""
+
+    def visible(self, text):
+        return self.wait(lambda: text in self.body())
+
+    def element(self, selector):
+        return self.wait(
+            lambda: next(
+                (e for e in self.driver.find_elements(By.CSS_SELECTOR, selector) if e.is_displayed()), None
+            )
+        )
+
+    def button(self, text):
+        return self.wait(
+            lambda: next(
+                (
+                    e
+                    for e in self.driver.find_elements(By.XPATH, f"//button[normalize-space(.)='{text}']")
+                    if e.is_displayed() and e.is_enabled()
+                ),
+                None,
+            )
+        )
+
+    def click(self, text):
+        def perform():
+            element = self.button(text)
+            self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", element)
+            element.click()
+            return True
+
+        self.wait(perform)
+
+    def field(self, label):
+        return self.wait(
+            lambda: next(
+                (
+                    e
+                    for e in self.driver.find_elements(
+                        By.XPATH,
+                        f"//label[normalize-space(text())='{label}']/*[self::input or self::select or self::textarea]",
+                    )
+                    if e.is_displayed()
+                ),
+                None,
+            )
+        )
+
+    def fill(self, element, value):
+        element.send_keys(Keys.CONTROL, "a")
+        element.send_keys(value)
+
+    def date(self, label, value):
+        element = self.field(label)
+        # HTML datetime-local's segmented keyboard format varies by Windows locale.
+        # Use its DOM input event, never an HTTP/domain-state shortcut.
+        self.driver.execute_script(
+            "Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(arguments[0],arguments[1]);"
+            "arguments[0].dispatchEvent(new Event('input',{bubbles:true}));"
+            "arguments[0].dispatchEvent(new Event('change',{bubbles:true}));",
+            element,
+            value,
+        )
+        assert element.get_attribute("value") == value
+
+    def screenshot(self, name):
+        self.driver.save_screenshot(str(self.output / (name + ".png")))
+
+    def in_view(self, selector):
+        element = self.element(selector)
+        assert self.driver.execute_script(
+            "const r=arguments[0].getBoundingClientRect();return r.top>=0&&r.left>=0&&r.bottom<=innerHeight&&r.right<=innerWidth;",
+            element,
+        ), f"Required control is outside the native viewport: {selector}"
+
+    def pause(self):
+        self.click("Dialer")
+        if "Pause dialing" in self.body():
+            self.click("Pause dialing")
+        self.visible("Go ready")
+        assert "Hang up" not in self.body(), "Native journey left an active call"
+
+    def review(self, note=None, *, legacy=False):
+        self.click("Review")
+        self.element('button[aria-label^="Review call"]').click()
+        box = self.element("textarea" if legacy else 'textarea[aria-label="Your notes"]')
+        if note is not None:
+            self.fill(box, note)
+            self.click("Save notes")
+            self.visible("Notes saved")
+        return box.get_attribute("value")
+
+    def preflight(self, version, mode):
+        self.click("Settings")
+        self.click("Run preflight")
+        self.visible("Database integrity verified")
+        result = check_preflight(self.element(".preflight").text, version, mode)
+        self.screenshot(mode + "-preflight")
+        return result
+
+
+def legacy_baseline(ui):
+    """Create the fixed 0.2.1 fixture using only that released UI."""
+    ui.click("Try a simulated workspace")
+    ui.visible("SIMULATION")
+    ui.click("Go ready")
+    ui.click("Get next lead")
+    ui.click("Start call")
+    ui.visible("RINGING")
+    ui.click("Simulate human answer")
+    ui.visible("HUMAN")
+    ui.click("Opt out")
+    ui.visible("How did the conversation go?")
+    Select(ui.element(".wrap-up select")).select_by_value("opt_out")
+    ui.click("Save outcome")
+    ui.pause()
+    assert ui.review(NOTE, legacy=True) == NOTE
+    ui.screenshot("baseline-note")
+    ui.click("All conversations")
+
+
+def wait_installed(application, version, output):
+    powershell = shutil.which("pwsh.exe") or shutil.which("powershell.exe")
+    if not powershell:
+        raise RuntimeError("Official Windows installation probe is unavailable")
+    env = {**os.environ, "OPENDIALER_INSTALL_PATH": str(application)}
+    env.pop("PSModulePath", None)
+    expected_hash = os.environ["OPENDIALER_EXPECTED_BACKEND_SHA256"]
+    for _ in range(180):
+        value = subprocess.check_output(  # noqa: S603 - read-only exact-installation probe
+            [
+                powershell,
+                "-NoProfile",
+                "-Command",
+                "$ErrorActionPreference='Stop';"
+                "$version=[Diagnostics.FileVersionInfo]::GetVersionInfo($env:OPENDIALER_INSTALL_PATH).ProductVersion;"
+                "$prefix='OpenDialer-'+$env:OPENDIALER_UPDATE_TO_VERSION+'-updater-';"
+                "$active=@(Get-CimInstance Win32_Process -Filter \"Name LIKE 'OpenDialer-%-installer.exe'\" | "
+                "Where-Object { $_.ExecutablePath -and [IO.Path]::GetFileName([IO.Path]::GetDirectoryName($_.ExecutablePath)).StartsWith($prefix) });"
+                "$hash=$null;$backend=Join-Path (Split-Path $env:OPENDIALER_INSTALL_PATH) 'opendialer-backend.exe';"
+                "if($active.Count -eq 0 -and (Test-Path $backend)) {$hash=(Get-FileHash $backend -Algorithm SHA256).Hash.ToLower()};"
+                "@{version=$version;active_updaters=$active.Count;backend_sha256=$hash}|ConvertTo-Json -Compress",
+            ],
+            env=env,
+            text=True,
+        )
+        status = {**json.loads(value), "expected_backend_sha256": expected_hash}
+        (output / "installation-probe.json").write_text(json.dumps(status, indent=2))
+        if installation_ready(status, version, expected_hash):
+            (output / "completed-installation.json").write_text(json.dumps(status, indent=2))
+            return status
+        time.sleep(1)
+    raise RuntimeError(
+        "Updater has not exited with the exact accepted backend; preserve installation for diagnosis"
     )
-    if driver.find_elements(By.XPATH, "//button[normalize-space(.)='Try a simulated workspace']"):
-        click_button("Try a simulated workspace")
-    visible("SIMULATION")
-    if baseline_ids:
-        assert saved_ids() == baseline_ids, "Update changed saved identities, notes or opt-outs"
-        click_button("Settings")
-        click_button("App updates")
-        visible("OpenDialer " + update_to)
-        click_button("Dialer")
-    # Exercise optimization in the actual installed/updated WebView2.
-    if json.loads(Path("apps/desktop/src-tauri/tauri.conf.json").read_text())["version"] != "0.1.1":
-        click_button("Intelligence")
-        visible("Reviewed model pilot")
-        Select(
-            driver.find_element(By.XPATH, "//label[contains(.,'Conversion goal')]/select")
-        ).select_by_value("sale_won")
-        click_button("Save optimization settings")
-        visible("Optimization settings saved")
-        driver.save_screenshot(str(output / "optimization.png"))
-        click_button("Dialer")
-    click_button("Review")
-    WebDriverWait(driver, 30).until(
-        lambda d: d.find_element(By.CSS_SELECTOR, 'button[aria-label^="Review call"]')
-    ).click()
-    assert (
-        WebDriverWait(driver, 30)
-        .until(lambda d: d.find_element(By.CSS_SELECTOR, "textarea"))
-        .get_attribute("value")
-        == note
+
+
+def upgrade(ui, version, database):
+    legacy_baseline(ui)
+    before = saved_ids(database)
+    assert before["notes"] and before["suppressions"] and before["sessions"]
+    ui.click("Settings")
+    ui.click("App updates")
+    ui.click("Check for updates")
+    ui.visible("Version " + version)
+    ui.screenshot("signed-update-offer")
+    try:
+        ui.click("Install signed update")
+        WebDriverWait(ui.driver, 120).until(update_installed_or_window_closed)
+    except WebDriverException:
+        pass  # The authoritative exit-and-byte probe below must still succeed.
+    try:
+        ui.close()
+    except WebDriverException:
+        pass
+    installed = wait_installed(ui.application, version, ui.output)
+    ui.open(restored=True)
+    require_continuity(before, saved_ids(database))
+    assert ui.review() == NOTE
+    ui.screenshot("updated-baseline-note")
+    ui.click("All conversations")
+    ui.preflight(version, "local")
+    return {
+        "installed": installed,
+        "identity_counts": {k: len(v) for k, v in before.items()},
+        "human_note_sha256": hashlib.sha256(NOTE.encode()).hexdigest(),
+    }
+
+
+def current_journey(ui, mode):
+    """Actual clicks, retained notes/tasks and five minutes of real elapsed expiry."""
+    ui.click("Leads")
+    name = "Native " + mode + " continuity"
+    phone = "+141555509" + ("71" if mode == "local" else "72")
+    ui.fill(
+        ui.field("CSV lead data"),
+        f"name,phone,company,timezone,region\n{name},{phone},Example,America/Los_Angeles,415",
     )
-    click_button("All conversations")
-    click_button("Settings")
-    click_button("Run preflight")
-    visible("Simulation checks passed")
-    expected_version = (
-        update_to or json.loads(Path("apps/desktop/src-tauri/tauri.conf.json").read_text())["version"]
-    )
-    preflight_text = driver.find_element(By.CSS_SELECTOR, ".preflight").text
-    reported_version = re.search(r"·\s*(\d+\.\d+\.\d+)\s*·\s*local", preflight_text)
-    assert reported_version, "Native preflight did not report a local backend version"
-    assert reported_version.group(1) == expected_version, "Updated backend version differs from the package"
-    driver.save_screenshot(str(output / "preflight.png"))
-    (output / "result.json").write_text(
-        json.dumps(
-            {
+    ui.click("Import leads")
+    ui.visible("1 imported")
+    ui.click("Prepare displayed lead packets")
+    ui.visible("Preparation queued")
+    ui.click("Intelligence")
+    ui.click("Process queued work")
+    ui.visible("queued jobs processed")
+    ui.click("Dialer")
+    if "Go ready" in ui.body():
+        ui.click("Go ready")
+    ui.click("Get next lead")
+    ui.visible("Start call")
+    ui.in_view('[data-testid="live-coaching-strip"]')
+    ui.in_view(".script-opening")
+    assert ui.element('[data-testid="prepared-script"]').text
+    ui.click("Start call")
+    ui.visible("RINGING")
+    ui.click("Simulate human answer")
+    ui.visible("HUMAN")
+    ui.in_view('[data-testid="live-coaching-strip"]')
+    ui.in_view('button[aria-label="Hang up"]') if ui.driver.find_elements(
+        By.CSS_SELECTOR, 'button[aria-label="Hang up"]'
+    ) else ui.in_view(".call-dock")
+    raw = "Synthetic native speech sentinel; our next review is Tuesday."
+    ui.fill(ui.element('input[aria-label="Simulation transcript"]'), raw)
+    ui.element('button[aria-label="Add prospect turn"]').click()
+    ui.visible(raw)
+    ui.click("Mute tips")
+    ui.visible("Automatic tips muted")
+    ui.click("Private help")
+    ui.fill(ui.element('input[aria-label="Private helper question"]'), "What useful question can I ask next?")
+    ui.click("Ask privately")
+    ui.wait(lambda: "Thinking with your call context" not in ui.body())
+    ui.screenshot(mode + "-helper")
+    ui.click("Less")
+    began = time.monotonic()
+    while time.monotonic() - began < RAW_EXPIRY_WAIT_SECONDS:
+        time.sleep(5)
+        # Real input keeps this synthetic rep present; no API heartbeat shortcuts.
+        ui.element('input[aria-label="Simulation transcript"]').click()
+    ui.wait(lambda: raw not in ui.element(".transcript-scroll").text)
+    ui.click("Hang up")
+    ui.visible("How did the conversation go?")
+    Select(ui.field("Disposition")).select_by_value("callback_requested")
+    Select(ui.field("Who did you speak with?")).select_by_value("right_party")
+    ui.date("Confirmed callback time", "2026-10-21T14:00")
+    note = NOTE + " " + mode
+    ui.fill(ui.field("Wrap-up note"), note)
+    ui.click("Save outcome")
+    ui.visible("Outcome saved")
+    ui.pause()
+    assert ui.review(note) == note
+    ui.screenshot(mode + "-rundown")
+    ui.click("All conversations")
+    ui.click("Intelligence")
+    task = ui.element(".followup-task")
+    assert len(ui.driver.find_elements(By.CSS_SELECTOR, ".followup-task")) == 1, "Duplicate callback task"
+    due = ui.field("Callback time (your device timezone)").get_attribute("value")
+    assert due
+    ui.date("Callback time (your device timezone)", "2026-10-22T14:00")
+    ui.click("Save follow-up")
+    ui.visible("Follow-up saved")
+    task_call_id = task.get_attribute("data-call-id")
+    ui.screenshot(mode + "-followup")
+    return {
+        "note": note,
+        "task_call_id": task_call_id,
+        "due": "2026-10-22T14:00",
+        "raw_expiry_elapsed_seconds": time.monotonic() - began,
+    }
+
+
+def check_journey_restart(ui, receipt, mode, version):
+    ui.close()
+    ui.open(restored=True)
+    ui.click("Intelligence")
+    tasks = ui.driver.find_elements(By.CSS_SELECTOR, ".followup-task")
+    if not tasks:
+        ui.element(".followup-task")
+        tasks = ui.driver.find_elements(By.CSS_SELECTOR, ".followup-task")
+    assert len(tasks) == 1 and tasks[0].get_attribute("data-call-id") == receipt["task_call_id"]
+    assert ui.field("Callback time (your device timezone)").get_attribute("value") == receipt["due"]
+    assert ui.review() == receipt["note"]
+    ui.click("All conversations")
+    ui.click("Numbers")
+    ui.click("Plan regional capacity")
+    ui.element('[data-testid="capacity-proposal"]')
+    ui.screenshot(mode + "-capacity")
+    ui.preflight(version, mode)
+    ui.click("Policy & DNC")
+    ui.visible("National")
+    ui.screenshot(mode + "-dnc-costs")
+    ui.click("Operations")
+    ui.visible("Recovery")
+    ui.screenshot(mode + "-recovery")
+    ui.pause()
+    return {
+        "mode": mode,
+        "task_call_id": receipt["task_call_id"],
+        "human_note_sha256": hashlib.sha256(receipt["note"].encode()).hexdigest(),
+        "callback_time_preserved": True,
+        "raw_expiry_elapsed_seconds": receipt["raw_expiry_elapsed_seconds"],
+        "session_restored": True,
+    }
+
+
+@contextmanager
+def connected_authority(application, version, output):
+    url = validate_database_url(os.environ["OPENDIALER_E2E_DATABASE_URL"], purpose="browser")
+    binary = application.parent / "opendialer-backend.exe"
+    with tempfile.TemporaryDirectory(prefix="opendialer-native-connected-") as directory:
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            port = listener.getsockname()[1]
+        environment = isolated_environment(os.environ)
+        bootstrap = secrets.token_urlsafe(32)
+        environment.update(OPENDIALER_DATABASE_URL=url, OPENDIALER_BOOTSTRAP_TOKEN=bootstrap)
+        with (output / "connected-authority.log").open("w") as log:
+            process = subprocess.Popen(  # noqa: S603 - exact installed backend, owned temporary data
+                [
+                    str(binary),
+                    "serve",
+                    "--mode",
+                    "connected",
+                    "--simulation",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    str(port),
+                    "--data-dir",
+                    directory,
+                ],
+                env=environment,
+                cwd=directory,
+                stdout=log,
+                stderr=log,
+            )
+            try:
+                address = f"http://127.0.0.1:{port}"
+                with httpx.Client(base_url=address, timeout=30) as client:
+                    await_ready(client, version)
+                    token = request(
+                        client,
+                        {"X-Bootstrap-Token": bootstrap},
+                        "POST",
+                        "/v1/setup",
+                        json={
+                            "seller_name": "Native Team",
+                            "campaign_name": "Native connected",
+                            "email": "native@example.test",
+                            "password": "Disposable-native-test-password",
+                        },
+                    )
+                    headers = {"Authorization": "Bearer " + token["access_token"]}
+                    request(client, headers, "POST", "/v1/simulation/seed")
+                    yield address
+                    state = request(client, headers, "GET", "/v1/workspace")
+                    assert not any(
+                        c["state"] not in {"FINALIZED", "ENDED", "FAILED"} for c in state["calls"]
+                    ), "Connected native journey left a call"
+            finally:
+                stop_owned(process)
+
+
+def main():
+    application = Path(os.environ["OPENDIALER_TEST_APPLICATION"]).resolve(strict=True)
+    native_driver = Path(os.environ["OPENDIALER_EDGE_DRIVER"]).resolve(strict=True)
+    output = Path("work/windows-native")
+    output.mkdir(parents=True, exist_ok=True)
+    version = json.loads(Path("apps/desktop/src-tauri/tauri.conf.json").read_text())["version"]
+    launcher = shutil.which("tauri-driver")
+    if not launcher:
+        raise RuntimeError("The official tauri-driver is required")
+    with (output / "driver.log").open("w") as log:
+        process = subprocess.Popen(  # noqa: S603 - official driver, isolated child environment
+            [launcher, "--native-driver", str(native_driver)],
+            env=desktop_environment(os.environ),
+            stdout=log,
+            stderr=log,
+        )
+        ui = NativeUI(application, output)
+        try:
+            for _ in range(100):
+                try:
+                    if httpx.get("http://127.0.0.1:4444/status", timeout=1).status_code == 200:
+                        break
+                except httpx.HTTPError:
+                    pass
+                time.sleep(0.1)
+            ui.open()
+            database = Path(os.environ["APPDATA"]) / "com.opendialer.desktop" / "simulation" / "opendialer.db"
+            update_to = os.environ.get("OPENDIALER_UPDATE_TO_VERSION")
+            update = upgrade(ui, update_to, database) if update_to else None
+            if not update_to:
+                ui.click("Try a simulated workspace")
+                ui.visible("SIMULATION")
+            local = check_journey_restart(ui, current_journey(ui, "local"), "local", version)
+            with connected_authority(application, version, output) as address:
+                ui.element('button[title="Sign out"]').click()
+                ui.click("Connect to a server")
+                ui.fill(ui.field("Server URL"), address)
+                ui.fill(ui.field("Email"), "native@example.test")
+                ui.fill(ui.field("Password"), "Disposable-native-test-password")
+                ui.click("Sign in")
+                ui.visible("SIMULATION")
+                shared = check_journey_restart(ui, current_journey(ui, "connected"), "connected", version)
+                ui.element('button[title="Sign out"]').click()
+                ui.click("Try a simulated workspace")
+                ui.visible("SIMULATION")
+                assert hashlib.sha256(ui.review().encode()).hexdigest() == local["human_note_sha256"]
+                ui.click("All conversations")
+                ui.pause()
+                ui.preflight(version, "local")
+            result = {
                 "passed": True,
                 "installed_executable": application.name,
-                "mode": "native Windows WebView2 local simulation",
-                "checks": [
-                    "installer",
-                    "bundled backend",
-                    "timezone database",
-                    "readiness",
-                    "reservation",
-                    "call",
-                    "answer",
-                    "transcript",
-                    "hangup",
-                    "disposition",
-                    "review",
-                    "human note",
-                    "restart persistence",
-                    "preflight",
-                ],
+                "version": version,
+                "update": update,
+                "journeys": [local, shared],
+                "startup_ms": ui.startup_ms,
+                "source_runtime_on_path": False,
                 "provider_calls": 0,
                 "hardware_audio_certified": False,
-                "signed_in_place_update_to": update_to,
-                "backend_version": reported_version.group(1),
-                "saved_ids_preserved": baseline_ids is not None,
-                "restart_scope": "reopen the native sample store after a new WebDriver session",
-            },
-            indent=2,
-        )
-    )
-    print("PASS: installed Windows native workflow and persisted human notes through restart.")
-except Exception:
-    if driver:
-        if update_to:
+            }
+            (output / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+            print("PASS: installed native local/connected journeys and retained identity after restart.")
+        except Exception:
+            if ui.driver:
+                try:
+                    ui.screenshot("failure")
+                    (output / "failure-page.txt").write_text(ui.body())
+                except WebDriverException:
+                    pass
+            raise
+        finally:
             try:
-                diagnostic = driver.execute_async_script(
-                    "const done = arguments[0];"
-                    "window.__TAURI_INTERNALS__.invoke('backend_config', {simulation: true})"
-                    ".then(() => done({backend_config_succeeded: true}))"
-                    ".catch(error => done({native_error: String(error).slice(0, 500)}));"
-                )
-                (output / "native-startup-diagnostic.json").write_text(json.dumps(diagnostic, indent=2))
-            except WebDriverException:
-                pass
-        try:
-            driver.save_screenshot(str(output / "failure.png"))
-            (output / "failure-page.txt").write_text(driver.find_element(By.TAG_NAME, "body").text or "")
-        except WebDriverException:
-            pass  # Preserve the original error when the old updater window has already exited.
-    raise
-finally:
-    if driver:
-        driver.quit()
-    process.terminate()
-    process.wait(timeout=15)
+                ui.close()
+            finally:
+                stop_owned(process)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

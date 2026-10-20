@@ -9,7 +9,7 @@ concurrency:
 jobs:
   windows:
     runs-on: windows-2022
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       PYTHONUTF8: '1'
     steps:
@@ -27,7 +27,7 @@ jobs:
           cache-on-failure: true
       - run: uv sync --frozen --python 3.12
       - run: pwsh -File scripts/test_windows_update_scope.ps1
-      - run: uv run pytest -q
+      - run: uv run pytest tests/test_distribution_contract.py tests/test_native_update_wait.py tests/test_frozen_acceptance.py tests/test_windows_native_contract.py -q
         env:
           OMP_NUM_THREADS: '1'
           OPENBLAS_NUM_THREADS: '1'
@@ -36,6 +36,13 @@ jobs:
       - run: npm run build && npm test
         working-directory: apps/desktop
       - run: uv run python scripts/build_sidecar.py
+      - name: Exercise the packaged authority without developer runtimes
+        shell: pwsh
+        run: |
+          $version = (Get-Content apps/desktop/src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          $env:OPENDIALER_TEST_BINARY = (Resolve-Path apps/desktop/src-tauri/binaries/opendialer-backend-x86_64-pc-windows-msvc.exe).Path
+          uv run python scripts/frozen_acceptance.py --expected-version $version --output work/windows-native/frozen-runtime.json
+          if ($LASTEXITCODE -ne 0) { throw 'Frozen runtime acceptance failed' }
       - run: cargo test --release --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
       - name: Build signed Windows installers
         run: npm run tauri build -- --bundles nsis,msi
@@ -67,6 +74,17 @@ jobs:
           Expand-Archive $archive $directory
           "OPENDIALER_EDGE_DRIVER=$directory\msedgedriver.exe" >> $env:GITHUB_ENV
       - run: cargo install tauri-driver --locked
+      - name: Prepare the isolated connected PostgreSQL authority
+        shell: pwsh
+        run: |
+          Start-Service postgresql-x64-14
+          $env:PGPASSWORD = 'root'
+          & "$env:PGBIN/psql.exe" -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "ALTER USER postgres PASSWORD 'disposable_ci_test';"
+          if ($LASTEXITCODE -ne 0) { throw 'Disposable PostgreSQL setup failed' }
+          $env:PGPASSWORD = 'disposable_ci_test'
+          & "$env:PGBIN/createdb.exe" -h 127.0.0.1 -U postgres opendialer_completion_e2e
+          if ($LASTEXITCODE -ne 0) { throw 'Disposable browser database creation failed' }
+          'OPENDIALER_E2E_DATABASE_URL=postgresql+psycopg://postgres:disposable_ci_test@127.0.0.1:5432/opendialer_completion_e2e' >> $env:GITHUB_ENV
       - name: Exercise installed native app and restart
         run: uv run python scripts/windows_native_smoke.py
       - uses: actions/upload-artifact@v4

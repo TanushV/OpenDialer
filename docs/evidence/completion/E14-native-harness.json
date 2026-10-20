@@ -1,0 +1,31 @@
+{
+  "step_id": "E14",
+  "scope": "acceptance harness only; native execution remains open",
+  "source_commit": "594e53d71bc89f59a49b3e20872bcbe6e6f41be4",
+  "candidate_files": {
+    "scripts/windows_native_smoke.py": "46f4b2d242bcc89d4f86864146b12082b5326b7e5e858bac5e8f2f10ea51503a",
+    "tests/test_windows_native_contract.py": "1fdbf52667ff8dd2140abf33638bf61d65fdcf2196490c36470d45d5b7800eb0",
+    ".github/workflows/windows.yml": "5d8960f8606b8138c401e5f2e86073dbe261d9976fd274ab784acd0bebbe6a51",
+    ".github/workflows/windows-acceptance.yml": "547a80cc19296b4a69ad55ee12ba8088ac9a06ac1415177b48efe86be2a61a67",
+    ".github/workflows/release.yml": "ad093f7f62e8a43dbd9982a04f2776bfc466d5938ff6d635dbda3ff460004a0f"
+  },
+  "commands": [
+    ".venv/bin/python -m pytest tests/test_windows_native_contract.py -q --tb=short",
+    ".venv/bin/python -m pytest tests/test_windows_native_contract.py tests/test_native_update_wait.py tests/test_frozen_acceptance.py tests/test_distribution_contract.py -q --tb=short"
+  ],
+  "result_counts": {
+    "contract_red": 14,
+    "focused_green": 51
+  },
+  "raw_log_sha256": {
+    "E14-native-contract-red.txt": "8ff65248c439822ff0fa0d58ff65d6d8bd5a99adc7ce9b619e90594ee85c8215",
+    "E14-native-contract-green.txt": "991c3d7d8f61a251390d9c7f6ebb3b43a62b011a5209ce48f610332b23dd4e06"
+  },
+  "external_calls": false,
+  "installed_app_changed": false,
+  "known_limitations": [
+    "No Windows native execution performed in this checkpoint",
+    "Source-harness tests do not satisfy E14 delivery",
+    "Resource, package trust and hardware acceptance remain separate"
+  ]
+}

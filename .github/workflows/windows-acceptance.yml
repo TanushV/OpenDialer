@@ -20,8 +20,12 @@ permissions:
   actions: read
 jobs:
   native:
+    strategy:
+      fail-fast: false
+      matrix:
+        installer: [nsis, msi]
     runs-on: windows-2022
-    timeout-minutes: 30
+    timeout-minutes: 75
     env:
       PYTHONUTF8: '1'
     steps:
@@ -57,6 +61,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BASELINE_VERSION: ${{ inputs.baseline_version }}
+          INSTALLER_KIND: ${{ matrix.installer }}
         run: |
           $version = (Get-Content apps/desktop/src-tauri/tauri.conf.json | ConvertFrom-Json).version
           $packages = @(Get-ChildItem work/reused-installer -Recurse -Filter "OpenDialer_${version}_x64-setup.exe")
@@ -68,20 +73,33 @@ jobs:
           if ($backend.Count -ne 1) { throw 'Expected one packaged backend executable' }
           $backendHash = (Get-FileHash $backend[0].FullName -Algorithm SHA256).Hash.ToLower()
           "OPENDIALER_EXPECTED_BACKEND_SHA256=$backendHash" >> $env:GITHUB_ENV
+          $selectedVersion = $version
+          $packageDirectory = 'work/reused-installer'
           if ($env:BASELINE_VERSION) {
             if ($env:BASELINE_VERSION -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid baseline version' }
             New-Item -ItemType Directory -Force work/baseline-installer | Out-Null
-            gh release download "v$env:BASELINE_VERSION" --repo "${{ github.repository }}" --dir work/baseline-installer --pattern "OpenDialer_$($env:BASELINE_VERSION)_x64-setup.exe" --pattern SHA256SUMS.txt
+            $pattern = if ($env:INSTALLER_KIND -eq 'msi') { "OpenDialer_$($env:BASELINE_VERSION)_x64_*.msi" } else { "OpenDialer_$($env:BASELINE_VERSION)_x64-setup.exe" }
+            gh release download "v$env:BASELINE_VERSION" --repo "${{ github.repository }}" --dir work/baseline-installer --pattern $pattern --pattern SHA256SUMS.txt
             if ($LASTEXITCODE -ne 0) { throw 'Could not download the published baseline' }
-            $packages = @(Get-ChildItem work/baseline-installer -Filter "*-setup.exe")
+            $packages = @(Get-ChildItem work/baseline-installer -Filter $pattern)
+            if ($packages.Count -ne 1) { throw 'Expected exactly one unchanged baseline package' }
             $actual = (Get-FileHash $packages[0].FullName -Algorithm SHA256).Hash.ToLower()
             $expected = @(Get-Content work/baseline-installer/SHA256SUMS.txt | Where-Object { $_.EndsWith('  ' + $packages[0].Name) })
             if ($expected.Count -ne 1 -or -not $expected[0].StartsWith($actual + '  ')) { throw 'Baseline checksum differs from the published release' }
             "OPENDIALER_UPDATE_TO_VERSION=$version" >> $env:GITHUB_ENV
+            $selectedVersion = $env:BASELINE_VERSION
+            $packageDirectory = 'work/baseline-installer'
           }
+          $pattern = if ($env:INSTALLER_KIND -eq 'msi') { "OpenDialer_${selectedVersion}_x64_*.msi" } else { "OpenDialer_${selectedVersion}_x64-setup.exe" }
+          $packages = @(Get-ChildItem $packageDirectory -Recurse -Filter $pattern)
+          if ($packages.Count -ne 1) { throw 'Expected exactly one selected package' }
           $destination = Join-Path $env:RUNNER_TEMP OpenDialer
-          $installed = Start-Process $packages[0].FullName -ArgumentList '/S', "/D=$destination" -Wait -PassThru
-          if ($installed.ExitCode -ne 0) { throw "NSIS install failed: $($installed.ExitCode)" }
+          if ($env:INSTALLER_KIND -eq 'msi') {
+            $installed = Start-Process msiexec.exe -ArgumentList '/i', "`"$($packages[0].FullName)`"", '/qn', '/norestart', "INSTALLDIR=`"$destination`"" -Wait -PassThru
+          } else {
+            $installed = Start-Process $packages[0].FullName -ArgumentList '/S', "/D=$destination" -Wait -PassThru
+          }
+          if ($installed.ExitCode -notin @(0,3010)) { throw "Install failed: $($installed.ExitCode)" }
           $application = Get-ChildItem $destination -Filter *.exe | Where-Object { $_.Name -in @('opendialer-desktop.exe','OpenDialer.exe') } | Select-Object -First 1
           if (-not $application) { throw 'Installed application is missing' }
           "OPENDIALER_TEST_APPLICATION=$($application.FullName)" >> $env:GITHUB_ENV
@@ -97,6 +115,17 @@ jobs:
           Expand-Archive $archive $directory
           "OPENDIALER_EDGE_DRIVER=$directory\msedgedriver.exe" >> $env:GITHUB_ENV
       - run: cargo install tauri-driver --locked
+      - name: Prepare the isolated connected PostgreSQL authority
+        shell: pwsh
+        run: |
+          Start-Service postgresql-x64-14
+          $env:PGPASSWORD = 'root'
+          & "$env:PGBIN/psql.exe" -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "ALTER USER postgres PASSWORD 'disposable_ci_test';"
+          if ($LASTEXITCODE -ne 0) { throw 'Disposable PostgreSQL setup failed' }
+          $env:PGPASSWORD = 'disposable_ci_test'
+          & "$env:PGBIN/createdb.exe" -h 127.0.0.1 -U postgres opendialer_completion_e2e
+          if ($LASTEXITCODE -ne 0) { throw 'Disposable browser database creation failed' }
+          'OPENDIALER_E2E_DATABASE_URL=postgresql+psycopg://postgres:disposable_ci_test@127.0.0.1:5432/opendialer_completion_e2e' >> $env:GITHUB_ENV
       - name: Await the matching published update for baseline continuity
         if: inputs.baseline_version != ''
         shell: pwsh
@@ -126,5 +155,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: windows-native-verification
+          name: windows-native-verification-${{ matrix.installer }}
           path: work/windows-native/*

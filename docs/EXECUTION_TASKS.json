@@ -1098,7 +1098,7 @@
         "A53",
         "A55"
       ],
-      "checkpoint": "Harness prepared tests-first while E13 runs: isolated environment/version/owned-process tests and current twelve-minute public journey pass on source SQLite and PostgreSQL. Actual frozen binaries and installed updates remain open; no installed change."
+      "checkpoint": "Source-only native acceptance prepared tests-first:14 absent contracts red;51 harness/distribution checks green. Current UI, both authorities, actual TTL, task/note/session preservation, NSIS/MSI matrix and frozen runtime before draft are wired. Actual native execution, resources and installed updates remain OPEN, pending E13 freeze."
     },
     {
       "id": "E15",
