@@ -29,6 +29,7 @@ OutcomeCode = Literal[
 ]
 ContactRole = Literal["right_party", "gatekeeper", "wrong_party", "unknown"]
 
+# (human, right party given human). True right-party labels need a rep-confirmed source.
 OUTCOME_LABELS = {
     "right_party": (True, True),
     "qualified_conversation": (True, True),
@@ -48,7 +49,29 @@ OUTCOME_LABELS = {
     "temporary_failure": (None, None),
     "invalid_endpoint": (None, None),
 }
+REP_CONFIRMED_SOURCES = {"rep_reported"}
 Positive = Annotated[float, Field(gt=0, allow_inf_nan=False)]
+# One optimization defaults registry; the settings API validates bounds on edits.
+OPTIMIZATION_DEFAULTS = {
+    "conversion_goal": "meeting_held",
+    "window_days": 14,
+    "exploration": 0.1,
+    "auto_train": True,
+    "horizon_hours": 24,
+    "rep_minutes": 480,
+    "handling_seconds": 120,
+    "daily_capacity_per_number": 40,
+    "training_min_rows": 100,
+    "staffed_windows": [],
+    "additional_ready_after_hours": 0,
+    "staffing_timezone": "UTC",
+    "staffing_start_hour": 9,
+    "staffing_end_hour": 20,
+    "staffing_reps": 1,
+    "staffing_weekdays": list(range(7)),
+    "account_channel_limit": None,
+    "minimum_expansion_age_hours": 24,
+}
 
 
 class EstimatePolicy(BaseModel):
@@ -95,16 +118,17 @@ def profile_current(profile, config):
     policy = EstimatePolicy.model_validate(config.get("estimate_policy", {}))
     return (
         profile.get("goal") == config.get("conversion_goal")
-        and profile.get("window_days") == config.get("window_days", 14)
+        and profile.get("window_days") == config.get("window_days", OPTIMIZATION_DEFAULTS["window_days"])
         and profile.get("estimate_policy_version") == policy.version
-        and profile.get("work_assumption_seconds") == config.get("handling_seconds", 120)
+        and profile.get("work_assumption_seconds")
+        == config.get("handling_seconds", OPTIMIZATION_DEFAULTS["handling_seconds"])
     )
 
 
 def saved_prediction(profile, features, config):
     """A stale configuration never silently supplies a differently defined prior."""
     policy = EstimatePolicy.model_validate(config.get("estimate_policy", {}))
-    work = config.get("handling_seconds", 120)
+    work = config.get("handling_seconds", OPTIMIZATION_DEFAULTS["handling_seconds"])
     if profile_current(profile, config):
         if statistics := profile.get("statistics"):
             cells = statistics.get("cells", [])
@@ -142,20 +166,28 @@ def saved_prediction(profile, features, config):
 
 
 def derive_labels(value):
+    """EXECUTION_SPEC 20.2: nullable labels; goal labels stay pending until evidence or window close."""
     row = value if isinstance(value, dict) else {"outcome": value}
     code = row.get("outcome")
     source = row.get("outcome_source") or row.get("source") or "legacy_unknown"
     confirmed = source != "llm_provisional" and code in OUTCOME_LABELS
     human, right = OUTCOME_LABELS.get(code, (None, None)) if confirmed else (None, None)
+    rep = source in REP_CONFIRMED_SOURCES
+    if right is True and not rep:
+        right = None  # Imported or ambiguous records do not identify the target person.
     role = row.get("contact_role")
-    if human is True and role in {"right_party", "wrong_party", "gatekeeper"}:
+    if human is True and rep and role in {"right_party", "wrong_party", "gatekeeper"}:
         right = role == "right_party"
+
+    def goal(name):
+        return True if confirmed and code == name else None
+
     return {
         "human": human,
         "right_party": right,
-        "qualified": code == "qualified_conversation" if confirmed else None,
-        "meeting_held": code == "meeting_held" if confirmed else None,
-        "sale_won": code == "sale_won" if confirmed else None,
+        "qualified": goal("qualified_conversation"),
+        "meeting_held": goal("meeting_held"),
+        "sale_won": goal("sale_won"),
         "outcome_source": source,
         "label_timing_quality": "observed" if row.get("outcome_available_at") else "observation_time_unknown",
     }
@@ -325,7 +357,9 @@ def estimate_counts(history):
     return result
 
 
-def prediction_from_counts(total, cell, *, level, handling_seconds=120, estimate_policy=None):
+def prediction_from_counts(
+    total, cell, *, level, handling_seconds=OPTIMIZATION_DEFAULTS["handling_seconds"], estimate_policy=None
+):
     policy = EstimatePolicy.model_validate(estimate_policy or {})
     if not _finite(handling_seconds) or handling_seconds < 10:
         raise ValueError("An explicit finite work assumption of at least 10 seconds is required")
@@ -355,6 +389,8 @@ def prediction_from_counts(total, cell, *, level, handling_seconds=120, estimate
             "outside_known": on,
             "observed_interval": list(wilson(s, n)),
             "interval_kind": "observed_rate_wilson",
+            # An empty cell returns the pooled estimate; report that level, not the attempted one.
+            "estimate_level": level if n else "pooled",
         }
     work_n, cost_n = cell.get("work_observations", 0), cell.get("cost_observations", 0)
     return {
@@ -374,7 +410,7 @@ def prediction_from_counts(total, cell, *, level, handling_seconds=120, estimate
         "observations": support["human"]["cell_known"],
         "conversion_observations": support["conversion"]["cell_known"],
         "stage_support": support,
-        "estimate_level": level,
+        "estimate_level": level if any(v["cell_known"] for v in support.values()) else "pooled",
         "estimate_policy_version": policy.version,
         "prior_only": not any(v["cell_known"] or v["outside_known"] for v in support.values()),
         "model_version": "pooled-funnel-v3",
@@ -382,7 +418,13 @@ def prediction_from_counts(total, cell, *, level, handling_seconds=120, estimate
 
 
 def pooled_predictions(
-    history, *, segment=None, hour=None, features=None, handling_seconds=120, estimate_policy=None
+    history,
+    *,
+    segment=None,
+    hour=None,
+    features=None,
+    handling_seconds=OPTIMIZATION_DEFAULTS["handling_seconds"],
+    estimate_policy=None,
 ):
     """Explicit history evaluation uses exactly the same math as projected serving."""
     features = features if features is not None else {"segment": segment, "local_hour": hour}

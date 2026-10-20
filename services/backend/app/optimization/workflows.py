@@ -10,30 +10,17 @@ from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, update
 from app.optimization.experiments import ComparisonWorkflows
 from app.optimization.learning import freeze_features, training_rows
 from app.optimization.numbering import HealthPolicy, capacity_forecast, number_health, timestamp
-from app.scheduling.models import EstimatePolicy, prediction_key, profile_current, saved_prediction
+from app.scheduling.models import (
+    OPTIMIZATION_DEFAULTS,
+    EstimatePolicy,
+    prediction_key,
+    profile_current,
+    saved_prediction,
+)
 
 STAGES = ("p_human", "p_right_party_given_human", "p_conversion_given_right_party")
 
-DEFAULTS = {
-    "conversion_goal": "meeting_held",
-    "window_days": 14,
-    "exploration": 0.1,
-    "auto_train": True,
-    "horizon_hours": 24,
-    "rep_minutes": 480,
-    "handling_seconds": 120,
-    "daily_capacity_per_number": 40,
-    "training_min_rows": 100,
-    "staffed_windows": [],
-    "additional_ready_after_hours": 0,
-    "staffing_timezone": "UTC",
-    "staffing_start_hour": 9,
-    "staffing_end_hour": 20,
-    "staffing_reps": 1,
-    "staffing_weekdays": list(range(7)),
-    "account_channel_limit": None,
-    "minimum_expansion_age_hours": 24,
-}
+DEFAULTS = OPTIMIZATION_DEFAULTS
 
 
 def next_attempts(leads, schedule, estimate, *, limit=100):
@@ -102,7 +89,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
         return row
 
     def ensure_experiment_cohort(self, s, p, campaign_id=None):
-        from app.optimization.learning import stable_control
+        from app.optimization.learning import CONTROL_FRACTION, cohort_arm
 
         campaign = (
             self.required(s, "campaigns", campaign_id, p) if campaign_id else self.selected_campaign(s, p)
@@ -132,7 +119,9 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 p["seller_id"],
                 {
                     "lead_id": lead.id,
-                    "arm": "control" if stable_control(lead.id) else "candidate",
+                    "arm": (arm := cohort_arm(lead.id)),
+                    "propensity": CONTROL_FRACTION if arm == "control" else 1 - CONTROL_FRACTION,
+                    "allocation": {"control": CONTROL_FRACTION, "candidate": 1 - CONTROL_FRACTION},
                     "assigned_at": self.clock().isoformat(),
                     "epoch": epoch,
                     "originally_eligible": True,
@@ -428,14 +417,8 @@ class OptimizationWorkflows(ComparisonWorkflows):
         }
 
     def selection_profile(self, s, p, statistics, config):
-        from app.optimization.learning import distribution_from_counts
-
-        campaign = self.selected_campaign(s, p)
-        actions = [
-            r.id
-            for r in self.scoped(s, "treatment_variants", p)
-            if r.data.get("approved") and r.data.get("campaign_id") == campaign.id
-        ] or ["approved-default"]
+        # Treatment counts stay as evidence; no commit-time treatment policy is derived without
+        # a registered comparison (REMEDIATION 9.4).
         return {
             "as_of": self.clock().isoformat(),
             "goal": config["conversion_goal"],
@@ -447,10 +430,6 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 k: v for k, v in statistics.items() if k not in {"treatment_counts", "retry_observations"}
             },
             "retry_observations": statistics["retry_observations"],
-            "treatments": {
-                segment: distribution_from_counts(actions, counts, exploration=config["exploration"])
-                for segment, counts in statistics["treatment_counts"].items()
-            },
         }
 
     def operational_dataset(self, s, p, config=None, *, limit=20000):
@@ -1104,16 +1083,24 @@ class OptimizationWorkflows(ComparisonWorkflows):
         data = dataset["rows"]
         with self.db.transaction(False) as s:
             minimum = self.optimization_config(s, p)["training_min_rows"]
+        from app.ml.training import training_support
+
         known = [r["human"] for r in data if r.get("human") in (0, 1)]
         positives = sum(known)
-        if len(known) < minimum or min(positives, len(known) - positives) < 10:
+        reason = (
+            "Independent labeled outcomes and both answer classes are required"
+            if len(known) < minimum or min(positives, len(known) - positives) < 10
+            else training_support(data)
+        )
+        if reason:
+            # No bounded child is started when no stage could meet the review policy.
             return {
                 "status": "insufficient_data",
                 "rows": len(data),
                 "classified_rows": len(known),
                 "required_rows": minimum,
                 "dataset_id": dataset["id"],
-                "reason": "Independent labeled outcomes and both answer classes are required",
+                "reason": reason,
             }
         job = self.jobs.enqueue(
             "ml",

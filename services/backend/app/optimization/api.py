@@ -604,6 +604,7 @@ def register_optimization(app, service, principal, administrator):
         from datetime import timedelta
 
         from app.ml.training import predict_funnel
+        from app.optimization.learning import CONTROL_FRACTION
 
         with service.db.transaction() as s:
             model = service.required(s, "model_versions", model_id, p)
@@ -642,7 +643,7 @@ def register_optimization(app, service, principal, administrator):
                 "max_leads": body.max_leads,
                 "review_reference": body.review_reference,
                 "reviewed_by": p["user_id"],
-                "control_fraction": 0.1,
+                "control_fraction": CONTROL_FRACTION,
             }
             update(campaign, optimization_epoch=uid(), optimization_trial=study)
             epoch = service.ensure_experiment_cohort(s, p)

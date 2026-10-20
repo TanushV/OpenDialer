@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.scheduling.models import contact_labels
+from app.scheduling.models import OPTIMIZATION_DEFAULTS, contact_labels
 from app.scheduling.models import wilson as wilson
 
 
@@ -414,13 +414,13 @@ def capacity_forecast(
     inventory,
     *,
     now,
-    horizon_hours=24,
-    rep_minutes=480,
-    handling_seconds=120,
-    daily_capacity_per_number=40,
+    horizon_hours=OPTIMIZATION_DEFAULTS["horizon_hours"],
+    rep_minutes=OPTIMIZATION_DEFAULTS["rep_minutes"],
+    handling_seconds=OPTIMIZATION_DEFAULTS["handling_seconds"],
+    daily_capacity_per_number=OPTIMIZATION_DEFAULTS["daily_capacity_per_number"],
     policy=None,
     staffed_windows=None,
-    additional_ready_after_hours=0,
+    additional_ready_after_hours=OPTIMIZATION_DEFAULTS["additional_ready_after_hours"],
     rep_busy_until=None,
     retry_observations=(),
     schedule_row_limit=1000,
