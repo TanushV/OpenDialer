@@ -255,6 +255,13 @@ class Dialer(
             )
             if not counts["cleared_count"]:
                 blockers.extend(screening["reason_codes"] or ["SCREENING_PENDING"])
+            state_required = bool(policy.data.get("state_registry_required", False))
+            screening["state_registry_required"] = state_required
+            if not state_required:
+                warnings.append(
+                    "State do-not-call lists are not required by this campaign policy; only the internal "
+                    "do-not-call list and the national registry are checked"
+                )
             if "STATE_REGISTRY_MISSING" in reasons:
                 warnings.append("Some leads require a current authorized state registry source")
             if not counts["dialable_queue_count"]:

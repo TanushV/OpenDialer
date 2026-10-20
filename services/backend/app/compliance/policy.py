@@ -69,8 +69,14 @@ def authorize(c: CallContext) -> Decision:
     require(not c.internal_suppressed, "INTERNAL_SUPPRESSION")
     if c.registry_required:
         if c.registry_decision is not None:
-            if c.registry_decision["decision"] != "clear":
-                reasons.extend(r for r in c.registry_decision["reason_codes"] if r not in reasons)
+            # Only a clearance computed for this exact endpoint permits a dial; an account-level
+            # "available" or endpoint-free decision is never a clearance.
+            national = c.registry_decision
+            if national.get("decision") != "clear":
+                codes = national.get("reason_codes") or ["REGISTRY_NOT_CLEARED_FOR_ENDPOINT"]
+                reasons.extend(r for r in codes if r not in reasons)
+            elif not national.get("endpoint"):
+                reasons.append("REGISTRY_NOT_CLEARED_FOR_ENDPOINT")
         else:  # Legacy pure-policy callers; runtime always supplies the shared national decision.
             require(c.registry_checked_at is not None, "REGISTRY_MISSING")
             if c.registry_checked_at:

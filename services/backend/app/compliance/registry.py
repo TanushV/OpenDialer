@@ -30,10 +30,20 @@ def published_snapshots(s, p):
     return [r for r in records if r.data.get("published") and r not in s.deleted]
 
 
+def valid_endpoint(phone):
+    return (
+        isinstance(phone, str)
+        and len(phone) == 12
+        and phone.startswith("+1")
+        and phone[1:].isascii()
+        and phone[1:].isdigit()
+    )
+
+
 def registry_contains(s, snapshot, phone):
     """Chunks are immutable and only a current scoped publication can refer to them."""
-    if len(phone) != 12 or not phone.startswith("+1") or not phone[1:].isascii() or not phone[1:].isdigit():
-        return False
+    if not valid_endpoint(phone):
+        raise RegistryError("Malformed endpoint cannot be screened; it is not cleared")
     if "chunks" in snapshot.data:
         part = snapshot.data["chunks"].get(phone[2:5])
         if part is None:
@@ -444,8 +454,8 @@ class RegistryBitmap:
         return cls(regions)
 
     def contains(self, number):
-        if len(number) != 12 or not number.startswith("+1"):
-            return False
+        if not valid_endpoint(number):
+            raise RegistryError("Malformed endpoint cannot be screened; it is not cleared")
         bits = self.regions.get(number[2:5])
         value = int(number[5:])
         return bool(bits and bits[value >> 3] & (1 << (value & 7)))

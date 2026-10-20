@@ -7,7 +7,6 @@ import logging
 from typing import Literal
 from uuid import NAMESPACE_URL, uuid5
 
-from fastapi import HTTPException
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictBool, field_validator
 from sqlalchemy import select
 
@@ -332,9 +331,9 @@ def record(service, p, body):
                 {"revoked": body["revoked"], "permissions": body["permissions"]},
             )
             return doc(row)
-    except HTTPException:
-        raise
     except Exception:
+        # Any failure after the journal attempt began, including a refused (409) append, may
+        # leave the revocation unrecorded: hold outbound durably, as opt-outs do.
         if not journal_started:
             raise
         service.__dict__.setdefault("_journal_faults", set()).add((p["tenant_id"], p["seller_id"]))
