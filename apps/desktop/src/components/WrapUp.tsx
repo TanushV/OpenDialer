@@ -90,6 +90,8 @@ export function WrapUp({
       contact_role: contactRole,
       callback_note: wrapNote,
       expected_version: call.version,
+      // Background bookkeeping bumps call.version; only rep edits move edit_version.
+      expected_edit_version: call.edit_version ?? 0,
       callback_at:
         outcome === "callback_requested" && callbackAt
           ? zonedInstant(callbackAt, zone.zone)
@@ -218,6 +220,40 @@ export function WrapUp({
         Save outcome
         <Check size={15} />
       </button>
+    </section>
+  );
+}
+
+/** A saved outcome whose callback time a person's edit or closure kept from applying. */
+export function CallbackReviewNotice({
+  review,
+  onDismiss,
+}: {
+  review: NonNullable<Call["callback_review"]>;
+  onDismiss: () => void;
+}) {
+  const { openTask } = useWorkspace();
+  const first = review.task_ids[0];
+  return (
+    <section
+      className="card padded callback-review"
+      aria-label="Callback needs review"
+    >
+      <p role="status">
+        Outcome saved. The callback time was not applied: {review.reason}
+      </p>
+      <div className="button-row">
+        {first && openTask && (
+          <button className="secondary small" onClick={() => openTask(first)}>
+            {review.task_ids.length > 1
+              ? "Review follow-ups"
+              : "Review follow-up"}
+          </button>
+        )}
+        <button className="text-button small" onClick={onDismiss}>
+          Dismiss
+        </button>
+      </div>
     </section>
   );
 }

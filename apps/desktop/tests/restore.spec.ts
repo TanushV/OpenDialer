@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test("restore explains current-record preservation and permits the same backup retry", async ({
   page,

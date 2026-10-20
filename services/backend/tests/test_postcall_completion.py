@@ -89,7 +89,10 @@ def test_partial_and_non_scored_rubrics_cannot_publish_an_inflated_score():
             }
         ],
     }
-    from app.postcall.analysis import DIMENSIONS, build_analysis
+    from app.postcall.analysis import build_analysis
+    from app.postcall.rubrics import effective
+
+    DIMENSIONS = [d["id"] for d in effective({})["dimensions"]]  # The default rubric.
 
     state = merge_test_analysis(body, [source])
     # Incremental updates may cover one dimension; the saved view always includes all.
@@ -388,6 +391,10 @@ async def test_corrected_source_holds_inferred_task_without_erasing_it(workspace
     # it never holds the lead indefinitely (only a rep-stated callback does).
     assert packet["lead"].get("outreach_hold") is None
     assert packet["lead"]["callback_suggestion_until"] == packet["lead"]["next_attempt_at"]
+    # The rep's task list shows how long this suggestion holds outreach.
+    tasks = c.get("/v1/workspace", headers=h).json()["tasks"]
+    shown = next(t for t in tasks if t["id"] == before[0]["id"])
+    assert shown.get("callback_suggestion_until") == packet["lead"]["callback_suggestion_until"]
 
 
 @pytest.mark.parametrize(
@@ -623,7 +630,9 @@ async def test_confirming_corrected_task_acknowledges_review(workspace, app, mon
 
 
 def test_non_scored_dimensions_cannot_carry_a_score():
-    from app.postcall.analysis import DIMENSIONS
+    from app.postcall.rubrics import effective
+
+    DIMENSIONS = [d["id"] for d in effective({})["dimensions"]]  # The default rubric.
 
     body = analysis_body()
     body["commitments"] = []

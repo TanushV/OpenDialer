@@ -2,7 +2,6 @@ from datetime import timedelta
 
 import pytest
 from app.jobs.queue import JobQueue
-from app.providers.batch import join_batch_results
 from app.research.fetch import UnsafeURL, validate_url
 from app.research.validation import ValidationFailure, validate_script
 
@@ -63,17 +62,6 @@ def test_script_rejects_wrong_company_stale_and_unsupported_claims(clock):
     script["opener"] = "We guarantee number one Google rankings and 10x revenue."
     with pytest.raises(ValidationFailure):
         validate_script(script, [], "example.test", "Seller", clock.now)
-
-
-def test_batch_outputs_join_by_id_never_output_order():
-    rows = [
-        {"custom_id": "lead-b:v1", "response": {"body": {"value": "B"}}},
-        {"custom_id": "lead-a:v1", "error": {"code": "failed"}},
-    ]
-    results = join_batch_results(["lead-a:v1", "lead-b:v1", "lead-c:v1"], rows)
-    assert results["completed"] == {"lead-b:v1": {"value": "B"}}
-    with pytest.raises(ValueError):
-        join_batch_results(["lead-a:v1"], [{"custom_id": "unknown", "response": {"body": {}}}])
 
 
 def test_durable_jobs_lease_retry_deadletter_and_idempotency(app, clock):

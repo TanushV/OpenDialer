@@ -1626,12 +1626,6 @@ tbody tr:hover {
   color: #4c7138;
   border-color: #7f9e58;
 }
-.field-note {
-  font-size: 8px;
-  color: #aab69a;
-  font-weight: 400;
-  margin-top: -2px;
-}
 .settings-save {
   display: flex;
   align-items: center;

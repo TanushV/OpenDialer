@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test("an imported receipt settles the original liability with recoverable lost-response retry", async ({
   page,
@@ -272,4 +272,90 @@ test("a confirmed no-charge statement is distinct from a missing carrier receipt
       confirm_complete: true,
       confirm_no_charge: true,
     });
+});
+
+test("settled call estimates are shown as estimates, apart from carrier-verified costs", async ({
+  page,
+}) => {
+  const filters: string[] = [];
+  const entry = {
+    version: 2,
+    provider: "telnyx",
+    request_id: null,
+    credited_usd: 0,
+    reserved_usd: 0,
+    provider_record_ids: [],
+    can_credit: false,
+    at: "2026-10-18T10:00:00Z",
+  };
+  await page.route("**/v1/admin/billing/ledger?*", (route) => {
+    const status = new URL(route.request().url()).searchParams.get("status");
+    filters.push(status || "");
+    route.fulfill({
+      json: {
+        entries: [
+          {
+            ...entry,
+            id: "estimated-call",
+            kind: "call_authorization",
+            request_key: "call:estimated",
+            status: "estimated",
+            cost_usd: 0.0123,
+            net_cost_usd: 0.0123,
+            billing_verified: false,
+            estimate_source: "rate_card",
+            can_settle: true,
+            can_close_call: true,
+          },
+          ...(status === "all"
+            ? [
+                {
+                  ...entry,
+                  id: "verified-call",
+                  kind: "call_authorization",
+                  request_key: "call:verified",
+                  status: "settled",
+                  cost_usd: 0.02,
+                  net_cost_usd: 0.02,
+                  billing_verified: true,
+                  can_settle: false,
+                  can_close_call: false,
+                },
+              ]
+            : []),
+        ],
+        next_cursor: null,
+      },
+    });
+  });
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Operations", exact: true }).click();
+  const panel = page.getByRole("region", {
+    name: "Provider cost reconciliation",
+    exact: true,
+  });
+  // The default view lists estimates: they still need the carrier statement.
+  const original = panel.getByLabel("Original request");
+  await expect(original.locator("option")).toHaveText([
+    /call:estimated · Estimated · not carrier-verified/,
+  ]);
+  await expect(panel).toContainText(
+    "Estimated $0.012300 (rate card). Not carrier-verified; record the carrier statement to replace it.",
+  );
+  await panel.getByLabel("Show costs").selectOption("all");
+  await expect(original.locator("option")).toHaveText([
+    /call:estimated · Estimated · not carrier-verified/,
+    /call:verified · Settled · carrier-verified/,
+  ]);
+  expect(filters[0]).toBe("unresolved");
 });

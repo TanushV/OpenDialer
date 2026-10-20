@@ -1191,12 +1191,6 @@ class OptimizationWorkflows(ComparisonWorkflows):
         )
         return {"status": job["status"], "rows": len(data), "job_id": job["id"], "dataset_id": dataset["id"]}
 
-    def refresh_schedule_plans(
-        self, p, campaign_id, dataset_id=None, *, lead_ids=None, internal=False, lease=None
-    ):
-        """Retired: forecasts publish one bounded summary; queued legacy jobs complete without writes."""
-        return {"status": "ready", "saved": 0, "superseded": 0, "unchanged": 0, "retired": True}
-
     def refresh_observed_health(self, p, *, lease=None):
         from app.service import fail
 

@@ -1,8 +1,55 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { isolatedSimulationWorkspace } from "./simulation";
 
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: "wait" });
+});
+
+test("a late duplicate callback routing read cannot erase a typed destination", async ({
+  page,
+}) => {
+  let reads = 0;
+  let release!: () => void;
+  let delivered!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const late = new Promise<void>((resolve) => {
+    delivered = resolve;
+  });
+  await page.route("**/v1/admin/callback-routing", async (route) => {
+    if (route.request().method() !== "GET" || ++reads !== 1)
+      return route.continue();
+    const response = await route.fetch();
+    await held;
+    await route.fulfill({ response });
+    delivered();
+  });
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Operations", exact: true }).click();
+  const field = page
+    .getByRole("region", { name: "Inbound callbacks", exact: true })
+    .getByLabel("Business fallback destination");
+  await field.fill("sip:typed-before-late-read@example.test");
+  release();
+  await late;
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  await expect(field).toHaveValue("sip:typed-before-late-read@example.test");
 });
 
 test("callback fallback settings survive reload and explain offline routing", async ({

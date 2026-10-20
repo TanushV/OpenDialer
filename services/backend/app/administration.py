@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 import httpx
 from sqlalchemy import delete, func, or_, select, text
 
-from app.config import PROVIDER_DEFAULTS, CapabilityStatus
+from app.config import PROVIDER_DEFAULTS, CapabilityStatus, inference_mode
 from app.db import DERIVED_TABLES, MODELS, audit, doc, emit, get, put, rows, uid, update
 from app.intelligence import Application
 from app.measurement import Measurement
@@ -132,6 +132,7 @@ def capability_statuses(
         "Keep the selected authority online or use an existing always-on connected host. An operator note is not carrier failover proof.",
     )
     # The approved generic script always remains available, so preparation never blocks calling.
+    retired = inference_mode(conf) is None
     add(
         "preparation",
         "software_verified" if simulation else "configured" if inference else "degraded",
@@ -140,8 +141,12 @@ def capability_statuses(
         if simulation
         else ["LIVE_INFERENCE_ACCEPTANCE_REQUIRED"]
         if inference
+        else ["INFERENCE_MODE_RETIRED"]
+        if retired
         else ["APPROVED_FALLBACK_ONLY"],
-        "Publish the seller template; personalized research and scripts additionally require configured inference.",
+        "ChatGPT plan usage was removed; choose the OpenAI API or an OpenAI-compatible endpoint."
+        if retired and not simulation
+        else "Publish the seller template; personalized research and scripts additionally require configured inference.",
     )
     return values
 
@@ -253,6 +258,10 @@ class Dialer(
         inference = bool(self.inference(p["tenant_id"], "research_extract", p["user_id"]))
         if not inference:
             warnings.append("Research inference is unconfigured; approved fallback scripts remain available")
+        if inference_mode(conf) is None:
+            warnings.append(
+                "ChatGPT plan inference was removed; choose the OpenAI API or an OpenAI-compatible endpoint"
+            )
         provider = conf.get("coach_provider", PROVIDER_DEFAULTS.coach_provider)
         if provider == "openrouter" and not conf.get("openrouter_api_key"):
             warnings.append("OpenRouter/Cerebras is unconfigured; approved static coaching remains available")
@@ -828,6 +837,7 @@ class Dialer(
         from app.compliance.consent import journal_entries, replay_in
         from app.compliance.suppressions import journal_entries as suppression_entries
         from app.compliance.suppressions import replay_in as replay_suppressions_in
+        from app.migrate import close_retired_batch
         from app.privacy import persistent_document
 
         if not re.fullmatch(r"[0-9a-f-]{36}", backup_id):
@@ -937,6 +947,8 @@ class Dialer(
             s.flush()
             replay_suppressions_in(self, s, p=p, entries=events)
             for command in self.scoped(s, "command_outbox", p):
+                if close_retired_batch(s, command, self.clock()):
+                    continue
                 if command.data.get("status") in {"pending", "sending"}:
                     update(command, status="uncertain", restore_hold=True)
             replay_in(self, s, p=p, entries=revoked)

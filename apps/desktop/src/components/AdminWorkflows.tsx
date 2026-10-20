@@ -112,5 +112,3 @@ export function AccessAndRecovery() {
     </div>
   );
 }
-
-export { DeferredScripts } from "./DeferredScripts";
