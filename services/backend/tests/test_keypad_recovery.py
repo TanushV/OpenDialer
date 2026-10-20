@@ -188,19 +188,32 @@ def test_old_uncertain_keypad_is_review_work_not_a_new_tone(workspace, app, carr
     assert commands(service, p)[0]["status"] == "review_required"
 
 
+@pytest.mark.database
 def test_concurrent_keypad_retry_submits_one_effect(workspace, app, carrier, monkeypatch):
     from concurrent.futures import ThreadPoolExecutor
 
     call = start(workspace)
-    original = carrier.action
+    service = app.state.service
+    original, submit = carrier.action, service.send_keypad
+    entered, both = [], asyncio.Event()
 
-    async def delayed(*args):
-        await asyncio.sleep(0.05)
+    async def counted(*args, **kwargs):
+        entered.append(True)
+        if len(entered) == 2:
+            both.set()
+        return await submit(*args, **kwargs)
+
+    async def overlapped(*args):
+        # Hold the first carrier effect until the retry is inside the same command boundary,
+        # so the race is forced by ordering rather than hoped for with a sleep.
+        await asyncio.wait_for(both.wait(), 60)
         return await original(*args)
 
-    monkeypatch.setattr(carrier, "action", delayed)
+    monkeypatch.setattr(service, "send_keypad", counted)
+    monkeypatch.setattr(carrier, "action", overlapped)
     with ThreadPoolExecutor(max_workers=2) as pool:
         responses = list(pool.map(lambda _: send(workspace, call), range(2)))
+    assert len(entered) == 2
     assert all(r.status_code == 200 for r in responses)
     assert len(tones(carrier)) == 1
     assert len(commands(app.state.service, principal(workspace))) == 1

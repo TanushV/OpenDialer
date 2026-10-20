@@ -6,12 +6,13 @@ from datetime import timedelta
 import pytest
 from app.coaching.context import build_context, merge_semantic_state, persistent_state, state_view
 from app.db import get, update
-from conftest import start
+from conftest import NOW, start
 from test_remediation_coach import ordinary_advice
 from test_remediation_privacy import persisted_content, principal
 
 
 def setup(workspace, app, monkeypatch):
+    # conftest.coaching_time makes helper deadlines follow the test clock.
     call = start(workspace)
     service, p = app.state.service, principal(workspace)
     requests, changes = [], {}
@@ -203,6 +204,7 @@ def test_new_evidence_can_resolve_prior_open_memory_without_leaving_contradictor
             ],
         },
         [memory_source()],
+        at=NOW,
     )
     assert len(result["objections"]) == 2, (
         "A proposed resolution cannot erase the prior concern before review"
@@ -211,8 +213,36 @@ def test_new_evidence_can_resolve_prior_open_memory_without_leaving_contradictor
     assert candidate["status"] == "resolved" and candidate["review_status"] == "pending"
     assert candidate["evidence_revisions"] == {"old": 1, "new": 1}
     # A correction to either supporting source invalidates the merged interpretation.
-    corrected = build_context([memory_source("old", 2)], version=3, facts=[], commitments=[], prior=result)
+    corrected = build_context(
+        [memory_source("old", 2)], version=3, facts=[], commitments=[], prior=result, at=NOW
+    )
     assert not corrected["objections"]
+
+
+def test_context_invalidation_uses_the_service_clock_not_the_host_clock():
+    """Correction receipts must agree with the authority clock, including in replays and tests."""
+    from app.coaching.context import upgrade_state
+
+    prior = upgrade_state(
+        {
+            "version": 1,
+            "stage": "discovery",
+            "needs": [
+                {
+                    "id": "need-1",
+                    "text": "Approval was still outstanding.",
+                    "status": "open",
+                    "evidence_revisions": {"old": 1},
+                }
+            ],
+        }
+    )
+    corrected = build_context(
+        [memory_source("old", 2)], version=2, facts=[], commitments=[], prior=prior, at=NOW
+    )
+    assert corrected["source_conflicts"][-1]["at"] == NOW.isoformat()
+    with pytest.raises(ValueError):
+        build_context([memory_source("old", 2)], version=2, facts=[], commitments=[], prior=prior)
 
 
 def test_unknown_memory_replacement_is_rejected():

@@ -150,11 +150,13 @@ class ConversationStateV2(StrictModel):
 
 
 class TurnOutput(StrictModel):
+    # Generation follows schema order. State comes before optional guidance, so a response
+    # truncated by the completion cap still carries a complete interpretation.
     state_version: int = Field(ge=0)
     context_fingerprint: str = Field(min_length=1, max_length=128)
+    state_delta: StateDelta | None
     field_audit: list[FieldAudit] = Field(max_length=40)
     guidance: Guidance | None
-    state_delta: StateDelta | None
 
 
 def card_view(result):
@@ -175,30 +177,3 @@ def card_view(result):
 
 
 COACH_SCHEMA = TurnOutput.model_json_schema()
-
-
-# Explicitly configured legacy adapter compatibility only.
-CARD_SCHEMA = {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-        "action": {"type": "string", "enum": ["SHOW_CARD", "NO_ACTION"]},
-        "kind": {"type": "string"},
-        "say_or_ask": {"type": "string"},
-        "reason": {"type": "string"},
-        "evidence_segment_ids": {"type": "array", "items": {"type": "string"}},
-        "playbook_card_ids": {"type": "array", "items": {"type": "string"}},
-        "state_version": {"type": "integer"},
-        "expires_in_ms": {"type": "integer"},
-    },
-    "required": [
-        "action",
-        "kind",
-        "say_or_ask",
-        "reason",
-        "evidence_segment_ids",
-        "playbook_card_ids",
-        "state_version",
-        "expires_in_ms",
-    ],
-}

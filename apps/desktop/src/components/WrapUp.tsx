@@ -3,24 +3,74 @@ import { Check } from "lucide-react";
 import { localEdit } from "../api/client";
 import { label, useWorkspace } from "../context";
 import type { Call } from "../types";
-import { localDateInput } from "./FollowupTasks";
+import {
+  chooseZone,
+  zoneCaption,
+  zonedInput,
+  zonedInstant,
+} from "../state/zones";
+
+/** One click covers most calls; every backend outcome stays under "More outcomes". */
+const PRIMARY: [string, string][] = [
+  ["no_answer", "No answer"],
+  ["voicemail", "Voicemail"],
+  ["gatekeeper", "Gatekeeper / wrong person"],
+  ["not_interested", "Talked: not interested"],
+  ["callback_requested", "Talked: callback requested"],
+  ["meeting_booked", "Meeting booked"],
+];
+const OUTCOMES = [
+  "right_party",
+  "qualified_conversation",
+  "sale_won",
+  "callback_requested",
+  "meeting_booked",
+  "meeting_held",
+  "gatekeeper",
+  "screening",
+  "ivr",
+  "voicemail",
+  "no_answer",
+  "busy",
+  "wrong_party",
+  "invalid_endpoint",
+  "not_interested",
+  "opt_out",
+  "temporary_failure",
+];
+const SUPPRESSES = new Set(["wrong_party", "invalid_endpoint", "opt_out"]);
+// Carrier results are facts; anything else waits for the rep's choice.
+const CARRIER: Record<string, string> = {
+  NO_ANSWER: "no_answer",
+  BUSY: "busy",
+  TEMPORARY_FAILURE: "temporary_failure",
+};
+const primary = new Set(PRIMARY.map(([code]) => code));
 
 export function WrapUp({
   call,
+  timezone,
   onSaved,
 }: {
   call: Call;
-  onSaved: (call: Call) => Promise<void>;
+  /** The lead's explicit IANA zone for the callback time. */
+  timezone?: string | null;
+  onSaved: (call: Call) => void;
 }) {
   const { api, run, notice } = useWorkspace();
+  const zone = chooseZone(timezone);
   const [outcome, setOutcome] = useState(
-    (call.state === "FINALIZED" && call.outcome) || "right_party",
+    (call.state === "FINALIZED" && call.outcome) ||
+      call.disposition_input?.outcome ||
+      CARRIER[call.state] ||
+      "",
   );
+  const [more, setMore] = useState(!!outcome && !primary.has(outcome));
   const [contactRole, setContactRole] = useState(
     call.disposition_input?.contact_role || "unknown",
   );
   const [callbackAt, setCallbackAt] = useState(
-    localDateInput(call.disposition_input?.callback_at),
+    zonedInput(call.disposition_input?.callback_at, zone.zone),
   );
   const [wrapNote, setWrapNote] = useState(
     call.disposition_input?.callback_note || "",
@@ -29,8 +79,12 @@ export function WrapUp({
   const pending = useRef<{ fingerprint: string; request_id: string } | null>(
     null,
   );
+  function choose(code: string) {
+    setOutcome(code);
+    if (!primary.has(code)) setMore(true);
+  }
   async function save() {
-    if (saving) return;
+    if (saving || !outcome) return;
     const body = {
       outcome,
       contact_role: contactRole,
@@ -38,7 +92,7 @@ export function WrapUp({
       expected_version: call.version,
       callback_at:
         outcome === "callback_requested" && callbackAt
-          ? new Date(callbackAt).toISOString()
+          ? zonedInstant(callbackAt, zone.zone)
           : null,
     };
     const fingerprint = JSON.stringify(body);
@@ -52,18 +106,19 @@ export function WrapUp({
         "POST",
         { ...body, request_id: pending.current.request_id },
       );
-      await onSaved(result);
       notice(
         outcome === "meeting_booked" || outcome === "meeting_held"
           ? "Meeting recorded as rep-reported. Outreach is paused."
           : "Outcome saved. Analysis continues in the background.",
       );
+      // The saved outcome is final; later refresh work reports its own errors.
+      onSaved(result);
     } finally {
       setSaving(false);
     }
   }
   return (
-    <section className="wrap-up card">
+    <section className="wrap-up card" aria-label="Wrap-up">
       <div>
         <span className="eyebrow">LEAVE A CLEAR NEXT STEP</span>
         <h3>How did the conversation go?</h3>
@@ -77,7 +132,7 @@ export function WrapUp({
           <button
             className="secondary"
             onClick={() => {
-              setOutcome(call.suggested_outcome!.code);
+              choose(call.suggested_outcome!.code);
               setContactRole(call.suggested_outcome!.contact_role);
             }}
           >
@@ -86,37 +141,42 @@ export function WrapUp({
           <small>Review the outcome and contact role before saving.</small>
         </div>
       )}
-      <label>
-        Disposition
-        <select value={outcome} onChange={(e) => setOutcome(e.target.value)}>
-          {[
-            "right_party",
-            "qualified_conversation",
-            "sale_won",
-            "callback_requested",
-            "meeting_booked",
-            "meeting_held",
-            "gatekeeper",
-            "screening",
-            "ivr",
-            "voicemail",
-            "no_answer",
-            "busy",
-            "wrong_party",
-            "invalid_endpoint",
-            "not_interested",
-            "opt_out",
-            "temporary_failure",
-          ].map((o) => (
-            <option key={o} value={o}>
-              {label(o)}
+      <div className="outcome-choices" role="group" aria-label="Outcome">
+        {PRIMARY.map(([code, text]) => (
+          <button
+            key={code}
+            type="button"
+            className={outcome === code ? "chip selected" : "chip"}
+            aria-pressed={outcome === code}
+            onClick={() => choose(code)}
+          >
+            {text}
+          </button>
+        ))}
+      </div>
+      <details
+        open={more}
+        onToggle={(event) => setMore(event.currentTarget.open)}
+      >
+        <summary>More outcomes</summary>
+        <label>
+          Disposition
+          <select value={outcome} onChange={(e) => choose(e.target.value)}>
+            <option value="" disabled>
+              Choose an outcome
             </option>
-          ))}
-        </select>
-      </label>
+            {OUTCOMES.map((o) => (
+              <option key={o} value={o}>
+                {label(o)}
+                {SUPPRESSES.has(o) ? " · stops calls to this number" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      </details>
       {outcome === "callback_requested" && (
         <label>
-          Confirmed callback time
+          Confirmed callback time ({zoneCaption(zone)})
           <input
             type="datetime-local"
             value={callbackAt}
@@ -152,7 +212,7 @@ export function WrapUp({
       )}
       <button
         className="primary"
-        disabled={saving}
+        disabled={saving || !outcome}
         onClick={() => void run(save)}
       >
         Save outcome

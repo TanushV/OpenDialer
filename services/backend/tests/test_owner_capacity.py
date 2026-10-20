@@ -55,6 +55,7 @@ def test_overlapping_declarations_count_each_rep_only_once():
     assert {r["rep_id"] for r in result["existing_schedule"]} == {"alice", "bob", "carol"}
 
 
+@pytest.mark.database
 def test_two_callbacks_for_same_owner_cannot_use_parallel_rep_slots():
     result = forecast(
         [callback("a"), callback("b")],

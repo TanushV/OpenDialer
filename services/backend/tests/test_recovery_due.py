@@ -211,6 +211,7 @@ async def test_confirmed_original_terminal_leg_releases_its_claim(workspace, app
         assert s.scalar(select(ActiveClaim).where(ActiveClaim.call_id == call["id"])) is None
 
 
+@pytest.mark.database
 def test_concurrent_recovery_ticks_claim_each_due_call_once(workspace, app, clock):
     from concurrent.futures import ThreadPoolExecutor
 

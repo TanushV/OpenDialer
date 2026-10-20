@@ -224,8 +224,6 @@ class ProviderSettings(Strict):
     postcall_extract_model: str | None = None
     scorecard_review_model: str | None = None
     chatgpt_access_token: str | None = None
-    groq_api_key: str | None = None
-    groq_model: str | None = None
     coach_provider: Literal["openrouter", "static"] | None = None
     openrouter_api_key: str | None = None
     coach_model: str | None = Field(default=None, min_length=3, max_length=200)
@@ -235,10 +233,11 @@ SECRET_FIELDS = {
     "dnc_api_key",
     "telnyx_api_key",
     "openai_api_key",
-    "groq_api_key",
     "openrouter_api_key",
     "chatgpt_access_token",
 }
+# Retired non-ZDR coaching settings stored by older releases: never echoed or reported.
+RETIRED_FIELDS = {"groq_api_key", "groq_model"}
 
 
 def create_app(settings=None, *, clock=None, carrier=None):
@@ -747,7 +746,11 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 {key: budget.data[key] for key in Budget.model_fields}
             ).model_dump()
         return {
-            **{k: v for k, v in config.items() if k not in SECRET_FIELDS and not k.startswith("_")},
+            **{
+                k: v
+                for k, v in config.items()
+                if k not in SECRET_FIELDS | RETIRED_FIELDS and not k.startswith("_")
+            },
             "configured": {k: bool(config.get(k)) for k in SECRET_FIELDS},
             "version": config.get("version", 0),
             "budget": budget_values,

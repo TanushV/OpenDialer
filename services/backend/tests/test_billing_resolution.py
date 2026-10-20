@@ -412,6 +412,7 @@ def test_same_carrier_receipt_cannot_move_to_a_different_call(workspace, app, cl
     assert cdr(workspace, {"id": other.id}).status_code == 409
 
 
+@pytest.mark.database
 def test_concurrent_credits_cannot_over_refund_one_charge(workspace, app):
     import threading
     from concurrent.futures import ThreadPoolExecutor

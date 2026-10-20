@@ -7,7 +7,7 @@ from datetime import timedelta
 
 from sqlalchemy import or_, select
 
-from app.coaching import library, sources
+from app.coaching import engine, library, sources
 from app.coaching import requests as help_requests
 from app.coaching.context import (
     MeaningReviewRequired,
@@ -19,6 +19,7 @@ from app.coaching.context import (
     merge_semantic_state,
     persistent_state,
     retrieve_cards,
+    reviewed_guidance,
     upgrade_state,
 )
 from app.coaching.contracts import card_view
@@ -30,15 +31,58 @@ from app.providers.inference import InferenceResult
 from app.service import dt, fail
 from app.telephony.reducer import TERMINAL
 
+LINEAGE_DEPTH = 8  # Observation lineage is checkpointed by review before it grows deeper.
+
 
 class LiveHelper:
     def _conversation_lineage(self, s, p, call_id):
+        """Complete call history, for corrections, finalization and learning views."""
         return {
             lineage_key(r.data["id"], r.data["version"]): r.data
             for r in self.context_rows(
                 s, p, "outcomes", call_id, MODELS["outcomes"].ctx_status == "conversation_lineage", limit=None
             )
         }
+
+    def _live_lineage(self, s, p, call_id, state):
+        """Only the ancestors of the current observations, read by key at each depth.
+
+        Corrections already invalidated the complete history when they were received, so a
+        live turn needs only the sources its current state can still reach.
+        """
+        model, lineage = MODELS["outcomes"], {}
+
+        def ancestors(items):
+            return {
+                lineage_key(ref["id"], ref["version"])
+                for item in items
+                for ref in item.get("sources", [])
+                if ref.get("kind") == "observation"
+            }
+
+        current = state if state.get("schema_version") == 2 else upgrade_state(state)
+        wanted = ancestors(
+            item
+            for group in ("observations", "rubric_items", "tracker_matches")
+            for item in current.get(group, [])
+        )
+        for _ in range(LINEAGE_DEPTH + 1):
+            wanted -= lineage.keys()
+            if not wanted:
+                break
+            found = {
+                lineage_key(r.data["id"], r.data["version"]): r.data
+                for r in s.scalars(
+                    select(model).where(
+                        model.tenant_id == p["tenant_id"],
+                        model.seller_id == p["seller_id"],
+                        model.external_key.in_([f"observation:{call_id}:{key}" for key in sorted(wanted)]),
+                    )
+                )
+            }
+            lineage.update(found)
+            wanted = ancestors(found.values())
+        return lineage
 
     def _store_conversation(self, s, p, call, state, record=None):
         lead = None
@@ -81,6 +125,7 @@ class LiveHelper:
                 "latest_coach_event_id",
                 "review_work",
                 "displayed_coach_event_ids",
+                "helper_status",
             }
         }
         values = {
@@ -265,10 +310,10 @@ class LiveHelper:
         request["context_fingerprint"] = sources.digest(request)
         request["evidence_catalog"] = guidance_sources(request)
         request["help_request_id"] = key
-        provider, route = self.configured_coach(p)
+        provider, route = await asyncio.to_thread(self.configured_coach, p)
         result = {"status": "unconfigured", "examples": request["approved_cards"]}
         if provider and not self.settings.simulation:
-            deadline = time.monotonic() + min(
+            deadline = engine.monotonic() + min(
                 self.settings.runtime_limits.manual_full_ms / 1000,
                 (expires - self.clock()).total_seconds(),
             )
@@ -278,7 +323,7 @@ class LiveHelper:
                     self._practice_authorized, p, key
                 )
 
-            async def admit(submit):
+            async def admit(submit, admission_deadline):
                 with_authority = await authorized()
                 return with_authority and (
                     not submit or await self._reserve_coach(p, key, key, "coaching_practice")
@@ -289,7 +334,7 @@ class LiveHelper:
 
             async def publish(guidance):
                 guidance = card_view(guidance)
-                if not await authorized() or time.monotonic() >= deadline:
+                if not await authorized() or engine.monotonic() >= deadline:
                     raise CardRejected("Practice context changed")
                 try:
                     ground_guidance(guidance, request)
@@ -306,8 +351,7 @@ class LiveHelper:
                         authorize=authorized,
                         work_kind="coaching_practice_review",
                     )
-                    ground_guidance(guidance, request, review=receipt)
-                    guidance = {**guidance, "meaning_review": receipt.metadata()}
+                    guidance = reviewed_guidance(guidance, request, receipt)
                 else:
                     guidance = {**guidance, "meaning_review": {"status": "model_suggestion"}}
                 return guidance
@@ -319,7 +363,7 @@ class LiveHelper:
                     request,
                     provider,
                     {"action": "NO_ACTION"},
-                    deadline_ms=max(1, int((deadline - time.monotonic()) * 1000)),
+                    deadline_ms=max(1, int((deadline - engine.monotonic()) * 1000)),
                     admit=admit,
                     settle=settle,
                     publish=publish,
@@ -492,7 +536,7 @@ class LiveHelper:
             previous = upgrade_state(
                 state_record.data if state_record else {}, call_id=call_id, rubric=effective(call.data)
             )
-            previous["_lineage"] = self._conversation_lineage(s, p, call_id)
+            previous["_lineage"] = self._live_lineage(s, p, call_id, previous)
             previous.update(
                 {
                     k: v
@@ -539,7 +583,7 @@ class LiveHelper:
                 )
             ]
             state = build_context(
-                stable, version=version, facts=facts, commitments=commitments, prior=previous
+                stable, version=version, facts=facts, commitments=commitments, prior=previous, at=self.clock()
             )
             if urgent:
                 state["trigger"] = "manual_help"
@@ -564,6 +608,8 @@ class LiveHelper:
             retrieval_started = time.perf_counter()
             cards = retrieve_cards(state, all_cards)
             retrieval_ms = (time.perf_counter() - retrieval_started) * 1000
+            # Cached knowledge is shown only while the helper is unconfigured or its circuit is
+            # open. A transient failure stays quiet with an explicit helper status instead.
             fallback = {"action": "NO_ACTION", "state_version": version}
             if cards and state["last_remote"]:
                 fallback = {
@@ -756,7 +802,7 @@ class LiveHelper:
         return {**result, "request_id": identity, "private": bool(question)}
 
     async def _coach_turn(self, p, call_id, urgent=False, question=None, identity=None):
-        request_started = time.monotonic()
+        request_started = engine.monotonic()
         prepared = await asyncio.to_thread(self._help_context, p, call_id, urgent, question, identity)
         if not prepared:
             return {"action": "NO_ACTION", "status": "no_action", "private": bool(question)}
@@ -764,14 +810,17 @@ class LiveHelper:
         remaining = (expires - self.clock()).total_seconds()
         limits = self.settings.runtime_limits
         allowed_ms = limits.manual_full_ms if urgent else limits.automatic_deadline_ms
-        monotonic_deadline = min(request_started + allowed_ms / 1000, time.monotonic() + remaining)
+        # Every ceiling is clipped to the original raw-speech expiry.
+        monotonic_deadline = min(request_started + allowed_ms / 1000, engine.monotonic() + remaining)
         if remaining <= 0:
             return {"action": "NO_ACTION", "status": "expired", "private": bool(question)}
-        provider, route = self.configured_coach(p)
+        # The vault read is file I/O and decryption: keep it off the event loop.
+        provider, route = await asyncio.to_thread(self.configured_coach, p)
         if provider:
-            provider.first_useful_ms = max(
-                1, int((request_started + limits.manual_first_ms / 1000 - time.monotonic()) * 1000)
-            )
+            # The first-useful ceiling bounds the first displayable content only; generation
+            # and any review of a factual answer may run to the full ceiling.
+            first_useful = min(request_started + limits.manual_first_ms / 1000, monotonic_deadline)
+            provider.first_useful_ms = max(1, int((first_useful - engine.monotonic()) * 1000))
             provider.connect_ms = limits.manual_connect_ms
         if (
             (comparison or {}).get("arm") == "control"
@@ -801,9 +850,7 @@ class LiveHelper:
                     retrieval_ms,
                     (time.perf_counter() - began) * 1000,
                     progressive=True,
-                    deadline=min(monotonic_deadline, request_started + limits.manual_first_ms / 1000)
-                    if urgent
-                    else monotonic_deadline,
+                    deadline=monotonic_deadline,
                 )
                 progress_id = shown.get("id")
                 return bool(progress_id)
@@ -817,40 +864,37 @@ class LiveHelper:
 
                 provider.on_progress = progress
 
-            async def admit(submit):
+            async def admit(submit, admission_deadline):
                 if not await asyncio.to_thread(self._admit_help, p, call_id, request):
                     return False
                 if not submit:
                     return True
                 allowed = await self._reserve_coach(p, request_key, call_id, "live_coach")
-                if (
-                    not allowed
-                    or min((expires - self.clock()).total_seconds(), monotonic_deadline - time.monotonic())
-                    <= 0
-                ):
+                if not allowed or (expires - self.clock()).total_seconds() <= 0:
                     return False
-                return await asyncio.to_thread(self._admit_help, p, call_id, request, True)
+                return await asyncio.to_thread(
+                    self._admit_help, p, call_id, request, True, admission_deadline
+                )
 
             async def settle(submitted):
                 await self._settle_coach(p, request_key, call_id, "live_coach", route, provider, submitted)
 
             async def publish(result):
                 nonlocal final_id
+                cached = result is fallback  # Only while the route's circuit is open.
                 final = await self._validated_help(
                     p,
                     call_id,
                     request,
                     result,
-                    route if result is not fallback else source,
+                    source if cached else route,
                     provider,
                     expires,
                     state_ms,
                     retrieval_ms,
                     (time.perf_counter() - began) * 1000,
-                    event_id=progress_id if result is not fallback else None,
-                    deadline=min(monotonic_deadline, request_started + limits.manual_first_ms / 1000)
-                    if urgent and not progress_id
-                    else monotonic_deadline,
+                    event_id=None if cached else progress_id,
+                    deadline=monotonic_deadline,
                 )
                 final_id = final.get("id")
                 return final
@@ -861,7 +905,7 @@ class LiveHelper:
                     request,
                     provider,
                     fallback,
-                    deadline_ms=max(1, int((monotonic_deadline - time.monotonic()) * 1000)),
+                    deadline_ms=max(1, int((monotonic_deadline - engine.monotonic()) * 1000)),
                     admit=admit,
                     settle=settle,
                     publish=publish,
@@ -887,7 +931,7 @@ class LiveHelper:
             (time.perf_counter() - began) * 1000,
         )
 
-    def _admit_help(self, p, call_id, request, count_admission=False):
+    def _admit_help(self, p, call_id, request, count_admission=False, admission_deadline=None):
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
             s.refresh(call, with_for_update=True)
@@ -900,6 +944,9 @@ class LiveHelper:
                 or call.data["transcript_version"] != request["state_version"]
                 or self.suppressed(s, p, lead.data["phone"])
                 or not sources.current(self, s, p, request.get("context_sources"))
+                # A late admission is rejected before it is counted as a spent request.
+                or admission_deadline is not None
+                and engine.monotonic() >= admission_deadline
             ):
                 return False
             if count_admission and not request.get("manual_help"):
@@ -967,8 +1014,7 @@ class LiveHelper:
                     p, call_id, request, result, provider, source, expires, deadline
                 )
                 review_ms = (time.perf_counter() - review_started) * 1000
-                ground_guidance(result, request, review=receipt)
-                result = {**result, "meaning_review": receipt.metadata()}
+                result = reviewed_guidance(result, request, receipt)
             else:
                 if result.get("action") == "SHOW_CARD":
                     result = {
@@ -988,11 +1034,14 @@ class LiveHelper:
                 if isinstance(result, dict) and result.get("state_version") == request["state_version"]
                 else None,
             }
+        unavailable = result.get("status") == "unavailable"  # A failed request, not a quiet one.
         result = {
             **result,
             "private": bool(request.get("private_question")),
             "status": ("streaming" if progressive else "ready")
             if result["action"] != "NO_ACTION"
+            else "unavailable"
+            if unavailable
             else "no_action",
         }
         try:
@@ -1051,7 +1100,7 @@ class LiveHelper:
             )
 
         def remaining():
-            return min(deadline - time.monotonic(), (expires - self.clock()).total_seconds())
+            return min(deadline - engine.monotonic(), (expires - self.clock()).total_seconds())
 
         try:
             if remaining() <= 0 or not await current():
@@ -1071,7 +1120,9 @@ class LiveHelper:
                 raise CardRejected("Review completed after its original context deadline")
             if str(getattr(provider, "last_provider", "") or "").casefold().split("/")[0] != "cerebras":
                 raise CardRejected("Review did not verify the Cerebras provider")
-            return accept_review(review, result, getattr(provider, "last_request_id", None))
+            # Per-field rejections are reported, so a separately audited nonassertive field
+            # can still be shown; reviewed_guidance never displays a rejected factual field.
+            return accept_review(review, result, getattr(provider, "last_request_id", None), partial=True)
         except Exception as exc:
             raise CardRejected("Independent meaning review unavailable or unsupported") from exc
         finally:
@@ -1125,21 +1176,46 @@ class LiveHelper:
                 )
             ):
                 return {"action": "NO_ACTION", "status": "superseded", "private": result["private"]}
-            metadata = self.transcript_metadata(s, p, call_id)
+            # Only live segment metadata, not the whole call's history; expired rows are moot.
+            metadata = self.context_rows(
+                s,
+                p,
+                "transcript_segments",
+                call_id,
+                MODELS["transcript_segments"].ctx_expires_at > self.clock(),
+                limit=self.raw.per_call_entries,
+            )
             current = {row.data["segment_id"]: row for row in metadata}
             if expires <= self.clock() or any(
                 item["segment_id"] not in current
                 or current[item["segment_id"]].data["revision"] != item["revision"]
-                or self.raw.get(self.raw_key(p, call_id, item["segment_id"])) is None
+                or not self.raw.has(self.raw_key(p, call_id, item["segment_id"]))
                 for item in request["recent_dialogue"]
             ):
                 return {"action": "NO_ACTION", "status": "expired_or_corrected", "private": result["private"]}
+            # A metadata-only helper receipt: failed, cached-knowledge mode or contextual help.
+            helper = (
+                "unavailable"
+                if result.get("status") == "unavailable"
+                else "cached_knowledge"
+                if source == "cached_knowledge"
+                else "available"
+            )
+            if (state_record.data.get("helper_status") or {}).get("status") != helper:
+                update(
+                    state_record,
+                    helper_status={
+                        "status": helper,
+                        "reason": result.get("failure") if helper == "unavailable" else None,
+                        "at": self.clock().isoformat(),
+                    },
+                )
             if (
                 result.get("state_update") is not None
                 and result.get("state_version") == request["state_version"]
             ):
                 state = merge_semantic_state(
-                    {**state_record.data, "_lineage": self._conversation_lineage(s, p, call_id)},
+                    {**state_record.data, "_lineage": self._live_lineage(s, p, call_id, state_record.data)},
                     result["state_update"],
                     request["recent_dialogue"],
                     request_id=key,

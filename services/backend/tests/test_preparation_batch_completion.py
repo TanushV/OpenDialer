@@ -1,8 +1,6 @@
 """Delayed work must obey the same fixed-template and receipt contracts."""
 
-import asyncio
 import json
-import time
 from datetime import timedelta
 
 import httpx
@@ -175,40 +173,33 @@ def test_delayed_result_does_not_overwrite_newer_immediate_script(deferred, work
 
 @pytest.mark.asyncio
 async def test_batch_preparation_reads_do_not_block_control_event_loop(deferred, workspace, app, monkeypatch):
+    from conftest import LoopResponsiveness
+
     assert deferred["finish"]().status_code == 200
     service = app.state.service
     packet = service.packet
+    loop = LoopResponsiveness()
 
     def slow_packet(*args):
-        time.sleep(0.2)
+        # The read stays blocked until the control loop has served other work.
+        loop.wait_for_loop()
         return packet(*args)
 
     monkeypatch.setattr(service, "packet", slow_packet)
-    delays = []
-
-    async def heartbeat():
-        for _ in range(8):
-            started = time.monotonic()
-            await asyncio.sleep(0.02)
-            delays.append(time.monotonic() - started)
-
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
     ) as client:
-        result, _ = await asyncio.gather(
-            client.post(
-                "/v1/admin/batches/scripts",
-                headers=workspace["headers"],
-                json={
-                    "lead_ids": [deferred["lead_id"]],
-                    "idempotency_key": "slow-build",
-                    "ready_at": (service.clock() + timedelta(days=2)).isoformat(),
-                },
-            ),
-            heartbeat(),
+        result = await client.post(
+            "/v1/admin/batches/scripts",
+            headers=workspace["headers"],
+            json={
+                "lead_ids": [deferred["lead_id"]],
+                "idempotency_key": "slow-build",
+                "ready_at": (service.clock() + timedelta(days=2)).isoformat(),
+            },
         )
     assert result.status_code == 200, result.text
-    assert max(delays) < 0.1, delays
+    loop.assert_responsive()
 
 
 def test_removed_batch_evidence_is_an_object_retry_not_a_reconciliation_failure(deferred, workspace, app):

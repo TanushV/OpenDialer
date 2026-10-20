@@ -66,6 +66,7 @@ def test_caller_owned_transaction_keeps_cache_until_its_outer_boundary(workspace
     assert outer.info == {}
 
 
+@pytest.mark.sqlite_only
 def test_sqlite_writers_wait_before_begin_without_blocking_reads_or_another_store(app, tmp_path):
     import threading
     from concurrent.futures import ThreadPoolExecutor
@@ -74,8 +75,6 @@ def test_sqlite_writers_wait_before_begin_without_blocking_reads_or_another_stor
     from sqlalchemy import text
 
     db = app.state.db
-    if not db.sqlite:
-        pytest.skip("SQLite serial writer admission; PostgreSQL keeps its concurrent row locks")
     other = Database(f"sqlite:///{tmp_path}/independent.db", "synthetic-independent-" + "a" * 40)
     held, release, attempted, started = (threading.Event() for _ in range(4))
 
@@ -118,6 +117,7 @@ def test_sqlite_writers_wait_before_begin_without_blocking_reads_or_another_stor
 
 
 @pytest.mark.parametrize("failure", ["body", "commit"])
+@pytest.mark.sqlite_only
 def test_sqlite_writer_admission_releases_after_failure_and_before_callbacks(app, failure):
     from concurrent.futures import ThreadPoolExecutor
 
@@ -125,8 +125,6 @@ def test_sqlite_writer_admission_releases_after_failure_and_before_callbacks(app
     from sqlalchemy.orm import Session
 
     db = app.state.db
-    if not db.sqlite:
-        pytest.skip("SQLite-specific admission release")
     callbacks = []
 
     def callback():

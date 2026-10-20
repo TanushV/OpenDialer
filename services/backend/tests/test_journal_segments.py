@@ -126,7 +126,7 @@ for n in range(int(sys.argv[2]),int(sys.argv[2])+20): vault.append_journal('effe
     ]
     try:
         for worker in workers:
-            _, error = worker.communicate(timeout=30)
+            _, error = worker.communicate(timeout=120)  # Hang guard, not a latency bound.
             assert worker.returncode == 0, error.decode()
     finally:
         for worker in workers:

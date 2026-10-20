@@ -5,7 +5,7 @@ import hmac
 
 from sqlalchemy import and_, func, literal_column, or_, select
 
-from app.db import MODELS, ActiveClaim, Job, doc
+from app.db import MODELS, ActiveClaim, Event, Job, doc
 from app.operational_schema import PAGE_TABLES
 from app.service import fail
 
@@ -224,6 +224,16 @@ class WorkspaceReads:
 
     def snapshot(self, p):
         with self.db.transaction(False) as s:
+            # Read the live cursor first: a later event may replay harmlessly, none is skipped.
+            event_cursor = (
+                s.scalar(
+                    select(Event.sequence)
+                    .where(Event.tenant_id == p["tenant_id"])
+                    .order_by(Event.sequence.desc())
+                    .limit(1)
+                )
+                or 0
+            )
             campaign = self.scoped(s, "campaigns", p)[0]
             policy = self.required(s, "policy_versions", campaign.data["policy_id"], p)
             user = self.required(s, "users", p["user_id"], p)
@@ -295,6 +305,7 @@ class WorkspaceReads:
                     "presence": user.data.get("presence", {}),
                 },
                 "quiescence": self.quiescence_in(s, p),
+                "event_cursor": event_cursor,
                 **{section: value["items"] for section, value in pages.items()},
                 "active_playbook": doc(book) if (book := self.approved_playbook(s, p)) else None,
                 "pages": {

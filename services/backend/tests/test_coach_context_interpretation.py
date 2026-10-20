@@ -3,7 +3,7 @@
 import pytest
 from app.coaching.context import build_context, ground_guidance, merge_semantic_state
 from app.db import get
-from conftest import start
+from conftest import NOW, start
 from test_remediation_coach import ordinary_advice
 from test_remediation_privacy import principal
 
@@ -43,6 +43,7 @@ def test_current_interpretation_can_reconsider_a_previous_decline():
             ],
         },
         [speech],
+        at=NOW,
     )
     assert revised["stage"] == "discovery"
     request = {
