@@ -195,7 +195,7 @@ def test_partial_preparation_retries_only_failed_objects(workspace, monkeypatch,
     class Provider:
         async def complete(self, instructions, context, schema):
             ident = context["lead_id"]
-            calls[ident] += 1
+            calls[ident] = calls.get(ident, 0) + 1
             if ident == failing and calls[ident] == 1:
                 raise TimeoutError("One object has no provider receipt")
             return InferenceResult(
@@ -205,6 +205,13 @@ def test_partial_preparation_retries_only_failed_objects(workspace, monkeypatch,
     monkeypatch.setattr(service, "inference", lambda *args: Provider())
     c.post("/v1/research/batches", headers=h, json={"lead_ids": [lead["id"] for lead in leads]})
     c.post("/v1/admin/jobs/run", headers=h)
-    clock.now += timedelta(minutes=5)
+    # The job completed with the failure recorded on its lead; nothing replays the batch.
     c.post("/v1/admin/jobs/run", headers=h)
-    assert calls == {leads[0]["id"]: 1, failing: 2}
+    assert calls == {leads[0]["id"]: 1, failing: 1}
+    clock.now += timedelta(minutes=5)
+    principal = {k: workspace[k] for k in ("tenant_id", "seller_id", "user_id")} | {"role": "owner"}
+    assert failing in {
+        i for job in service.prepare_ahead(principal)["jobs"] for i in job["payload"]["lead_ids"]
+    }
+    c.post("/v1/admin/jobs/run", headers=h)
+    assert calls[leads[0]["id"]] == 1 and calls[failing] == 2

@@ -17,10 +17,49 @@ from app.preparation.templates import PreparationPolicy, in_window, policy_value
 from app.service import dt
 
 LEASE_HEARTBEAT_SECONDS = 20
+SCAN_LIMIT = 500
+# A failing provider costs at most this many paid attempts per lead and preparation key.
+MAX_ATTEMPTS = 3
+RETRY_BACKOFF = (timedelta(minutes=5), timedelta(minutes=30))
 
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+def failed_attempts(state, key):
+    """Consecutive failures for this exact preparation input; a new key starts over."""
+    if state.get("status") != "failed" or state.get("key") != key:
+        return 0
+    return state.get("attempts", 1)
+
+
+def retry_due(state, now):
+    return failed_attempts(state, state.get("key")) < MAX_ATTEMPTS and (
+        not state.get("next_attempt_at") or dt(state["next_attempt_at"]) <= now
+    )
+
+
+def needs_preparation(state, now):
+    return state["status"] in {"missing", "stale"} or (state["status"] == "failed" and retry_due(state, now))
+
+
+def failure_state(previous, key, now, error, *, script_id=None):
+    attempts = failed_attempts(previous, key) + 1
+    return {
+        "status": "failed",
+        "key": key,
+        # A pointer for an older input could show outdated personalization; the
+        # approved generic script is rendered from current lead data instead.
+        "script_id": script_id or (previous.get("script_id") if previous.get("key") == key else None),
+        "as_of": now.isoformat(),
+        "expires_at": None,
+        "attempts": attempts,
+        "next_attempt_at": (now + RETRY_BACKOFF[attempts - 1]).isoformat()
+        if attempts < MAX_ATTEMPTS
+        else None,
+        "error": error[:200],
+    }
 
 
 def preparation_runway(config, now, prepared, ready_reps):
@@ -169,7 +208,7 @@ class Preparation:
             ]
         )
 
-    def claim_preparation(self, p, lead_id):
+    def claim_preparation(self, p, lead_id, *, retry_gate=False):
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             lead = self.required(s, "leads", lead_id, p)
@@ -179,23 +218,38 @@ class Preparation:
             previous = lead.data.get("preparation_lease") or {}
             if previous.get("expires_at") and dt(previous["expires_at"]) > self.clock():
                 return None
+            state, key = lead.data.get("preparation") or {}, self.preparation_key(s, p, lead)
+            if retry_gate and failed_attempts(state, key) and not retry_due(state, self.clock()):
+                # Job reruns and repeated ticks wait for the backoff or stop at the cap.
+                return None
             owner = uid()
             update(
                 lead,
                 preparation_lease={
                     "owner": owner,
+                    "key": key,
                     "expires_at": (self.clock() + timedelta(minutes=5)).isoformat(),
                 },
                 preparation_generation=lead.data.get("preparation_generation", 0) + 1,
             )
             return owner
 
-    def release_preparation(self, p, lead_id, owner):
+    def release_preparation(self, p, lead_id, owner, failure=None):
+        """Release the lease; a failed unit records its attempt in the same write."""
         with self.db.transaction() as s:
             lead = self.required(s, "leads", lead_id, p)
             s.refresh(lead, with_for_update=True)
-            if (lead.data.get("preparation_lease") or {}).get("owner") == owner:
-                update(lead, preparation_lease=None)
+            lease = lead.data.get("preparation_lease") or {}
+            if lease.get("owner") != owner:
+                return
+            changes = {"preparation_lease": None}
+            key = self.preparation_key(s, p, lead)
+            # A failure for a superseded input is not charged to the newer key's attempts.
+            if failure and lease.get("key", key) == key and self._coach_authority(s, p):
+                changes["preparation"] = failure_state(
+                    lead.data.get("preparation") or {}, key, self.clock(), failure
+                )
+            update(lead, **changes)
 
     def preparation_state(self, s, p, lead):
         state = dict(lead.data.get("preparation") or {"status": "missing"})
@@ -298,97 +352,115 @@ class Preparation:
                 script["final_voicemail_asset"] = None
         return script, state
 
-    def preparation_candidates(self, s, p, horizon_end):
+    def preparation_candidates(self, s, p, horizon_end, wanted):
+        """The next `wanted` eligible leads in calling order, read in small pages.
+
+        Readiness inspects the prepared-ahead window, not the whole horizon, so a
+        dashboard read or idle tick decrypts tens of rows rather than hundreds.
+        """
         model = MODELS["leads"]
-        # Only the next bounded work horizon is inspected; readiness does not
-        # decrypt the entire list or historical script versions on a dashboard GET.
-        leads = list(
-            s.scalars(
-                select(model)
-                .where(
-                    model.tenant_id == p["tenant_id"],
-                    model.seller_id == p["seller_id"],
-                    model.op_status.not_in(["converted", "suppressed", "wrong_party", "invalid"]),
-                    (model.op_due_at.is_(None) | (model.op_due_at <= horizon_end)),
-                )
-                .order_by(
-                    model.op_priority.desc(),
-                    model.op_due_at.asc().nullsfirst(),
-                    model.op_coverage_at,
-                    model.id,
-                )
-                .limit(500)
+        query = (
+            select(model)
+            .where(
+                model.tenant_id == p["tenant_id"],
+                model.seller_id == p["seller_id"],
+                model.op_status.not_in(["converted", "suppressed", "wrong_party", "invalid"]),
+                (model.op_due_at.is_(None) | (model.op_due_at <= horizon_end)),
+            )
+            .order_by(
+                model.op_priority.desc(),
+                model.op_due_at.asc().nullsfirst(),
+                model.op_coverage_at,
+                model.id,
             )
         )
-        suppression = MODELS["suppressions"]
-        keys = {
-            hmac.new(self.db.identity_key, lead.data["phone"].encode(), hashlib.sha256).hexdigest()
-            for lead in leads
-        }
-        suppressed = {
-            row.data["phone"]
-            for row in s.scalars(
-                select(suppression).where(
-                    suppression.tenant_id == p["tenant_id"],
-                    suppression.seller_id == p["seller_id"],
-                    suppression.external_key.in_(keys),
+        suppression, eligible, inspected = MODELS["suppressions"], [], 0
+        page = max(2 * wanted, 20)
+        while wanted and len(eligible) < wanted and inspected < SCAN_LIMIT:
+            leads = list(s.scalars(query.offset(inspected).limit(min(page, SCAN_LIMIT - inspected))))
+            inspected += len(leads)
+            keys = {
+                hmac.new(self.db.identity_key, lead.data["phone"].encode(), hashlib.sha256).hexdigest()
+                for lead in leads
+            }
+            suppressed = {
+                row.data["phone"]
+                for row in s.scalars(
+                    select(suppression).where(
+                        suppression.tenant_id == p["tenant_id"],
+                        suppression.seller_id == p["seller_id"],
+                        suppression.external_key.in_(keys),
+                    )
                 )
+                if row.data.get("active", True)
+            }
+            eligible.extend(
+                lead
+                for lead in leads
+                if lead.data["phone"] not in suppressed and not lead.data.get("outreach_hold")
             )
-            if row.data.get("active", True)
-        }
-        s.info["preparation_inspected"] = len(leads)
-        return [
-            lead
-            for lead in leads
-            if lead.data["phone"] not in suppressed and not lead.data.get("outreach_hold")
-        ]
+            if len(leads) < page:
+                break
+        s.info["preparation_inspected"] = inspected
+        return eligible[:wanted]
 
-    def preparation_status_in(self, s, p):
-        optimization = self.optimization_config(s, p)
-        horizon_end = self.clock() + timedelta(hours=optimization["horizon_hours"])
-        leads = self.preparation_candidates(s, p, horizon_end)
-        config = self.preparation_settings(s, p)["preparation"]
-        active = list(
-            s.scalars(
-                select(Job).where(
-                    Job.tenant_id == p["tenant_id"],
-                    Job.queue.in_(["research", "scripts"]),
-                    Job.status.in_(["queued", "running"]),
-                    ~Job.key.like("batch-review:%"),
-                )
-            )
+    def pending_preparation(self, s, p):
+        """Lead IDs with queued or running preparation for this seller."""
+        scope = (
+            Job.tenant_id == p["tenant_id"],
+            (Job.seller_id == p["seller_id"]) | Job.seller_id.is_(None),
+            Job.queue.in_(["research", "scripts"]),
+            Job.status.in_(["queued", "running"]),
         )
         pending = {
             lead_id
-            for job in active
+            for job in s.scalars(select(Job).where(*scope, ~Job.key.like("batch-review:%")))
             if job.payload.get("seller_id") == p["seller_id"]
             and (job.queue == "research" or job.payload.get("kind") == "packet_refresh")
             for lead_id in job.payload.get("lead_ids", [])
         }
+        # Deferred-result reviews carry the lead in their key; never decrypt their output.
         pending.update(
             key.split(":")[2]
-            for key in s.scalars(
-                select(Job.key).where(
-                    Job.tenant_id == p["tenant_id"],
-                    Job.queue == "scripts",
-                    Job.status.in_(["queued", "running"]),
-                    Job.key.like("batch-review:%"),
-                )
-            )
+            for key in s.scalars(select(Job.key).where(*scope, Job.key.like("batch-review:%")))
             if len(key.split(":")) == 5
         )
+        return pending
+
+    def preparation_status_in(self, s, p, *, count=True):
+        optimization = self.optimization_config(s, p)
+        now = self.clock()
+        horizon_end = now + timedelta(hours=optimization["horizon_hours"])
+        config = self.preparation_settings(s, p)["preparation"]
+        ready_reps = sum(
+            not row.data.get("disabled")
+            and row.data.get("role") in {"owner", "admin", "rep"}
+            and row.data.get("presence", {}).get("status") == "ready"
+            and row.data["presence"].get("at") is not None
+            and dt(row.data["presence"]["at"]) > now - timedelta(seconds=120)
+            for row in self.scoped(s, "users", p)
+        )
+        staffed = preparation_runway(optimization, now, 0, ready_reps)["available_reps"]
+        target = min(config["workspace_ahead_cap"], config["ahead_count"] * staffed)
+        leads = self.preparation_candidates(s, p, horizon_end, target)
+        pending = self.pending_preparation(s, p)
         states = {lead.id: self.preparation_state(s, p, lead) for lead in leads}
         # Compare the actual used facts in two bounded bulk reads. Reading readiness
         # must not decrypt historical versions or make one query per lead.
         script_model, fact_model = MODELS["script_versions"], MODELS["research_facts"]
+        script_ids = {state.get("script_id") for state in states.values()} - {None}
         scripts = {
             row.id: row.data
-            for row in s.scalars(
-                select(script_model).where(
-                    script_model.tenant_id == p["tenant_id"],
-                    script_model.seller_id == p["seller_id"],
-                    script_model.id.in_({state.get("script_id") for state in states.values()} - {None}),
+            for row in (
+                s.scalars(
+                    select(script_model).where(
+                        script_model.tenant_id == p["tenant_id"],
+                        script_model.seller_id == p["seller_id"],
+                        script_model.id.in_(script_ids),
+                    )
                 )
+                if script_ids
+                else []
             )
         }
         fact_ids = {
@@ -396,20 +468,24 @@ class Preparation:
         }
         facts = {
             row.id: row
-            for row in s.execute(
-                select(
-                    fact_model.id,
-                    fact_model.version,
-                    fact_model.ctx_key,
-                    fact_model.ctx_status,
-                    fact_model.ctx_expires_at,
-                ).where(
-                    fact_model.tenant_id == p["tenant_id"],
-                    fact_model.seller_id == p["seller_id"],
-                    fact_model.id.in_(fact_ids),
-                    fact_model.ctx_status == "supported",
-                    fact_model.ctx_expires_at > self.clock(),
+            for row in (
+                s.execute(
+                    select(
+                        fact_model.id,
+                        fact_model.version,
+                        fact_model.ctx_key,
+                        fact_model.ctx_status,
+                        fact_model.ctx_expires_at,
+                    ).where(
+                        fact_model.tenant_id == p["tenant_id"],
+                        fact_model.seller_id == p["seller_id"],
+                        fact_model.id.in_(fact_ids),
+                        fact_model.ctx_status == "supported",
+                        fact_model.ctx_expires_at > now,
+                    )
                 )
+                if fact_ids
+                else []
             )
         }
         for lead in leads:
@@ -439,43 +515,41 @@ class Preparation:
             for status in ("ready", "fallback", "stale", "failed", "missing")
         }
         prepared = counts["ready"] + counts["fallback"]
-        ready_reps = sum(
-            not row.data.get("disabled")
-            and row.data.get("role") in {"owner", "admin", "rep"}
-            and row.data.get("presence", {}).get("status") == "ready"
-            and row.data["presence"].get("at") is not None
-            and dt(row.data["presence"]["at"]) > self.clock() - timedelta(seconds=120)
-            for row in self.scoped(s, "users", p)
-        )
-        runway = preparation_runway(optimization, self.clock(), prepared, ready_reps)
-        model = MODELS["leads"]
-        total = s.scalar(
-            select(func.count())
-            .select_from(model)
-            .where(
-                model.tenant_id == p["tenant_id"],
-                model.seller_id == p["seller_id"],
-                model.op_status.not_in(["converted", "suppressed", "wrong_party", "invalid"]),
-                (model.op_due_at.is_(None) | (model.op_due_at <= horizon_end)),
+        runway = preparation_runway(optimization, now, prepared, ready_reps)
+        inspected = s.info["preparation_inspected"]
+        omitted = None
+        if count:
+            # Dashboard reads only; the minute tick never counts the whole horizon.
+            model = MODELS["leads"]
+            total = s.scalar(
+                select(func.count())
+                .select_from(model)
+                .where(
+                    model.tenant_id == p["tenant_id"],
+                    model.seller_id == p["seller_id"],
+                    model.op_status.not_in(["converted", "suppressed", "wrong_party", "invalid"]),
+                    (model.op_due_at.is_(None) | (model.op_due_at <= horizon_end)),
+                )
             )
-        )
+            omitted = max(0, total - inspected)
+        failed = [v for v in states.values() if v["status"] == "failed"]
         return (
             {
                 **counts,
                 "prepared": prepared,
-                "target": min(
-                    config["workspace_ahead_cap"], config["ahead_count"] * runway["available_reps"]
-                ),
+                "target": target,
                 **runway,
                 "queued": len(pending & set(states)),
-                "as_of": self.clock().isoformat(),
+                "retry_exhausted": sum(failed_attempts(v, v.get("key")) >= MAX_ATTEMPTS for v in failed),
+                "retry_due": sum(retry_due(v, now) for v in failed),
+                "as_of": now.isoformat(),
                 "inspected_leads": len(leads),
-                "inspected_rows": s.info["preparation_inspected"],
-                "omitted_rows": max(0, total - s.info["preparation_inspected"]),
-                "scan_limit": 500,
+                "inspected_rows": inspected,
+                "omitted_rows": omitted,
+                "scan_limit": SCAN_LIMIT,
                 "runway_attempts": prepared,
-                "runway_note": "Prepared attempts in the next 500 candidates; calling permission is checked separately.",
-                "within_schedule": in_window(self.clock(), config),
+                "runway_note": f"Prepared attempts among the next {target} callable leads; calling permission is checked separately.",
+                "within_schedule": in_window(now, config),
                 "enabled": config["enabled"],
             },
             leads,
@@ -487,19 +561,48 @@ class Preparation:
         with self.db.transaction(False) as s:
             return self.preparation_status_in(s, p)[0]
 
+    def preparation_plan(self, p):
+        """Read-only selection for one tick. Satisfied, disabled or closed ticks write nothing."""
+        with self.db.transaction(False) as s:
+            config = self.preparation_settings(s, p)["preparation"]
+            if not config["enabled"] or not in_window(self.clock(), config):
+                return []
+            _, leads, states, pending = self.preparation_status_in(s, p, count=False)
+            return [
+                {"id": lead.id, "version": lead.version}
+                for lead in leads
+                if lead.id not in pending and needs_preparation(states[lead.id], self.clock())
+            ]
+
     def prepare_ahead(self, p):
+        plan = self.preparation_plan(p)
+        if not plan:
+            return {"queued": 0}
+        # The short write claims only the selected candidates, rechecked by version.
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             config = self.preparation_settings(s, p)["preparation"]
             if not config["enabled"] or not in_window(self.clock(), config):
                 return {"queued": 0}
-            status, leads, states, pending = self.preparation_status_in(s, p)
-            needed = max(0, status["target"] - status["prepared"] - status["queued"])
+            pending = self.pending_preparation(s, p)
+            model = MODELS["leads"]
+            current = {
+                lead.id: lead
+                for lead in s.scalars(
+                    select(model).where(
+                        model.tenant_id == p["tenant_id"],
+                        model.seller_id == p["seller_id"],
+                        model.id.in_([item["id"] for item in plan]),
+                    )
+                )
+            }
             selected = [
-                lead
-                for lead in leads
-                if lead.id not in pending and states[lead.id]["status"] in {"missing", "stale"}
-            ][:needed]
+                current[item["id"]]
+                for item in plan
+                if item["id"] in current
+                and current[item["id"]].version == item["version"]
+                and item["id"] not in pending
+            ]
             jobs = self.queue_preparation_in(s, p, selected, config["batch_size"])
             return {"queued": len(selected), "jobs": jobs}
 

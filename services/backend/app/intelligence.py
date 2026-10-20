@@ -14,7 +14,7 @@ from app.config import PROVIDER_DEFAULTS, inference_model
 from app.db import MODELS, audit, doc, emit, get, put, rows, uid, update
 from app.postcall.analysis import build_analysis
 from app.preparation.templates import SLOT_SCHEMA, approved_template, fill, render, template_version
-from app.preparation.workflows import Preparation
+from app.preparation.workflows import Preparation, failure_state
 from app.privacy import SpeechPrivacy
 from app.providers.inference import InferenceClient
 from app.providers.openrouter import OpenRouterCoach
@@ -293,39 +293,48 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             leads = [self.required(s, "leads", lead_id, p) for lead_id in dict.fromkeys(lead_ids)]
+            for lead in leads:
+                state = lead.data.get("preparation") or {}
+                if state.get("status") == "failed" and (
+                    state.get("attempts") or state.get("next_attempt_at")
+                ):
+                    # An explicit request grants one new bounded attempt budget.
+                    update(lead, preparation={**state, "attempts": 0, "next_attempt_at": None})
             config = self.preparation_settings(s, p)["preparation"]
             jobs = self.queue_preparation_in(s, p, leads, config["batch_size"])
         return {"work_units": len(jobs), "jobs": jobs}
 
     async def prepare(self, p, lead_ids):
-        failures = []
+        """Prepare each lead independently; a failure is that lead's attempt state, not a failed job."""
+        from app.coaching.engine import finish_shielded
+
+        result = {"prepared": [], "failed": [], "skipped": []}
         pending = iter(dict.fromkeys(lead_ids))
 
         async def work():
             for lead_id in pending:
                 async with self.preparation_capacity:
-                    owner = await asyncio.to_thread(self.claim_preparation, p, lead_id)
+                    owner = await asyncio.to_thread(self.claim_preparation, p, lead_id, retry_gate=True)
                     if not owner:
+                        result["skipped"].append(lead_id)
                         continue
+                    failure = None
                     try:
                         async with self.preparation_heartbeat(p, "leads", lead_id, owner):
-                            if not await self.prepare_one(p, lead_id, owner):
-                                failures.append(lead_id)
-                    except Exception:
-                        failures.append(lead_id)
+                            prepared = await self.prepare_one(p, lead_id, owner)
+                    except Exception as exc:
+                        prepared, failure = False, type(exc).__name__
                     finally:
-                        from app.coaching.engine import finish_shielded
-
-                        await finish_shielded(asyncio.to_thread(self.release_preparation, p, lead_id, owner))
+                        await finish_shielded(
+                            asyncio.to_thread(self.release_preparation, p, lead_id, owner, failure)
+                        )
+                    result["prepared" if prepared else "failed"].append(lead_id)
 
         # Two workers consume a bounded iterator, rather than creating a task per lead.
         async with asyncio.TaskGroup() as group:
             for _ in range(self.settings.runtime_limits.company_units):
                 group.create_task(work())
-        if failures:
-            raise RuntimeError(
-                f"Optional script preparation failed for {len(failures)} objects; generic scripts remain available for bounded retry"
-            )
+        return result
 
     async def prepare_one(self, p, lead_id, owner):
         def research_context():
@@ -590,12 +599,16 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     )
                 update(
                     current_lead,
-                    preparation={
-                        "status": "failed"
-                        if provider_failed
-                        else "fallback"
-                        if script["fallback"]
-                        else "ready",
+                    preparation=failure_state(
+                        current_lead.data.get("preparation") or {},
+                        source_key,
+                        self.clock(),
+                        "provider_result_rejected",
+                        script_id=obj.id,
+                    )
+                    if provider_failed
+                    else {
+                        "status": "fallback" if script["fallback"] else "ready",
                         "script_id": obj.id,
                         "key": source_key,
                         "as_of": self.clock().isoformat(),
@@ -603,7 +616,6 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                             (f["expires_at"] for f in packet["research"]["facts"]),
                             default=(self.clock() + timedelta(days=1)).isoformat(),
                         ),
-                        "attempt": current_lead.data.get("preparation", {}).get("attempt", 0) + 1,
                     },
                 )
                 emit(s, p["tenant_id"], "lead.packet_ready", obj, self.clock(), {"lead_id": lead_id})
@@ -650,6 +662,14 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 return
         except (ValueError, TypeError):
             return
+        provider = None
+        if not self.settings.simulation:
+            # Without configured inference there is no research work, so take no company lease.
+            provider = await asyncio.to_thread(
+                self.inference, p["tenant_id"], "research_extract", p["user_id"]
+            )
+            if not provider:
+                return
         owner = uid()
         provider_config = await asyncio.to_thread(self.vault.read, p["tenant_id"])
         research_key = hashlib.sha256(
@@ -741,11 +761,6 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     ]
                     extracted = [{"statement": text, "source_id": source_id, "quote": text}]
                 else:
-                    provider = await asyncio.to_thread(
-                        self.inference, p["tenant_id"], "research_extract", p["user_id"]
-                    )
-                    if not provider:
-                        return
                     limits = self.settings.runtime_limits
                     fetcher = SafeFetcher(
                         max_bytes=limits.research_bytes,

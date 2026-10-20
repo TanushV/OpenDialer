@@ -58,8 +58,9 @@ async def test_bounded_parallel_preparation(workspace, app, monkeypatch):
             for i in range(100)
         ]
     failures = {ids[1], ids[77]}
-    with pytest.raises(RuntimeError, match="2 objects"):
-        await service.prepare(p(workspace), ids)
+    # Per-lead failures are recorded attempt state; the job itself completes.
+    result = await service.prepare(p(workspace), ids)
+    assert sorted(result["failed"]) == sorted(failures)
     assert sorted(finished) == sorted(set(ids) - failures)
     assert peak == 2, "Preparation should overlap independent work, but cap the authority total at two"
 
@@ -164,13 +165,12 @@ async def test_lost_preparation_lease_is_failed_work_and_preserves_new_owner(wor
         return True
 
     monkeypatch.setattr(service, "prepare_one", prepare)
-    with pytest.raises(RuntimeError, match="1 objects"):
-        await service.prepare(p(workspace), [lead_id])
+    assert (await service.prepare(p(workspace), [lead_id]))["failed"] == [lead_id]
     with service.db.transaction(False) as s:
-        assert (
-            service.required(s, "leads", lead_id, p(workspace)).data["preparation_lease"]["owner"]
-            == "replacement"
-        )
+        lead = service.required(s, "leads", lead_id, p(workspace))
+        assert lead.data["preparation_lease"]["owner"] == "replacement"
+        # The former owner records no attempt over the replacement's work.
+        assert (lead.data.get("preparation") or {}).get("status") != "failed"
 
 
 @pytest.mark.asyncio
@@ -213,8 +213,7 @@ async def test_immediate_publication_rechecks_fact_after_inference(workspace, ap
             )
 
     monkeypatch.setattr(service, "inference", lambda *args: Provider())
-    with pytest.raises(RuntimeError):
-        await service.prepare(p(workspace), [lead_id])
+    assert (await service.prepare(p(workspace), [lead_id]))["failed"] == [lead_id]
     assert service.packet(p(workspace), lead_id)["script"]["fallback"] is True
 
 
@@ -435,8 +434,7 @@ async def test_unsupported_slot_is_rejected_even_without_a_claims_list(workspace
             )
 
     monkeypatch.setattr(service, "inference", lambda *args: Provider())
-    with pytest.raises(RuntimeError):
-        await service.prepare(p(workspace), [lead_id])
+    assert (await service.prepare(p(workspace), [lead_id]))["failed"] == [lead_id]
     packet = service.packet(p(workspace), lead_id)
     assert packet["script"]["fallback"]
     assert "9000" not in str(packet["script"])
@@ -461,7 +459,7 @@ async def test_changed_template_invalidates_prepared_packet_but_not_active_scrip
 
 
 @pytest.mark.asyncio
-async def test_partial_template_failures_do_not_regenerate_successes(workspace, app, monkeypatch):
+async def test_partial_template_failures_do_not_regenerate_successes(workspace, app, monkeypatch, clock):
     configure(workspace)
     service = app.state.service
     attempts = {}
@@ -486,8 +484,10 @@ async def test_partial_template_failures_do_not_regenerate_successes(workspace, 
             )
 
     monkeypatch.setattr(service, "inference", lambda *args: Provider())
-    with pytest.raises(RuntimeError):
-        await service.prepare(p(workspace), lead_ids)
+    assert (await service.prepare(p(workspace), lead_ids))["failed"] == [lead_ids[1]]
+    # A failed lead is retried after its backoff, never by an immediate job rerun.
+    assert (await service.prepare(p(workspace), lead_ids))["skipped"] == [lead_ids[1]]
+    clock.now += timedelta(minutes=5)
     await service.prepare(p(workspace), lead_ids)
     assert attempts == {lead_ids[0]: 1, lead_ids[1]: 2}
 
@@ -561,8 +561,7 @@ async def test_rejected_slots_never_leak_through_the_generic_fallback(workspace,
             )
 
     monkeypatch.setattr(service, "inference", lambda *args: Provider())
-    with pytest.raises(RuntimeError):
-        await service.prepare(p(workspace), [lead_id])
+    assert (await service.prepare(p(workspace), [lead_id]))["failed"] == [lead_id]
     assert "guarantee" not in service.packet(p(workspace), lead_id)["script"]["opener"]
 
 
@@ -622,7 +621,9 @@ def test_readiness_query_count_does_not_grow_per_candidate(workspace, app):
         status = service.preparation_status(p(workspace))
     finally:
         event.remove(service.db.engine, "before_cursor_execute", count)
-    assert status["inspected_leads"] == 103
+    # Readiness reads the prepared-ahead window (target 2), not all 103 horizon leads.
+    assert status["inspected_leads"] == status["target"] == 2
+    assert status["inspected_rows"] <= 20 and status["omitted_rows"] == 103 - status["inspected_rows"]
     assert len(statements) <= 20, len(statements)
 
 
@@ -798,8 +799,9 @@ async def test_disabled_requester_cannot_publish_immediate_preparation(workspace
             )
 
     monkeypatch.setattr(service, "inference", lambda *args: Provider())
-    with pytest.raises(RuntimeError):
-        await service.prepare(principal, workspace["lead_ids"][:1])
+    assert (await service.prepare(principal, workspace["lead_ids"][:1]))["failed"] == workspace["lead_ids"][
+        :1
+    ]
     with service.db.transaction(False) as s:
         assert not service.scoped(s, "script_versions", principal)
 
@@ -919,11 +921,8 @@ async def test_template_personalization_uses_review_not_exact_wording(workspace,
             )
 
     monkeypatch.setattr(service, "inference", lambda *args: Provider())
-    if verdict == "SUPPORTED":
-        await service.prepare(p(workspace), [lead_id])
-    else:
-        with pytest.raises(RuntimeError):
-            await service.prepare(p(workspace), [lead_id])
+    result = await service.prepare(p(workspace), [lead_id])
+    assert result["failed"] == ([] if verdict == "SUPPORTED" else [lead_id])
     assert len(requests) == 2, "Meaning review must decide novel personalization, not string equality"
     packet = service.packet(p(workspace), lead_id)
     assert (novel in packet["script"]["opener"]) is (verdict == "SUPPORTED")
@@ -985,17 +984,14 @@ async def test_changed_next_call_context_requeues_without_spending_failure_attem
         return FailedProvider() if provider_failed else None
 
     monkeypatch.setattr(service, "inference", change_after_input_snapshot)
-    if provider_failed:
-        with pytest.raises(RuntimeError, match="1 objects"):
-            await service.prepare(principal, [lead_id])
-        service.jobs.fail(job["id"], "revision-test", "RuntimeError", retry_seconds=0)
-    else:
-        await service.prepare(principal, [lead_id])
-        service.jobs.complete(job["id"], "revision-test")
+    # The provider failure is reported for this lead; it is not charged to the newer
+    # revision's attempts, and the job completes rather than replaying the batch.
+    result = await service.prepare(principal, [lead_id])
+    assert result["failed" if provider_failed else "prepared"] == [lead_id]
+    service.jobs.complete(job["id"], "revision-test")
     current = service.jobs.get(job["id"])
     assert current["status"] == "queued"
-    assert current["attempts"] == int(provider_failed)
-    assert bool(current["error"]) is provider_failed
+    assert current["attempts"] == 0 and not current["error"]
     with service.db.transaction(False) as s:
         lead = service.required(s, "leads", lead_id, principal)
         assert lead.data["preparation"]["script_id"] == old_script
