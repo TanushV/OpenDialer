@@ -216,7 +216,16 @@ class RequestAccounting:
             if entity["external_key"] and self._by_key(s, scope, kind, entity["external_key"]):
                 raise HTTPException(409, "Effect recovery request conflicts with current data")
             data = dict(entity["data"])
-            if kind == "command_outbox":
+            if kind == "command_outbox" and data.get("kind") == "script_batch":
+                from app.migrate import BATCH_CLOSED, RETIRED_BATCH_REASON
+
+                if data.get("status") not in BATCH_CLOSED:
+                    data.update(
+                        status="cancelled",
+                        previous_status=data.get("status"),
+                        recovery_reason=RETIRED_BATCH_REASON,
+                    )
+            elif kind == "command_outbox":
                 data.update(
                     status="review_required",
                     restore_hold=True,

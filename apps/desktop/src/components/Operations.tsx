@@ -19,7 +19,6 @@ import { LONG_REQUEST_MS, openSource } from "../api/client";
 import { date, isAdmin, label, percent, useWorkspace } from "../context";
 import { parseCSV } from "../state/csv";
 import type { Lead, NumberRecord, Packet } from "../types";
-import { DeferredScripts } from "./AdminWorkflows";
 import { NumberOrders } from "./NumberOrders";
 import { FollowupTasks } from "./FollowupTasks";
 import { ProspectBrief } from "./ProspectBrief";
@@ -1667,7 +1666,6 @@ function NumberRow({
   );
 }
 export function IntelligencePage() {
-  const { snapshot: w } = useWorkspace();
   return (
     <>
       <div className="page-heading">
@@ -1701,7 +1699,6 @@ export function IntelligencePage() {
           </p>
         </section>
       </div>
-      {isAdmin(w.user.role) && <DeferredScripts />}
     </>
   );
 }

@@ -828,6 +828,7 @@ class Dialer(
         from app.compliance.consent import journal_entries, replay_in
         from app.compliance.suppressions import journal_entries as suppression_entries
         from app.compliance.suppressions import replay_in as replay_suppressions_in
+        from app.migrate import close_retired_batch
         from app.privacy import persistent_document
 
         if not re.fullmatch(r"[0-9a-f-]{36}", backup_id):
@@ -937,6 +938,8 @@ class Dialer(
             s.flush()
             replay_suppressions_in(self, s, p=p, entries=events)
             for command in self.scoped(s, "command_outbox", p):
+                if close_retired_batch(s, command, self.clock()):
+                    continue
                 if command.data.get("status") in {"pending", "sending"}:
                     update(command, status="uncertain", restore_hold=True)
             replay_in(self, s, p=p, entries=revoked)

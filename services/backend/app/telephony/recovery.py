@@ -81,12 +81,6 @@ OPERATION_POLICIES = {
         "review_original_lookup_liability",
         "exact_endpoint_source_and_attempt_response",
     ),
-    "deferred_scripts": OperationPolicy(
-        "preparation.batch_recovery.claim_recovery",
-        "explicit_missing_objects",
-        "read_original_batch",
-        "original_input_digest_and_source_current_results",
-    ),
     "inference": OperationPolicy(
         "run_jobs",
         "current_budget_and_live_sources",

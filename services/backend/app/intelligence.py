@@ -1356,9 +1356,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
 
                         await refresh_screening(self, p, job, worker_id)
                     elif kind == "batch_review":
-                        from app.preparation.batches import review_batch_result
-
-                        await review_batch_result(self, p, job, worker_id)
+                        # Retired deferred Batch pipeline: queued legacy reviews finish
+                        # without effect; their outbox rows close at startup.
+                        pass
                     elif kind == "packet_refresh":
                         # Lead recomputation moved out of the rep's save into this refresh.
                         await asyncio.to_thread(self.refresh_continuity, p, job["payload"]["lead_ids"])
