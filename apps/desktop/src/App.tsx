@@ -99,6 +99,11 @@ export function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [snapshot, setSnapshot] = useState<Workspace | null>(null);
   const [view, setView] = useState<View>("Dialer");
+  const [focusTask, setFocusTask] = useState<string | null>(null);
+  const openTask = useCallback((id: string) => {
+    setFocusTask(id);
+    setView("Intelligence");
+  }, []);
   const [offline, setOffline] = useState(false);
   // An authentication failure is not an outage: it needs a new session.
   const [expired, setExpired] = useState(false);
@@ -550,6 +555,8 @@ export function App() {
             run,
             subscribe,
             liveStatus,
+            openTask,
+            focusTask,
             configureCredential,
           }
         : null,
@@ -562,6 +569,8 @@ export function App() {
       run,
       subscribe,
       liveStatus,
+      openTask,
+      focusTask,
       configureCredential,
     ],
   );

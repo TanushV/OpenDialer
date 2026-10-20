@@ -377,6 +377,118 @@ test("inferred follow-ups show time windows and source correction conflicts", as
   ).toBeDisabled();
 });
 
+test("an AI-suggested callback shows its confirmation deadline apart from confirmed callbacks", async ({
+  page,
+}) => {
+  await page.route("**/v1/workspace", async (route) => {
+    const response = await route.fetch();
+    const workspace = await response.json();
+    const lead = workspace.leads[0];
+    lead.timezone = "America/New_York";
+    const base = {
+      lead_id: lead.id,
+      owner_id: workspace.user.id,
+      kind: "callback",
+      timezone: "America/New_York",
+    };
+    workspace.tasks = [
+      {
+        ...base,
+        id: "suggested-task",
+        version: 1,
+        call_id: "suggested-source-call",
+        action: "Confirm callback time",
+        due_at: null,
+        status: "needs_confirmation",
+        confirmation_state: "suggested",
+        source: "inferred",
+        callback_suggestion_until: "2026-10-21T18:00:00+00:00",
+      },
+      {
+        ...base,
+        id: "confirmed-task",
+        version: 1,
+        call_id: "confirmed-source-call",
+        action: "Call back",
+        due_at: "2026-10-22T18:00:00+00:00",
+        status: "open",
+        confirmation_state: "confirmed",
+        source: "rep_reported",
+      },
+    ];
+    await route.fulfill({ response, json: workspace });
+  });
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  const suggested = page.locator('[data-call-id="suggested-source-call"]');
+  // Shown in the lead's zone: 18:00 UTC is 2:00 PM in New York.
+  await expect(
+    suggested.getByText("Suggested callback, confirm by Oct 21, 2:00 PM EDT", {
+      exact: false,
+    }),
+  ).toBeVisible();
+  const confirmed = page.locator('[data-call-id="confirmed-source-call"]');
+  await expect(confirmed.getByText("Open", { exact: true })).toBeVisible();
+  await expect(confirmed.getByText(/Suggested callback/)).toHaveCount(0);
+});
+
+test("a callback time that a person already handled names the follow-up to review", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await prepareSimulationCall(page, "Callback review fixture", "+14155550886");
+  await page
+    .getByRole("button", { name: "Get next lead", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Start call", exact: true }).click();
+  await page.getByRole("button", { name: "Hang up", exact: true }).click();
+  await chooseOutcome(page, "callback_requested");
+  await page.getByLabel(/^Confirmed callback time/).fill("2026-10-23T10:30");
+  let taskId = "";
+  await page.route("**/v1/calls/*/disposition", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    taskId = body.canonical_task_id;
+    // The authority kept a person's edit and reports it instead of overwriting.
+    body.callback_review = {
+      status: "needs_review",
+      reason:
+        "A person already edited or closed this callback; review the new time.",
+      task_ids: [taskId],
+    };
+    await route.fulfill({ response, json: body });
+  });
+  await page.getByRole("button", { name: "Save outcome", exact: true }).click();
+  const review = page.getByRole("region", { name: "Callback needs review" });
+  await expect(
+    review.getByText(
+      "Outcome saved. The callback time was not applied: A person already edited or closed this callback; review the new time.",
+    ),
+  ).toBeVisible();
+  await review.getByRole("button", { name: "Review follow-up" }).click();
+  await expect(page.locator(`#followup-task-${taskId}`)).toBeFocused();
+  await page.getByRole("button", { name: "Dialer", exact: true }).click();
+  await page.getByRole("button", { name: "Pause dialing" }).click();
+});
+
 test("a local callback is confirmed, rescheduled, retained on reload and completed", async ({
   page,
 }) => {
