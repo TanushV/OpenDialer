@@ -21,10 +21,11 @@ def packager():
     return module
 
 
-def signed_bundle(directory, version="0.3.0", identifier="com.opendialer.desktop"):
+def signed_bundle(directory, version="0.3.0", identifier="com.opendialer.desktop", sidecars=None):
     app = directory / "OpenDialer.app"
     (app / "Contents/MacOS").mkdir(parents=True)
-    for name in ("OpenDialer", "opendialer-backend"):
+    sidecars = ("opendialer-backend", "opendialer-trainer") if sidecars is None else sidecars
+    for name in ("OpenDialer", *sidecars):
         executable = app / "Contents/MacOS" / name
         shutil.copyfile("/usr/bin/true", executable)
         executable.chmod(0o755)
@@ -40,10 +41,11 @@ def signed_bundle(directory, version="0.3.0", identifier="com.opendialer.desktop
             }
         )
     )
-    backend = app / "Contents/MacOS/opendialer-backend"
-    subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", str(backend)], check=True)  # noqa: S603
+    sealed = {name: app / "Contents/MacOS" / name for name in sidecars}
+    for path in sealed.values():
+        subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", str(path)], check=True)  # noqa: S603
     subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", str(app)], check=True)  # noqa: S603
-    return app, backend
+    return app, sealed
 
 
 def archive_of(app, archive, extra=None):
@@ -76,17 +78,47 @@ def test_archive_bytes_that_break_the_signature_or_differ_from_the_sealed_sideca
     module = packager()
     app, backend = signed_bundle(tmp_path / "bundle")
     sealed = tmp_path / "sealed-backend"
-    shutil.copyfile(backend, sealed)
+    shutil.copyfile(backend["opendialer-backend"], sealed)
     (app / "Contents/Resources").mkdir()
     (app / "Contents/Resources/added-after-signing.txt").write_text("tamper")
     with pytest.raises(subprocess.CalledProcessError):
-        module.verify_archive(archive_of(app, tmp_path / "a.tar.gz"), "0.3.0", sealed, tmp_path / "s1")
-    clean, clean_backend = signed_bundle(tmp_path / "clean")
-    different = tmp_path / "different-backend"
+        module.verify_archive(
+            archive_of(app, tmp_path / "a.tar.gz"),
+            "0.3.0",
+            {**backend, "opendialer-backend": sealed},
+            tmp_path / "s1",
+        )
+    clean, clean_sealed = signed_bundle(tmp_path / "clean")
+    different = tmp_path / "different-sidecar"
     different.write_bytes(b"not the sealed sidecar")
-    with pytest.raises(SystemExit, match="sidecar"):
-        module.verify_archive(archive_of(clean, tmp_path / "b.tar.gz"), "0.3.0", different, tmp_path / "s2")
-    assert clean_backend.exists()
+    for name in ("opendialer-backend", "opendialer-trainer"):
+        with pytest.raises(SystemExit, match=name):
+            module.verify_archive(
+                archive_of(clean, tmp_path / f"{name}.tar.gz"),
+                "0.3.0",
+                {**clean_sealed, name: different},
+                tmp_path / f"s-{name}",
+            )
+    assert all(path.exists() for path in clean_sealed.values())
+
+
+def test_archive_without_the_trainer_is_refused(tmp_path):
+    module = packager()
+    app, sealed = signed_bundle(tmp_path / "bundle", sidecars=("opendialer-backend",))
+    with pytest.raises(SystemExit, match="opendialer-trainer"):
+        module.verify_archive(
+            archive_of(app, tmp_path / "a.tar.gz"),
+            "0.3.0",
+            {**sealed, "opendialer-trainer": sealed["opendialer-backend"]},
+            tmp_path / "s",
+        )
+
+
+def test_packager_seals_every_sidecar_with_the_scoped_entitlement():
+    module = packager()
+    assert module.SIDECARS == ("opendialer-backend", "opendialer-trainer")
+    source = (ROOT / "scripts/package_macos.py").read_text()
+    assert "BackendEntitlements.plist" in source and "--self-check" in source
 
 
 def test_archive_entries_outside_the_bundle_are_refused(tmp_path):

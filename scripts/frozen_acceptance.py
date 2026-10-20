@@ -302,9 +302,24 @@ def check_persisted(client, headers, result):
     return {"task_id": tasks[0]["id"], "note_hash": result["note_hash"], "integrity_ok": True}
 
 
+ARTIFACT_FORMAT = "opendialer.funnel-trees.v1"
+
+
+def trainer_for(binary, override=None):
+    """The trainer installed beside the authority: same target-triple and .exe suffix."""
+    if override:
+        return Path(override).resolve(strict=True)
+    if not binary.name.startswith("opendialer-backend"):
+        raise ValueError("Select the authority binary (opendialer-backend...) to locate its trainer")
+    trainer = binary.with_name(binary.name.replace("opendialer-backend", "opendialer-trainer", 1))
+    if not trainer.is_file():
+        raise FileNotFoundError(f"Packaged trainer {trainer.name} is missing beside the authority")
+    return trainer
+
+
 def check_training_reply(contents, output_dir, authority_pid):
     result = json.loads(contents)
-    artifact = output_dir / "challenger.joblib"
+    artifact = output_dir / "challenger.json"
     runtime = result.get("training_runtime", {})
     if (
         result.get("artifact") != str(artifact)
@@ -318,26 +333,43 @@ def check_training_reply(contents, output_dir, authority_pid):
         or runtime.get("priority") != "low"
     ):
         raise ValueError("Invalid frozen training child receipt")
-    return {"checksum": result["checksum"], "runtime": runtime}
+    try:
+        document = json.loads(artifact.read_bytes())
+    except ValueError:
+        document = None
+    stages = sorted(document.get("stages", {})) if isinstance(document, dict) else []
+    if (
+        not isinstance(document, dict)
+        or document.get("format") != ARTIFACT_FORMAT
+        or result.get("artifact_format") != ARTIFACT_FORMAT
+        or "human" not in stages
+        or result.get("funnel_metrics", {}).get("human", {}).get("status") != "fitted"
+    ):
+        raise ValueError("Frozen trainer did not fit and export a servable human stage")
+    return {"checksum": result["checksum"], "runtime": runtime, "stages": stages}
 
 
-def train_child(binary, directory, environment, authority_pid):
-    output = directory / "training"
-    output.mkdir(mode=0o700)
+def training_rows():
+    """Enough independent, two-class history that the human stage really fits and exports."""
     at = datetime(2025, 1, 1, tzinfo=UTC)
-    rows = [
+    return [
         {
             "lead_id": str(i),
             "endpoint_id": f"e{i}",
-            "at": (at + timedelta(days=i)).isoformat(),
-            "outcome_available_at": (at + timedelta(days=i, minutes=1)).isoformat(),
-            "human": int(i % 3 != 0),
-            "features": {"local_hour": 9 + i % 8},
+            "at": (at + timedelta(hours=6 * i)).isoformat(),
+            "outcome_available_at": (at + timedelta(hours=6 * i, minutes=1)).isoformat(),
+            "human": int((i % 8 < 4) != (i % 11 == 0)),
+            "features": {"local_hour": 9 + i % 8, "attempt_count": i % 3, "number_health": (i % 5) / 4},
         }
-        for i in range(120)
+        for i in range(400)
     ]
-    process = start_owned(  # noqa: S603 - selected verified binary, fixed training entrypoint
-        [str(binary), "--train-child"],
+
+
+def train_child(command, directory, environment, authority_pid):
+    output = directory / "training"
+    output.mkdir(mode=0o700)
+    process = start_owned(  # noqa: S603 - selected verified trainer, fixed training protocol
+        command,
         cwd=directory,
         env=environment,
         stdin=subprocess.PIPE,
@@ -347,7 +379,7 @@ def train_child(binary, directory, environment, authority_pid):
     )
     try:
         contents, _ = process.communicate(
-            json.dumps({"rows": rows, "output_dir": str(output)}).encode(), timeout=300
+            json.dumps({"rows": training_rows(), "output_dir": str(output)}).encode(), timeout=300
         )
         if process.returncode or len(contents) > 2 * 1024 * 1024:
             raise RuntimeError("Packaged training child failed")
@@ -367,6 +399,7 @@ def main():
             "apps/desktop/src-tauri/binaries/opendialer-backend-aarch64-apple-darwin",
         )
     ).resolve(strict=True)
+    trainer = trainer_for(binary, os.environ.get("OPENDIALER_TEST_TRAINER"))
     with tempfile.TemporaryDirectory(prefix="opendialer-frozen-proof-") as temporary:
         directory = Path(temporary)
         with socket.socket() as listener:
@@ -427,7 +460,9 @@ def main():
                         request(client, headers, "POST", "/v1/rep/heartbeat", json={"activity": "call"})
 
                 journey = call_journey(client, headers, seed["campaign_id"], pause=pause)
-                training = train_child(binary, directory, isolated_environment(os.environ), process.pid)
+                training = train_child(
+                    [str(trainer)], directory, isolated_environment(os.environ), process.pid
+                )
                 stop_owned(process)
                 process = start_authority(  # noqa: S603 - restart same verified binary/data, never reinstall
                     command,
@@ -447,6 +482,7 @@ def main():
             receipt = {
                 "version": args.expected_version,
                 "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
+                "trainer_sha256": hashlib.sha256(trainer.read_bytes()).hexdigest(),
                 "startup_ms": boot_ms,
                 "journey": journey,
                 "restart": retained,

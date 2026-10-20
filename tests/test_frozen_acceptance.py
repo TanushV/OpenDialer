@@ -135,16 +135,22 @@ def test_owned_cleanup_waits_for_ignoring_and_reparented_descendants(tmp_path, p
         process.wait(timeout=5)
 
 
-@pytest.mark.parametrize("change", ["checksum", "pid", "threads", "artifact"])
-def test_training_proof_rejects_wrong_executable_receipt(tmp_path, change):
+def receipt(tmp_path, change=None):
     import hashlib
     import json
 
-    artifact = tmp_path / "challenger.joblib"
-    artifact.write_bytes(b"synthetic-artifact-not-deserialized")
+    artifact = tmp_path / "challenger.json"
+    document = {"format": "opendialer.funnel-trees.v1", "stages": {"human": {}}}
+    if change == "format":
+        document["format"] = "joblib"
+    elif change == "unfitted":
+        document["stages"] = {}
+    artifact.write_bytes(b"\x80\x04pickle" if change == "pickle" else json.dumps(document).encode())
     result = {
         "artifact": str(artifact),
         "checksum": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+        "artifact_format": "opendialer.funnel-trees.v1",
+        "funnel_metrics": {"human": {"status": "fitted"}},
         "training_runtime": {"pid": 54321, "native_threads": 1, "priority": "low"},
     }
     if change == "checksum":
@@ -153,16 +159,51 @@ def test_training_proof_rejects_wrong_executable_receipt(tmp_path, change):
         result["training_runtime"]["pid"] = 43210
     elif change == "threads":
         result["training_runtime"]["native_threads"] = 8
-    else:
-        result["artifact"] = str(tmp_path / "unrelated.joblib")
+    elif change == "artifact":
+        result["artifact"] = str(tmp_path / "unrelated.json")
+    elif change == "unfitted":
+        result["funnel_metrics"]["human"]["status"] = "insufficient_independent_matured_data"
+    return json.dumps(result)
+
+
+def test_training_proof_accepts_a_fitted_json_export(tmp_path):
+    proof = module().check_training_reply(receipt(tmp_path), tmp_path, 43210)
+    assert proof["stages"] == ["human"] and proof["runtime"]["pid"] == 54321
+
+
+@pytest.mark.parametrize("change", ["checksum", "pid", "threads", "artifact", "format", "pickle", "unfitted"])
+def test_training_proof_rejects_wrong_executable_receipt(tmp_path, change):
     with pytest.raises(ValueError):
-        module().check_training_reply(json.dumps(result), tmp_path, 43210)
+        module().check_training_reply(receipt(tmp_path, change), tmp_path, 43210)
+
+
+@pytest.mark.parametrize(
+    "authority",
+    ["opendialer-backend-aarch64-apple-darwin", "opendialer-backend-x86_64-pc-windows-msvc.exe"],
+)
+def test_training_proof_uses_the_trainer_beside_the_selected_authority(tmp_path, authority):
+    binary = tmp_path / authority
+    binary.write_bytes(b"")
+    with pytest.raises(FileNotFoundError, match="trainer"):
+        module().trainer_for(binary)
+    trainer = tmp_path / authority.replace("backend", "trainer")
+    trainer.write_bytes(b"")
+    assert module().trainer_for(binary) == trainer
+
+
+def test_training_proof_fits_through_the_trainer_entrypoint(tmp_path):
+    """The real child protocol and fitting stack; frozen acceptance runs the packaged trainer."""
+    m = module()
+    command = [sys.executable, str(ROOT / "scripts/trainer_entry.py")]
+    proof = m.train_child(command, tmp_path, m.isolated_environment(os.environ), os.getpid())
+    assert proof["stages"] == ["human"]
 
 
 def test_frozen_authority_receives_secrets_on_stdin_like_the_desktop(monkeypatch, tmp_path):
     m = module()
     binary = tmp_path / "opendialer-backend"
     binary.write_bytes(b"placeholder")
+    (tmp_path / "opendialer-trainer").write_bytes(b"placeholder")
     captured = {}
 
     class Started(Exception):
