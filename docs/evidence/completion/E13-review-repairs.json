@@ -1,0 +1,69 @@
+{
+  "step_id": "E13",
+  "status": "scoped-repairs-only; full-freeze-open",
+  "source_commit": "e731b554c9473e9d2a3c7703212eaf97ec7f10c0",
+  "production_tree_digest": "77e3a88544c366a96e2d11903ba41c6ad41ee3b48801c16d8d5f0966b49e8a6c",
+  "test_tree_digest": "bec64faa6e6a8697c56722a4826c32357afd04b6ce03507dae22bf8dbfadcfe6",
+  "harness_state": "cgroup follow-up in working tree; exact hash below",
+  "harness_sha256": "2027c6f79d2f5dac3840c8e2fba3a92d1612ef5021d5fb6a868a86d9b1e480a0",
+  "mode": [
+    "SQLite",
+    "PostgreSQL",
+    "browser",
+    "SDK fixture"
+  ],
+  "external_calls": false,
+  "raw_logs": {
+    "E13-hangup-ui-red.txt": "d00a366b5d0f964232b3bcd032a8914f6c28262ac86f40d0ed96d6e8d45e8a08",
+    "E13-withdrawn-help-red.txt": "57105a2b511410cb787d6dac24d9380d4cd574a655ac7220d5f977b8e0907d0d",
+    "E13-inner-maintenance-red.txt": "543140783eaf70372aac696411d0b5c25910c2e1876e73f62c9c175606ad2a0b",
+    "E13-audio-identity-red.txt": "6b4f69ec75afd03d5ee2851220547f6abd478e8c88072daac5d622bc384f3b51",
+    "E13-reference-runtime-red.txt": "165403346cab0aa560f0d0ca0e1691ba863ee52688ba22e2219c3a3ce3414bc4",
+    "E13-database-cgroup-red.txt": "67013d0da869e6142882125c932e51bca4647f78992a4f91447d930a0e0a7dce",
+    "E13-helper-boundaries-green.txt": "e726d8ae5ea7bd5f5d4efc2292ba4655af7ef3d18d239bcc3673b0d1b4a49984",
+    "E13-audio-boundaries-green.txt": "9157650aa88ccb1c171db88975f668c10a6dc940c10932c2ac87bd8096d9dd82",
+    "E13-measurement-boundaries-green.txt": "a881d69b86ccb37c8dfac880fbe67c3c80f3cf09290a47bb85128cae43e4a9cd",
+    "E13-recovered-error-green.txt": "b4081b292d693240af38ed954a49abbfd9fe1ec407dc19b7221962b4e81de633",
+    "E13-database-cgroup-green.txt": "77a2ecef5d075bd4255ad76d58f1c452134264b6d979d22458ecd1ec9f9b9058",
+    "E13-final-runner-sqlite.txt": "94d4aa7e728760d0ab6600c5bcccb6f3a4a9f71797d58c6f311073042650fab0",
+    "E13-restored-denial-national-postgres.txt": "5d0a66755a919a04ae02aa1e306e67efdf2016a3cda73438b6a0f4c243505ea4",
+    "reference/live-limit-counterexample.json": "5e189d2e0fc9b5c0337bb9bf09832d40efabdd01ff2a7af4d741cf7f70a3d10e"
+  },
+  "results": {
+    "helper_browser": {
+      "passed": 5
+    },
+    "sdk_units": {
+      "passed": 17
+    },
+    "measurement_boundaries": {
+      "passed": 41
+    },
+    "recovered_error": {
+      "passed": 1
+    },
+    "cgroup_followup": {
+      "passed": 33
+    },
+    "runner_sqlite": {
+      "passed": 23,
+      "skipped": 1
+    },
+    "restored_screening_denial_postgres": {
+      "passed": 48
+    }
+  },
+  "known_limitations": [
+    "Final runner PostgreSQL in progress with three failures; diagnose before accepting.",
+    "Full exact-source coverage, elapsed profiles, native resources and installed updates open.",
+    "No funded carrier or inference proof."
+  ],
+  "reference_actual_limits": {
+    "before": "passed",
+    "same_cluster_changed_cpu_rejected": true,
+    "restored": "passed",
+    "api_container": "7a258d22c58b5bbdff91d20cfe831be2c831e05e27cd79e0eb6e36e395c49c8a",
+    "database_container": "186f1f0aef528c36f63faf5ef8941c2b7beccd167fb0f416ea1b18fc856c816d",
+    "external_calls": false
+  }
+}

@@ -507,6 +507,8 @@ Targets remain remediation §18: warm next lead p95 <250 ms and <=30 SQL stateme
 
 Use 200 measured warm samples after 20 warmups for request paths, and at least 30 independent runs for six-call concurrency. Resource measurements include actual frozen native processes and aggregate descendant RSS; report transient training child separately. Projected calculation latency is distinct from report GET. Report hardware and source on every receipt. If a target fails, profile and repair the measured cause; never quietly edit the threshold, hide timeouts or claim the large profile supported because a bounded subset worked.
 
+E13 reference precision: bind the inspected limits to the actual API and connected PostgreSQL processes, not only a saved manifest or cluster ID. The disposable runner shares the owned database's network/PID namespaces and uses a read-only host cgroup view; the connected SQL backend PID identifies its current cgroup and effective CPU/memory/swap limits. Verify both container memberships, quotas and the exact disposable endpoint at admission and completion. No Docker socket, privileged mode or production deployment change is required. Preserve internally caught maintenance/job errors across later recovery, and record remaining due/running/retry/dead work. A successful retry cannot erase a failed sample. This is acceptance instrumentation only.
+
 Live end-of-utterance → useful guidance p95 <2.5 s and manual first useful p95 <1.5 s require actual STT/provider timestamps. Software fixture timing cannot close X02/X03. When timestamps are absent the value is unavailable. Record generation, optional review, queue, transport and render components so review overhead is visible.
 
 ### Semantic evaluation

@@ -1013,7 +1013,7 @@
         {
           "id": "E13.6",
           "task": "All frontend/native/security/license/secret/build checks",
-          "status": "open"
+          "status": "Current frontend52 units/build, typecheck, full lint/format and AST parsing pass; security/license/native/full browser acceptance still open."
         },
         {
           "id": "E13.7",
@@ -1058,7 +1058,7 @@
         {
           "id": "E13.review-final",
           "task": "Delayed mutation/audio ownership, equal-version help withdrawal, swallowed maintenance/job failures, actual reference identity",
-          "status": "Tests-first repairs pass5 helper browser cases,17 SDK units and42 measurement checks; final PostgreSQL runner and independent follow-up pending."
+          "status": "UI/audio and inner-error repairs confirmed independently. Database effective-limit follow-up has four red cases,33 passing units and actual owned-container quota-change rejection. PostgreSQL runner scope has three unresolved failures; full/native acceptance open."
         }
       ],
       "checkpoint": "E13 last review findings repaired and scoped green; final runner PostgreSQL, independent verification, actual full-load/reference/resource acceptance and freeze remain open. Installed0.2.1 untouched."

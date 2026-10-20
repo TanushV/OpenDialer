@@ -233,6 +233,7 @@ def reference_manifest():
                 "Memory": 3 * 1024**3,
                 "MemorySwap": 3 * 1024**3,
                 "NetworkMode": "container:" + "b" * 64,
+                "PidMode": "container:" + "b" * 64,
             },
         },
         "database": {
@@ -242,16 +243,27 @@ def reference_manifest():
             "HostConfig": {"NanoCpus": 500000000, "Memory": 1024**3, "MemorySwap": 1024**3},
         },
         "runtime": {
-            "hostname": "a" * 12,
+            "hostname": "b" * 12,
             "network_namespace": "net:[123]",
             "cgroup_namespace": "cgroup:[456]",
+            "pid_namespace": "pid:[789]",
+            "cgroup_path": "/system.slice/docker-" + "a" * 64 + ".scope",
+            "memory_swap_max": "0",
         },
-        "database_runtime": {"network_namespace": "net:[123]"},
+        "database_runtime": {"network_namespace": "net:[123]", "pid_namespace": "pid:[789]"},
         "postgres": {
             "system_identifier": "123456789",
             "port": 55439,
             "database": "opendialer_completion_performance",
         },
+    }
+
+
+def observed_postgres(data):
+    return {
+        **data["postgres"],
+        "cgroup_path": "/system.slice/docker-" + "b" * 64 + ".scope",
+        "limits": {"cpu.max": "50000 100000", "memory.max": str(1024**3), "memory.swap.max": "0"},
     }
 
 
@@ -272,7 +284,7 @@ def test_reference_requires_inspected_caps_and_matching_actual_runtime(changed):
         "max 100000" if changed == "runtime_mismatch" else "150000 100000",
         str(3 * 1024**3),
         runtime=data["runtime"],
-        postgres=data["postgres"],
+        postgres=observed_postgres(data),
     )
     assert result["status"] == ("passed" if changed == "none" else "failed")
     if changed == "none":
@@ -285,7 +297,7 @@ def test_reference_requires_inspected_caps_and_matching_actual_runtime(changed):
 def test_matching_caps_with_another_container_or_database_never_certify_reference(changed):
     m = measurement()
     data = reference_manifest()
-    runtime, postgres = dict(data["runtime"]), dict(data["postgres"])
+    runtime, postgres = dict(data["runtime"]), observed_postgres(data)
     if changed in runtime:
         runtime[changed] = "different-runtime"
     else:
@@ -305,16 +317,65 @@ def test_stale_reference_manifest_is_rejected_at_the_running_entrypoint(monkeypa
     original_read = Path.read_text
 
     def cgroups(path, *args, **kwargs):
-        if str(path) == "/sys/fs/cgroup/cpu.max":
+        if str(path).startswith("/sys/fs/cgroup/") and path.name == "cpu.max":
             return "150000 100000"
-        if str(path) == "/sys/fs/cgroup/memory.max":
+        if str(path).startswith("/sys/fs/cgroup/") and path.name == "memory.max":
             return str(3 * 1024**3)
+        if str(path).startswith("/sys/fs/cgroup/") and path.name == "memory.swap.max":
+            return "0"
         return original_read(path, *args, **kwargs)
 
     monkeypatch.setattr(Path, "read_text", cgroups)
     monkeypatch.setattr(
         m, "runtime_identity", lambda: {**data["runtime"], "hostname": "different"}, raising=False
     )
-    monkeypatch.setattr(m, "postgres_identity", lambda: data["postgres"], raising=False)
+    monkeypatch.setattr(m, "postgres_identity", lambda: observed_postgres(data), raising=False)
     with pytest.raises(ValueError, match="reference|Reference"):
         m.shared_reference()
+
+
+@pytest.mark.parametrize("changed", ["cpu", "memory", "swap", "container"])
+def test_reference_reads_the_connected_postgres_process_limits_not_only_its_cluster(monkeypatch, changed):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    import sqlalchemy
+
+    m = measurement()
+    data = reference_manifest()
+    monkeypatch.setenv(
+        "OPENDIALER_PERFORMANCE_DATABASE_URL",
+        "postgresql+psycopg://opendialer:remediation-disposable-test@127.0.0.1:55439/opendialer_completion_performance",
+    )
+
+    def execute(statement):
+        result = ("123456789", 55439, "opendialer_completion_performance")
+        if "pg_backend_pid" in str(statement):
+            result += (7,)
+        return SimpleNamespace(one=lambda: result)
+
+    engine = SimpleNamespace(
+        connect=lambda: nullcontext(SimpleNamespace(execute=execute)), dispose=lambda: None
+    )
+    monkeypatch.setattr(sqlalchemy, "create_engine", lambda *args: engine)
+    original = Path.read_text
+    group = "/system.slice/docker-" + ("e" if changed == "container" else "b") * 64 + ".scope"
+
+    def actual_file(path, *args, **kwargs):
+        if str(path) == "/proc/7/cgroup":
+            return "0::" + group + "\n"
+        if str(path).startswith("/sys/fs/cgroup/"):
+            return {
+                "cpu.max": "100000 100000" if changed == "cpu" else "50000 100000",
+                "memory.max": str((2 if changed == "memory" else 1) * 1024**3),
+                "memory.swap.max": "1024" if changed == "swap" else "0",
+            }[path.name]
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", actual_file)
+    result = m.validate_reference(
+        data, "150000 100000", str(3 * 1024**3), runtime=data["runtime"], postgres=m.postgres_identity()
+    )
+    assert result["status"] == "failed", (
+        "The same PostgreSQL cluster under changed effective limits cannot pass"
+    )

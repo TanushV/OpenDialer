@@ -179,6 +179,10 @@ def resource_gates(receipt):
     }
 
 
+def container_cgroup(path, container_id):
+    return any(part in {container_id, "docker-" + container_id + ".scope"} for part in Path(path).parts)
+
+
 def validate_reference(manifest, cpu_max, memory_max, *, runtime, postgres):
     """Bind inspected limits to this process, network and actual PostgreSQL server."""
     try:
@@ -203,19 +207,32 @@ def validate_reference(manifest, cpu_max, memory_max, *, runtime, postgres):
             or memory > 4 * 1024**3
             or api["Id"] == database["Id"]
             or limits[0]["NetworkMode"] != "container:" + database["Id"]
+            or limits[0]["PidMode"] != "container:" + database["Id"]
             or period <= 0
             or quota / period != limits[0]["NanoCpus"] / 1e9
             or runtime_memory != limits[0]["Memory"]
             or runtime != manifest["runtime"]
-            or runtime["hostname"] != api["Id"][:12]
+            or not container_cgroup(runtime["cgroup_path"], api["Id"])
             or runtime["network_namespace"] != manifest["database_runtime"]["network_namespace"]
+            or runtime["pid_namespace"] != manifest["database_runtime"]["pid_namespace"]
             or not runtime["cgroup_namespace"].startswith("cgroup:[")
-            or postgres != manifest["postgres"]
+            or runtime["memory_swap_max"] != "0"
+            or {key: postgres[key] for key in ("system_identifier", "port", "database")}
+            != manifest["postgres"]
             or postgres["port"] != 55439
             or postgres["database"] != "opendialer_completion_performance"
             or not str(postgres["system_identifier"]).isdigit()
         ):
             raise ValueError("Reference limits or executing namespace differ")
+        db_quota, db_period = map(int, postgres["limits"]["cpu.max"].split())
+        if (
+            not container_cgroup(postgres["cgroup_path"], database["Id"])
+            or db_period <= 0
+            or db_quota / db_period != limits[1]["NanoCpus"] / 1e9
+            or int(postgres["limits"]["memory.max"]) != limits[1]["Memory"]
+            or postgres["limits"]["memory.swap.max"] != "0"
+        ):
+            raise ValueError("Connected database process or effective limits differ")
         return {
             "status": "passed",
             "cpu_limit": cpu,
@@ -231,13 +248,30 @@ def validate_reference(manifest, cpu_max, memory_max, *, runtime, postgres):
         return {"status": "failed", "error_type": type(exc).__name__}
 
 
+def process_cgroup(pid):
+    values = Path(f"/proc/{pid}/cgroup").read_text().splitlines()
+    path = next(value[3:] for value in values if value.startswith("0::"))
+    if not path.startswith("/") or ".." in Path(path).parts:
+        raise ValueError("Invalid cgroup path")
+    return path
+
+
+def cgroup_limits(path):
+    root = Path("/sys/fs/cgroup") / path.lstrip("/")
+    return {name: (root / name).read_text().strip() for name in ("cpu.max", "memory.max", "memory.swap.max")}
+
+
 def runtime_identity():
     import socket
 
+    path = process_cgroup("self")
     return {
         "hostname": socket.gethostname(),
         "network_namespace": os.readlink("/proc/self/ns/net"),
         "cgroup_namespace": os.readlink("/proc/self/ns/cgroup"),
+        "pid_namespace": os.readlink("/proc/self/ns/pid"),
+        "cgroup_path": path,
+        "memory_swap_max": cgroup_limits(path)["memory.swap.max"],
     }
 
 
@@ -250,12 +284,20 @@ def postgres_identity():
     engine = create_engine(url)
     try:
         with engine.connect() as connection:
-            system, port, database = connection.execute(
+            system, port, database, pid = connection.execute(
                 text(
-                    "SELECT system_identifier::text, inet_server_port(), current_database() FROM pg_control_system()"
+                    "SELECT system_identifier::text, inet_server_port(), current_database(), pg_backend_pid() FROM pg_control_system()"
                 )
             ).one()
-        return {"system_identifier": system, "port": port, "database": database}
+            path = process_cgroup(int(pid))
+            limits = cgroup_limits(path)
+        return {
+            "system_identifier": system,
+            "port": port,
+            "database": database,
+            "cgroup_path": path,
+            "limits": limits,
+        }
     finally:
         engine.dispose()
 
@@ -264,11 +306,13 @@ def shared_reference():
     source = os.getenv("OPENDIALER_REFERENCE_MANIFEST")
     if not source:
         raise ValueError("An inspected reference manifest is required before shared measurement")
+    runtime = runtime_identity()
+    limits = cgroup_limits(runtime["cgroup_path"])
     result = validate_reference(
         json.loads(Path(source).read_text()),
-        Path("/sys/fs/cgroup/cpu.max").read_text(),
-        Path("/sys/fs/cgroup/memory.max").read_text(),
-        runtime=runtime_identity(),
+        limits["cpu.max"],
+        limits["memory.max"],
+        runtime=runtime,
         postgres=postgres_identity(),
     )
     if result["status"] != "passed":
@@ -1199,6 +1243,8 @@ def run_profile(name, directory, seed, checkpoint):
             )
     finally:
         app.state.db.engine.dispose()
+    if reference:
+        result["shared_reference_after"] = shared_reference()
     result.update(profile_gates(result, spec))
     return result
 
