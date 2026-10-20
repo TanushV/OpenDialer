@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.config import RuntimeLimits
 from app.optimization.numbering import number_ready, timestamp, wilson
+from app.scheduling.models import OPTIMIZATION_DEFAULTS
 
 _LIMITS = RuntimeLimits()
 MAX_SLOTS = _LIMITS.planning_time_buckets
@@ -152,7 +153,7 @@ def priority_class(lead, now):
     return 3
 
 
-def work_items(leads, now, end, policy, handling_seconds=120):
+def work_items(leads, now, end, policy, handling_seconds=OPTIMIZATION_DEFAULTS["handling_seconds"]):
     work, unknown = [], 0
     for lead in sorted(leads, key=lambda row: row["id"]):
         if (

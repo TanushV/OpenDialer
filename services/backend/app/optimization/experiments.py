@@ -1,6 +1,5 @@
 """Stable optional experiments; assignments precede treatment and never change permissions."""
 
-import hashlib
 import math
 from collections import defaultdict
 from datetime import timedelta
@@ -12,7 +11,9 @@ from app.optimization.learning import (
     conversion_at,
     derive_labels,
     distribution_from_counts,
+    hashed_draw,
     outcome_at,
+    reward_counts,
     trial_from_counts,
 )
 from app.optimization.numbering import timestamp
@@ -67,7 +68,7 @@ def strategy_choice(study, lead_id, rep_id, policy=None):
         or abs(sum(probabilities.values()) - 1) > 1e-9
     ):
         raise ValueError("A strategy policy must cover the exact reviewed finite set")
-    draw = int(hashlib.sha256(f"{study['id']}:{rep_id}:{lead_id}".encode()).hexdigest()[:16], 16) / 2**64
+    draw = hashed_draw(f"{study['id']}:{rep_id}:{lead_id}")
     cumulative, chosen = 0.0, actions[-1]
     for action in actions:
         cumulative += probabilities[action]
@@ -116,11 +117,7 @@ def assign_arm(family, epoch, lead_id, stratum, assignments=(), *, prior_count=N
         unit = stratum + ":" + str(block)
         if position and prior_count is None:
             return "candidate" if prior[-1]["arm"] == "control" else "control"
-    first = (
-        "candidate"
-        if int(hashlib.sha256((epoch + ":" + unit).encode()).hexdigest()[:8], 16) % 2
-        else "control"
-    )
+    first = "candidate" if hashed_draw(epoch + ":" + unit) < 0.5 else "control"
     # Both positions derive the same block coin; timestamp ties cannot select
     # the wrong preceding row. Existing saved assignments are returned unchanged.
     return ("control" if first == "candidate" else "candidate") if position else first
@@ -152,19 +149,7 @@ def call_goal_events(calls, goal, *, now):
 
 
 def reward_values(reward):
-    if reward.get("window_status") != "matured" or reward.get("conversion") is None:
-        return {}
-    weight = min(20.0, 1 / max(0.01, float(reward.get("propensity") or 1)))
-    return {
-        f"reward:{reward['action']}:{key}": value
-        for key, value in {
-            "all_n": 1,
-            "n": 1,
-            "all_success": reward["conversion"],
-            "weight": weight,
-            "weighted_success": weight * reward["conversion"],
-        }.items()
-    }
+    return reward_counts([reward])
 
 
 def exposure_values(event, observations, *, now):
@@ -412,24 +397,29 @@ class ComparisonWorkflows:
                     and saved.data["source_revision"] == self.report_revision(s, p)
                     and timestamp(saved.data["expires_at"]) > self.clock()
                 )
-                report = (
-                    next(
-                        (r for r in saved.data["report"].get("comparisons", []) if r["id"] == study["id"]),
-                        None,
-                    )
-                    if fresh
-                    else None
+                report = next(
+                    (
+                        r
+                        for r in (saved.data["report"].get("comparisons", []) if saved else [])
+                        if r["id"] == study["id"] and r.get("strategy_policy_snapshot")
+                    ),
+                    None,
                 )
-                if report:
-                    choice = strategy_choice(study, lead.id, rep_id, report["strategy_policy_snapshot"])
-                else:
-                    choice = {
-                        "strategy_id": "control",
-                        "strategy_probabilities": {a: float(a == "control") for a in study["strategy_ids"]},
-                        "propensity": 1.0,
-                        "arm": "control",
-                        "policy_reason": "fresh_reward_projection_pending",
-                    }
+                # Stale rewards hold the last policy actually in force (else the approved initial
+                # one) with its true mixture probabilities; never a deterministic control arm.
+                choice = {
+                    **strategy_choice(
+                        study,
+                        lead.id,
+                        rep_id,
+                        report["strategy_policy_snapshot"] if report else study["initial_strategy_policy"],
+                    ),
+                    "policy_reason": "fresh_reward_projection"
+                    if report and fresh
+                    else "held_last_policy"
+                    if report
+                    else "approved_initial_policy",
+                }
             values = {
                 "family": family,
                 "comparison_id": study["id"],
@@ -491,7 +481,10 @@ class ComparisonWorkflows:
                 "cluster": stratum if family == "number_allocation" else None,
                 "rep_id": rep_id,
                 "coverage_due_at": lead.data.get("coverage_due_at"),
-                "propensity": 1 if family == "coaching" and rep_count % 2 else 0.5,
+                # Both block positions are marginally randomized at one half; the second is only
+                # conditionally determined, which the block position records.
+                "propensity": 0.5,
+                "block_position": rep_count % 2 if family == "coaching" else None,
                 "originally_eligible": True,
                 "goal": study["goal"],
                 "outcome_window_days": study["window_days"],

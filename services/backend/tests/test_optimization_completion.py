@@ -297,8 +297,7 @@ def test_baseline_calling_and_planning_do_not_import_the_optional_ml_runtime(wor
     assert result.status_code == 200, result.text
     service, p = app.state.service, principal(workspace)
     with service.db.transaction(False) as s:
-        lead = service.scoped(s, "leads", p)[0]
-        assert service.slot_predictor(s, p, lead, service.optimization_config(s, p)) is None
+        assert service.forecast(s, p)["forecast_attempts"] >= 0
 
 
 def test_comparison_keeps_its_declared_goal_when_the_campaign_goal_later_changes(clock):

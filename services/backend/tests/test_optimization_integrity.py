@@ -322,10 +322,11 @@ def test_control_and_candidate_get_explicit_capacity_and_callbacks_remain_first(
         {"id": "control", "arm": "control", "p_human": 0.2, "score": 0.001},
         {"id": "candidate", "arm": "candidate", "p_human": 0.9, "score": 0.1},
     ]
+    # The one declared two-arm allocation (default 50/50) gives the logged probability.
     low = choose_cohort_candidate(rows, now=clock.now, draw=0.01)
-    high = choose_cohort_candidate(rows, now=clock.now, draw=0.5)
-    assert low["lead_id"] == "control" and low["lead_selection_probability"] == 0.1
-    assert high["lead_id"] == "candidate" and high["lead_selection_probability"] == 0.9
+    high = choose_cohort_candidate(rows, now=clock.now, draw=0.6)
+    assert low["lead_id"] == "control" and low["lead_selection_probability"] == 0.5
+    assert high["lead_id"] == "candidate" and high["lead_selection_probability"] == 0.5
     single = choose_cohort_candidate(rows[1:], now=clock.now, draw=0.01)
     assert single["lead_selection_probability"] == 1
     rows[1]["callback_due_at"] = (clock.now - timedelta(minutes=1)).isoformat()

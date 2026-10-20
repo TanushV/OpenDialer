@@ -4,33 +4,32 @@ import pytest
 from app.optimization.learning import (
     conversion_score,
     derive_labels,
-    drift_report,
     freeze_features,
-    learn_distribution,
     training_rows,
-    trial_report,
 )
+from comparison_oracle import drift_report, learn_distribution, trial_report
 
 
 @pytest.mark.parametrize(
     "outcome,human,right,qualified",
     [
-        ("wrong_party", True, False, False),
-        ("gatekeeper", True, False, False),
-        ("screening", False, None, False),
-        ("ivr", False, None, False),
-        ("voicemail", False, None, False),
-        ("no_answer", False, None, False),
-        ("opt_out", True, None, False),
-        ("not_interested", True, None, False),
-        ("right_party", True, True, False),
+        ("wrong_party", True, False, None),
+        ("gatekeeper", True, False, None),
+        ("screening", False, None, None),
+        ("ivr", False, None, None),
+        ("voicemail", False, None, None),
+        ("no_answer", False, None, None),
+        ("opt_out", True, None, None),
+        ("not_interested", True, None, None),
+        ("right_party", True, True, None),
         ("qualified_conversation", True, True, True),
-        ("meeting_held", True, None, False),
-        ("sale_won", True, None, False),
+        ("meeting_held", True, None, None),
+        ("sale_won", True, None, None),
     ],
 )
 def test_labels_keep_the_funnel_distinct(outcome, human, right, qualified):
-    result = derive_labels(outcome)
+    # 20.2: a rep-confirmed source establishes the right party; other goals stay pending (None).
+    result = derive_labels({"outcome": outcome, "outcome_source": "rep_reported"})
     assert (result["human"], result["right_party"], result["qualified"]) == (human, right, qualified)
 
 
@@ -53,7 +52,7 @@ def test_labels_keep_the_funnel_distinct(outcome, human, right, qualified):
 )
 def test_nullable_labels_and_pooled_counts(outcome, human, right):
     """C030: an unobserved conditional result is not a negative example."""
-    labels = derive_labels(outcome)
+    labels = derive_labels({"outcome": outcome, "outcome_source": "rep_reported"})
     assert labels["human"] is human
     assert labels["right_party"] is right
 
@@ -119,9 +118,10 @@ def test_ambiguous_import_does_not_invent_target_contact(outcome):
 
 
 def test_one_goal_evidence_cannot_prove_another_goal():
-    assert derive_labels("sale_won")["meeting_held"] is False
-    assert derive_labels("meeting_booked")["qualified"] is False
-    assert derive_labels("meeting_held")["qualified"] is False
+    # Other goals remain pending until their own evidence or the window closes.
+    assert derive_labels("sale_won")["meeting_held"] is None
+    assert derive_labels("meeting_booked")["qualified"] is None
+    assert derive_labels("meeting_held")["qualified"] is None
 
 
 def test_conditional_estimates_use_only_known_conditioning_labels_and_no_double_prior():
@@ -456,6 +456,7 @@ def test_dataset_uses_immutable_snapshot_and_censors_delayed_conversions(clock):
             "started_at": at.isoformat(),
             "state": "FINALIZED",
             "outcome": "right_party",
+            "outcome_available_at": at.isoformat(),
             "feature_snapshot_id": "f1",
         }
     ]
@@ -474,6 +475,7 @@ def test_dataset_uses_immutable_snapshot_and_censors_delayed_conversions(clock):
             "call_id": "c1",
             "kind": "meeting_held",
             "occurred_at": clock.now.isoformat(),
+            "recorded_at": clock.now.isoformat(),
         }
     ]
     positive = training_rows(calls, snapshots, events, now=clock.now, goal="meeting_held", window_days=14)
@@ -510,11 +512,14 @@ def test_conversion_score_prefers_useful_outcomes_over_easy_low_value_pickups():
 
 
 def test_treatment_learning_changes_the_best_approved_action_and_logs_exact_distribution():
+    # Rewards carry their logged propensity; a missing one is rejected, not read as certainty.
     rows = [
-        {"action": "a", "conversion": 0, "window_status": "matured", "segment": "roofing"} for _ in range(30)
+        {"action": "a", "conversion": 0, "window_status": "matured", "segment": "roofing", "propensity": 0.5}
+        for _ in range(30)
     ]
     rows += [
-        {"action": "b", "conversion": 1, "window_status": "matured", "segment": "roofing"} for _ in range(30)
+        {"action": "b", "conversion": 1, "window_status": "matured", "segment": "roofing", "propensity": 0.5}
+        for _ in range(30)
     ]
     result = learn_distribution(["a", "b"], rows, segment="roofing", exploration=0.1)
     assert result["best"] == "b" and result["probabilities"]["b"] == pytest.approx(0.95)
@@ -583,9 +588,10 @@ def test_trial_reports_use_unique_matured_leads_and_do_not_claim_lift_from_tiny_
         for i in range(4)
     ]
     assigned += [assigned[0]]
+    known = {"recorded_at": clock.now.isoformat()}
     events = [
-        {"lead_id": "2", "kind": "meeting_held", "occurred_at": clock.now.isoformat()},
-        {"lead_id": "2", "kind": "meeting_held", "occurred_at": clock.now.isoformat()},
+        {"lead_id": "2", "kind": "meeting_held", "occurred_at": clock.now.isoformat(), **known},
+        {"lead_id": "2", "kind": "meeting_held", "occurred_at": clock.now.isoformat(), **known},
     ]
     report = trial_report(assigned, events, now=clock.now, goal="meeting_held", window_days=30)
     assert report["arms"]["control"]["leads"] == 2 and report["arms"]["candidate"]["conversions"] == 1
