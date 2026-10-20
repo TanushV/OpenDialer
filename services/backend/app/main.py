@@ -13,7 +13,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket,
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
@@ -41,8 +41,15 @@ class Strict(BaseModel):
 
 class RecoveryEdit(Strict):
     expected_version: int = Field(ge=1)
-    action: Literal["reconcile", "end_call", "cancel_unsent"]
+    action: Literal["reconcile", "end_call", "cancel_unsent", "confirm_not_placed"]
     provider_id: str | None = Field(default=None, min_length=1, max_length=2048)
+    reason: str | None = Field(default=None, min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def attested(self):
+        if self.action == "confirm_not_placed" and not (self.reason or "").strip():
+            raise ValueError("Record what carrier evidence shows the call was not placed")
+        return self
 
 
 class JobRetry(Strict):

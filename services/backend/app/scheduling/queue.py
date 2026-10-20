@@ -297,13 +297,14 @@ class ReservationPlanner:
     def reserve(self, p, campaign_id):
         from app.service import fail
 
+        reasons = set()
         for _ in range(3):
             plan = self._selection(p, campaign_id)
             try:
                 return self._claim_selection(p, campaign_id, plan)
-            except SelectionChanged:
-                continue
-        fail(409, {"code": "QUEUE_CHANGED", "retryable": True})
+            except SelectionChanged as changed:
+                reasons.update(*changed.args)
+        fail(409, {"code": "QUEUE_CHANGED", "retryable": True, "reasons": sorted(reasons)})
 
     def _claim_selection(self, p, campaign_id, plan):
         from app.service import fail
@@ -346,7 +347,8 @@ class ReservationPlanner:
             )
             decision = authorize(self.context(s, p, lead, number))
             if not decision.allowed:
-                fail(403, decision.reasons)
+                # Eligibility changed after ranking; select again within the bounded retry.
+                raise SelectionChanged(decision.reasons)
             campaign = self.required(s, "campaigns", campaign_id, p)
             config = self.optimization_config(s, p, campaign_id)
             if campaign.data["policy_id"] != plan["policy_id"] or any(

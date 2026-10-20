@@ -439,7 +439,8 @@ def sync_columns(row, lookup_key=None):
                 epoch if row.op_status == "ENDING" else deadline,
                 last_check + timedelta(seconds=30) if last_check else epoch,
             )
-            if row.op_status not in TERMINAL
+            # An unconfirmed dial waits for an operator, not the 30-second recovery loop.
+            if row.op_status not in TERMINAL | {"DIAL_UNCONFIRMED"}
             else None
         )
         row.op_control_due_at = (

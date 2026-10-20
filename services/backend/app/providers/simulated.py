@@ -33,7 +33,10 @@ class SimulatedCarrier:
         return result
 
     async def reconcile(self, command_id, provider_id=None):
-        return self.calls.get(command_id)
+        # Like Telnyx, a status read needs the carrier call reference; a command ID is not a lookup key.
+        if not provider_id:
+            return None
+        return next((dict(c) for c in self.calls.values() if c["call_control_id"] == provider_id), None)
 
     async def hangup(self, provider_id, command_id):
         self.hangups.append({"provider_id": provider_id, "command_id": command_id})
