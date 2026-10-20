@@ -1,6 +1,6 @@
 # Deploy one shared authority
 
-1. Provision a Linux VM with encrypted persistent volumes, time synchronization, restricted SSH, a firewall and a tested off-host backup destination. The reference is one small VM; actual capacity requires workload testing.
+1. Use an already-owned Linux host with encrypted persistent volumes, time synchronization, restricted SSH, a firewall and a tested off-host backup destination. No paid host is provisioned by the app. The declared shared reference is 2 vCPU/4 GiB across application and database; actual supported capacity requires the recorded workload acceptance.
 2. Copy `deploy/.env.example` to a protected path outside the checkout. Generate independent random PostgreSQL password, authority secret and one-time bootstrap token. Store recovery copies separately; losing the authority secret loses access to encrypted records. Set the DNS hostname. Do not commit this file or put secrets in shell history.
 3. Run `docker compose --env-file /protected/opendialer.env -f deploy/compose.yml up -d --build`. The migration service completes before API/workers. PostgreSQL has no published host port; only Caddy exposes HTTP/HTTPS. Confirm DNS/TLS and `/health`. Inspect service status without printing environment/secret values.
 4. Bootstrap once with `POST /v1/setup`, the `X-Bootstrap-Token` header and seller/campaign/admin details over HTTPS. Remove the bootstrap value from routine operator access afterwards; setup cannot initialize a second first workspace. The platform owner can create additional isolated workspaces explicitly.

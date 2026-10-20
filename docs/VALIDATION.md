@@ -1,4 +1,10 @@
-# OpenDialer 0.2.1 acceptance
+# 0.3.0 candidate — acceptance in progress
+
+E00–E12 have scoped software receipts in [STATUS.md](STATUS.md). E13 full exact-source suites/coverage, elapsed load/resource acceptance and freeze are active. E14 packaged/native Mac and Windows updates and E15 final handoff remain open. The current installed Mac remains 0.2.1. Source commits are not a delivered update, and the historical acceptance below does not certify changed code.
+
+Current source includes the tests-first shared conversation, freeform helper/review, local follow-through, unified allocation, incremental reporting and recovery repairs. The most recent focused concurrency checks pass 10 PostgreSQL and 7 SQLite cases; the modern packaged-harness journey passes on source in both authorities. Actual packaged binaries, funded providers, hardware audio, seller source authorization and publisher trust each require their own receipts. No purchases, live calls or funded inference are implied.
+
+# Historical OpenDialer 0.2.1 acceptance
 
 Released application source is `141c73b1d3925ef652d2a8f981f3455d53159c53`; its unchanged backend was frozen from `05c08bf6e55f9752275180f3c0b59779c19232de`. Later commits contain acceptance-harness and documentation changes. The [optimization checklist](OPTIMIZATION_PLAN.md), [execution log](STATUS.md), preserved specification and [0.1.1 record](VALIDATION_0.1.1.md) retain the requirements and red/green history.
 
