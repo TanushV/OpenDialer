@@ -62,7 +62,7 @@ for (const connected of [false, true]) {
             .getByLabel("Authorized area codes (comma separated)")
             .fill("415, 212, 512");
           await page
-            .getByLabel("Subscription / authorization reference")
+            .getByLabel("Authorization reference")
             .fill("Synthetic registry authority");
           await page.getByLabel("Dataset refreshed on").fill("2026-10-14");
           await page

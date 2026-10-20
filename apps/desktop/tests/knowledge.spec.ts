@@ -186,6 +186,8 @@ test("published knowledge withdraws obsolete live advice without changing the ac
     call = {
       id: "knowledge-live-call",
       version: 1,
+      // A real call always carries its transcript version; updates compare it.
+      transcript_version: 0,
       lead_id: data.leads[0].id,
       rep_id: data.user.id,
       state: "HUMAN",

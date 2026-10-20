@@ -52,6 +52,7 @@ export function ProductKnowledge() {
         prohibited_claims: lines(draft.limits),
         cards: draft.cards,
         reason: draft.reason,
+        // An administrator's explicit publication is the approval decision; it is audited.
         approved: true,
         expected_previous_id: draft.id,
         expected_previous_version: draft.version,

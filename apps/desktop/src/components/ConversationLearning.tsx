@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { date, label, useWorkspace } from "../context";
+import { date, label, percent, useWorkspace } from "../context";
 
 interface Alias {
   field: "concept" | "approach";
@@ -108,8 +108,8 @@ export function ConversationLearning() {
             <p key={index}>
               {pattern.concept} · {pattern.approach || "Response unobserved"} ·{" "}
               {pattern.samples} contacts · observed conversion interval{" "}
-              {Math.round(100 * pattern.conversion_low)}–
-              {Math.round(100 * pattern.conversion_high)}%. {pattern.reason}
+              {percent(pattern.conversion_low, "Unknown", 0)}–
+              {percent(pattern.conversion_high, "Unknown", 0)}. {pattern.reason}
             </p>
           ))}
           <p className="small muted">{data.report.limitations}</p>

@@ -1,8 +1,8 @@
-import { native } from "../api/client";
+import { localEdit, native } from "../api/client";
 import { useEffect, useRef, useState } from "react";
 import { label, useWorkspace } from "../context";
+import { limits, useDefinitions } from "../state/definitions";
 import { DncScreeningPanel } from "./DncScreeningPanel";
-import { localEdit } from "../api/client";
 
 type AccountRate = {
   values: Record<string, string>;
@@ -50,8 +50,36 @@ type Policy = {
     dnc: Cost & { prepaid_minimum_usd: number; credits: number };
   };
 };
+const money = (value: number | string | null | undefined) =>
+  value == null ? "quote required" : `$${value}`;
+/** A component's published reference rate in plain words; generic fields otherwise. */
+function reference(name: string, cost: Cost) {
+  const c = cost as Cost & Record<string, number | null>;
+  switch (name) {
+    case "voice":
+      return `${money(c.api_per_minute_usd)}/min API + destination termination; agent leg billed separately`;
+    case "stt":
+      return `Soniox ${money(c.soniox_per_minute_usd)}/min; Parakeet ${money(c.parakeet_per_minute_usd)}/min. Verify tracks and rounding.`;
+    case "cerebras":
+      return `${money(c.input_per_million_usd)}/M input, ${money(c.output_per_million_usd)}/M output tokens + platform fees (${(c.platform_fee_fraction ?? 0) * 100}% reference)`;
+    case "dnc":
+      return `${money(c.prepaid_minimum_usd)} / ${(c.credits ?? 0).toLocaleString("en-US")} queries; no recurring charge. Seller access is separate.`;
+    case "number_rental":
+      return `From ${money(c.from_monthly_usd)}/month. Existing rental obligations remain; new recurring commitments blocked.`;
+    default:
+      return cost.rate_fields.length
+        ? cost.rate_fields
+            .map((field) => `${label(field)}: ${money(c[field])}`)
+            .join("; ")
+        : "No usage charge";
+  }
+}
+
 export function OperatingPolicySettings() {
   const { api, run, notice, configureCredential } = useWorkspace();
+  const bounds = useDefinitions();
+  const o = bounds?.operating;
+  const r = bounds?.dnc_refresh;
   const [policy, setPolicy] = useState<Policy | null>(null);
   const [credential, setCredential] = useState<{
     version: number;
@@ -154,8 +182,7 @@ export function OperatingPolicySettings() {
               Seconds between rep-only context refreshes
               <input
                 type="number"
-                min={3}
-                max={60}
+                {...limits(o?.auto_coach_interval_seconds)}
                 value={policy.auto_coach_interval_seconds}
                 onChange={(e) =>
                   setPolicy({
@@ -231,7 +258,7 @@ export function OperatingPolicySettings() {
                 {title}
                 <input
                   type="number"
-                  min={policy.dnc_refresh.enabled ? "0.000001" : "0"}
+                  min={limits(r?.[field]).min}
                   step="0.000001"
                   required
                   value={policy.dnc_refresh[field]}
@@ -251,8 +278,7 @@ export function OperatingPolicySettings() {
               Screening interval (hours)
               <input
                 type="number"
-                min={24}
-                max={168}
+                {...limits(r?.interval_hours)}
                 required
                 value={policy.dnc_refresh.interval_hours}
                 onChange={(e) =>
@@ -270,8 +296,7 @@ export function OperatingPolicySettings() {
               Endpoints per screening page
               <input
                 type="number"
-                min={1}
-                max={500}
+                {...limits(r?.batch_size)}
                 required
                 value={policy.dnc_refresh.batch_size}
                 onChange={(e) =>
@@ -289,8 +314,7 @@ export function OperatingPolicySettings() {
               Maximum national source age (days)
               <input
                 type="number"
-                min={1}
-                max={31}
+                {...limits(o?.dnc_source_max_age_days)}
                 required
                 value={policy.dnc_source_max_age_days}
                 onChange={(e) =>
@@ -318,66 +342,52 @@ export function OperatingPolicySettings() {
           </button>
         </form>
       )}
-      <details>
-        <summary>PAYG cost outline</summary>
-        {policy && (
-          <table>
+      {policy && (
+        <details>
+          <summary>PAYG cost outline</summary>
+          <table aria-label="Usage cost register">
             <thead>
               <tr>
-                <th>Component</th>
-                <th>Published estimate</th>
+                <th>Component / unit</th>
+                <th>Published reference</th>
+                <th>Cost boundary</th>
+                <th>Source</th>
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <td>Voice</td>
-                <td>
-                  ${policy.costs.voice.api_per_minute_usd}/min API + destination
-                  termination; agent leg billed separately
-                </td>
-              </tr>
-              <tr>
-                <td>Transcription</td>
-                <td>
-                  Soniox ${policy.costs.stt.soniox_per_minute_usd}/min; Parakeet
-                  ${policy.costs.stt.parakeet_per_minute_usd}/min. Verify tracks
-                  and rounding.
-                </td>
-              </tr>
-              <tr>
-                <td>Cerebras via OpenRouter</td>
-                <td>
-                  ${policy.costs.cerebras.input_per_million_usd}/M input, $
-                  {policy.costs.cerebras.output_per_million_usd}/M output tokens
-                  + platform fees (
-                  {policy.costs.cerebras.platform_fee_fraction * 100}%
-                  reference)
-                </td>
-              </tr>
-              <tr>
-                <td>Prepaid DNC</td>
-                <td>
-                  ${policy.costs.dnc.prepaid_minimum_usd} /{" "}
-                  {policy.costs.dnc.credits.toLocaleString("en-US")} queries; no
-                  recurring charge. Seller access is separate.
-                </td>
-              </tr>
-              <tr>
-                <td>Numbers</td>
-                <td>
-                  Existing rental obligations remain; new recurring commitments
-                  blocked
-                </td>
-              </tr>
+              {Object.entries(policy.costs).map(([name, cost]) => (
+                <tr key={name}>
+                  <td>
+                    {label(name)} · {cost.unit}
+                  </td>
+                  <td>{reference(name, cost)}</td>
+                  <td>
+                    {label(cost.classification)}.{" "}
+                    {cost.basis ? cost.basis + ". " : ""}Minimum funding:{" "}
+                    {cost.minimum_funding_usd === null
+                      ? "account-dependent"
+                      : `$${cost.minimum_funding_usd}`}
+                    .
+                  </td>
+                  <td>
+                    <a href={cost.source_url} target="_blank" rel="noreferrer">
+                      Reference
+                    </a>{" "}
+                    · {cost.checked_at}
+                    {cost.account_rate_override &&
+                      ` · Account rate: ${cost.account_rate_override.source_reference}`}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
-        )}
-        <p className="fine">
-          Reference prices checked {policy?.rates_checked_at || "unavailable"}.
-          Taxes, route fees and actual provider receipts govern. No account is
-          funded automatically.
-        </p>
-      </details>
+          <p className="fine">
+            Reference prices checked {policy.rates_checked_at || "unavailable"}.
+            Taxes, route fees and actual provider receipts govern. No account is
+            funded automatically.
+          </p>
+        </details>
+      )}
       {policy && (
         <details>
           <summary>Account rate estimates</summary>
@@ -429,14 +439,7 @@ export function OperatingPolicySettings() {
             </label>
             <p className="fine">
               Unit: {policy.costs[rateComponent].unit}. Reference checked{" "}
-              {policy.costs[rateComponent].checked_at}.{" "}
-              <a
-                href={policy.costs[rateComponent].source_url}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Published source
-              </a>
+              {policy.costs[rateComponent].checked_at}.
             </p>
             <div className="two-column">
               {policy.costs[rateComponent].rate_fields.map((field) => (
@@ -492,40 +495,10 @@ export function OperatingPolicySettings() {
             >
               Save account rate estimate
             </button>
+            {!Object.values(rateDraft.values).some((v) => v !== "") && (
+              <p className="fine">Enter at least one account rate to save.</p>
+            )}
           </form>
-          <table>
-            <thead>
-              <tr>
-                <th>Component / unit</th>
-                <th>Cost boundary</th>
-                <th>Source</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.entries(policy.costs).map(([name, cost]) => (
-                <tr key={name}>
-                  <td>
-                    {label(name)} · {cost.unit}
-                  </td>
-                  <td>
-                    {label(cost.classification)}. {cost.basis} Minimum funding:{" "}
-                    {cost.minimum_funding_usd === null
-                      ? "account-dependent"
-                      : `$${cost.minimum_funding_usd}`}
-                    .
-                  </td>
-                  <td>
-                    <a href={cost.source_url} target="_blank" rel="noreferrer">
-                      Reference
-                    </a>{" "}
-                    · {cost.checked_at}
-                    {cost.account_rate_override &&
-                      ` · Account rate: ${cost.account_rate_override.source_reference}`}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         </details>
       )}
       <h3>Prepaid DNC screening</h3>
