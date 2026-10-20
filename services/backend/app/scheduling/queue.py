@@ -98,24 +98,22 @@ class ReservationPlanner:
 
         # Keyset pages bound each request while preserving progress past denied candidates.
         # This is a ranking hint only; every eventual claim rechecks permission.
+        # A pass starts at the head and may continue over several requests; reaching its end
+        # reports exhaustion, and the next request starts a fresh pass at the head, so newly due
+        # or changed work there is never skipped.
         cursors = self.__dict__.setdefault("_queue_cursors", OrderedDict())
         key = (p["tenant_id"], p["seller_id"], p["user_id"], campaign_id)
-        after = cursors.pop(key, None)
-        revisit_head = after is not None
-        reasons = set()
+        after, reasons = cursors.pop(key, (None, frozenset()))
+        reasons = set(reasons)
         for _ in range(PAGES):
             plan, last, denied, complete = self._selection_page(p, campaign_id, after)
             reasons.update(denied)
             if plan:
                 return plan
             if complete:
-                if revisit_head:
-                    # Revisit the head once so newly due/changed work is not skipped.
-                    after, revisit_head = None, False
-                    continue
                 fail(409, {"code": "NO_ELIGIBLE_LEADS", "reasons": sorted(reasons)})
             after = last
-        cursors[key] = after
+        cursors[key] = (after, frozenset(reasons))
         while len(cursors) > 256:
             cursors.popitem(last=False)
         fail(409, {"code": "QUEUE_SCAN_CONTINUES", "reasons": sorted(reasons), "retryable": True})
