@@ -649,9 +649,8 @@ def test_trial_count_reducer_preserves_matured_and_original_denominators(clock):
         {"lead_id": "b", "arm": "candidate", "assigned_at": assigned, "covered": True, "policy_unknown": 0},
         {"lead_id": "c", "arm": "candidate", "assigned_at": pending, "covered": False, "policy_unknown": 1},
     ]
-    events = [
-        {"lead_id": "b", "kind": "meeting_held", "occurred_at": (clock.now - timedelta(days=2)).isoformat()}
-    ]
+    known = (clock.now - timedelta(days=2)).isoformat()
+    events = [{"lead_id": "b", "kind": "meeting_held", "occurred_at": known, "recorded_at": known}]
     counts = {}
     for assignment in records:
         for key, value in learning.trial_values(
