@@ -217,7 +217,7 @@ def test_load_retains_errors_caught_inside_actual_maintenance_or_job_runner(
             tenant_id=p["tenant_id"],
         )
     monkeypatch.setattr(measure, "run_for", lambda seconds, cycle: cycle(0))
-    monkeypatch.setattr(measure, "call_cycle", lambda *args: {"ok": True})
+    monkeypatch.setattr(measure, "call_cycle", lambda *args, **kwargs: {"ok": True})
     measured = measure.Measurements(service)
     with measured.instrument():
         result = measure.run_load(
@@ -275,3 +275,36 @@ def test_queue_recovery_reports_failed_work_waiting_for_its_future_retry(workspa
     assert result["queue_samples"][-1]["due"] == 0
     assert result["queue_samples"][-1]["retry"] == 1, "A future failed queued job is still unresolved"
     assert result["status"] == "failed"
+
+
+def test_load_cycle_leaves_webhook_processing_to_the_runtime_lane(workspace, app, monkeypatch):
+    """Production only receives webhooks and the lane processes them; the harness must not race it."""
+    from collections import Counter
+
+    service, p = app.state.service, principal(workspace)
+    invocations, original = Counter(), service._process_webhook
+
+    def counted(tenant_id, receipt_id):
+        invocations[receipt_id] += 1
+        return original(tenant_id, receipt_id)
+
+    monkeypatch.setattr(service, "_process_webhook", counted)
+    monkeypatch.setattr(measure, "run_for", lambda seconds, cycle: {"samples": [cycle(0)]})
+    measured = measure.Measurements(service)
+    with measured.instrument():
+        result = measure.run_load(
+            workspace["client"],
+            workspace["headers"],
+            workspace["campaign_id"],
+            measured,
+            1,
+            lambda _: None,
+            p=p,
+            reps=1,
+            recovery_seconds=5,
+        )
+    cycle = result["samples"][0]
+    assert cycle["ok"], cycle
+    assert cycle["reps"][0]["paths"]["event_state"]["ok"]
+    assert invocations and set(invocations.values()) == {1}, dict(invocations)
+    assert not [e for e in result["background"]["errors"] if e.get("queue") == "webhook"]

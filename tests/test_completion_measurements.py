@@ -407,7 +407,7 @@ def test_load_runs_production_lanes_for_every_configured_queue_at_their_own_cade
             constructed.append(list(queues))
             super().__init__(service, queues=queues)
 
-    def cycle(*args):
+    def cycle(*args, **kwargs):
         # One 10-second load cycle used to run maintenance and one drain once.
         # Production lanes keep running inside a single cycle.
         deadline = time.monotonic() + 15
@@ -440,7 +440,7 @@ def test_load_runs_production_lanes_for_every_configured_queue_at_their_own_cade
 def test_load_keeps_swallowed_lane_errors_and_maintenance_exceptions_and_fails(tmp_path, monkeypatch):
     m = measurement()
     service, lanes = lane_service(tmp_path, m, failing_queue="postcall", raise_maintenance=True)
-    monkeypatch.setattr(m, "call_cycle", lambda *args: completed_cycle())
+    monkeypatch.setattr(m, "call_cycle", lambda *args, **kwargs: completed_cycle())
     result = run_load_with_portal(m, service)
     errors = result["background"]["errors"]
     assert any(
@@ -460,7 +460,7 @@ def test_load_keeps_swallowed_lane_errors_and_maintenance_exceptions_and_fails(t
 def test_slow_selection_under_load_fails_even_when_every_cycle_was_ok(tmp_path, monkeypatch):
     m = measurement()
     service, _ = lane_service(tmp_path, m)
-    monkeypatch.setattr(m, "call_cycle", lambda *args: completed_cycle(selection=400.0, start=5000.0))
+    monkeypatch.setattr(m, "call_cycle", lambda *args, **kwargs: completed_cycle(selection=400.0, start=5000.0))
     result = run_load_with_portal(m, service)
     assert all(sample["ok"] for sample in result["samples"])
     assert result["paths"]["selection"]["status"] == "failed"

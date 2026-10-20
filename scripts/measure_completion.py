@@ -55,6 +55,7 @@ LOAD_TARGETS_MS = {
 }
 LOAD_REPORTED = ("start", "cleanup_hangup", "pause")
 RECOVERY_SECONDS = 120
+LANE_SETTLE_SECONDS = 10
 MAINTENANCE_LANES = {"maintenance", "call_control"}
 # Writer attribution skips transaction and executor plumbing; the first frame is the caller.
 SKIPPED_MODULES = {"contextlib", "threading", "app.db"}
@@ -999,8 +1000,14 @@ def run_requests(service, p, campaign, reps, measurement, checkpoint):
     }
 
 
-def call_cycle(client, headers, campaign, measured, identity, *, simulated_seconds=0, callback=False):
-    """One actual HTTP control journey with simulated carrier; no paid endpoint."""
+def call_cycle(
+    client, headers, campaign, measured, identity, *, simulated_seconds=0, callback=False, runtime=False
+):
+    """One actual HTTP control journey with simulated carrier; no paid endpoint.
+
+    With `runtime`, the production lanes are running: as in production, the webhook lane is the
+    only processor of a received event, so event-to-state waits for it instead of racing it.
+    """
     service = client.app.state.service
     assert service.settings.simulation, "Measurement cannot run on a live authority"
     paths, call, begun, outcome = {}, None, time.perf_counter(), {}
@@ -1016,6 +1023,22 @@ def call_cycle(client, headers, campaign, measured, identity, *, simulated_secon
         if not row["ok"]:
             raise RuntimeError("Measured path failed: " + name)
         return value
+
+    def settle(tenant_id, receipt_id):
+        if not runtime:
+            return service._process_webhook(tenant_id, receipt_id)
+        from app.db import MODELS
+        from sqlalchemy import select
+
+        inbox, deadline = MODELS["webhook_inbox"], time.monotonic() + LANE_SETTLE_SECONDS
+        while True:
+            with service.db.transaction(False) as s:
+                status = s.scalar(select(inbox.op_status).where(inbox.id == receipt_id))
+            if status in {"processed", "expired_raw"}:
+                return {"received": True, "status": status}
+            if time.monotonic() >= deadline:
+                raise TimeoutError("The webhook lane did not process the receipt")
+            time.sleep(0.002)
 
     try:
         request(
@@ -1062,9 +1085,7 @@ def call_cycle(client, headers, campaign, measured, identity, *, simulated_secon
                 },
             }
             digest = hashlib.sha256(json.dumps(initiated, sort_keys=True).encode()).hexdigest()
-            service._process_webhook(
-                tenant, service._receive_webhook(tenant, initiated, digest)["receipt_id"]
-            )
+            settle(tenant, service._receive_webhook(tenant, initiated, digest)["receipt_id"])
             record("recovery", lambda: request("POST", "/v1/admin/recovery"))
             call = request("GET", f"/v1/calls/{call['id']}")
         provider_event = {
@@ -1098,7 +1119,7 @@ def call_cycle(client, headers, campaign, measured, identity, *, simulated_secon
                 hashlib.sha256(json.dumps(provider_event, sort_keys=True).encode()).hexdigest(),
             ),
         )
-        record("event_state", lambda: service._process_webhook(p["tenant_id"], receipt["receipt_id"]))
+        record("event_state", lambda: settle(p["tenant_id"], receipt["receipt_id"]))
         request(
             "POST",
             f"/v1/calls/{call['id']}/transcript",
@@ -1573,7 +1594,7 @@ def run_load(
     def cycle(index):
         with ThreadPoolExecutor(max_workers=reps) as pool:
             calls = [
-                pool.submit(call_cycle, client, h, campaign, measured, f"load-{index}-{rep}")
+                pool.submit(call_cycle, client, h, campaign, measured, f"load-{index}-{rep}", runtime=True)
                 for rep, h in enumerate(rep_headers)
             ]
             results = [future.result() for future in calls]
