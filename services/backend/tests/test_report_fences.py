@@ -40,16 +40,20 @@ def statements(service):
         event.remove(service.db.engine, "commit", commit)
 
 
-def write_transactions_in(seen):
-    """SQLite write transactions: BEGIN IMMEDIATE ... COMMIT."""
-    result, current = [], None
+def write_transactions_in(seen, *, sqlite=True):
+    """Write transactions in execution order.
+
+    SQLite marks them with BEGIN IMMEDIATE. PostgreSQL begins implicitly, so every
+    statement run between two COMMITs that contains a write is one write transaction.
+    """
+    result, current = [], None if sqlite else []
     for statement in seen:
-        if statement.startswith("BEGIN IMMEDIATE"):
+        if sqlite and statement.startswith("BEGIN IMMEDIATE"):
             current = []
         elif statement == "COMMIT":
-            if current is not None:
+            if current is not None and (sqlite or any(WRITE.match(s) for s in current)):
                 result.append(current)
-            current = None
+            current = None if sqlite else []
         elif current is not None:
             current.append(statement)
     return result
@@ -71,7 +75,11 @@ def test_call_write_bumps_the_report_revision_as_its_last_write(workspace, app):
     call = start(workspace)
     with statements(service) as seen:
         finish(workspace, call)
-    bumped = [t for t in write_transactions_in(seen) if any("report_revisions" in s for s in t)]
+    bumped = [
+        t
+        for t in write_transactions_in(seen, sqlite=service.db.sqlite)
+        if any("report_revisions" in s for s in t)
+    ]
     assert bumped, "A disposition changes report inputs and must bump the seller revision"
     for transaction in bumped:
         writes = [s for s in transaction if WRITE.match(s)]
@@ -91,7 +99,7 @@ def test_projection_refresh_and_rebuild_never_touch_the_revision_row(workspace, 
         for page in range(20):
             if rebuild_page(service, p, start=page == 0)["published"]:
                 break
-    transactions = write_transactions_in(seen)
+    transactions = write_transactions_in(seen, sqlite=service.db.sqlite)
     assert transactions, "The fixture must exercise derived writes"
     touched = [s for t in transactions for s in t if "report_revisions" in s]
     assert touched == [], touched[:3]
