@@ -1,11 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { date, label, useWorkspace } from "../context";
-import { TrialControls, type ControlledComparison } from "./TrialControls";
-import { ConversationLearning } from "./ConversationLearning";
-import { Staffing, type StaffedWindow, type SimpleStaffing } from "./Staffing";
+import { date, isAdmin, label, percent, useWorkspace } from "../context";
+import { limits, useDefinitions } from "../state/definitions";
+import { Experiments, type ControlledComparison } from "./TrialControls";
+import { DatedStaffing, type StaffedWindow } from "./Staffing";
 import type { EstimatePolicy } from "../types";
 
-interface OptimizationSettings extends SimpleStaffing {
+export interface HealthPolicy {
+  min_comparable: number;
+  material_drop: number;
+  confidence: number;
+  window_days: number;
+  callback_proof_days: number;
+}
+export interface OptimizationSettings {
   conversion_goal: string;
   window_days: number;
   exploration: number;
@@ -17,65 +24,18 @@ interface OptimizationSettings extends SimpleStaffing {
   training_min_rows: number;
   staffed_windows: StaffedWindow[];
   additional_ready_after_hours: number;
+  staffing_timezone: string;
+  staffing_start_hour: number;
+  staffing_end_hour: number;
+  staffing_reps: number;
+  staffing_weekdays: number[];
+  account_channel_limit: number | null;
+  minimum_expansion_age_hours: number;
   estimate_policy?: EstimatePolicy;
-  health_policy?: {
-    min_comparable: number;
-    material_drop: number;
-    confidence: number;
-    window_days: number;
-    callback_proof_days: number;
-  };
+  health_policy?: HealthPolicy;
 }
-interface GoalPreview {
-  campaign_version: number;
-  from_goal: string;
-  to_goal: string;
-  completed_before: number;
-  completed_after: number;
-  requires_next_action: number;
-  preserved_holds: number;
-  preserved_callbacks: number;
-}
-interface OptimizationReport {
+export interface OptimizationReport {
   settings: OptimizationSettings;
-  forecast: {
-    capacity_shortfall: number | null;
-    staffing_shortfall: number | null;
-    number_shortfall: number | null;
-    planning_limited?: boolean;
-    screening?: {
-      cleared_count: number;
-      blocked_count: number;
-      blocked_reasons: Record<string, number>;
-      as_of: string;
-    };
-    projection?: {
-      status: "pending" | "stale" | "ready";
-      as_of: string | null;
-    };
-    regions: {
-      region: string;
-      forecast_attempts: number;
-      planned_attempts: number;
-      usable_existing_capacity: number;
-      general_fallback_capacity: number;
-      capacity_waiting_for_review: number;
-      proposed_additional: number | null;
-    }[];
-  };
-  numbers: {
-    id: string;
-    phone: string;
-    daily_limit: number;
-    lifecycle: string;
-    active_obligations: number;
-    health: {
-      score: number | null;
-      samples: number;
-      status: string;
-      reason: string;
-    };
-  }[];
   metrics: {
     original_eligible_leads: number;
     unique_conversions: number;
@@ -89,12 +49,10 @@ interface OptimizationReport {
     pending_rows: number;
     positive_conversions: number;
     missing_snapshot_calls: number;
-    snapshots: { id: string; rows: number; goal: string; as_of: string }[];
   };
   decisions: {
     id: string;
     lead_id: string;
-    action: string;
     propensity: number;
     experiment_arm: string;
     allocation?: { reason: string; reassignment_reason: string | null };
@@ -102,15 +60,11 @@ interface OptimizationReport {
   future_slots: {
     lead_id: string;
     at: string;
-    local_hour: number;
     reason: string;
     name: string;
   }[];
   drift: {
     action: string;
-    drift_detected: boolean;
-    recent_brier: number | null;
-    reference_brier: number | null;
     model_versions?: string[];
     missingness_shift?: boolean;
     windows?: string;
@@ -146,18 +100,9 @@ interface OptimizationReport {
   cohort_history: string[];
   coaching: {
     reviewed_cards: number;
-    latency_support?: Record<string, number>;
-    latency_quantization?: { upper_bounds: boolean };
     useful_fraction: number | null;
     grounded_fraction: number | null;
     timely_fraction: number | null;
-    distracting_fraction: number | null;
-    p95_inference_ms: number | null;
-    p95_delivery_ms: number | null;
-    p95_state_ms: number | null;
-    p95_retrieval_ms: number | null;
-    p95_event_to_render_ms: number | null;
-    p95_render_ms: number | null;
   };
 }
 interface ReportProjection {
@@ -166,45 +111,36 @@ interface ReportProjection {
   calculated_settings?: OptimizationSettings;
   refresh_status?: string | null;
   refresh_error?: string | null;
-  job_id?: string | null;
 }
 type ReportResponse =
   | (OptimizationReport & { projection: ReportProjection })
   | { settings: OptimizationSettings; projection: ReportProjection };
 
-const percent = (value: number | null | undefined) =>
-  value == null ? "Awaiting evidence" : (100 * value).toFixed(1) + "%";
-
-export function OptimizationPanel({
-  numbersOnly = false,
-}: {
-  numbersOnly?: boolean;
-}) {
-  const { api, run, notice, refresh, snapshot: w, subscribe } = useWorkspace();
+/** One saved-report read; pending, stale and failed reads are explicit and retryable. */
+export function useOptimizationReport() {
+  const { api, subscribe } = useWorkspace();
   const [response, setResponse] = useState<ReportResponse | null>(null);
-  const report = response && "metrics" in response ? response : null;
+  const [error, setError] = useState("");
   const epoch = useRef<string | null>(null);
   const requestVersion = useRef(0);
-  const [settings, setSettings] = useState<OptimizationSettings | null>(null);
-  const dirty = useRef(false);
-  const [goalPreview, setGoalPreview] = useState<GoalPreview | null>(null);
-  const [replay, setReplay] = useState("");
-  const [replayReference, setReplayReference] = useState("");
-  const [replayResult, setReplayResult] = useState<string | null>(null);
-  const [cohortReportId, setCohortReportId] = useState("");
-  const admin = ["owner", "admin"].includes(w.user.role);
   const load = useCallback(async () => {
     const version = ++requestVersion.current;
-    const next = await api<ReportResponse>(
-      "/v1/optimization" +
-        (epoch.current ? "?epoch=" + encodeURIComponent(epoch.current) : ""),
-    );
-    if (version !== requestVersion.current) return;
-    setResponse(next);
-    if (!dirty.current) setSettings(next.settings);
+    try {
+      const next = await api<ReportResponse>(
+        "/v1/optimization" +
+          (epoch.current ? "?epoch=" + encodeURIComponent(epoch.current) : ""),
+      );
+      if (version !== requestVersion.current) return;
+      setResponse(next);
+      setError("");
+    } catch (reason) {
+      if (version === requestVersion.current)
+        setError(reason instanceof Error ? reason.message : String(reason));
+      throw reason;
+    }
   }, [api]);
   useEffect(() => {
-    void run(load);
+    void load().catch(() => {});
     let pending: ReturnType<typeof setTimeout> | null = null;
     const stop = subscribe((events) => {
       if (
@@ -219,7 +155,7 @@ export function OptimizationPanel({
       )
         pending = setTimeout(() => {
           pending = null;
-          void run(load);
+          void load().catch(() => {});
         }, 150);
     });
     return () => {
@@ -227,72 +163,105 @@ export function OptimizationPanel({
       requestVersion.current++;
       if (pending) clearTimeout(pending);
     };
-  }, [load, run, subscribe]);
-  if (!response || !settings)
-    return <p className="fine">Loading allocation and learning evidence…</p>;
-  const change = <K extends keyof OptimizationSettings>(
-    key: K,
-    value: OptimizationSettings[K],
-  ) => {
-    dirty.current = true;
-    setGoalPreview(null);
-    setSettings({ ...settings, [key]: value });
+  }, [load, subscribe]);
+  const selectEpoch = useCallback(
+    async (value: string | null) => {
+      epoch.current = value;
+      setResponse(null);
+      await load();
+    },
+    [load],
+  );
+  const report = response && "metrics" in response ? response : null;
+  return {
+    response,
+    report,
+    error,
+    load,
+    epoch: epoch.current,
+    selectEpoch,
   };
-  return (
-    <>
-      {!numbersOnly && <ConversationLearning />}
+}
+export type ReportState = ReturnType<typeof useOptimizationReport>;
+
+function ReportStatus({ state }: { state: ReportState }) {
+  const { run } = useWorkspace();
+  const projection = state.response?.projection;
+  if (!state.response)
+    return (
       <section className="card padded" aria-label="Report freshness">
-        <p>
-          {response.projection.status === "pending"
-            ? "Preparing the first report in the background."
-            : response.projection.refresh_status === "dead"
-              ? "Saved report; refresh failed. Review the job in Recovery."
-              : response.projection.status === "stale"
-                ? "Showing saved evidence while the report refreshes."
-                : "Report is current."}
+        <p role="status">
+          {state.error
+            ? `Learning evidence could not be loaded: ${state.error}`
+            : "Loading allocation and learning evidence…"}
         </p>
-        {response.projection.as_of && (
-          <p className="fine">Calculated {date(response.projection.as_of)}.</p>
-        )}
-        {response.projection.calculated_settings && (
-          <p className="fine">
-            Calculated for{" "}
-            {label(
-              response.projection.calculated_settings.conversion_goal,
-            ).toLowerCase()}
-            , {response.projection.calculated_settings.window_days} days
-            {response.projection.status === "stale"
-              ? "; totals may differ from current settings."
-              : "."}
-          </p>
-        )}
-        {response.projection.refresh_error &&
-          response.projection.refresh_status !== "dead" && (
-            <p className="fine">
-              The last refresh failed; a bounded retry is pending.
-            </p>
-          )}
-        {response.projection.status !== "ready" && (
-          <button className="secondary" onClick={() => void run(load)}>
-            Check report status
-          </button>
-        )}
-        {epoch.current && (
-          <button
-            className="secondary"
-            onClick={() =>
-              void run(async () => {
-                epoch.current = null;
-                setResponse(null);
-                await load();
-              })
-            }
-          >
-            Return to current cohort
+        {state.error && (
+          <button className="secondary" onClick={() => void run(state.load)}>
+            Retry loading the report
           </button>
         )}
       </section>
-      {!numbersOnly && (
+    );
+  return (
+    <section className="card padded" aria-label="Report freshness">
+      <p>
+        {projection?.status === "pending"
+          ? "Preparing the first report in the background."
+          : projection?.refresh_status === "dead"
+            ? "Saved report; refresh failed. Review the job in Recovery."
+            : projection?.status === "stale"
+              ? "Showing saved evidence while the report refreshes."
+              : "Report is current."}
+      </p>
+      {projection?.as_of && (
+        <p className="fine">Calculated {date(projection.as_of)}.</p>
+      )}
+      {projection?.calculated_settings && (
+        <p className="fine">
+          Calculated for{" "}
+          {label(projection.calculated_settings.conversion_goal).toLowerCase()},{" "}
+          {projection.calculated_settings.window_days} days
+          {projection.status === "stale"
+            ? "; totals may differ from current settings."
+            : "."}
+        </p>
+      )}
+      {projection?.refresh_error && projection.refresh_status !== "dead" && (
+        <p className="fine">
+          The last refresh failed; a bounded retry is pending.
+        </p>
+      )}
+      {state.error && (
+        <p role="status" className="notice">
+          The latest read failed: {state.error}
+        </p>
+      )}
+      {projection?.status !== "ready" && (
+        <button className="secondary" onClick={() => void run(state.load)}>
+          Check report status
+        </button>
+      )}
+      {state.epoch && (
+        <button
+          className="secondary"
+          onClick={() => void run(() => state.selectEpoch(null))}
+        >
+          Return to current cohort
+        </button>
+      )}
+    </section>
+  );
+}
+
+/** Intelligence: measured outcomes for the saved goal. Configuration lives in Settings. */
+export function OptimizationPanel() {
+  const { api, run, notice, refresh, snapshot: w } = useWorkspace();
+  const state = useOptimizationReport();
+  const { response, report } = state;
+  return (
+    <>
+      <ReportStatus state={state} />
+      {response && (
         <section className="card padded optimization-panel">
           <span className="eyebrow">PICKUP AND CONVERSION</span>
           <h2>Learn from the whole eligible cohort</h2>
@@ -302,766 +271,349 @@ export function OptimizationPanel({
               {report.metrics.original_eligible_leads} original eligible leads.{" "}
               {report.metrics.unique_right_party} people reached. Conversion
               rate:{" "}
-              {percent(report.metrics.conversion_per_original_eligible_lead)}.
+              {percent(
+                report.metrics.conversion_per_original_eligible_lead,
+                "Awaiting evidence",
+              )}
+              .
             </p>
           )}
-          {admin && (
-            <>
-              <div className="optimization-fields">
-                <label>
-                  Conversion goal
-                  <select
-                    value={settings.conversion_goal}
-                    onChange={(e) => change("conversion_goal", e.target.value)}
-                  >
-                    <option value="qualified_conversation">
-                      Qualified conversation
-                    </option>
-                    <option value="meeting_held">Held meeting</option>
-                    <option value="sale_won">Won sale</option>
-                  </select>
-                </label>
-                <label>
-                  Outcome window (days)
-                  <input
-                    type="number"
-                    min={1}
-                    max={180}
-                    value={settings.window_days}
-                    onChange={(e) =>
-                      change("window_days", Number(e.target.value))
-                    }
-                  />
-                </label>
-                <label>
-                  Exploration share
-                  <input
-                    type="number"
-                    min={0}
-                    max={0.3}
-                    step={0.01}
-                    value={settings.exploration}
-                    onChange={(e) =>
-                      change("exploration", Number(e.target.value))
-                    }
-                  />
-                </label>
-                <label>
-                  Forecast horizon (hours)
-                  <input
-                    type="number"
-                    min={1}
-                    max={168}
-                    value={settings.horizon_hours}
-                    onChange={(e) =>
-                      change("horizon_hours", Number(e.target.value))
-                    }
-                  />
-                </label>
-                <label>
-                  Available rep minutes
-                  <input
-                    type="number"
-                    min={0}
-                    value={settings.rep_minutes}
-                    onChange={(e) =>
-                      change("rep_minutes", Number(e.target.value))
-                    }
-                  />
-                </label>
-                <label>
-                  Average handling time (seconds)
-                  <input
-                    type="number"
-                    min={10}
-                    value={settings.handling_seconds}
-                    onChange={(e) =>
-                      change("handling_seconds", Number(e.target.value))
-                    }
-                  />
-                </label>
-                <label>
-                  Reviewed daily capacity per number
-                  <input
-                    type="number"
-                    min={1}
-                    value={settings.daily_capacity_per_number}
-                    onChange={(e) =>
-                      change(
-                        "daily_capacity_per_number",
-                        Number(e.target.value),
-                      )
-                    }
-                  />
-                </label>
-                <label>
-                  Minimum training rows
-                  <input
-                    type="number"
-                    min={100}
-                    value={settings.training_min_rows}
-                    onChange={(e) =>
-                      change("training_min_rows", Number(e.target.value))
-                    }
-                  />
-                </label>
-              </div>
-              {settings.estimate_policy && (
-                <details>
-                  <summary>Sparse estimate assumptions</summary>
-                  <p className="fine">
-                    Starting weights apply until observed outcomes provide
-                    support. Changing these assumptions requires renewed model
-                    evaluation.
-                  </p>
-                  <div className="optimization-fields">
-                    {(
-                      [
-                        ["human_prior", "Human pickup"],
-                        ["right_prior", "Right party"],
-                        ["goal_prior", "Selected goal"],
-                      ] as const
-                    ).flatMap(([key, title]) =>
-                      ([0, 1] as const).map((index) => (
-                        <label key={`${key}:${index}`}>
-                          {title} prior {index === 0 ? "successes" : "failures"}
-                          <input
-                            type="number"
-                            min={0}
-                            step="any"
-                            value={settings.estimate_policy![key][index]}
-                            onChange={(e) => {
-                              const weights: [number, number] = [
-                                ...settings.estimate_policy![key],
-                              ];
-                              weights[index] = Number(e.target.value);
-                              change("estimate_policy", {
-                                ...settings.estimate_policy!,
-                                [key]: weights,
-                              });
-                            }}
-                          />
-                        </label>
-                      )),
-                    )}
-                    {(
-                      [
-                        ["shrinkage", "Pooled shrinkage weight"],
-                        ["work_prior", "Work prior attempt equivalents"],
-                      ] as const
-                    ).map(([key, title]) => (
-                      <label key={key}>
-                        {title}
-                        <input
-                          type="number"
-                          min={0}
-                          step="any"
-                          value={settings.estimate_policy![key]}
-                          onChange={(e) =>
-                            change("estimate_policy", {
-                              ...settings.estimate_policy!,
-                              [key]: Number(e.target.value),
-                            })
-                          }
-                        />
-                      </label>
-                    ))}
-                  </div>
-                </details>
-              )}
-              <Staffing
-                simple={settings}
-                onSimple={(value) => {
-                  dirty.current = true;
-                  setSettings({ ...settings, ...value });
-                }}
-                windows={settings.staffed_windows || []}
-                delay={settings.additional_ready_after_hours || 0}
-                onChange={(value) => change("staffed_windows", value)}
-                onDelay={(value) =>
-                  change("additional_ready_after_hours", value)
-                }
-              />
-              <label className="check-row">
-                <input
-                  type="checkbox"
-                  checked={settings.auto_train}
-                  onChange={(e) => change("auto_train", e.target.checked)}
-                />
-                Automatic training from call history
-              </label>
-              {settings.health_policy && (
-                <details>
-                  <summary>Advanced number evidence policy</summary>
-                  <p className="fine">
-                    These are review assumptions. A statistical warning is not
-                    proof of a carrier spam label. Changes require fresh health
-                    evaluation; calling identity is preserved.
-                  </p>
-                  <div className="optimization-fields">
-                    {(
-                      [
-                        ["min_comparable", "Minimum comparable attempts"],
-                        ["material_drop", "Material pickup drop (fraction)"],
-                        ["confidence", "Health interval confidence (fraction)"],
-                        ["window_days", "Health observation window (days)"],
-                        [
-                          "callback_proof_days",
-                          "Callback proof lifetime (days)",
-                        ],
-                      ] as const
-                    ).map(([key, title]) => (
-                      <label key={key}>
-                        {title}
-                        <input
-                          type="number"
-                          step="any"
-                          value={settings.health_policy![key]}
-                          onChange={(e) =>
-                            change("health_policy", {
-                              ...settings.health_policy!,
-                              [key]: Number(e.target.value),
-                            })
-                          }
-                        />
-                      </label>
-                    ))}
-                  </div>
-                </details>
-              )}
-              <div className="button-row">
-                <button
-                  className="secondary"
-                  onClick={() =>
-                    void run(async () => {
-                      if (
-                        settings.conversion_goal !==
-                          response.settings.conversion_goal ||
-                        settings.window_days !== response.settings.window_days
-                      ) {
-                        setGoalPreview(
-                          await api<GoalPreview>(
-                            "/v1/admin/optimization/preview",
-                            "POST",
-                            settings,
-                          ),
-                        );
-                        return;
-                      }
-                      await api("/v1/admin/optimization", "PUT", settings);
-                      dirty.current = false;
-                      await load();
-                      notice("Optimization settings saved");
-                    })
-                  }
-                >
-                  Save optimization settings
-                </button>
-                <button
-                  className="primary"
-                  onClick={() =>
-                    void run(async () => {
-                      await api("/v1/admin/optimization/refresh", "POST", {});
-                      await load();
-                      await refresh();
-                      notice("Learning and capacity refresh queued");
-                    })
-                  }
-                >
-                  Refresh learning and capacity
-                </button>
-              </div>
-              {goalPreview && (
-                <section aria-label="Review goal change" className="alert">
-                  <div>
-                    <strong>
-                      {label(goalPreview.from_goal)} →{" "}
-                      {label(goalPreview.to_goal)}
-                    </strong>
-                    <p>
-                      {goalPreview.completed_before} completed before;{" "}
-                      {goalPreview.completed_after} completed under the new
-                      goal.
-                    </p>
-                    <p>
-                      Previously completed prospects require next-action review
-                      before new outreach: {goalPreview.requires_next_action}.
-                      Existing holds: {goalPreview.preserved_holds}; callbacks:{" "}
-                      {goalPreview.preserved_callbacks}. Historical trials
-                      retain their original definition.
-                    </p>
-                    <div className="button-row">
-                      <button
-                        className="primary"
-                        onClick={() =>
-                          void run(async () => {
-                            try {
-                              await api("/v1/admin/optimization", "PUT", {
-                                ...settings,
-                                expected_campaign_version:
-                                  goalPreview.campaign_version,
-                              });
-                              dirty.current = false;
-                              await load();
-                              await refresh();
-                              notice("Optimization settings saved");
-                            } finally {
-                              setGoalPreview(null);
-                            }
-                          })
-                        }
-                      >
-                        Apply reviewed goal change
-                      </button>
-                      <button
-                        className="secondary"
-                        onClick={() => setGoalPreview(null)}
-                      >
-                        Cancel change
-                      </button>
-                    </div>
-                  </div>
-                </section>
-              )}
-              <p className="fine">
-                Callbacks, calling permissions, stable identity and coverage
-                remain mandatory. These settings do not authorize number
-                purchases.
-              </p>
-            </>
+          {response.settings.conversion_goal && (
+            <p className="fine" data-testid="saved-goal">
+              Goal: {label(response.settings.conversion_goal)} within{" "}
+              {response.settings.window_days} days.
+              {isAdmin(w.user.role) &&
+                " Change the goal and schedule in Settings → Setup."}
+            </p>
+          )}
+          {isAdmin(w.user.role) && (
+            <button
+              className="primary"
+              onClick={() =>
+                void run(async () => {
+                  await api("/v1/admin/optimization/refresh", "POST", {});
+                  await state.load();
+                  await refresh();
+                  notice("Learning and capacity refresh queued");
+                })
+              }
+            >
+              Refresh learning and capacity
+            </button>
           )}
         </section>
       )}
       {report && (
-        <section
-          className="card padded optimization-panel"
-          aria-label="Capacity before procurement"
-        >
-          <h2>Capacity before procurement</h2>
-          <p className="muted small">
-            Forecast includes due attempts, usable inventory and available rep
-            time. New rentals are blocked; proposed additions are
-            shared-capacity scenarios, not one number per area code.
-          </p>
-          {report.forecast.projection?.status === "pending" && (
-            <p className="notice">
-              Capacity estimate pending. Refresh learning and capacity to
-              prepare it.
-            </p>
-          )}
-          {report.forecast.projection?.status === "stale" && (
-            <p className="notice">
-              Capacity estimate is out of date. Refresh before acting on it.
-            </p>
-          )}
-          {report.forecast.screening && (
-            <div className="fine" aria-label="Screening constraints">
-              <p>
-                {report.forecast.screening.cleared_count}{" "}
-                {report.forecast.screening.cleared_count === 1
-                  ? "lead has"
-                  : "leads have"}{" "}
-                current screening; {report.forecast.screening.blocked_count} are
-                excluded from executable capacity.
-              </p>
-              <p>
-                Screening as of {date(report.forecast.screening.as_of)}. All
-                leads remain in list coverage totals; clearance is checked again
-                before calling.
-              </p>
-              {report.forecast.screening.blocked_count > 0 && (
-                <>
-                  <ul>
-                    {Object.entries(
-                      report.forecast.screening.blocked_reasons,
-                    ).map(([reason, count]) => (
-                      <li key={reason}>
-                        {label(reason)}: {count}
-                      </li>
-                    ))}
-                  </ul>
-                  <p>
-                    Review source authorization and current coverage in
-                    Settings. Viewing this report does not purchase screening.
-                  </p>
-                </>
-              )}
-            </div>
-          )}
+        <section className="card padded optimization-panel">
+          <h2>Future calling opportunities</h2>
           <div className="optimization-table">
             <table>
               <thead>
                 <tr>
-                  <th>Region</th>
-                  <th>Due attempts</th>
-                  <th>Rep capacity allocated</th>
-                  <th>Existing capacity</th>
-                  <th>General fallback</th>
-                  <th>Owned capacity awaiting review</th>
-                  <th>Additional numbers</th>
+                  <th>Lead</th>
+                  <th>Suggested time</th>
+                  <th>Reason</th>
                 </tr>
               </thead>
               <tbody>
-                {report.forecast.regions.map((region) => (
-                  <tr key={region.region}>
-                    <td>{region.region}</td>
-                    <td>{region.forecast_attempts}</td>
-                    <td>{region.planned_attempts}</td>
-                    <td>{region.usable_existing_capacity}</td>
-                    <td>{region.general_fallback_capacity}</td>
-                    <td>{region.capacity_waiting_for_review}</td>
-                    <td>{region.proposed_additional ?? "Not established"}</td>
+                {report.future_slots.slice(0, 12).map((slot) => (
+                  <tr key={slot.lead_id}>
+                    <td>{slot.name}</td>
+                    <td>{date(slot.at)}</td>
+                    <td>{label(slot.reason)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          {report.forecast.planning_limited ? (
-            <p className="notice">
-              Allocation is incomplete; remaining bottlenecks are not
-              established.
-            </p>
-          ) : (
-            report.forecast.capacity_shortfall !== null &&
-            report.forecast.capacity_shortfall > 0 && (
-              <p className="fine">
-                {report.forecast.staffing_shortfall} attempts exceed declared
-                rep time; {report.forecast.number_shortfall} staffed attempts
-                lack usable number capacity. These are separate constraints.
-              </p>
-            )
+          {!report.future_slots.length && (
+            <p className="fine">No future opportunities in this report.</p>
           )}
-          <h3>Observed inventory snapshot</h3>
-          <div className="optimization-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Number</th>
-                  <th>State</th>
-                  <th>Observed delivery success</th>
-                  <th>Samples</th>
-                  <th>Active obligations</th>
-                  <th>Daily limit</th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.numbers.map((n) => (
-                  <tr key={n.id}>
-                    <td>{n.phone}</td>
-                    <td>{label(n.lifecycle)}</td>
-                    <td title={n.health.reason}>{percent(n.health.score)}</td>
-                    <td>{n.health.samples}</td>
-                    <td>{n.active_obligations}</td>
-                    <td>{n.daily_limit}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="fine">
-            Health uses first-party delivery and adjusted answer evidence. A low
-            pickup rate is not proof of a carrier spam label.
-          </p>
-          <p className="fine">
-            Open a number’s evidence review in Numbers to verify callbacks or
-            change workload.
+        </section>
+      )}
+      {report && (
+        <section className="card padded optimization-panel">
+          <h2>Coaching quality</h2>
+          <p>
+            {report.coaching.reviewed_cards} reviewed cards · Useful{" "}
+            {percent(report.coaching.useful_fraction, "Awaiting evidence")} ·
+            Grounded{" "}
+            {percent(report.coaching.grounded_fraction, "Awaiting evidence")} ·
+            Timely{" "}
+            {percent(report.coaching.timely_fraction, "Awaiting evidence")}.
           </p>
         </section>
       )}
-      {!numbersOnly && report && (
-        <>
-          <section className="card padded optimization-panel">
-            <h2>Future calling opportunities</h2>
-            <div className="optimization-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Lead</th>
-                    <th>Suggested time</th>
-                    <th>Reason</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {report.future_slots.slice(0, 12).map((slot) => (
-                    <tr key={slot.lead_id}>
-                      <td>{slot.name}</td>
-                      <td>{date(slot.at)}</td>
-                      <td>{label(slot.reason)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <details>
-              <summary>Recent allocation and treatment decisions</summary>
-              {report.decisions
-                .slice(-8)
-                .reverse()
-                .map((decision) => (
-                  <p className="fine" key={decision.id}>
-                    {w.leads.find((l) => l.id === decision.lead_id)?.name ||
-                      "Retained lead"}
-                    :{" "}
-                    {label(
-                      decision.allocation?.reason || "authorized allocation",
-                    )}
-                    . {decision.allocation?.reassignment_reason} Treatment
-                    probability {percent(decision.propensity)};{" "}
-                    {label(decision.experiment_arm)}.
-                  </p>
-                ))}
-            </details>
-          </section>
-          <section className="card padded optimization-panel">
-            <h2>Operational training dataset</h2>
-            <p>
-              {report.dataset.rows} observed attempts ·{" "}
-              {report.dataset.matured_rows} closed windows ·{" "}
-              {report.dataset.pending_rows} pending outcomes ·{" "}
-              {report.dataset.positive_conversions} observed conversions.
-            </p>
-            {report.dataset.missing_snapshot_calls > 0 && (
-              <p className="fine">
-                {report.dataset.missing_snapshot_calls} older attempts lack
-                pre-call snapshots and are retained in history without inventing
-                training features.
-              </p>
-            )}
-            <p className="fine">
-              Drift: {label(report.drift.action)}. Candidate models retain
-              manual promotion and rollback controls below.
-            </p>
-            {report.drift.stage_support && (
-              <details>
-                <summary>Drift support and missing data</summary>
-                <p>
-                  {report.drift.windows}. Compared models:{" "}
-                  {report.drift.model_versions?.join(", ") ||
-                    "No comparable model evidence"}
-                  .
-                </p>
-                {report.drift.missingness_shift && (
-                  <p role="status">
-                    Missing input coverage changed; check sources before
-                    interpreting performance.
-                  </p>
-                )}
-                {Object.entries(report.drift.stage_support).map(
-                  ([stage, v]) => (
-                    <p key={stage}>
-                      {label(stage)}: {v.reference} reference / {v.recent}{" "}
-                      recent classified outcomes; {v.paired_support} comparable
-                      support. Brier{" "}
-                      {v.reference_brier?.toFixed(4) ?? "unavailable"} →{" "}
-                      {v.recent_brier?.toFixed(4) ?? "unavailable"}.
-                    </p>
-                  ),
-                )}
-              </details>
-            )}
-            {admin && (
-              <div className="button-row">
-                <button
-                  className="secondary"
-                  onClick={() =>
-                    void run(async () => {
-                      const result = await api<{
-                        status: string;
-                        rows: number;
-                      }>("/v1/admin/optimization/train", "POST", {});
-                      await load();
-                      await refresh();
-                      notice(
-                        result.status === "insufficient_data"
-                          ? "More independent labeled calls are required; " +
-                              result.rows +
-                              " rows available."
-                          : "Training queued from the immutable call-history dataset",
-                      );
-                    })
-                  }
-                >
-                  Train from call history
-                </button>
-                <button
-                  className="secondary"
-                  onClick={() =>
-                    void run(async () => {
-                      const saved = await api<{ id: string }>(
-                        "/v1/admin/optimization/trial",
-                        "POST",
-                        {},
-                      );
-                      setCohortReportId(saved.id);
-                      await load();
-                      notice("Controlled cohort report saved for review");
-                    })
-                  }
-                >
-                  Generate trial report
-                </button>
-              </div>
-            )}
-            {cohortReportId && (
-              <p className="fine">Saved cohort report: {cohortReportId}</p>
-            )}
-            <h3>Controlled conversion comparison</h3>
-            <label>
-              Cohort history
-              <select
-                value={report.trial.epoch}
-                onChange={(e) =>
-                  void run(async () => {
-                    epoch.current = e.target.value;
-                    setResponse(null);
-                    await load();
-                  })
-                }
-              >
-                {report.cohort_history.map((epoch) => (
-                  <option key={epoch} value={epoch}>
-                    {epoch}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="optimization-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Group</th>
-                    <th>Original leads</th>
-                    <th>Matured leads</th>
-                    <th>Conversions</th>
-                    <th>Matured rate</th>
-                    <th>95% interval</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(report.trial.arms).map(([arm, value]) => (
-                    <tr key={arm}>
-                      <td>{label(arm)}</td>
-                      <td>{value.leads}</td>
-                      <td>{value.matured_leads}</td>
-                      <td>{value.conversions}</td>
-                      <td>{percent(value.rate)}</td>
-                      <td>
-                        {percent(value.confidence_low)} –{" "}
-                        {percent(value.confidence_high)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="fine">
-              {report.trial.pending_leads} lead windows remain open. Planning
-              requires approximately {report.trial.required_per_arm} matured
-              leads per group for the configured example effect.{" "}
-              {report.trial.sufficient_evidence
-                ? "The observed comparison is ready for human review."
-                : "There is not enough evidence to claim conversion improvement."}
-            </p>
-          </section>
-        </>
-      )}
-      {!numbersOnly && (
-        <TrialControls
-          comparisons={report?.comparisons ?? []}
-          cohortReportId={cohortReportId}
-          load={load}
+    </>
+  );
+}
+
+/** Settings → Advanced: planning assumptions, experiments and learning diagnostics. */
+export function LearningAdvanced() {
+  const state = useOptimizationReport();
+  const { response, report } = state;
+  return (
+    <>
+      <ReportStatus state={state} />
+      {response && (
+        <PlanningAssumptions
+          settings={response.settings}
+          onSaved={state.load}
         />
       )}
-      {report && !numbersOnly && (
-        <>
-          <section className="card padded optimization-panel">
-            <h2>Coaching quality and timing</h2>
-            <p>
-              {report.coaching.reviewed_cards} reviewed cards · Useful{" "}
-              {percent(report.coaching.useful_fraction)} · Grounded{" "}
-              {percent(report.coaching.grounded_fraction)} · Timely{" "}
-              {percent(report.coaching.timely_fraction)}.
-            </p>
-            <p className="fine">
-              p95 inference:{" "}
-              {report.coaching.p95_inference_ms == null
-                ? "No measurements"
-                : report.coaching.p95_inference_ms.toFixed(0) + " ms"}
-              . The 2.5-second full live guidance objective requires measured
-              transcription, delivery and representative calls.
-            </p>
-            <p className="fine">
-              State: {report.coaching.p95_state_ms?.toFixed(0) ?? "Unknown"} ms
-              · Retrieval:{" "}
-              {report.coaching.p95_retrieval_ms?.toFixed(0) ?? "Unknown"} ms ·
-              Event receipt to render:{" "}
-              {report.coaching.p95_event_to_render_ms?.toFixed(0) ?? "Unknown"}{" "}
-              ms · Render:{" "}
-              {report.coaching.p95_render_ms?.toFixed(0) ?? "Unknown"} ms. STT
-              and full network delivery need live measurement.
-            </p>
-            {report.coaching.latency_quantization?.upper_bounds && (
-              <p className="fine">
-                Latency percentiles are upper estimates from bounded timing
-                buckets; {report.coaching.latency_support?.inference_ms ?? 0}{" "}
-                recorded inference timings. Missing measurements are excluded,
-                not counted as zero.
-              </p>
-            )}
-            {admin && (
-              <details>
-                <summary>Evaluate a reviewed conversation replay</summary>
-                <label>
-                  Reviewed replay cases JSON
-                  <textarea
-                    rows={5}
-                    value={replay}
-                    onChange={(e) => setReplay(e.target.value)}
-                  />
-                </label>
-                <label>
-                  Replay review reference
-                  <input
-                    value={replayReference}
-                    onChange={(e) => setReplayReference(e.target.value)}
-                  />
-                </label>
-                <button
-                  className="secondary"
-                  disabled={!replay || !replayReference}
-                  onClick={() =>
-                    void run(async () => {
-                      const result = await api<{
-                        samples: number;
-                        attempted_samples: number;
-                        unattempted_samples: number;
-                        valid_fraction: number;
-                        expected_action_fraction: number;
-                        p95_inference_ms: number | null;
-                        evidence_scope: string;
-                      }>("/v1/admin/coaching/replay", "POST", {
-                        cases: JSON.parse(replay),
-                        review_reference: replayReference,
-                      });
-                      setReplayResult(
-                        `${result.attempted_samples} of ${result.samples} cases attempted; ${result.unattempted_samples} not attempted. Schema and evidence checks: ` +
-                          percent(result.valid_fraction) +
-                          "; expected action " +
-                          percent(result.expected_action_fraction) +
-                          `. Attempt duration p95: ${result.p95_inference_ms?.toFixed(0) ?? "Unknown"} ms (includes failed attempts). Semantic usefulness has not been reviewed. ` +
-                          result.evidence_scope,
-                      );
+      {report && <LearningDiagnostics report={report} />}
+      <Experiments state={state} />
+    </>
+  );
+}
+
+const ADVANCED_KEYS = [
+  "exploration",
+  "horizon_hours",
+  "rep_minutes",
+  "handling_seconds",
+  "daily_capacity_per_number",
+  "training_min_rows",
+  "auto_train",
+  "account_channel_limit",
+  "minimum_expansion_age_hours",
+  "additional_ready_after_hours",
+  "staffed_windows",
+  "health_policy",
+] as const;
+type AdvancedKey = (typeof ADVANCED_KEYS)[number];
+type Assumptions = Pick<OptimizationSettings, AdvancedKey>;
+const pick = (settings: OptimizationSettings) =>
+  Object.fromEntries(
+    ADVANCED_KEYS.map((key) => [key, settings[key]]),
+  ) as Assumptions;
+
+function PlanningAssumptions({
+  settings,
+  onSaved,
+}: {
+  settings: OptimizationSettings;
+  onSaved: () => Promise<void>;
+}) {
+  const { api, run, notice, refresh } = useWorkspace();
+  const bounds = useDefinitions();
+  const b = bounds?.optimization;
+  const h = bounds?.health_policy;
+  const [draft, setDraft] = useState<Assumptions>(() => pick(settings));
+  const dirty = useRef(false);
+  useEffect(() => {
+    if (!dirty.current) setDraft(pick(settings));
+  }, [settings]);
+  const change = <K extends AdvancedKey>(key: K, value: Assumptions[K]) => {
+    dirty.current = true;
+    setDraft((old) => ({ ...old, [key]: value }));
+  };
+  const number = (key: AdvancedKey, title: string, step?: string) => (
+    <label key={key}>
+      {title}
+      <input
+        type="number"
+        step={step}
+        {...limits(b?.[key])}
+        value={(draft[key] as number | null) ?? ""}
+        onChange={(e) =>
+          change(
+            key,
+            (key === "account_channel_limit" && !e.target.value
+              ? null
+              : Number(e.target.value)) as never,
+          )
+        }
+      />
+    </label>
+  );
+  const estimate = settings.estimate_policy;
+  return (
+    <section
+      className="card padded optimization-panel"
+      aria-label="Planning assumptions"
+    >
+      <h2>Planning assumptions</h2>
+      <p className="fine">
+        Engineering starting values for forecasts and learning. Calling
+        permissions, callbacks, stable caller identity and coverage stay
+        mandatory; nothing here authorizes a number purchase.
+      </p>
+      <div className="optimization-fields">
+        {number("exploration", "Exploration share", "0.01")}
+        {number("horizon_hours", "Forecast horizon (hours)")}
+        {number("rep_minutes", "Available rep minutes")}
+        {number("handling_seconds", "Average handling time (seconds)")}
+        {number(
+          "daily_capacity_per_number",
+          "Reviewed daily capacity per number",
+        )}
+        {number("training_min_rows", "Minimum training rows")}
+        {number(
+          "account_channel_limit",
+          "Account concurrent-call limit (blank if unknown)",
+        )}
+        {number(
+          "minimum_expansion_age_hours",
+          "Shortfall review interval (hours)",
+        )}
+        {number(
+          "additional_ready_after_hours",
+          "New number setup delay (hours)",
+        )}
+      </div>
+      <label className="check-row">
+        <input
+          type="checkbox"
+          checked={draft.auto_train}
+          onChange={(e) => change("auto_train", e.target.checked)}
+        />
+        Automatic training from call history
+      </label>
+      <DatedStaffing
+        windows={draft.staffed_windows || []}
+        zone={settings.staffing_timezone ?? "UTC"}
+        bounds={bounds}
+        onChange={(value) => change("staffed_windows", value)}
+      />
+      {draft.health_policy && (
+        <details>
+          <summary>Advanced number evidence policy</summary>
+          <p className="fine">
+            Review assumptions. A statistical warning is not proof of a carrier
+            spam label. Changes require fresh health evaluation; calling
+            identity is preserved.
+          </p>
+          <div className="optimization-fields">
+            {(
+              [
+                ["min_comparable", "Minimum comparable attempts"],
+                ["material_drop", "Material pickup drop (fraction)"],
+                ["confidence", "Health interval confidence (fraction)"],
+                ["window_days", "Health observation window (days)"],
+                ["callback_proof_days", "Callback proof lifetime (days)"],
+              ] as const
+            ).map(([key, title]) => (
+              <label key={key}>
+                {title}
+                <input
+                  type="number"
+                  step="any"
+                  {...limits(h?.[key])}
+                  value={draft.health_policy![key]}
+                  onChange={(e) =>
+                    change("health_policy", {
+                      ...draft.health_policy!,
+                      [key]: Number(e.target.value),
                     })
                   }
-                >
-                  Evaluate reviewed replay
-                </button>
-                {replayResult && <p className="fine">{replayResult}</p>}
-              </details>
-            )}
-          </section>
-        </>
+                />
+              </label>
+            ))}
+          </div>
+        </details>
       )}
-    </>
+      {estimate && (
+        <details>
+          <summary>Sparse estimate assumptions</summary>
+          <p className="fine" data-testid="estimate-assumptions">
+            Human pickup prior {estimate.human_prior[0]} successes /{" "}
+            {estimate.human_prior[1]} failures · Right party prior{" "}
+            {estimate.right_prior[0]} / {estimate.right_prior[1]} · Selected
+            goal prior {estimate.goal_prior[0]} / {estimate.goal_prior[1]} ·
+            Pooled shrinkage weight {estimate.shrinkage} · Work prior{" "}
+            {estimate.work_prior} attempt equivalents.
+          </p>
+          <p className="fine">
+            Read-only starting weights. They apply until observed outcomes
+            provide support; changing them requires renewed model evaluation.
+          </p>
+        </details>
+      )}
+      <button
+        className="secondary"
+        onClick={() =>
+          void run(async () => {
+            const original = pick(settings);
+            const changed = Object.fromEntries(
+              ADVANCED_KEYS.filter(
+                (key) =>
+                  JSON.stringify(draft[key]) !== JSON.stringify(original[key]),
+              ).map((key) => [key, draft[key]]),
+            );
+            await api("/v1/admin/optimization", "PUT", changed);
+            dirty.current = false;
+            await onSaved();
+            await refresh();
+            notice("Planning assumptions saved");
+          })
+        }
+      >
+        Save planning assumptions
+      </button>
+    </section>
+  );
+}
+
+function LearningDiagnostics({ report }: { report: OptimizationReport }) {
+  const { snapshot: w } = useWorkspace();
+  return (
+    <section
+      className="card padded optimization-panel"
+      aria-label="Learning diagnostics"
+    >
+      <h2>Operational training dataset</h2>
+      <p>
+        {report.dataset.rows} observed attempts · {report.dataset.matured_rows}{" "}
+        closed windows · {report.dataset.pending_rows} pending outcomes ·{" "}
+        {report.dataset.positive_conversions} observed conversions.
+      </p>
+      {report.dataset.missing_snapshot_calls > 0 && (
+        <p className="fine">
+          {report.dataset.missing_snapshot_calls} older attempts lack pre-call
+          snapshots and are retained in history without inventing training
+          features.
+        </p>
+      )}
+      <p className="fine">Drift: {label(report.drift.action)}.</p>
+      {report.drift.stage_support && (
+        <details>
+          <summary>Drift support and missing data</summary>
+          <p>
+            {report.drift.windows}. Compared models:{" "}
+            {report.drift.model_versions?.join(", ") ||
+              "No comparable model evidence"}
+            .
+          </p>
+          {report.drift.missingness_shift && (
+            <p role="status">
+              Missing input coverage changed; check sources before interpreting
+              performance.
+            </p>
+          )}
+          {Object.entries(report.drift.stage_support).map(([stage, v]) => (
+            <p key={stage}>
+              {label(stage)}: {v.reference} reference / {v.recent} recent
+              classified outcomes; {v.paired_support} comparable support.
+            </p>
+          ))}
+        </details>
+      )}
+      <details>
+        <summary>Recent allocation and treatment decisions</summary>
+        {report.decisions
+          .slice(-8)
+          .reverse()
+          .map((decision) => (
+            <p className="fine" key={decision.id}>
+              {w.leads.find((l) => l.id === decision.lead_id)?.name ||
+                "Retained lead"}
+              : {label(decision.allocation?.reason || "authorized allocation")}.{" "}
+              {decision.allocation?.reassignment_reason} Treatment probability{" "}
+              {percent(decision.propensity)}; {label(decision.experiment_arm)}.
+            </p>
+          ))}
+      </details>
+    </section>
   );
 }

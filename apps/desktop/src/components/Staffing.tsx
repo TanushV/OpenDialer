@@ -1,5 +1,8 @@
+import { useMemo } from "react";
 import { useWorkspace } from "../context";
 import { useHistory } from "../state/useHistory";
+import { limits, type Definitions } from "../state/definitions";
+import { zonedInput, zonedInstant } from "../state/zones";
 import { HistoryMore } from "./HistoryMore";
 
 export interface StaffedWindow {
@@ -10,39 +13,147 @@ export interface StaffedWindow {
   pool_id?: string;
 }
 
+/** The weekly rep schedule saved with the campaign; one IANA zone for every period. */
 export interface SimpleStaffing {
   staffing_timezone: string;
   staffing_start_hour: number;
   staffing_end_hour: number;
   staffing_reps: number;
   staffing_weekdays: number[];
-  account_channel_limit: number | null;
-  minimum_expansion_age_hours: number;
 }
 
-const localInput = (value: string) => {
-  const instant = new Date(value);
-  return new Date(instant.getTime() - instant.getTimezoneOffset() * 60_000)
-    .toISOString()
-    .slice(0, 16);
-};
+const WEEKDAYS = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
+];
 
-export function Staffing({
-  windows,
-  delay,
+/** An IANA zone picker; a saved zone the engine does not list stays selectable. */
+export function ZonePicker({
+  title,
+  value,
   onChange,
-  onDelay,
-  simple,
-  onSimple,
+  disabled,
+}: {
+  title: string;
+  value: string;
+  onChange: (zone: string) => void;
+  disabled?: boolean;
+}) {
+  const zones = useMemo(() => {
+    const listed = ["UTC", ...Intl.supportedValuesOf("timeZone")];
+    return listed.includes(value) ? listed : [value, ...listed];
+  }, [value]);
+  return (
+    <label>
+      {title}
+      <select
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        {zones.map((zone) => (
+          <option key={zone} value={zone}>
+            {zone.replaceAll("_", " ")}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+export function WeeklySchedule({
+  value,
+  bounds,
+  onChange,
+}: {
+  value: SimpleStaffing;
+  bounds: Definitions | null;
+  onChange: (value: Partial<SimpleStaffing>) => void;
+}) {
+  const b = bounds?.optimization;
+  return (
+    <>
+      <div className="optimization-fields">
+        <ZonePicker
+          title="Staffing time zone"
+          value={value.staffing_timezone}
+          onChange={(zone) => onChange({ staffing_timezone: zone })}
+        />
+        <label>
+          Staffing starts (hour)
+          <input
+            type="number"
+            {...limits(b?.staffing_start_hour)}
+            value={value.staffing_start_hour}
+            onChange={(e) =>
+              onChange({ staffing_start_hour: Number(e.target.value) })
+            }
+          />
+        </label>
+        <label>
+          Staffing ends (hour)
+          <input
+            type="number"
+            {...limits(b?.staffing_end_hour)}
+            value={value.staffing_end_hour}
+            onChange={(e) =>
+              onChange({ staffing_end_hour: Number(e.target.value) })
+            }
+          />
+        </label>
+        <label>
+          Simple staffed reps
+          <input
+            type="number"
+            {...limits(b?.staffing_reps)}
+            value={value.staffing_reps}
+            onChange={(e) =>
+              onChange({ staffing_reps: Number(e.target.value) })
+            }
+          />
+        </label>
+      </div>
+      <fieldset className="weekday-row">
+        <legend>Staffed weekdays</legend>
+        {WEEKDAYS.map((day, i) => (
+          <label className="check-row" key={day}>
+            <input
+              type="checkbox"
+              checked={value.staffing_weekdays.includes(i)}
+              onChange={(e) =>
+                onChange({
+                  staffing_weekdays: e.target.checked
+                    ? [...value.staffing_weekdays, i].sort()
+                    : value.staffing_weekdays.filter((v) => v !== i),
+                })
+              }
+            />
+            {day}
+          </label>
+        ))}
+      </fieldset>
+    </>
+  );
+}
+
+/** Dated exceptions to the weekly schedule, entered in the same staffing zone. */
+export function DatedStaffing({
+  windows,
+  zone,
+  bounds,
+  onChange,
 }: {
   windows: StaffedWindow[];
-  delay: number;
+  zone: string;
+  bounds: Definitions | null;
   onChange: (value: StaffedWindow[]) => void;
-  onDelay: (value: number) => void;
-  simple: SimpleStaffing;
-  onSimple: (value: Partial<SimpleStaffing>) => void;
 }) {
-  const { snapshot: w } = useWorkspace();
+  const { snapshot: w, notice } = useWorkspace();
   const owners = useHistory(
     "task_owners",
     w.task_owners || [{ id: w.user.id, name: w.user.name }],
@@ -53,112 +164,31 @@ export function Staffing({
         i === index ? { ...window, ...values } : window,
       ),
     );
+  const instant = (local: string) => {
+    try {
+      return zonedInstant(local, zone);
+    } catch (error) {
+      notice(error instanceof Error ? error.message : String(error));
+      return null;
+    }
+  };
+  const maximum = bounds?.optimization?.staffed_windows?.max_items;
   return (
     <fieldset className="card padded">
-      <legend>Staffed calling periods</legend>
+      <legend>Dated staffing periods</legend>
       <p className="small muted">
-        Declare when reps can call, excluding breaks. Times use this device’s
-        time zone ({Intl.DateTimeFormat().resolvedOptions().timeZone}). Total
-        available rep minutes still caps the plan. With no dated periods, the
-        saved simple schedule below supplies the same planning grid. Name reps
-        to account for promised callbacks; anonymous headcount supports unowned
-        work only. Overlapping named periods count each rep once. Whole attempts
-        share one time grid; partial period edges are omitted. Existing calls
+        Periods replace the weekly schedule for planning and use the staffing
+        time zone ({zone.replaceAll("_", " ")}). Exclude breaks. Name reps to
+        account for promised callbacks; anonymous headcount supports unowned
+        work only. Overlapping named periods count each rep once. Existing calls
         and reservations reduce availability.
       </p>
-      {Array.isArray(simple.staffing_weekdays) ? (
-        <details open={!windows.length}>
-          <summary>Simple schedule (used without dated periods)</summary>
-          <div className="optimization-fields">
-            <label>
-              Staffing time zone
-              <input
-                value={simple.staffing_timezone}
-                onChange={(e) =>
-                  onSimple({ staffing_timezone: e.target.value })
-                }
-              />
-            </label>
-            <label>
-              Staffing starts (hour)
-              <input
-                type="number"
-                min={0}
-                max={23}
-                value={simple.staffing_start_hour}
-                onChange={(e) =>
-                  onSimple({ staffing_start_hour: Number(e.target.value) })
-                }
-              />
-            </label>
-            <label>
-              Staffing ends (hour)
-              <input
-                type="number"
-                min={1}
-                max={24}
-                value={simple.staffing_end_hour}
-                onChange={(e) =>
-                  onSimple({ staffing_end_hour: Number(e.target.value) })
-                }
-              />
-            </label>
-            <label>
-              Simple staffed reps
-              <input
-                type="number"
-                min={1}
-                max={100}
-                value={simple.staffing_reps}
-                onChange={(e) =>
-                  onSimple({ staffing_reps: Number(e.target.value) })
-                }
-              />
-            </label>
-          </div>
-          <fieldset>
-            <legend>Staffed weekdays</legend>
-            {[
-              "Monday",
-              "Tuesday",
-              "Wednesday",
-              "Thursday",
-              "Friday",
-              "Saturday",
-              "Sunday",
-            ].map((day, i) => (
-              <label className="check-row" key={day}>
-                <input
-                  type="checkbox"
-                  checked={simple.staffing_weekdays.includes(i)}
-                  onChange={(e) =>
-                    onSimple({
-                      staffing_weekdays: e.target.checked
-                        ? [...simple.staffing_weekdays, i].sort()
-                        : simple.staffing_weekdays.filter(
-                            (value) => value !== i,
-                          ),
-                    })
-                  }
-                />
-                {day}
-              </label>
-            ))}
-          </fieldset>
-        </details>
-      ) : (
-        <p role="status">
-          Saved simple schedule unavailable. Reload settings before changing
-          availability.
-        </p>
-      )}
       {windows.map((window, i) => (
         <div className="optimization-fields" key={i}>
           <label>
             Roster pool (optional)
             <input
               aria-label={`Roster pool ${i + 1}`}
-              maxLength={64}
               value={window.pool_id || ""}
               onChange={(e) =>
                 change(i, { pool_id: e.target.value || undefined })
@@ -170,12 +200,10 @@ export function Staffing({
             <input
               aria-label={`Staffed start ${i + 1}`}
               type="datetime-local"
-              value={localInput(window.start_at)}
+              value={zonedInput(window.start_at, zone)}
               onChange={(e) => {
-                if (e.target.value)
-                  change(i, {
-                    start_at: new Date(e.target.value).toISOString(),
-                  });
+                const value = e.target.value && instant(e.target.value);
+                if (value) change(i, { start_at: value });
               }}
             />
           </label>
@@ -184,10 +212,10 @@ export function Staffing({
             <input
               aria-label={`Staffed end ${i + 1}`}
               type="datetime-local"
-              value={localInput(window.end_at)}
+              value={zonedInput(window.end_at, zone)}
               onChange={(e) => {
-                if (e.target.value)
-                  change(i, { end_at: new Date(e.target.value).toISOString() });
+                const value = e.target.value && instant(e.target.value);
+                if (value) change(i, { end_at: value });
               }}
             />
           </label>
@@ -243,7 +271,6 @@ export function Staffing({
                 aria-label={`Available reps ${i + 1}`}
                 type="number"
                 min={1}
-                max={100}
                 value={window.reps}
                 onChange={(e) => change(i, { reps: Number(e.target.value) })}
               />
@@ -263,7 +290,7 @@ export function Staffing({
       )}
       <button
         className="secondary"
-        disabled={windows.length >= 100}
+        disabled={maximum !== undefined && windows.length >= maximum}
         onClick={() => {
           const start = new Date();
           start.setSeconds(0, 0);
@@ -279,52 +306,15 @@ export function Staffing({
       >
         Add staffed period
       </button>
+      {maximum !== undefined && windows.length >= maximum && (
+        <p className="fine">
+          At most {maximum} dated periods; remove one to add another.
+        </p>
+      )}
       <p className="fine">
         Use the same roster pool only when headcount includes the named reps.
         Named members are subtracted from that pool, so overlapping availability
         is counted once.
-      </p>
-      <label>
-        Account concurrent-call limit (blank if unknown)
-        <input
-          type="number"
-          min={1}
-          max={1000}
-          value={simple.account_channel_limit ?? ""}
-          onChange={(e) =>
-            onSimple({
-              account_channel_limit: e.target.value
-                ? Number(e.target.value)
-                : null,
-            })
-          }
-        />
-      </label>
-      <label>
-        Shortfall review interval (hours)
-        <input
-          type="number"
-          min={1}
-          max={168}
-          value={simple.minimum_expansion_age_hours}
-          onChange={(e) =>
-            onSimple({ minimum_expansion_age_hours: Number(e.target.value) })
-          }
-        />
-      </label>
-      <label>
-        New number setup delay (hours)
-        <input
-          type="number"
-          min={0}
-          max={168}
-          value={delay}
-          onChange={(e) => onDelay(Number(e.target.value))}
-        />
-      </label>
-      <p className="small muted">
-        Setup delay is a planning assumption. Waiting inventory remains
-        unavailable until verified. New rental purchases remain blocked.
       </p>
     </fieldset>
   );

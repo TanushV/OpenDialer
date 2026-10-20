@@ -152,6 +152,11 @@ export async function waitForRuntime(runtime: Runtime) {
 }
 /** An unanswered authority request is an offline result, never an endless wait. */
 export const REQUEST_TIMEOUT_MS = 30_000;
+/** Lead/registry imports, statement imports and backup/restore legitimately run longer. */
+export const LONG_REQUEST_MS = 300_000;
+export interface RequestOptions {
+  timeoutMs?: number;
+}
 export async function request<T>(
   url: string,
   token: string | null,
@@ -159,9 +164,13 @@ export async function request<T>(
   method = "GET",
   body?: unknown,
   extraHeaders?: Record<string, string>,
+  options: RequestOptions = {},
 ): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(
+    () => controller.abort(),
+    options.timeoutMs ?? REQUEST_TIMEOUT_MS,
+  );
   let response: Response;
   let result: T & { detail?: string | { code: string; reasons?: string[] } };
   try {

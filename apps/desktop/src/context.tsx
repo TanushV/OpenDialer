@@ -1,11 +1,16 @@
 import { createContext, useContext } from "react";
 import type { Session, Workspace } from "./types";
 import type { LiveEvent } from "./api/live";
-import type { ProviderCredential } from "./api/client";
+import type { ProviderCredential, RequestOptions } from "./api/client";
 export interface WorkspaceContext {
   snapshot: Workspace;
   session: Session;
-  api: <T>(path: string, method?: string, body?: unknown) => Promise<T>;
+  api: <T>(
+    path: string,
+    method?: string,
+    body?: unknown,
+    options?: RequestOptions,
+  ) => Promise<T>;
   refresh: () => Promise<void>;
   notice: (message: string) => void;
   run: (work: () => Promise<void>) => Promise<void>;
@@ -40,3 +45,13 @@ export function date(value?: string | null, timeZone?: string) {
       })
     : "Needs confirmation";
 }
+/** The one fraction formatter: missing evidence is stated, never shown as zero. */
+export function percent(
+  value: number | null | undefined,
+  missing = "Unknown",
+  digits = 1,
+) {
+  return value == null ? missing : `${(100 * value).toFixed(digits)}%`;
+}
+/** Owners and administrators manage inventory, providers and policy; reps do not. */
+export const isAdmin = (role: string) => ["owner", "admin"].includes(role);

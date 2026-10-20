@@ -1,5 +1,11 @@
 import { expect, test } from "@playwright/test";
 
+// The workspace fixture route stays active for the whole journey; wait for an
+// in-flight handler before the context closes (its response is otherwise disposed).
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: "wait" });
+});
+
 for (const connected of [false, true]) {
   test(`sparse support and reviewed model evidence ${connected ? "postgres" : "local"}`, async ({
     page,
@@ -86,21 +92,18 @@ for (const connected of [false, true]) {
     await page
       .getByRole("button", { name: "Pause dialing", exact: true })
       .click();
-    await page
-      .getByRole("button", { name: "Intelligence", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByText("Advanced", { exact: true }).click();
+    // Starting weights are read-only assumptions; changing them needs re-evaluation.
     await page
       .getByText("Sparse estimate assumptions", { exact: true })
       .click();
-    await page
-      .getByLabel("Human pickup prior successes", { exact: true })
-      .fill("3");
-    await page
-      .getByRole("button", { name: "Save optimization settings", exact: true })
-      .click();
+    await expect(page.getByTestId("estimate-assumptions")).toContainText(
+      "Human pickup prior 2 successes / 8 failures",
+    );
     await expect(
-      page.getByText("Optimization settings saved", { exact: true }),
-    ).toBeVisible();
+      page.getByLabel("Human pickup prior successes", { exact: true }),
+    ).toHaveCount(0);
     await page
       .getByRole("combobox", { name: "Pilot candidate", exact: true })
       .selectOption("review-fixture");
@@ -108,7 +111,7 @@ for (const connected of [false, true]) {
       page.getByText("Predictive evidence: not reviewable", { exact: true }),
     ).toBeVisible();
     await page
-      .getByLabel("Pilot review reference", { exact: true })
+      .getByLabel("Experiment review reference", { exact: true })
       .fill("Insufficient evidence");
     await expect(
       page.getByRole("button", {
@@ -116,10 +119,17 @@ for (const connected of [false, true]) {
         exact: true,
       }),
     ).toBeDisabled();
+    await expect(
+      page.getByText(
+        "This candidate's predictive evidence is not reviewable, so it cannot start a pilot.",
+        { exact: true },
+      ),
+    ).toBeVisible();
     await page.getByText("Model evaluation", { exact: true }).click();
+    // Raw rolling-support and calibration tables stay in the model record.
     await expect(
       page.getByRole("table", { name: "Rolling evaluation support" }),
-    ).toBeVisible();
+    ).toHaveCount(0);
     await expect(
       page.getByText(
         "Conversation features: excluded after held-out comparison",
@@ -161,12 +171,14 @@ test("reviewed finite approaches keep freeform help and require a source for ada
     name: "Try a simulated workspace",
   });
   if (await sample.isVisible()) await sample.click();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByText("Advanced", { exact: true }).click();
+  await page.getByLabel("Experiment type").selectOption("approach");
   await page
     .getByRole("combobox", { name: "Reviewed response approach", exact: true })
     .selectOption("reviewed-approach");
   await page
-    .getByLabel("Comparison review reference", { exact: true })
+    .getByLabel("Experiment review reference", { exact: true })
     .fill("Reviewed approach protocol");
   await expect(
     page.getByText(

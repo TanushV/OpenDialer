@@ -16,6 +16,34 @@ const MORE_FEEDBACK: [string, Record<string, boolean>][] = [
   ["I did not use this guidance", { used_by_rep: false }],
 ];
 
+const PAUSED: Record<string, string> = {
+  transport_fault: "connection interrupted",
+  invalid_response: "last answer could not be used",
+  provider_unverified: "provider not verified",
+  provider_mismatch: "provider route changed",
+};
+
+/** The authority's last helper receipt, as calm status text beside the script. */
+function HelperStatus({ call }: { call: Call | null }) {
+  const helper = call?.conversation_state?.helper_status;
+  if (!helper) return null;
+  const text =
+    helper.status === "available"
+      ? "Live help available"
+      : helper.status === "cached_knowledge"
+        ? "Using your approved examples"
+        : `Live help paused · ${PAUSED[helper.reason ?? ""] ?? "unavailable"}. Keep using your script.`;
+  return (
+    <span
+      className="fine helper-status"
+      role="status"
+      data-testid="helper-status"
+    >
+      {text}
+    </span>
+  );
+}
+
 export function LiveCoach({
   call,
   onChange,
@@ -237,6 +265,7 @@ export function LiveCoach({
                 ? "Automatic tips muted"
                 : "Quiet guidance alongside your script"}
         </span>
+        <HelperStatus call={call} />
         <div className="helper-actions">
           {waiting && (
             <button

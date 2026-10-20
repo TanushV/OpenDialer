@@ -9,7 +9,7 @@ from fastapi import Depends, HTTPException
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from app.config import PROVIDER_DEFAULTS, inference_model
-from app.db import Job, audit, doc, emit, get, put, uid, update
+from app.db import Job, audit, doc, get, put, uid, update
 from app.grounding import ReviewReceipt, review_generated
 from app.intelligence import SCRIPT_SCHEMA
 from app.jobs.queue import aware
@@ -37,13 +37,26 @@ from app.research.validation import script_review_request, validate_script, vali
 from app.service import dt, fail
 
 HEARTBEAT_SECONDS = 20
+OFFICIAL_ROUTE = "https://api.openai.com/v1"
 
 
 class BatchInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    lead_ids: list[str] = Field(min_length=1, max_length=500)
+    # One deferred submission is one preparation work unit (PreparationPolicy.batch_size <= 20).
+    lead_ids: list[str] = Field(min_length=1, max_length=20)
     idempotency_key: str = Field(min_length=1, max_length=128)
     ready_at: AwareDatetime | None = None
+
+
+def batch_unavailable(conf):
+    """(status, reason) unless the metered official OpenAI API route is configured; never another endpoint."""
+    if conf.get("inference_mode", PROVIDER_DEFAULTS.inference_mode) != "api":
+        return 409, "Deferred Batch requires the metered OpenAI API route"
+    if (conf.get("inference_base_url") or OFFICIAL_ROUTE).rstrip("/") != OFFICIAL_ROUTE:
+        return 409, "Deferred Batch is available only on the official OpenAI API endpoint"
+    if not conf.get("openai_api_key"):
+        return 503, "Configure a project API key before submitting deferred work"
+    return None
 
 
 def build_requests(service, p, lead_ids, conf):
@@ -122,7 +135,13 @@ def register_batches(app, service, administrator):
                     rows(p).where(model.op_status.in_(TERMINAL)).order_by(model.created_at.desc()).limit(20)
                 )
             )
-            return {"batches": [view(service, r) for r in pending + recent], "limited": len(pending) == 100}
+            unavailable = batch_unavailable(service.vault.read(p["tenant_id"]))
+            return {
+                "batches": [view(service, r) for r in pending + recent],
+                "limited": len(pending) == 100,
+                "available": unavailable is None,
+                "unavailable_reason": unavailable[1] if unavailable else None,
+            }
 
     def existing(s, p, key, lead_ids, ready_at):
         prior = service._by_key(s, p, "command_outbox", key)
@@ -140,7 +159,12 @@ def register_batches(app, service, administrator):
             pending_conflict(service, s, p, lead_ids)
             identity = uid()
             if not service.reserve_budget_in(
-                s, p, key, 0.10 * len(lead_ids), object_id=identity, work_kind="script_batch"
+                s,
+                p,
+                key,
+                PROVIDER_DEFAULTS.optional_request_estimate_usd * len(lead_ids),
+                object_id=identity,
+                work_kind="script_batch",
             ):
                 fail(403, "BUDGET_EXHAUSTED")
             row = put(
@@ -231,10 +255,9 @@ def register_batches(app, service, administrator):
     @app.post("/v1/admin/batches/scripts")
     async def submit(data: BatchInput, p=Depends(administrator)):
         conf = service.vault.read(p["tenant_id"])
-        if conf.get("inference_mode", PROVIDER_DEFAULTS.inference_mode) != "api":
-            fail(409, "Deferred Batch requires the metered OpenAI API route")
-        if not conf.get("openai_api_key"):
-            fail(503, "Configure a project API key before submitting deferred work")
+        unavailable = batch_unavailable(conf)
+        if unavailable:
+            fail(*unavailable)
         lead_ids, key = sorted(set(data.lead_ids)), "script-batch:" + data.idempotency_key
         ready_at = data.ready_at.isoformat() if data.ready_at else None
 
@@ -468,8 +491,7 @@ def update_publication(row, **changes):
 
 
 def publish_script(service, s, p, context, output, custom_id, value, review=None):
-    prior = service._by_key(s, p, "script_versions", "batch:" + custom_id)
-    if prior:
+    if service._by_key(s, p, "script_versions", "batch:" + custom_id):
         return
     lead, raw, candidate, facts = current_candidate(service, s, p, context, output)
     validate_script(
@@ -481,12 +503,10 @@ def publish_script(service, s, p, context, output, custom_id, value, review=None
         approved=approved_context(context, raw, facts),
         review=review,
     )
-    version = uid()
-    script = put(
+    service.publish_script_in(
         s,
-        "script_versions",
-        p["tenant_id"],
-        p["seller_id"],
+        p,
+        lead,
         {
             **context["baseline"],
             **candidate,
@@ -495,9 +515,8 @@ def publish_script(service, s, p, context, output, custom_id, value, review=None
                 if context.get("template")
                 else {}
             ),
-            "script_version": version,
+            "script_version": uid(),
             "fallback": False,
-            "created_at": service.clock().isoformat(),
             "model": value["model"],
             "evidence_versions": {f["fact_id"]: f["version"] for f in facts},
             "grounding": review.metadata() if review else {"status": "approved_template"},
@@ -506,34 +525,24 @@ def publish_script(service, s, p, context, output, custom_id, value, review=None
             "previous_version": context.get("previous_script_id"),
             "diff": {"previous_opener": context["baseline"]["opener"], "opener": candidate["opener"]},
         },
-        object_id=version,
         key="batch:" + custom_id,
-        now=service.clock(),
+        source_key=context["source_key"],
+        facts=facts,
     )
-    update(
-        lead,
-        preparation={
-            "status": "ready",
-            "key": context["source_key"],
-            "script_id": version,
-            "as_of": service.clock().isoformat(),
-            "expires_at": min(
-                (f["expires_at"] for f in facts), default=(service.clock() + timedelta(days=1)).isoformat()
-            ),
-        },
-    )
-    emit(s, p["tenant_id"], "lead.packet_ready", script, service.clock(), {"lead_id": lead.id})
 
 
 def publish_results(service, p, intent_id, value, result, joined):
-    """Publish approved slots; persist novel results as individual bounded script jobs."""
-    for custom_id, context in value["contexts"].items():
-        with service.db.transaction() as s:
-            service.db.authorize_stream(s, p)
-            row = require_owner(service, s, p, value)
-            reviews = dict(row.data.get("grounding_reviews") or {})
-            published = set(row.data.get("published", []))
-            retry = set(row.data.get("retry_lead_ids", []))
+    """Publish approved slots and queue novel results for review in one short write.
+
+    The bounded (<= 20) work unit updates its outbox row once, not once per result.
+    """
+    with service.db.transaction() as s:
+        service.db.authorize_stream(s, p)
+        row = require_owner(service, s, p, value)
+        reviews = dict(row.data.get("grounding_reviews") or {})
+        published = set(row.data.get("published", []))
+        retry = set(row.data.get("retry_lead_ids", []))
+        for custom_id, context in value["contexts"].items():
             output = joined["completed"].get(custom_id)
             try:
                 if service._by_key(s, p, "script_versions", "batch:" + custom_id):
@@ -576,22 +585,13 @@ def publish_results(service, p, intent_id, value, result, joined):
                         published.add(context["lead_id"])
             except (ValueError, KeyError, TypeError):
                 retry.add(context["lead_id"])
-            update_publication(
-                row,
-                provider_status=result["status"],
-                published=sorted(published),
-                retry_lead_ids=sorted(retry),
-                grounding_reviews=reviews,
-            )
-    with service.db.transaction() as s:
-        service.db.authorize_stream(s, p)
-        row = require_owner(service, s, p, value)
         return update_publication(
             row,
             provider_status=result["status"],
             publication_saved=True,
-            published=row.data.get("published", []),
-            retry_lead_ids=row.data.get("retry_lead_ids", []),
+            published=sorted(published),
+            retry_lead_ids=sorted(retry),
+            grounding_reviews=reviews,
         )
 
 

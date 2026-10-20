@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { date, useWorkspace } from "../context";
+import { date, percent, useWorkspace } from "../context";
 
 type Interval = {
   id: string;
@@ -165,8 +165,7 @@ export function CallingHealth() {
       </section>
     );
   const health = m.health?.connect_rate;
-  const rate = (value: number | null | undefined) =>
-    value == null ? "Unknown" : `${(value * 100).toFixed(1)}%`;
+  const rate = (value: number | null | undefined) => percent(value);
   return (
     <section className="card padded" aria-label="Calling health">
       <h3>Calling health</h3>
