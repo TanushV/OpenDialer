@@ -1,0 +1,129 @@
+{
+  "step_id": "E13",
+  "status": "diagnosis-only; failure retained",
+  "runs": [
+    {
+      "source_commit": "7b75210634826a6200c0900e3a3564da9ac0fffd",
+      "actual_production_digest": "f3d6707841da93c3f9690db79b4c945aea0c777d80900508feae270483594aca",
+      "recorded_status": "failed",
+      "failures": [
+        "warm_selection"
+      ],
+      "boundary": "isolated original acceptance",
+      "selection": {
+        "samples": 200,
+        "failures": 0,
+        "p50_ms": 84.85920797102153,
+        "p95_ms": 251.16812507621944,
+        "p99_ms": 389.2314169788733,
+        "max_ms": 929.8770410241559,
+        "sql_max": 27,
+        "decrypted_max": 796,
+        "target_ms": 250,
+        "status": "failed"
+      },
+      "workspace": {
+        "samples": 200,
+        "failures": 0,
+        "p50_ms": 10.212041903287172,
+        "p95_ms": 15.287040965631604,
+        "p99_ms": 17.226999974809587,
+        "max_ms": 23.062292020767927,
+        "sql_max": 43,
+        "decrypted_max": 69,
+        "target_ms": 250,
+        "status": "passed"
+      },
+      "writer": {
+        "samples": 5465,
+        "failures": 0,
+        "p50_ms": 4.798833047971129,
+        "p95_ms": 18.732208060100675,
+        "p99_ms": 38.007166935130954,
+        "max_ms": 916.596541996114,
+        "sql_max": 0,
+        "decrypted_max": 0,
+        "target_ms": 25,
+        "status": "passed"
+      },
+      "raw_receipt_sha256": "0a290bfe35c32bff77c7a2e03db234865daaea88f35dadcebcc20b9a77ed6ad3"
+    },
+    {
+      "source_commit": "6a3e96bce3103321f74050b70cb71e6bd6522742",
+      "actual_production_digest": "f3d6707841da93c3f9690db79b4c945aea0c777d80900508feae270483594aca",
+      "recorded_status": "passed",
+      "failures": [],
+      "boundary": "additional CPU/GC/SQL diagnostic, not a replacement of the failed original",
+      "selection": {
+        "samples": 200,
+        "failures": 0,
+        "p50_ms": 80.33329201862216,
+        "p95_ms": 200.7042079931125,
+        "p99_ms": 282.10158296860754,
+        "max_ms": 968.3800420025364,
+        "sql_max": 28,
+        "decrypted_max": 796,
+        "target_ms": 250,
+        "status": "passed"
+      },
+      "workspace": {
+        "samples": 200,
+        "failures": 0,
+        "p50_ms": 9.860125021077693,
+        "p95_ms": 22.030166001059115,
+        "p99_ms": 28.96770799998194,
+        "max_ms": 32.67479198984802,
+        "sql_max": 43,
+        "decrypted_max": 69,
+        "target_ms": 250,
+        "status": "passed"
+      },
+      "writer": {
+        "samples": 5465,
+        "failures": 0,
+        "p50_ms": 4.477208014577627,
+        "p95_ms": 15.086457948200405,
+        "p99_ms": 25.52274998743087,
+        "max_ms": 239.8940420243889,
+        "sql_max": 0,
+        "decrypted_max": 0,
+        "target_ms": 25,
+        "status": "passed"
+      },
+      "raw_receipt_sha256": "73fa1bf4ccd03595d9d8c405ce6132399e100ec7329142210bf0445d872a2561"
+    }
+  ],
+  "diagnosis": {
+    "same_product_source": true,
+    "gc_pause_ms_examples": [
+      188.63,
+      164.39,
+      154.68,
+      147.23
+    ],
+    "sql_ms_for_same_examples": [
+      3.72,
+      3.59,
+      3.5,
+      4.96
+    ],
+    "ten_selection_sessions_before": 40,
+    "ten_selection_sessions_after": 0,
+    "gc_collected_before": 108116,
+    "gc_collected_after": 4243,
+    "diagnostic_boundary": "GC temporarily suspended only in the diagnostic to inspect object reachability; production GC policy remains unchanged. Not a resource or latency pass."
+  },
+  "repair_source_commit": "6baea721a3ac8b92aaed70f0d787670da364c5e4",
+  "raw_log_sha256": {
+    "E13-historical-7b75210.txt": "dc3fbd32cf25e627df6ef520c4ec47da2f5f91913e09f1c5a4bb55f6fb44f6c8",
+    "E13-historical-tail-7b75210.txt": "b6eca150a6fd42511436bf902b22cfd150bb5327c58fc79f173f531a40041255",
+    "E13-session-lifetime-before.txt": "57170f7cf934a7b6f754a3325149694f3ae16c3d5caffcccbd588450a8844ee1",
+    "E13-session-lifetime-after.txt": "0e4cca95869cfa425a5a45929b315248306bbd211c46c0075c49356b46a54849",
+    "E13-session-cache-red-valid.txt": "178b49f770fa1dfc8fc8593db0d8f8d9588deb2730522e0fb0302344e777446f"
+  },
+  "known_limitations": [
+    "New current-source performance acceptance still required",
+    "No installed update or provider traffic"
+  ],
+  "external_calls": false
+}

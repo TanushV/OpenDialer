@@ -1008,7 +1008,7 @@
         {
           "id": "E13.5",
           "task": "Version-consistent candidate and full SQLite/PostgreSQL coverage",
-          "status": "Full exact-source CI39358321016 running at7b75210. Final retained-cutover/retry scope41 SQLite and21 PostgreSQL passes; separate native skips remain open."
+          "status": "Production6baea72 cache repair verified in both databases; final five-case assertion refinement also passes. Replacement exact-source CI follows this checkpoint; older7b run canceled as superseded, no full passing claim."
         },
         {
           "id": "E13.6",
@@ -1088,7 +1088,7 @@
         {
           "id": "E13.session-cache",
           "task": "Release transaction-owned decrypted caches on commit, rollback and recovery-callback failure without GC-policy changes",
-          "status": "Five valid red regressions, then117 SQLite focused passes. Diagnostic closed sessions retained after ten selections fall40 to0 without changing GC policy. PostgreSQL scope running; exact-source full/load acceptance remains open."
+          "status": "Five valid red regressions, then117 SQLite/114 PostgreSQL focused passes (three SQLite-only skips). Five strengthened lifetime cases pass again in each mode. Closed-session diagnostic40 to0; independent review finds no actionable defect. Current-source latency/load still required."
         }
       ],
       "checkpoint": "E13: candidate7b75210 pushed;41 SQLite/21 PostgreSQL final retry-cutover passes. Full CI39358321016 and frozen performance/native/resource acceptance remain open."

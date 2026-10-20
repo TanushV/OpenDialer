@@ -37,8 +37,9 @@ def test_closed_transaction_releases_decrypted_cache_without_waiting_for_gc(work
         prefetch(session, principal, {"campaigns": []})
         campaign = get(session, "campaigns", workspace["campaign_id"])
         if completion != "read":
-            update(campaign, handling_seconds=125)
+            update(campaign, optimization={"handling_seconds": 125})
             session.flush()  # Includes the report invalidation transaction reference.
+            assert session.info["report_revision_transaction"] is session.get_transaction()
         payload = weakref.ref(campaign.data)
         del campaign
         session.info["after_transaction"] = [after_transaction]
