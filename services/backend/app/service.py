@@ -1174,13 +1174,8 @@ class Service(ReservationPlanner):
                 )
             call = self.required(s, "call_attempts", call_id, p)
             if call.data["state"] in TERMINAL:
-                self.jobs.enqueue_in(
-                    s,
-                    "postcall",
-                    {"call_id": call_id, "seller_id": p["seller_id"], "user_id": p["user_id"]},
-                    "postcall:" + call_id + ":" + str(call.version),
-                    tenant_id=p["tenant_id"],
-                )
+                s.refresh(call, with_for_update=True)
+                self.enqueue_finalize(s, p, call, "hangup")
             return doc(call)
 
     async def hangup(self, p, call_id, *, recovery_expected=None):

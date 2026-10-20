@@ -3,12 +3,12 @@
 import hashlib
 import hmac
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import select
 
 from app.db import MODELS, audit, doc, emit, put, update
@@ -17,6 +17,17 @@ from app.service import dt, fail
 from app.telephony.reducer import TERMINAL
 
 ACTIVE_TASKS = {"open", "snoozed", "needs_confirmation"}
+# An AI-suggested callback time defers automatic outreach this long at most; only a
+# rep-stated callback holds outreach until the rep confirms a time.
+SUGGESTION_HOLD = timedelta(days=7)
+GOAL_OUTCOMES = {"qualified_conversation", "meeting_held", "sale_won"}
+PROMISE_STATUS = {
+    "open": "confirmed",
+    "snoozed": "confirmed",
+    "needs_confirmation": "needs_confirmation",
+    "completed": "completed",
+    "cancelled": "cancelled",
+}
 
 
 def zoned_time(value):
@@ -53,6 +64,8 @@ class DatedEdit(BaseModel):
 
 
 class TaskEdit(DatedEdit):
+    # Derived from due_at's own offset (never client-set) and checked against the task zone.
+    due_offset_minutes: int | None = None
     status: Literal["open", "snoozed", "needs_confirmation", "completed", "cancelled"] | None = None
     owner_id: str | None = None
     note: str | None = Field(default=None, max_length=1000)
@@ -65,6 +78,19 @@ class TaskEdit(DatedEdit):
     @classmethod
     def validate_reminder(cls, value):
         return zoned_time(value)
+
+    @model_validator(mode="before")
+    @classmethod
+    def record_offset(cls, data):
+        if isinstance(data, dict):
+            data = {k: v for k, v in data.items() if k != "due_offset_minutes"}
+            try:
+                parsed = datetime.fromisoformat(data["due_at"].replace("Z", "+00:00"))
+            except (KeyError, AttributeError, TypeError, ValueError):
+                return data
+            if parsed.utcoffset() is not None:
+                data["due_offset_minutes"] = int(parsed.utcoffset().total_seconds() // 60)
+        return data
 
     @field_validator("status")
     @classmethod
@@ -514,7 +540,8 @@ class RepWorkflows:
         )
 
     def refresh_packet_in(self, s, p, lead):
-        self.refresh_conversation_features_in(s, p, lead)
+        """Mark the brief dirty and queue its refresh; features and goal state are
+        recomputed by that background job (refresh_continuity), not in the caller's save."""
         update(lead, preparation_revision=lead.data.get("preparation_revision", 0) + 1)
         self.queue_packet_refresh_in(s, p, lead)
         emit(s, p["tenant_id"], "packet.stale", lead, self.clock())
@@ -535,6 +562,19 @@ class RepWorkflows:
             priority=5,
             available_at=self.clock(),
         )
+
+    def refresh_continuity(self, p, lead_ids):
+        """Background half of a packet refresh: lead features and goal state.
+
+        A rep's save only marks the brief dirty; this recomputation over the lead's
+        history runs in the packet_refresh job, one short write per lead.
+        """
+        for lead_id in dict.fromkeys(lead_ids):
+            with self.db.transaction() as s:
+                lead = self.required(s, "leads", lead_id, p)
+                s.refresh(lead, with_for_update=True)
+                self.refresh_conversation_features_in(s, p, lead)
+                self.reconcile_goal_status(s, p, lead)
 
     def refresh_conversation_features_in(self, s, p, lead):
         from app.optimization.conversations import prior_features
@@ -588,33 +628,47 @@ class RepWorkflows:
         if any(lead.data.get(k) != value for k, value in source.items()):
             update(lead, **source)
 
-    def _sync_callback(self, s, p, lead):
-        active = [
-            t
-            for t in self.lead_records(s, p, "followup_tasks", lead.id)
-            if t.data.get("kind") == "callback" and t.data["status"] in ACTIVE_TASKS
-        ]
+    def _sync_callback(self, s, p, lead, tasks=None):
+        tasks = self.lead_records(s, p, "followup_tasks", lead.id) if tasks is None else tasks
+        active = [t for t in tasks if t.data.get("kind") == "callback" and t.data["status"] in ACTIVE_TASKS]
         dated = [t for t in active if t.data.get("due_at") and t.data["status"] != "needs_confirmation"]
         next_task = min(dated, key=lambda t: dt(t.data["due_at"]), default=None)
+        undated = [t for t in active if t not in dated]
+        stated = [t for t in undated if t.data.get("source") != "inferred" or t.data.get("human_edited")]
+        suggested = [
+            dt(
+                t.data.get("suggested_at")
+                or t.created_at.replace(tzinfo=t.created_at.tzinfo or UTC).isoformat()
+            )
+            + SUGGESTION_HOLD
+            for t in undated
+            if t not in stated
+        ]
+        until = max([u for u in suggested if u > self.clock()], default=None)
         hold = lead.data.get("outreach_hold")
         if hold in {None, "callback_time_confirmation"}:
-            hold = "callback_time_confirmation" if active and not next_task else None
-        previous = lead.data.get("callback_due_at")
+            hold = "callback_time_confirmation" if stated and not next_task else None
+        previous = {lead.data.get("callback_due_at"), lead.data.get("callback_suggestion_until")} - {None}
         due = next_task.data["due_at"] if next_task else None
+        deferral = until.isoformat() if until and not due and not hold else None
         next_at = lead.data.get("next_attempt_at")
         if due:
             next_at = due
-        elif previous and next_at == previous:
+        elif deferral:
+            # A model suggestion defers automatic outreach for a bounded time only.
+            next_at = max(dt(next_at) or self.clock(), until).isoformat()
+        elif next_at in previous:
             next_at = self.clock().isoformat()
         update(
             lead,
             callback_due_at=due,
             callback_owner_id=next_task.data.get("owner_id") if next_task else None,
+            callback_suggestion_until=deferral,
             next_attempt_at=next_at,
             outreach_hold=hold,
         )
 
-    def _callback_by_key(self, s, p, lead, key):
+    def _callback_by_key(self, s, p, lead, key, tasks=None):
         task = self._by_key(s, p, "followup_tasks", key)
         if task:
             return (
@@ -622,14 +676,8 @@ class RepWorkflows:
                 if task.data.get("alias_of")
                 else task
             )
-        return next(
-            (
-                t
-                for t in self.lead_records(s, p, "followup_tasks", lead.id)
-                if t.data.get("wrapup_key") == key
-            ),
-            None,
-        )
+        tasks = self.lead_records(s, p, "followup_tasks", lead.id) if tasks is None else tasks
+        return next((t for t in tasks if t.data.get("wrapup_key") == key), None)
 
     def _callback_task(
         self,
@@ -645,12 +693,17 @@ class RepWorkflows:
         note="",
         source="rep_reported",
         explicit_replacement=False,
+        tasks=None,
     ):
-        task = self._callback_by_key(s, p, lead, key)
+        """Returns (task, review). A rep's save never fails here: an ambiguous or
+        protected existing callback keeps its values and is returned as needs_review."""
+        tasks = self.lead_records(s, p, "followup_tasks", lead.id) if tasks is None else tasks
+        task = self._callback_by_key(s, p, lead, key, tasks)
+        suggestion = {"due_at": due_at, "timezone": timezone or lead.data.get("timezone"), "source": "wrapup"}
         if not task and call_id and key == "wrapup-callback:" + call_id:
             inferred = [
                 t
-                for t in self.lead_records(s, p, "followup_tasks", lead.id)
+                for t in tasks
                 if t.data.get("call_id") == call_id
                 and t.data.get("kind") == "callback"
                 and t.data.get("source") == "inferred"
@@ -659,16 +712,22 @@ class RepWorkflows:
                 task = inferred[0]
                 update(task, wrapup_key=key)
             elif len(inferred) > 1:
-                fail(
-                    409,
-                    {
-                        "code": "ambiguous_callbacks",
-                        "reasons": [
-                            "Review this call's existing follow-ups before confirming its callback outcome."
-                        ],
-                        "task_ids": [t.id for t in inferred],
-                    },
-                )
+                ids = sorted(t.id for t in inferred)
+                for other in inferred:
+                    if other.data["status"] in ACTIVE_TASKS:
+                        update(
+                            other,
+                            review_required=True,
+                            confirmation_state="needs_review",
+                            source_conflicts=[i for i in ids if i != other.id],
+                            suggested_update=suggestion,
+                        )
+                        emit(s, p["tenant_id"], "task.updated", other, self.clock())
+                return None, {
+                    "status": "needs_review",
+                    "reason": "This call already has several follow-ups; choose which one the callback updates.",
+                    "task_ids": ids,
+                }
         values = {
             "lead_id": lead.id,
             "call_id": call_id,
@@ -682,17 +741,32 @@ class RepWorkflows:
             "confirmation_state": "confirmed" if due_at else "suggested",
             "source": source,
         }
+        review = None
         if task:
             # Repeated machine extraction or wrap-up cannot overwrite an independently edited task.
             if explicit_replacement or (
                 not task.data.get("human_edited") and task.data.get("status") in ACTIVE_TASKS
             ):
                 update(task, **values)
+            elif task.data.get("due_at") != due_at:
+                review = {
+                    "status": "needs_review",
+                    "reason": "A person already edited or closed this callback; review the new time.",
+                    "task_ids": [task.id],
+                }
+                if task.data.get("status") in ACTIVE_TASKS:
+                    update(
+                        task,
+                        review_required=True,
+                        confirmation_state="needs_review",
+                        suggested_update=suggestion,
+                    )
         else:
             task = put(s, "followup_tasks", p["tenant_id"], p["seller_id"], values, key=key, now=self.clock())
-        self._sync_callback(s, p, lead)
+            tasks.append(task)
+        self._sync_callback(s, p, lead, tasks)
         emit(s, p["tenant_id"], "task.updated", task, self.clock())
-        return task
+        return task, review
 
     def edit_task(self, p, task_id, data):
         with self.db.transaction() as s:
@@ -705,7 +779,17 @@ class RepWorkflows:
             self.check_edit_version(task, data)
             if task.data.get("inbound") and task.data.get("inbound_state") not in {None, "ended"}:
                 fail(409, "This return call is still active; finish call routing before editing the task")
-            edits = {k: v for k, v in data.items() if k not in {"expected_version", "request_id"}}
+            edits = {
+                k: v
+                for k, v in data.items()
+                if k not in {"expected_version", "request_id", "due_offset_minutes"}
+            }
+            zone = edits.get("timezone") or task.data.get("timezone")
+            if edits.get("due_at") and data.get("due_offset_minutes") and zone:
+                # A non-UTC offset is a local reading; it must be the task zone's offset then.
+                local = dt(edits["due_at"]).astimezone(ZoneInfo(zone)).utcoffset()
+                if data["due_offset_minutes"] != int(local.total_seconds() // 60):
+                    fail(422, "The time's UTC offset does not match the task timezone; choose the time again")
             if "owner_id" in edits:
                 owner = self.required(s, "users", edits["owner_id"] or "", p)
                 if owner.data.get("disabled"):
@@ -748,8 +832,13 @@ class RepWorkflows:
                 edited_by=p["user_id"],
             )
             if task.data.get("commitment_id"):
+                # A person's decision on the task is the promise's state in every brief.
                 commitment = self.required(s, "commitments", task.data["commitment_id"], p)
-                update(commitment, task_status=task.data["status"])
+                update(
+                    commitment,
+                    task_status=task.data["status"],
+                    status=PROMISE_STATUS.get(task.data["status"], commitment.data.get("status")),
+                )
             if task.data.get("lead_id"):
                 lead = self.required(s, "leads", task.data["lead_id"], p)
                 self._sync_callback(s, p, lead)
@@ -807,9 +896,19 @@ class RepWorkflows:
         update(lead, meeting=meeting, outreach_hold=hold)
         if status in {"booked", "rescheduled", "held"}:
             for task in self.lead_records(s, p, "followup_tasks", lead.id):
-                if task.data.get("kind") == "callback" and task.data.get("status") in ACTIVE_TASKS:
+                if task.data.get("kind") != "callback" or task.data.get("status") not in ACTIVE_TASKS:
+                    continue
+                if task.data.get("human_edited"):
+                    # A person's own callback decision is reviewed, never cancelled implicitly.
+                    update(
+                        task,
+                        review_required=True,
+                        confirmation_state="needs_review",
+                        source_conflicts=["A meeting was reported after this callback was edited"],
+                    )
+                else:
                     update(task, status="cancelled", reason="rep_reported_meeting", human_edited=True)
-                    emit(s, p["tenant_id"], "task.updated", task, self.clock())
+                emit(s, p["tenant_id"], "task.updated", task, self.clock())
         elif next_action == "callback":
             self._callback_task(
                 s,
@@ -918,6 +1017,7 @@ class RepWorkflows:
                 "contact_role": data.get("contact_role", "unknown"),
             }
             duplicate = call.data.get("disposition_input") == canonical
+            task = callback_review = tasks = None
             if not identity[2]:
                 self.check_edit_version(call, data)
             previous_outcome = call.data.get("outcome")
@@ -1023,8 +1123,10 @@ class RepWorkflows:
                         ),
                     )
                 callback_key = "wrapup-callback:" + call_id
+                # One scan of the lead's tasks serves the whole save.
+                tasks = self.lead_records(s, p, "followup_tasks", lead.id)
                 if outcome == "callback_requested":
-                    self._callback_task(
+                    task, callback_review = self._callback_task(
                         s,
                         p,
                         lead,
@@ -1034,17 +1136,35 @@ class RepWorkflows:
                         due_at=due,
                         timezone=lead.data.get("timezone"),
                         note=canonical["callback_note"],
+                        tasks=tasks,
                     )
                 else:
-                    old_task = self._callback_by_key(s, p, lead, callback_key)
-                    if (
-                        old_task
-                        and old_task.data["status"] in ACTIVE_TASKS
-                        and not old_task.data.get("human_edited")
-                    ):
+                    # The rep's outcome says no callback: close this call's untouched callbacks,
+                    # the wrap-up one and model-inferred ones alike. Human edits are kept.
+                    wrapup = self._callback_by_key(s, p, lead, callback_key, tasks)
+                    closed = [
+                        t
+                        for t in tasks
+                        if (
+                            t is wrapup
+                            or t.data.get("call_id") == call.id
+                            and t.data.get("source") == "inferred"
+                        )
+                        and t.data.get("kind") == "callback"
+                        and t.data["status"] in ACTIVE_TASKS
+                        and not t.data.get("human_edited")
+                    ]
+                    for old_task in closed:
                         update(old_task, status="cancelled", reason="corrected_disposition")
-                        self._sync_callback(s, p, lead)
+                        if old_task.data.get("commitment_id"):
+                            update(
+                                self.required(s, "commitments", old_task.data["commitment_id"], p),
+                                status="cancelled",
+                                task_status="cancelled",
+                            )
                         emit(s, p["tenant_id"], "task.updated", old_task, self.clock())
+                    if closed:
+                        self._sync_callback(s, p, lead, tasks)
                 independent_meeting = (
                     correcting_confirmed
                     and "source_call_id" in meeting
@@ -1111,28 +1231,26 @@ class RepWorkflows:
                         key="disposition:" + call_id,
                         now=self.clock(),
                     )
-                self.reconcile_goal_status(s, p, lead)
+                if {outcome, previous_outcome} & GOAL_OUTCOMES or lead.data.get("status") == "converted":
+                    # Only an outcome that can change goal completion is reconciled in the
+                    # save; the packet refresh job reconciles every other change.
+                    self.reconcile_goal_status(s, p, lead)
                 from app.optimization.conversations import invalidate_report
 
                 invalidate_report(self, s, p, lead.data["campaign_id"])
                 self.refresh_packet_in(s, p, lead)
-                self.jobs.enqueue_in(
-                    s,
-                    "postcall",
-                    {"call_id": call_id, "seller_id": p["seller_id"], "user_id": p["user_id"]},
-                    f"wrapup:{call_id}:{call.version}",
-                    tenant_id=p["tenant_id"],
-                )
+                self.enqueue_finalize(s, p, call, "wrapup")
                 emit(s, p["tenant_id"], "call.updated", call, self.clock())
             receipt = identity[2] or self.local_edit_receipt(s, p, identity, call)
-            task = next(
-                (
-                    t
-                    for t in self.lead_records(s, p, "followup_tasks", lead.id)
-                    if t.data.get("call_id") == call.id and t.data.get("kind") == "callback"
-                ),
-                None,
-            )
+            if task is None and callback_review is None:
+                task = next(
+                    (
+                        t
+                        for t in (tasks or self.lead_records(s, p, "followup_tasks", lead.id))
+                        if t.data.get("call_id") == call.id and t.data.get("kind") == "callback"
+                    ),
+                    None,
+                )
             memory = self._by_key(s, p, "conversation_states", call.id)
             from app.postcall.analysis import suggested_outcome
 
@@ -1140,6 +1258,9 @@ class RepWorkflows:
                 **doc(call),
                 "edit_receipt": receipt,
                 "canonical_task_id": task.id if task else None,
+                # An existing callback a person edited, closed or duplicated is not
+                # overwritten; the save succeeds and names what needs review.
+                "callback_review": callback_review,
                 "rundown_status": (
                     memory.data.get("finalization", {}).get("status", "pending") if memory else "pending"
                 ),

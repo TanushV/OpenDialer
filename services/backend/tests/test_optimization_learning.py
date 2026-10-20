@@ -4,34 +4,32 @@ import pytest
 from app.optimization.learning import (
     conversion_score,
     derive_labels,
-    drift_report,
     freeze_features,
-    future_slots,
-    learn_distribution,
     training_rows,
-    trial_report,
 )
+from comparison_oracle import drift_report, learn_distribution, trial_report
 
 
 @pytest.mark.parametrize(
     "outcome,human,right,qualified",
     [
-        ("wrong_party", True, False, False),
-        ("gatekeeper", True, False, False),
-        ("screening", False, None, False),
-        ("ivr", False, None, False),
-        ("voicemail", False, None, False),
-        ("no_answer", False, None, False),
-        ("opt_out", True, None, False),
-        ("not_interested", True, None, False),
-        ("right_party", True, True, False),
+        ("wrong_party", True, False, None),
+        ("gatekeeper", True, False, None),
+        ("screening", False, None, None),
+        ("ivr", False, None, None),
+        ("voicemail", False, None, None),
+        ("no_answer", False, None, None),
+        ("opt_out", True, None, None),
+        ("not_interested", True, None, None),
+        ("right_party", True, True, None),
         ("qualified_conversation", True, True, True),
-        ("meeting_held", True, None, False),
-        ("sale_won", True, None, False),
+        ("meeting_held", True, None, None),
+        ("sale_won", True, None, None),
     ],
 )
 def test_labels_keep_the_funnel_distinct(outcome, human, right, qualified):
-    result = derive_labels(outcome)
+    # 20.2: a rep-confirmed source establishes the right party; other goals stay pending (None).
+    result = derive_labels({"outcome": outcome, "outcome_source": "rep_reported"})
     assert (result["human"], result["right_party"], result["qualified"]) == (human, right, qualified)
 
 
@@ -54,7 +52,7 @@ def test_labels_keep_the_funnel_distinct(outcome, human, right, qualified):
 )
 def test_nullable_labels_and_pooled_counts(outcome, human, right):
     """C030: an unobserved conditional result is not a negative example."""
-    labels = derive_labels(outcome)
+    labels = derive_labels({"outcome": outcome, "outcome_source": "rep_reported"})
     assert labels["human"] is human
     assert labels["right_party"] is right
 
@@ -120,9 +118,10 @@ def test_ambiguous_import_does_not_invent_target_contact(outcome):
 
 
 def test_one_goal_evidence_cannot_prove_another_goal():
-    assert derive_labels("sale_won")["meeting_held"] is False
-    assert derive_labels("meeting_booked")["qualified"] is False
-    assert derive_labels("meeting_held")["qualified"] is False
+    # Other goals remain pending until their own evidence or the window closes.
+    assert derive_labels("sale_won")["meeting_held"] is None
+    assert derive_labels("meeting_booked")["qualified"] is None
+    assert derive_labels("meeting_held")["qualified"] is None
 
 
 def test_conditional_estimates_use_only_known_conditioning_labels_and_no_double_prior():
@@ -424,8 +423,8 @@ def test_forecast_shares_weekday_and_attempt_estimates_with_selection(workspace,
     with app.state.db.transaction(False) as s:
         inputs, _ = service.forecast_input(s, p)
     for lead in inputs["leads"]:
-        assert lead["slot_estimates"]["0:10:general"] == pytest.approx(0.2)
-        assert lead["slot_estimates"]["6:10:general"] == pytest.approx(0.1)
+        assert lead["slot_estimates"]["0:10"] == pytest.approx(0.2)
+        assert lead["slot_estimates"]["6:10"] == pytest.approx(0.1)
         assert lead["predicted_work_seconds"] == 180
 
 
@@ -457,6 +456,7 @@ def test_dataset_uses_immutable_snapshot_and_censors_delayed_conversions(clock):
             "started_at": at.isoformat(),
             "state": "FINALIZED",
             "outcome": "right_party",
+            "outcome_available_at": at.isoformat(),
             "feature_snapshot_id": "f1",
         }
     ]
@@ -475,6 +475,7 @@ def test_dataset_uses_immutable_snapshot_and_censors_delayed_conversions(clock):
             "call_id": "c1",
             "kind": "meeting_held",
             "occurred_at": clock.now.isoformat(),
+            "recorded_at": clock.now.isoformat(),
         }
     ]
     positive = training_rows(calls, snapshots, events, now=clock.now, goal="meeting_held", window_days=14)
@@ -511,11 +512,14 @@ def test_conversion_score_prefers_useful_outcomes_over_easy_low_value_pickups():
 
 
 def test_treatment_learning_changes_the_best_approved_action_and_logs_exact_distribution():
+    # Rewards carry their logged propensity; a missing one is rejected, not read as certainty.
     rows = [
-        {"action": "a", "conversion": 0, "window_status": "matured", "segment": "roofing"} for _ in range(30)
+        {"action": "a", "conversion": 0, "window_status": "matured", "segment": "roofing", "propensity": 0.5}
+        for _ in range(30)
     ]
     rows += [
-        {"action": "b", "conversion": 1, "window_status": "matured", "segment": "roofing"} for _ in range(30)
+        {"action": "b", "conversion": 1, "window_status": "matured", "segment": "roofing", "propensity": 0.5}
+        for _ in range(30)
     ]
     result = learn_distribution(["a", "b"], rows, segment="roofing", exploration=0.1)
     assert result["best"] == "b" and result["probabilities"]["b"] == pytest.approx(0.95)
@@ -531,63 +535,47 @@ def test_pending_outcomes_cannot_promote_a_treatment():
     assert learn_distribution(["a", "b"], rows)["best"] == "a"
 
 
-def test_future_slots_respect_timezone_retry_callback_and_coverage(clock):
+def test_forecast_respects_timezone_retry_callback_and_window(clock):
+    # Per-lead suggestions now come from the one whole-list schedule (no alternatives path).
+    from app.optimization.numbering import capacity_forecast
+
     callback = clock.now + timedelta(hours=2)
     lead = {
         "id": "l",
+        "status": "eligible",
         "timezone": "America/Los_Angeles",
         "segment": "roofing",
         "attempt_count": 1,
         "callback_due_at": callback.isoformat(),
         "next_attempt_at": (clock.now + timedelta(hours=1)).isoformat(),
-        "coverage_due_at": (clock.now + timedelta(days=1)).isoformat(),
     }
-    slots = future_slots(
-        lead,
-        [],
-        now=clock.now,
-        policy={"local_start_hour": 9, "local_end_hour": 17, "min_retry_seconds": 3600, "max_attempts": 4},
-    )
-    assert slots[0]["at"] == callback.isoformat() and slots[0]["reason"] == "requested_callback"
-    assert all(s["local_hour"] in range(9, 17) for s in slots)
-    assert all(s["at"] >= lead["next_attempt_at"] for s in slots)
+    window = {
+        "start_at": clock.now.isoformat(),
+        "end_at": (clock.now + timedelta(hours=8)).isoformat(),
+        "reps": 1,
+    }
+    policy = {"local_start_hour": 9, "local_end_hour": 17, "min_retry_seconds": 3600, "max_attempts": 4}
+    inventory = [{"id": "n", "region": "general", "lifecycle": "healthy", "daily_limit": 5, "capacity": 1}]
+    rows = capacity_forecast([lead], inventory, now=clock.now, policy=policy, staffed_windows=[window])[
+        "existing_schedule"
+    ]
+    assert rows[0]["at"] == callback.isoformat() and rows[0]["callback"]
+    later = capacity_forecast(
+        [{**lead, "callback_due_at": None}], inventory, now=clock.now, policy=policy, staffed_windows=[window]
+    )["existing_schedule"]
+    assert later and later[0]["at"] >= lead["next_attempt_at"]
 
 
 def test_no_timezone_and_exhausted_leads_are_not_scheduled(clock):
-    assert future_slots({"id": "l", "timezone": None}, [], now=clock.now, policy={}) == []
-    assert (
-        future_slots(
-            {"id": "l", "timezone": "UTC", "attempt_count": 4}, [], now=clock.now, policy={"max_attempts": 4}
-        )
-        == []
-    )
+    from app.optimization.numbering import capacity_forecast
 
-
-def test_a_possible_coverage_deadline_is_not_replaced_with_a_later_slot(clock):
-    deadline = clock.now + timedelta(hours=2)
-    slots = future_slots(
-        {"id": "covered", "timezone": "America/Los_Angeles", "coverage_due_at": deadline.isoformat()},
+    result = capacity_forecast(
+        [{"id": "l", "timezone": None}, {"id": "x", "timezone": "UTC", "attempt_count": 4}],
         [],
         now=clock.now,
-        policy={"local_start_hour": 9, "local_end_hour": 20},
+        policy={"max_attempts": 4},
     )
-    assert slots and slots[0]["at"] <= deadline.isoformat()
-
-
-def test_future_slots_can_use_the_verified_active_model_instead_of_only_the_pooled_baseline(clock):
-    slots = future_slots(
-        {"id": "active-model", "timezone": "America/Los_Angeles"},
-        [],
-        now=clock.now,
-        policy={"local_start_hour": 9, "local_end_hour": 17},
-        predictor=lambda hour, weekday: {
-            "p_human": 0.9 if hour == 16 else 0.1,
-            "p_right_party_given_human": 0.8,
-            "p_conversion_given_right_party": 0.4,
-            "expected_rep_seconds": 60,
-        },
-    )
-    assert slots[0]["local_hour"] == 16
+    assert result["known_next_attempts"] == 0 and result["window_unknown_leads"] == 1
 
 
 def test_trial_reports_use_unique_matured_leads_and_do_not_claim_lift_from_tiny_samples(clock):
@@ -600,9 +588,10 @@ def test_trial_reports_use_unique_matured_leads_and_do_not_claim_lift_from_tiny_
         for i in range(4)
     ]
     assigned += [assigned[0]]
+    known = {"recorded_at": clock.now.isoformat()}
     events = [
-        {"lead_id": "2", "kind": "meeting_held", "occurred_at": clock.now.isoformat()},
-        {"lead_id": "2", "kind": "meeting_held", "occurred_at": clock.now.isoformat()},
+        {"lead_id": "2", "kind": "meeting_held", "occurred_at": clock.now.isoformat(), **known},
+        {"lead_id": "2", "kind": "meeting_held", "occurred_at": clock.now.isoformat(), **known},
     ]
     report = trial_report(assigned, events, now=clock.now, goal="meeting_held", window_days=30)
     assert report["arms"]["control"]["leads"] == 2 and report["arms"]["candidate"]["conversions"] == 1

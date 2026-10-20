@@ -31,10 +31,26 @@ class Vault:
         self._config_digest_key = hashlib.sha256((key + ":provider-edit").encode()).digest()
         self._journal_lock = threading.RLock()
         self._verified_journals = set()
+        self._read_cache = {}  # tenant -> (file identity, canonical JSON); validated on every read
+        self._read_lock = threading.Lock()
 
     def read(self, tenant_id):
         path = self.directory / (tenant_id + ".enc")
-        return json.loads(self.cipher.decrypt(path.read_bytes())) if path.exists() else {}
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            return {}
+        # Writes replace the file atomically, so inode/size/mtime identify its content,
+        # including replacements by another authority process sharing this directory.
+        identity = (stat.st_ino, stat.st_size, stat.st_mtime_ns)
+        with self._read_lock:
+            cached = self._read_cache.get(tenant_id)
+        if cached is None or cached[0] != identity:
+            text = self.cipher.decrypt(path.read_bytes()).decode()
+            cached = (identity, text)
+            with self._read_lock:
+                self._read_cache[tenant_id] = cached
+        return json.loads(cached[1])  # A fresh copy per caller; the cache is never mutated.
 
     def write(self, tenant_id, values, *, expected=None, advance_version=False, edit=None):
         with self._locked_journal("provider-config"):

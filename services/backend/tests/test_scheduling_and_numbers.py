@@ -1,8 +1,7 @@
 from datetime import timedelta
 
-import pytest
 from app.ml.training import promotion_allowed, train_challenger
-from app.scheduling.policy import choose_action, delayed_reward, eligible_features, rank_candidates
+from app.scheduling.policy import rank_candidates
 from conftest import completed_metrics, disposition_body, start
 
 
@@ -20,42 +19,57 @@ def test_callback_and_coverage_beat_propensity(clock):
     assert [x["id"] for x in rank_candidates(candidates, clock.now)] == ["callback", "overdue", "easy"]
 
 
-def test_exploration_logs_actual_propensity_and_never_invents_actions():
-    actions = ["approved-a", "approved-b", "approved-c"]
-    selected = choose_action(actions, best="approved-a", exploration=0.1, random_value=0.95)
-    assert selected["action"] in actions
-    assert selected["propensity"] == pytest.approx(0.9 + 0.1 / 3)
-    selected = choose_action(
-        actions, best="approved-a", exploration=0.1, random_value=0.05, exploration_index=1
-    )
-    assert selected["action"] == "approved-b"
-    assert selected["propensity"] == pytest.approx(0.1 / 3)
+def test_pre_call_features_strip_protected_future_and_registry_data(clock):
+    from app.optimization.learning import freeze_features
 
-
-def test_pre_call_features_strip_protected_future_and_registry_data():
-    features = eligible_features(
+    features = freeze_features(
         {
+            "id": "lead",
             "segment": "roofing",
             "attempt_count": 1,
-            "local_hour": 11,
+            "timezone": "UTC",
             "registry_listed": False,
             "dnc": False,
             "emotion": "happy",
             "duration": 45,
             "future_outcome": "won",
             "transcript": "hello",
-            "number_health": 0.8,
-        }
+        },
+        health={"score": 0.8, "samples": 40},
+        now=clock.now,
     )
-    assert set(features) == {"segment", "attempt_count", "local_hour", "number_health"}
+    assert not {"registry_listed", "dnc", "emotion", "duration", "future_outcome", "transcript"} & set(
+        features
+    )
+    assert features["segment"] == "roofing" and features["number_health"] == 0.8
 
 
 def test_pending_outcome_window_is_censored(clock):
-    assert (
-        delayed_reward(clock.now, clock.now - timedelta(days=2), window_days=14, meeting_held=False) is None
+    from app.optimization.learning import training_rows
+
+    call = {
+        "id": "c",
+        "lead_id": "l",
+        "started_at": (clock.now - timedelta(days=2)).isoformat(),
+        "feature_snapshot_id": "f",
+        "outcome": "right_party",
+        "outcome_source": "rep_reported",
+        "outcome_available_at": (clock.now - timedelta(days=2)).isoformat(),
+    }
+    snapshot = {"id": "f", "as_of": call["started_at"], "features": {}}
+    pending = training_rows([call], [snapshot], [], now=clock.now, goal="meeting_held", window_days=14)
+    assert pending[0]["conversion"] is None
+    matured = training_rows(
+        [call], [snapshot], [], now=clock.now + timedelta(days=13), goal="meeting_held", window_days=14
     )
-    assert delayed_reward(clock.now, clock.now - timedelta(days=15), window_days=14, meeting_held=False) == 0
-    assert delayed_reward(clock.now, clock.now - timedelta(days=15), window_days=14, meeting_held=True) == 1
+    assert matured[0]["conversion"] == 0
+    held = {**call, "outcome": "meeting_held"}
+    assert (
+        training_rows([held], [snapshot], [], now=clock.now, goal="meeting_held", window_days=14)[0][
+            "conversion"
+        ]
+        == 1
+    )
 
 
 def test_challenger_evaluates_chronologically_and_requires_approval(tmp_path):
@@ -161,7 +175,10 @@ def test_metrics_keep_original_cohort_denominator(workspace):
 
 
 def test_only_verified_local_model_artifact_can_influence_probability(tmp_path):
-    from app.ml.training import predict_challenger
+    from app.ml.training import predict_funnel
+
+    def predict_challenger(model, features, root):
+        return predict_funnel(model, features, root).get("p_human")
 
     directory = tmp_path / "models"
     rows = [

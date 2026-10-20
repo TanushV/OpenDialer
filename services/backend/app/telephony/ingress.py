@@ -286,13 +286,8 @@ class WebhookIngress:
                 segment.pop("call_id", None)
                 self._transcript_in(s, p, call_id, segment, dt(receipt["received_at"]), raw_writes)
         if event_type == "call.hangup":
-            self.jobs.enqueue_in(
-                s,
-                "postcall",
-                {"call_id": call_id, "seller_id": p["seller_id"], "user_id": p["user_id"]},
-                "postcall-webhook:" + event_id,
-                tenant_id=tenant_id,
-            )
+            # The call row is locked by the event write above, as the finalize enqueue requires.
+            self.enqueue_finalize(s, p, call, "webhook")
         return result
 
     def queue_unfinished_webhooks(self):

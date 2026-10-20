@@ -157,3 +157,27 @@ def test_training_proof_rejects_wrong_executable_receipt(tmp_path, change):
         result["artifact"] = str(tmp_path / "unrelated.joblib")
     with pytest.raises(ValueError):
         module().check_training_reply(json.dumps(result), tmp_path, 43210)
+
+
+def test_frozen_authority_receives_secrets_on_stdin_like_the_desktop(monkeypatch, tmp_path):
+    m = module()
+    binary = tmp_path / "opendialer-backend"
+    binary.write_bytes(b"placeholder")
+    captured = {}
+
+    class Started(Exception):
+        pass
+
+    def fake_start_owned(command, **kwargs):
+        captured.update(command=command, env=kwargs.get("env", {}), stdin=kwargs.get("stdin"))
+        raise Started
+
+    monkeypatch.setattr(m, "start_owned", fake_start_owned)
+    monkeypatch.setenv("OPENDIALER_TEST_BINARY", str(binary))
+    monkeypatch.setenv("OPENDIALER_SECRET_KEY", "inherited-secret-must-not-pass")
+    monkeypatch.setattr(sys, "argv", ["frozen_acceptance.py", "--expected-version", "0.3.0"])
+    with pytest.raises(Started):
+        m.main()
+    assert "--secrets-stdin" in captured["command"], "The production launch path takes secrets on stdin"
+    assert captured["stdin"] == subprocess.PIPE
+    assert not {"OPENDIALER_SECRET_KEY", "OPENDIALER_LOCAL_TOKEN"} & set(captured["env"])

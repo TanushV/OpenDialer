@@ -1,5 +1,12 @@
-"""Bounded historical fixture adapter; production reads corrected contribution counts."""
+"""Bounded historical fixture adapters; production reads corrected contribution counts.
 
+Offline oracles that were once test-only application functions live here, built from the
+same production count definitions.
+"""
+
+from datetime import UTC, datetime
+
+from app.ml.training import partition_at
 from app.optimization.experiments import (
     call_goal_events,
     comparison_from_counts,
@@ -7,8 +14,67 @@ from app.optimization.experiments import (
     reward_values,
     strategy_rewards,
 )
-from app.optimization.learning import trial_values
+from app.optimization.learning import (
+    distribution_from_counts,
+    drift_from_counts,
+    drift_stratum,
+    drift_values,
+    reward_counts,
+    trial_from_counts,
+    trial_values,
+)
 from app.optimization.numbering import timestamp
+
+
+def learn_distribution(actions, history, *, segment=None, exploration=0.1, control=False, urgent=False):
+    return distribution_from_counts(
+        actions,
+        reward_counts((r for r in history if r.get("action") in actions), segment=segment),
+        exploration=exploration,
+        control=control,
+        urgent=urgent,
+    )
+
+
+def drift_report(reference, recent):
+    groups = []
+    for rows in (reference, recent):
+        counts = {}
+        for row in rows:
+            group = counts.setdefault(drift_stratum(row), {})
+            for key, value in drift_values(row).items():
+                group[key] = group.get(key, 0) + value
+        groups.append(counts)
+    return drift_from_counts(*groups)
+
+
+def trial_report(assignments, events, *, now, goal, window_days=14, baseline_rate=0.1, minimum_effect=0.05):
+    unique, by_lead, counts = {}, {}, {}
+    for assignment in sorted(assignments, key=lambda a: a.get("assigned_at", "")):
+        unique.setdefault(assignment["lead_id"], assignment)
+    for event in events:
+        by_lead.setdefault(event.get("lead_id"), []).append(event)
+    for assignment in unique.values():
+        for key, value in trial_values(
+            assignment, by_lead.get(assignment["lead_id"], []), now=now, goal=goal, window_days=window_days
+        ).items():
+            counts[key] = counts.get(key, 0) + value
+    return trial_from_counts(
+        counts, goal=goal, window_days=window_days, baseline_rate=baseline_rate, minimum_effect=minimum_effect
+    )
+
+
+def independent_partitions(rows, *, label=None):
+    ordered = sorted(rows, key=lambda r: timestamp(r["at"]))
+    if len(ordered) < 3:
+        return [], [], []
+    cut, calibration_cut = int(len(ordered) * 0.6), int(len(ordered) * 0.8)
+    cutoffs = (
+        timestamp(ordered[cut]["at"]),
+        timestamp(ordered[calibration_cut]["at"]),
+        datetime.max.replace(tzinfo=UTC),
+    )
+    return tuple(partition_at(ordered, label, cutoffs)[0])
 
 
 def comparison_report(

@@ -5,7 +5,7 @@ from datetime import timedelta
 import pytest
 from app.db import get, update
 from conftest import NOW
-from test_postcall_completion import setup_analysis
+from test_postcall_completion import finalize, setup_analysis
 from test_remediation_rep_workflow import p
 
 
@@ -90,7 +90,7 @@ async def test_tracker_shares_one_extraction_and_meaning_review_with_original_ve
 ):
     call, tracker, _, requests = setup(workspace, app, monkeypatch)
     service = app.state.service
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     assert len(requests) == 2, "Tracker detection must not add another inference round trip"
     assert requests[0]["trackers"][0]["id"] == tracker["id"]
     assert any(item["field"] == "tracker_matches/" + tracker["id"] for item in requests[1]["fields"])
@@ -139,7 +139,7 @@ async def test_tracker_publication_rechecks_expiry_and_exact_sources(
                     update(row, definition="The prospect explicitly rejects further calls")
 
     state["during_review"] = mutate
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     assert not service.analysis(p(workspace), call["id"])["trackers"]
 
 
@@ -149,7 +149,7 @@ async def test_correction_invalidates_published_tracker_without_erasing_human_no
 ):
     call, _, _, _ = setup(workspace, app, monkeypatch)
     service = app.state.service
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     result = service.analysis(p(workspace), call["id"])
     assert result["trackers"]
     service.edit_notes(p(workspace), call["id"], result["notes_version"], "The rep's own durable note")
@@ -175,7 +175,7 @@ async def test_correction_invalidates_published_tracker_without_erasing_human_no
 async def test_no_tracker_request_after_raw_expiry(workspace, app, monkeypatch, clock):
     call, _, _, requests = setup(workspace, app, monkeypatch)
     clock.now += timedelta(seconds=301)
-    await app.state.service.analyze_postcall(p(workspace), call["id"])
+    await finalize(app.state.service, p(workspace), call["id"])
     assert not requests
 
 
@@ -189,5 +189,5 @@ async def test_malformed_tracker_result_cannot_publish(workspace, app, monkeypat
         state["body"]["tracker_matches"][0]["tracker_id"] = "unrelated-tracker"
     else:
         state["body"]["tracker_matches"][0]["evidence"] = ["unrelated-source"]
-    await app.state.service.analyze_postcall(p(workspace), call["id"])
+    await finalize(app.state.service, p(workspace), call["id"])
     assert not app.state.service.analysis(p(workspace), call["id"])["trackers"]
