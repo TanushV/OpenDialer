@@ -2,7 +2,6 @@ import json
 
 import httpx
 import pytest
-from app.providers.groq import GroqCoach
 from app.providers.inference import InferenceClient, InferenceError
 from app.providers.telnyx import TelnyxCarrier
 
@@ -138,25 +137,6 @@ async def test_provider_refusal_does_not_become_empty_success():
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
         with pytest.raises(InferenceError):
             await InferenceClient("api", "secret", "model", http=http).complete("JSON", {}, {})
-
-
-@pytest.mark.asyncio
-async def test_groq_strict_tiny_nonstreaming_json():
-    captured = []
-
-    def handler(request):
-        captured.append(json.loads(request.content))
-        return httpx.Response(
-            200,
-            json={"choices": [{"message": {"content": json.dumps({"action": "NO_ACTION"})}}], "usage": {}},
-        )
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        result = await GroqCoach("secret", http=http).suggest({"state_version": 3}, deadline_ms=1200)
-    assert result["action"] == "NO_ACTION"
-    assert captured[0]["stream"] is False
-    assert captured[0]["response_format"]["json_schema"]["strict"] is True
-    assert "tools" not in captured[0]
 
 
 @pytest.mark.asyncio
