@@ -1115,7 +1115,13 @@ class Service(ReservationPlanner):
                     "command_outbox",
                     p["tenant_id"],
                     p["seller_id"],
-                    {"kind": "hangup", "call_id": call.id, "provider_id": provider_id, "status": "pending"},
+                    {
+                        "kind": "hangup",
+                        "call_id": call.id,
+                        "rep_id": call.data.get("rep_id"),
+                        "provider_id": provider_id,
+                        "status": "pending",
+                    },
                     key=command_id,
                     now=self.clock(),
                 )

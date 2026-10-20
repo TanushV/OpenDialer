@@ -145,3 +145,25 @@ def test_http_requests_run_as_foreground_work(workspace, app, monkeypatch):
     )
     assert seen and seen[0][0] >= 1 and seen[0][1] is True
     assert priority.GATE.active == 0
+
+
+def test_manual_job_drain_runs_background_work_as_background(workspace, app, monkeypatch):
+    """The admin drain route is not calling work: its jobs neither claim nor hold foreground priority."""
+    import app.priority as priority
+    from test_control_completion import principal
+
+    service, p, seen = app.state.service, principal(workspace), []
+
+    async def prepare(p, lead_ids):
+        seen.append((priority.GATE.active, priority.FOREGROUND.get()))
+
+    monkeypatch.setattr(service, "prepare", prepare)
+    service.jobs.enqueue(
+        "scripts",
+        {"seller_id": p["seller_id"], "user_id": p["user_id"], "lead_ids": ["manual"]},
+        "manual-drain",
+        tenant_id=p["tenant_id"],
+    )
+    response = workspace["client"].post("/v1/admin/jobs/run", headers=workspace["headers"])
+    assert response.status_code == 200, response.text
+    assert seen == [(0, False)]

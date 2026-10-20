@@ -397,8 +397,12 @@ def create_app(settings=None, *, clock=None, carrier=None):
             return JSONResponse({"detail": "Origin rejected"}, status_code=403)
         from app.priority import GATE
 
-        with GATE.work():  # Interactive requests run ahead of background lanes.
+        if request.url.path == "/v1/admin/jobs/run":
+            # An explicit drain of every lane is background work, not a calling request.
             response = await call_next(request)
+        else:
+            with GATE.work():  # Interactive requests run ahead of background lanes.
+                response = await call_next(request)
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response
@@ -1068,36 +1072,41 @@ def create_app(settings=None, *, clock=None, carrier=None):
         if not re.fullmatch(r"[2-9][0-9]{2}", region):
             fail(422, "A US area code is required")
         found = await service.carrier(p["tenant_id"]).search_numbers(region)
-        quotes = []
-        with db.transaction() as s:
-            for candidate in found[:10]:
-                cost = candidate.get("cost_information", {})
-                try:
-                    upfront, monthly = Decimal(cost["upfront_cost"]), Decimal(cost["monthly_cost"])
-                    if not upfront.is_finite() or not monthly.is_finite() or min(upfront, monthly) < 0:
+
+        def save_quotes():
+            quotes = []
+            with db.transaction() as s:
+                for candidate in found[:10]:
+                    cost = candidate.get("cost_information", {})
+                    try:
+                        upfront, monthly = Decimal(cost["upfront_cost"]), Decimal(cost["monthly_cost"])
+                        if not upfront.is_finite() or not monthly.is_finite() or min(upfront, monthly) < 0:
+                            continue
+                    except (KeyError, InvalidOperation, TypeError):
                         continue
-                except (KeyError, InvalidOperation, TypeError):
-                    continue
-                phone = candidate.get("phone_number", "")
-                if cost.get("currency") != "USD" or not re.fullmatch(r"\+1[2-9][0-9]{9}", phone):
-                    continue
-                value = {
-                    "phone": phone,
-                    "region": region,
-                    "monthly_cost_usd": float(monthly),
-                    "initial_commitment_usd": float(upfront + monthly),
-                    "expires_at": (clock() + timedelta(minutes=5)).isoformat(),
-                    "currency": "USD",
-                }
-                put(
-                    s,
-                    "command_outbox",
-                    p["tenant_id"],
-                    p["seller_id"],
-                    {"kind": "number_quote", "status": "quoted", **value},
-                    now=clock(),
-                )
-                quotes.append(value)
+                    phone = candidate.get("phone_number", "")
+                    if cost.get("currency") != "USD" or not re.fullmatch(r"\+1[2-9][0-9]{9}", phone):
+                        continue
+                    value = {
+                        "phone": phone,
+                        "region": region,
+                        "monthly_cost_usd": float(monthly),
+                        "initial_commitment_usd": float(upfront + monthly),
+                        "expires_at": (clock() + timedelta(minutes=5)).isoformat(),
+                        "currency": "USD",
+                    }
+                    put(
+                        s,
+                        "command_outbox",
+                        p["tenant_id"],
+                        p["seller_id"],
+                        {"kind": "number_quote", "status": "quoted", **value},
+                        now=clock(),
+                    )
+                    quotes.append(value)
+            return quotes
+
+        quotes = await asyncio.to_thread(save_quotes)
         return {"numbers": quotes, "simulation": settings.simulation}
 
     @app.post("/v1/admin/numbers/purchase")

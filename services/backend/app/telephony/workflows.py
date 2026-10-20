@@ -75,6 +75,7 @@ class TelephonyWorkflows:
         prior = self._by_key(s, p, "command_outbox", key)
         if prior:
             return prior
+        call = get(s, "call_attempts", call_id, p["tenant_id"])
         return put(
             s,
             "command_outbox",
@@ -83,6 +84,7 @@ class TelephonyWorkflows:
             {
                 "kind": "action",
                 "call_id": call_id,
+                "rep_id": call.data.get("rep_id") if call else None,
                 "action": action,
                 "target": target,
                 "payload": {**payload, "command_id": key},

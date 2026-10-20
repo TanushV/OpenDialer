@@ -76,10 +76,15 @@ class WorkspaceReads:
             query = select(model.id).where(model.tenant_id == p["tenant_id"], condition)
             if not local:
                 # Reps block only on their own work. Admins additionally wait for seller-owned
-                # admin effects (no rep owner), never for another rep's call commands.
+                # admin effects (no rep owner), never for another rep's call commands, including
+                # call commands written before they carried their call's rep.
                 query = query.where(model.seller_id == p["seller_id"])
                 if p["role"] in {"owner", "admin"} and table == "command_outbox":
-                    query = query.where(or_(model.op_owner_id == p["user_id"], model.op_owner_id.is_(None)))
+                    seller_effect = and_(
+                        model.op_owner_id.is_(None),
+                        or_(model.op_kind.is_(None), model.op_kind.not_in(["dial", "hangup", "action"])),
+                    )
+                    query = query.where(or_(model.op_owner_id == p["user_id"], seller_effect))
                 else:
                     query = query.where(model.op_owner_id == p["user_id"])
             if s.scalar(query.limit(1)):

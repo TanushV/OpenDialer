@@ -1513,14 +1513,11 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     raise
                 for _ in range(slots - len(jobs)):
                     admission.release()
-
-                async def run(job):
-                    try:
-                        return job["id"], await execute(lane, job)
-                    finally:
-                        admission.release()
-
-                return [asyncio.create_task(run(job)) for job in jobs]
+                tasks = [asyncio.create_task(execute(lane, job)) for job in jobs]
+                for task in tasks:
+                    # A done callback also fires for a task cancelled before its first step.
+                    task.add_done_callback(lambda _task: admission.release())
+                return [job["id"] for job in jobs], tasks
 
             # One probe, not a wave of claimers, finds an idle lane idle.
             if not await asyncio.to_thread(
@@ -1528,9 +1525,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             ):
                 return processed, True
             for offset in range(0, 20, capacity):
-                active = await admitted_wave(min(capacity, 20 - offset))
+                ids, active = await admitted_wave(min(capacity, 20 - offset))
                 try:
-                    claimed = await asyncio.gather(*active)
+                    claimed = list(zip(ids, await asyncio.gather(*active), strict=True))
                     if not claimed:
                         return processed, True
                     processed += sum(outcome == DONE for _, outcome in claimed)
