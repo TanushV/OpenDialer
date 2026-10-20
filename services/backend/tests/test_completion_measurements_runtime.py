@@ -123,7 +123,9 @@ def test_shift_harness_restarts_authority_and_verifies_retained_task(workspace, 
     result = measure.run_shift(
         app.state.service.settings, clock, workspace["headers"], workspace["campaign_id"], 0.2, lambda _: None
     )
-    assert result["status"] == "passed", result
+    assert result["status"] == "passed", {
+        key: result[key] for key in ("errors", "queue_recovery", "restarts")
+    }
     assert result["elapsed_seconds"] == 720
     assert result["restarts"][0]["task_count"] == 1
     assert result["restarts"][0]["claims"] == 0
@@ -182,7 +184,7 @@ def test_shift_runs_maintenance_and_drains_due_work_before_certifying_restart(wo
         app.state.service.settings, clock, workspace["headers"], workspace["campaign_id"], 0.2, lambda _: None
     )
     assert result["maintenance"]["ticks"] >= 1
-    assert result["maintenance"]["status"] == "passed"
+    assert result["maintenance"]["status"] == "passed", result["errors"]
     assert result["queue_recovery"]["status"] == "passed"
     assert result["queue_recovery"]["due_remaining"] == 0
     assert result["queue_recovery"]["running_remaining"] == 0
@@ -252,6 +254,24 @@ def test_shift_cannot_erase_an_inner_error_when_later_maintenance_recovers(
     )
     assert result["status"] == "failed"
     assert result["maintenance"]["samples"][0]["ok"] is False
-    assert result["maintenance"]["samples"][-1]["ok"] is True
+    assert result["maintenance"]["samples"][-1]["ok"] is True, result["errors"]
     assert any(error["error_type"] == "TimeoutError" for error in result["errors"])
     assert result["restarts"][0]["claims"] == 0
+
+
+def test_queue_recovery_reports_failed_work_waiting_for_its_future_retry(workspace, app, monkeypatch):
+    service, p = app.state.service, principal(workspace)
+    job = service.jobs.enqueue(
+        "scripts", {"seller_id": p["seller_id"]}, "future-failed-work", tenant_id=p["tenant_id"]
+    )
+    service.jobs.claim("scripts", "failed-owner", key_prefix=job["key"])
+    service.jobs.fail(job["id"], "failed-owner", "TimeoutError", retry_seconds=60)
+
+    async def quiet_maintenance():
+        return {"status": "passed", "errors": [], "completed": []}
+
+    monkeypatch.setattr(service, "maintenance_tick", quiet_maintenance)
+    result = measure.maintain_and_drain(workspace["client"], service)
+    assert result["queue_samples"][-1]["due"] == 0
+    assert result["queue_samples"][-1]["retry"] == 1, "A future failed queued job is still unresolved"
+    assert result["status"] == "failed"

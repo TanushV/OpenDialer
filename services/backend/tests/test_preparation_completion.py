@@ -919,3 +919,60 @@ def test_preparation_dst_window_catchup_does_not_duplicate_jobs(workspace, app, 
     assert app.state.service.prepare_ahead(p(workspace))["queued"] == 2
     clock.now = datetime.fromisoformat(instants[1])
     assert app.state.service.prepare_ahead(p(workspace))["queued"] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider_failed", [False, True])
+async def test_changed_next_call_context_requeues_without_spending_failure_attempts(
+    workspace, app, monkeypatch, provider_failed
+):
+    """A normal post-call revision supersedes work; an actual provider failure does not vanish."""
+    service, principal = app.state.service, p(workspace)
+    configure(workspace)
+    lead_id = workspace["lead_ids"][0]
+    await service.prepare(principal, [lead_id])
+    with service.db.transaction() as s:
+        lead = service.required(s, "leads", lead_id, principal)
+        old_script = lead.data["preparation"]["script_id"]
+        service.refresh_packet_in(s, principal, lead)
+    job = service.jobs.claim("scripts", "revision-test", tenant_id=principal["tenant_id"])
+    assert job and job["payload"]["kind"] == "packet_refresh"
+
+    class FailedProvider:
+        async def complete(self, *args):
+            raise TimeoutError("Synthetic provider timeout during the context change")
+
+    def change_after_input_snapshot(*args):
+        with service.db.transaction() as s:
+            lead = service.required(s, "leads", lead_id, principal)
+            service.refresh_packet_in(s, principal, lead)
+        return FailedProvider() if provider_failed else None
+
+    monkeypatch.setattr(service, "inference", change_after_input_snapshot)
+    if provider_failed:
+        with pytest.raises(RuntimeError, match="1 objects"):
+            await service.prepare(principal, [lead_id])
+        service.jobs.fail(job["id"], "revision-test", "RuntimeError", retry_seconds=0)
+    else:
+        await service.prepare(principal, [lead_id])
+        service.jobs.complete(job["id"], "revision-test")
+    current = service.jobs.get(job["id"])
+    assert current["status"] == "queued"
+    assert current["attempts"] == int(provider_failed)
+    assert bool(current["error"]) is provider_failed
+    with service.db.transaction(False) as s:
+        lead = service.required(s, "leads", lead_id, principal)
+        assert lead.data["preparation"]["script_id"] == old_script
+        assert not lead.data.get("preparation_lease")
+        assert service.preparation_state(s, principal, lead)["status"] == "stale"
+
+    monkeypatch.setattr(service, "inference", lambda *args: None)
+    retry = service.jobs.claim("scripts", "current-revision", tenant_id=principal["tenant_id"])
+    assert retry["id"] == job["id"]
+    await service.prepare(principal, [lead_id])
+    service.jobs.complete(retry["id"], "current-revision")
+    with service.db.transaction(False) as s:
+        lead = service.required(s, "leads", lead_id, principal)
+        assert lead.data["preparation"]["key"] == service.preparation_key(s, principal, lead)
+        assert service.preparation_state(s, principal, lead)["status"] == "fallback"
+    assert service.jobs.get(job["id"])["status"] == "completed"

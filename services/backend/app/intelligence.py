@@ -495,14 +495,19 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             with self.db.transaction() as s:
                 self.db.authorize_stream(s, p)
                 current_lead = self.required(s, "leads", lead_id, p)
+                s.refresh(current_lead, with_for_update=True)
                 lease = current_lead.data.get("preparation_lease") or {}
                 if (
                     not self._coach_authority(s, p)
-                    or self.preparation_key(s, p, current_lead) != source_key
                     or lease.get("owner") != owner
                     or dt(lease["expires_at"]) <= self.clock()
                 ):
                     return False
+                if self.preparation_key(s, p, current_lead) != source_key:
+                    # A newer brief supersedes this result, without consuming a
+                    # failure attempt. Actual provider errors still remain errors.
+                    self.queue_packet_refresh_in(s, p, current_lead)
+                    return not provider_failed
                 if not script.get("fallback"):
                     try:
                         current_facts = []
@@ -1110,6 +1115,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
 
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
+            # Materialized notes/scores share the call's correction/finalization
+            # boundary, including concurrent first reads before those rows exist.
+            s.refresh(call, with_for_update=True)
             metadata = self.transcript_metadata(s, p, call_id)
             segments = self.transcript_rows(s, p, call_id, metadata=metadata)
             memory = self._by_key(s, p, "conversation_states", call_id)
@@ -1248,13 +1256,16 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             call = self.required(s, "call_attempts", call_id, p)
+            s.refresh(call, with_for_update=True)
             if not self._coach_authority(s, p, call):
                 fail(403, "Current account or session cannot edit these notes")
             note = self._by_key(s, p, "notes", call_id)
             if note.version != expected_version:
                 fail(409, {"code": "NOTES_VERSION_CONFLICT", "current_version": note.version})
+            lead = self.required(s, "leads", call.data["lead_id"], p)
+            s.refresh(lead, with_for_update=True)
             update(note, human_text=text, status="human_confirmed", editor_id=p["user_id"])
-            self.refresh_packet_in(s, p, self.required(s, "leads", call.data["lead_id"], p))
+            self.refresh_packet_in(s, p, lead)
             audit(s, p["tenant_id"], p["seller_id"], p["user_id"], "notes.edited", note.id, self.clock())
             return {"notes_version": note.version, "human_notes": text}
 

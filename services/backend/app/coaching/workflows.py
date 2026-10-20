@@ -41,6 +41,16 @@ class LiveHelper:
         }
 
     def _store_conversation(self, s, p, call, state, record=None):
+        lead = None
+        if call.data["state"] in TERMINAL:
+            # Terminal interpretation updates prior-call features on this lead.
+            # Lock before flushing conversation/report changes. Do not discard a
+            # caller's pending callback or human edits when taking the lock.
+            with s.no_autoflush:
+                lead = self.required(s, "leads", call.data["lead_id"], p)
+                s.execute(select(MODELS["leads"].id).where(MODELS["leads"].id == lead.id).with_for_update())
+                if not s.is_modified(lead):
+                    s.refresh(lead)
         record = record or self._by_key(s, p, "conversation_states", call.id)
         for item in state.get("_lineage_updates", []):
             key = f"observation:{call.id}:{item['id']}:{item['version']}"
@@ -93,8 +103,8 @@ class LiveHelper:
                 key=call.id,
                 now=self.clock(),
             )
-        if call.data["state"] in TERMINAL:
-            self.refresh_conversation_features_in(s, p, self.required(s, "leads", call.data["lead_id"], p))
+        if lead is not None:
+            self.refresh_conversation_features_in(s, p, lead)
         return record
 
     def _queue_conversation_review(self, s, p, call, state):

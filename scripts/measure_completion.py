@@ -946,7 +946,7 @@ def run_control_paths(client, headers, campaign, measured, checkpoint):
 
 def queue_state(service):
     from app.db import Job
-    from sqlalchemy import func, select
+    from sqlalchemy import and_, func, or_, select
 
     with service.db.transaction(False) as s:
         states = dict(s.execute(select(Job.status, func.count()).group_by(Job.status)).all())
@@ -958,11 +958,16 @@ def queue_state(service):
                 Job.available_at <= service.clock(),
             )
         )
+        retry = s.scalar(
+            select(func.count())
+            .select_from(Job)
+            .where(or_(Job.status == "retry", and_(Job.status == "queued", Job.error.is_not(None))))
+        )
     return {
         "due": due,
         "running": states.get("running", 0),
         "dead": states.get("dead", 0),
-        "retry": states.get("retry", 0),
+        "retry": retry,
         "total": sum(states.values()),
     }
 
@@ -987,7 +992,7 @@ def maintain_and_drain(client, service, *, waves=1):
         drained += receipt["processed"]
         samples.append(queue_state(service))
     return {
-        "status": "failed" if errors or samples[-1]["dead"] else "passed",
+        "status": "failed" if errors or samples[-1]["dead"] or samples[-1]["retry"] else "passed",
         "errors": errors,
         "maintenance": maintenance,
         "drained": drained,
@@ -1141,6 +1146,7 @@ def run_shift(settings, clock, headers, campaign, hours, checkpoint):
             "due_remaining": queue_samples[-1]["due"] if queue_samples else None,
             "running_remaining": queue_samples[-1]["running"] if queue_samples else None,
             "dead_remaining": queue_samples[-1]["dead"] if queue_samples else None,
+            "retry_remaining": queue_samples[-1]["retry"] if queue_samples else None,
             "samples": queue_samples,
         },
         "boundary": "simulated clock, carrier and provider failures; real authority restarts/persistence; native process proof separate",

@@ -516,13 +516,17 @@ class RepWorkflows:
     def refresh_packet_in(self, s, p, lead):
         self.refresh_conversation_features_in(s, p, lead)
         update(lead, preparation_revision=lead.data.get("preparation_revision", 0) + 1)
+        self.queue_packet_refresh_in(s, p, lead)
+        emit(s, p["tenant_id"], "packet.stale", lead, self.clock())
+
+    def queue_packet_refresh_in(self, s, p, lead):
         self.jobs.coalesce_live_in(
             s,
             "scripts",
             {
                 "kind": "packet_refresh",
                 "lead_ids": [lead.id],
-                "preparation_revision": lead.data["preparation_revision"],
+                "preparation_revision": lead.data.get("preparation_revision", 0),
                 "seller_id": p["seller_id"],
                 "user_id": p["user_id"],
             },
@@ -531,7 +535,6 @@ class RepWorkflows:
             priority=5,
             available_at=self.clock(),
         )
-        emit(s, p["tenant_id"], "packet.stale", lead, self.clock())
 
     def refresh_conversation_features_in(self, s, p, lead):
         from app.optimization.conversations import prior_features

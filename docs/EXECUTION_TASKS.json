@@ -1058,10 +1058,15 @@
         {
           "id": "E13.review-final",
           "task": "Delayed mutation/audio ownership, equal-version help withdrawal, swallowed maintenance/job failures, actual reference identity",
-          "status": "UI/audio and inner-error repairs confirmed independently. Database effective-limit follow-up has four red cases,33 passing units and actual owned-container quota-change rejection. PostgreSQL runner scope has three unresolved failures; full/native acceptance open."
+          "status": "UI/audio and inner-error repairs independently verified; effective database limits verified by live quota counterexample. Remaining runner failures resolved by tests-first note/lead locks and superseded-work classification; final full/native acceptance open."
+        },
+        {
+          "id": "E13.postcall-concurrency",
+          "task": "Serialize same-call derived/human note writes; retain failed future retry liabilities",
+          "status": "Focused final10 PostgreSQL/7 SQLite passes; forced row interleaving, superseded context versus real provider failure, and future retry liability covered. Full acceptance remains open."
         }
       ],
-      "checkpoint": "E13 last review findings repaired and scoped green; final runner PostgreSQL, independent verification, actual full-load/reference/resource acceptance and freeze remain open. Installed0.2.1 untouched."
+      "checkpoint": "E13: same-call note and same-lead finalization/preparation races repaired tests-first; superseded preparation coalesces while provider failures remain counted. Final scope10 PostgreSQL/7 SQLite passes; preceding broader SQLite123 passes/3 PG-only skips. Continue exact-source full coverage and elapsed performance before native delivery; installed0.2.1 unchanged."
     },
     {
       "id": "E14",

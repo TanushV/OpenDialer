@@ -65,6 +65,7 @@ class Preparation:
             with self.db.transaction() as s:
                 self.db.authorize_stream(s, p)
                 row = self.required(s, kind, identity, p)
+                s.refresh(row, with_for_update=True)
                 if not self._coach_authority(s, p):
                     return False
                 if kind == "leads":
@@ -172,6 +173,7 @@ class Preparation:
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             lead = self.required(s, "leads", lead_id, p)
+            s.refresh(lead, with_for_update=True)
             if not self._coach_authority(s, p):
                 return None
             previous = lead.data.get("preparation_lease") or {}
@@ -191,6 +193,7 @@ class Preparation:
     def release_preparation(self, p, lead_id, owner):
         with self.db.transaction() as s:
             lead = self.required(s, "leads", lead_id, p)
+            s.refresh(lead, with_for_update=True)
             if (lead.data.get("preparation_lease") or {}).get("owner") == owner:
                 update(lead, preparation_lease=None)
 

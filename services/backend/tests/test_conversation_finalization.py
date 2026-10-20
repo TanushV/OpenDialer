@@ -9,6 +9,83 @@ from test_live_memory import setup
 from test_remediation_privacy import persisted_content
 
 
+@pytest.mark.parametrize("writer", ["analysis", "human_note"])
+def test_analysis_writers_wait_for_the_same_call_without_blocking_other_calls(
+    workspace, app, clock, monkeypatch, writer
+):
+    from concurrent.futures import ThreadPoolExecutor
+    from contextlib import contextmanager
+    from threading import current_thread
+
+    from app.db import MODELS, put
+    from conftest import start
+    from sqlalchemy import func, select, text
+    from sqlalchemy.exc import OperationalError
+    from test_control_completion import principal
+
+    service, p = app.state.service, principal(workspace)
+    if service.db.sqlite:
+        pytest.skip("SQLite serializes writers; this row-level race requires PostgreSQL")
+    call = start(workspace)
+    initial = service.analysis(p, call["id"])
+    with service.db.transaction() as s:
+        original = service.required(s, "call_attempts", call["id"], p)
+        other = put(s, "call_attempts", p["tenant_id"], p["seller_id"], dict(original.data), now=clock())
+        other_id = other.id
+    service.analysis(p, other_id)
+    transaction, analysis = service.db.transaction, service.analysis
+
+    @contextmanager
+    def bounded_transaction(*args, **kwargs):
+        with transaction(*args, **kwargs) as s:
+            if current_thread().name.startswith("waiting-note"):
+                s.execute(text("SET LOCAL lock_timeout = '200ms'"))
+            yield s
+
+    monkeypatch.setattr(service.db, "transaction", bounded_transaction)
+    if writer == "human_note":
+        # The initial read has already completed: exercise the human write's
+        # own boundary, independently of the preceding analysis refresh.
+        monkeypatch.setattr(service, "analysis", lambda *args, **kwargs: initial)
+
+    def write():
+        if writer == "analysis":
+            return analysis(p, call["id"], force=True)
+        return service.edit_notes(p, call["id"], initial["notes_version"], "Keep the rep's correction.")
+
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="waiting-note") as pool:
+        with transaction() as s:
+            locked = service.required(s, "call_attempts", call["id"], p)
+            s.refresh(locked, with_for_update=True)
+            future = pool.submit(write)
+            assert analysis(p, other_id, force=True)["status"] == "ai_finalized"
+            with pytest.raises(OperationalError, match="lock timeout"):
+                future.result(timeout=10)
+        result = pool.submit(write).result(timeout=10)
+    if writer == "analysis":
+        assert result["status"] == "ai_finalized"
+    else:
+        assert result["human_notes"] == "Keep the rep's correction."
+    final = analysis(p, call["id"])
+    if writer == "human_note":
+        assert final["human_notes"] == "Keep the rep's correction."
+    with transaction(False) as s:
+        for kind in ("notes", "scorecards"):
+            model = MODELS[kind]
+            assert (
+                s.scalar(
+                    select(func.count())
+                    .select_from(model)
+                    .where(
+                        model.tenant_id == p["tenant_id"],
+                        model.seller_id == p["seller_id"],
+                        model.external_key == call["id"],
+                    )
+                )
+                == 1
+            )
+
+
 @pytest.mark.asyncio
 async def test_only_one_canonical_state_is_written_and_legacy_arrays_are_read_views(
     workspace, app, clock, monkeypatch
@@ -27,6 +104,71 @@ async def test_only_one_canonical_state_is_written_and_legacy_arrays_are_read_vi
         assert state["observations"][0]["sources"][0]["id"] == "canonical"
         assert state["purpose"] and state["rubric_items"]
     assert service.analysis(p, call["id"])["call_memory"]["rundown_points"]
+
+
+def test_finalization_and_preparation_release_preserve_each_others_lead_changes(workspace, app, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from contextlib import contextmanager
+    from threading import Event, current_thread
+
+    from conftest import start
+    from sqlalchemy import text
+    from sqlalchemy.exc import OperationalError
+    from test_control_completion import principal
+
+    service, p = app.state.service, principal(workspace)
+    if service.db.sqlite:
+        pytest.skip("SQLite serializes writers; overlapping row writes require PostgreSQL")
+    call = start(workspace)
+    workspace["client"].post(
+        f"/v1/calls/{call['id']}/hangup", headers=workspace["headers"]
+    ).raise_for_status()
+    owner = service._begin_finalization(p, call["id"])
+    preparation_owner = service.claim_preparation(p, call["lead_id"])
+    assert owner and preparation_owner
+    entered, release = Event(), Event()
+    transaction, refresh = service.db.transaction, service.refresh_packet_in
+
+    def held_refresh(s, principal, lead):
+        if current_thread().name.startswith("finishing-call"):
+            entered.set()
+            assert release.wait(10), "Finalizer was not released"
+        return refresh(s, principal, lead)
+
+    @contextmanager
+    def timed_transaction(*args, **kwargs):
+        with transaction(*args, **kwargs) as s:
+            if current_thread().name.startswith("waiting-preparation"):
+                s.execute(text("SET LOCAL lock_timeout = '200ms'"))
+            yield s
+
+    monkeypatch.setattr(service, "refresh_packet_in", held_refresh)
+    monkeypatch.setattr(service.db, "transaction", timed_transaction)
+    blocked = False
+    with (
+        ThreadPoolExecutor(max_workers=1, thread_name_prefix="finishing-call") as finalizer,
+        ThreadPoolExecutor(max_workers=1, thread_name_prefix="waiting-preparation") as preparer,
+    ):
+        finished = finalizer.submit(service._finish_finalization, p, call["id"], owner, True)
+        try:
+            assert entered.wait(10)
+            prepared = preparer.submit(service.release_preparation, p, call["lead_id"], preparation_owner)
+            try:
+                prepared.result(timeout=10)
+            except OperationalError as error:
+                assert "lock timeout" in str(error)
+                blocked = True
+        finally:
+            release.set()
+        finished.result(timeout=10)
+    assert blocked, "Preparation published over a finalizer's already-read lead"
+    service.release_preparation(p, call["lead_id"], preparation_owner)
+    with transaction(False) as s:
+        lead = service.required(s, "leads", call["lead_id"], p)
+        assert lead.data["preparation_lease"] is None
+        assert lead.data["preparation_revision"] > 0
+        state = service._by_key(s, p, "conversation_states", call["id"])
+        assert state.data["finalization"]["status"] == "ready"
 
 
 @pytest.mark.asyncio
