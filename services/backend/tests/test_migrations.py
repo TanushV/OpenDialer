@@ -54,7 +54,7 @@ def test_additive_optimization_upgrade_preserves_existing_encrypted_records(tmp_
             )
         assert (
             connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
-            == "0018_job_due_probe"
+            == "0019_lead_queue_order"
         )
     migrate_database(url)
     engine.dispose()
@@ -87,7 +87,7 @@ def test_fresh_migration_builds_the_due_job_probe_index(tmp_path):
         assert indexes.get("ix_jobs_due") == ["queue", "status", "available_at", "priority"]
         with engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
-        assert version == "0018_job_due_probe"
+        assert version == "0019_lead_queue_order"
     finally:
         engine.dispose()
 
@@ -120,7 +120,7 @@ def test_retained_0017_store_upgrades_and_0018_store_skips_reinitialization(tmp_
     retained = create_engine(settings.database_url)
     try:
         assert not startup_contract_current(retained, cipher), (
-            "A completed 0017 cutover must still receive the 0018 schema"
+            "A completed 0017 cutover must still receive the current additive schema"
         )
     finally:
         retained.dispose()
@@ -130,7 +130,7 @@ def test_retained_0017_store_upgrades_and_0018_store_skips_reinitialization(tmp_
         assert "ix_jobs_due" in {i["name"] for i in inspect(engine).get_indexes("jobs")}
         with engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
-        assert version == "0018_job_due_probe"
+        assert version == "0019_lead_queue_order"
         assert startup_contract_current(engine, cipher)
         with upgraded.state.db.transaction(False) as s:
             assert get(s, "notes", "human").data["human_text"] == "Keep this rep note"
@@ -138,9 +138,52 @@ def test_retained_0017_store_upgrades_and_0018_store_skips_reinitialization(tmp_
         upgraded.state.db.engine.dispose()
 
     def forbidden(*args, **kwargs):
-        raise AssertionError("A current 0018 store must not rescan or reinitialize")
+        raise AssertionError("A current head store must not rescan or reinitialize")
 
     monkeypatch.setattr(storage, "authenticate_store", forbidden)
     monkeypatch.setattr(storage, "ensure_columns", forbidden)
     reopened = create_app(settings)
     reopened.state.db.engine.dispose()
+
+
+def test_retained_0018_store_gains_the_queue_order_index_and_explicit_coverage(tmp_path):
+    from datetime import UTC, datetime
+
+    from app.config import Settings
+    from app.db import get, put
+    from app.main import create_app
+    from sqlalchemy import text
+
+    settings = Settings(
+        data_dir=tmp_path,
+        database_url="sqlite:///" + str(tmp_path / "authority.db"),
+        secret_key="synthetic-0019-upgrade",
+        local_token="synthetic-token",
+        simulation=True,
+        worker_enabled=False,
+    )
+    first = create_app(settings)
+    with first.state.db.transaction() as s:
+        put(s, "leads", "tenant", "seller", {"phone": "+14155550101", "status": "eligible"}, object_id="lead")
+    engine = first.state.db.engine
+    with engine.begin() as connection:
+        connection.execute(text("UPDATE alembic_version SET version_num='0018_job_due_probe'"))
+        connection.execute(text('DROP INDEX IF EXISTS "ix_leads_queue"'))
+        connection.execute(text("UPDATE leads SET op_coverage_at = NULL"))
+    engine.dispose()
+    upgraded = create_app(settings)
+    try:
+        engine = upgraded.state.db.engine
+        assert "ix_leads_queue" in {i["name"] for i in inspect(engine).get_indexes("leads")}
+        with engine.connect() as connection:
+            version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
+            missing = connection.execute(
+                text("SELECT count(*) FROM leads WHERE op_coverage_at IS NULL")
+            ).scalar()
+        assert version == "0019_lead_queue_order" and missing == 0
+        with upgraded.state.db.transaction(False) as s:
+            lead = get(s, "leads", "lead")
+            assert lead.data["phone"] == "+14155550101"
+            assert lead.op_coverage_at.replace(tzinfo=UTC) == datetime(1970, 1, 1, tzinfo=UTC)
+    finally:
+        upgraded.state.db.engine.dispose()
