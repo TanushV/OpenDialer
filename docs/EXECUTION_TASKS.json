@@ -1013,7 +1013,7 @@
         {
           "id": "E13.6",
           "task": "All frontend/native/security/license/secret/build checks",
-          "status": "Current Python/npm advisory checks pass; affected Windows optional ZIP dependency removed tests-first (1red/44green), supported target graphs clear of reported lock findings, notices regenerated. Native compile/full browser/final secret checks remain open."
+          "status": "Current Python/npm advisory checks pass; affected optional ZIP dependency removed tests-first and notices regenerated. Frozen17e654e macOS CI builds the sidecar/UI and passes Rust format/tests/clippy. Full browser/final secret and installed package/resource checks remain open."
         },
         {
           "id": "E13.7",
@@ -1091,7 +1091,7 @@
           "status": "Five valid red regressions, then117 SQLite/114 PostgreSQL focused passes (three SQLite-only skips). Five strengthened lifetime cases pass again in each mode. Closed-session diagnostic40 to0; independent review finds no actionable defect. Current-source latency/load still required."
         }
       ],
-      "checkpoint": "E13: candidate7b75210 pushed;41 SQLite/21 PostgreSQL final retry-cutover passes. Full CI39358321016 and frozen performance/native/resource acceptance remain open."
+      "checkpoint": "E13: product/test candidate17e654e (production6baea72) frozen; historical503 passes. Local10k/100k elapsed profile and full CI39360919490 running. Native compile/Rust/clippy pass on that CI source; shared/saturation/scaling/shift and actual installed resources/update gates remain open."
     },
     {
       "id": "E14",
