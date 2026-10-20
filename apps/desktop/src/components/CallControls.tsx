@@ -20,6 +20,8 @@ type Props = {
   audioStatus: string;
   blocked: boolean;
   dialing: boolean;
+  /** The authority is still scanning past leads that cannot be called now. */
+  finding?: boolean;
   canOptOut: boolean;
   /** The ended call's outcome is unsaved; the next lead would discard it. */
   wrapUpPending: boolean;
@@ -36,6 +38,7 @@ export function CallControls({
   audioStatus,
   blocked,
   dialing,
+  finding = false,
   canOptOut,
   wrapUpPending,
   onNext,
@@ -148,11 +151,15 @@ export function CallControls({
           ) : (
             <button
               className="primary dial-button"
-              disabled={!ready || blocked || wrapUpPending}
+              disabled={!ready || blocked || wrapUpPending || finding}
               onClick={() => void run(onNext)}
             >
-              <Phone size={17} />
-              Get next lead
+              {finding ? (
+                <LoaderCircle size={17} className="spin" />
+              ) : (
+                <Phone size={17} />
+              )}
+              {finding ? "Finding an eligible lead…" : "Get next lead"}
             </button>
           )}
         </div>

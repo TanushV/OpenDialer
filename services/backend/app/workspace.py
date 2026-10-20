@@ -202,6 +202,17 @@ class WorkspaceReads:
         for item in records:
             lead = known.get(item.get("lead_id"), {})
             item.update(lead_name=lead.get("name"), lead_company=lead.get("company"))
+            status = item.get("status")
+            if (
+                item.get("kind") == "callback"
+                and item.get("source") == "inferred"
+                and not item.get("human_edited")
+                and status in {"open", "snoozed", "needs_confirmation"}
+                and (status == "needs_confirmation" or not item.get("due_at"))
+            ):
+                # Mirrors the lead's callback sync: an unconfirmed AI suggestion holds
+                # outreach only until this bounded deadline, unlike a rep-confirmed callback.
+                item["callback_suggestion_until"] = lead.get("callback_suggestion_until")
 
     def _job_page(self, s, p, cursor, limit):
         fields = [Job.id, Job.queue, Job.status, Job.attempts, Job.error]

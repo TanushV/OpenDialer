@@ -21,7 +21,8 @@ import { MemoryStorage, OptOutJournal, type OptOut } from "../state/optouts";
 import { pausesPresence, Telephony } from "../telephony/client";
 import { InboundCall } from "./InboundCall";
 import { CallControls } from "./CallControls";
-import { WrapUp } from "./WrapUp";
+import { CallbackReviewNotice, WrapUp } from "./WrapUp";
+import { nextLeadWithRetry } from "../state/queue";
 import { DueTasks } from "./FollowupTasks";
 import type { Call, Packet, Reservation } from "../types";
 import { isActiveCall, isTerminal } from "../types";
@@ -44,12 +45,15 @@ export function DialerPage() {
   const [reservation, setReservation] = useState<Reservation | null>(null);
   const [packet, setPacket] = useState<Packet | null>(null);
   const [call, setCall] = useState<Call | null>(null);
+  const [callbackReview, setCallbackReview] =
+    useState<Call["callback_review"]>(null);
   const currentCall = useRef(call);
   currentCall.current = call;
   const callReadGeneration = useRef(0);
   const hangupGeneration = useRef(0);
   useSpeechExpiry(call, setCall);
   const [dialing, setDialing] = useState(false);
+  const [finding, setFinding] = useState(false);
   const [readying, setReadying] = useState(false);
   const readyingNow = useRef(false);
   const [transcript, setTranscript] = useState("");
@@ -137,21 +141,26 @@ export function DialerPage() {
     let dirty = false;
     const load = () => {
       if (disposed) return;
-      const generation = ++callReadGeneration.current;
       if (pending) {
+        // The in-flight read predates this event: it is discarded on arrival
+        // and read again. A slow read must not also discard a newer explicit
+        // reload (a rep's own mute or help request) issued meanwhile.
         dirty = true;
         return;
       }
+      const generation = ++callReadGeneration.current;
       pending = true;
+      const current = () =>
+        !disposed && !dirty && generation === callReadGeneration.current;
       void api<Call>("/v1/calls/" + call.id)
         .then((value) => {
-          if (!disposed && generation === callReadGeneration.current) {
+          if (current()) {
             responseReceived.current = performance.now();
             applyCallUpdate(value);
           }
         })
         .catch(() => {
-          if (!disposed && generation === callReadGeneration.current)
+          if (current())
             setAudioStatus("Authority unavailable; calling is paused.");
         })
         .finally(() => {
@@ -334,10 +343,15 @@ export function DialerPage() {
       );
     if (owesWrapUp(currentCall.current))
       throw new Error("Save this call's outcome before the next lead.");
-    const next = await api<Reservation>("/v1/queue/next", "POST", {
-      campaign_id: w.campaign.id,
-    });
+    const next = await nextLeadWithRetry(
+      () =>
+        api<Reservation>("/v1/queue/next", "POST", {
+          campaign_id: w.campaign.id,
+        }),
+      { onWaiting: setFinding },
+    );
     setReservation(next);
+    setCallbackReview(null);
     setPacket(await api(`/v1/leads/${next.lead.id}/packet`));
     setCall(null);
   }
@@ -404,6 +418,7 @@ export function DialerPage() {
   }
   function wrapUpSaved(result: Call) {
     setCall(result);
+    setCallbackReview(result.callback_review ?? null);
     // The outcome is final. Refreshing next-call context reports separately.
     void run(async () => {
       try {
@@ -604,6 +619,12 @@ export function DialerPage() {
           onSaved={wrapUpSaved}
         />
       )}
+      {callbackReview && (
+        <CallbackReviewNotice
+          review={callbackReview}
+          onDismiss={() => setCallbackReview(null)}
+        />
+      )}
       <div className="dialer-grid">
         <section className="card lead-card">
           <div className="card-eyebrow">
@@ -690,7 +711,9 @@ export function DialerPage() {
               </p>
               <button
                 className="primary"
-                disabled={!ready || active || pendingOptouts || !journalReady}
+                disabled={
+                  !ready || active || pendingOptouts || !journalReady || finding
+                }
                 onClick={() => void run(getNext)}
               >
                 View next lead
@@ -945,10 +968,18 @@ export function DialerPage() {
         ready={ready}
         audioStatus={audioStatus}
         dialing={dialing}
+        finding={finding}
         canOptOut={Boolean(selectedLead)}
         wrapUpPending={wrapUpPending}
         blocked={
-          pendingOptouts || !journalReady || Boolean(inbound) || incomingAudio
+          pendingOptouts ||
+          !journalReady ||
+          Boolean(inbound) ||
+          incomingAudio ||
+          // Dial only once the rep can see who they are calling and the script.
+          Boolean(
+            reservation && !call && packet?.lead.id !== reservation.lead.id,
+          )
         }
         onStart={startCall}
         onNext={getNext}

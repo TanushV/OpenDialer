@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test("deferred deadline is explicit and a lost response keeps the same request", async ({
   page,

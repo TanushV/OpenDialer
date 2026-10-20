@@ -61,6 +61,9 @@ export interface FollowupTask {
   source_conflicts?: string[];
   retained_notes?: { task_id: string; text: string }[];
   review_required?: boolean;
+  kind?: string;
+  /** An unconfirmed AI-suggested callback holds outreach only until then. */
+  callback_suggestion_until?: string | null;
   time_window?: {
     date: string;
     period: string | null;
@@ -141,6 +144,13 @@ export interface Call {
     callback_note: string;
   };
   rundown_status?: "pending" | "partial" | "ready" | "unavailable";
+  /** Set on a saved outcome whose callback time was not applied to a task. */
+  callback_review?: {
+    status: "needs_review";
+    reason: string;
+    task_ids: string[];
+  } | null;
+  canonical_task_id?: string | null;
   suggested_outcome?: {
     code: string;
     contact_role: "right_party" | "gatekeeper" | "wrong_party" | "unknown";
