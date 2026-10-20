@@ -161,6 +161,8 @@ class Disposition(Strict):
     outcome: OutcomeCode
     callback_at: AwareDatetime | None = None
     expected_version: int | None = Field(default=None, ge=1, strict=True)
+    # Rep-visible edit counter: background bookkeeping on the call row never conflicts.
+    expected_edit_version: int | None = Field(default=None, ge=0, strict=True)
     callback_note: str = Field(default="", max_length=1000)
 
 
