@@ -195,8 +195,10 @@ def test_training_is_queued_once_from_real_stored_snapshots_and_produces_a_candi
     c, h = workspace["client"], workspace["headers"]
     number_id = c.get("/v1/workspace", headers=h).json()["numbers"][0]["id"]
     with app.state.db.transaction() as session:
-        for i in range(120):
-            at = clock.now - timedelta(days=40, minutes=120 - i)
+        # Enough distinct, balanced decisions for the review policy's calibration and
+        # evaluation partitions; smaller or clumped data no longer starts a training child.
+        for i in range(400):
+            at = clock.now - timedelta(days=40, minutes=400 - i)
             put(
                 session,
                 "leads",
@@ -246,7 +248,7 @@ def test_training_is_queued_once_from_real_stored_snapshots_and_produces_a_candi
                     "outcome_available_at": (at + timedelta(seconds=60)).isoformat(),
                     "outcome_source": "rep_reported",
                     "state": "FINALIZED",
-                    "outcome": "right_party" if i % 3 == 0 else "no_answer",
+                    "outcome": "right_party" if i % 2 == 0 else "no_answer",
                     "transcript_version": 0,
                 },
                 now=at,
@@ -255,7 +257,7 @@ def test_training_is_queued_once_from_real_stored_snapshots_and_produces_a_candi
     second = c.post("/v1/admin/optimization/train", headers=h, json={})
     assert first.status_code == second.status_code == 200, first.text
     assert first.json()["job_id"] == second.json()["job_id"]
-    assert first.json()["rows"] == 120
+    assert first.json()["rows"] == 400
     result = c.post("/v1/admin/jobs/run", headers=h)
     assert result.status_code == 200
     models = c.get("/v1/workspace", headers=h).json()["models"]
