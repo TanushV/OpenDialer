@@ -11,7 +11,7 @@ from datetime import timedelta
 from sqlalchemy import func, select
 
 from app.config import PROVIDER_DEFAULTS, inference_model
-from app.db import MODELS, Job, doc, uid, update
+from app.db import MODELS, Job, doc, emit, put, uid, update
 from app.operational_schema import context_key
 from app.preparation.templates import PreparationPolicy, in_window, policy_values, render, template_version
 from app.service import dt
@@ -250,6 +250,45 @@ class Preparation:
                     lead.data.get("preparation") or {}, key, self.clock(), failure
                 )
             update(lead, **changes)
+
+    def publish_script_in(self, s, p, lead, script, *, key, source_key, facts, failure=None):
+        """The one publication step shared by immediate and deferred preparation.
+
+        Callers validate first. An existing version for the same key is reused, the
+        lead points at it, and a failure keeps the approved script with its attempt.
+        """
+        now = self.clock()
+        obj = self._by_key(s, p, "script_versions", key)
+        if not obj:
+            script = {**script, "created_at": now.isoformat()}
+            obj = put(
+                s,
+                "script_versions",
+                p["tenant_id"],
+                p["seller_id"],
+                script,
+                object_id=script["script_version"],
+                key=key,
+                now=now,
+            )
+        update(
+            lead,
+            preparation=failure_state(
+                lead.data.get("preparation") or {}, source_key, now, failure, script_id=obj.id
+            )
+            if failure
+            else {
+                "status": "fallback" if obj.data.get("fallback") else "ready",
+                "script_id": obj.id,
+                "key": source_key,
+                "as_of": now.isoformat(),
+                "expires_at": min(
+                    (fact["expires_at"] for fact in facts), default=(now + timedelta(days=1)).isoformat()
+                ),
+            },
+        )
+        emit(s, p["tenant_id"], "lead.packet_ready", obj, now, {"lead_id": lead.id})
+        return obj
 
     def preparation_state(self, s, p, lead):
         state = dict(lead.data.get("preparation") or {"status": "missing"})

@@ -443,3 +443,104 @@ async def test_expired_time_sensitive_fact_refreshes_without_duplicating_stable_
             if f.data["domain"] == domain and datetime.fromisoformat(f.data["expires_at"]) > clock.now
         ]
     assert sorted(f["statement"] for f in current) == sorted([stable, offer])
+
+
+@pytest.fixture
+def batch_route(workspace, app, monkeypatch, clock):
+    import json
+
+    from app.providers.batch import OpenAIBatch
+
+    configure(workspace)
+    response = workspace["client"].put(
+        "/v1/admin/settings",
+        headers=workspace["headers"],
+        json={"inference_mode": "api", "openai_api_key": "synthetic-batch-key"},
+    )
+    assert response.status_code == 200, response.text
+    state = {"requests": [], "submits": 0}
+
+    async def submit(self, requests):
+        state["submits"] += 1
+        state["requests"].extend(requests)
+        return {"id": "batch-lean", "status": "in_progress"}
+
+    async def retrieve(self, batch_id):
+        def body(request):
+            lead_id = request["custom_id"].split(":")[0]
+            slots = {"relevance": {"text": "", "fact_ids": []}, "proof": {"text": "", "fact_ids": []}}
+            text = json.dumps({"lead_id": lead_id, "slots": slots})
+            return {
+                "id": "resp-" + lead_id,
+                "status": "completed",
+                "output": [{"content": [{"type": "output_text", "text": text}]}],
+                "usage": {"input_tokens": 5, "output_tokens": 5, "cost": 0.001},
+            }
+
+        return {
+            "id": "batch-lean",
+            "status": "completed",
+            "results": [
+                {"custom_id": r["custom_id"], "response": {"status_code": 200, "body": body(r)}}
+                for r in state["requests"]
+            ],
+        }
+
+    monkeypatch.setattr(OpenAIBatch, "submit", submit)
+    monkeypatch.setattr(OpenAIBatch, "retrieve", retrieve)
+
+    def post(lead_ids, key="lean-batch"):
+        return workspace["client"].post(
+            "/v1/admin/batches/scripts",
+            headers=workspace["headers"],
+            json={
+                "lead_ids": lead_ids,
+                "idempotency_key": key,
+                "ready_at": (clock.now + timedelta(days=2)).isoformat(),
+            },
+        )
+
+    state["post"] = post
+    return state
+
+
+def test_batch_submission_is_capped_at_one_work_unit(batch_route, workspace):
+    response = batch_route["post"]([f"lead-{i}" for i in range(21)])
+    assert response.status_code == 422, response.text
+    assert batch_route["submits"] == 0
+
+
+def test_batch_is_unavailable_off_the_official_openai_api_route(batch_route, workspace):
+    client, headers = workspace["client"], workspace["headers"]
+    response = client.put(
+        "/v1/admin/settings", headers=headers, json={"inference_base_url": "https://proxy.example.test/v1"}
+    )
+    assert response.status_code == 200, response.text
+    listing = client.get("/v1/admin/batches", headers=headers).json()
+    assert listing["available"] is False and listing["unavailable_reason"]
+    response = batch_route["post"](workspace["lead_ids"][:1])
+    assert response.status_code == 409, response.text
+    assert batch_route["submits"] == 0, "The API key must never be sent to another route's batch endpoint"
+
+
+def test_batch_listing_reports_availability_for_api_mode(batch_route, workspace):
+    listing = workspace["client"].get("/v1/admin/batches", headers=workspace["headers"]).json()
+    assert listing["available"] is True and listing["unavailable_reason"] is None
+
+
+def test_batch_publication_writes_the_outbox_row_once_for_all_results(batch_route, workspace, app):
+    service = app.state.service
+    response = batch_route["post"](workspace["lead_ids"])
+    assert response.status_code == 200, response.text
+    intent = response.json()
+    with service.db.transaction(False) as s:
+        before = service.required(s, "command_outbox", intent["id"], p(workspace)).version
+    result = workspace["client"].post(
+        f"/v1/admin/batches/{intent['id']}/reconcile", headers=workspace["headers"]
+    )
+    assert result.status_code == 200, result.text
+    assert sorted(result.json()["published"]) == sorted(workspace["lead_ids"])
+    with service.db.transaction(False) as s:
+        after = service.required(s, "command_outbox", intent["id"], p(workspace)).version
+    # Claim, bind, one publication update and release; not one rewrite per lead.
+    assert after - before == 4, after - before
