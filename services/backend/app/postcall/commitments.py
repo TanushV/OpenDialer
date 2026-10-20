@@ -2,24 +2,32 @@
 
 import hashlib
 import json
+from collections import Counter
 
 from app.db import emit, put, update
 
 ACTIVE = {"open", "snoozed", "needs_confirmation"}
 
 
+def identity_of(item):
+    return (item["kind"], item["owner"], tuple(sorted(set(item["evidence"]))))
+
+
 def publish(service, s, p, call, items, *, retracted_observations=()):
+    """Returns the items rejected for review; an ambiguous item never aborts the batch."""
     lead = service.required(s, "leads", call.data["lead_id"], p)
     records = [
         r for r in service.lead_records(s, p, "commitments", lead.id) if r.data.get("call_id") == call.id
     ]
     tasks = service.lead_records(s, p, "followup_tasks", lead.id)
-    seen, identities = set(), set()
+    seen, rejected = set(), []
+    # Two items with one source identity cannot both be the same promise: reject both.
+    shared = {key for key, count in Counter(identity_of(i) for i in items).items() if count > 1}
     for item in items:
-        identity = (item["kind"], item["owner"], tuple(sorted(set(item["evidence"]))))
-        if identity in identities:
-            raise ValueError("Ambiguous commitments share the same source and owner")
-        identities.add(identity)
+        identity = identity_of(item)
+        if identity in shared:
+            rejected.append(item)
+            continue
         key = "inferred:" + call.id + ":" + hashlib.sha256(json.dumps(identity).encode()).hexdigest()
         candidates = [r for r in records if r.external_key == key]
         if not candidates:
@@ -32,8 +40,13 @@ def publish(service, s, p, call, items, *, retracted_observations=()):
                 and set(r.data.get("evidence", [])) & set(item["evidence"])
             ]
         if len(candidates) > 1:
-            raise ValueError("Commitment identity needs human review")
+            rejected.append(item)  # Commitment identity needs human review.
+            continue
         record = candidates[0] if candidates else None
+        if record and (record.data.get("status") == "retracted" or record.data.get("source_retracted")):
+            # Only new evidence makes a new promise; re-extraction never resurrects a retraction.
+            seen.add(record.id)
+            continue
         values = {
             **item,
             "lead_id": lead.id,
@@ -56,6 +69,7 @@ def publish(service, s, p, call, items, *, retracted_observations=()):
         task = next((t for t in tasks if t.data.get("commitment_id") == record.id), None)
         if not task and item["kind"] == "callback":
             task = next((t for t in tasks if t.external_key == "wrapup-callback:" + call.id), None)
+        confirmed = bool(item["due_at"] and item["owner"] == "rep")
         task_values = {
             "commitment_id": record.id,
             "call_id": call.id,
@@ -66,8 +80,9 @@ def publish(service, s, p, call, items, *, retracted_observations=()):
             "due_at": item["due_at"],
             "timezone": item["timezone"],
             "time_window": item["time_window"],
-            "status": "open" if item["due_at"] and item["owner"] == "rep" else "needs_confirmation",
-            "confirmation_state": "confirmed" if item["due_at"] and item["owner"] == "rep" else "suggested",
+            "status": "open" if confirmed else "needs_confirmation",
+            "confirmation_state": "confirmed" if confirmed else "suggested",
+            "suggested_at": None if confirmed else service.clock().isoformat(),
             "source": "inferred",
             "evidence": item["evidence"],
             "source_version": call.data["transcript_version"],
@@ -122,13 +137,27 @@ def publish(service, s, p, call, items, *, retracted_observations=()):
                 changes["status"] = "cancelled"
             update(task, **changes)
             emit(s, p["tenant_id"], "task.updated", task, service.clock())
-    service._sync_callback(s, p, lead)
+    service._sync_callback(s, p, lead, tasks=tasks)
     service.refresh_packet_in(s, p, lead)
+    return rejected
+
+
+def human_retracted(service, s, p, call, observation_ids):
+    """Whether a human retraction (not a source correction) caused this invalidation."""
+    record = service._by_key(s, p, "conversation_states", call.id)
+    return any(
+        item.get("id") in observation_ids
+        and item.get("state") == "retracted"
+        and item.get("epistemic_status") == "human_confirmed"
+        for item in (record.data.get("observations", []) if record else [])
+    )
 
 
 def invalidate(service, s, p, call, segment_id=None, *, observation_ids=()):
+    """A source correction asks for confirmation; a human retraction cancels inferred work."""
     lead = service.required(s, "leads", call.data["lead_id"], p)
-    affected = set()
+    retracted = bool(observation_ids) and human_retracted(service, s, p, call, set(observation_ids))
+    affected = {}
     for record in service.lead_records(s, p, "commitments", lead.id):
         if record.data.get("call_id") == call.id and (
             segment_id is not None
@@ -136,10 +165,11 @@ def invalidate(service, s, p, call, segment_id=None, *, observation_ids=()):
             or record.data.get("observation_id") in observation_ids
         ):
             update(record, source_stale=True, status="needs_confirmation")
-            affected.add(record.id)
+            affected[record.id] = record
     if not affected:
         return
-    for task in service.lead_records(s, p, "followup_tasks", lead.id):
+    tasks = service.lead_records(s, p, "followup_tasks", lead.id)
+    for task in tasks:
         if task.data.get("commitment_id") not in affected:
             continue
         changes = {"source_stale": True, "review_required": True, "confirmation_state": "needs_review"}
@@ -148,8 +178,12 @@ def invalidate(service, s, p, call, segment_id=None, *, observation_ids=()):
             and task.data.get("source") == "inferred"
             and task.data["status"] in ACTIVE
         ):
-            changes["status"] = "needs_confirmation"
+            if retracted:
+                changes["status"] = "cancelled"
+                update(affected[task.data["commitment_id"]], status="cancelled", task_status="cancelled")
+            else:
+                changes.update(status="needs_confirmation", suggested_at=service.clock().isoformat())
         update(task, **changes)
         emit(s, p["tenant_id"], "task.updated", task, service.clock())
-    service._sync_callback(s, p, lead)
+    service._sync_callback(s, p, lead, tasks=tasks)
     service.refresh_packet_in(s, p, lead)

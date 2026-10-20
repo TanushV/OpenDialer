@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 from app.compliance.policy import authorize
-from app.db import Job, put
+from app.db import Job, put, update
 from conftest import disposition_body, start
 from sqlalchemy import select
 from test_remediation_rep_workflow import finish, p
@@ -358,7 +358,10 @@ def test_manual_wrapup_preserves_source_identity_and_never_adds_an_ambiguous_thi
         ),
     )
     if ambiguous:
-        assert response.status_code == 409 and response.json()["detail"]["code"] == "ambiguous_callbacks"
+        # The rep's save never fails; the two existing callbacks are named for review.
+        assert response.status_code == 200, response.text
+        assert response.json()["callback_review"]["status"] == "needs_review"
+        assert response.json()["canonical_task_id"] is None
         assert len(tasks(workspace, call)) == 2
     else:
         assert response.status_code == 200, response.text
@@ -1139,3 +1142,283 @@ def test_stale_disposition_cannot_overwrite_new_outcome(workspace):
     )
     assert stale.status_code == 409
     assert c.get(path, headers=h).json()["outcome"] == "meeting_booked"
+
+
+# W3 task semantics: one identity, explicit review states, bounded suggestions.
+
+
+def inferred_callback(service, who, call, clock, *, status="open", human_edited=False, days=1):
+    with service.db.transaction() as s:
+        promise = put(
+            s,
+            "commitments",
+            who["tenant_id"],
+            who["seller_id"],
+            {
+                "lead_id": call["lead_id"],
+                "call_id": call["id"],
+                "kind": "callback",
+                "owner": "rep",
+                "action": "Revisit the purchasing discussion",
+                "status": "confirmed",
+            },
+            now=clock(),
+        )
+        task = put(
+            s,
+            "followup_tasks",
+            who["tenant_id"],
+            who["seller_id"],
+            {
+                "lead_id": call["lead_id"],
+                "call_id": call["id"],
+                "commitment_id": promise.id,
+                "kind": "callback",
+                "source": "inferred",
+                "status": status,
+                "human_edited": human_edited,
+                "action": "Call back",
+                "owner_id": who["user_id"],
+                "timezone": "America/Los_Angeles",
+                "due_at": (clock() + timedelta(days=days)).isoformat()
+                if status != "needs_confirmation"
+                else None,
+            },
+            key="commitment:" + promise.id,
+            now=clock(),
+        )
+        update(promise, task_id=task.id)
+        return task.id, promise.id
+
+
+def task_row(service, who, task_id):
+    with service.db.transaction(False) as s:
+        return service.required(s, "followup_tasks", task_id, who).data
+
+
+def test_non_callback_outcome_cancels_the_calls_untouched_inferred_callbacks(workspace, app, clock):
+    service, who = app.state.service, p(workspace)
+    call = start(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
+    untouched, _ = inferred_callback(service, who, call, clock)
+    edited, _ = inferred_callback(service, who, call, clock, human_edited=True, days=2)
+    saved = c.post(
+        f"/v1/calls/{call['id']}/disposition",
+        headers=h,
+        json=disposition_body(c, h, call["id"], outcome="no_answer"),
+    )
+    assert saved.status_code == 200, saved.text
+    assert task_row(service, who, untouched)["status"] == "cancelled"
+    assert task_row(service, who, edited)["status"] == "open", (
+        "A rep's own edit is never cancelled by a model"
+    )
+
+
+@pytest.mark.parametrize("existing", ["ambiguous", "human_edited", "completed"])
+def test_wrapup_callback_never_fails_the_save_and_reports_needs_review(workspace, app, clock, existing):
+    service, who = app.state.service, p(workspace)
+    call = start(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
+    first, _ = inferred_callback(
+        service, who, call, clock, human_edited=existing == "human_edited", status="open"
+    )
+    others = [inferred_callback(service, who, call, clock, days=2)[0]] if existing == "ambiguous" else []
+    if existing == "completed":
+        with service.db.transaction() as s:
+            update(service.required(s, "followup_tasks", first, who), status="completed", human_edited=True)
+    before = {t: task_row(service, who, t) for t in [first, *others]}
+    requested = (clock.now + timedelta(days=5)).isoformat()
+    saved = c.post(
+        f"/v1/calls/{call['id']}/disposition",
+        headers=h,
+        json=disposition_body(c, h, call["id"], outcome="callback_requested", callback_at=requested),
+    )
+    assert saved.status_code == 200, saved.text
+    body = saved.json()
+    assert body["outcome"] == "callback_requested", "The rep's outcome is always saved"
+    assert body["callback_review"]["status"] == "needs_review"
+    assert set(body["callback_review"]["task_ids"]) == {first, *others}
+    assert len(tasks(workspace, call)) == 1 + len(others), "No ambiguous extra callback"
+    for task_id, previous in before.items():
+        current = task_row(service, who, task_id)
+        assert current["due_at"] == previous["due_at"] and current["status"] == previous["status"]
+        if current["status"] != "completed":
+            assert current["confirmation_state"] == "needs_review" and current["review_required"]
+            assert current["suggested_update"]["due_at"] == requested
+
+
+def test_cancelling_a_task_closes_its_promise_in_the_next_call_brief(workspace, app, clock):
+    service, who = app.state.service, p(workspace)
+    call = start(workspace)
+    finish(workspace, call, "right_party")
+    task_id, promise_id = inferred_callback(service, who, call, clock)
+    current = task_row(service, who, task_id)
+    with service.db.transaction(False) as s:
+        version = service.required(s, "followup_tasks", task_id, who).version
+    service.edit_task(
+        who, task_id, {"request_id": str(uuid4()), "expected_version": version, "status": "cancelled"}
+    )
+    with service.db.transaction(False) as s:
+        assert service.required(s, "commitments", promise_id, who).data["status"] == "cancelled"
+    brief = (
+        workspace["client"].get(f"/v1/leads/{call['lead_id']}/packet", headers=workspace["headers"]).json()
+    )
+    promise = next(c for c in brief["prospect_brief"]["commitments"] if c["id"] == promise_id)
+    assert promise["status"] == "cancelled" and current["status"] == "open"
+
+
+@pytest.mark.parametrize(
+    "due_at,expected",
+    [
+        ("2026-10-21T14:00:00-04:00", 422),  # An Eastern offset for a Pacific task.
+        ("2026-10-21T14:00:00-07:00", 200),
+        ("2026-10-21T21:00:00Z", 200),  # A UTC instant is unambiguous.
+    ],
+)
+def test_task_time_offset_must_match_the_task_timezone(workspace, app, clock, due_at, expected):
+    service, who = app.state.service, p(workspace)
+    call = start(workspace)
+    finish(workspace, call, "right_party")
+    task_id, _ = inferred_callback(service, who, call, clock)
+    with service.db.transaction(False) as s:
+        version = service.required(s, "followup_tasks", task_id, who).version
+    response = workspace["client"].patch(
+        f"/v1/tasks/{task_id}",
+        headers=workspace["headers"],
+        json={"request_id": str(uuid4()), "expected_version": version, "due_at": due_at},
+    )
+    assert response.status_code == expected, response.text
+
+
+def test_meeting_report_keeps_human_edited_callbacks_for_review(workspace, app, clock):
+    service, who = app.state.service, p(workspace)
+    call = start(workspace)
+    finish(workspace, call, "right_party")
+    untouched, _ = inferred_callback(service, who, call, clock)
+    edited, _ = inferred_callback(service, who, call, clock, human_edited=True, days=2)
+    c, h = workspace["client"], workspace["headers"]
+    lead = c.get(f"/v1/leads/{call['lead_id']}/packet", headers=h).json()["lead"]
+    booked = c.post(
+        f"/v1/leads/{call['lead_id']}/meeting",
+        headers=h,
+        json={"request_id": str(uuid4()), "expected_version": lead["version"], "status": "booked"},
+    )
+    assert booked.status_code == 200, booked.text
+    assert task_row(service, who, untouched)["status"] == "cancelled"
+    kept = task_row(service, who, edited)
+    assert (
+        kept["status"] == "open" and kept["confirmation_state"] == "needs_review" and kept["review_required"]
+    )
+
+
+def test_ai_suggested_callback_defers_outreach_for_a_bounded_time_only(workspace, app, clock):
+    service, who = app.state.service, p(workspace)
+    call = start(workspace)
+    finish(workspace, call, "right_party")
+    inferred_callback(service, who, call, clock, status="needs_confirmation")
+    with service.db.transaction() as s:
+        lead = service.required(s, "leads", call["lead_id"], who)
+        service._sync_callback(s, who, lead)
+    with service.db.transaction(False) as s:
+        lead = service.required(s, "leads", call["lead_id"], who)
+        assert lead.data.get("outreach_hold") is None, "Only a rep-stated callback holds outreach"
+        deferred = lead.data["next_attempt_at"]
+        assert clock.now < datetime_of(deferred) <= clock.now + timedelta(days=7)
+    clock.now += timedelta(days=7, minutes=1)
+    with service.db.transaction(False) as s:
+        lead = service.required(s, "leads", call["lead_id"], who)
+        number = service.required(s, "number_inventory", call["number_id"], who)
+        reasons = authorize(service.context(s, who, lead, number)).reasons
+        assert "NOT_DUE" not in reasons and "OUTREACH_HOLD" not in reasons
+
+
+@pytest.mark.asyncio
+async def test_wrapup_save_defers_lead_recomputation_to_the_packet_refresh_job(workspace, app, monkeypatch):
+    service, who = app.state.service, p(workspace)
+    call = start(workspace)
+    c, h = workspace["client"], workspace["headers"]
+    c.post(f"/v1/calls/{call['id']}/hangup", headers=h)
+    seen = []
+    for name in ("refresh_conversation_features_in", "reconcile_goal_status"):
+        original = getattr(service, name)
+        monkeypatch.setattr(
+            service,
+            name,
+            lambda *args, name=name, original=original, **kwargs: (
+                seen.append(name) or original(*args, **kwargs)
+            ),
+        )
+    saved = c.post(
+        f"/v1/calls/{call['id']}/disposition",
+        headers=h,
+        json=disposition_body(c, h, call["id"], outcome="right_party"),
+    )
+    assert saved.status_code == 200, saved.text
+    assert seen == [], "The rep's save writes outcome, note, task and hold; history scans run later"
+    with service.db.transaction(False) as s:
+        jobs = [j for j in s.scalars(select(Job).where(Job.queue == "scripts"))]
+        assert [j.payload["kind"] for j in jobs] == ["packet_refresh"]
+    monkeypatch.setattr(service, "prepare", lambda *args, **kwargs: asyncio_noop())
+    await service.run_jobs(who["tenant_id"], ["scripts"])
+    assert set(seen) == {"refresh_conversation_features_in", "reconcile_goal_status"}
+
+
+async def asyncio_noop():
+    return None
+
+
+def datetime_of(value):
+    from app.service import dt
+
+    return dt(value)
+
+
+def test_reextraction_preserves_a_reviewed_retraction_and_rejects_only_ambiguous_items(workspace, app, clock):
+    from app.postcall.commitments import publish
+
+    service, who = app.state.service, p(workspace)
+    call = start(workspace)
+    finish(workspace, call, "right_party")
+    item = {
+        "kind": "callback",
+        "owner": "rep",
+        "evidence": ["s"],
+        "due_at": (clock.now + timedelta(days=1)).isoformat(),
+        "timezone": "America/Los_Angeles",
+        "time_window": None,
+        "needs_time_confirmation": False,
+        "action": "Call back about procurement",
+        "observation_id": "promise",
+    }
+    with service.db.transaction() as s:
+        row = service.required(s, "call_attempts", call["id"], who)
+        publish(service, s, who, row, [item])
+        publish(service, s, who, row, [], retracted_observations={"promise"})
+    with service.db.transaction() as s:
+        row = service.required(s, "call_attempts", call["id"], who)
+        other = {**item, "evidence": ["t"], "observation_id": "other", "action": "Send the pricing sheet"}
+        duplicate = {**other, "observation_id": "other-copy"}
+        publish(
+            service,
+            s,
+            who,
+            row,
+            [
+                item,
+                other,
+                duplicate,
+                {**item, "kind": "followup", "evidence": ["u"], "observation_id": "material"},
+            ],
+        )
+    with service.db.transaction(False) as s:
+        records = {
+            r.data.get("observation_id"): r.data
+            for r in service.lead_records(s, who, "commitments", call["lead_id"])
+        }
+        tasks_now = service.lead_records(s, who, "followup_tasks", call["lead_id"])
+    assert records["promise"]["status"] == "retracted", "Re-extraction never resurrects a retraction"
+    assert not {"other", "other-copy"} & set(records), "Two items with one source identity are both rejected"
+    assert any(r.get("kind") == "followup" for r in records.values()), "Unrelated items still publish"
+    assert [t.data["status"] for t in tasks_now if t.data.get("kind") == "callback"] == ["cancelled"]

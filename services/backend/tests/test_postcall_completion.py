@@ -384,7 +384,10 @@ async def test_corrected_source_holds_inferred_task_without_erasing_it(workspace
     assert packet["tasks"][0]["status"] == "needs_confirmation"
     assert packet["tasks"][0]["source_stale"] is True
     assert packet["lead"].get("callback_due_at") is None
-    assert packet["lead"]["outreach_hold"] == "callback_time_confirmation"
+    # An AI-inferred callback whose source changed defers outreach for a bounded time;
+    # it never holds the lead indefinitely (only a rep-stated callback does).
+    assert packet["lead"].get("outreach_hold") is None
+    assert packet["lead"]["callback_suggestion_until"] == packet["lead"]["next_attempt_at"]
 
 
 @pytest.mark.parametrize(

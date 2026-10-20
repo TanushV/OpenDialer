@@ -1451,19 +1451,8 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                         receipt = await asyncio.to_thread(method, p, lease=(job["id"], worker_id))
                         if receipt["status"] in {"superseded", "pending"}:
                             return await requeue(job, receipt)
-                    elif job["payload"].get("kind") == "retry_plan_refresh":
-                        receipt = await asyncio.to_thread(
-                            self.refresh_schedule_plans,
-                            p,
-                            job["payload"]["campaign_id"],
-                            lead_ids=job["payload"].get("lead_ids"),
-                            internal=job["payload"].get("internal", False),
-                            lease=(job["id"], worker_id),
-                        )
-                        if receipt["status"] == "lost_lease":
-                            return IDLE
-                        if receipt["status"] == "superseded":
-                            return await requeue(job, receipt)
+                    elif kind == "retry_plan_refresh":
+                        pass  # Per-lead schedule plans are retired; persisted rows drain as no-ops.
                     elif kind is None:  # Operational training snapshots carry no kind.
                         await self.train_model_job(p, job["payload"])
                     else:

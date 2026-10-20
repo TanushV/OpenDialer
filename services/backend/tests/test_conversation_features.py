@@ -182,6 +182,8 @@ def test_current_review_state_and_versions_are_frozen_in_the_actual_next_decisio
             put(s, "conversation_states", p["tenant_id"], p["seller_id"], values, key=call["id"])
         lead = service.required(s, "leads", call["lead_id"], p)
         service.refresh_packet_in(s, p, lead)
+        # The packet refresh job (refresh_continuity) recomputes features off the save path.
+        service.refresh_conversation_features_in(s, p, lead)
     clock.now += timedelta(hours=2)
     second = start(workspace, key="prior-context-second")
     with service.db.transaction(False) as s:
@@ -199,6 +201,7 @@ def test_current_review_state_and_versions_are_frozen_in_the_actual_next_decisio
         )
         lead = service.required(s, "leads", call["lead_id"], p)
         service.refresh_packet_in(s, p, lead)
+        service.refresh_conversation_features_in(s, p, lead)
         current = service.prediction_features(s, p, lead, calls=[])
         assert current["conversation_concepts"] == []
         assert (
