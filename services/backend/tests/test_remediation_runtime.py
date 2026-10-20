@@ -24,14 +24,20 @@ async def test_critical_lanes_and_maintenance_run_independently_without_training
             if "live_coach" in queues:
                 await gate.wait()
 
+    from app.priority import BACKGROUND_YIELD_SECONDS
+
     runtime = AuthorityRuntime(Service(), queues=["webhook", "live_coach", "postcall", "maintenance"])
     await runtime.start()
     try:
-        for _ in range(20):
+        # Background lanes yield to in-flight live work, but only up to the bounded ceiling:
+        # a stuck live job never stops post-call work.
+        deadline = asyncio.get_running_loop().time() + BACKGROUND_YIELD_SECONDS + 1.5
+        while asyncio.get_running_loop().time() < deadline:
             if {"maintenance", "webhook", "live_coach", "postcall"} <= seen:
                 break
             await asyncio.sleep(0.01)
         assert {"maintenance", "webhook", "live_coach", "postcall"} <= seen
+        assert not gate.is_set(), "Post-call ran while the live job was still blocked"
     finally:
         await runtime.close()
     assert all(task.done() for task in runtime.tasks)

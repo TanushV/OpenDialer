@@ -379,7 +379,10 @@ class Database:
         self.registry_lru_lock = threading.Lock()
         self.registry_lru_bytes = 0
         self.sqlite = url.startswith("sqlite")
-        self._sqlite_writer = threading.Lock() if self.sqlite else None
+        from app.priority import WriterAdmission
+
+        # One SQLite writer at a time; calling work is admitted ahead of background work.
+        self._sqlite_writer = WriterAdmission() if self.sqlite else None
         # In-process runners subscribe to committed job changes (queue names).
         self.job_listeners = []
         self.engine = create_engine(

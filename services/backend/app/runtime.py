@@ -7,11 +7,15 @@ from http.cookiejar import CookieJar, DefaultCookiePolicy
 
 import httpx
 
+from app import priority
+
 MAINTENANCE = frozenset({"maintenance", "call_control"})
 # Fallback probes for work committed by another process (connected workers).
 # In-process commits wake a lane at once; these are not polling intervals.
 FALLBACK_SECONDS = {"webhook": 1.0, "live_coach": 1.0, "maintenance": 1.0, "call_control": 1.0}
 BACKGROUND_FALLBACK_SECONDS = 2.0
+# Lanes that serve a live call run as foreground work; the rest yield to it (app.priority).
+FOREGROUND_LANES = frozenset({"webhook", "live_coach"})
 # Research and script work share one admission pool; a release in either can admit the other.
 SHARED_POOLS = {"research": ("research", "scripts"), "scripts": ("research", "scripts")}
 
@@ -58,7 +62,13 @@ class AuthorityRuntime:
             try:
                 if queue in MAINTENANCE:
                     await self.service.maintenance_tick()
+                elif queue in FOREGROUND_LANES:
+                    with priority.GATE.work():
+                        await self.service.run_jobs(queues=[queue])
                 else:
+                    # Background work does not start while a calling request or live job is in
+                    # flight, but a bounded yield keeps it progressing under continuous calling.
+                    await priority.GATE.wait_idle()
                     await self.service.run_jobs(queues=[queue])
             except Exception as exc:
                 logging.getLogger(__name__).warning("%s deferred: %s", queue, type(exc).__name__)

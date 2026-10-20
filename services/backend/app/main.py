@@ -395,7 +395,10 @@ def create_app(settings=None, *, clock=None, carrier=None):
         origin = request.headers.get("origin")
         if origin and origin not in settings.allowed_origins:
             return JSONResponse({"detail": "Origin rejected"}, status_code=403)
-        response = await call_next(request)
+        from app.priority import GATE
+
+        with GATE.work():  # Interactive requests run ahead of background lanes.
+            response = await call_next(request)
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response
