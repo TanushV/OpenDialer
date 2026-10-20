@@ -1,14 +1,3 @@
-DIMENSIONS = [
-    "identity_relevance",
-    "listening_response",
-    "problem_discovery",
-    "business_impact",
-    "objection_handling",
-    "next_step",
-    "factual_accuracy",
-]
-
-
 def reviewed_tracker_matches(note, definitions, source_revisions, live_ids):
     known = {item["id"]: item for item in definitions}
     result = []
@@ -25,9 +14,7 @@ def reviewed_tracker_matches(note, definitions, source_revisions, live_ids):
     return result
 
 
-def score_summary(items, dimensions=None):
-    if dimensions is None:
-        dimensions = DIMENSIONS if any("dimension" in i for i in items) else None
+def score_summary(items, dimensions):
     total = len(dimensions) if dimensions else len(items)
     if dimensions:
         # Legacy/partial items cannot inflate coverage or count a repeated dimension twice.
@@ -214,9 +201,8 @@ def build_analysis(
             "score": None,
             "max_score": 2,
             "weight": d["weight"],
-            "status": "N/A"
-            if outcome in {"wrong_party", "voicemail", "no_answer", "ivr", "screening"}
-            else "INSUFFICIENT_EVIDENCE",
+            # Operational outcomes carry no dimensions (rubrics.effective), so none is N/A here.
+            "status": "INSUFFICIENT_EVIDENCE",
             "evidence": [],
             "explanation": "Human review or an evaluated model is required.",
         }

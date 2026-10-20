@@ -66,11 +66,6 @@ class WorkspaceReads:
                         "reconciling",
                         "review_required",
                         "unconfirmed",
-                        "validating",
-                        "in_progress",
-                        "finalizing",
-                        "cancelling",
-                        "awaiting_publication",
                     ]
                 ),
                 "EXTERNAL_OPERATION_UNRESOLVED",

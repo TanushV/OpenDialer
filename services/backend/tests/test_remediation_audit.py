@@ -145,7 +145,7 @@ def test_uncertain_purchase_cannot_be_resubmitted_with_new_ui_key(workspace, car
         submitted.append((numbers, command_id))
         raise TimeoutError("Response lost after provider acceptance")
 
-    monkeypatch.setattr(carrier, "purchase", uncertain)
+    monkeypatch.setattr(carrier, "purchase", uncertain, raising=False)
     for key in ("first-click", "second-click"):
         c.post(
             "/v1/admin/numbers/purchase",
@@ -314,7 +314,10 @@ def test_delayed_labels_do_not_leak_past_the_validation_start():
 
 
 def test_app_score_coverage_counts_all_rubric_dimensions():
-    from app.postcall.analysis import DIMENSIONS, score_summary
+    from app.postcall.analysis import score_summary
+    from app.postcall.rubrics import effective
+
+    dimensions = [d["id"] for d in effective({})["dimensions"]]
 
     segments = [
         {"segment_id": "s", "text": "Hello and thanks for taking my call.", "is_final": True, "side": "rep"}
@@ -342,11 +345,11 @@ def test_app_score_coverage_counts_all_rubric_dimensions():
 
     merged = merge_test_analysis(data, segments)
     assert build_analysis("fixture", segments, derived=merged)["scorecard"]["overall"]["coverage"] == 0
-    coverage = score_summary(data["score_items"])["coverage"]
-    assert coverage <= 1 / len(DIMENSIONS), {
+    coverage = score_summary(data["score_items"], dimensions)["coverage"]
+    assert coverage <= 1 / len(dimensions), {
         "reported_coverage": coverage,
         "returned_items": len(data["score_items"]),
-        "rubric_items": len(DIMENSIONS),
+        "rubric_items": len(dimensions),
     }
 
 

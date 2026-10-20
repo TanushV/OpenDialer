@@ -9,7 +9,7 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, inspect, select
+from sqlalchemy import create_engine, inspect, or_, select
 from sqlalchemy.engine import make_url
 
 from app.db import (
@@ -17,6 +17,7 @@ from app.db import (
     STARTUP_CONTRACT,
     Base,
     Database,
+    audit,
     authenticate_store,
     database_cipher,
     put,
@@ -24,10 +25,59 @@ from app.db import (
     update,
 )
 
+# Earlier releases ran a deferred OpenAI Batch script pipeline. Its unfinished rows can
+# no longer be reconciled, so they close once; nothing is resubmitted and the original
+# provider reference, budget liability and audit history stay as recorded.
+RETIRED_BATCH_REASON = "batch_pipeline_removed"
+BATCH_CLOSED = frozenset({"completed", "expired", "cancelled", "failed"})
+
+
+def close_retired_batch(s, row, now):
+    status = row.data.get("status")
+    if row.data.get("kind") != "script_batch" or status in BATCH_CLOSED:
+        return False
+    update(
+        row,
+        status="cancelled",
+        previous_status=status,
+        recovery_reason=RETIRED_BATCH_REASON,
+        lease_owner=None,
+        lease_until=None,
+    )
+    audit(
+        s,
+        row.tenant_id,
+        row.seller_id,
+        "system-migration",
+        "batch.pipeline_removed",
+        row.id,
+        now,
+        {"previous_status": status},
+    )
+    return True
+
+
+def close_retired_batches(service):
+    """Idempotent and indexed per seller: after the first run the query finds nothing."""
+    model = MODELS["command_outbox"]
+    with service.db.transaction() as s:
+        scopes = [(r.tenant_id, r.id) for r in s.scalars(select(MODELS["sellers"]))]
+        for tenant, seller_id in scopes:
+            for row in s.scalars(
+                select(model).where(
+                    model.tenant_id == tenant,
+                    model.seller_id == seller_id,
+                    model.op_kind == "script_batch",
+                    or_(model.op_status.is_(None), model.op_status.not_in(BATCH_CLOSED)),
+                )
+            ):
+                close_retired_batch(s, row, service.clock())
+
 
 def migrate_business_state(service):
     # The legacy journal is a separate file, including after a DB-only copy cutover.
     service.vault.sanitize_legacy_authorization()
+    close_retired_batches(service)
     if startup_contract_current(service.db.engine, service.db.cipher):
         return
     from app.compliance.registry import migrate_registry_chunks

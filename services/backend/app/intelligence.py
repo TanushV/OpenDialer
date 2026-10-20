@@ -10,7 +10,7 @@ from sqlalchemy import case, func, select
 
 from app.accounting import RequestAccounting
 from app.coaching.workflows import LiveHelper
-from app.config import PROVIDER_DEFAULTS, inference_model
+from app.config import PROVIDER_DEFAULTS, inference_mode, inference_model
 from app.db import MODELS, audit, doc, emit, get, put, rows, uid, update
 from app.postcall.analysis import build_analysis
 from app.preparation.templates import SLOT_SCHEMA, approved_template, fill, render, template_version
@@ -87,23 +87,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             and not conf.get("postcall_zdr_verified")
         ):
             return None
-        mode = conf.get("inference_mode", PROVIDER_DEFAULTS.inference_mode)
-        if mode == "chatgpt_plan":
-            from app.providers.oauth import RegisteredPlanClient
-
-            if not user_id:
-                return None
-            key = "plan-" + user_id
-            if not self.vault.read(key).get("access_token"):
-                return None
-            return RegisteredPlanClient(
-                lambda: self.vault.read(key),
-                lambda value: self.vault.write(key, value),
-                inference_model(conf, role),
-                self.host_id(),
-                self.clock,
-                http=getattr(self, "background_http", None),
-            )
+        mode = inference_mode(conf)
+        if mode is None:
+            return None
         token = conf.get("openai_api_key")
         if not token and mode != "litellm":
             return None
@@ -1356,9 +1342,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
 
                         await refresh_screening(self, p, job, worker_id)
                     elif kind == "batch_review":
-                        from app.preparation.batches import review_batch_result
-
-                        await review_batch_result(self, p, job, worker_id)
+                        # Retired deferred Batch pipeline: queued legacy reviews finish
+                        # without effect; their outbox rows close at startup.
+                        pass
                     elif kind == "packet_refresh":
                         # Lead recomputation moved out of the rep's save into this refresh.
                         await asyncio.to_thread(self.refresh_continuity, p, job["payload"]["lead_ids"])
@@ -2326,13 +2312,3 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             await finish_shielded(
                 asyncio.to_thread(self._publish_state_review, p, call_id, request, owner, receipt)
             )
-
-    def host_id(self):
-        path = self.settings.data_dir / "host-id"
-        if not path.exists():
-            import os
-
-            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-            with os.fdopen(fd, "w") as file:
-                file.write("urn:uuid:" + uid())
-        return path.read_text().strip()

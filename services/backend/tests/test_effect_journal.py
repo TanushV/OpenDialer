@@ -2,7 +2,6 @@
 
 import pytest
 from conftest import reserve, start
-from test_batch_recovery import batch  # noqa: F401 - pytest fixture
 from test_dnc_recovery import screening  # noqa: F401 - pytest fixture
 from test_remediation_privacy import principal
 
@@ -197,7 +196,7 @@ def test_damaged_effect_journal_holds_new_effects(workspace, app, monkeypatch, c
     assert not carrier.dials
 
 
-@pytest.mark.parametrize("kind", ["live_coach", "live_coach_review", "dnc_screen", "script_batch"])
+@pytest.mark.parametrize("kind", ["live_coach", "live_coach_review", "dnc_screen"])
 def test_optional_admission_retains_independent_liability(workspace, app, kind):
     service, p = app.state.service, principal(workspace)
     assert service.reserve_optional_budget(p, "request-" + kind, 0.01, object_id="object", work_kind=kind)
@@ -355,18 +354,15 @@ def test_repaired_journal_can_release_its_explicit_hold(workspace, app, monkeypa
     assert service.vault.read_journal("effects"), "Repair must persist the original pending metadata"
 
 
-def test_original_paid_intents_are_journaled_for_configuration_and_batch(workspace, app, batch):  # noqa: F811
-    from test_batch_recovery import submit
+def test_original_paid_intents_are_journaled_for_configuration(workspace, app):
     from test_number_reconciliation import configure_fixture
 
     service, p, number = configure_fixture(workspace, app)
     config, _ = service._claim_number_configuration(p, number, "desired")
-    assert submit(workspace, batch).status_code == 503
     entries = service.vault.read_journal("effects")
     assert any(r["kind"] == "number_configure" and r["phase"] == "submitted" for r in entries)
     commands = [e for r in entries for e in r["entities"] if e["table"] == "command_outbox"]
     assert any(e["id"] == config["id"] for e in commands)
-    assert any(e["data"]["kind"] == "script_batch" and e["data"].get("request_digest") for e in commands)
 
 
 def test_prepaid_screen_journal_keeps_exact_attempt_without_its_secret(workspace, screening):  # noqa: F811

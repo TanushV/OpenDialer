@@ -95,7 +95,8 @@ def test_new_number_purchase_rejects_recurring_commitment(workspace, carrier, mo
         requests.append(args)
         return {"id": "unwanted-order"}
 
-    monkeypatch.setattr(carrier, "purchase", purchase)
+    # No adapter orders numbers; any future call path is still recorded here.
+    monkeypatch.setattr(carrier, "purchase", purchase, raising=False)
     c.put(
         "/v1/admin/budget",
         headers=h,
