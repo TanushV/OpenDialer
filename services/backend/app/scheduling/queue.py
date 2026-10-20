@@ -11,6 +11,7 @@ from app.db import MODELS, ActiveClaim, audit, doc, emit, prefetch, put, update
 from app.optimization.learning import (
     choose_cohort_candidate,
     cohort_arm,
+    cohort_fraction,
     conversion_score,
     freeze_features,
     stable_control,
@@ -446,7 +447,7 @@ class ReservationPlanner:
                     "features": plan["features"],
                     "predictions": plan["prediction"],
                     "propensity": choice["propensity"],
-                    "experiment_arm": cohort_arm(lead.id),
+                    "experiment_arm": cohort_arm(lead.id, cohort_fraction(campaign.data, config, now)),
                 },
                 now=now,
             )
@@ -485,7 +486,7 @@ class ReservationPlanner:
                     "predictions": plan["prediction"],
                     "conversion_goal": config["conversion_goal"],
                     **plan["selection"],
-                    "experiment_arm": cohort_arm(lead.id),
+                    "experiment_arm": cohort_arm(lead.id, cohort_fraction(campaign.data, config, now)),
                     "outcome_window_days": config["window_days"],
                 },
                 now=now,

@@ -71,6 +71,7 @@ OPTIMIZATION_DEFAULTS = {
     "staffing_weekdays": list(range(7)),
     "account_channel_limit": None,
     "minimum_expansion_age_hours": 24,
+    "production_holdout_fraction": 0.10,
 }
 
 
