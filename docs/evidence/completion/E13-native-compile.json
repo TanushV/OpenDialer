@@ -1,0 +1,41 @@
+{
+  "step_id": "E13",
+  "scope": "Native compile and Rust assertions only; installed packages, updates and resources remain open",
+  "source_commit": "17e654e15a062ce7010596a78f48e340cf6f3e78",
+  "production_tree_digest": "79e854f7a55b3eca089f2b05184543d6316d0f2791af25eb103f487eadf5e887",
+  "test_tree_digest": "9ae1fc9d5666a80f2b480fe45e9af39c065f498f5ffcbb19e16c984b68155496",
+  "case_ids": [
+    "C054",
+    "C058"
+  ],
+  "mode": "macOS GitHub native compile",
+  "fixture_seed": 20261018,
+  "commands": [
+    "npm ci && npm run build",
+    "uv run python scripts/build_sidecar.py",
+    "cargo fmt --check && cargo test --locked",
+    "cargo clippy --locked --all-targets -- -D warnings"
+  ],
+  "environment": {
+    "runner": "macos-15",
+    "workflow_run": 39360919490,
+    "job": 118426732924,
+    "url": "https://github.com/TanushV/OpenDialer/actions/runs/39360919490/job/118426732924"
+  },
+  "started_at": "2026-10-20T02:49:03Z",
+  "finished_at": "2026-10-20T02:53:50Z",
+  "result_counts": {
+    "passed": 18,
+    "failed": 0,
+    "skipped": 0
+  },
+  "failed_cases": [],
+  "raw_log_sha256": "d927f0b7c3b41ab5267bddbc59333283f2378e7acdf9a3f775a4c9ec024bbd48",
+  "retired_paths": [],
+  "known_limitations": [
+    "Build and native assertions do not certify installed binary use, hardware, trusted publisher distribution or updates",
+    "Full database/browser CI job is still running",
+    "C054/C058 are partial supporting evidence, not whole-family acceptance"
+  ],
+  "external_calls": false
+}
