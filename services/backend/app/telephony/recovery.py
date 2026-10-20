@@ -275,10 +275,10 @@ class CommandRecovery:
         return await asyncio.to_thread(self._complete_reconciliation, p, claimed, receipt, error)
 
     def _recovery_snapshot(self, p):
-        with self.db.transaction() as s:
-            self._expire_claims(s)
-            commands = MODELS["command_outbox"]
-            pending = list(
+        commands, calls = MODELS["command_outbox"], MODELS["call_attempts"]
+
+        def pending(s):
+            return list(
                 s.scalars(
                     select(commands)
                     .where(
@@ -294,24 +294,17 @@ class CommandRecovery:
                     .limit(100)
                 )
             )
-            calls = MODELS["call_attempts"]
-            active = list(
-                s.scalars(
-                    select(calls)
-                    .where(
-                        calls.tenant_id == p["tenant_id"],
-                        calls.seller_id == p["seller_id"],
-                        calls.op_status.not_in(TERMINAL),
-                        calls.op_due_at <= self.clock(),
-                    )
-                    .order_by(calls.op_due_at, calls.id)
-                    .limit(100)
-                    .with_for_update(skip_locked=True)
-                )
+
+        def due_calls(query):
+            return query.where(
+                calls.tenant_id == p["tenant_id"],
+                calls.seller_id == p["seller_id"],
+                calls.op_status.not_in(TERMINAL),
+                calls.op_due_at <= self.clock(),
             )
-            for call in active:
-                update(call, orphan_checked_at=self.clock().isoformat())
-            configurations = list(
+
+        def configurations(s):
+            return list(
                 s.scalars(
                     select(commands)
                     .where(
@@ -325,7 +318,33 @@ class CommandRecovery:
                     .limit(25)
                 )
             )
-            return [doc(c) for c in pending], [doc(c) for c in active], [doc(c) for c in configurations]
+
+        # Read first: claim expiry and the orphan-check stamp are the only writes,
+        # so an idle seller's tick never takes the writer.
+        with self.db.transaction(False) as s:
+            if (
+                s.scalar(due_calls(select(calls.id)).limit(1)) is None
+                and s.scalar(self._expired_claims().limit(1)) is None
+            ):
+                return [doc(c) for c in pending(s)], [], [doc(c) for c in configurations(s)]
+        with self.db.transaction() as s:
+            self._expire_claims(s)
+            commands_due = pending(s)
+            active = list(
+                s.scalars(
+                    due_calls(select(calls))
+                    .order_by(calls.op_due_at, calls.id)
+                    .limit(100)
+                    .with_for_update(skip_locked=True)
+                )
+            )
+            for call in active:
+                update(call, orphan_checked_at=self.clock().isoformat())
+            return (
+                [doc(c) for c in commands_due],
+                [doc(c) for c in active],
+                [doc(c) for c in configurations(s)],
+            )
 
     def _finish_orphan(self, p, snapshot):
         with self.db.transaction() as s:
@@ -341,26 +360,32 @@ class CommandRecovery:
 
     def _expired_agents(self, p):
         """Keep an interrupted setup actionable without placing another carrier dial."""
-        with self.db.transaction() as s:
-            model = MODELS["call_legs"]
-            pending = s.scalars(
-                select(model)
-                .where(
-                    model.tenant_id == p["tenant_id"],
-                    model.seller_id == p["seller_id"],
-                    model.op_status.in_(["submitting", "uncertain"]),
-                    or_(model.op_due_at.is_(None), model.op_due_at <= self.clock()),
-                )
-                .order_by(model.op_due_at.asc().nullsfirst(), model.id)
-                .limit(25)
-                .with_for_update(skip_locked=True)
+        model = MODELS["call_legs"]
+        due = (
+            select(model)
+            .where(
+                model.tenant_id == p["tenant_id"],
+                model.seller_id == p["seller_id"],
+                model.op_status.in_(["submitting", "uncertain"]),
+                or_(model.op_due_at.is_(None), model.op_due_at <= self.clock()),
             )
+            .order_by(model.op_due_at.asc().nullsfirst(), model.id)
+            .limit(25)
+        )
+
+        def expired(leg):
+            expiry = dt(leg.data.get("lease_until"))
+            return leg.data.get("kind") == "agent" and not (expiry and expiry > self.clock())
+
+        # Read first: only an expired agent setup needs the writer.
+        with self.db.transaction(False) as s:
+            if not any(expired(leg) for leg in s.scalars(due)):
+                return []
+        with self.db.transaction() as s:
+            pending = s.scalars(due.with_for_update(skip_locked=True))
             known = []
             for leg in pending:
-                if leg.data.get("kind") != "agent":
-                    continue
-                expiry = dt(leg.data.get("lease_until"))
-                if expiry and expiry > self.clock():
+                if not expired(leg):
                     continue
                 update(
                     leg,

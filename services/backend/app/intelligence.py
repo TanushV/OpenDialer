@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import logging
 import time
 from datetime import timedelta
 
@@ -20,6 +21,10 @@ from app.providers.openrouter import OpenRouterCoach
 from app.research.fetch import SafeFetcher, discovery_links
 from app.research.validation import ValidationFailure, script_review_request, validate_script
 from app.service import Service, dt, fail
+
+# Outcome of one claimed job in a drain pass: completed; requeued with progress
+# or newer input; or handled without progress (coalesced, failed, lost lease).
+DONE, ADVANCED, IDLE = "completed", "advanced", "idle"
 
 RESEARCH_SCHEMA = {
     "type": "object",
@@ -1283,6 +1288,19 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
         worker_id = "worker-" + uid()
         errors = []
 
+        async def requeue(job, receipt):
+            # A page that processed rows or advanced its cursor is due again now;
+            # superseded or waiting refreshes back off in the queue instead.
+            receipt, cursor = receipt or {}, job["payload"].get("cursor")
+            paged = receipt.get("status") == "pending" and bool(
+                receipt.get("processed") or receipt.get("cursor", cursor) != cursor
+            )
+            renewed = await asyncio.to_thread(
+                self.jobs.coalesce_refresh, job["id"], worker_id, progressed=paged
+            )
+            # Newer input that arrived during the run is fresh work, not a retry.
+            return ADVANCED if paged or renewed else IDLE
+
         async def execute(lane, job):
             p = {
                 "tenant_id": job["tenant_id"],
@@ -1293,9 +1311,16 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             }
 
             async def heartbeat():
+                # Lease loss or a failed renewal belongs to this job alone: its own
+                # finish observes a lost lease, and siblings in the wave keep running.
                 while True:
                     await asyncio.sleep(20)
-                    await asyncio.to_thread(self.jobs.heartbeat, job["id"], worker_id, 60)
+                    try:
+                        await asyncio.to_thread(self.jobs.heartbeat, job["id"], worker_id, 60)
+                    except LostJobLease:
+                        return
+                    except Exception as exc:
+                        logging.getLogger(__name__).warning("Job heartbeat deferred: %s", type(exc).__name__)
 
             pulse = asyncio.create_task(heartbeat())
             try:
@@ -1329,19 +1354,17 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                             cleanup_page, self, p, job["payload"], lease=(job["id"], worker_id)
                         )
                         if receipt["status"] == "lost_lease":
-                            return 0
+                            return IDLE
                         if receipt["status"] == "pending":
-                            await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
-                            return 0
+                            return await requeue(job, receipt)
                     elif job["payload"].get("kind") == "metric_rebuild":
                         from app.optimization.projections import rebuild_page
 
                         receipt = await asyncio.to_thread(rebuild_page, self, p, lease=(job["id"], worker_id))
                         if receipt["status"] == "lost_lease":
-                            return 0
+                            return IDLE
                         if receipt["status"] == "pending":
-                            await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
-                            return 0
+                            return await requeue(job, receipt)
                         if receipt["status"] == "blocked":
                             raise RuntimeError("Projection replay awaits a failed source job")
                     elif job["payload"].get("kind") in {"metric_refresh", "metric_dependents"}:
@@ -1358,10 +1381,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                             },
                         )
                         if receipt["status"] == "lost_lease":
-                            return 0
+                            return IDLE
                         if receipt["status"] in {"superseded", "pending"}:
-                            await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
-                            return 0
+                            return await requeue(job, receipt)
                     elif job["payload"].get("kind") == "forecast_refresh":
                         receipt = await asyncio.to_thread(
                             self.build_forecast,
@@ -1371,8 +1393,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                             lease=(job["id"], worker_id),
                         )
                         if receipt["status"] in {"superseded", "pending"}:
-                            await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
-                            return 0
+                            return await requeue(job, receipt)
                     elif job["payload"].get("kind") == "home_refresh":
                         receipt = await asyncio.to_thread(
                             self.rebuild_home_metrics,
@@ -1380,8 +1401,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                             lease=(job["id"], worker_id),
                         )
                         if receipt["status"] in {"superseded", "pending"}:
-                            await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
-                            return 0
+                            return await requeue(job, receipt)
                     elif job["payload"].get("kind") == "report_refresh":
                         receipt = await asyncio.to_thread(
                             self.rebuild_optimization_report,
@@ -1390,15 +1410,13 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                             lease=(job["id"], worker_id),
                         )
                         if receipt["status"] in {"superseded", "pending"}:
-                            await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
-                            return 0
+                            return await requeue(job, receipt)
                     elif job["payload"].get("kind") == "optimization_refresh":
                         receipt = await asyncio.to_thread(
                             self.refresh_optimization_job, p, lease=(job["id"], worker_id)
                         )
                         if receipt and receipt.get("status") in {"superseded", "pending"}:
-                            await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
-                            return 0
+                            return await requeue(job, receipt)
                     elif job["payload"].get("kind") in {"health_refresh", "learning_refresh"}:
                         method = (
                             self.refresh_observed_health
@@ -1407,8 +1425,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                         )
                         receipt = await asyncio.to_thread(method, p, lease=(job["id"], worker_id))
                         if receipt["status"] in {"superseded", "pending"}:
-                            await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
-                            return 0
+                            return await requeue(job, receipt)
                     elif job["payload"].get("kind") == "retry_plan_refresh":
                         receipt = await asyncio.to_thread(
                             self.refresh_schedule_plans,
@@ -1419,31 +1436,31 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                             lease=(job["id"], worker_id),
                         )
                         if receipt["status"] == "lost_lease":
-                            return 0
+                            return IDLE
                         if receipt["status"] == "superseded":
-                            await asyncio.to_thread(self.jobs.coalesce_refresh, job["id"], worker_id)
-                            return 0
+                            return await requeue(job, receipt)
                     else:
                         await self.train_model_job(p, job["payload"])
                 else:
                     raise ValueError("Unknown work lane")
                 await asyncio.to_thread(self.jobs.complete, job["id"], worker_id)
-                return 1
+                return DONE
             except LostJobLease:
-                return 0
+                return IDLE
             except Exception as exc:
                 errors.append(
                     {"kind": "job", "job_id": job["id"], "queue": lane, "error_type": type(exc).__name__}
                 )
                 with contextlib.suppress(LostJobLease):
                     await asyncio.to_thread(self.jobs.fail, job["id"], worker_id, type(exc).__name__)
-                return 0
+                return IDLE
             finally:
                 pulse.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await pulse
 
-        async def drain(lane, execution_class=None):
+        async def drain(lane, execution_class, seen):
+            """Returns (completed, exhausted): exhausted means a claim found nothing due."""
             processed = 0
             limits = self.settings.runtime_limits
             capacity = (
@@ -1475,37 +1492,59 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     )
                     if not job:
                         return None
-                    return await execute(lane, job)
+                    return job["id"], await execute(lane, job)
 
+            # One probe, not a wave of claimers, finds an idle lane idle.
+            if not await asyncio.to_thread(
+                self.jobs.has_due, lane, tenant_id, execution_class=execution_class
+            ):
+                return processed, True
             for offset in range(0, 20, capacity):
                 active = [asyncio.create_task(admitted_job()) for _ in range(min(capacity, 20 - offset))]
                 try:
-                    results = await asyncio.gather(*active)
-                    processed += sum(result for result in results if result is not None)
-                    if all(result is None for result in results):
+                    claimed = [result for result in await asyncio.gather(*active) if result is not None]
+                    if not claimed:
+                        return processed, True
+                    processed += sum(outcome == DONE for _, outcome in claimed)
+                    # Completions, pages with progress and newly claimed jobs advance
+                    # the drain. A job re-claimed only to coalesce again ends the pass.
+                    advanced = any(outcome != IDLE or job_id not in seen for job_id, outcome in claimed)
+                    seen.update(job_id for job_id, _ in claimed)
+                    if not advanced:
                         break
                 finally:
                     for task in active:
                         if not task.done():
                             task.cancel()
                     await asyncio.gather(*active, return_exceptions=True)
-            return processed
+            return processed, False
 
-        # One runner, independently admitted live/I/O/CPU work. A slow fit or
-        # background lease cannot stop a different lane from making progress.
-        tasks = [
-            asyncio.create_task(drain(lane, kind))
+        async def drains(specs):
+            # One runner, independently admitted live/I/O/CPU work. A slow fit or
+            # background lease cannot stop a different lane from making progress.
+            tasks = [asyncio.create_task(drain(lane, kind, seen[lane, kind])) for lane, kind in specs]
+            try:
+                return await asyncio.gather(*tasks)
+            finally:
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+
+        specs = [
+            (lane, kind)
             for lane in queues or ["webhook", "live_coach", "postcall", "scripts", "research", "ml"]
             for kind in (("maintenance", "training") if lane == "ml" else (None,))
         ]
-        try:
-            processed = sum(await asyncio.gather(*tasks))
-            return {"processed": processed, "status": "failed" if errors else "passed", "errors": errors}
-        finally:
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+        seen = {spec: set() for spec in specs}
+        results = await drains(specs)
+        processed = sum(done for done, _ in results)
+        if processed and len(specs) > 1:
+            # A sibling's commits can make work due after a lane found nothing; one
+            # bounded follow-up runs it in this call (the runtime is woken by commit).
+            again = [spec for spec, (_, exhausted) in zip(specs, results, strict=True) if exhausted]
+            processed += sum(done for done, _ in await drains(again))
+        return {"processed": processed, "status": "failed" if errors else "passed", "errors": errors}
 
     def _training_source(self, s, p, payload):
         user = self.required(s, "users", p["user_id"], p)
@@ -1612,20 +1651,29 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
         errors = []
         completed = 0
 
-        def users():
-            with self.db.transaction(False) as session:
-                return [
-                    {
-                        "tenant_id": r.tenant_id,
-                        "seller_id": r.seller_id,
-                        "user_id": r.id,
-                        "role": r.data["role"],
-                    }
-                    for r in rows(session, "users")
-                    if not r.data.get("disabled")
-                ]
+        def principals():
+            """Seller-scoped recovery runs once per seller under its active administrator.
 
-        for p in await asyncio.to_thread(users):
+            A seller without one keeps the per-user passes, because a rep's own
+            authority only covers that rep's calls.
+            """
+            sellers = {}
+            with self.db.transaction(False) as session:
+                for r in rows(session, "users"):
+                    if not r.data.get("disabled"):
+                        sellers.setdefault((r.tenant_id, r.seller_id), []).append(
+                            {
+                                "tenant_id": r.tenant_id,
+                                "seller_id": r.seller_id,
+                                "user_id": r.id,
+                                "role": r.data["role"],
+                            }
+                        )
+            for users in sellers.values():
+                administrator = next((u for u in users if u["role"] in {"owner", "admin"}), None)
+                yield from [administrator] if administrator else users
+
+        for p in await asyncio.to_thread(lambda: list(principals())):
             try:
                 if p["role"] in {"owner", "admin"} and p["seller_id"] not in screened_sellers:
                     from app.compliance.screening import schedule_refresh
@@ -1635,12 +1683,10 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 if prepare_due and p["seller_id"] not in prepared_sellers:
                     prepared_sellers.add(p["seller_id"])
                     await asyncio.to_thread(self.prepare_ahead, p)
+                # Recovery ends with the seller's control dispatch; one pass per tick.
                 await self.recover(p)
-                await self.dispatch_controls(p)
                 completed += 1
             except Exception as exc:
-                import logging
-
                 logging.getLogger(__name__).warning(
                     "Maintenance reconciliation deferred: %s", type(exc).__name__
                 )

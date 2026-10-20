@@ -10,12 +10,12 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.compliance.phone import normalize_phone
 from app.compliance.policy import CallContext, authorize
 from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, rows, uid, update
-from app.jobs.queue import JobQueue, aware
+from app.jobs.queue import JobQueue
 from app.optimization.numbering import select_number
 from app.privacy import event_metadata
 from app.providers.simulated import SimulatedCarrier
@@ -689,10 +689,24 @@ class Service(ReservationPlanner):
             update(user, presence={**user.data.get("presence", {}), **data, "at": self.clock().isoformat()})
             return user.data["presence"]
 
+    def _expired_claims(self):
+        """Unstarted claims whose reservation lapsed; one row per rep at most."""
+        return select(ActiveClaim.id).where(
+            ActiveClaim.call_id.is_(None), ActiveClaim.expires_at <= self.clock()
+        )
+
     def _expire_claims(self, s):
-        for claim in list(s.scalars(select(ActiveClaim))):
-            if not claim.call_id and aware(claim.expires_at) <= self.clock():
-                s.delete(claim)
+        # One bounded statement instead of loading every tenant's claims. The outer
+        # predicate is re-checked on PostgreSQL, so a claim that just started a call stays.
+        s.execute(
+            delete(ActiveClaim)
+            .where(
+                ActiveClaim.id.in_(self._expired_claims().limit(500)),
+                ActiveClaim.call_id.is_(None),
+                ActiveClaim.expires_at <= self.clock(),
+            )
+            .execution_options(synchronize_session=False)
+        )
 
     def choose_number(self, s, p, lead):
         bindings = [r for r in self.scoped(s, "lead_number_bindings", p) if r.data["lead_id"] == lead.id]
