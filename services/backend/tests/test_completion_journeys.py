@@ -290,5 +290,10 @@ def test_full_rep_journey_both_authorities(workspace, app, clock, carrier, monke
         )
         assert resumed.status_code == 200, resumed.text
         final = again.get(f"/v1/leads/{lead_id}/packet", headers=h).json()
-        assert final["lead"]["callback_due_at"] == "2026-10-21T21:00:00+00:00"
+        callbacks = {t["due_at"]: t for t in final["tasks"] if t["status"] in {"open", "snoozed"}}
+        assert set(callbacks) == {due, "2026-10-21T21:00:00+00:00"}
+        # The booking did not cancel the rep's own snoozed callback; it is kept for review
+        # and keeps its schedule until the rep resolves it.
+        assert callbacks[due]["confirmation_state"] == "needs_review" and callbacks[due]["review_required"]
+        assert final["lead"]["callback_due_at"] == due
     assert not carrier.purchases
