@@ -2,7 +2,7 @@
 
 A Tauri desktop calling workspace with two authority modes: a private local backend and an authenticated shared PostgreSQL backend. The app includes lead import and correction, seller-scoped call permissions, existing number pools and capacity proposals, script preparation, live guidance, evidence-linked review, and controlled model experiments.
 
-**Development status, October 19 — 0.3.0 acceptance in progress:** the [completion and simplification plan](docs/REMEDIATION_PLAN.md) is being implemented with tests first; unfinished work and evidence are recorded there and in [STATUS.md](docs/STATUS.md). E00–E12 have scoped software evidence; E13 whole-system acceptance and E14–E15 delivery remain open. Current scope uses existing numbers and observed health, contextual Cerebras help, local follow-up and rep-booked meeting outcomes. It permits no new subscriptions/rentals or CRM/calendar synchronization. Raw speech/private AI content has a five-minute lifetime. These changes are not yet packaged in the 0.2.1 release below; earlier release checks do not certify the current work.
+**Development status, October 20 — 0.3.0 lean completion:** the `lean-completion` branch finishes the [completion plan](docs/REMEDIATION_PLAN.md) with the binding amendments listed at the top of the [execution specification](docs/EXECUTION_SPEC.md#0-october-20-lean-completion-amendments). It removes idle database writes, fixes the Telnyx call contract against the official documentation, settles call costs as labeled estimates, closes compliance fail-open paths, makes post-call work read-only on reads, and drops the Batch pipeline, the ChatGPT-plan route and Groq. Software evidence is recorded in [STATUS.md](docs/STATUS.md). Live carrier calls, funded Cerebras quality/latency, the DNC vendor account, hardware audio and trusted publisher signing remain external gates. Current scope uses existing numbers and observed health, contextual Cerebras help, local follow-up and rep-booked meeting outcomes; it permits no new subscriptions/rentals or CRM/calendar synchronization. Raw speech/private AI content has a five-minute lifetime.
 
 The remaining work now has an [exact execution specification](docs/EXECUTION_SPEC.md): E00–E15, chosen algorithms/contracts, file owners, tests, deletions and Mac/Windows update procedure. The [requirement crosswalk](docs/EXECUTION_TASKS.json) and [planned assertions](docs/ACCEPTANCE_MATRIX.md#october-18-execution-assertion-groups) preserve all outstanding scope. Writing that specification does not complete the implementation.
 
@@ -36,7 +36,7 @@ Choose **Set up on this computer**. The bundled authority binds only to a random
 
 Import CSV with `name,phone,company,domain,timezone,region,segment,jurisdiction`. Use an explicit IANA timezone. Valid formatting is not proof of ownership or calling permission. In Settings, configure Telnyx, approve the business identity, publish a reviewed campaign policy, import authorized registry data and set budgets. In Numbers, sync existing owned inventory and compare its usable capacity with the list. New number rentals and paid reputation subscriptions are blocked by the accepted cost policy; quotes show a proposal, not purchase permission. Advance onboarding only with actual identity and callback evidence. Run preflight before going ready.
 
-Optional inference supports OpenAI Responses, an explicit OpenAI-compatible LiteLLM endpoint, and eligible official per-user ChatGPT plan usage. Cerebras through a dedicated OpenRouter route powers configured live coaching; inference failure leaves calling controls and approved fallbacks available. The plan route uses public APIs and never pools consumer sessions. Read [provider setup](deploy/runbooks/providers.md).
+Optional research/script inference supports OpenAI Responses or an explicit OpenAI-compatible endpoint (LiteLLM, OpenRouter or similar). Cerebras through a dedicated OpenRouter route powers live coaching and the post-call rundown; inference failure leaves calling controls and approved fallbacks available. Read [provider setup](deploy/runbooks/providers.md).
 
 A private machine still needs a reachable **HTTPS webhook-only route** for signed Telnyx events. Forward only `/webhooks/telnyx`; keep administrative routes private. There is no offline outbound bypass when authoritative permissions cannot be checked.
 
@@ -55,7 +55,7 @@ Requirements: Python 3.12, uv, Node 24, Rust and Tauri platform prerequisites. L
 ```sh
 uv sync --frozen --python 3.12
 npm --prefix apps/desktop ci
-uv run pytest --cov=app --cov-branch -q
+uv run pytest services/backend/tests tests -q -n auto   # add --cov=app --cov-branch for coverage
 uv run ruff check services/backend/app services/backend/tests tests scripts deploy/backup
 npm --prefix apps/desktop run build
 npm --prefix apps/desktop test

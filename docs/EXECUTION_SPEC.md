@@ -1,10 +1,65 @@
 # OpenDialer completion execution specification
 
-Date: October 18, 2026; execution checkpoint updated October 19. Implementation baseline: `63f4d4242f60672777f596177fe98fe57f715bf9`; current product/test candidate: `17e654e15a062ce7010596a78f48e340cf6f3e78` (production last changed in `6baea721a3ac8b92aaed70f0d787670da364c5e4`). Installed release: 0.2.1. E00–E12 have scoped software receipts; E13 whole-system acceptance, E14 installed updates and E15 handoff remain open.
+Date: October 18, 2026; amended October 20 (§0). Implementation baseline: `63f4d4242f60672777f596177fe98fe57f715bf9`. Current candidate: branch `lean-completion` (see STATUS.md for the exact commit and evidence). Installed release: 0.2.1. E00–E12 software receipts are retained as history; the October 20 lean completion supersedes their mechanisms where §0 says so. E13 whole-system acceptance is recorded in STATUS.md; E14 installed updates and E15 handoff remain open until their receipts exist.
 
 This is the executable detail beneath [REMEDIATION_PLAN.md](REMEDIATION_PLAN.md), using the [architecture review](ARCHITECTURE_REVIEW_2026-10-18.html) and current source. The remediation plan owns requirements and M/A/OD identifiers. This document owns the chosen implementation, order, data contracts, tests and removals. [EXECUTION_TASKS.json](EXECUTION_TASKS.json) maps every current M/X checklist item, every A family, every OD finding and every original specification section to an execution step. Update both records as evidence arrives; do not create a third competing roadmap.
 
 The implementation should finish the rep journey before expanding supporting features. Keep Python, Tauri, SQLite locally and PostgreSQL centrally. Reuse existing reliable recovery, accounting, source fencing and update code. Simplify the computations and ownership of state; do not replace them with a platform rewrite.
+
+## 0 October 20 lean-completion amendments
+
+These amendments are binding and supersede conflicting text below. Each one was driven by a measured or documented counterexample (full-codebase review, load replays against the production runtime, and the official Telnyx, OpenRouter, Cerebras and DoNotCallDNC documentation). The requirements in REMEDIATION_PLAN.md are unchanged except where §0.9 removes an optional adapter. Evidence is in STATUS.md (October 20 checkpoint).
+
+### 0.1 Database writes and background work
+- `JobQueue.claim` probes for due work read-only and opens a write transaction only when a candidate exists (migration `0018_job_due_probe`, `ix_jobs_due`). Lanes wake on commit in-process and fall back to a 1 s (live/webhook/maintenance) or 2 s (background) probe. Superseded refreshes back off (two immediate retries, then 5–60 s), uncharged.
+- Maintenance runs once per seller and is read-first; an idle authority performs zero write transactions.
+- The seller `ReportRevision` row is the last lock any transaction takes: writers bump it in a before-commit hook; refresh, rebuild, publication and learning paths never lock it. Derived caches publish with `as_of` and a watermark instead of failing or spinning on change. Lease-only heartbeats and derived tables do not count as report changes. GET `/v1/metrics` and `/v1/workspace` never write; `/v1/optimization` writes only to queue a view's first build.
+- Learning reads one consistent snapshot (`Database.snapshot()`), saves a content-addressed dataset with `as_of`, truncates honestly at the byte/row caps, and the training job carries the dataset id, not rows.
+- Projection refresh processes up to 100 units per write transaction with ordered locks; a poison unit is a per-unit error, never a seller-wide block.
+- Provider configuration reads are cached by file identity.
+
+### 0.2 Telnyx contract (verified against official documentation)
+- The WebRTC credential's connection is read from `resource_id` (`connection:<id>`); the credential connection must have `sip_uri_calling_preference = internal` and no outbound voice profile. The browser SIP URI carries no `;secure=srtp` suffix. The token request sends `Accept: */*`.
+- Transcription runs as one `inbound`-track stream on the prospect leg and one on the rep's agent leg; the speaker side comes from the leg (Soniox omits `transcription_track`).
+- Answering-machine detection (`detect_beep` default) is requested only on the final permitted voicemail attempt. Only documented detection results are mapped. Playback outcome comes from `call.playback.ended` status.
+- A call-status read after Telnyx's 10-minute retention window routes to review, not retry.
+- DNC: 401/403/400 are definitive "not cleared" outcomes; 401/403 release the hold and stop the refresh run.
+
+### 0.3 Stuck effects
+- An error raised before a dial request leaves the authority fails the dial and frees the rep.
+- A dial with no carrier reference after 120 s becomes `DIAL_UNCONFIRMED`: the rep is released, the prospect and endpoint stay claimed, the call leaves the automatic recovery loop, and an operator resolves it by attaching the reference or with the audited `confirm_not_placed` action. Concurrent recovery locks sibling commands with SKIP LOCKED.
+- Inbound transfers that never report a leg are orphaned at caller hangup or the routing deadline and release their claim.
+
+### 0.4 Costs and budgets
+- A terminal call's hold settles automatically to a labeled estimate (leg and STT minutes × cost-register rates, `status=estimated`, not carrier-verified); carrier imports replace it. Answered DNC lookups settle at the per-query price. Budget sums use integer micro-dollars. An exhausted optional budget never blocks hangup, opt-out, stop or recovery; inbound routing under an exhausted budget leaves a return-call task.
+
+### 0.5 Compliance
+- "Local DNC" in the requirements is the seller's internal do-not-call list, always enforced first. State registries are enforced where the seller's policy requires them, and preflight reports whether they are on.
+- Fail-closed: a failed revocation journal write persists the outbound hold; an invalid covering national source blocks; a malformed endpoint is never "not listed"; `authorize()` requires an exact "clear" decision for the endpoint. Temporary safety holds are released only by an administrator with a recorded reason.
+
+### 0.6 Calling path
+- Next-lead selection reads a top-32 page ordered by `ix_leads_queue` (migration `0019_lead_queue_order`), at most three pages per request; a claim-time denial retries selection, and an exhausted scan returns retryable `QUEUE_SCAN_CONTINUES`.
+- Wrap-up conflicts compare a rep-visible `edit_version` (advanced only by outcome saves) under a row lock, not the whole-row version that background bookkeeping moves. Connected admin sign-out waits only for the admin's own commands and seller-owned admin effects.
+
+### 0.7 Live helper and post-call
+- The Cerebras wire schema omits `minItems/maxItems/minLength/maxLength` (enforced after the response), closes every object and requires every property; `state_delta` is emitted first; `max_completion_tokens` replaces `max_tokens`. Provider identity is accepted from the top-level field or `X-OpenRouter-Metadata`; unverified or non-Cerebras responses are not displayed.
+- Manual help: first displayable content within 3 s; a reviewed factual final answer may use the 8 s budget, clipped to raw expiry. Breakers are keyed by mode and count only transport faults. A transient failure stays quiet with `helper_status`; cached knowledge appears only when the helper is unconfigured or its circuit is open. `NON_FACTUAL` supports only fields the generator audited as nonassertive.
+- The analysis GET is read-only; one `enqueue_finalize` key serves every trigger; with no provider the honest partial rundown is published once; review runs only as the queued job.
+- Dates need confirmation for bare `H:MM`, unknown or season-contradicting zone abbreviations, weekday/date conflicts and ambiguous "next <weekday>"; a model date that disagrees becomes `proposed_due_at`, never an exception.
+- Tasks: a human retraction cancels inferred tasks; a non-callback outcome cancels the call's untouched inferred callbacks; AI-suggested callbacks hold outreach for at most 7 days; a wrap-up whose callback cannot apply returns `callback_review` instead of failing.
+
+### 0.8 Planning and learning
+- E06.14 is superseded: the planner writes no per-lead `scheduling_plans` rows and never writes `leads.next_attempt_at`; each forecast stores one bounded summary (at most 100 next attempts). Assignment is count-first, the budget charges per placement, exact search covers ≤8 items and ≤4 number classes, and slot estimates carry no region.
+- Labels follow §20.2 (right party only from rep-reported sources; unknown or pending is never negative; a lead-level conversion credits one call). Persistent production holdout is 10%; approved trials use the declared allocation (default 50/50). One hash-based assignment primitive logs true probabilities; the commit-time treatment bandit is disabled unless an approved comparison exists.
+
+### 0.9 Removed or reshaped for leanness
+- Removed: the deferred OpenAI Batch pipeline (legacy in-flight batches close at startup with `batch_pipeline_removed`), the ChatGPT-plan OAuth adapter (a stored plan mode reports inference unconfigured), the Groq adapter, and dead or test-only application code. Research and script roles use OpenAI Responses or an OpenAI-compatible endpoint.
+- The desktop authority sidecar excludes the ML stack, the PostgreSQL driver and unused phone-number geodata. Training runs in a separate `opendialer-trainer` binary, and promoted models are served from validated JSON tree artifacts by a pure-Python evaluator (legacy pickled artifacts are not loaded and fall back to pooled estimates).
+
+### 0.10 Native, measurement and CI
+- The local authority holds an exclusive data-directory lock, takes secrets on stdin (`--secrets-stdin`), exits when its launcher's pipe closes, and writes key files atomically; a new master key is never minted over existing data. The SSH ingress argument array additionally sets `ControlMaster=no` and `ControlPath=none`.
+- The load profile runs the production `AuthorityRuntime` lanes with a business clock that follows elapsed time and gates each user path under load; writer receipts attribute callers and admission wait.
+- CI runs lint, the full SQLite suite (xdist), a PostgreSQL subset on push and the full PostgreSQL suite on pull requests to main and nightly, frontend, e2e and native jobs in parallel; the 90/80 coverage floors still apply.
 
 ## 1 Fixed decisions and limits
 
