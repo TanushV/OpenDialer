@@ -485,7 +485,7 @@ def test_background_report_uses_the_selected_campaign_only(workspace, app, clock
     other = cohort(clock) + cohort(clock, later=True)
     for row in other:
         row["campaign_id"] = "a-different-campaign"
-    monkeypatch.setattr(service, "operational_dataset", lambda *args: other)
+    monkeypatch.setattr(service, "operational_dataset", lambda *args, **kwargs: other)
     service.refresh_learning(p(workspace))
     result = workspace["client"].get("/v1/optimization/conversations", headers=workspace["headers"]).json()
     assert result["report"]["patterns"] == []

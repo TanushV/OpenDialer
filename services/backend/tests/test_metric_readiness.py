@@ -106,8 +106,7 @@ def test_namespace_range_uses_ascii_order_on_both_authorities(workspace, app):
     assert len(identities) == 3, "Locale collation must not move hash suffixes outside the namespace range"
 
 
-def test_dead_source_unit_surfaces_recovery_instead_of_endless_pending(workspace, app):
-    import pytest
+def test_dead_source_unit_is_surfaced_without_blocking_publication(workspace, app):
     from app.db import Job, update
 
     service, p = app.state.service, principal(workspace)
@@ -115,8 +114,11 @@ def test_dead_source_unit_surfaces_recovery_instead_of_endless_pending(workspace
     with service.db.transaction() as session:
         lead = service.scoped(session, "leads", p)[0]
         update(lead, status="invalid")
-        session.flush()
+    # Dirty units are queued at the source's commit; this one then fails outright.
+    with service.db.transaction() as session:
         job = session.scalar(select(Job).where(Job.key == f"projection:{p['seller_id']}:lead:{lead.id}"))
         job.status, job.error = "dead", "Synthetic source failure"
-    with pytest.raises(RuntimeError, match="source.*recovery"):
-        service.rebuild_home_metrics(p)
+    # The failed unit is surfaced; it does not block every other source's totals.
+    assert service.rebuild_home_metrics(p)["status"] == "ready"
+    projection = service.cached_home_metrics(p)["projection"]
+    assert projection["failed_sources"] == 1 and projection["status"] != "pending"

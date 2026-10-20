@@ -72,7 +72,7 @@ def test_explicit_forecast_publishes_schedule_from_one_calculation(workspace, ap
     assert service.optimization_report(p)["plans"]
 
 
-def test_changed_planning_coalesces_bounded_pages_before_reports(workspace, app, clock):
+def test_changed_leads_queue_report_units_but_no_retired_plan_pages(workspace, app, clock):
     from app.db import Job, put
     from sqlalchemy import select
     from test_projection_replay import project_pending
@@ -97,9 +97,13 @@ def test_changed_planning_coalesces_bounded_pages_before_reports(workspace, app,
             for j in s.scalars(select(Job).where(Job.queue == "ml", Job.status == "queued"))
             if j.payload.get("kind") == "retry_plan_refresh"
         ]
-        assert len(jobs) == 2, "104 changed leads need two pages, not 104 calculations"
-        assert all(1 <= len(j.payload["lead_ids"]) <= 100 and j.priority > 10 for j in jobs)
-        assert {i for j in jobs for i in j.payload["lead_ids"]} == wanted
+        units = {
+            j.payload["source_id"]
+            for j in s.scalars(select(Job).where(Job.key.startswith(f"projection:{p['seller_id']}:lead:")))
+        }
+    # Per-lead plans are retired (W5b): changed leads refresh their report units only.
+    assert jobs == []
+    assert wanted <= units
 
 
 def constrained_workspace(workspace, app):
