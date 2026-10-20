@@ -1008,7 +1008,7 @@
         {
           "id": "E13.5",
           "task": "Version-consistent candidate and full SQLite/PostgreSQL coverage",
-          "status": "All version owners now 0.3.0 with preserved updater identity; 11 distribution/mutation contracts pass; full coverage remains open"
+          "status": "Prior ecea269 full SQLite:2413 passed,18 failed,15 skipped;92.52% statements/83.24% branches. Seven workspace fixtures repaired; remaining contracts being aligned/rechecked; failed-finalization completion marker reproduced and repair under test. Fresh complete dual-database acceptance remains open."
         },
         {
           "id": "E13.6",
@@ -1073,10 +1073,20 @@
         {
           "id": "E13.workspace-history",
           "task": "Remove SQLite finalized-call scans from outstanding-call/quiescence reads; retain unknown/unfinished obligations and migrate indexes",
-          "status": "53 SQLite workspace/capability/migration passes(two native skips),23 PostgreSQL workspace passes(one VM skip),99 SQLite carrier/control passes(five PG-only skips). Three new carrier-ID regressions repaired; PostgreSQL scope pending. Diagnostic workspace48.79ms p95; final load remains open."
+          "status": "53 SQLite workspace/capability/migration and23 PostgreSQL workspace passes;99 SQLite and102 PostgreSQL carrier/control passes. VM/native/database-specific skips explicit. Final elapsed load remains open."
+        },
+        {
+          "id": "E13.sqlite-writer",
+          "task": "Avoid coarse SQLite busy backoff while preserving WAL readers, separate stores and failure callbacks",
+          "status": "One red admission regression plus two release cases;80 SQLite passes/one PG-only skip,78 PostgreSQL passes/three SQLite-only skips. WAL readers/other stores and PostgreSQL remain independent. Receipt:E13-writer-admission.json; full latency/load gate remains open."
+        },
+        {
+          "id": "E13.fullsuite-contracts",
+          "task": "Resolve every full-suite failure at current interfaces without weakening behavior",
+          "status": "10 of11 remaining failures reproduced locally; field-audit case passes locally and needs exact-source coverage repeat. Registry migration fixtures, worker-page boundary, asynchronous budget and shared conversation contracts under test. Three new failure/retry red cases before finalization marker repair."
         }
       ],
-      "checkpoint": "E13: current-call history scans repaired tests-first; scoped SQLite and workspace PostgreSQL green, provider PostgreSQL running. Measured SQLite writer contention has a new red regression and requires repair; exact-source full load/coverage/resources and native delivery still open."
+      "checkpoint": "E13: full CI exposed18 failures with coverage floors met;7 workspace fixtures resolved. Current query scopes pass both databases. Writer admission and remaining full-suite failures/recovery repair under focused checks; final freeze/load/native delivery open."
     },
     {
       "id": "E14",

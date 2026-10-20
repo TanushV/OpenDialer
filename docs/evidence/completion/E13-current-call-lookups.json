@@ -45,7 +45,9 @@
     "workspace_postgres_passed": 23,
     "workspace_postgres_skipped": 1,
     "provider_sqlite_passed": 99,
-    "provider_sqlite_skipped": 5
+    "provider_sqlite_skipped": 5,
+    "provider_postgres_passed": 102,
+    "provider_postgres_skipped": 2
   },
   "raw_log_sha256": {
     "E13-open-calls-red.txt": "504af81176c8fb4b3719ccdd84adb496d7a7a0e9cf9bdf73518c23790166b664",
@@ -53,7 +55,8 @@
     "E13-workspace-postgres-v2.txt": "0a96f49e851b03667a5059c1af5af0177cf06e9e1832ca53086b279a808ad1a5",
     "E13-provider-call-red.txt": "5e9e3be9cea646c2ef5b389d70a1c78c6d252384193c7137c5acb4e8328ef75e",
     "E13-provider-call-sqlite.txt": "60eb2115510c77d39b126baa97b349deac13da56e167d423e9bc16f74fff346b",
-    "E13-hotpath-current.txt": "db9a7aa1c0dbb91767c45f9cff72418ac02eff80b88d66913f7c7b3f6a94e4c8"
+    "E13-hotpath-current.txt": "db9a7aa1c0dbb91767c45f9cff72418ac02eff80b88d66913f7c7b3f6a94e4c8",
+    "E13-provider-call-postgres.txt": "576322d9eec2f034d48c44a3037bea1eb2130200469d62d28c2380050c42ec43"
   },
   "diagnostic": {
     "fixture": "owned synthetic10000 leads/100000 historical attempts; not final acceptance",
@@ -65,8 +68,7 @@
   "mechanism": "Three indexes on existing call metadata in unreleased0017; bounded exact carrier lookup rejects ambiguity; finalized history excluded from current obligations",
   "test_alignment": "Older workspace tests now retain original security/freshness/recovery assertions while accommodating multiple projection jobs, asynchronous waves and a genuinely incomplete legacy migration marker. Source-change case now mutates a relevant status rather than an irrelevant name.",
   "known_limitations": [
-    "Provider PostgreSQL scope still running",
-    "SQLite writer-admission regression is red and being repaired",
-    "Final exact-source load/full coverage/native updates remain open"
+    "Final exact-source load/full coverage/native updates remain open",
+    "Writer admission verified separately in E13-writer-admission.json"
   ]
 }

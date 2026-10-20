@@ -1,0 +1,51 @@
+{
+  "step_id": "E13",
+  "scope": "SQLite writer admission and completed carrier-identity PostgreSQL verification; full acceptance open",
+  "source_commit": "a6b2544be37e4c59cca54a3f393bc25a62c83e35",
+  "production_tree_digest": "115e21112f1e0f78da3d383c573a1b2bdb3db18225f28cea829a404c1adf4f1e",
+  "test_tree_digest": "6c731fa2dadb2e6c1ed15494941aac197c3a13cd29bb2fb6191706fb48cc4745",
+  "case_ids": [
+    "A50",
+    "A51",
+    "A54"
+  ],
+  "mode": "SQLite and disposable PostgreSQL",
+  "fixture_seed": null,
+  "commands": [
+    "pytest test_remediation_performance.py test_job_admission.py test_suppression_durability.py test_consent_journal.py test_background_event_loop.py -q (SQLite; then PostgreSQL)"
+  ],
+  "environment": {
+    "platform": "macOS-26.5.1-arm64-arm-64bit",
+    "python": "3.12.13"
+  },
+  "result_counts": {
+    "new_regressions_red": 1,
+    "new_release_cases_baseline_passed": 2,
+    "sqlite_passed": 80,
+    "sqlite_skipped": 1,
+    "postgres_passed": 78,
+    "postgres_skipped": 3,
+    "prior_carrier_scope_postgres_passed": 102,
+    "prior_carrier_scope_postgres_skipped": 2
+  },
+  "failed_cases": [],
+  "candidate_files": {
+    "services/backend/app/db.py": "df19621d40ef4db66a9c3405c1c9b3bfd80e7ef4daf81080f0f12522d2c7d743",
+    "services/backend/tests/test_remediation_performance.py": "9bad04e1445cb17db9151ba19442d3b941d19ac75a8afbf33a6a950fc468ea42"
+  },
+  "raw_log_sha256": {
+    "E13-writer-admission-red.txt": "e68ad520360cdcabad642822fe1dc4f2aa069888d7fc6d873337c9f040201780",
+    "E13-writer-admission-sqlite.txt": "112ab31065da7ee0abf71caa5e61d546b1cea10b012068f350552a5d0a6f33f6",
+    "E13-writer-admission-postgres.txt": "2d089a1701ba43cb34927ee91b9d7b184943a0d7b8a649d2147d2033567792ac",
+    "E13-provider-call-postgres.txt": "576322d9eec2f034d48c44a3037bea1eb2130200469d62d28c2380050c42ec43"
+  },
+  "retired_paths": [
+    "Competing same-authority SQLite writers entering coarse busy-handler waits"
+  ],
+  "known_limitations": [
+    "Not a full system or elapsed load pass",
+    "Full prior-source CI had18 failures; finalization retry defect and fixture reconciliation are separate active work",
+    "No installed update or live-provider certification"
+  ],
+  "external_calls": false
+}
