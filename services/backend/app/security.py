@@ -1,4 +1,5 @@
 import base64
+import functools
 import hashlib
 import hmac
 import json
@@ -13,12 +14,40 @@ from pathlib import Path
 import jwt
 from cryptography.fernet import Fernet
 from fastapi import HTTPException
-from pwdlib import PasswordHash
 
 from app.db import get, put, uid
 
-PASSWORDS = PasswordHash.recommended()
-DUMMY_HASH = PASSWORDS.hash("unusable-dummy-password")
+
+class LazyPasswordHash:
+    """Argon2 loads on first use: its native libraries are not part of authority startup."""
+
+    def __init__(self):
+        self._hasher, self._lock = None, threading.Lock()
+
+    def _get(self):
+        with self._lock:
+            if self._hasher is None:
+                from pwdlib import PasswordHash
+
+                self._hasher = PasswordHash.recommended()
+            return self._hasher
+
+    def hash(self, password):
+        return self._get().hash(password)
+
+    def verify(self, password, hashed):
+        return self._get().verify(password, hashed)
+
+
+PASSWORDS = LazyPasswordHash()
+
+
+@functools.cache
+def dummy_hash():
+    """Verified for unknown accounts. Every login asks for it, so its one-time cost is not a signal."""
+    return PASSWORDS.hash("unusable-dummy-password")
+
+
 JOURNAL_LIMIT = 8 * 1024 * 1024
 ZERO_HASH = "0" * 64
 

@@ -4,7 +4,6 @@ import socket
 from urllib.parse import urldefrag, urljoin, urlsplit
 
 import httpx
-from bs4 import BeautifulSoup
 
 # Total wall time for one source, including redirects and the body; a slow-drip
 # origin cannot hold a research unit for longer than this.
@@ -68,6 +67,8 @@ def same_site(host, allowed):
 
 
 def parse_page(url, text, size):
+    from bs4 import BeautifulSoup  # Loaded with the first research page, not at authority startup.
+
     soup = BeautifulSoup(text, "html.parser")
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
