@@ -1013,7 +1013,7 @@
         {
           "id": "E13.6",
           "task": "All frontend/native/security/license/secret/build checks",
-          "status": "Current frontend52 units/build, typecheck, full lint/format and AST parsing pass; security/license/native/full browser acceptance still open."
+          "status": "Current Python/npm advisory checks pass; affected Windows optional ZIP dependency removed tests-first (1red/44green), supported target graphs clear of reported lock findings, notices regenerated. Native compile/full browser/final secret checks remain open."
         },
         {
           "id": "E13.7",

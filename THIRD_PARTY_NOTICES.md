@@ -13,7 +13,6 @@ This inventory includes locked application, build and test dependencies. Not eve
 | Cargo | alloc-stdlib | 0.3.0 | BSD-3-Clause |  |
 | Cargo | android_system_properties | 0.1.6 | MIT OR Apache-2.0 | 216486f29671a426, 80f275e90d799911 |
 | Cargo | anyhow | 1.0.104 | MIT OR Apache-2.0 | 23f18e03dc49df91, 62c7a1e35f564068 |
-| Cargo | arbitrary | 1.5.0 | MIT OR Apache-2.0 | 15656cc11a8331f2, a60eea8175145316 |
 | Cargo | async-broadcast | 0.7.2 | MIT OR Apache-2.0 | 24e5860bf589d850, e4705ddab847449a |
 | Cargo | async-channel | 2.5.0 | Apache-2.0 OR MIT | 23f18e03dc49df91, a60eea8175145316 |
 | Cargo | async-executor | 1.14.0 | Apache-2.0 OR MIT | 23f18e03dc49df91, a60eea8175145316 |
@@ -85,7 +84,6 @@ This inventory includes locked application, build and test dependencies. Not eve
 | Cargo | defmt-macros | 1.1.1 | MIT OR Apache-2.0 | 2710a622a896bba6, 8173d5c29b4f956d |
 | Cargo | defmt-parser | 1.0.0 | MIT OR Apache-2.0 |  |
 | Cargo | deranged | 0.5.9 | MIT OR Apache-2.0 | 231c837c45eb53f1, edd65bdd88957a20 |
-| Cargo | derive_arbitrary | 1.5.0 | MIT OR Apache-2.0 | 15656cc11a8331f2, a60eea8175145316 |
 | Cargo | derive_more | 2.1.1 | MIT | 8a35369f3ca263b3 |
 | Cargo | derive_more-impl | 2.1.1 | MIT | 8a35369f3ca263b3 |
 | Cargo | digest | 0.10.7 | MIT OR Apache-2.0 | 9e0dfd2dd4173a53, a9040321c3712d8f |
@@ -526,7 +524,6 @@ This inventory includes locked application, build and test dependencies. Not eve
 | Cargo | zerotrie | 0.2.5 | Unicode-3.0 | f367c1b8e1aa2624 |
 | Cargo | zerovec | 0.11.8 | Unicode-3.0 | f367c1b8e1aa2624 |
 | Cargo | zerovec-derive | 0.11.6 | Unicode-3.0 | f367c1b8e1aa2624 |
-| Cargo | zip | 4.6.1 | MIT | 04dc52136d82400b |
 | Cargo | zlib-rs | 0.6.8 | Zlib | e72111c52b7d96eb |
 | Cargo | zmij | 1.0.23 | MIT | 23f18e03dc49df91 |
 | Cargo | zvariant | 5.15.0 | MIT | 260e4ff3fc493695 |
@@ -580,7 +577,7 @@ This inventory includes locked application, build and test dependencies. Not eve
 | Python | msgpack | 1.2.3 | Apache-2.0 | 492dedba85da5872 |
 | Python | narwhals | 2.27.1 | MIT | 811445f30147b8f0 |
 | Python | numpy | 2.5.4 | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 | 05f3b88351988ecf, 0e111337b25494a7, 103166b62b80443a, 211e7d737d6179a0, 268b0ca06759d31e, 3f2c1ffa76383a55, 469778be8f33d54e, 649a589ab31076e7, 6f5828a57223d4cc, 9d4098846018319c, a14cc25e10d40a3a, a85ca13fdf90160b, c17011467b4fe6e2, e340270d4f643845, e7d4f4fb20358f31, f7b14309e5f54e50, fbc539f47d0cf83b |
-| Python | opendialer | 0.2.1 | See included license text | c71d239df91726fc |
+| Python | opendialer | 0.3.0 | See included license text | c71d239df91726fc |
 | Python | opentelemetry-api | 1.45.1 | Apache-2.0 | c71d239df91726fc |
 | Python | outcome | 1.3.0.post0 | MIT OR Apache-2.0 | 3e6dae555eb92787, 652c878488d14563, cfc7749b96f63bd3 |
 | Python | packageurl-python | 0.17.6 | MIT |  |
@@ -592,6 +589,7 @@ This inventory includes locked application, build and test dependencies. Not eve
 | Python | pip_audit | 2.10.1 | See included license text | 0d542e0c8804e39a |
 | Python | platformdirs | 4.13.0 | MIT | 29e0fd62e929850e |
 | Python | pluggy | 1.6.0 | MIT | d6b65e6c213a5d0b |
+| Python | psutil | 7.2.2 | BSD-3-Clause | b89c063b3786e28e |
 | Python | psycopg | 3.3.6 | LGPL-3.0-only | e3a994d82e644b03 |
 | Python | psycopg-binary | 3.3.6 | LGPL-3.0-only | e3a994d82e644b03 |
 | Python | pwdlib | 0.3.1 | See included license text | 4bdaaafc879717d9 |
@@ -1441,35 +1439,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-```
-
-## License text 04dc52136d82400b
-
-```text
-The MIT License (MIT)
-
-Copyright (c) 2014 Mathijs van de Nes
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-Some files in the "tests/data" subdirectory of this repository are under other
-licences; see files named LICENSE.*.txt for details.
 ```
 
 ## License text 0598064c7d2718e3
@@ -5374,39 +5343,6 @@ TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
-
-```
-
-## License text 15656cc11a8331f2
-
-```text
-MIT License
-
-Copyright (c) 2019 Manish Goregaokar
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
 
 ```
 
@@ -28852,6 +28788,41 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```
+
+## License text b89c063b3786e28e
+
+```text
+BSD 3-Clause License
+
+Copyright (c) 2009, Jay Loden, Dave Daeschler, Giampaolo Rodola
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+ * Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+ * Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+ * Neither the name of the psutil authors nor the names of its contributors
+   may be used to endorse or promote products derived from this software without
+   specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 ```
 
 ## License text b8c6939380a400f5

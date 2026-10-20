@@ -4,6 +4,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_signed_installer_updates_do_not_ship_unused_zip_extraction():
+    """Windows consumes signed EXE/MSI; reject the unnecessary vulnerable archive path."""
+    import tomllib
+
+    manifest = tomllib.loads((ROOT / "apps/desktop/src-tauri/Cargo.toml").read_text())
+    updater = manifest["dependencies"]["tauri-plugin-updater"]
+    assert isinstance(updater, dict) and updater.get("default-features") is False
+    assert set(updater["features"]) == {"rustls-tls", "system-proxy"}
+    locked = tomllib.loads((ROOT / "apps/desktop/src-tauri/Cargo.lock").read_text())
+    assert not any(package["name"] == "zip" for package in locked["package"])
+
+
 def test_native_resource_probe_is_test_only_and_excluded_from_the_sidecar():
     import tomllib
 
