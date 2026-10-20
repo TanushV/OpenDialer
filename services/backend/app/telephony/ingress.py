@@ -255,19 +255,37 @@ class WebhookIngress:
         return result
 
     def queue_unfinished_webhooks(self):
-        with self.db.transaction() as s:
-            unfinished = list(
-                s.scalars(
-                    select(MODELS["webhook_inbox"])
-                    .where(
-                        MODELS["webhook_inbox"].op_status.in_(
-                            ["received", "retry", "processing", "unmatched"]
-                        )
-                    )
-                    .order_by(MODELS["webhook_inbox"].created_at)
-                    .limit(200)
-                )
+        inbox = MODELS["webhook_inbox"]
+
+        def oldest_unfinished(query):
+            return (
+                query.where(inbox.op_status.in_(["received", "retry", "processing", "unmatched"]))
+                .order_by(inbox.created_at)
+                .limit(200)
             )
+
+        # Read first: receipts whose job is already queued or running need no write.
+        with self.db.transaction(False) as s:
+            receipts = {
+                (tenant, "webhook:" + identity)
+                for tenant, identity in s.execute(oldest_unfinished(select(inbox.tenant_id, inbox.id)))
+            }
+            if not receipts:
+                return
+            active = {
+                (tenant, key)
+                for tenant, key in s.execute(
+                    select(Job.tenant_id, Job.key).where(
+                        Job.tenant_id.in_({tenant for tenant, _ in receipts}),
+                        Job.key.in_([key for _, key in receipts]),
+                        Job.status.in_(["queued", "running"]),
+                    )
+                )
+            }
+            if receipts <= active:
+                return
+        with self.db.transaction() as s:
+            unfinished = list(s.scalars(oldest_unfinished(select(inbox))))
             for receipt in unfinished:
                 queued = self.jobs.enqueue_in(
                     s,

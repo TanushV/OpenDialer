@@ -562,9 +562,7 @@ def test_legacy_copy_allowlist_continuity(workspace, app):
             hashlib.sha256(get(s, "notes", identity).data["human_text"].encode()).digest()
             == hashlib.sha256(human.encode()).digest()
         )
-        assert (
-            s.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0017_metric_projections"
-        )
+        assert s.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0018_job_due_probe"
         assert {"ctx_key", "ctx_status", "ctx_index_version"} <= {
             c["name"] for c in inspect(s.connection()).get_columns("outcomes")
         }

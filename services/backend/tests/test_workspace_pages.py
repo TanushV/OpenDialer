@@ -496,7 +496,11 @@ def test_job_scope_backfill_preserves_identity_content_and_status(workspace, app
 
 
 @pytest.mark.asyncio
-async def test_concurrent_source_changes_do_not_exhaust_or_delay_metric_refresh(workspace, app, monkeypatch):
+async def test_concurrent_source_changes_do_not_exhaust_or_delay_metric_refresh(
+    workspace, app, clock, monkeypatch
+):
+    from app.jobs.queue import aware
+
     service, p = app.state.service, principal(workspace)
     original = service.metrics
     changes = []
@@ -520,6 +524,11 @@ async def test_concurrent_source_changes_do_not_exhaust_or_delay_metric_refresh(
         assert job.status == "queued"
         assert job.attempts == 0
         assert job.error is None
+        # W1: a refresh superseded on every run backs off instead of spinning; the
+        # delay is bounded by the 60 s maximum, never an exhausted or failed job.
+        delay = (aware(job.available_at) - clock()).total_seconds()
+    assert 0 <= delay <= 60
+    clock.now += timedelta(seconds=delay)
     assert completed_home_metrics(workspace)["projection"]["status"] == "ready"
 
 
