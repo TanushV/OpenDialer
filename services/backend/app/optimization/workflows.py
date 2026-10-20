@@ -309,8 +309,24 @@ class OptimizationWorkflows(ComparisonWorkflows):
         return config
 
     def health_policy_in(self, s, p):
-        cached = s.info.get(("health_policy", p["tenant_id"], p["seller_id"]))
-        return cached if cached is not None else self.optimization_config(s, p)["health_policy"]
+        key = ("health_policy", p["tenant_id"], p["seller_id"])
+        cached = s.info.get(key)
+        if cached is None:
+            model = MODELS["campaigns"]
+            has_campaign = s.scalar(
+                select(model.id)
+                .where(model.tenant_id == p["tenant_id"], model.seller_id == p["seller_id"])
+                .limit(1)
+            )
+            if has_campaign is None:
+                # A seller without a campaign (fresh setup, preflight) uses the default policy.
+                from app.optimization.numbering import HealthPolicy
+
+                cached = HealthPolicy().model_dump()
+            else:
+                cached = self.optimization_config(s, p)["health_policy"]
+            s.info[key] = cached
+        return cached
 
     def inventory_evidence(self, s, p, fast=False):
         from app.optimization.projections import read_number_health_metrics
