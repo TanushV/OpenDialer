@@ -254,14 +254,16 @@ async def test_pinned_connections_are_never_pooled_across_hosts(monkeypatch):
 async def test_source_html_is_parsed_off_the_event_loop(monkeypatch):
     import threading
 
+    import bs4
+
     loop_thread, parsed = threading.get_ident(), []
-    original = fetch.BeautifulSoup
+    original = bs4.BeautifulSoup
 
     def soup(*args, **kwargs):
         parsed.append(threading.get_ident())
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(fetch, "BeautifulSoup", soup)
+    monkeypatch.setattr(bs4, "BeautifulSoup", soup)
     monkeypatch.setattr(fetch, "validate_url", lambda url: ["93.184.216.34"])
     serve(
         monkeypatch,

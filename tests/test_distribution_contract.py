@@ -16,14 +16,59 @@ def test_signed_installer_updates_do_not_ship_unused_zip_extraction():
     assert not any(package["name"] == "zip" for package in locked["package"])
 
 
+def sidecar_build():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("build_sidecar", ROOT / "scripts/build_sidecar.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # Import must not start a build.
+    return module
+
+
 def test_native_resource_probe_is_test_only_and_excluded_from_the_sidecar():
     import tomllib
 
     config = tomllib.loads((ROOT / "pyproject.toml").read_text())
     assert not any(value.startswith("psutil") for value in config["project"]["dependencies"])
     assert "psutil==7.2.2" in config["dependency-groups"]["dev"]
-    build = (ROOT / "scripts/build_sidecar.py").read_text()
-    assert '"--exclude-module",\n        "psutil"' in build
+    build = sidecar_build()
+    assert "psutil" in build.AUTHORITY_EXCLUDES and "psutil" in build.TRAINER_EXCLUDES
+
+
+def test_authority_sidecar_excludes_fitting_postgres_and_phone_tables_and_trainer_carries_fitting():
+    build = sidecar_build()
+    authority = build.authority_arguments()
+    excluded = {authority[i + 1] for i, value in enumerate(authority) if value == "--exclude-module"}
+    assert {
+        "numpy",
+        "scipy",
+        "sklearn",
+        "joblib",
+        "psycopg",
+        "psycopg_binary",
+        "phonenumbers.geodata",
+        "phonenumbers.carrierdata",
+        "phonenumbers.tzdata",
+    } <= excluded
+    assert authority[-1].endswith("scripts/backend_entry.py")
+    trainer = build.trainer_arguments()
+    assert trainer[-1].endswith("scripts/trainer_entry.py")
+    assert not {"numpy", "scipy", "sklearn", "joblib"} & set(build.TRAINER_EXCLUDES)
+    assert {"sklearn.ensemble", "sklearn.calibration", "app.ml.worker"} <= set(build.TRAINER_IMPORTS)
+    hook = (ROOT / "scripts/pyinstaller_hooks/hook-phonenumbers.py").read_text()
+    assert "phonenumbers.geodata" in hook
+
+
+def test_desktop_bundles_the_trainer_beside_the_authority():
+    config = json.loads((ROOT / "apps/desktop/src-tauri/tauri.conf.json").read_text())
+    assert config["bundle"]["externalBin"] == ["binaries/opendialer-backend", "binaries/opendialer-trainer"]
+    stop = (ROOT / "apps/desktop/src-tauri/windows/stop-backend.ps1").read_text()
+    assert "opendialer-trainer.exe" in stop
+    native = (ROOT / "apps/desktop/src-tauri/src/lib.rs").read_text()
+    assert "opendialer-trainer.exe" in native
+    for workflow in ("release.yml", "windows.yml", "ci.yml"):
+        text = (ROOT / ".github/workflows" / workflow).read_text()
+        assert "opendialer-trainer" in text, workflow
 
 
 def test_native_minimum_window_supports_the_required_rep_journey():

@@ -1174,6 +1174,15 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 "dataset_id": dataset["id"],
                 "reason": reason,
             }
+        from app.ml.worker import trainer_unavailable
+
+        if reason := trainer_unavailable():
+            return {
+                "status": "trainer_unavailable",
+                "rows": len(data),
+                "dataset_id": dataset["id"],
+                "reason": reason,
+            }
         # The job names the immutable dataset; the trainer loads and verifies its rows.
         job = self.jobs.enqueue(
             "ml",

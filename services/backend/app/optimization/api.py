@@ -604,7 +604,7 @@ def register_optimization(app, service, principal, administrator):
     def start_trial(model_id: str, body: ModelTrial, p=Depends(administrator)):
         from datetime import timedelta
 
-        from app.ml.training import predict_funnel
+        from app.ml.training import predict_funnel, retired_reason
         from app.optimization.learning import TRIAL_CONTROL_FRACTION
 
         with service.db.transaction() as s:
@@ -631,7 +631,11 @@ def register_optimization(app, service, principal, administrator):
                 )
                 or not predict_funnel(model.data, {}, service.settings.data_dir / "models")
             ):
-                fail(409, "An owned verified candidate that beats the deployed pooled baseline is required")
+                fail(
+                    409,
+                    retired_reason(model.data)
+                    or "An owned verified candidate that beats the deployed pooled baseline is required",
+                )
             campaign = service.scoped(s, "campaigns", p)[0]
             for previous in service.scoped(s, "model_versions", p):
                 if previous.data.get("trial_active"):

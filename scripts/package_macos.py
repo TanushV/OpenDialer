@@ -1,4 +1,4 @@
-"""Seal the Python sidecar with its own entitlement, then sign the final update bytes."""
+"""Seal the Python sidecars with their own entitlement, then sign the final update bytes."""
 
 import argparse
 import hashlib
@@ -15,6 +15,8 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 IDENTIFIER = "com.opendialer.desktop"
 BUNDLE = "OpenDialer.app"
+# The local authority and its separate CPU trainer; both are frozen Python sidecars.
+SIDECARS = ("opendialer-backend", "opendialer-trainer")
 
 
 def run(command, **kwargs):
@@ -29,12 +31,12 @@ def sha256(path):
     return digest.hexdigest()
 
 
-def verify_archive(archive, version, signed_backend, scratch):
+def verify_archive(archive, version, sealed_sidecars, scratch):
     """Verify the shipped update bytes as the updater will install them.
 
     The bundle directory alone is not evidence: tar drops extended attributes and could omit or
     alter files. Extract the archive, then check its signature seal, identity, version and that
-    it carries exactly the sidecar that was sealed with its scoped entitlement.
+    it carries exactly each sidecar that was sealed with its scoped entitlement.
     """
     scratch = Path(scratch)
     scratch.mkdir(parents=True, exist_ok=True)
@@ -55,13 +57,14 @@ def verify_archive(archive, version, signed_backend, scratch):
                 f"Update archive version {info.get('CFBundleShortVersionString')!r} is not {version!r}"
             )
         executable = extracted / "Contents/MacOS" / info.get("CFBundleExecutable", "")
-        shipped = extracted / "Contents/MacOS/opendialer-backend"
         if not (executable.is_file() and os.access(executable, os.X_OK)):
             raise SystemExit("Update archive main executable is missing or not executable")
-        if not (shipped.is_file() and os.access(shipped, os.X_OK)):
-            raise SystemExit("Update archive sidecar is missing or not executable")
-        if sha256(shipped) != sha256(signed_backend):
-            raise SystemExit("Update archive sidecar differs from the sealed sidecar")
+        for name in SIDECARS:
+            shipped = extracted / "Contents/MacOS" / name
+            if not (shipped.is_file() and os.access(shipped, os.X_OK)):
+                raise SystemExit(f"Update archive sidecar {name} is missing or not executable")
+            if sha256(shipped) != sha256(sealed_sidecars[name]):
+                raise SystemExit(f"Update archive sidecar {name} differs from the sealed sidecar")
 
 
 def main():
@@ -79,25 +82,26 @@ def main():
     if args.build:
         run([npm, "run", "tauri", "build", "--", "--bundles", "app"], cwd=root / "apps/desktop")
     app = root / "apps/desktop/src-tauri/target/release/bundle/macos" / BUNDLE
-    backend = app / "Contents/MacOS/opendialer-backend"
-    if not backend.is_file():
-        raise SystemExit("Freeze and build the complete app before packaging")
+    sidecars = {name: app / "Contents/MacOS" / name for name in SIDECARS}
+    if not all(path.is_file() for path in sidecars.values()):
+        raise SystemExit("Freeze both sidecars and build the complete app before packaging")
     stamp = "--timestamp=none" if identity == "-" else "--timestamp"
-    run(
-        [
-            "/usr/bin/codesign",
-            "--force",
-            "--sign",
-            identity,
-            "--options",
-            "runtime",
-            stamp,
-            "--entitlements",
-            str(root / "apps/desktop/src-tauri/BackendEntitlements.plist"),
-            str(backend),
-        ]
-    )
-    # Re-seal only the outer bundle; --deep here would overwrite the sidecar's scoped entitlement.
+    for sidecar in sidecars.values():
+        run(
+            [
+                "/usr/bin/codesign",
+                "--force",
+                "--sign",
+                identity,
+                "--options",
+                "runtime",
+                stamp,
+                "--entitlements",
+                str(root / "apps/desktop/src-tauri/BackendEntitlements.plist"),
+                str(sidecar),
+            ]
+        )
+    # Re-seal only the outer bundle; --deep here would overwrite the sidecars' scoped entitlement.
     run(
         [
             "/usr/bin/codesign",
@@ -113,13 +117,15 @@ def main():
         ]
     )
     run(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(app)])
-    run([str(backend), "--help"], stdout=subprocess.DEVNULL, timeout=30)
+    run([str(sidecars["opendialer-backend"]), "--help"], stdout=subprocess.DEVNULL, timeout=30)
+    # The signed trainer must load its own fitting libraries under the hardened runtime.
+    run([str(sidecars["opendialer-trainer"]), "--self-check"], stdout=subprocess.DEVNULL, timeout=300)
     archive = app.parent / "OpenDialer.app.tar.gz"
     with tarfile.open(archive, "w:gz") as tar:
         tar.add(app, arcname=BUNDLE)
     (root / "work").mkdir(exist_ok=True)
     # Verify the exact bytes before the updater key signs them.
-    verify_archive(archive, version, backend, root / "work")
+    verify_archive(archive, version, sidecars, root / "work")
     signing_env = os.environ.copy()
     key = signing_env.get("TAURI_SIGNING_PRIVATE_KEY", "")
     if key and len(key) < 240 and Path(key).is_file():
