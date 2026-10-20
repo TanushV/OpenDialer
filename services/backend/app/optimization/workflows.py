@@ -8,7 +8,7 @@ from sqlalchemy import func, or_, select
 
 from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, update
 from app.optimization.experiments import ComparisonWorkflows
-from app.optimization.learning import freeze_features, training_rows
+from app.optimization.learning import training_rows
 from app.optimization.numbering import HealthPolicy, capacity_forecast, number_health, timestamp
 from app.scheduling.models import (
     OPTIMIZATION_DEFAULTS,
@@ -620,22 +620,6 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 result.append(row)
         result.sort(key=lambda r: (r["at"], r["call_id"]))
         return result
-
-    def prediction_features(self, s, p, lead, number=None, calls=None, *, fast=False):
-        endpoint = get(s, "phone_endpoints", lead.data["endpoint_id"], p["tenant_id"])
-        inventory = self.inventory_evidence(s, p, fast=fast) if number else []
-        selected = next((n for n in inventory if number and n["id"] == number.id), None)
-        health = selected["health"] if selected else {"score": None, "samples": 0}
-        return freeze_features(
-            {
-                **doc(lead),
-                "created_at": lead.data.get("imported_at", lead.created_at.isoformat()),
-                "ownership_status": endpoint.data.get("ownership_status") if endpoint else None,
-            },
-            health=health,
-            now=self.clock(),
-            calls=calls if calls is not None else [doc(c) for c in self.scoped(s, "call_attempts", p)],
-        )
 
     def forecast_input(self, s, p, *, campaign_id=None, capacity=None, lead_ids=None):
         from collections import Counter

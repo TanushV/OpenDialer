@@ -202,7 +202,10 @@ def test_current_review_state_and_versions_are_frozen_in_the_actual_next_decisio
         lead = service.required(s, "leads", call["lead_id"], p)
         service.refresh_packet_in(s, p, lead)
         service.refresh_conversation_features_in(s, p, lead)
-        current = service.prediction_features(s, p, lead, calls=[])
+        from app.db import doc
+        from app.optimization.learning import freeze_features
+
+        current = freeze_features(doc(lead), health={"score": None, "samples": 0}, now=clock())
         assert current["conversation_concepts"] == []
         assert (
             next(r.data for r in rows(s, "feature_snapshots") if r.id == second["feature_snapshot_id"])
