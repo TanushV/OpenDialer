@@ -513,6 +513,7 @@ async def test_omission_preserves_promise_and_explicit_reviewed_retraction_close
 
 
 @pytest.mark.asyncio
+@pytest.mark.database
 async def test_postcall_disposition_race_does_not_publish_old_interpretation(workspace, app, monkeypatch):
     call, state = setup_analysis(workspace, app, monkeypatch)
     service = app.state.service

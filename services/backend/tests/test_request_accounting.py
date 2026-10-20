@@ -157,6 +157,7 @@ def test_each_admission_in_one_cached_transaction_sees_previous_reservations(wor
     assert len(entries(service, p)) == 1
 
 
+@pytest.mark.database
 def test_concurrent_duplicate_receipts_return_one_identity(workspace, app):
     service, p = app.state.service, principal(workspace)
     reserve(service, p)

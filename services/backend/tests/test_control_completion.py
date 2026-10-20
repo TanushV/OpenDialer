@@ -698,13 +698,12 @@ async def test_one_unavailable_inbound_lookup_does_not_block_other_recovery(
     assert carrier.hangups
 
 
+@pytest.mark.postgres
 def test_hangup_reloads_current_call_before_mutation(workspace, app, monkeypatch):
     """A speech publication between lookup and stop must not turn hangup into a 500."""
     from concurrent.futures import ThreadPoolExecutor
 
     service, p = app.state.service, principal(workspace)
-    if service.db.sqlite:
-        pytest.skip("Read/write interleaving needs PostgreSQL")
     call = start(workspace)
     original = service.required
     changed = False
@@ -747,6 +746,7 @@ def test_database_conflict_is_not_mislabeled_as_failed_effect_journal(workspace,
 
 
 @pytest.mark.parametrize("operation", ["event", "transcript", "suppression", "consent"])
+@pytest.mark.postgres
 def test_event_locks_call_before_shared_report_invalidation(workspace, app, operation):
     """A reducer cannot hold report generation while waiting for the call owner."""
     import threading
@@ -755,8 +755,6 @@ def test_event_locks_call_before_shared_report_invalidation(workspace, app, oper
     from sqlalchemy import event
 
     service, p = app.state.service, principal(workspace)
-    if service.db.sqlite:
-        pytest.skip("PostgreSQL row/report lock ordering")
     call = start(workspace)
     reached = threading.Event()
 

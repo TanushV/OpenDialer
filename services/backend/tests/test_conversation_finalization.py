@@ -10,6 +10,7 @@ from test_remediation_privacy import persisted_content
 
 
 @pytest.mark.parametrize("writer", ["analysis", "human_note"])
+@pytest.mark.postgres
 def test_analysis_writers_wait_for_the_same_call_without_blocking_other_calls(
     workspace, app, clock, monkeypatch, writer
 ):
@@ -24,8 +25,6 @@ def test_analysis_writers_wait_for_the_same_call_without_blocking_other_calls(
     from test_control_completion import principal
 
     service, p = app.state.service, principal(workspace)
-    if service.db.sqlite:
-        pytest.skip("SQLite serializes writers; this row-level race requires PostgreSQL")
     call = start(workspace)
     initial = service.analysis(p, call["id"])
     with service.db.transaction() as s:
@@ -106,6 +105,7 @@ async def test_only_one_canonical_state_is_written_and_legacy_arrays_are_read_vi
     assert service.analysis(p, call["id"])["call_memory"]["rundown_points"]
 
 
+@pytest.mark.postgres
 def test_finalization_and_preparation_release_preserve_each_others_lead_changes(workspace, app, monkeypatch):
     from concurrent.futures import ThreadPoolExecutor
     from contextlib import contextmanager
@@ -117,8 +117,6 @@ def test_finalization_and_preparation_release_preserve_each_others_lead_changes(
     from test_control_completion import principal
 
     service, p = app.state.service, principal(workspace)
-    if service.db.sqlite:
-        pytest.skip("SQLite serializes writers; overlapping row writes require PostgreSQL")
     call = start(workspace)
     workspace["client"].post(
         f"/v1/calls/{call['id']}/hangup", headers=workspace["headers"]

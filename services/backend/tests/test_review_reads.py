@@ -141,6 +141,7 @@ def test_review_relationship_index_backfill_preserves_human_content(workspace, a
     assert f"ix_{kind}_context" in {i["name"] for i in inspect(service.db.engine).get_indexes(kind)}
 
 
+@pytest.mark.database
 def test_review_relationship_upgrade_is_additive_repeatable(tmp_path):
     from datetime import UTC, datetime
     from pathlib import Path

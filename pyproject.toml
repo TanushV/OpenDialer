@@ -27,6 +27,7 @@ dev = [
     "pytest>=9,<10",
     "pytest-cov>=7,<8",
     "pytest-asyncio>=1.3,<2",
+    "pytest-xdist>=3.8,<4",
     "ruff>=0.15,<1",
     "pyinstaller>=6.19,<7",
     "pip-audit>=2.10,<3",
@@ -43,7 +44,12 @@ testpaths = ["services/backend/tests", "tests"]
 pythonpath = ["services/backend", "."]
 asyncio_mode = "auto"
 addopts = "-ra --strict-markers"
-markers = ["postgres: requires OPENDIALER_TEST_POSTGRES_URL", "live: explicit permissioned provider test"]
+markers = [
+  "postgres: PostgreSQL-specific behavior (row locks, concurrent writers); requires OPENDIALER_TEST_POSTGRES_URL",
+  "sqlite_only: SQLite-specific oracle; skipped when OPENDIALER_TEST_POSTGRES_URL is set",
+  "database: database, migration, row-lock or disposable-store behavior on the configured store; part of the push PostgreSQL subset",
+  "live: explicit permissioned provider test",
+]
 [tool.ruff]
 line-length = 110
 target-version = "py312"

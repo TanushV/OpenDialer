@@ -1,5 +1,8 @@
+import pytest
 from app.migrate import migrate_database
 from sqlalchemy import create_engine, inspect
+
+pytestmark = pytest.mark.database
 
 
 def test_additive_optimization_upgrade_preserves_existing_encrypted_records(tmp_path):

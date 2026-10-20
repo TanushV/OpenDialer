@@ -8,6 +8,8 @@ from alembic.config import Config
 from app.migrate import migrate_database
 from sqlalchemy import create_engine, inspect, text
 
+pytestmark = pytest.mark.database
+
 
 def bootstrap(tmp_path):
     root = Path(__file__).resolve().parents[1]

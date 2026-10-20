@@ -642,6 +642,7 @@ def test_adaptive_protocol_accepts_only_current_matching_owned_trial_receipt(wor
 
 
 @pytest.mark.asyncio
+@pytest.mark.database
 async def test_display_telemetry_does_not_race_the_first_rep_feedback_edit(workspace, app, monkeypatch):
     from uuid import uuid4
 
