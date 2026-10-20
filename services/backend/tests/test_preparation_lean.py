@@ -189,6 +189,26 @@ async def test_failing_provider_costs_a_bounded_number_of_paid_calls_per_lead(
 
 
 @pytest.mark.asyncio
+async def test_explicit_research_request_grants_one_new_bounded_budget(workspace, app, clock, monkeypatch):
+    from app.preparation.workflows import MAX_ATTEMPTS
+
+    configure(workspace)
+    service, principal = app.state.service, p(workspace)
+    provider = FailingScripts()
+    monkeypatch.setattr(service, "inference", lambda *args: provider)
+    lead_id = workspace["lead_ids"][0]
+    for _ in range(MAX_ATTEMPTS + 1):
+        await service.prepare(principal, [lead_id])
+        clock.now += timedelta(minutes=31)
+    assert provider.calls[lead_id] == MAX_ATTEMPTS
+    service.queue_research(principal, [lead_id])
+    for _ in range(MAX_ATTEMPTS + 1):
+        await service.prepare(principal, [lead_id])
+        clock.now += timedelta(minutes=31)
+    assert provider.calls[lead_id] == 2 * MAX_ATTEMPTS
+
+
+@pytest.mark.asyncio
 async def test_failed_batch_completes_with_per_lead_failures_instead_of_raising(
     workspace, app, clock, monkeypatch
 ):
@@ -544,3 +564,41 @@ def test_batch_publication_writes_the_outbox_row_once_for_all_results(batch_rout
         after = service.required(s, "command_outbox", intent["id"], p(workspace)).version
     # Claim, bind, one publication update and release; not one rewrite per lead.
     assert after - before == 4, after - before
+
+
+def test_empty_template_slot_does_not_claim_its_fact_ids():
+    from app.preparation.templates import fill
+    from test_preparation_completion import TEMPLATE
+
+    facts = [{"fact_id": "fact-1", "statement": "The company repairs roofs."}]
+    candidate = {
+        "lead_id": "lead-1",
+        "slots": {
+            "relevance": {"text": "", "fact_ids": ["fact-1"]},
+            "proof": {"text": "", "fact_ids": []},
+        },
+    }
+    filled = fill(candidate, TEMPLATE, lead={"id": "lead-1"}, seller="Seller", rep="Rep", facts=facts)
+    assert filled["fact_ids_used"] == [] and filled["claims"] == []
+
+
+@pytest.mark.asyncio
+async def test_empty_slot_with_cited_fact_publishes_the_template_instead_of_failing(
+    workspace, app, monkeypatch
+):
+    from app.providers.inference import InferenceResult
+
+    configure(workspace)
+    service, principal = app.state.service, p(workspace)
+    lead_id = workspace["lead_ids"][0]
+
+    class Provider:
+        async def complete(self, instructions, context, schema):
+            fact = context["facts"][0]["fact_id"]
+            slots = {"relevance": {"text": "", "fact_ids": [fact]}, "proof": {"text": "", "fact_ids": []}}
+            return InferenceResult({"lead_id": lead_id, "slots": slots}, {"cost": 0.001}, "empty-slot")
+
+    monkeypatch.setattr(service, "inference", lambda *args: Provider())
+    assert (await service.prepare(principal, [lead_id]))["prepared"] == [lead_id]
+    packet = service.packet(principal, lead_id)
+    assert packet["preparation"]["status"] == "ready" and packet["script"]["fact_ids_used"] == []
