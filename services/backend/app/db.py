@@ -57,6 +57,9 @@ from app.operational_schema import (
 _DATABASE_CIPHER = contextvars.ContextVar("opendialer_database_cipher", default=None)
 _DATABASE_LOOKUP_KEY = contextvars.ContextVar("opendialer_database_lookup_key", default=None)
 STARTUP_CONTRACT = "completion-0017-raw2-v2"
+# Additive schema heads reuse the business cutover contract above; a store
+# behind this head is upgraded, a store at it skips re-initialization.
+SCHEMA_HEAD = "0018_job_due_probe"
 
 
 def database_cipher(key):
@@ -69,10 +72,7 @@ def startup_contract_current(engine, cipher):
         existing = set(inspect(connection).get_table_names())
         if not {*TABLES, "events", "jobs", "alembic_version"}.issubset(existing):
             return False
-        if (
-            connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
-            != "0017_metric_projections"
-        ):
+        if connection.execute(text("SELECT version_num FROM alembic_version")).scalar() != SCHEMA_HEAD:
             return False
         value = connection.execute(
             text(
@@ -364,6 +364,7 @@ class Job(Base):
         UniqueConstraint("tenant_id", "key"),
         Index("ix_jobs_scope_page", "tenant_id", "seller_id", "id"),
         Index("ix_jobs_owner_page", "tenant_id", "seller_id", "owner_id", "id"),
+        Index("ix_jobs_due", "queue", "status", "available_at", "priority"),
     )
 
 
@@ -379,6 +380,8 @@ class Database:
         self.registry_lru_bytes = 0
         self.sqlite = url.startswith("sqlite")
         self._sqlite_writer = threading.Lock() if self.sqlite else None
+        # In-process runners subscribe to committed job changes (queue names).
+        self.job_listeners = []
         self.engine = create_engine(
             url,
             pool_pre_ping=True,
@@ -564,7 +567,7 @@ class Database:
             lookup_token = _DATABASE_LOOKUP_KEY.set(self.identity_key)
             session.info["write"] = write
             session.info["database"] = self
-            admitted = False
+            admitted = committed = False
             try:
                 if write and self.sqlite:
                     if not self._sqlite_writer.acquire(timeout=30):
@@ -573,6 +576,7 @@ class Database:
                     session.execute(text("BEGIN IMMEDIATE"))
                 yield session
                 session.commit()
+                committed = True
             except Exception:
                 for callback in session.info.pop("before_rollback", []):
                     callback()
@@ -589,9 +593,14 @@ class Database:
                     for callback in session.info.pop("after_transaction", []):
                         callback()
                 finally:
+                    woken = session.info.pop("job_wakeups", None) if committed else None
                     # SQLAlchemy closes connections/identity maps, but keeps custom info.
                     # Query/transaction cycles must not retain decrypted request caches.
                     session.info.clear()
+                    if woken:
+                        # Only committed work, after the writer is released.
+                        for listener in tuple(self.job_listeners):
+                            listener(frozenset(woken))
 
     def authorize_stream(self, session, principal):
         if not self.sqlite:
@@ -665,6 +674,15 @@ def index_pending_rows(session, *_):
     from app.reporting import invalidate_reports
 
     invalidate_reports(session)
+
+
+@event.listens_for(Session, "after_flush")
+def announce_job_changes(session, _):
+    # Still the pre-flush view, including jobs added by before_flush hooks. Enqueued,
+    # requeued or released work wakes that queue's in-process lane after commit.
+    for row in session.new | session.dirty:
+        if isinstance(row, Job):
+            session.info.setdefault("job_wakeups", set()).add(row.queue)
 
 
 def get(s, kind, object_id, tenant_id=None):
