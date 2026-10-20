@@ -488,4 +488,3 @@ def test_changed_source_during_dataset_read_publishes_the_as_of_snapshot(workspa
     monkeypatch.setattr(service, "operational_dataset", original)
     assert service.save_operational_dataset(p)["id"] != dataset["id"]
     assert service.proposal(p, workspace["campaign_id"], capacity=1000)["projection"]
-
