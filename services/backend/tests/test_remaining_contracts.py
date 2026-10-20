@@ -17,8 +17,10 @@ async def test_coach_circuit_breaker_falls_back_without_backlog():
     provider = Failing()
     engine = CoachEngine()
     fallback = {"action": "NO_ACTION"}
-    for _ in range(5):
-        assert await engine.suggest("call", {}, provider, fallback, deadline_ms=10) == fallback
+    results = [await engine.suggest("call", {}, provider, fallback, deadline_ms=10) for _ in range(5)]
+    # Failures stay quiet with an explicit status; only the open circuit uses the fallback.
+    assert [r.get("status") for r in results[:3]] == ["unavailable"] * 3
+    assert all(r["action"] == "NO_ACTION" for r in results) and results[3:] == [fallback] * 2
     assert provider.count == 3
 
 

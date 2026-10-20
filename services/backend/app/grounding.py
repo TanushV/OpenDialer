@@ -54,18 +54,27 @@ class ReviewReceipt:
     fingerprint: str
     request_id: str
     fields: tuple[str, ...]
+    rejected: tuple[str, ...] = ()
 
     def metadata(self):
-        return {
+        result = {
             "status": "model_reviewed",
             "version": 1,
             "fingerprint": self.fingerprint,
             "request_id": self.request_id,
             "reviewed_fields": list(self.fields),
         }
+        if self.rejected:
+            result["rejected_fields"] = list(self.rejected)
+        return result
 
 
-def accept_review(request, data, request_id):
+def accept_review(request, data, request_id, *, partial=False):
+    """Accept a complete review. With `partial`, unsupported fields are listed, not fatal.
+
+    NON_FACTUAL supports a guidance field only when the request marked that field nonassertive
+    (from the generator's audit); a factual field always needs SUPPORTED with evidence.
+    """
     result = ReviewOutput.model_validate(data)
     expected = {field["field"]: field for field in request["fields"]}
     supplied = [verdict.field for verdict in result.verdicts]
@@ -77,6 +86,7 @@ def accept_review(request, data, request_id):
     ):
         raise ValueError("Meaning review is incomplete or belongs to different content")
     sources = {source["id"] for source in request["sources"]}
+    rejected = []
     for verdict in result.verdicts:
         field = expected[verdict.field]
         if not set(verdict.evidence).issubset(sources):
@@ -87,11 +97,16 @@ def accept_review(request, data, request_id):
             and field.get("allows_non_factual") is True
         ):
             continue
-        if verdict.verdict != "SUPPORTED" or not verdict.evidence:
-            raise ValueError("Meaning review did not support every assertion")
-        if field["evidence"] and not set(verdict.evidence).issubset(field["evidence"]):
-            raise ValueError("Meaning review used evidence not cited by the field")
-    return ReviewReceipt(request["fingerprint"], request_id, tuple(supplied))
+        if (
+            verdict.verdict != "SUPPORTED"
+            or not verdict.evidence
+            or field["evidence"]
+            and not set(verdict.evidence).issubset(field["evidence"])
+        ):
+            if not partial:
+                raise ValueError("Meaning review did not support every assertion with cited evidence")
+            rejected.append(verdict.field)
+    return ReviewReceipt(request["fingerprint"], request_id, tuple(supplied), tuple(rejected))
 
 
 def require_review(request, receipt):

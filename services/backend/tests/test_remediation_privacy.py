@@ -401,3 +401,41 @@ def test_noisy_call_cannot_evict_another_calls_entire_raw_context(clock):
         buffer.put("a:" + str(i), {"text": "a" * 100}, scope="a")
     assert buffer.get("b:one") is not None
     assert sum(buffer.get("a:" + str(i)) is not None for i in range(10)) <= 2
+
+
+def test_raw_buffer_purges_by_expiry_without_scanning_or_copying_live_entries(clock):
+    from collections import OrderedDict
+
+    from app.privacy import EphemeralBuffer
+
+    class Watched(OrderedDict):
+        scans = 0
+
+        def items(self):
+            self.scans += 1
+            return super().items()
+
+        def __iter__(self):
+            self.scans += 1
+            return super().__iter__()
+
+    buffer = EphemeralBuffer(clock=clock)
+    assert (buffer.max_bytes, buffer.per_call_bytes) == (4_000_000, 256_000)
+    buffer._items = Watched()
+    began = clock.now
+    for i in range(200):
+        clock.now = began + timedelta(seconds=i)
+        buffer.put(f"t:call:{i}", {"text": "x" * 10, "revision": 1}, scope="t:call")
+    buffer._items.scans = 0
+    for i in range(200):
+        assert buffer.has(f"t:call:{i}")
+        value = buffer.get(f"t:call:{i}")
+        value["text"] = "mutated by a caller"
+    buffer.put("t:other:0", {"text": "y"}, scope="t:other")
+    assert buffer._items.scans == 0, "Lookups and puts must not scan every live entry"
+    assert buffer.get("t:call:0")["text"] == "x" * 10, "Callers cannot mutate the cached value"
+    # Expiry still follows each original receipt, in order, and releases its bytes.
+    clock.now = began + timedelta(seconds=300)
+    assert not buffer.has("t:call:0") and buffer.has("t:call:1")
+    clock.now = began + timedelta(seconds=600)
+    assert buffer.get("t:call:199") is None and buffer.bytes_used == 0 and not buffer._items

@@ -17,12 +17,14 @@ from test_remediation_rep_workflow import p
 
 
 def review_response(request, *, verdict="SUPPORTED"):
+    """`verdict` is one verdict for every field or a {field: verdict} map (default SUPPORTED)."""
+    verdicts = verdict if isinstance(verdict, dict) else {}
     return {
         "fingerprint": request["fingerprint"],
         "verdicts": [
             {
                 "field": item["field"],
-                "verdict": verdict,
+                "verdict": verdicts.get(item["field"], "SUPPORTED") if verdicts else verdict,
                 "evidence": item["evidence"] or [source["id"] for source in request["sources"]],
             }
             for item in request["fields"]
