@@ -21,6 +21,30 @@ from app.scheduling.models import (
 STAGES = ("p_human", "p_right_party_given_human", "p_conversion_given_right_party")
 
 DEFAULTS = OPTIMIZATION_DEFAULTS
+# Under the bounded training child's 16 MiB input, leaving room for its envelope.
+TRAINING_SNAPSHOT_MAX_BYTES = 15 * 1024 * 1024
+
+
+class TrainingRows(list):
+    """As-of training rows; ``truncation`` records any bound that omitted evidence."""
+
+    truncation = None
+
+
+def dataset_checksum(value):
+    """Content address of a learning snapshot; the trainer re-derives it before fitting."""
+    return hashlib.sha256(
+        json.dumps(
+            [
+                value.get("goal"),
+                value.get("window_days"),
+                value.get("rows"),
+                value.get("conversation_revision", 0),
+                value.get("baseline"),
+            ],
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
 
 
 def next_attempts(leads, schedule, estimate, *, limit=100):
@@ -272,6 +296,15 @@ class OptimizationWorkflows(ComparisonWorkflows):
             if identity in seen:
                 continue
             seen.add(identity)
+            # Saved views whose watermark moved; a read-only probe unless one is due.
+            self.schedule_report_refreshes(
+                {
+                    "tenant_id": user["tenant_id"],
+                    "seller_id": user["seller_id"],
+                    "user_id": user["id"],
+                    "role": "admin",
+                }
+            )
             with self.db.transaction(False) as session:
                 model = MODELS["campaigns"]
                 campaigns = list(
@@ -451,8 +484,9 @@ class OptimizationWorkflows(ComparisonWorkflows):
             "retry_observations": statistics["retry_observations"],
         }
 
-    def operational_dataset(self, s, p, config=None, *, limit=20000):
-        """Explicit bounded snapshot. Filter identities before decrypting related content."""
+    def operational_dataset(self, s, p, config=None, *, limit=20000, now=None):
+        """Explicit bounded snapshot, newest attempts first. Filter identities before
+        decrypting related content. A bound that omits evidence is recorded, not raised."""
         from decimal import Decimal
 
         from app.coaching.context import lineage_key
@@ -461,6 +495,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
 
         if not 1 <= limit <= 20000:
             raise ValueError("Training snapshot bound must be between1 and20000 attempts")
+        now = now or self.clock()
         campaign = self.selected_campaign(s, p)
         config = config or self.optimization_config(s, p, campaign.id)
         model, leads = MODELS["call_attempts"], MODELS["leads"]
@@ -477,13 +512,16 @@ class OptimizationWorkflows(ComparisonWorkflows):
                     model.tenant_id == p["tenant_id"],
                     model.seller_id == p["seller_id"],
                     leads.op_campaign_id == campaign.id,
-                    model.op_at <= self.clock(),
+                    model.op_at <= now,
                 )
                 .order_by(model.op_at.desc(), model.id.desc())
-                .limit(limit)
+                .limit(limit + 1)
             )
         )
-        data, encoded_bytes = [], 0
+        result, encoded_bytes = TrainingRows(), 2
+        if len(selected) > limit:
+            selected = selected[:limit]
+            result.truncation = {"reason": "row_bound", "max_attempts": limit, "omitted_rows": None}
         for offset in range(0, len(selected), 500):
             ids = selected[offset : offset + 500]
 
@@ -553,7 +591,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                     if memory.get("schema_version") == 2
                     else notes.get(call["id"], {}).get("observations", [])
                 )
-                call["observations"] = active_observations(observed, self.clock())
+                call["observations"] = active_observations(observed, now)
                 complete = call["id"] in verified and call["id"] not in incomplete
                 call["cost_status"] = "settled" if complete else "uncertain"
                 call["observed_cost_usd"] = float(costs.get(call["id"], 0)) if complete else None
@@ -561,15 +599,27 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 calls,
                 snapshots,
                 events,
-                now=self.clock(),
+                now=now,
                 goal=config["conversion_goal"],
                 window_days=config["window_days"],
             )
-            encoded_bytes += len(json.dumps(page, allow_nan=False).encode())
-            if encoded_bytes > 16 * 1024 * 1024:
-                raise ValueError("Training snapshot exceeds16MiB; narrow the selected cohort")
-            data.extend(page)
-        return sorted(data, key=lambda r: (r["at"], r["call_id"]))
+            # Pages are newest first; within one, keep its newest rows that fit.
+            page = sorted(page, key=lambda r: (r["at"], r["call_id"]), reverse=True)
+            for kept, row in enumerate(page):
+                size = len(json.dumps(row, allow_nan=False).encode()) + 1
+                if encoded_bytes + size > TRAINING_SNAPSHOT_MAX_BYTES:
+                    result.truncation = {
+                        "reason": "byte_bound",
+                        "max_bytes": TRAINING_SNAPSHOT_MAX_BYTES,
+                        "omitted_rows": len(page) - kept,
+                        "unread_attempts": max(0, len(selected) - offset - len(ids)),
+                    }
+                    result.sort(key=lambda r: (r["at"], r["call_id"]))
+                    return result
+                encoded_bytes += size
+                result.append(row)
+        result.sort(key=lambda r: (r["at"], r["call_id"]))
+        return result
 
     def prediction_features(self, s, p, lead, number=None, calls=None, *, fast=False):
         endpoint = get(s, "phone_endpoints", lead.data["endpoint_id"], p["tenant_id"])
@@ -830,10 +880,10 @@ class OptimizationWorkflows(ComparisonWorkflows):
         result["schedule_rows_omitted"] = omitted
         result["omitted_rows"]["schedule"] = omitted
         with self.db.transaction() as s:
-            self.report_revision(s, p, lock=True)
+            # Published with its as-of watermark; a newer source change marks it stale.
             self.jobs.require_owned_in(s, lease)
             user, _, _, _ = self.report_scope(s, p)
-            if user["role"] != "admin" or self.report_revision(s, user, lock=True) != generation:
+            if user["role"] != "admin":
                 return {"status": "superseded"}
             prior = self._by_key(s, p, "report_projections", key)
             previous = prior.data.get("report", {}) if prior else {}
@@ -1031,27 +1081,32 @@ class OptimizationWorkflows(ComparisonWorkflows):
             }
 
     def save_operational_dataset(self, p, *, lease=None):
-        with self.db.transaction(False) as s:
+        """One consistent read, published as an immutable content-addressed dataset.
+
+        The rows are as of the snapshot; a source that changes afterwards belongs to
+        the next dataset. Nothing here fences on, or locks, the seller revision."""
+        as_of = self.clock()
+        with self.db.snapshot() as s:
             user, _, _, _ = self.report_scope(s, p)
             if user["role"] != "admin":
                 from app.service import fail
 
                 fail(403, "Administrator access required for a learning snapshot")
-            generation = self.report_revision(s, p)
+            watermark = self.report_revision(s, p)
             config = self.optimization_config(s, p)
             campaign = self.selected_campaign(s, p)
-            revision = campaign.data.get("conversation_revision", 0)
             campaign_id = campaign.id
-            baseline = {k: config[k] for k in ("estimate_policy", "handling_seconds")}
-            data = self.operational_dataset(s, p, config)
-            key = hashlib.sha256(
-                json.dumps(
-                    [config["conversion_goal"], config["window_days"], data, revision, baseline],
-                    sort_keys=True,
-                ).encode()
-            ).hexdigest()
+            rows = self.operational_dataset(s, p, config, now=as_of)
+            value = {
+                "campaign_id": campaign_id,
+                "goal": config["conversion_goal"],
+                "conversation_revision": campaign.data.get("conversation_revision", 0),
+                "window_days": config["window_days"],
+                "baseline": {k: config[k] for k in ("estimate_policy", "handling_seconds")},
+                "rows": list(rows),
+            }
+        key = dataset_checksum(value)
         with self.db.transaction() as s:
-            self.report_revision(s, p, lock=True)
             self.jobs.require_owned_in(s, lease)
             campaign = self.required(s, "campaigns", campaign_id, p)
             user, _, _, _ = self.report_scope(s, p)
@@ -1059,8 +1114,6 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 from app.service import fail
 
                 fail(403, "Learning owner no longer has administrator access")
-            if self.report_revision(s, p, lock=True) != generation:
-                raise RuntimeError("Learning sources changed during snapshot; retry current work")
             previous = self._by_key(s, p, "learning_datasets", key)
             result = previous or put(
                 s,
@@ -1068,13 +1121,10 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 p["tenant_id"],
                 p["seller_id"],
                 {
-                    "campaign_id": campaign_id,
-                    "goal": config["conversion_goal"],
-                    "conversation_revision": revision,
-                    "window_days": config["window_days"],
-                    "baseline": baseline,
-                    "as_of": self.clock().isoformat(),
-                    "rows": data,
+                    **value,
+                    "as_of": as_of.isoformat(),
+                    "source_revision": watermark,
+                    "truncation": getattr(rows, "truncation", None),
                     "checksum": key,
                     "source": "immutable_operational_feature_snapshots",
                     "max_training_rows": 20000,
@@ -1095,7 +1145,10 @@ class OptimizationWorkflows(ComparisonWorkflows):
             )[-10:]
             if manifest != revised:
                 update(campaign, dataset_summaries=revised)
-            return doc(result)
+            dataset = doc(result)
+        if manifest != revised:
+            self.schedule_report_refreshes(p)  # Saved views list the new snapshot.
+        return dataset
 
     def train_operational(self, p, dataset=None):
         dataset = dataset if dataset is not None else self.save_operational_dataset(p)
@@ -1121,13 +1174,14 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 "dataset_id": dataset["id"],
                 "reason": reason,
             }
+        # The job names the immutable dataset; the trainer loads and verifies its rows.
         job = self.jobs.enqueue(
             "ml",
             {
-                "rows": data,
                 "seller_id": p["seller_id"],
                 "user_id": p["user_id"],
                 "source_dataset_id": dataset["id"],
+                "input_fingerprint": dataset["checksum"],
                 "goal": dataset["goal"],
                 "baseline": dataset["baseline"],
                 "window_days": dataset["window_days"],
@@ -1151,12 +1205,11 @@ class OptimizationWorkflows(ComparisonWorkflows):
             if user["role"] != "admin":
                 fail(403, "Administrator access required for health refresh")
             numbers = self.inventory_evidence(s, p)
-            generation = self.report_revision(s, p)
+        # Health is a derived as-of view: each page publishes what was computed, and
+        # a later source change is repaired by the next scheduled refresh.
         updated = 0
         for offset in range(0, len(numbers), 100):
             with self.db.transaction() as s:
-                if self.report_revision(s, p, lock=True) != generation:
-                    return {"status": "superseded", "updated": updated}
                 self.jobs.require_owned_in(s, lease)
                 user, _, _, _ = self.report_scope(s, p)
                 if user["role"] != "admin":
@@ -1203,8 +1256,8 @@ class OptimizationWorkflows(ComparisonWorkflows):
                                 "reason_codes": number["health"]["reason_codes"],
                             },
                         )
-                s.flush()
-                generation = self.report_revision(s, p)
+        if updated:
+            self.schedule_report_refreshes(p)  # A delivery hold changes saved inventory views.
         return {"status": "ready", "updated": updated}
 
     def refresh_learning(self, p, *, lease=None):
@@ -1231,7 +1284,6 @@ class OptimizationWorkflows(ComparisonWorkflows):
             "window_days": dataset["window_days"],
         }
         with self.db.transaction() as s:
-            self.report_revision(s, p, lock=True)
             self.jobs.require_owned_in(s, lease)
             owner, _, _, _ = self.report_scope(s, p)
             if owner["role"] != "admin":
@@ -1261,8 +1313,9 @@ class OptimizationWorkflows(ComparisonWorkflows):
     def refresh_optimization(self, p, *, lease=None):
         from app.optimization.projections import read_estimate_statistics
 
-        if not self.prepare_metric_read(p):
-            return {"status": "pending"}
+        # Bounded catch-up, then publish from the as-of totals; an incomplete page
+        # that made progress continues at once, otherwise the dirty chain repairs it.
+        complete, processed, _ = self._catch_up(p)
         with self.db.transaction(False) as s:
             user, _, _, _ = self.report_scope(s, p)
             if user["role"] != "admin":
@@ -1299,8 +1352,6 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 from app.service import fail
 
                 fail(403, "Optimization owner no longer has administrator access")
-            if self.report_revision(s, p, lock=True) != generation:
-                return {"status": "superseded"}
             self.jobs.require_owned_in(s, lease)
             campaign = self.required(s, "campaigns", campaign_id, p)
             update(campaign, selection_profile=profile)
@@ -1337,7 +1388,8 @@ class OptimizationWorkflows(ComparisonWorkflows):
             emit(s, p["tenant_id"], "optimization.updated", campaign, self.clock())
         self.rebuild_optimization_report(p, lease=lease)
         return {
-            "status": "ready",
+            "status": "pending" if processed and not complete else "ready",
+            "processed": processed,
             "rows": profile["samples"],
             "jobs": [{"id": j["id"], "kind": j["payload"]["kind"]} for j in jobs],
         }

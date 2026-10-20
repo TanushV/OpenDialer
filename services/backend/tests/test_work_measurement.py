@@ -5,6 +5,7 @@ from datetime import timedelta
 import pytest
 from app.db import doc, put
 from conftest import completed_metrics, completed_report, ready, start
+from test_projection_replay import attempted
 from test_remediation_rep_workflow import p
 
 
@@ -205,6 +206,8 @@ def test_dashboard_and_optimization_share_goal_and_work_denominators(workspace, 
     heartbeat(workspace)
     lead_id = workspace["client"].get("/v1/workspace", headers=workspace["headers"]).json()["leads"][0]["id"]
     with app.state.service.db.transaction() as s:
+        # A conversion counts within the campaign outcome window of an attempt.
+        attempted(s, workspace, lead_id, clock.now - timedelta(hours=1))
         put(
             s,
             "conversion_events",
@@ -271,9 +274,22 @@ def test_rep_human_classification_does_not_invent_carrier_answer_timing(workspac
     assert saved.get("answered_at") is None and saved.get("connected_seconds") is None
 
 
-def test_connect_warning_requires_supported_comparison_and_keeps_unknown_visible(clock):
-    from app.measurement import connect_health
+def connect_health(calls, *, now):
+    """The production path: per-attempt contributions summed, then one read-time summary."""
+    import collections
 
+    from app.measurement import connect_health_counts
+    from app.optimization.projections import call_values
+
+    totals = collections.Counter()
+    for call in calls:
+        totals.update(
+            call_values({**call, "submitted_at": call["started_at"]}, config={"window_days": 14}, now=now)
+        )
+    return connect_health_counts(totals)
+
+
+def test_connect_warning_requires_supported_comparison_and_keeps_unknown_visible(clock):
     baseline = [
         {
             "started_at": (clock.now - timedelta(days=2)).isoformat(),

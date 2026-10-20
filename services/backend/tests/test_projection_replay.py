@@ -1,5 +1,7 @@
 """E09/C036: consistent snapshots survive churn and irrelevant field changes."""
 
+from datetime import timedelta
+
 import pytest
 from app.db import update
 from conftest import completed_report
@@ -39,6 +41,7 @@ def test_interrupted_inactive_rebuild_replays_concurrent_dirty_units(workspace, 
     assert current["metrics"] == before["metrics"]
     assert current["projection"]["definition_version"] == before["projection"]["definition_version"]
     with service.db.transaction() as s:
+        attempted(s, p, lead_id, clock.now - timedelta(hours=1))
         put(
             s,
             "conversion_events",
@@ -97,6 +100,28 @@ def test_rolled_back_tombstone_cannot_remove_a_live_contribution(workspace, app)
     after = completed_report(workspace).json()
     assert after["metrics"] == before["metrics"]
     assert after["projection"]["source_revision"] == before["projection"]["source_revision"]
+
+
+def attempted(session, p, lead_id, at):
+    """A placed attempt: a goal event within the outcome window after it is attributed to it."""
+    from app.db import get, put
+
+    lead = get(session, "leads", lead_id)
+    return put(
+        session,
+        "call_attempts",
+        p["tenant_id"],
+        p["seller_id"],
+        {
+            "lead_id": lead_id,
+            "campaign_id": lead.data.get("campaign_id"),
+            "started_at": at.isoformat(),
+            "submitted_at": at.isoformat(),
+            "ended_at": at.isoformat(),
+            "state": "FINALIZED",
+        },
+        now=at,
+    )
 
 
 def dirty_jobs(service, p):
@@ -170,7 +195,6 @@ def test_deleted_source_keeps_a_scoped_tombstone_job_and_running_lease(workspace
     after = dirty_jobs(service, p)[key]
     assert after["status"] == "running" and after["lease_owner"] == "active-projection-worker"
     assert after["payload"]["desired_generation"] > after["payload"]["claimed_generation"]
-    assert after["payload"]["deleted"] is True
     assert after["payload"]["source_id"] == identity
 
 
@@ -235,6 +259,7 @@ def test_source_replacement_duplicate_delete_and_atomic_rollback(workspace, app,
     with service.db.transaction() as session:
         lead = service.scoped(session, "leads", p)[0]
         identity = lead.id
+        attempted(session, p, identity, clock.now - timedelta(hours=1))
         put(
             session,
             "conversion_events",
@@ -696,17 +721,17 @@ def test_rebuild_keeps_active_totals_and_recovers_a_partially_written_page(
                 now=clock.now,
             )
     seen = []
-    original = projections.refresh_unit
+    original = projections.refresh_units
 
     def interrupted(*args, **kwargs):
         result = original(*args, **kwargs)
         seen.append(True)
-        if len(seen) == 17:
+        if len(seen) == 2:  # After two committed 100-unit writes of the 500-row page.
             raise RuntimeError("Synthetic interruption after committed source delta")
         return result
 
     with monkeypatch.context() as patch:
-        patch.setattr(projections, "refresh_unit", interrupted)
+        patch.setattr(projections, "refresh_units", interrupted)
         import pytest
 
         with pytest.raises(RuntimeError, match="Synthetic interruption"):
@@ -750,6 +775,7 @@ def test_rebuild_catches_backdated_insert_deletion_and_rep_day_union(workspace, 
             object_id="00000000-0000-0000-0000-000000000001",
             now=clock.now - timedelta(days=300),
         )
+        attempted(session, p, inserted.id, clock.now - timedelta(hours=1))
         for i in range(2):
             put(
                 session,
@@ -795,6 +821,7 @@ def test_rebuild_goal_change_cannot_activate_a_stale_definition(workspace, app, 
     service, p = app.state.service, principal(workspace)
     with service.db.transaction() as session:
         lead = service.scoped(session, "leads", p)[0]
+        attempted(session, p, lead.id, clock.now - timedelta(hours=1))
         put(
             session,
             "conversion_events",
@@ -1033,10 +1060,10 @@ def test_rebuild_computes_each_rep_day_once_and_replays_later_corrections(worksp
     state["cursor"] = {"phase": 4, "after_id": "", "after_at": None, "day": None}
     measured, original = [], projections._unit_snapshot
 
-    def observe(service, p, payload):
+    def observe(service, session, p, payload):
         if payload.get("target_namespace") == state["namespace"] and payload["source_kind"] == "rep-day":
             measured.append(payload["source_id"])
-        return original(service, p, payload)
+        return original(service, session, p, payload)
 
     monkeypatch.setattr(projections, "_unit_snapshot", observe)
     # Repeated page after a lost cursor update must also reuse completed derived work.

@@ -602,6 +602,22 @@ class Database:
                         for listener in tuple(self.job_listeners):
                             listener(frozenset(woken))
 
+    @contextmanager
+    def snapshot(self):
+        """One consistent read across many statements, never a writer.
+
+        SQLite holds a WAL read snapshot from its first read until commit, and
+        PostgreSQL uses REPEATABLE READ, READ ONLY. Writers are never blocked.
+        """
+        with self.transaction(False) as session:
+            if self.sqlite:
+                session.execute(text("BEGIN DEFERRED"))
+            else:
+                session.connection(
+                    execution_options={"isolation_level": "REPEATABLE READ", "postgresql_readonly": True}
+                )
+            yield session
+
     def authorize_stream(self, session, principal):
         if not self.sqlite:
             scope = principal["tenant_id"] + ":" + principal["seller_id"]
@@ -671,9 +687,24 @@ def index_pending_rows(session, *_):
     for row in session.new | session.dirty:
         if isinstance(row, Document):
             sync_columns(row, _DATABASE_LOOKUP_KEY.get())
-    from app.reporting import invalidate_reports
+    from app.reporting import collect_report_changes
 
-    invalidate_reports(session)
+    collect_report_changes(session)
+
+
+@event.listens_for(Session, "before_commit")
+def report_revision_last(session):
+    # Dirty projection jobs, then the seller report revision: always a writer's last locks.
+    from app.reporting import publish_report_changes
+
+    publish_report_changes(session)
+
+
+@event.listens_for(Session, "after_soft_rollback")
+def forget_rolled_back_reports(session, previous_transaction):
+    from app.reporting import discard_report_changes
+
+    discard_report_changes(session, previous_transaction)
 
 
 @event.listens_for(Session, "after_flush")

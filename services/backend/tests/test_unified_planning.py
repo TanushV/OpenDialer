@@ -609,7 +609,8 @@ def test_background_forecast_releases_read_transaction_and_fences_publication(
     monkeypatch.setattr(service.db, "transaction", observed)
     monkeypatch.setattr(workflows, "capacity_forecast", outside)
     result = build(p, workspace["campaign_id"])
-    assert result["status"] == ("superseded" if invalidate else "ready")
+    # A change during calculation leaves an as-of plan marked stale, never one shown current.
+    assert result["status"] == "ready"
     response = (
         workspace["client"]
         .post(
@@ -619,7 +620,7 @@ def test_background_forecast_releases_read_transaction_and_fences_publication(
         )
         .json()
     )
-    assert response["projection"]["status"] == ("pending" if invalidate else "ready")
+    assert response["projection"]["status"] == ("stale" if invalidate else "ready")
     if not invalidate:
         assert response["input_fingerprint"] and response["source_versions"]
 
@@ -667,7 +668,9 @@ def test_schedule_publication_rechecks_changed_leads(workspace, app, monkeypatch
         return result
 
     monkeypatch.setattr(workflows, "capacity_forecast", changed)
-    assert service.build_forecast(p, workspace["campaign_id"])["status"] == "superseded"
+    assert service.build_forecast(p, workspace["campaign_id"])["status"] == "ready"
+    with service.db.transaction(False) as s:
+        assert service.saved_forecast(s, p)["projection"]["status"] == "stale"
     monkeypatch.setattr(workflows, "capacity_forecast", calculate)
     assert service.build_forecast(p, workspace["campaign_id"])["status"] == "ready"
     with service.db.transaction(False) as s:

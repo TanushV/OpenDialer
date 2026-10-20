@@ -465,7 +465,7 @@ def test_published_future_slots_keep_conditional_estimates(workspace, app, clock
     ), "The saved summary silently lost its conditional estimates"
 
 
-def test_changed_source_during_dataset_read_cannot_be_published(workspace, app, monkeypatch):
+def test_changed_source_during_dataset_read_publishes_the_as_of_snapshot(workspace, app, monkeypatch):
     service, p = app.state.service, principal(workspace)
     call = start(workspace)
     finish(workspace, call)
@@ -478,7 +478,14 @@ def test_changed_source_during_dataset_read_cannot_be_published(workspace, app, 
         return data
 
     monkeypatch.setattr(service, "operational_dataset", changed)
-    with pytest.raises(RuntimeError, match="Learning sources changed"):
-        service.save_operational_dataset(p)
+    # The change belongs to the next dataset; this one is immutable and as of its read.
+    dataset = service.save_operational_dataset(p)
+    row = next(r for r in dataset["rows"] if r["call_id"] == call["id"])
+    assert row["outcome"] == "right_party"
     with service.db.transaction(False) as s:
-        assert not service.scoped(s, "learning_datasets", p)
+        assert dataset["source_revision"] < service.report_revision(s, p)
+        assert [d.id for d in service.scoped(s, "learning_datasets", p)] == [dataset["id"]]
+    monkeypatch.setattr(service, "operational_dataset", original)
+    assert service.save_operational_dataset(p)["id"] != dataset["id"]
+    assert service.proposal(p, workspace["campaign_id"], capacity=1000)["projection"]
+

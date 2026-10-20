@@ -449,16 +449,25 @@ def test_foreign_job_history_cannot_starve_scoped_pages(workspace, app, clock, m
 
 
 @pytest.mark.asyncio
-async def test_time_only_metric_expiry_can_refresh_after_one_minute(workspace, app, clock):
-    snapshot(workspace)
+async def test_time_only_metric_expiry_refreshes_at_its_contribution_boundary(workspace, app, clock):
+    from conftest import ready
+
+    ready(workspace)
+    beat = workspace["client"].post(
+        "/v1/rep/heartbeat", headers=workspace["headers"], json={"activity": "ready"}
+    )
+    assert beat.status_code == 200
     await app.state.service.run_jobs(queues=["ml"])
     previous = snapshot(workspace)["metrics"]
+    assert previous["projection"]["status"] == "ready"
+    # An open interval's work time is due again within a minute; nothing else changed.
     clock.now += timedelta(seconds=61)
     assert snapshot(workspace)["metrics"]["projection"]["status"] == "stale"
     await app.state.service.run_jobs(queues=["ml"])
     refreshed = snapshot(workspace)["metrics"]
     assert refreshed["projection"]["status"] == "ready"
     assert refreshed["as_of"] != previous["as_of"]
+    assert refreshed["rep_work_seconds"] > previous["rep_work_seconds"]
 
 
 def test_job_scope_backfill_preserves_identity_content_and_status(workspace, app):
@@ -499,9 +508,8 @@ def test_job_scope_backfill_preserves_identity_content_and_status(workspace, app
 async def test_concurrent_source_changes_do_not_exhaust_or_delay_metric_refresh(
     workspace, app, clock, monkeypatch
 ):
-    from app.jobs.queue import aware
-
     service, p = app.state.service, principal(workspace)
+    await service.run_jobs(queues=["ml"])
     original = service.metrics
     changes = []
 
@@ -513,23 +521,23 @@ async def test_concurrent_source_changes_do_not_exhaust_or_delay_metric_refresh(
             changes.append(lead.id)
         return result
 
-    job_id = snapshot(workspace)["metrics"]["projection"]["job_id"]
+    with service.db.transaction() as s:
+        update(service.scoped(s, "leads", p)[0], status="needs_review")
     with monkeypatch.context() as m:
         m.setattr(service, "metrics", changing)
         for _ in range(4):
             await service.run_jobs(queues=["ml"])
     with service.db.transaction(False) as s:
-        job = s.get(Job, job_id)
+        jobs = [j for j in s.scalars(select(Job)) if j.payload.get("kind") == "home_refresh"]
         assert changes, "Exercise a real report-source change during publication"
-        assert job.status == "queued"
-        assert job.attempts == 0
-        assert job.error is None
-        # W1: a refresh superseded on every run backs off instead of spinning; the
-        # delay is bounded by the 60 s maximum, never an exhausted or failed job.
-        delay = (aware(job.available_at) - clock()).total_seconds()
-    assert 0 <= delay <= 60
-    clock.now += timedelta(seconds=delay)
-    assert completed_home_metrics(workspace)["projection"]["status"] == "ready"
+        assert len(jobs) == 1
+        job = jobs[0]
+        # Every run published; each change asked for one follow-up. It is never an
+        # exhausted or failed job; a later due time is its next contribution boundary.
+        assert job.attempts == 0 and job.error is None
+        assert job.status in {"queued", "completed"}
+    await service.run_jobs(queues=["ml"])
+    assert snapshot(workspace)["metrics"]["projection"]["status"] == "ready"
 
 
 def test_unknown_task_status_is_not_hidden_as_if_closed(workspace, app, clock):
