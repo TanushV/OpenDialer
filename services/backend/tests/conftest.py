@@ -105,6 +105,7 @@ class JobClaims:
         self.in_flight = 0
         for jobs in queues:
             monkeypatch.setattr(jobs, "claim", self._tracked(jobs.claim))
+            monkeypatch.setattr(jobs, "claim_many", self._tracked(jobs.claim_many))
 
     def _tracked(self, claim):
         def tracked(*args, **kwargs):

@@ -207,15 +207,16 @@ async def test_persistently_changing_seller_does_not_respin_refresh_jobs(workspa
         return result
 
     monkeypatch.setattr(service, "metrics", changing)
-    claim, claims = service.jobs.claim, collections.Counter()
+    claim, claims = service.jobs.claim_many, collections.Counter()
 
     def counted(*args, **kwargs):
-        job = claim(*args, **kwargs)
-        if job and job["payload"].get("kind") in {"home_refresh", "report_refresh", "optimization_refresh"}:
-            claims[job["key"]] += 1
-        return job
+        jobs = claim(*args, **kwargs)
+        for job in jobs:
+            if job["payload"].get("kind") in {"home_refresh", "report_refresh", "optimization_refresh"}:
+                claims[job["key"]] += 1
+        return jobs
 
-    monkeypatch.setattr(service.jobs, "claim", counted)
+    monkeypatch.setattr(service.jobs, "claim_many", counted)
     with service.db.transaction() as s:
         update(service.scoped(s, "leads", p)[0], segment="start")
     for _ in range(3):

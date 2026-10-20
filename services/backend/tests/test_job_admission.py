@@ -1,6 +1,7 @@
 """E09/C037: leased paid work must start, not sit behind a semaphore."""
 
 import asyncio
+import collections
 import threading
 
 import pytest
@@ -405,3 +406,33 @@ async def test_training_and_projection_backlogs_make_independent_progress(worksp
         release.set()
         await asyncio.wait_for(asyncio.gather(*tasks), 20)
     assert sorted(seen) == ["0", "1"]
+
+
+@pytest.mark.asyncio
+async def test_a_claim_wave_takes_the_writer_once_for_all_its_due_jobs(workspace, app, clock, monkeypatch):
+    """Concurrent single-job claimers each took the one SQLite writer, most of them for nothing."""
+    from test_idle_authority import defer_existing_jobs, write_transactions
+
+    service, p = app.state.service, principal(workspace)
+    defer_existing_jobs(service, clock)
+    seen = []
+
+    async def coach(p, call_id):
+        seen.append(call_id)
+
+    monkeypatch.setattr(service, "coach_turn", coach)
+    jobs = [
+        service.jobs.enqueue(
+            "live_coach",
+            {"call_id": f"wave-call-{i}", "seller_id": p["seller_id"], "user_id": p["user_id"]},
+            f"wave:{i}",
+            tenant_id=p["tenant_id"],
+        )
+        for i in range(3)
+    ]
+    with write_transactions(service, monkeypatch) as (writes, _):
+        await service.run_jobs(p["tenant_id"], queues=["live_coach"])
+    assert sorted(seen) == [f"wave-call-{i}" for i in range(3)]
+    claims = [name for name in writes if "claim" in name]
+    assert len(claims) == 1, collections.Counter(writes)
+    assert all(service.jobs.get(job["id"])["attempts"] == 1 for job in jobs)
