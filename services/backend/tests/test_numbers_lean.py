@@ -181,8 +181,9 @@ def test_routine_preflight_uses_quick_check_and_deep_runs_the_full_integrity_che
     assert routine.status_code == deep.status_code == 200
     assert routine.json()["integrity_ok"] and routine.json()["integrity_check"] == "quick"
     assert deep.json()["integrity_ok"] and deep.json()["integrity_check"] == "full"
-    assert any("quick_check" in v for v in quick) and not any("integrity_check" in v for v in quick)
-    assert any("integrity_check" in v for v in statements)
+    if app.state.db.sqlite:  # PostgreSQL has no page-level integrity pragma; the flags still apply.
+        assert any("quick_check" in v for v in quick) and not any("integrity_check" in v for v in quick)
+        assert any("integrity_check" in v for v in statements)
 
 
 def test_preparation_capability_is_derived_from_configured_inference(workspace, app, monkeypatch):
