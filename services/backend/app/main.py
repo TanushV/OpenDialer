@@ -284,7 +284,7 @@ def field_bounds(model):
 
 @functools.cache
 def setting_bounds():
-    from app.compliance.operating import DncRefreshPolicy, OperatingPolicy
+    from app.compliance.operating import DncRefreshPolicy, OperatingPolicy, ScreeningRequest
     from app.optimization.api import (
         Comparison,
         Conversion,
@@ -313,6 +313,8 @@ def setting_bounds():
             "model_trial": ModelTrial,
             "comparison": Comparison,
             "number_review": NumberReview,
+            "setup": Setup,
+            "screening": ScreeningRequest,
         }.items()
     }
 
@@ -843,6 +845,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
             budget_values = Budget.model_validate(
                 {key: budget.data[key] for key in Budget.model_fields}
             ).model_dump()
+            # Current campaign goal and weekly schedule for the setup checklist.
+            optimization = service.optimization_config(s, p)
         return {
             **{
                 k: v
@@ -852,6 +856,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
             "configured": {k: bool(config.get(k)) for k in SECRET_FIELDS},
             "version": config.get("version", 0),
             "budget": budget_values,
+            "optimization": optimization,
             "effective": {
                 **{
                     key: config.get(key, getattr(PROVIDER_DEFAULTS, key))
