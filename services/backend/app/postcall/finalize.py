@@ -12,7 +12,6 @@ KIND = "conversation_finalize"
 # One finalizer turn reports at most 32 interpreted segments (StateDelta contract), so a
 # turn receives at most one page of the oldest, soonest-to-expire unprocessed chunks.
 PAGE = 32
-CLOSED = {"cancelled", "completed", "retracted"}
 
 
 class UnknownJobKind(ValueError):

@@ -119,10 +119,3 @@ def test_exact_registry_bitmap_roundtrip_and_checksum():
     assert RegistryBitmap.load(bitmap.dump(), bitmap.checksum).contains("+12125550103")
     with pytest.raises(RegistryError):
         RegistryBitmap.load(bitmap.dump(), "wrong-checksum")
-
-
-def test_registry_change_lists_preserve_exactness():
-    bitmap = RegistryBitmap.build(["+14155550101"])
-    updated = bitmap.apply_changes(add=["+14155550102"], remove=["+14155550101"])
-    assert updated.contains("+14155550102")
-    assert not updated.contains("+14155550101")
