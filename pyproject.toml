@@ -15,7 +15,6 @@ dependencies = [
   "cryptography>=50,<51",
   "PyJWT>=2.12,<3",
   "pwdlib[argon2]>=0.3,<1",
-  "keyring>=25,<26",
   "threadpoolctl>=3.6,<4",
   "numpy>=2.2,<3",
   "scikit-learn>=1.7,<2",

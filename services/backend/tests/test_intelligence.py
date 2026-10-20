@@ -23,11 +23,12 @@ def test_score_denominator_excludes_na_and_missing_evidence():
             {"score": 2, "max_score": 2, "weight": 1, "status": "SCORED", "evidence": ["s1"]},
             {"score": 0, "max_score": 2, "weight": 1, "status": "N/A", "evidence": []},
             {"score": 0, "max_score": 2, "weight": 1, "status": "INSUFFICIENT_EVIDENCE", "evidence": []},
-        ]
+        ],
+        [],
     )
     assert result["score"] == 100
     assert result["coverage"] == pytest.approx(1 / 3)
-    assert score_summary([])["score"] is None
+    assert score_summary([], [])["score"] is None
 
 
 def test_short_wrong_party_is_not_scored_as_sales_failure():

@@ -17,7 +17,7 @@ class SimulatedCarrier:
         self.dials = []
         self.playbacks = []
         self.hangups = []
-        self.purchases = []
+        self.purchases = []  # Stays empty: no adapter orders numbers (existing numbers only).
         self.calls = {}
         self.numbers = {}
         self.timeout_after_accept = False
@@ -73,10 +73,3 @@ class SimulatedCarrier:
                 "cost_information": {"currency": "USD", "upfront_cost": "0.00", "monthly_cost": "1.00"},
             }
         ]
-
-    async def purchase(self, numbers, command_id):
-        self.purchases.append({"numbers": numbers, "command_id": command_id})
-        return {"id": command_id, "phone_numbers": numbers}
-
-    async def lookup(self, phone):
-        return {"phone_number": phone, "carrier": {"name": "SIMULATED"}}

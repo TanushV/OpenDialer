@@ -165,35 +165,23 @@ async def test_failed_worker_start_closes_provider_pools_and_raw_memory(app, mon
 
 
 @pytest.mark.asyncio
-async def test_plan_refresh_and_inference_reuse_background_pool(workspace, app, clock, monkeypatch):
-    from urllib.parse import parse_qs
-
+async def test_inference_reuses_background_pool(workspace, app, monkeypatch):
     service = app.state.service
     user = workspace["user_id"]
     tenant = workspace["tenant_id"]
-    service.vault.write(tenant, {"inference_mode": "chatgpt_plan"})
-    service.vault.write(
-        "plan-" + user,
-        {
-            "access_token": "old-test",
-            "refresh_token": "test-refresh",
-            "client_id": "test-client",
-            "subject": "test-subject",
-            "scopes": ["chatgpt.tokens.use.direct"],
-            "expires_at": clock().timestamp() - 1,
-        },
-    )
+    service.vault.write(tenant, {"inference_mode": "api", "openai_api_key": "test-key"})
     seen = []
 
     def respond(request):
         seen.append(request)
-        if request.url.path.endswith("/oauth/token"):
-            assert parse_qs(request.content.decode())["refresh_token"] == ["test-refresh"]
-            return httpx.Response(200, json={"access_token": "renewed-test", "expires_in": 3600})
-        assert request.headers["Authorization"] == "Bearer renewed-test"
+        assert request.headers["Authorization"] == "Bearer test-key"
         return httpx.Response(
             200,
-            text='data: {"type":"response.output_text.delta","delta":"{}"}\n\ndata: {"type":"response.completed","response":{"id":"req-test"}}\n\n',
+            json={
+                "id": "req-test",
+                "status": "completed",
+                "output": [{"type": "message", "content": [{"type": "output_text", "text": "{}"}]}],
+            },
         )
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
@@ -202,11 +190,10 @@ async def test_plan_refresh_and_inference_reuse_background_pool(workspace, app, 
         assert getattr(provider, "http", None) is client
 
         def forbidden(*args, **kwargs):
-            raise AssertionError("Plan transport bypassed owned pool")
+            raise AssertionError("Inference transport bypassed owned pool")
 
         monkeypatch.setattr(httpx, "AsyncClient", forbidden)
         result = await provider.complete("test", {}, {"type": "object"})
         assert result.data == {} and result.request_id == "req-test"
         assert not client.is_closed
-    assert len(seen) == 2
-    assert service.vault.read("plan-" + user)["access_token"] == "renewed-test"
+    assert len(seen) == 1

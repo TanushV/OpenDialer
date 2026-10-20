@@ -169,14 +169,6 @@ class TelnyxCarrier:
         response = await self.request("GET", "/available_phone_numbers?" + query)
         return response.get("data", [])
 
-    async def purchase(self, numbers, command_id):
-        # Number order API has no invented idempotency field; durable outbox prevents unknown-outcome resubmission.
-        return await self.request(
-            "POST",
-            "/number_orders",
-            {"phone_numbers": [{"phone_number": n} for n in numbers], "connection_id": self.connection_id},
-        )
-
     async def configure_number(self, number_id, connection_id):
         from urllib.parse import quote
 

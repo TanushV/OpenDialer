@@ -986,17 +986,3 @@ class SpeechPrivacy:
                         else None,
                     }
                     seller.data = {**seller.data, "completion_contracts": contracts}
-
-
-def retained_analysis(value, segments):
-    if isinstance(value, dict):
-        return {
-            k: retained_analysis(v, segments)
-            for k, v in value.items()
-            if k not in {"quote", "verbatim_time_expression"}
-        }
-    if isinstance(value, list):
-        return [retained_analysis(v, segments) for v in value]
-    if isinstance(value, str) and not paraphrased(value, segments):
-        return "Source wording omitted; review the derived observation."
-    return value

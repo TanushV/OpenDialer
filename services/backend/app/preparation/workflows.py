@@ -252,7 +252,7 @@ class Preparation:
             update(lead, **changes)
 
     def publish_script_in(self, s, p, lead, script, *, key, source_key, facts, failure=None):
-        """The one publication step shared by immediate and deferred preparation.
+        """The one publication step for prepared scripts.
 
         Callers validate first. An existing version for the same key is reused, the
         lead points at it, and a failure keeps the approved script with its attempt.
@@ -451,20 +451,13 @@ class Preparation:
             Job.queue.in_(["research", "scripts"]),
             Job.status.in_(["queued", "running"]),
         )
-        pending = {
+        return {
             lead_id
-            for job in s.scalars(select(Job).where(*scope, ~Job.key.like("batch-review:%")))
+            for job in s.scalars(select(Job).where(*scope))
             if job.payload.get("seller_id") == p["seller_id"]
             and (job.queue == "research" or job.payload.get("kind") == "packet_refresh")
             for lead_id in job.payload.get("lead_ids", [])
         }
-        # Deferred-result reviews carry the lead in their key; never decrypt their output.
-        pending.update(
-            key.split(":")[2]
-            for key in s.scalars(select(Job.key).where(*scope, Job.key.like("batch-review:%")))
-            if len(key.split(":")) == 5
-        )
-        return pending
 
     def preparation_status_in(self, s, p, *, count=True):
         optimization = self.optimization_config(s, p)
