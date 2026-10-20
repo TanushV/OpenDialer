@@ -378,6 +378,7 @@ class Database:
         self.registry_lru_lock = threading.Lock()
         self.registry_lru_bytes = 0
         self.sqlite = url.startswith("sqlite")
+        self._sqlite_writer = threading.Lock() if self.sqlite else None
         self.engine = create_engine(
             url,
             pool_pre_ping=True,
@@ -555,15 +556,20 @@ class Database:
                 raise ValueError("An owned writable transaction is required")
             yield session
             return
-        # SQLite serializes writers, while WAL readers never wait on a Python mutex.
+        # Admit one writer per SQLite authority before its busy-handler backoff.
+        # WAL readers and other stores never wait on this writer-only admission.
         # PostgreSQL row/unique constraints and explicit seller authorization fences protect conflicts.
         with self.sessions() as session:
             context_token = _DATABASE_CIPHER.set(self.cipher)
             lookup_token = _DATABASE_LOOKUP_KEY.set(self.identity_key)
             session.info["write"] = write
             session.info["database"] = self
+            admitted = False
             try:
                 if write and self.sqlite:
+                    if not self._sqlite_writer.acquire(timeout=30):
+                        raise TimeoutError("SQLite writer admission timed out")
+                    admitted = True
                     session.execute(text("BEGIN IMMEDIATE"))
                 yield session
                 session.commit()
@@ -575,6 +581,8 @@ class Database:
             finally:
                 _DATABASE_CIPHER.reset(context_token)
                 _DATABASE_LOOKUP_KEY.reset(lookup_token)
+                if admitted:
+                    self._sqlite_writer.release()
                 # A journal failure inside a caller-owned transaction must persist
                 # its hold only after that transaction releases its write lock.
                 for callback in session.info.pop("after_transaction", []):

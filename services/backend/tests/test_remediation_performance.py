@@ -10,6 +10,96 @@ from conftest import completed_report, ready
 from sqlalchemy import event
 
 
+def test_sqlite_writers_wait_before_begin_without_blocking_reads_or_another_store(app, tmp_path):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.db import Database
+    from sqlalchemy import text
+
+    db = app.state.db
+    if not db.sqlite:
+        pytest.skip("SQLite serial writer admission; PostgreSQL keeps its concurrent row locks")
+    other = Database(f"sqlite:///{tmp_path}/independent.db", "synthetic-independent-" + "a" * 40)
+    held, release, attempted, started = (threading.Event() for _ in range(4))
+
+    def begin(conn, cursor, statement, parameters, context, many):
+        if statement == "BEGIN IMMEDIATE" and held.is_set():
+            attempted.set()
+
+    def holder():
+        with db.transaction():
+            held.set()
+            assert release.wait(5)
+
+    def contender():
+        started.set()
+        with db.transaction() as session:
+            return session.scalar(text("SELECT 1"))
+
+    def independent(database, write):
+        with database.transaction(write) as session:
+            return session.scalar(text("SELECT 1"))
+
+    event.listen(db.engine, "before_cursor_execute", begin)
+    try:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            first = pool.submit(holder)
+            assert held.wait(2)
+            second = pool.submit(contender)
+            try:
+                assert started.wait(2)
+                assert pool.submit(independent, db, False).result(timeout=2) == 1
+                assert pool.submit(independent, other, True).result(timeout=2) == 1
+                assert not attempted.wait(0.1), "Competing local writers entered SQLite's coarse busy backoff"
+            finally:
+                release.set()
+                first.result(timeout=2)
+                assert second.result(timeout=2) == 1
+    finally:
+        event.remove(db.engine, "before_cursor_execute", begin)
+        other.engine.dispose()
+
+
+@pytest.mark.parametrize("failure", ["body", "commit"])
+def test_sqlite_writer_admission_releases_after_failure_and_before_callbacks(app, failure):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from sqlalchemy import text
+    from sqlalchemy.orm import Session
+
+    db = app.state.db
+    if not db.sqlite:
+        pytest.skip("SQLite-specific admission release")
+    callbacks = []
+
+    def callback():
+        with db.transaction() as session:
+            callbacks.append(session.scalar(text("SELECT 1")))
+
+    def fail_commit(session):
+        if session.info.pop("fail_commit", False):
+            raise ValueError("commit interrupted")
+
+    def recover():
+        with pytest.raises(ValueError, match="interrupted"):
+            with db.transaction() as session:
+                session.info["after_transaction"] = [callback]
+                if failure == "body":
+                    raise ValueError("body interrupted")
+                session.info["fail_commit"] = True
+        with db.transaction() as session:
+            return session.scalar(text("SELECT 1"))
+
+    event.listen(Session, "before_commit", fail_commit)
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            assert pool.submit(recover).result(timeout=3) == 1
+    finally:
+        event.remove(Session, "before_commit", fail_commit)
+    assert callbacks == [1]
+
+
 @pytest.mark.parametrize("regions,demand,capacity", [(2, 3, 10), (3, 4, 10), (4, 1, 8), (3, 10, 10)])
 def test_minimum_additions_can_share_general_capacity_across_sparse_regions(clock, regions, demand, capacity):
     leads = [
