@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import math
 from decimal import Decimal
 from typing import Literal
 
@@ -9,10 +10,11 @@ from fastapi import Depends
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import and_, or_, select
 
+from app.compliance.operating import COSTS
 from app.db import MODELS, put, update
 from app.operational_schema import receipt_key
 from app.providers.inference import InferenceResult
-from app.service import fail
+from app.service import dt, fail
 from app.telephony.reducer import TERMINAL
 
 
@@ -99,9 +101,12 @@ def view(row):
         "credited_usd": data.get("credited_usd", 0),
         "net_cost_usd": net_cost(data),
         "provider_record_ids": data.get("provider_record_ids", []),
-        "can_settle": not call_hold and status in {"uncertain", "submitted"} and data.get("cost_usd") is None,
+        "can_settle": not call_hold
+        and (status in {"uncertain", "submitted"} and data.get("cost_usd") is None or status == "estimated"),
         "can_credit": not call_hold and status == "settled" and (net_cost(data) or 0) > 0,
-        "can_close_call": call_hold and data.get("reserved_usd", 0) > 0,
+        "can_close_call": call_hold and (data.get("reserved_usd", 0) > 0 or status == "estimated"),
+        "billing_verified": bool(data.get("billing_verified")),
+        "estimate_source": data.get("estimate_source"),
     }
 
 
@@ -160,6 +165,62 @@ def active_admin(service, s, p):
         fail(403, "An active administrator must check provider receipts")
 
 
+NOT_PLACED = {"carrier_not_submitted", "operator_confirmed_not_placed", "unsent_intent_cancelled"}
+
+
+def account_rate(service, s, p, component, field):
+    """The seller's invoiced account rate when saved, else the dated reference rate."""
+    seller = service.required(s, "sellers", p["seller_id"], p)
+    saved = seller.data.get("operating_policy", {}).get("account_rates", {}).get(component)
+    value = (saved or {}).get("values", {}).get(field)
+    return Decimal(str(value if value is not None else COSTS[component][field]))
+
+
+def call_estimate(service, s, p, call, fallback):
+    """Estimated carrier cost of one finished call from its leg time and the cost register.
+
+    Every leg minute is rounded up (ringing included) on the prospect leg and, while linked, the
+    rep's agent leg; each requested transcription stream bills the connected minutes.
+    """
+    submitted, ended = dt(call.data.get("submitted_at")), dt(call.data.get("ended_at"))
+    if not submitted or not ended or ended < submitted:
+        return Decimal(str(fallback)), "configured_per_call_estimate"
+    legs = 2 if call.data.get("agent_provider_id") else 1
+    minutes = max(1, math.ceil((ended - submitted).total_seconds() / 60))
+    total = legs * minutes * account_rate(service, s, p, "voice", "api_per_minute_usd")
+    if call.data.get("transcription_layout") == "leg_inbound":
+        connected = math.ceil((call.data.get("connected_seconds") or 0) / 60)
+        total += 2 * connected * account_rate(service, s, p, "stt", "soniox_per_minute_usd")
+    return total, "call_duration_register_rates"
+
+
+def settle_call_estimate(service, s, p, call):
+    """A terminal call never keeps an open-ended hold: settle to a labeled estimate.
+
+    A dial that never reached the carrier is released. A carrier statement or
+    `close_call` later replaces the estimate with receipts.
+    """
+    row = by_key(s, "usage_ledger", p, "call:" + call.id)
+    if not row or row.data.get("cost_usd") is not None or row.data.get("status") in {"settled", "released"}:
+        return
+    if call.data.get("end_reason") in NOT_PLACED or not (
+        call.data.get("submitted_at") or call.data.get("provider_id")
+    ):
+        update(row, status="released", cost_usd=0, reserved_usd=0, billing_verified=False)
+        return
+    cost, source = call_estimate(service, s, p, call, row.data.get("reserved_usd") or 0.05)
+    update(
+        row,
+        status="estimated",
+        cost_usd=float(cost.quantize(Decimal("0.000001"))),
+        reserved_usd=0,
+        estimate_usd=row.data.get("estimate_usd", row.data.get("reserved_usd", 0.05)),
+        billing_verified=False,
+        estimate_source=source,
+        duration_seconds=call.data.get("connected_seconds"),
+    )
+
+
 def close_call(service, s, p, row, data):
     call = service.required(s, "call_attempts", row.data.get("call_id"), p)
     expected = row.data.get("provider_record_ids", [])
@@ -182,6 +243,7 @@ def close_call(service, s, p, row, data):
         status="settled",
         billing_verified=True,
         estimate_usd=row.data.get("estimate_usd", row.data.get("reserved_usd", 0)),
+        estimate_source=None,  # The imported carrier records now carry the actual cost.
         reconciled_to_provider_records=True,
         review_reason=None,
     )

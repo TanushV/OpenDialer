@@ -375,7 +375,9 @@ async def test_prepaid_screen_crash_matrix(workspace, app, clock, screening, mon
         assert row.data["request_key"] == key
         assert row.data.get("listed") is not False
         holds = [r.data for r in service.scoped(s, "usage_ledger", p) if r.data.get("request_key") == key]
-        assert len(holds) == 1 and holds[0]["status"] in {"reserved", "uncertain"}
+        # An answered lookup that lost publication keeps its charge as an estimate.
+        assert len(holds) == 1 and holds[0]["status"] in {"reserved", "uncertain", "estimated"}
+        assert holds[0]["status"] != "estimated" or holds[0]["cost_usd"] > 0
 
 
 @pytest.mark.asyncio
@@ -460,7 +462,7 @@ async def test_dial_and_agent_crash_matrix(workspace, app, clock, carrier, monke
             p["tenant_id"], {"sip_username": "test-rep", "telephony_credential_id": "test-cred"}
         )
 
-        async def verified(_):
+        async def verified(_, **__):
             return True
 
         monkeypatch.setattr(carrier, "verify_incoming_only_credential", verified, raising=False)

@@ -288,6 +288,7 @@ def screening_capability(snapshot, endpoint=None):
         else "unconfigured"
     )
     base = {
+        "endpoint": endpoint,
         "mode": mode,
         "configured": configured,
         "authorized": False,
@@ -306,13 +307,13 @@ def screening_capability(snapshot, endpoint=None):
 
     sources, stale, covered, invalid = [], False, False, False
     for data in national:
+        in_scope = endpoint is None or endpoint[2:5] in data.get("npas", [])
         if data.get("source_invalid"):
-            invalid = True
+            invalid |= in_scope  # An unreadable covering source cannot be outvoted by another.
             continue
         valid = (simulation or not data.get("synthetic")) and bool(
             data.get("subscription_reference") or data.get("subscription_id")
         )
-        in_scope = endpoint is None or endpoint[2:5] in data.get("npas", [])
         base["authorized"] |= bool(valid)
         covered |= bool(valid and in_scope)
         end = expiry(data, "refreshed_at")
@@ -373,7 +374,8 @@ def screening_capability(snapshot, endpoint=None):
         )
     base["covered"] = covered
     base["fresh"] = bool(sources or endpoint is None and prepaid_authorized)
-    if sources:
+    # A listing anywhere still lists; otherwise an invalid covering source denies clearance.
+    if sources and (not invalid or any(x["listed"] for x in sources)):
         base.update(
             decision="listed" if any(x["listed"] for x in sources) else "clear",
             sources=[{**x, "expires_at": x["expires_at"].isoformat()} for x in sources],
@@ -381,7 +383,7 @@ def screening_capability(snapshot, endpoint=None):
         )
         if base["decision"] == "listed":
             base["reason_codes"] = ["REGISTRY_LISTED"]
-    elif endpoint is None and prepaid_authorized:
+    elif endpoint is None and prepaid_authorized and not invalid:
         base.update(decision="available", expires_at=auth_end.isoformat())
     else:
         base["reason_codes"] = [

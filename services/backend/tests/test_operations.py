@@ -137,8 +137,20 @@ def test_uncertain_dial_is_reconciled_without_second_dial(workspace, carrier):
     c, h = workspace["client"], workspace["headers"]
     r = c.post("/v1/admin/recovery", headers=h)
     assert r.status_code == 200
+    # Like Telnyx, the simulator cannot be asked about a dial by command ID; the operator
+    # attaches the original carrier reference, which is verified before it binds.
+    item = next(
+        i for i in c.get("/v1/admin/recovery", headers=h).json()["commands"] if i["call_id"] == call["id"]
+    )
+    reference = carrier.calls[call["id"]]["call_control_id"]
+    r = c.post(
+        "/v1/admin/recovery/commands/" + item["id"],
+        headers=h,
+        json={"expected_version": item["version"], "action": "reconcile", "provider_id": reference},
+    )
+    assert r.status_code == 200, r.text
     assert len(carrier.dials) == 1
-    assert c.get(f"/v1/calls/{call['id']}", headers=h).json()["provider_id"] is not None
+    assert c.get(f"/v1/calls/{call['id']}", headers=h).json()["provider_id"] == reference
 
 
 def test_wrong_number_holds_endpoint_but_keeps_lead_for_correction(workspace):

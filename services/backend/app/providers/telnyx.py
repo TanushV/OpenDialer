@@ -6,7 +6,11 @@ import httpx
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-from .simulated import UncertainCarrierResult
+from .simulated import CarrierNotSubmitted, UncertainCarrierResult
+
+
+class CarrierConfigurationError(ValueError):
+    """The carrier account is reachable but configured so the documented flow cannot work."""
 
 
 def verify_webhook(body, signature, timestamp, public_key, *, now=None):
@@ -29,12 +33,12 @@ class TelnyxCarrier:
         self.http = http
         self.webhook_url = webhook_url
 
-    async def request(self, method, path, payload=None):
+    async def request(self, method, path, payload=None, *, accept="application/json"):
         async def send(client):
             r = await client.request(
                 method,
                 "https://api.telnyx.com/v2" + path,
-                headers={"Authorization": "Bearer " + self.api_key, "Accept": "application/json"},
+                headers={"Authorization": "Bearer " + self.api_key, "Accept": accept},
                 json=payload,
                 timeout=httpx.Timeout(15, connect=5),
             )
@@ -66,6 +70,9 @@ class TelnyxCarrier:
             ):
                 raise UncertainCarrierResult("Carrier accepted request without a usable call reference")
             return data
+        except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+            # No connection was established, so no request bytes reached the carrier.
+            raise CarrierNotSubmitted("Carrier connection failed before the dial was sent") from e
         except (httpx.TimeoutException, httpx.NetworkError) as e:
             raise UncertainCarrierResult(
                 "Provider response uncertain; awaiting signed webhook/reconciliation"
@@ -76,8 +83,15 @@ class TelnyxCarrier:
             raise
 
     async def token(self, credential_id):
-        result = await self.request("POST", f"/telephony_credentials/{credential_id}/token")
-        return result if isinstance(result, str) else result.get("data", result)
+        from urllib.parse import quote
+
+        # Documented response: 201 with the JWT as text/plain, not a JSON envelope.
+        result = await self.request(
+            "POST", f"/telephony_credentials/{quote(credential_id, safe='')}/token", accept="*/*"
+        )
+        if not isinstance(result, str) or not result.strip():
+            raise CarrierConfigurationError("Carrier returned no access token for this credential")
+        return result.strip()
 
     async def hangup(self, provider_id, command_id):
         return await self.action(provider_id, "hangup", {"command_id": command_id})
@@ -100,8 +114,17 @@ class TelnyxCarrier:
             return None
         from urllib.parse import quote
 
-        response = await self.request("GET", f"/calls/{quote(provider_id, safe='')}")
-        return response.get("data")
+        try:
+            response = await self.request("GET", f"/calls/{quote(provider_id, safe='')}")
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code not in {404, 422}:
+                raise
+            response = None
+        data = response.get("data") if isinstance(response, dict) else None
+        if data is None:
+            # Status is retained only ten minutes after a call ends; a live leg always has it.
+            return {"call_control_id": provider_id, "is_alive": False, "status_expired": True}
+        return data
 
     async def list_numbers(self):
         found, page, expected_pages = [], 1, None
@@ -179,15 +202,38 @@ class TelnyxCarrier:
 
         return await self.request("GET", f"/number_orders/{quote(order_id, safe='')}")
 
-    async def verify_incoming_only_credential(self, credential_id):
-        credential = await self.request("GET", f"/telephony_credentials/{credential_id}")
-        connection_id = credential.get("data", {}).get("connection_id")
-        if not connection_id:
-            raise ValueError("Credential does not identify a scoped SIP connection")
-        connection = (await self.request("GET", f"/credential_connections/{connection_id}")).get("data", {})
+    async def verify_incoming_only_credential(self, credential_id, *, sip_username=None):
+        """The browser credential must be incoming-only and reachable by this account's agent dial."""
+        from urllib.parse import quote
+
+        response = await self.request("GET", f"/telephony_credentials/{quote(credential_id, safe='')}")
+        credential = response.get("data") if isinstance(response, dict) else None
+        if not isinstance(credential, dict):
+            raise CarrierConfigurationError("Telephony credential was not found")
+        if credential.get("expired"):
+            raise CarrierConfigurationError("Telephony credential has expired; issue a new scoped credential")
+        resource = credential.get("resource_id")
+        kind, _, connection_id = resource.partition(":") if isinstance(resource, str) else ("", "", "")
+        if kind != "connection" or not connection_id:
+            raise CarrierConfigurationError(
+                "Credential resource_id does not identify a credential connection (connection:<id>)"
+            )
+        if sip_username is not None and credential.get("sip_username") != sip_username:
+            raise CarrierConfigurationError(
+                "Configured SIP username does not match this credential; the agent leg would ring another client"
+            )
+        response = await self.request("GET", f"/credential_connections/{quote(connection_id, safe='')}")
+        connection = response.get("data") if isinstance(response, dict) else None
+        if not isinstance(connection, dict):
+            raise CarrierConfigurationError("Credential connection was not found")
         outbound = connection.get("outbound")
         if not isinstance(outbound, dict) or outbound.get("outbound_voice_profile_id"):
-            raise ValueError(
-                "WebRTC credential must have no outbound PSTN voice profile; server controls prospect dialing"
+            raise CarrierConfigurationError(
+                "WebRTC credential connection must have no outbound voice profile; the server dials prospects"
+            )
+        if connection.get("sip_uri_calling_preference") != "internal":
+            raise CarrierConfigurationError(
+                "Set the credential connection's sip_uri_calling_preference to 'internal': 'disabled' rejects "
+                "the server's agent leg and 'unrestricted' lets anyone ring the rep's browser"
             )
         return True
