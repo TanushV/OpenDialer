@@ -8,7 +8,7 @@ import logging
 from sqlalchemy import delete, select
 
 from app.compliance.phone import normalize_phone
-from app.db import MODELS, ActiveClaim, doc, emit, get, put, uid, update
+from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, uid, update
 from app.service import dt, fail
 
 
@@ -57,6 +57,7 @@ def apply_in(service, s, entry):
         # Lock affected calls before any denial dirties shared report state.
         revoke_effects(service, s, p, endpoint.id, ["live", "transcription", "recording", "prerecorded"])
     row = service._by_key(s, p, "suppressions", key)
+    hold = entry["reason"] == "temporary_hold"
     if not row:
         row = put(
             s,
@@ -67,18 +68,24 @@ def apply_in(service, s, entry):
                 "phone": entry["phone"],
                 "reason": entry["reason"],
                 "active": True,
-                "permanent": entry["reason"] != "temporary_hold",
+                "permanent": not hold,
                 "effective_at": entry["at"],
                 "origin_event_id": entry["event_id"],
+                "hold_event_ids": [entry["event_id"]] if hold else [],
             },
             key=entry["phone"],
             object_id=receipt.data["target_id"] if receipt else None,
             now=dt(entry["at"]),
         )
+    elif hold and entry["event_id"] in row.data.get("released_event_ids", []):
+        pass  # A reviewed release of exactly this hold survives journal replay.
     elif not row.data.get("active", True) or not row.data.get("permanent"):
-        permanent = row.data.get("permanent") or entry["reason"] != "temporary_hold"
+        permanent = row.data.get("permanent") or not hold
         reason = row.data["reason"] if row.data.get("permanent") else entry["reason"]
-        update(row, active=True, reason=reason, permanent=permanent)
+        held = row.data.get("hold_event_ids", [row.data.get("origin_event_id")])
+        if hold and entry["event_id"] not in held:
+            held = [*held, entry["event_id"]]
+        update(row, active=True, reason=reason, permanent=permanent, hold_event_ids=held)
     if endpoint:
         reservations = MODELS["reservations"]
         for reservation in s.scalars(
@@ -150,6 +157,48 @@ def persist_fault(service, p, entry):
             )
     except Exception as exc:
         logging.getLogger(__name__).error("Opt-out recovery hold could not persist: %s", type(exc).__name__)
+
+
+def release_hold(service, p, phone, reason):
+    """A temporary hold never lapses; an administrator releases it with a recorded reason.
+
+    Opt-outs and wrong-party denials are permanent and cannot be released here.
+    """
+    normalized = normalize_phone(phone)
+    if not normalized.e164 or not reason.strip():
+        fail(422, "A valid endpoint and the review reason are required")
+    with service.db.transaction() as s:
+        service.db.authorize_stream(s, p)
+        user = service.required(s, "users", p["user_id"], p)
+        if user.data.get("disabled") or user.data.get("role") not in {"owner", "admin"}:
+            fail(403, "Current administrator authority is required")
+        key = hmac.new(service.db.identity_key, normalized.e164.encode(), hashlib.sha256).hexdigest()
+        row = service._by_key(s, p, "suppressions", key)
+        if not row or not row.data.get("active", True) or row.data.get("phone") != normalized.e164:
+            fail(404, "No active hold for this endpoint")
+        if row.data.get("permanent") or row.data.get("reason") != "temporary_hold":
+            fail(409, "Opt-outs and wrong-party denials are permanent; only a temporary hold can be released")
+        released = row.data.get("hold_event_ids") or [row.data.get("origin_event_id")]
+        update(
+            row,
+            active=False,
+            released_event_ids=[*row.data.get("released_event_ids", []), *released],
+            released_at=service.clock().isoformat(),
+            released_by=p["user_id"],
+            release_reason=reason.strip(),
+        )
+        audit(
+            s,
+            p["tenant_id"],
+            p["seller_id"],
+            p["user_id"],
+            "suppression.hold_released",
+            row.id,
+            service.clock(),
+            {"reason": reason.strip()},
+        )
+        emit(s, p["tenant_id"], "suppression.updated", row, service.clock())
+        return doc(row)
 
 
 def record(service, p, phone, reason, *, event_id=None, session=None):

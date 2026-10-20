@@ -215,6 +215,13 @@ class Dialer(
             from app.compliance.operating import screening_capability, screening_snapshot
 
             screening = screening_capability(screening_snapshot(self, s, p))
+            state_required = bool(policy and policy.data.get("state_registry_required", False))
+            screening["state_registry_required"] = state_required
+            if not state_required:
+                warnings.append(
+                    "State do-not-call lists are not required by this campaign policy; only the internal "
+                    "do-not-call list and the national registry are checked"
+                )
             if campaign:
                 self._preflight_queue(s, p, campaign, numbers, screening, blockers, warnings)
             if not self.scoped(s, "budgets", p):

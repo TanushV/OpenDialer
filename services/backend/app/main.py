@@ -14,7 +14,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket,
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
@@ -42,8 +42,15 @@ class Strict(BaseModel):
 
 class RecoveryEdit(Strict):
     expected_version: int = Field(ge=1)
-    action: Literal["reconcile", "end_call", "cancel_unsent"]
+    action: Literal["reconcile", "end_call", "cancel_unsent", "confirm_not_placed"]
     provider_id: str | None = Field(default=None, min_length=1, max_length=2048)
+    reason: str | None = Field(default=None, min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def attested(self):
+        if self.action == "confirm_not_placed" and not (self.reason or "").strip():
+            raise ValueError("Record what carrier evidence shows the call was not placed")
+        return self
 
 
 class JobRetry(Strict):
@@ -118,6 +125,11 @@ class Suppress(Strict):
     phone: str
     reason: Literal["opt_out", "wrong_party", "temporary_hold", "invalid_endpoint"] = "opt_out"
     event_id: str | None = None
+
+
+class HoldRelease(Strict):
+    phone: str = Field(min_length=1, max_length=40)
+    reason: str = Field(min_length=1, max_length=500, pattern=r"\S")
 
 
 class ImportLeads(Strict):
@@ -587,6 +599,12 @@ def create_app(settings=None, *, clock=None, carrier=None):
     def suppress(data: Suppress, p=Depends(principal)):
         return service.suppress(p, data.phone, data.reason, event_id=data.event_id)
 
+    @app.post("/v1/admin/suppressions/release-hold")
+    def release_hold(data: HoldRelease, p=Depends(administrator)):
+        from app.compliance.suppressions import release_hold
+
+        return release_hold(service, p, data.phone, data.reason)
+
     @app.post("/v1/leads/import")
     def import_leads(data: ImportLeads, p=Depends(administrator)):
         return service.import_leads(p, data.model_dump())
@@ -766,20 +784,21 @@ def create_app(settings=None, *, clock=None, carrier=None):
     async def telephony_token(p=Depends(principal)):
         def context():
             provider = service.carrier(p["tenant_id"])
+            conf = service.vault.read(p["tenant_id"])
+            admin = p["role"] in {"owner", "admin"}
             with db.transaction(False) as s:
                 user = service.required(s, "users", p["user_id"], p)
                 credential = user.data.get("telephony_credential_id") or (
-                    service.vault.read(p["tenant_id"]).get("telephony_credential_id")
-                    if p["role"] in {"owner", "admin"}
-                    else None
+                    conf.get("telephony_credential_id") if admin else None
                 )
-            return provider, credential
+                sip = user.data.get("sip_username") or (conf.get("sip_username") if admin else None)
+            return provider, credential, sip
 
-        provider, credential = await asyncio.to_thread(context)
+        provider, credential, sip = await asyncio.to_thread(context)
         if not credential and not settings.simulation:
             fail(503, "Scoped rep telephony credential is not configured")
         if not settings.simulation:
-            await provider.verify_incoming_only_credential(credential)
+            await service.verified_credential(provider, credential, sip)
         return {"token": await provider.token(credential or "simulated"), "simulation": settings.simulation}
 
     @app.post("/v1/admin/policies/{policy_id}/publish")

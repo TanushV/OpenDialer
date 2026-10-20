@@ -65,6 +65,7 @@ class WorkspaceReads:
                         "uncertain",
                         "reconciling",
                         "review_required",
+                        "unconfirmed",
                         "validating",
                         "in_progress",
                         "finalizing",

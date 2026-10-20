@@ -2,6 +2,8 @@
 
 import asyncio
 import base64
+import hashlib
+import hmac
 import ipaddress
 import json
 import logging
@@ -22,6 +24,7 @@ DEFAULT_MESSAGE = (
 )
 DEFAULTS = {"version": 0, "destination": "", "ring_seconds": 20, "offline_reference": ""}
 ENDED = {"ended", "cancelled", "failed"}
+SETTLED = ENDED | {"orphaned"}
 
 
 def valid_destination(value):
@@ -150,9 +153,7 @@ class InboundCallbacks:
         candidates.sort(key=lambda u: (u.id != task.data.get("responsible_rep_id"), u.id))
         rep = candidates[0] if candidates and len(attempts) < 3 else None
         config = task.data["routing_config"]
-        target = (
-            f"sip:{rep.data['sip_username']}@sip.telnyx.com;secure=srtp" if rep else config["destination"]
-        )
+        target = f"sip:{rep.data['sip_username']}@sip.telnyx.com" if rep else config["destination"]
         if not rep and any(a.get("kind") == "business_fallback" for a in attempts):
             target = ""
         if target in {task.data.get("callback_phone"), task.data.get("called_phone")}:
@@ -230,37 +231,56 @@ class InboundCallbacks:
                 after=after,
             )
 
-    async def inbound_callback(self, tenant_id, payload, event_id):
-        return await asyncio.to_thread(self._receive_inbound, tenant_id, payload, event_id)
-
     def _receive_inbound(self, tenant_id, payload, event_id, *, session=None, receipt=None):
         if not payload.get("call_control_id"):
             fail(422, "Inbound call identity is missing")
         with self.db.transaction(session=session) as s:
-            owned = [
-                n for n in rows(s, "number_inventory", tenant_id) if n.data["phone"] == payload.get("to")
-            ]
+            # Indexed identities only: a webhook must not decrypt the seller's history.
+            def keyed(kind, phone, *scope):
+                model = MODELS[kind]
+                if not isinstance(phone, str) or not phone.startswith("+"):
+                    return []
+                key = hmac.new(self.db.identity_key, phone.encode(), hashlib.sha256).hexdigest()
+                found = s.scalars(
+                    select(model)
+                    .where(model.tenant_id == tenant_id, *scope, model.external_key == key)
+                    .limit(2)
+                )
+                return [row for row in found if row.data.get("phone") == phone]
+
+            owned = keyed("number_inventory", payload.get("to"))
             if len(owned) != 1:
                 return {"received": True, "route": "unrecognized_owned_did"}
             number = owned[0]
             p = {"tenant_id": tenant_id, "seller_id": number.seller_id, "user_id": "inbound"}
             self.db.authorize_stream(s, p)
-            existing = next(
-                (
-                    t
-                    for t in self.scoped(s, "followup_tasks", p)
-                    if t.data.get("inbound") and t.data.get("provider_id") == payload["call_control_id"]
-                ),
-                None,
-            )
+            existing = self._by_key(s, p, "followup_tasks", "callback:" + payload["call_control_id"])
             if existing:
                 return doc(existing)
-            leads = [lead for lead in self.scoped(s, "leads", p) if lead.data["phone"] == payload.get("from")]
+            endpoints = keyed(
+                "phone_endpoints", payload.get("from"), MODELS["phone_endpoints"].seller_id == p["seller_id"]
+            )
+            model = MODELS["leads"]
+            leads = (
+                list(
+                    s.scalars(
+                        select(model)
+                        .where(
+                            model.tenant_id == tenant_id,
+                            model.seller_id == p["seller_id"],
+                            model.op_endpoint_id == endpoints[0].id,
+                        )
+                        .limit(2)
+                    )
+                )
+                if len(endpoints) == 1
+                else []
+            )
             lead = leads[0] if len(leads) == 1 else None
-            previous = max(
-                (c for c in self.scoped(s, "call_attempts", p) if lead and c.data["lead_id"] == lead.id),
-                key=lambda c: c.data["started_at"],
-                default=None,
+            previous = (
+                next(iter(self.lead_records(s, p, "call_attempts", lead.id, limit=1, newest=True)), None)
+                if lead
+                else None
             )
             responsible = previous.data["rep_id"] if previous else None
             task = put(
@@ -302,9 +322,32 @@ class InboundCallbacks:
             emit(s, tenant_id, "task.updated", task, self.clock())
             return doc(task)
 
+    def _task_commands(self, s, p, task):
+        """Only this task's own outbox rows, by their scoped key prefix."""
+        model = MODELS["command_outbox"]
+        return list(
+            s.scalars(
+                select(model).where(
+                    model.tenant_id == p["tenant_id"],
+                    model.seller_id == p["seller_id"],
+                    model.external_key.startswith(task.id + ":"),
+                )
+            )
+        )
+
+    def _orphan_unreported(self, task, attempts):
+        """A transfer sent without any leg receipt cannot be stopped by reference. Once the caller
+        has left or the deadline passed it is closed here; a late leg receipt is hung up."""
+        for attempt in attempts:
+            if attempt["state"] == "prepared":
+                attempt["state"] = "cancelled"
+            elif not attempt.get("provider_id") and attempt["state"] not in SETTLED:
+                attempt["state"] = "orphaned"
+        update(task, routing_attempts=attempts)
+
     def _inbound_finished(self, s, p, task):
         if task.data.get("caller_ended") and all(
-            a["state"] in ENDED for a in task.data.get("routing_attempts", [])
+            a["state"] in SETTLED for a in task.data.get("routing_attempts", [])
         ):
             update(task, inbound_state="ended", ended_at=self.clock().isoformat())
             self._release_inbound_claim(s, task)
@@ -369,7 +412,10 @@ class InboundCallbacks:
                     attempt["state"] = "ended"
                     update(task, routing_attempts=attempts)
                     self._release_inbound_claim(s, task)
-                    if not task.data.get("caller_ended"):
+                    if not task.data.get("caller_ended") and task.data.get("inbound_state") not in {
+                        "ending",
+                        "ended",
+                    }:
                         if connected:
                             self._inbound_command(s, p, task, "hangup", suffix="inbound-complete")
                             update(task, inbound_state="ending")
@@ -431,7 +477,9 @@ class InboundCallbacks:
                             completion_source="inbound_rep_connected",
                             completed_at=self.clock().isoformat(),
                         )
-                        for promised in self.scoped(s, "followup_tasks", p):
+                        lead_id = task.data.get("lead_id")
+                        related = self.lead_records(s, p, "followup_tasks", lead_id) if lead_id else []
+                        for promised in related:
                             if (
                                 promised.data.get("kind") == "callback"
                                 and promised.data.get("call_id") == task.data.get("previous_call_id")
@@ -453,26 +501,24 @@ class InboundCallbacks:
                 else:
                     update(task, routing_attempts=attempts)
             elif event_type == "call.answered" and task.data["inbound_state"] == "answering":
-                for command in self.scoped(s, "command_outbox", p):
-                    if command.data.get("call_id") == task.id and command.data["action"] == "answer":
-                        update(
-                            command,
-                            status="completed",
-                            lease_owner=None,
-                            lease_until=None,
-                            confirmation="signed_answer_event",
-                        )
+                command = self._by_key(s, p, "command_outbox", task.id + ":inbound-answer")
+                if command and command.data.get("call_id") == task.id:
+                    update(
+                        command,
+                        status="completed",
+                        lease_owner=None,
+                        lease_until=None,
+                        confirmation="signed_answer_event",
+                    )
             elif event_type == "call.hangup":
                 update(task, caller_ended=True, inbound_state="ending")
                 for a in attempts:
-                    if a["state"] == "prepared":
-                        a["state"] = "cancelled"
-                    elif a.get("provider_id") and a["state"] not in ENDED:
+                    if a.get("provider_id") and a["state"] not in ENDED:
                         self._inbound_command(
                             s, p, task, "hangup", target=a["provider_id"], suffix="inbound-leg-end:" + a["id"]
                         )
-                update(task, routing_attempts=attempts)
-                for command in self.scoped(s, "command_outbox", p):
+                self._orphan_unreported(task, attempts)
+                for command in self._task_commands(s, p, task):
                     if (
                         command.data.get("call_id") == task.id
                         and command.data["status"] == "pending"
@@ -590,7 +636,8 @@ class InboundCallbacks:
                         recovery_reason="No terminal routing receipt before deadline",
                     )
                     self._inbound_command(s, p, task, "hangup", suffix="inbound-watchdog")
-                    for attempt in task.data.get("routing_attempts", []):
+                    attempts = [dict(a) for a in task.data.get("routing_attempts", [])]
+                    for attempt in attempts:
                         if attempt.get("provider_id") and attempt["state"] not in ENDED:
                             self._inbound_command(
                                 s,
@@ -600,6 +647,10 @@ class InboundCallbacks:
                                 target=attempt["provider_id"],
                                 suffix="inbound-leg-end:" + attempt["id"],
                             )
+                    self._orphan_unreported(task, attempts)
+                    if all(a["state"] in SETTLED for a in attempts):
+                        # No known transfer leg can still hold the rep; the caller leg is ending.
+                        self._release_inbound_claim(s, task)
 
     def inbound_admit_command(self, s, p, task, command):
         data = command.data
@@ -613,7 +664,7 @@ class InboundCallbacks:
         if data["action"] == "transfer":
             attempts = [dict(a) for a in task.data["routing_attempts"]]
             attempt = next(a for a in attempts if a["id"] == data["inbound_attempt"])
-            if attempt["state"] in ENDED:
+            if attempt["state"] in SETTLED:
                 update(command, status="cancelled", reason="transfer_already_ended")
                 return False
             if attempt.get("rep_id") and attempt["state"] == "prepared":
@@ -681,11 +732,18 @@ class InboundCallbacks:
                         attempt["state"] = "cancelled"
                 update(task, routing_attempts=attempts)
                 self._release_inbound_claim(s, task)
+                # No-cost fallback: end the answered call without paid transfer or speech, and keep
+                # an ordinary dated return-call task for the responsible rep (not a recovery item).
                 update(
                     task,
                     inbound_state="ending",
-                    review_required=True,
-                    recovery_reason="Optional routing budget exhausted; call ended and return task retained",
+                    status="open"
+                    if task.data["status"] not in {"completed", "cancelled"}
+                    else task.data["status"],
+                    action="Return call",
+                    owner_id=task.data.get("owner_id") or task.data.get("responsible_rep_id"),
+                    due_at=task.data.get("due_at") or self.clock().isoformat(),
+                    routing_fallback="budget_exhausted_no_cost",
                 )
                 self._inbound_command(s, p, task, "hangup", suffix="inbound-budget-end")
                 return False

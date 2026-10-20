@@ -412,7 +412,9 @@ class RequestAccounting:
                     and data["request_id"] != result.request_id
                 ):
                     raise ValueError("Provider receipt attribution conflict")
-                if data.get("cost_usd") is not None:
+                if data.get("estimate_source") and cost is None:
+                    return target.id  # An unpriced receipt cannot erase the standing estimate.
+                if data.get("cost_usd") is not None and not data.get("estimate_source"):
                     if cost is not None and cost != data["cost_usd"]:
                         raise ValueError("Conflicting cost receipt requires reconciliation")
                     return target.id
@@ -430,6 +432,7 @@ class RequestAccounting:
                 "cost_usd": cost,
                 "billing_verified": cost is not None,
                 "status": "settled" if cost is not None else "uncertain",
+                "estimate_source": None,
             }
             if target:
                 update(target, **values)
@@ -447,6 +450,60 @@ class RequestAccounting:
                 s, p, kind, request_key, "receipt", [target], provider_id=result.request_id, emergency=True
             )
             return target.id
+
+    def settle_estimate_in(self, s, p, request_key, cost, source):
+        """A definitive answer without a priced receipt: the hold becomes a labeled estimate.
+
+        It counts against budgets at the estimate instead of holding forever; a later provider
+        receipt replaces it through `usage` or billing reconciliation.
+        """
+        self.db.authorize_stream(s, p)
+        hold = self._request_hold(s, p, request_key)
+        if not hold or hold.data.get("cost_usd") is not None or hold.data.get("status") == "released":
+            return hold
+        update(
+            hold,
+            cost_usd=cost,
+            reserved_usd=0,
+            status="estimated",
+            billing_verified=False,
+            estimate_source=source,
+            received_at=self.clock().isoformat(),
+        )
+        self.journal_effect_in(
+            s,
+            p,
+            hold.data.get("work_kind") or "optional_work",
+            request_key,
+            "receipt",
+            [hold],
+            emergency=True,
+        )
+        return hold
+
+    def release_refused_budget(self, p, request_key, reason):
+        """The provider refused before doing any work, so the request carries no charge."""
+        with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
+            hold = self._request_hold(s, p, request_key)
+            if hold and hold.data.get("cost_usd") is None and hold.data.get("status") != "released":
+                update(
+                    hold,
+                    status="released",
+                    cost_usd=0,
+                    reserved_usd=0,
+                    billing_verified=False,
+                    review_reason=reason,
+                )
+                self.journal_effect_in(
+                    s,
+                    p,
+                    hold.data.get("work_kind") or "optional_work",
+                    request_key,
+                    "receipt",
+                    [hold],
+                    emergency=True,
+                )
 
     def release_unsubmitted_budget(self, p, request_key):
         """Use only when no provider request was submitted; timeouts remain liabilities."""
