@@ -16,9 +16,12 @@ from app.scheduling.models import (
 )
 
 GOALS = {"qualified_conversation", "meeting_held", "sale_won"}
-# The one declared two-arm allocation (EXECUTION_SPEC E08.13: default 50/50). It drives the
-# stable cohort, model-trial enrollment and the logged selection probability alike.
-CONTROL_FRACTION = 0.5
+# Approved trials use their declared two-arm allocation (EXECUTION_SPEC E08.13: default 50/50).
+# Outside an active trial a persistent stable control holdout (configurable, default 10%) keeps
+# measuring a promoted model without withholding it from half of the leads. Both use the same
+# hash draw, so the production holdout is nested inside a trial's control arm.
+TRIAL_CONTROL_FRACTION = 0.5
+PRODUCTION_HOLDOUT_FRACTION = 0.10
 
 
 def hashed_draw(key):
@@ -609,16 +612,25 @@ def trial_from_counts(values, *, goal, window_days=14, baseline_rate=0.1, minimu
     }
 
 
-def stable_control(lead_id, control_fraction=CONTROL_FRACTION):
+def stable_control(lead_id, control_fraction=PRODUCTION_HOLDOUT_FRACTION):
     return hashed_draw("cohort:" + lead_id) < control_fraction
 
 
-def cohort_arm(lead_id):
+def cohort_fraction(campaign, config, now):
+    """An active trial's declared allocation, otherwise the configured production holdout."""
+    study = campaign.get("optimization_trial") or {}
+    ends = timestamp(study.get("ends_at"))
+    if study and ends and ends > now:
+        return study.get("control_fraction", TRIAL_CONTROL_FRACTION)
+    return config.get("production_holdout_fraction", PRODUCTION_HOLDOUT_FRACTION)
+
+
+def cohort_arm(lead_id, control_fraction=PRODUCTION_HOLDOUT_FRACTION):
     """The one optimization arm definition for enrollment, serving and decision records."""
-    return "control" if stable_control(lead_id) else "candidate"
+    return "control" if stable_control(lead_id, control_fraction) else "candidate"
 
 
-def choose_cohort_candidate(candidates, *, now, draw=None, control_fraction=CONTROL_FRACTION):
+def choose_cohort_candidate(candidates, *, now, draw=None, control_fraction=PRODUCTION_HOLDOUT_FRACTION):
     urgent = [
         r
         for r in candidates

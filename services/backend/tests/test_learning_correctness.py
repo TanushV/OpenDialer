@@ -262,27 +262,82 @@ def test_commit_time_treatment_is_the_protected_default_without_a_registered_com
     assert decision["treatment_reason"] == "no_registered_treatment_comparison"
 
 
-def test_one_declared_allocation_drives_cohorts_and_selection(workspace, app, clock):
+def test_active_model_is_not_withheld_from_half_of_leads_outside_a_trial(workspace, app, monkeypatch):
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        put(
+            s,
+            "model_versions",
+            p["tenant_id"],
+            p["seller_id"],
+            {"active": True, "goal": "meeting_held"},
+            now=service.clock(),
+        )
+    monkeypatch.setattr(service, "model_source_current", lambda *args: True)
+    with service.db.transaction(False) as s:
+        config = service.optimization_config(s, p)
+        held = sum(service.serving_model(s, p, config, f"lead-{i}") is None for i in range(2000)) / 2000
+    assert abs(held - 0.10) < 0.025, f"{held:.0%} of leads were held out from the promoted model"
+
+
+def test_trials_use_the_declared_allocation_and_production_keeps_its_holdout(workspace, app, clock):
+    from app.db import uid
     from app.optimization import learning
 
-    assert learning.CONTROL_FRACTION == 0.5
-    share = sum(learning.stable_control(f"lead-{i}") for i in range(4000)) / 4000
-    assert abs(share - 0.5) < 0.03
+    assert learning.TRIAL_CONTROL_FRACTION == 0.5 and learning.PRODUCTION_HOLDOUT_FRACTION == 0.10
+    assert not hasattr(learning, "CONTROL_FRACTION")
+    ids = [f"lead-{i}" for i in range(4000)]
+    assert abs(sum(map(learning.stable_control, ids)) / 4000 - 0.10) < 0.02
+    trial = [learning.stable_control(i, learning.TRIAL_CONTROL_FRACTION) for i in ids]
+    assert abs(sum(trial) / 4000 - 0.5) < 0.03
+    assert all(t for i, t in zip(ids, trial, strict=True) if learning.stable_control(i)), "Holdout nests"
     rows = [
         {"id": "control", "arm": "control", "p_human": 0.2, "score": 0.001},
         {"id": "candidate", "arm": "candidate", "p_human": 0.9, "score": 0.1},
     ]
     choice = learning.choose_cohort_candidate(rows, now=clock.now)
-    assert choice["lead_selection_probability"] == 0.5
+    assert choice["lead_selection_probability"] in {0.1, 0.9}
     assert choice == learning.choose_cohort_candidate(rows, now=clock.now), "Hash-based and reproducible"
+    declared = learning.choose_cohort_candidate(
+        rows, now=clock.now, control_fraction=learning.TRIAL_CONTROL_FRACTION
+    )
+    assert declared["lead_selection_probability"] == 0.5
     service, p = app.state.service, principal(workspace)
     with service.db.transaction() as s:
-        service.ensure_experiment_cohort(s, p)
-        assignments = [r.data for r in service.scoped(s, "experiment_assignments", p)]
-    assert assignments
-    for row in assignments:
+        epoch = service.ensure_experiment_cohort(s, p)
+        production = [
+            r.data for r in service.scoped(s, "experiment_assignments", p) if r.data["epoch"] == epoch
+        ]
+    assert production
+    for row in production:
         assert row["arm"] == ("control" if learning.stable_control(row["lead_id"]) else "candidate")
-        assert row["propensity"] == 0.5
+        assert row["propensity"] == (0.1 if row["arm"] == "control" else 0.9)
+        assert row["allocation"] == {"control": 0.1, "candidate": 0.9}
+    with service.db.transaction() as s:
+        campaign = service.required(s, "campaigns", workspace["campaign_id"], p)
+        update(
+            campaign,
+            optimization_epoch=uid(),
+            optimization_trial={
+                "model_id": "fixture",
+                "ends_at": (clock.now + timedelta(days=7)).isoformat(),
+                "max_leads": 100,
+                "control_fraction": learning.TRIAL_CONTROL_FRACTION,
+            },
+        )
+        epoch = service.ensure_experiment_cohort(s, p)
+        rows = [r.data for r in service.scoped(s, "experiment_assignments", p) if r.data["epoch"] == epoch]
+    assert rows and all(r["propensity"] == 0.5 and r["allocation"]["control"] == 0.5 for r in rows)
+
+
+def test_operator_capacity_override_uses_the_settings_bound(workspace, app):
+    from fastapi import HTTPException
+
+    service, p = app.state.service, principal(workspace)
+    with pytest.raises(HTTPException) as error:
+        service.proposal(p, workspace["campaign_id"], capacity=5000)
+    assert error.value.status_code == 422
+    assert service.proposal(p, workspace["campaign_id"], capacity=1000)["projection"]
 
 
 # Groups 6 and 7: one owner for policies/defaults; proportionate training.

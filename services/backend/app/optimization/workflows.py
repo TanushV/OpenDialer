@@ -89,7 +89,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
         return row
 
     def ensure_experiment_cohort(self, s, p, campaign_id=None):
-        from app.optimization.learning import CONTROL_FRACTION, cohort_arm
+        from app.optimization.learning import cohort_arm, cohort_fraction
 
         campaign = (
             self.required(s, "campaigns", campaign_id, p) if campaign_id else self.selected_campaign(s, p)
@@ -100,6 +100,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
         if study and timestamp(study["ends_at"]) < self.clock():
             return epoch
         candidates = self.scoped(s, "leads", p)
+        fraction = cohort_fraction(campaign.data, self.optimization_config(s, p, campaign.id), self.clock())
         if study:
             candidates = sorted(
                 candidates, key=lambda lead: hashlib.sha256((epoch + lead.id).encode()).hexdigest()
@@ -119,9 +120,9 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 p["seller_id"],
                 {
                     "lead_id": lead.id,
-                    "arm": (arm := cohort_arm(lead.id)),
-                    "propensity": CONTROL_FRACTION if arm == "control" else 1 - CONTROL_FRACTION,
-                    "allocation": {"control": CONTROL_FRACTION, "candidate": 1 - CONTROL_FRACTION},
+                    "arm": (arm := cohort_arm(lead.id, fraction)),
+                    "propensity": fraction if arm == "control" else 1 - fraction,
+                    "allocation": {"control": fraction, "candidate": 1 - fraction},
                     "assigned_at": self.clock().isoformat(),
                     "epoch": epoch,
                     "originally_eligible": True,
@@ -158,9 +159,11 @@ class OptimizationWorkflows(ComparisonWorkflows):
         )
 
     def serving_model(self, s, p, config, lead_id=None):
-        from app.optimization.learning import stable_control
+        from app.optimization.learning import PRODUCTION_HOLDOUT_FRACTION, stable_control
 
-        if lead_id and stable_control(lead_id):
+        # The persistent production holdout only; trial arms come from recorded enrollment.
+        holdout = config.get("production_holdout_fraction", PRODUCTION_HOLDOUT_FRACTION)
+        if lead_id and stable_control(lead_id, holdout):
             return None
         # This pointer cache lives only for this read transaction. A rollback,
         # promotion or goal edit is visible to the next decision immediately.

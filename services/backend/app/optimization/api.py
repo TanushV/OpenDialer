@@ -60,6 +60,7 @@ class OptimizationSettings(Strict):
     )
     account_channel_limit: int | None = Field(default=None, ge=1, le=1000)
     minimum_expansion_age_hours: int | None = Field(default=None, ge=1, le=168)
+    production_holdout_fraction: float | None = Field(default=None, ge=0.01, le=0.5, allow_inf_nan=False)
     health_policy: HealthPolicy | None = None
     estimate_policy: EstimatePolicy | None = None
 
@@ -604,7 +605,7 @@ def register_optimization(app, service, principal, administrator):
         from datetime import timedelta
 
         from app.ml.training import predict_funnel
-        from app.optimization.learning import CONTROL_FRACTION
+        from app.optimization.learning import TRIAL_CONTROL_FRACTION
 
         with service.db.transaction() as s:
             model = service.required(s, "model_versions", model_id, p)
@@ -643,7 +644,7 @@ def register_optimization(app, service, principal, administrator):
                 "max_leads": body.max_leads,
                 "review_reference": body.review_reference,
                 "reviewed_by": p["user_id"],
-                "control_fraction": CONTROL_FRACTION,
+                "control_fraction": TRIAL_CONTROL_FRACTION,
             }
             update(campaign, optimization_epoch=uid(), optimization_trial=study)
             epoch = service.ensure_experiment_cohort(s, p)
