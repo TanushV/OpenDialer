@@ -13,6 +13,13 @@ def aware(value):
     return value.replace(tzinfo=UTC) if value and not value.tzinfo else value
 
 
+# Consecutive coalesces without progress: the first ones are a concurrent
+# correction's fresh work and retry at once; later ones back off, and every one
+# after the last step waits the maximum. Completion or a processed page resets.
+COALESCE_IMMEDIATE = 2
+COALESCE_BACKOFF_SECONDS = (5, 10, 20, 40, 60)
+
+
 class LostJobLease(ValueError):
     """A former worker cannot publish, complete or fail the current owner's work."""
 
@@ -50,6 +57,12 @@ class JobQueue:
             raise LostJobLease("Job lease is not owned by this worker")
 
     def enqueue(self, queue, payload, key, *, tenant_id, priority=0, max_attempts=3):
+        # Existing work is returned unchanged by enqueue_in; periodic schedulers
+        # re-announcing an identity need no writer.
+        with self.db.transaction(False) as s:
+            previous = s.scalar(select(Job).where(Job.tenant_id == tenant_id, Job.key == key))
+            if previous:
+                return jobdoc(previous)
         with self.db.transaction() as s:
             return self.enqueue_in(
                 s, queue, payload, key, tenant_id=tenant_id, priority=priority, max_attempts=max_attempts
@@ -76,7 +89,7 @@ class JobQueue:
         previous = s.scalar(query.with_for_update() if latest else query)
         if previous:
             if latest:
-                generation_keys = {"desired_generation", "claimed_generation"}
+                generation_keys = {"desired_generation", "claimed_generation", "coalesced"}
                 old = {k: v for k, v in previous.payload.items() if k not in generation_keys}
                 if old != payload:
                     previous.payload = {
@@ -106,6 +119,33 @@ class JobQueue:
         s.flush()
         return jobdoc(job)
 
+    @staticmethod
+    def _execution_class(queue, execution_class):
+        if execution_class not in {None, "training", "maintenance"} or (
+            execution_class is not None and queue != "ml"
+        ):
+            raise ValueError("Invalid job execution class")
+        if execution_class is None:
+            return None
+        # Existing training identities already distinguish CPU work without
+        # decrypting payloads, changing durable keys or adding another queue.
+        training = Job.key.startswith("operational-train:", autoescape=True)
+        return training if execution_class == "training" else ~training
+
+    def _due(self, query, queue, tenant_id, key_prefix, match):
+        query = query.where(Job.queue == queue, Job.status == "queued", Job.available_at <= self.clock())
+        if tenant_id:
+            query = query.where(Job.tenant_id == tenant_id)
+        if key_prefix is not None:
+            query = query.where(Job.key.startswith(key_prefix, autoescape=True))
+        return query.where(match) if match is not None else query
+
+    def has_due(self, queue, tenant_id=None, *, execution_class=None):
+        """One read-only probe before a runner launches a wave of claimers."""
+        match = self._execution_class(queue, execution_class)
+        with self.db.transaction(False) as s:
+            return s.scalar(self._due(select(Job.id), queue, tenant_id, None, match).limit(1)) is not None
+
     def claim(
         self,
         queue,
@@ -118,21 +158,29 @@ class JobQueue:
         key_prefix=None,
         execution_class=None,
     ):
-        if execution_class not in {None, "training", "maintenance"} or (
-            execution_class is not None and queue != "ml"
-        ):
-            raise ValueError("Invalid job execution class")
-        # Existing training identities already distinguish CPU work without
-        # decrypting payloads, changing durable keys or adding another queue.
-        training = Job.key.startswith("operational-train:", autoescape=True)
-        match = training if execution_class == "training" else ~training
+        match = self._execution_class(queue, execution_class)
+        pool = tuple(sorted(shared_queues or (queue,)))
+        if capacity is not None and (capacity < 1 or queue not in pool):
+            raise ValueError("Invalid execution pool capacity")
+
+        def due(query):
+            return self._due(query, queue, tenant_id, key_prefix, match)
+
+        def running(s):
+            query = select(func.count()).select_from(Job).where(Job.queue.in_(pool), Job.status == "running")
+            return s.scalar(query.where(match) if match is not None else query)
+
+        # Read-only admission probe (ix_jobs_due): an idle or saturated pool never
+        # takes the writer. The write transaction below repeats both checks.
+        with self.db.transaction(False) as s:
+            if s.scalar(due(select(Job.id)).limit(1)) is None:
+                return None
+            if capacity is not None and running(s) >= capacity:
+                return None
         with self.db.transaction() as s:
             # This fence covers only admission to one execution pool, never the
             # job's work or other writers. It also covers independent runners.
-            pool = tuple(sorted(shared_queues or (queue,)))
             if capacity is not None:
-                if capacity < 1 or queue not in pool:
-                    raise ValueError("Invalid execution pool capacity")
                 if not self.db.sqlite:
                     key = int.from_bytes(
                         hashlib.sha256(
@@ -144,26 +192,16 @@ class JobQueue:
                     # simultaneous claim as an empty queue strands spare slots
                     # behind the first long-running job in a capacity wave.
                     s.execute(text("SELECT pg_advisory_xact_lock(:pool)"), {"pool": key})
-                running_query = (
-                    select(func.count()).select_from(Job).where(Job.queue.in_(pool), Job.status == "running")
-                )
-                if execution_class is not None:
-                    running_query = running_query.where(match)
-                running = s.scalar(running_query)
-                if running >= capacity:
+                if running(s) >= capacity:
                     return None
+            # The claim is conditional on the row still being queued and due inside
+            # this transaction: SQLite admits one writer (BEGIN IMMEDIATE), and
+            # PostgreSQL re-checks the predicate under a skipped-if-locked row lock.
             query = (
-                select(Job)
-                .where(Job.queue == queue, Job.status == "queued", Job.available_at <= self.clock())
+                due(select(Job))
                 .order_by(Job.priority.desc(), Job.available_at, Job.id)
                 .limit(100 if queue == "live_coach" else 1)
             )
-            if tenant_id:
-                query = query.where(Job.tenant_id == tenant_id)
-            if key_prefix is not None:
-                query = query.where(Job.key.startswith(key_prefix, autoescape=True))
-            if execution_class is not None:
-                query = query.where(match)
             if not self.db.sqlite:
                 query = query.with_for_update(skip_locked=True)
             candidates = list(s.scalars(query))
@@ -254,11 +292,17 @@ class JobQueue:
     def fail(self, job_id, worker, error, retry_seconds=10):
         self._finish(job_id, worker, error, retry_seconds)
 
-    def coalesce_refresh(self, job_id, worker):
-        """A changed metrics source is newer work, not a failed provider attempt."""
-        self._finish(job_id, worker, coalesced=True)
+    def coalesce_refresh(self, job_id, worker, *, progressed=False):
+        """A changed metrics source is newer work, not a failed provider attempt.
 
-    def _finish(self, job_id, worker, error=None, retry_seconds=0, *, coalesced=False):
+        A page that made progress is due again at once. A refresh that keeps
+        being superseded or keeps waiting retries at once twice, then backs off
+        (5 s doubling to 60 s) until it next completes, so it cannot spin.
+        Neither path consumes an attempt.
+        """
+        self._finish(job_id, worker, coalesced=True, progressed=progressed)
+
+    def _finish(self, job_id, worker, error=None, retry_seconds=0, *, coalesced=False, progressed=False):
         with self.db.transaction() as s:
             job = s.get(Job, job_id, with_for_update=True)
             if (
@@ -296,6 +340,19 @@ class JobQueue:
                 job.lease_owner, job.lease_expires_at = None, None
                 return
             job.error = error[:500] if error else None
+            streak = previous = job.payload.get("coalesced", 0)
+            if coalesced:
+                streak = (
+                    0 if progressed else min(previous + 1, COALESCE_IMMEDIATE + len(COALESCE_BACKOFF_SECONDS))
+                )
+                waited = streak - COALESCE_IMMEDIATE
+                retry_seconds = COALESCE_BACKOFF_SECONDS[waited - 1] if waited > 0 else 0
+            elif not error:
+                streak = 0
+            if streak != previous:
+                job.payload = {k: v for k, v in job.payload.items() if k != "coalesced"} | (
+                    {"coalesced": streak} if streak else {}
+                )
             job.status = (
                 "queued"
                 if coalesced
@@ -321,7 +378,20 @@ class JobQueue:
                 raise LostJobLease("Lost job lease")
             job.lease_expires_at = self.clock() + timedelta(seconds=seconds)
 
+    def next_due(self, queue):
+        """Earliest queued availability, so an in-process lane can sleep until it (read-only)."""
+        with self.db.transaction(False) as s:
+            return aware(
+                s.scalar(select(func.min(Job.available_at)).where(Job.queue == queue, Job.status == "queued"))
+            )
+
     def recover_expired(self):
+        with self.db.transaction(False) as s:
+            expired = s.scalar(
+                select(Job.id).where(Job.status == "running", Job.lease_expires_at <= self.clock()).limit(1)
+            )
+        if expired is None:
+            return
         with self.db.transaction() as s:
             jobs = s.scalars(
                 select(Job)

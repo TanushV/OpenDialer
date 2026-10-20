@@ -510,20 +510,24 @@ class InboundCallbacks:
             return doc(task)
 
     async def reconcile_inbound(self, p):
+        model = MODELS["followup_tasks"]
+
+        def due(query):
+            return query.where(
+                model.tenant_id == p["tenant_id"],
+                model.seller_id == p["seller_id"],
+                model.op_active.is_(True),
+                model.op_reconcile_at <= self.clock(),
+            )
+
         def pending():
+            # Read first: the reconciliation stamp is written only for due tasks.
+            with self.db.transaction(False) as s:
+                if s.scalar(due(select(model.id)).limit(1)) is None:
+                    return []
             with self.db.transaction() as s:
                 pending_tasks = []
-                model = MODELS["followup_tasks"]
-                for task in s.scalars(
-                    select(model)
-                    .where(
-                        model.tenant_id == p["tenant_id"],
-                        model.seller_id == p["seller_id"],
-                        model.op_active.is_(True),
-                        model.op_reconcile_at <= self.clock(),
-                    )
-                    .order_by(model.op_reconcile_at, model.id)
-                ):
+                for task in s.scalars(due(select(model)).order_by(model.op_reconcile_at, model.id)):
                     update(task, last_reconciled_at=self.clock().isoformat())
                     pending_tasks.append(doc(task))
                 return pending_tasks
@@ -556,18 +560,22 @@ class InboundCallbacks:
                     await asyncio.to_thread(self.inbound_event, p["tenant_id"], payload, "call.hangup")
 
     def inbound_watchdog(self, p):
+        model = MODELS["followup_tasks"]
+
+        def due(query):
+            # Set only while an inbound leg is live and not yet ending.
+            return query.where(
+                model.tenant_id == p["tenant_id"],
+                model.seller_id == p["seller_id"],
+                model.op_control_due_at <= self.clock(),
+            )
+
+        with self.db.transaction(False) as s:
+            if s.scalar(due(select(model.id)).limit(1)) is None:
+                return
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
-            model = MODELS["followup_tasks"]
-            for task in s.scalars(
-                select(model)
-                .where(
-                    model.tenant_id == p["tenant_id"],
-                    model.seller_id == p["seller_id"],
-                    model.op_control_due_at <= self.clock(),
-                )
-                .order_by(model.op_control_due_at, model.id)
-            ):
+            for task in s.scalars(due(select(model)).order_by(model.op_control_due_at, model.id)):
                 deadline = dt(task.data.get("inbound_deadline"))
                 if (
                     task.data.get("inbound")
