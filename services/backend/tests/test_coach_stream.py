@@ -131,9 +131,7 @@ async def test_terminal_accounting_frame_does_not_reopen_content_or_overwrite_an
             await OpenRouterCoach("fixture", http=http).suggest({"private_question": "Explain"})
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("accepted", [True, False])
-async def test_only_accepted_primary_help_unlocks_the_longer_explanation_deadline(accepted):
+def primary_then_explanation(delay=0.08, *, complete_primary=True):
     from test_helper_progress import frame
 
     primary = {
@@ -141,33 +139,59 @@ async def test_only_accepted_primary_help_unlocks_the_longer_explanation_deadlin
         for k, v in ordinary_advice({"state_version": 1, "context_fingerprint": "stream-fixture"}).items()
         if k not in {"reason", "state_update"}
     }
-    shown = []
+    opening = json.dumps(primary)[:-1] + ', "reason": "'
+    if not complete_primary:
+        opening = opening[: opening.index('"field_audit"')]
 
     class Stream(httpx.AsyncByteStream):
         async def __aiter__(self):
-            yield frame(json.dumps(primary)[:-1] + ', "reason": "')
-            await asyncio.sleep(0.08)
+            yield frame(opening)
+            await asyncio.sleep(delay)
+            if not complete_primary:
+                yield frame(json.dumps(primary)[len(opening) :][:-1] + ', "reason": "')
             yield frame('Explanation", "state_update": null}')
             yield frame(choices=[{"delta": {}, "finish_reason": "stop"}])
             yield b"data: [DONE]\n\n"
 
-    async def progress(result):
+    return Stream()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("progress", ["accepted", "withheld", "absent"])
+async def test_complete_primary_unlocks_the_full_answer_deadline(progress):
+    """The first-useful ceiling bounds the first displayable content, not the reviewed answer.
+
+    A factual primary is withheld until review (on_progress returns False) and plain F1 help has
+    no early display at all; neither may be cut off at the first-useful ceiling.
+    """
+    shown = []
+
+    async def on_progress(result):
         shown.append(result)
-        return accepted
+        return progress == "accepted"
 
     async with httpx.AsyncClient(
-        transport=httpx.MockTransport(lambda _: httpx.Response(200, stream=Stream()))
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, stream=primary_then_explanation()))
     ) as http:
         provider = OpenRouterCoach("fixture", http=http)
         provider.first_useful_ms = 30
-        provider.on_progress = progress
-        if accepted:
-            result = await provider.suggest({"private_question": "Explain"}, deadline_ms=400)
-            assert result["reason"] == "Explanation"
-        else:
-            with pytest.raises(TimeoutError):
-                await provider.suggest({"private_question": "Explain"}, deadline_ms=400)
-        assert len(shown) == 1
+        provider.on_progress = None if progress == "absent" else on_progress
+        result = await provider.suggest({"private_question": "Explain"}, deadline_ms=400)
+    assert result["reason"] == "Explanation"
+    assert len(shown) == (0 if progress == "absent" else 1)
+
+
+@pytest.mark.asyncio
+async def test_no_complete_primary_before_the_first_useful_ceiling_times_out():
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, stream=primary_then_explanation(complete_primary=False))
+        )
+    ) as http:
+        provider = OpenRouterCoach("fixture", http=http)
+        provider.first_useful_ms = 30
+        with pytest.raises(TimeoutError):
+            await provider.suggest({"private_question": "Explain"}, deadline_ms=400)
 
 
 @pytest.mark.asyncio
@@ -192,3 +216,92 @@ async def test_stream_comments_cannot_extend_the_full_response_deadline():
         provider.on_progress = progress
         with pytest.raises(TimeoutError):
             await provider.suggest({"private_question": "Explain"}, deadline_ms=60)
+
+
+def metadata_stream(content, *, final, finish="stop"):
+    """Documented streaming: routing metadata arrives on the final chunk, not on every frame."""
+    text = ""
+    for fragment in (content[:40], content[40:]):
+        delta = {"id": "stream-meta", "model": "fixture", "choices": [{"delta": {"content": fragment}}]}
+        text += "data: " + json.dumps(delta) + "\n\n"
+    last = {
+        "id": "stream-meta",
+        "choices": [{"delta": {}, "finish_reason": finish}],
+        "usage": {"cost": 0.001},
+        **final,
+    }
+    return text + "data: " + json.dumps(last) + "\n\ndata: [DONE]\n\n"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "final,verified",
+    [
+        (
+            {"openrouter_metadata": {"endpoints": {"available": [{"provider": "Cerebras"}], "selected": 0}}},
+            True,
+        ),
+        (
+            {"openrouter_metadata": {"endpoints": {"available": [{"provider": "Other"}], "selected": 0}}},
+            False,
+        ),
+        ({}, False),
+    ],
+)
+async def test_stream_identity_may_arrive_only_on_the_final_chunk(final, verified):
+    from app.providers.openrouter import RouteNotVerified
+    from test_openrouter_coach import TURN
+
+    shown = []
+
+    async def progress(result):
+        shown.append(provider.last_provider)  # The route identity when display was offered.
+        return True
+
+    guided = {
+        **TURN,
+        "field_audit": [
+            {"field": f, "classification": "nonassertive", "sources": [], "implied_premises": []}
+            for f in ("say_or_ask", "reason")
+        ],
+        "guidance": {
+            "kind": "DISCOVERY",
+            "say_or_ask": "Which part of that would be useful to clarify first?",
+            "reason": "Clarify the stated concern.",
+            "alternatives": [],
+            "evidence_segment_ids": ["s1"],
+            "playbook_card_ids": [],
+            "expires_in_ms": 20000,
+        },
+    }
+    body = metadata_stream(json.dumps(guided), final=final)
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, text=body))
+    ) as http:
+        provider = OpenRouterCoach("fixture", http=http)
+        provider.on_progress = progress
+        if verified:
+            result = await provider.suggest({"private_question": "Explain"}, deadline_ms=1000)
+            assert result["action"] == "SHOW_CARD" and result["state_update"] == TURN["state_delta"]
+            assert provider.last_provider == "Cerebras"
+        else:
+            with pytest.raises(RouteNotVerified):
+                await provider.suggest({"private_question": "Explain"}, deadline_ms=1000)
+    assert shown == (["Cerebras"] if verified else []), "Nothing is displayed before verification"
+    assert provider.last_request_id == "stream-meta" and provider.last_usage["cost"] == 0.001
+
+
+@pytest.mark.asyncio
+async def test_truncated_stream_keeps_complete_state_without_guidance():
+    from test_openrouter_coach import TURN
+
+    content = json.dumps(TURN)
+    truncated = content[: content.index('"field_audit"')] + '"field_audit": [{"fi'
+    body = metadata_stream(truncated, final={"provider": "Cerebras"}, finish="length")
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, text=body))
+    ) as http:
+        result = await OpenRouterCoach("fixture", http=http).suggest(
+            {"private_question": "Explain"}, deadline_ms=1000
+        )
+    assert result["action"] == "NO_ACTION" and result["state_update"] == TURN["state_delta"]

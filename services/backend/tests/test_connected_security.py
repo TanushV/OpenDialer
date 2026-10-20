@@ -128,7 +128,7 @@ def test_master_keys_are_write_only_and_not_in_snapshot(connected):
     r = c.put(
         "/v1/admin/settings",
         headers=h,
-        json={"telnyx_api_key": secret, "openai_api_key": secret, "groq_api_key": secret},
+        json={"telnyx_api_key": secret, "openai_api_key": secret, "openrouter_api_key": secret},
     )
     assert r.status_code == 200, r.text
     assert secret not in r.text
