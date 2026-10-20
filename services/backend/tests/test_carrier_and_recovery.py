@@ -117,8 +117,10 @@ def test_monitored_voicemail_waits_for_start_confirmation(workspace, carrier):
             headers=h,
             json={"event_id": f"vm-{i}", "event_type": event, "call_id": call["id"]},
         )
+    # Publish from the current version: a stale version is a 409 conflict (test_admin_setup.py).
+    current = c.get("/v1/workspace", headers=h).json()["policy"]["id"]
     c.post(
-        f"/v1/admin/policies/{workspace['policy_id']}/publish",
+        f"/v1/admin/policies/{current}/publish",
         headers=h,
         json={
             "approved": True,

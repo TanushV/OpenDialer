@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import hashlib
 import json
 import re
@@ -182,10 +183,12 @@ class NumberInput(Strict):
 
 
 class PolicyUpdate(Strict):
+    # The path names the version being edited; it must still be current (see publish).
+    expected_version: int | None = Field(default=None, ge=1)
     approved: bool | None = None
     reason: str = Field(default="", max_length=1000)
     review_reference: str | None = None
-    registry_required: Literal[True] | None = None
+    # National screening is mandatory and not a publishable setting.
     state_registry_required: bool | None = None
     consent_required: bool | None = None
     permissions: list[Literal["live", "prerecorded", "transcription", "recording", "messaging"]] | None = None
@@ -238,6 +241,80 @@ SECRET_FIELDS = {
 }
 # Retired non-ZDR coaching settings stored by older releases: never echoed or reported.
 RETIRED_FIELDS = {"groq_api_key", "groq_model"}
+_BOUND_KEYS = {
+    "minimum": "min",
+    "maximum": "max",
+    "exclusiveMinimum": "min_exclusive",
+    "exclusiveMaximum": "max_exclusive",
+    "minLength": "min_length",
+    "maxLength": "max_length",
+    "minItems": "min_items",
+    "maxItems": "max_items",
+}
+
+
+def _bound(schema):
+    out = {}
+    for option in schema.get("anyOf", [schema]):
+        if option.get("type") == "null":
+            continue
+        if "type" in option:
+            out.setdefault("type", option["type"])
+        out.update({name: option[key] for key, name in _BOUND_KEYS.items() if key in option})
+        if "enum" in option or "const" in option:
+            out["enum"] = option.get("enum", [option.get("const")])
+        if isinstance(option.get("items"), dict) and (items := _bound(option["items"])):
+            out["items"] = items
+    return out
+
+
+def field_bounds(model):
+    """UI bounds read from the same pydantic definition that validates the write."""
+    result = {}
+    for name, schema in model.model_json_schema()["properties"].items():
+        if name in {"request_id", "expected_version", "expected_campaign_version"}:
+            continue  # Edit-envelope identities are protocol, not rendered settings.
+        value = _bound(schema)
+        if isinstance(schema.get("default"), (bool, int, float, str, list)):
+            value["default"] = schema["default"]
+        if value:
+            result[name] = value
+    return result
+
+
+@functools.cache
+def setting_bounds():
+    from app.compliance.operating import DncRefreshPolicy, OperatingPolicy
+    from app.optimization.api import (
+        Comparison,
+        Conversion,
+        HealthPolicy,
+        ModelTrial,
+        NumberReview,
+        OptimizationSettings,
+    )
+    from app.preparation.templates import PreparationPolicy
+    from app.scheduling.models import EstimatePolicy
+    from app.telephony.callbacks import CallbackRoutingEdit
+
+    return {
+        name: field_bounds(model)
+        for name, model in {
+            "operating": OperatingPolicy,
+            "dnc_refresh": DncRefreshPolicy,
+            "preparation": PreparationPolicy,
+            "optimization": OptimizationSettings,
+            "health_policy": HealthPolicy,
+            "estimate_policy": EstimatePolicy,
+            "policy": PolicyUpdate,
+            "budget": Budget,
+            "callback_routing": CallbackRoutingEdit,
+            "conversion": Conversion,
+            "model_trial": ModelTrial,
+            "comparison": Comparison,
+            "number_review": NumberReview,
+        }.items()
+    }
 
 
 def create_app(settings=None, *, clock=None, carrier=None):
@@ -703,7 +780,20 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/admin/policies/{policy_id}/publish")
     def publish(policy_id: str, data: PolicyUpdate, p=Depends(administrator)):
-        return service.publish(p, policy_id, data.model_dump(exclude_none=True))
+        body = data.model_dump(exclude_none=True)
+        expected = body.pop("expected_version", None)
+        # Versions are immutable: an edit of anything but the current one would silently
+        # replace a newer publication. Concurrent publishes are also fenced by the
+        # campaign row version inside the publication transaction.
+        with db.transaction(False) as s:
+            policy = service.required(s, "policy_versions", policy_id, p)
+            campaign = service.required(s, "campaigns", policy.data["campaign_id"], p)
+            if campaign.data["policy_id"] != policy.id or expected not in {None, policy.version}:
+                fail(
+                    409,
+                    "POLICY_VERSION_CONFLICT: a newer calling policy is current; reload it before publishing",
+                )
+        return service.publish(p, policy_id, body)
 
     @app.get("/v1/admin/preflight")
     def preflight(p=Depends(administrator)):
@@ -731,11 +821,19 @@ def create_app(settings=None, *, clock=None, carrier=None):
         await service.dispatch_controls(p)
         return result
 
+    @app.get("/v1/definitions")
+    def read_definitions(p=Depends(principal)):
+        # Schema bounds and enums only: nothing seller-specific, so shared forms read them too.
+        return {"bounds": setting_bounds()}
+
     @app.get("/v1/admin/settings")
     def read_settings(p=Depends(administrator)):
         from app.compliance.operating import OperatingPolicy
         from app.config import PROVIDER_DEFAULTS, inference_model
+        from app.optimization.api import HealthPolicy
+        from app.optimization.workflows import DEFAULTS as OPTIMIZATION_DEFAULTS
         from app.preparation.templates import PreparationPolicy
+        from app.scheduling.models import EstimatePolicy
 
         config = service.vault.read(p["tenant_id"])
         own_profile = service.vault.read("plan-" + p["user_id"])
@@ -770,6 +868,12 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 "runtime": settings.runtime_limits.model_dump(mode="json"),
                 "operating": OperatingPolicy().model_dump(mode="json"),
                 "preparation": PreparationPolicy().model_dump(mode="json"),
+                "optimization": {
+                    **OPTIMIZATION_DEFAULTS,
+                    "health_policy": HealthPolicy().model_dump(),
+                    "estimate_policy": EstimatePolicy().model_dump(mode="json"),
+                },
+                "bounds": setting_bounds(),
             },
         }
 
@@ -839,6 +943,62 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.post("/v1/admin/numbers")
     def number(data: NumberInput, p=Depends(administrator)):
         return service.add_number(p, data.model_dump(exclude_none=True))
+
+    @app.get("/v1/admin/numbers/summary")
+    def numbers_summary(p=Depends(administrator)):
+        """Whole-inventory counts and the saved capacity plan. Reading never queues planning."""
+        from collections import Counter
+
+        from sqlalchemy import func, or_
+
+        from app.db import MODELS, Job
+
+        with db.transaction(False) as s:
+            numbers = service.scoped(s, "number_inventory", p)
+            lifecycles = Counter(n.data["lifecycle"] for n in numbers)
+            ready = sum(bool(service.number_readiness_in(s, p, n)["outbound_ready"]) for n in numbers)
+            binding = MODELS["lead_number_bindings"]
+            stable = s.scalar(
+                select(func.count())
+                .select_from(binding)
+                .where(binding.tenant_id == p["tenant_id"], binding.seller_id == p["seller_id"])
+            )
+            forecast = service.saved_forecast(s, p)
+            campaign = service.selected_campaign(s, p)
+            job = s.scalar(
+                select(Job)
+                .where(
+                    Job.tenant_id == p["tenant_id"],
+                    or_(
+                        Job.key.startswith(f"planning:{campaign.id}:configured:", autoescape=True),
+                        Job.key == "optimization-work:forecast_refresh:" + campaign.id,
+                    ),
+                    Job.status.in_(["queued", "running", "dead"]),
+                )
+                .order_by(Job.available_at.desc(), Job.id)
+                .limit(1)
+            )
+        forecast["projection"].update(
+            job_id=job.id if job else None,
+            refresh_status=job.status if job else None,
+            refresh_error=job.error if job else None,
+            attempts=job.attempts if job else None,
+        )
+        return {
+            "inventory": {
+                "total": len(numbers),
+                "ready": ready,
+                "pending_setup": sum(
+                    lifecycles[k] for k in ("purchased", "identity_configured", "callback_tested")
+                ),
+                "limited_use": lifecycles["limited_real_use"],
+                "paused_outbound": lifecycles["paused_for_outbound"] + lifecycles["retired_callback_only"],
+                "investigating": lifecycles["investigating"],
+                "lifecycles": dict(lifecycles),
+            },
+            "stable_assignments": stable,
+            "forecast": forecast,
+        }
 
     @app.patch("/v1/admin/numbers/{number_id}")
     def edit_number(number_id: str, data: dict, p=Depends(administrator)):
@@ -935,9 +1095,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
         with db.transaction() as s:
             service.required(s, "campaigns", data.get("campaign_id", ""), p)
             seller = service.required(s, "sellers", p["seller_id"], p)
+            # The administrator's reviewed publication is the approval; no client flag adds trust.
             if (
-                not data.get("approved")
-                or not data.get("review_reference")
+                not data.get("review_reference")
                 or not isinstance(opener, str)
                 or not 10 <= len(opener) <= 500
                 or seller.data["name"].casefold() not in opener.casefold()
@@ -1042,7 +1202,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
         with db.transaction() as s:
             model = service.required(s, "model_versions", model_id, p)
-            candidate = {**model.data, "manual_approved": data.get("approved", False)}
+            # This authenticated administrator request is the manual approval. Every evidence
+            # gate comes from the stored, report-derived review; the request body adds nothing.
+            candidate = {**model.data, "manual_approved": True}
             if not promotion_allowed(candidate):
                 fail(409, "Model has not passed calibration, online trial, coverage and policy gates")
             if not service.model_source_current(
@@ -1239,7 +1401,12 @@ def create_app(settings=None, *, clock=None, carrier=None):
             fail(422, "Verified business identity evidence is required")
         with db.transaction() as session:
             seller = service.required(session, "sellers", p["seller_id"], p)
-            update(seller, approved=bool(data.get("approved")), identity_reference=data["identity_reference"])
+            # Recording reviewed evidence is the approval; only an explicit false revokes it.
+            update(
+                seller,
+                approved=data.get("approved") is not False,
+                identity_reference=data["identity_reference"],
+            )
             audit(
                 session,
                 p["tenant_id"],
@@ -1501,43 +1668,32 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/admin/models/{model_id}/trial")
     def save_trial(model_id: str, data: dict, p=Depends(administrator)):
-        if (
-            not data.get("report_reference")
-            or not isinstance(data.get("policy_violations"), int)
-            or "coverage_delta" not in data
-        ):
-            fail(
-                422,
-                "A reviewed controlled-trial report, coverage delta and policy violation count are required",
-            )
+        # The client names the saved report and its review note. Every gate value is read
+        # from that report, so client-supplied pass flags, deltas or counts are ignored.
+        if not data.get("report_reference"):
+            fail(422, "A review reference for the saved controlled-trial report is required")
+        report_id = data.get("cohort_report_id")
         with db.transaction() as session:
             model = service.required(session, "model_versions", model_id, p)
-            if model.data.get("source_dataset_id"):
-                report_id = data.get("cohort_report_id")
-                if not report_id:
-                    fail(409, "A saved controlled cohort report is required for an operational candidate")
-                report = service.required(session, "evaluation_reports", report_id, p)
-                if (
-                    report.data.get("kind") != "conversion_trial"
-                    or report.data.get("simulation")
-                    or not report.data.get("sufficient_evidence")
-                    or report.data.get("goal") != model.data.get("goal")
-                    or report.data.get("trial_model_id") != model.id
-                ):
-                    fail(409, "The saved report lacks sufficient independent live conversion evidence")
-                data = {
-                    **data,
-                    "coverage_delta": report.data.get("coverage_delta", -1),
-                    "policy_violations": report.data.get("policy_violations", 1),
-                }
+            if not report_id:
+                fail(409, "A saved controlled cohort report is required to review a candidate")
+            report = service.required(session, "evaluation_reports", report_id, p)
+            if (
+                report.data.get("kind") != "conversion_trial"
+                or report.data.get("simulation")
+                or not report.data.get("sufficient_evidence")
+                or report.data.get("goal") != model.data.get("goal")
+                or report.data.get("trial_model_id") != model.id
+            ):
+                fail(409, "The saved report lacks sufficient independent live conversion evidence")
             update(
                 model,
-                online_trial_passed=bool(data.get("online_trial_passed")),
-                report_reference=data["report_reference"],
-                coverage_delta=float(data["coverage_delta"]),
-                policy_violations=data["policy_violations"],
+                online_trial_passed=True,
+                report_reference=str(data["report_reference"])[:1000],
+                coverage_delta=float(report.data.get("coverage_delta", -1)),
+                policy_violations=report.data.get("policy_violations", 1),
                 trial_reviewed_by=p["user_id"],
-                cohort_report_id=data.get("cohort_report_id"),
+                cohort_report_id=report.id,
             )
             audit(
                 session,
