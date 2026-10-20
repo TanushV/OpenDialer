@@ -10,7 +10,7 @@ from datetime import timedelta
 from urllib.parse import urlsplit
 
 import httpx
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, or_, select, text
 
 from app.config import PROVIDER_DEFAULTS, CapabilityStatus
 from app.db import DERIVED_TABLES, MODELS, audit, doc, emit, get, put, rows, uid, update
@@ -30,7 +30,9 @@ from app.telephony.workflows import TelephonyWorkflows
 from app.workspace import WorkspaceReads
 
 
-def capability_statuses(conf, policy, screening, *, simulation, source_version, ingress=None):
+def capability_statuses(
+    conf, policy, screening, *, simulation, source_version, ingress=None, inference=False
+):
     """Evidence states; a configured credential never certifies a funded/live integration."""
     values = []
 
@@ -129,12 +131,17 @@ def capability_statuses(conf, policy, screening, *, simulation, source_version, 
         ["OFFLINE_FALLBACK_UNAVAILABLE"],
         "Keep the selected authority online or use an existing always-on connected host. An operator note is not carrier failover proof.",
     )
+    # The approved generic script always remains available, so preparation never blocks calling.
     add(
         "preparation",
-        "software_verified",
+        "software_verified" if simulation else "configured" if inference else "degraded",
         "none",
-        ["APPROVED_FALLBACK_AVAILABLE"],
-        "Publish the seller template and prepare batches; personalized research additionally requires configured inference.",
+        ["SIMULATION_ONLY"]
+        if simulation
+        else ["LIVE_INFERENCE_ACCEPTANCE_REQUIRED"]
+        if inference
+        else ["APPROVED_FALLBACK_ONLY"],
+        "Publish the seller template; personalized research and scripts additionally require configured inference.",
     )
     return values
 
@@ -158,7 +165,7 @@ class Dialer(
 
         return read_metrics(self, p)
 
-    def preflight(self, p, *, full=True):
+    def preflight(self, p, *, full=True, deep=False):
         if not full:
             cached = self.capability_cache.get((p["tenant_id"], p["seller_id"]), {})
             return {
@@ -179,12 +186,15 @@ class Dialer(
         conf = self.vault.read(p["tenant_id"])
         blockers, warnings = [], []
         with self.db.transaction(False) as s:
-            campaign = self.scoped(s, "campaigns", p)[0]
-            policy = self.required(s, "policy_versions", campaign.data["policy_id"], p)
+            # A missing campaign or budget is a named blocker, not an IndexError.
+            campaign = next(iter(self.scoped(s, "campaigns", p)), None)
+            policy = self.required(s, "policy_versions", campaign.data["policy_id"], p) if campaign else None
             seller = self.required(s, "sellers", p["seller_id"], p)
             operating = dict(seller.data.get("operating_policy", {}))
-            source_version = f"{conf.get('version', 0)}:{seller.version}:{policy.version}"
-            if not policy.data.get("approved"):
+            source_version = f"{conf.get('version', 0)}:{seller.version}:{policy.version if policy else 0}"
+            if not campaign:
+                blockers.append("NO_CAMPAIGN")
+            elif not policy.data.get("approved"):
                 blockers.append("POLICY_NOT_PUBLISHED")
             if not seller.data.get("approved"):
                 blockers.append("SELLER_NOT_APPROVED")
@@ -198,70 +208,18 @@ class Dialer(
             ) in self.__dict__.get("_journal_faults", set()):
                 blockers.append("JOURNAL_RECOVERY_REQUIRED")
             numbers = self.scoped(s, "number_inventory", p)
-            healthy = next(
-                (n for n in numbers if n.data["lifecycle"] in {"healthy", "limited_real_use"}), None
-            )
-            if not healthy:
+            # The same gate as call authorization: current callback proof for the current route,
+            # confirmed configuration and health. A lifecycle label alone is not readiness.
+            if not any(self.number_readiness_in(s, p, n)["outbound_ready"] for n in numbers):
                 blockers.append("NO_HEALTHY_NUMBERS")
             from app.compliance.operating import screening_capability, screening_snapshot
-            from app.optimization.numbering import select_number
-            from app.scheduling.policy import queue_decision
 
             screening = screening_capability(screening_snapshot(self, s, p))
-            lead_model = MODELS["leads"]
-            scope = (lead_model.tenant_id == p["tenant_id"], lead_model.seller_id == p["seller_id"])
-            total = s.scalar(select(func.count()).select_from(lead_model).where(*scope))
-            leads = list(s.scalars(select(lead_model).where(*scope).order_by(lead_model.id).limit(500)))
-            self._queue_context(s, p, campaign.id, leads)
-            inventory = self.inventory_evidence(s, p, fast=True)
-            claims = s.info["active_claims"]
-            own = next((c for c in claims if c.rep_id == p["user_id"]), None)
-            claimed = {c.endpoint_id for c in claims}
-            bindings = {
-                r.data["lead_id"]: r.data["number_id"] for r in self.scoped(s, "lead_number_bindings", p)
-            }
-            by_number = {n.id: n for n in numbers}
-            counts = {"cleared_count": 0, "pending_count": 0, "blocked_count": 0, "dialable_queue_count": 0}
-            reasons, queue_reasons = set(), set()
-            for lead in leads:
-                allocation = select_number(doc(lead), inventory, bound_id=bindings.get(lead.id))
-                context = self.context(s, p, lead, by_number.get(allocation["number_id"]))
-                national = context.registry_decision
-                key = (
-                    "cleared_count"
-                    if national["decision"] == "clear"
-                    else "blocked_count"
-                    if national["decision"] in {"blocked", "listed"}
-                    else "pending_count"
-                )
-                counts[key] += 1
-                reasons.update(national["reason_codes"])
-                decision = queue_decision(
-                    context, lead.data, own_claim=own, endpoint_claimed=lead.data["endpoint_id"] in claimed
-                )
-                counts["dialable_queue_count"] += int(decision.allowed)
-                queue_reasons.update(decision.reasons)
-                if context.state_registry_required and not context.state_registry_current:
-                    reasons.add("STATE_REGISTRY_MISSING")
-            screening.update(
-                **counts,
-                inspected_count=len(leads),
-                total_count=total,
-                omitted_count=max(0, total - len(leads)),
-                counts_complete=total <= len(leads),
-                reason_codes=sorted(reasons or screening["reason_codes"]),
-                queue_reason_codes=sorted(queue_reasons),
-                queue_scope="inspected candidates for the current rep; not reserved capacity",
-            )
-            if not counts["cleared_count"]:
-                blockers.extend(screening["reason_codes"] or ["SCREENING_PENDING"])
-            if "STATE_REGISTRY_MISSING" in reasons:
-                warnings.append("Some leads require a current authorized state registry source")
-            if not counts["dialable_queue_count"]:
-                blockers.extend(sorted(queue_reasons) or ["NO_CURRENTLY_DIALABLE_WORK"])
-                if total > len(leads):
-                    warnings.append("Queue inspection is bounded; further candidates may be eligible")
-            if not self.budget_ok(s, p):
+            if campaign:
+                self._preflight_queue(s, p, campaign, numbers, screening, blockers, warnings)
+            if not self.scoped(s, "budgets", p):
+                blockers.append("BUDGET_NOT_CONFIGURED")
+            elif not self.budget_ok(s, p):
                 blockers.append("BUDGET_EXHAUSTED")
             pending = sum(
                 c.data.get("status") in {"sending", "uncertain"} for c in self.scoped(s, "command_outbox", p)
@@ -285,12 +243,13 @@ class Dialer(
             )
         else:
             warnings.append("Simulated providers: no real calls, purchases, inference, or carrier billing")
-        if not self.inference(p["tenant_id"], "research_extract", p["user_id"]):
+        inference = bool(self.inference(p["tenant_id"], "research_extract", p["user_id"]))
+        if not inference:
             warnings.append("Research inference is unconfigured; approved fallback scripts remain available")
         provider = conf.get("coach_provider", PROVIDER_DEFAULTS.coach_provider)
         if provider == "openrouter" and not conf.get("openrouter_api_key"):
             warnings.append("OpenRouter/Cerebras is unconfigured; approved static coaching remains available")
-        integrity = self.db.integrity()
+        integrity = self.database_integrity(deep=deep)
         if not integrity:
             blockers.append("DATABASE_INTEGRITY_FAILURE")
         capabilities = capability_statuses(
@@ -300,6 +259,7 @@ class Dialer(
             simulation=self.settings.simulation,
             source_version=source_version,
             ingress=conf.get("ingress_evidence"),
+            inference=inference,
         )
         cache = {"capabilities": capabilities, "capabilities_as_of": self.clock().isoformat()}
         with self.ingress_lock:
@@ -310,6 +270,7 @@ class Dialer(
             **cache,
             "capabilities_stale": False,
             "integrity_ok": integrity,
+            "integrity_check": "full" if deep else "quick",
             "ready_to_call": not blockers,
             "blockers": sorted(set(blockers)),
             "warnings": warnings,
@@ -321,6 +282,69 @@ class Dialer(
             if self.settings.simulation
             else "requires live account validation",
         }
+
+    def database_integrity(self, *, deep=False):
+        """Routine readiness runs SQLite's quick_check; the full page check is an explicit deep run."""
+        if deep or not self.db.sqlite:
+            return self.db.integrity()
+        with self.db.transaction(False) as s:
+            return s.execute(text("PRAGMA quick_check")).scalar() == "ok"
+
+    def _preflight_queue(self, s, p, campaign, numbers, screening, blockers, warnings):
+        from app.optimization.numbering import select_number
+        from app.scheduling.policy import queue_decision
+
+        lead_model = MODELS["leads"]
+        scope = (lead_model.tenant_id == p["tenant_id"], lead_model.seller_id == p["seller_id"])
+        total = s.scalar(select(func.count()).select_from(lead_model).where(*scope))
+        leads = list(s.scalars(select(lead_model).where(*scope).order_by(lead_model.id).limit(500)))
+        self._queue_context(s, p, campaign.id, leads)
+        inventory = self.inventory_evidence(s, p, fast=True)
+        claims = s.info["active_claims"]
+        own = next((c for c in claims if c.rep_id == p["user_id"]), None)
+        claimed = {c.endpoint_id for c in claims}
+        bindings = {r.data["lead_id"]: r.data["number_id"] for r in self.scoped(s, "lead_number_bindings", p)}
+        by_number = {n.id: n for n in numbers}
+        counts = {"cleared_count": 0, "pending_count": 0, "blocked_count": 0, "dialable_queue_count": 0}
+        reasons, queue_reasons = set(), set()
+        for lead in leads:
+            allocation = select_number(doc(lead), inventory, bound_id=bindings.get(lead.id))
+            context = self.context(s, p, lead, by_number.get(allocation["number_id"]))
+            national = context.registry_decision
+            key = (
+                "cleared_count"
+                if national["decision"] == "clear"
+                else "blocked_count"
+                if national["decision"] in {"blocked", "listed"}
+                else "pending_count"
+            )
+            counts[key] += 1
+            reasons.update(national["reason_codes"])
+            decision = queue_decision(
+                context, lead.data, own_claim=own, endpoint_claimed=lead.data["endpoint_id"] in claimed
+            )
+            counts["dialable_queue_count"] += int(decision.allowed)
+            queue_reasons.update(decision.reasons)
+            if context.state_registry_required and not context.state_registry_current:
+                reasons.add("STATE_REGISTRY_MISSING")
+        screening.update(
+            **counts,
+            inspected_count=len(leads),
+            total_count=total,
+            omitted_count=max(0, total - len(leads)),
+            counts_complete=total <= len(leads),
+            reason_codes=sorted(reasons or screening["reason_codes"]),
+            queue_reason_codes=sorted(queue_reasons),
+            queue_scope="inspected candidates for the current rep; not reserved capacity",
+        )
+        if not counts["cleared_count"]:
+            blockers.extend(screening["reason_codes"] or ["SCREENING_PENDING"])
+        if "STATE_REGISTRY_MISSING" in reasons:
+            warnings.append("Some leads require a current authorized state registry source")
+        if not counts["dialable_queue_count"]:
+            blockers.extend(sorted(queue_reasons) or ["NO_CURRENTLY_DIALABLE_WORK"])
+            if total > len(leads):
+                warnings.append("Queue inspection is bounded; further candidates may be eligible")
 
     def _ingress_start(self, p, data):
         conf = self.vault.read(p["tenant_id"])
@@ -542,7 +566,8 @@ class Dialer(
         if not self.settings.simulation and data.get("lifecycle", "purchased") != "purchased":
             fail(409, "New inventory must pass identity/callback/warmup gates")
         with self.db.transaction() as s:
-            if any(n.data["phone"] == phone.e164 for n in rows(s, "number_inventory")):
+            # A lookup-key read finds any owner without decrypting other sellers' inventory.
+            if self.number_owners(s, [phone.e164]):
                 fail(409, "Number is already assigned to a seller")
             number = put(
                 s,
@@ -686,12 +711,14 @@ class Dialer(
         if not fresh:
             with self.db.transaction() as s:
                 self.db.authorize_stream(s, current)
+                # Only live work for the current source generation counts; a dead or older
+                # job is history, and the minute bucket below bounds new attempts.
                 pending = s.scalar(
                     select(Job)
                     .where(
                         Job.tenant_id == p["tenant_id"],
-                        Job.key.startswith(key + ":", autoescape=True),
-                        Job.status.in_(["queued", "running", "dead"]),
+                        Job.key.startswith(f"{key}:{generation}:", autoescape=True),
+                        Job.status.in_(["queued", "running"]),
                     )
                     .order_by(Job.available_at.desc(), Job.id)
                     .limit(1)
