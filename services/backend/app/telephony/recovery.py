@@ -203,12 +203,15 @@ class CommandRecovery:
                     recovery_reason="No matching carrier status receipt. Await a signed event or supply the original call reference for verification.",
                 )
                 if not target and not command.data.get("inbound"):
+                    if call.data["state"] != "DIAL_UNCONFIRMED" and self.dial_evidence_expired(call):
+                        # Refreshes the call under its row lock; a concurrent pass may win the transition.
+                        self.dial_unconfirmed_in(s, p, call)
                     if call.data["state"] == "DIAL_UNCONFIRMED":
+                        # This command holds its own lease, so dial_unconfirmed_in skips it; settle it here
+                        # whichever pass (this command's or its sibling dial's) moved the call.
                         update(
                             command, status="unconfirmed", recovery_reason=call.data.get("recovery_reason")
                         )
-                    elif self.dial_evidence_expired(call):
-                        self.dial_unconfirmed_in(s, p, call)
                 return doc(command)
             identity, alive = verified
             kind, action = command.data["kind"], command.data.get("action")
@@ -369,8 +372,18 @@ class CommandRecovery:
             "No carrier reference or signed event arrived for this dial. Check the carrier account: "
             "attach the call reference if it was placed, or confirm it was not placed."
         )
+        commands = MODELS["command_outbox"]
         for key in (call.id, call.id + ":hangup"):
             command = self._by_key(s, p, "command_outbox", key)
+            if command is not None:
+                # A sibling command another worker is reconciling is skipped, not overwritten; that
+                # worker sees DIAL_UNCONFIRMED after this commits and settles its own command.
+                command = s.scalar(
+                    select(commands)
+                    .where(commands.id == command.id)
+                    .with_for_update(skip_locked=True)
+                    .execution_options(populate_existing=True)  # Lock, then read its current version.
+                )
             lease = dt(command.data.get("lease_until")) if command else None
             if (
                 command
