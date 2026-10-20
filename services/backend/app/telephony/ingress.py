@@ -172,17 +172,6 @@ class WebhookIngress:
                     processed_at=self.clock().isoformat() if status == "processed" else None,
                 )
 
-    async def _apply_webhook(self, tenant_id, receipt, payload):
-        # Also used by the isolated carrier-fixture driver; live processing owns the inbox transaction.
-        def apply():
-            raw_writes = []
-            with self.db.transaction() as s:
-                result = self._apply_webhook_in(s, tenant_id, receipt, payload, raw_writes)
-            self._publish_transcripts(raw_writes)
-            return result
-
-        return await asyncio.to_thread(apply)
-
     def _webhook_call(self, s, tenant_id, payload):
         provider_id = payload.get("call_control_id")
         if not isinstance(provider_id, str) or not provider_id:
