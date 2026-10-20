@@ -16,6 +16,10 @@ export interface WorkspaceContext {
   run: (work: () => Promise<void>) => Promise<void>;
   subscribe: (handler: (events: LiveEvent[]) => void) => () => void;
   liveStatus: string;
+  /** Open the follow-up list at one task. */
+  openTask?: (id: string) => void;
+  /** The task most recently opened with openTask. */
+  focusTask?: string | null;
   configureCredential: (
     field: ProviderCredential,
     version: number,

@@ -21,7 +21,7 @@ import { MemoryStorage, OptOutJournal, type OptOut } from "../state/optouts";
 import { pausesPresence, Telephony } from "../telephony/client";
 import { InboundCall } from "./InboundCall";
 import { CallControls } from "./CallControls";
-import { WrapUp } from "./WrapUp";
+import { CallbackReviewNotice, WrapUp } from "./WrapUp";
 import { DueTasks } from "./FollowupTasks";
 import type { Call, Packet, Reservation } from "../types";
 import { isActiveCall, isTerminal } from "../types";
@@ -44,6 +44,8 @@ export function DialerPage() {
   const [reservation, setReservation] = useState<Reservation | null>(null);
   const [packet, setPacket] = useState<Packet | null>(null);
   const [call, setCall] = useState<Call | null>(null);
+  const [callbackReview, setCallbackReview] =
+    useState<Call["callback_review"]>(null);
   const currentCall = useRef(call);
   currentCall.current = call;
   const callReadGeneration = useRef(0);
@@ -343,6 +345,7 @@ export function DialerPage() {
       campaign_id: w.campaign.id,
     });
     setReservation(next);
+    setCallbackReview(null);
     setPacket(await api(`/v1/leads/${next.lead.id}/packet`));
     setCall(null);
   }
@@ -409,6 +412,7 @@ export function DialerPage() {
   }
   function wrapUpSaved(result: Call) {
     setCall(result);
+    setCallbackReview(result.callback_review ?? null);
     // The outcome is final. Refreshing next-call context reports separately.
     void run(async () => {
       try {
@@ -607,6 +611,12 @@ export function DialerPage() {
           call={call}
           timezone={packet?.lead.timezone}
           onSaved={wrapUpSaved}
+        />
+      )}
+      {callbackReview && (
+        <CallbackReviewNotice
+          review={callbackReview}
+          onDismiss={() => setCallbackReview(null)}
         />
       )}
       <div className="dialer-grid">

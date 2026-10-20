@@ -221,3 +221,37 @@ export function WrapUp({
     </section>
   );
 }
+
+/** A saved outcome whose callback time a person's edit or closure kept from applying. */
+export function CallbackReviewNotice({
+  review,
+  onDismiss,
+}: {
+  review: NonNullable<Call["callback_review"]>;
+  onDismiss: () => void;
+}) {
+  const { openTask } = useWorkspace();
+  const first = review.task_ids[0];
+  return (
+    <section
+      className="card padded callback-review"
+      aria-label="Callback needs review"
+    >
+      <p role="status">
+        Outcome saved. The callback time was not applied: {review.reason}
+      </p>
+      <div className="button-row">
+        {first && openTask && (
+          <button className="secondary small" onClick={() => openTask(first)}>
+            {review.task_ids.length > 1
+              ? "Review follow-ups"
+              : "Review follow-up"}
+          </button>
+        )}
+        <button className="text-button small" onClick={onDismiss}>
+          Dismiss
+        </button>
+      </div>
+    </section>
+  );
+}
