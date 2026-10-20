@@ -2,14 +2,16 @@
 
 import asyncio
 import hashlib
+import hmac
 import re
 from datetime import timedelta
 
+import httpx
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 
 from app.compliance.phone import normalize_phone
-from app.db import MODELS, ActiveClaim, audit, doc, emit, put, rows, uid, update
+from app.db import MODELS, ActiveClaim, audit, doc, emit, put, uid, update
 from app.optimization.numbering import assess_number_health, callback_current, number_ready
 from app.service import dt, fail
 
@@ -29,7 +31,45 @@ class ExternalReputation(BaseModel):
         return self
 
 
+def carrier_rejection(exc):
+    """A definitive 4xx means the carrier did not apply the request; timeouts, rate limits,
+    conflicts and server errors stay uncertain and reconcile the original intent."""
+    if not isinstance(exc, httpx.HTTPStatusError):
+        return None
+    status = exc.response.status_code
+    if not 400 <= status < 500 or status in {408, 409, 429}:
+        return None
+    try:
+        errors = exc.response.json().get("errors") or []
+    except (ValueError, AttributeError):
+        errors = []
+    detail = "; ".join(
+        str(error.get("title") or error.get("detail") or error.get("code"))
+        for error in errors
+        if isinstance(error, dict)
+    )
+    return f"{status} {detail}".strip()[:300]
+
+
 class NumberOperations:
+    def number_owners(self, s, phones):
+        """Owner of each phone across sellers, read by lookup key without decrypting other inventory."""
+        model = MODELS["number_inventory"]
+        keys = {
+            hmac.new(self.db.identity_key, phone.encode(), hashlib.sha256).hexdigest(): phone
+            for phone in phones
+        }
+        if not keys:
+            return {}
+        return {
+            keys[key]: (tenant_id, seller_id)
+            for key, tenant_id, seller_id in s.execute(
+                select(model.external_key, model.tenant_id, model.seller_id).where(
+                    model.external_key.in_(keys)
+                )
+            )
+        }
+
     def number_readiness_in(self, s, p, number):
         value = doc(number)
         config = self.callback_config(s, p)
@@ -91,12 +131,11 @@ class NumberOperations:
                 "workload": {
                     "current_limit": number.data["daily_limit"],
                     "maximum_reviewed_limit": ceiling,
-                    "recommended_limit": min(
-                        ceiling,
-                        max(number.data["daily_limit"], view["health"]["delivery_samples"])
-                        if view["health"]["status"] == "observed"
-                        else number.data["daily_limit"],
-                    ),
+                    # The staffed, approved ceiling bounds every suggestion. Healthy or sparse
+                    # (unknown) evidence may use it; deterioration or errors never raise a limit.
+                    "recommended_limit": ceiling
+                    if view["health"]["status"] in {"observed", "unknown"}
+                    else min(ceiling, number.data["daily_limit"]),
                     "reason": view["health"]["recommended_action"],
                 },
                 "policy": config["health_policy"],
@@ -334,11 +373,10 @@ class NumberOperations:
                     if fulfilled
                     else "Review pending requirements or failures in the carrier account. No new order will be submitted.",
                 )
-                inventory = {n.data["phone"]: n for n in rows(s, "number_inventory")}
+                owners = self.number_owners(s, fulfilled)
                 for phone in fulfilled:
-                    current = inventory.get(phone)
-                    if current:
-                        if current.tenant_id != p["tenant_id"] or current.seller_id != p["seller_id"]:
+                    if phone in owners:
+                        if owners[phone] != (p["tenant_id"], p["seller_id"]):
                             fail(409, "Ordered inventory has conflicting ownership; review the assignment")
                         continue
                     number = put(
@@ -403,10 +441,12 @@ class NumberOperations:
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             self._configuration_actor(s, p)
-            all_numbers = {r.data["phone"]: r for r in rows(s, "number_inventory")}
+            # Only this seller's inventory is decrypted; other owners are found by lookup key.
+            all_numbers = {r.data["phone"]: r for r in self.scoped(s, "number_inventory", p)}
+            owners = self.number_owners(s, set(normalized) - set(all_numbers))
             for phone, item in normalized.items():
                 row = all_numbers.get(phone)
-                if row and (row.tenant_id != p["tenant_id"] or row.seller_id != p["seller_id"]):
+                if not row and phone in owners:
                     assigned_elsewhere += 1
                     continue
                 values = {
@@ -631,8 +671,11 @@ class NumberOperations:
                 receipt = await carrier.configure_number(intent["provider_id"], connection)
             if not self._configuration_receipt(intent, receipt):
                 raise ValueError("Carrier configuration did not confirm the requested route")
-        except Exception:
-            await asyncio.to_thread(self._finish_number_configuration, p, intent, False)
+        except Exception as exc:
+            rejection = carrier_rejection(exc)
+            await asyncio.to_thread(self._finish_number_configuration, p, intent, False, rejection=rejection)
+            if rejection:
+                fail(422, f"Carrier rejected the number configuration ({rejection}); correct it and retry")
             fail(
                 503,
                 "Number configuration is uncertain; retry reconciles the same intent without purchasing or resending",
@@ -709,7 +752,7 @@ class NumberOperations:
             confirmed = False
         return await asyncio.to_thread(self._finish_number_configuration, p, intent, confirmed, recovery=True)
 
-    def _finish_number_configuration(self, p, intent, confirmed, *, recovery=False):
+    def _finish_number_configuration(self, p, intent, confirmed, *, recovery=False, rejection=None):
         stale = False
         connection = self.vault.read(p["tenant_id"]).get("telnyx_connection_id")
         with self.db.transaction() as s:
@@ -728,21 +771,25 @@ class NumberOperations:
                 number.version != intent["number_version"]
                 or number.data.get("provider_id") != intent["provider_id"]
             )
+            if stale:
+                status = "review_required"
+            elif confirmed:
+                status = "completed"
+            elif rejection:
+                # The carrier definitively refused it: terminal, not an uncertain effect to reconcile.
+                status = "failed"
+            else:
+                status = "review_required" if recovery else "uncertain"
             update(
                 action,
-                status="review_required"
-                if stale
-                else "completed"
-                if confirmed
-                else "review_required"
-                if recovery
-                else "uncertain",
+                status=status,
                 lease_until=None,
                 lease_owner=None,
                 finished_at=self.clock().isoformat(),
                 next_attempt_at=(self.clock() + timedelta(seconds=60)).isoformat(),
+                provider_error=rejection,
                 recovery_reason=None
-                if confirmed and not stale
+                if status in {"completed", "failed"}
                 else "Verify the original number, active route and disabled recording in the carrier account; this check never resubmits configuration.",
             )
             self.journal_effect_in(
@@ -768,7 +815,10 @@ class NumberOperations:
                 )
             elif not stale:
                 update(
-                    number, configuration_status="uncertain", identity_configured=False, callback_tested=False
+                    number,
+                    configuration_status="failed" if rejection else "uncertain",
+                    identity_configured=False,
+                    callback_tested=False,
                 )
             audit(
                 s,
