@@ -1,4 +1,5 @@
 import { parseCSV } from "../state/csv";
+import { LONG_REQUEST_MS } from "../api/client";
 import { useEffect, useState } from "react";
 import { label, useWorkspace } from "../context";
 
@@ -389,6 +390,7 @@ function CarrierImport({ onSaved }: { onSaved: () => Promise<void> }) {
         "/v1/admin/billing/reconcile",
         "POST",
         { source_reference: source.trim(), rows: records },
+        { timeoutMs: LONG_REQUEST_MS },
       );
       setMessage(
         `${result.matched} imported; ${result.duplicates} already recorded. Other leg charges stay unresolved until the full statement is checked.`,

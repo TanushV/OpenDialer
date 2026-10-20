@@ -39,6 +39,7 @@ import {
   protectedProviderInput,
   disconnectNativeAuthority,
   assertNoPendingOptouts,
+  type RequestOptions,
 } from "./api/client";
 import { DialerPage } from "./components/DialerPage";
 import { LiveConnection, type LiveEvent } from "./api/live";
@@ -49,7 +50,7 @@ import {
 } from "./components/Operations";
 import { ReviewPage } from "./components/ReviewPage";
 import { SettingsPage } from "./components/SettingsPage";
-import { Context, type WorkspaceContext } from "./context";
+import { Context, isAdmin, type WorkspaceContext } from "./context";
 import {
   isActiveCall,
   type Runtime,
@@ -65,12 +66,12 @@ type View =
   | "Intelligence"
   | "Settings";
 const navigation = [
-  { title: "Dialer", icon: Phone },
-  { title: "Leads", icon: Users },
-  { title: "Review", icon: BookOpen },
-  { title: "Numbers", icon: Radio },
-  { title: "Intelligence", icon: ChartNoAxesCombined },
-  { title: "Settings", icon: Settings },
+  { title: "Dialer", icon: Phone, admin: false },
+  { title: "Leads", icon: Users, admin: false },
+  { title: "Review", icon: BookOpen, admin: false },
+  { title: "Numbers", icon: Radio, admin: true },
+  { title: "Intelligence", icon: ChartNoAxesCombined, admin: false },
+  { title: "Settings", icon: Settings, admin: false },
 ] as const;
 export function Brand() {
   return (
@@ -155,7 +156,12 @@ export function App() {
     [connection],
   );
   const api = useCallback(
-    async <T,>(path: string, method?: string, body?: unknown): Promise<T> => {
+    async <T,>(
+      path: string,
+      method?: string,
+      body?: unknown,
+      options?: RequestOptions,
+    ): Promise<T> => {
       if (!runtime || !session)
         throw new Error("Sign in to a workspace first.");
       const cacheable = !method || method === "GET";
@@ -173,6 +179,8 @@ export function App() {
           path,
           method,
           body,
+          undefined,
+          options,
         );
         if (cacheable && key)
           void writeCache(key, result, runtime.simulation).catch(() => {});
@@ -796,23 +804,25 @@ export function App() {
           </div>
           <div className="nav-caption">WORKSPACE</div>
           <nav>
-            {navigation.map(({ title, icon: Icon }) => (
-              <button
-                key={title}
-                aria-label={title}
-                className={view === title ? "active" : ""}
-                disabled={title !== "Dialer" && activeConversation}
-                onClick={() => setView(title)}
-              >
-                <Icon size={18} />
-                {title}
-                {title === "Leads" && (
-                  <span className="nav-count">
-                    {snapshot.pages?.leads?.total ?? snapshot.leads.length}
-                  </span>
-                )}
-              </button>
-            ))}
+            {navigation
+              .filter((item) => !item.admin || isAdmin(snapshot.user.role))
+              .map(({ title, icon: Icon }) => (
+                <button
+                  key={title}
+                  aria-label={title}
+                  className={view === title ? "active" : ""}
+                  disabled={title !== "Dialer" && activeConversation}
+                  onClick={() => setView(title)}
+                >
+                  <Icon size={18} />
+                  {title}
+                  {title === "Leads" && (
+                    <span className="nav-count">
+                      {snapshot.pages?.leads?.total ?? snapshot.leads.length}
+                    </span>
+                  )}
+                </button>
+              ))}
           </nav>
           <div className="sidebar-bottom">
             <div className="safety-note">
@@ -910,12 +920,15 @@ export function App() {
               <LeadsPage />
             ) : view === "Review" ? (
               <ReviewPage />
-            ) : view === "Numbers" ? (
+            ) : view === "Numbers" && isAdmin(snapshot.user.role) ? (
               <NumbersPage />
             ) : view === "Intelligence" ? (
               <IntelligencePage />
             ) : (
-              <SettingsPage onDisconnect={() => void run(disconnect)} />
+              <SettingsPage
+                onDisconnect={() => void run(disconnect)}
+                onNavigate={setView}
+              />
             )}
           </div>
         </main>

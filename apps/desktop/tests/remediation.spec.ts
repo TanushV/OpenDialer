@@ -97,6 +97,8 @@ test("batch script preparation exposes gatekeeper and screening sections", async
   await page
     .getByRole("button", { name: "Prepare displayed lead packets" })
     .click();
+  // The count and budget preview precedes queueing.
+  await page.getByRole("button", { name: "Queue preparation" }).click();
   await expect(page.getByText(/Preparation queued/)).toBeVisible();
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
   await expect(page.getByText(/Gatekeeper/i).first()).toBeVisible();
@@ -162,7 +164,7 @@ test("optional metered research search is an explicit saved choice", async ({
 }) => {
   await enter(page);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByText("Advanced optional inference", { exact: true }).click();
+  await page.getByText("Advanced", { exact: true }).click();
   const search = page.getByLabel("Optional research search", { exact: true });
   await expect(search).toHaveValue("disabled");
   await search.selectOption("openai_web_search");
@@ -174,7 +176,7 @@ test("optional metered research search is an explicit saved choice", async ({
   ).toBeVisible();
   await page.reload();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByText("Advanced optional inference", { exact: true }).click();
+  await page.getByText("Advanced", { exact: true }).click();
   await expect(search).toHaveValue("openai_web_search");
   await expect(
     page.getByText(/At most two metered searches per company/),

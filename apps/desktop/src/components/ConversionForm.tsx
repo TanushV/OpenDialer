@@ -1,10 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { date, label, useWorkspace } from "../context";
+import { options, useDefinitions } from "../state/definitions";
 import type { Call } from "../types";
 
 export function ConversionForm({ call }: { call: Call }) {
   const { api, run, notice, refresh, snapshot } = useWorkspace();
-  const [kind, setKind] = useState("meeting_held");
+  const kinds = options(useDefinitions()?.conversion?.kind);
+  // The campaign's own goal is the natural default; the authority lists the kinds.
+  const [chosen, setKind] = useState<string | null>(null);
+  const kind =
+    chosen ??
+    (kinds.includes(snapshot.metrics.outcome_goal ?? "")
+      ? snapshot.metrics.outcome_goal!
+      : (kinds[0] ?? ""));
   const [reference, setReference] = useState("");
   const [eventId, setEventId] = useState(() => crypto.randomUUID());
   const [saved, setSaved] = useState(false);
@@ -41,9 +49,11 @@ export function ConversionForm({ call }: { call: Call }) {
             setSaved(false);
           }}
         >
-          <option value="qualified_conversation">Qualified conversation</option>
-          <option value="meeting_held">Held meeting</option>
-          <option value="sale_won">Won sale</option>
+          {kinds.map((value) => (
+            <option key={value} value={value}>
+              {label(value)}
+            </option>
+          ))}
         </select>
       </label>
       <label>
@@ -55,7 +65,7 @@ export function ConversionForm({ call }: { call: Call }) {
       </label>
       <button
         className="secondary"
-        disabled={!reference || saved}
+        disabled={!reference || saved || !kind}
         onClick={() =>
           void run(async () => {
             await api("/v1/leads/" + call.lead_id + "/conversions", "POST", {
