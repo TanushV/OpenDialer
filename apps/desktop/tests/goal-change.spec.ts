@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { chooseOutcome } from "./simulation";
 
 test("campaign goal changes are previewed before application and survive reload", async ({
   page,
@@ -102,7 +103,7 @@ test("rep explicitly reviews a reopened prospect before resuming outreach", asyn
   const name = await page.getByTestId("lead-name").textContent();
   await page.getByRole("button", { name: "Start call", exact: true }).click();
   await page.getByRole("button", { name: "Hang up", exact: true }).click();
-  await page.getByLabel("Disposition").selectOption("qualified_conversation");
+  await chooseOutcome(page, "qualified_conversation");
   await page.getByRole("button", { name: "Save outcome", exact: true }).click();
   await page
     .getByRole("button", { name: "Pause dialing", exact: true })

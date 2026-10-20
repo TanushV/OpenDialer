@@ -580,3 +580,23 @@ def test_refresh_coalescing_cannot_refund_paid_work_or_take_another_lease(worksp
     assert stored["status"] == "running"
     assert stored["attempts"] == 1
     assert stored["lease_owner"] == "original-worker"
+
+
+def test_snapshot_carries_the_live_cursor_so_clients_skip_replay(workspace, app):
+    from app.db import Event
+    from sqlalchemy import func
+
+    def latest():
+        with app.state.service.db.transaction(False) as s:
+            return s.scalar(select(func.max(Event.sequence)).where(Event.tenant_id == workspace["tenant_id"]))
+
+    first = snapshot(workspace)
+    assert first["event_cursor"] == (latest() or 0)
+    start(workspace)
+    later = workspace["client"].get(
+        "/v1/events", headers=workspace["headers"], params={"after": first["event_cursor"]}
+    )
+    assert later.status_code == 200, later.text
+    found = later.json()["events"]
+    assert found and all(event["sequence"] > first["event_cursor"] for event in found)
+    assert snapshot(workspace)["event_cursor"] == latest() > first["event_cursor"]

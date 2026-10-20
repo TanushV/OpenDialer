@@ -34,7 +34,7 @@ export async function localEdit<T>(
   } catch (error) {
     if (
       !(
-        error instanceof TypeError ||
+        canUseOfflineCache(error) ||
         error instanceof SyntaxError ||
         (error instanceof ApiError && error.status >= 500)
       )
@@ -150,6 +150,8 @@ export async function waitForRuntime(runtime: Runtime) {
     "The bundled local service did not start. Open Settings to review diagnostics.",
   );
 }
+/** An unanswered authority request is an offline result, never an endless wait. */
+export const REQUEST_TIMEOUT_MS = 30_000;
 export async function request<T>(
   url: string,
   token: string | null,
@@ -158,18 +160,32 @@ export async function request<T>(
   body?: unknown,
   extraHeaders?: Record<string, string>,
 ): Promise<T> {
-  const response = await fetch(url.replace(/\/$/, "") + path, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...extraHeaders,
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const result = (await response.json()) as T & {
-    detail?: string | { code: string; reasons?: string[] };
-  };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let response: Response;
+  let result: T & { detail?: string | { code: string; reasons?: string[] } };
+  try {
+    response = await fetch(url.replace(/\/$/, "") + path, {
+      method,
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...extraHeaders,
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    result = await response.json();
+  } catch (error) {
+    if (controller.signal.aborted)
+      throw new DOMException(
+        "The workspace authority did not respond in time.",
+        "AbortError",
+      );
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!response.ok) {
     const detail = result.detail;
     throw new ApiError(

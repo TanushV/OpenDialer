@@ -4,6 +4,16 @@ import type { Call } from "@telnyx/webrtc/lib/src/Modules/Verto/webrtc/Call";
 const providerId = (call: Call | null) => call?.telnyxIDs?.telnyxCallControlId;
 const ended = (call: Call) => ["hangup", "destroy"].includes(call.state);
 
+/** Whether a telephony status should take the rep out of ready presence. */
+export function pausesPresence(status: string, inCall: boolean) {
+  // The SDK keeps media through a transient socket reconnect; pausing a live
+  // conversation would misreport the rep. An idle rep cannot take calls then.
+  if (status === "reconnecting") return !inCall;
+  return ["agent-disconnected", "disconnected", "return-ended"].includes(
+    status,
+  );
+}
+
 export class Telephony {
   private client: TelnyxRTC | null = null;
   private audio: HTMLAudioElement | null = null;
@@ -15,6 +25,7 @@ export class Telephony {
   private answers = new Map<string, Promise<void>>();
   private closed = new Set<string>();
   private session = 0;
+  private token: string | null = null;
   private connecting: Promise<void> | null = null;
   private cancelRegistration: (() => void) | null = null;
   private inputId = "";
@@ -29,13 +40,16 @@ export class Telephony {
   async connect(token: string, audio: HTMLAudioElement) {
     if (this.connecting) return this.connecting;
     if (this.client) {
-      if (this.status === "reconnecting")
+      if (this.token === token && this.status !== "reconnecting") return;
+      // A fresh credential replaces an idle or reconnecting registration.
+      if (this.returnCall || this.hasIncoming)
         throw new Error(
-          "Wait for telephony to reconnect before becoming ready.",
+          "Finish the incoming call before telephony registers again.",
         );
-      return;
+      this.disconnect();
     }
     const session = ++this.session;
+    this.token = token;
     const work = this.register(token, audio, session);
     this.connecting = work;
     try {
@@ -175,6 +189,10 @@ export class Telephony {
       await call.answer({ remoteElement: this.audio!, video: false });
     });
     this.answers.set(id, result);
+    // A failed answer must not be remembered as accepted; the rep may retry.
+    result.catch(() => {
+      if (this.answers.get(id) === result) this.answers.delete(id);
+    });
     return result;
   }
   private answerAgent(call: Call) {
@@ -233,10 +251,6 @@ export class Telephony {
   mute(id?: string) {
     this.selected(id)?.toggleAudioMute();
   }
-  dtmf(value: string) {
-    if (!/^[0-9*#]+$/.test(value)) throw new Error("Use keypad digits only.");
-    this.selected()?.dtmf(value);
-  }
   async input(id: string) {
     this.inputId = id;
     if (this.client) this.client.micId = id;
@@ -280,6 +294,7 @@ export class Telephony {
     this.cancelRegistration?.();
     this.client?.disconnect();
     this.client = null;
+    this.token = null;
     this.audio = null;
     this.agent = this.returnCall = null;
     this.expectedAgent = this.expectedReturn = null;

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { prepareSimulationCall } from "./simulation";
+import { prepareSimulationCall, chooseOutcome } from "./simulation";
 
 test("a failed evidence review is visible without overwriting the rep note", async ({
   page,
@@ -39,7 +39,7 @@ test("a failed evidence review is visible without overwriting the rep note", asy
     .click();
   await page.getByRole("button", { name: "Start call", exact: true }).click();
   await page.getByRole("button", { name: "Hang up", exact: true }).click();
-  await page.getByLabel("Disposition").selectOption("no_answer");
+  await chooseOutcome(page, "no_answer");
   await page.getByRole("button", { name: "Save outcome", exact: true }).click();
   await page
     .getByRole("button", { name: "Pause dialing", exact: true })
