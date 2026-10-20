@@ -231,9 +231,6 @@ class InboundCallbacks:
                 after=after,
             )
 
-    async def inbound_callback(self, tenant_id, payload, event_id):
-        return await asyncio.to_thread(self._receive_inbound, tenant_id, payload, event_id)
-
     def _receive_inbound(self, tenant_id, payload, event_id, *, session=None, receipt=None):
         if not payload.get("call_control_id"):
             fail(422, "Inbound call identity is missing")

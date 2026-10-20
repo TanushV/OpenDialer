@@ -17,7 +17,6 @@ from app.compliance.phone import normalize_phone
 from app.compliance.policy import CallContext, authorize
 from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, rows, uid, update
 from app.jobs.queue import JobQueue
-from app.optimization.numbering import select_number
 from app.privacy import event_metadata
 from app.providers.simulated import CarrierNotSubmitted, SimulatedCarrier
 from app.providers.telnyx import TelnyxCarrier
@@ -732,19 +731,6 @@ class Service(ReservationPlanner):
             .execution_options(synchronize_session=False)
         )
 
-    def choose_number(self, s, p, lead):
-        bindings = [r for r in self.scoped(s, "lead_number_bindings", p) if r.data["lead_id"] == lead.id]
-        selection = select_number(
-            doc(lead),
-            self.inventory_evidence(s, p),
-            bound_id=bindings[0].data["number_id"] if bindings else None,
-        )
-        return (
-            get(s, "number_inventory", selection["number_id"], p["tenant_id"])
-            if selection["number_id"]
-            else None
-        )
-
     def agent_ready_in(self, s, p):
         """The rep's audio leg that the dial links to, rechecked at start rather than assumed."""
         presence = self.required(s, "users", p["user_id"], p).data.get("presence", {})
@@ -1165,23 +1151,27 @@ class Service(ReservationPlanner):
             return doc(call), {"id": existing.id, "provider_id": provider_id, "command_id": command_id}
 
     def _hangup_completed(self, p, call_id, command_id, owner, error=None):
+        """Record a sent stop's receipt (if any), then queue wrap-up once the call has ended."""
         with self.db.transaction() as s:
-            current = self.required(s, "command_outbox", command_id, p)
-            s.refresh(current, with_for_update=True)
-            if current.data["status"] != "sending" or not owns_effect(current.data, owner, self.clock()):
-                return
-            if error is not None:
-                update(current, status="uncertain", lease_owner=None, lease_until=None)
-            elif current.data["status"] == "sending":
-                update(current, status="completed", lease_owner=None, lease_until=None)
-                if self.settings.simulation:
-                    self.finish_call(
-                        s, p, self.required(s, "call_attempts", call_id, p), "simulated_hangup_receipt"
-                    )
-            self.journal_effect_in(s, p, "hangup", current.external_key, "receipt", [current], emergency=True)
-
-    def _hangup_result(self, p, call_id):
-        with self.db.transaction() as s:
+            current = self.required(s, "command_outbox", command_id, p) if command_id else None
+            if current:
+                s.refresh(current, with_for_update=True)
+            if (
+                current
+                and current.data["status"] == "sending"
+                and owns_effect(current.data, owner, self.clock())
+            ):
+                if error is not None:
+                    update(current, status="uncertain", lease_owner=None, lease_until=None)
+                else:
+                    update(current, status="completed", lease_owner=None, lease_until=None)
+                    if self.settings.simulation:
+                        self.finish_call(
+                            s, p, self.required(s, "call_attempts", call_id, p), "simulated_hangup_receipt"
+                        )
+                self.journal_effect_in(
+                    s, p, "hangup", current.external_key, "receipt", [current], emergency=True
+                )
             call = self.required(s, "call_attempts", call_id, p)
             if call.data["state"] in TERMINAL:
                 self.jobs.enqueue_in(
@@ -1198,16 +1188,16 @@ class Service(ReservationPlanner):
         call, command = await asyncio.to_thread(self._claim_hangup, p, call_id, owner, recovery_expected)
         if not command:
             return call
+        error = None
         if command["provider_id"]:
             try:
                 provider = await asyncio.to_thread(self.carrier, p["tenant_id"])
                 await provider.hangup(command["provider_id"], command["command_id"])
             except Exception as exc:
-                await asyncio.to_thread(self._hangup_completed, p, call_id, command["id"], owner, exc)
+                error = exc
                 logging.getLogger(__name__).warning("Durable hangup pending: %s", type(exc).__name__)
-            else:
-                await asyncio.to_thread(self._hangup_completed, p, call_id, command["id"], owner)
-        return await asyncio.to_thread(self._hangup_result, p, call_id)
+        sent = command["id"] if command["provider_id"] else None
+        return await asyncio.to_thread(self._hangup_completed, p, call_id, sent, owner, error)
 
     def suppress(self, p, phone, reason, *, event_id=None, session=None):
         from app.compliance.suppressions import record
