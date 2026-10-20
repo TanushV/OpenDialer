@@ -1003,7 +1003,7 @@
         {
           "id": "E13.4",
           "task": "Frozen semantic120-case matrix and independent review",
-          "status": "Fifth independent review retained-cutover finding repaired tests-first;41 SQLite/21 PostgreSQL final checks pass. Narrow independent repair verification running. Human semantic quality remains external."
+          "status": "Independent retained-cutover repair review completed: no concrete actionable defect found. Human semantic quality remains external."
         },
         {
           "id": "E13.5",
@@ -1018,7 +1018,7 @@
         {
           "id": "E13.7",
           "task": "Full resource/performance targets and repairs",
-          "status": "Local 10k/100k elapsed load complete:180 successful cycles, due queues drained. Warm selection p95 329.46ms/workspace1056.19ms/writer201.55ms/event-state253.19ms miss targets; prior-source diagnostic retained. Repair actual SQL scans and profile remaining writes before repeating."
+          "status": "7b75210 historical503 warm selection251.168ms p95 narrowly fails250ms; workspace15.287ms/writer18.732ms pass. Tail attribution shows cyclic-GC pauses retaining closed-session context. Five valid red lifetime regressions precede cache-release repair; dual-database focused checks active. Original failures retained, targets unchanged."
         },
         {
           "id": "E13.8",
@@ -1084,6 +1084,11 @@
           "id": "E13.fullsuite-contracts",
           "task": "Resolve every full-suite failure at current interfaces without weakening behavior",
           "status": "210 SQLite reconciliation passes plus20 repaired registry checks;64 PostgreSQL passes;28 covered live-field-review passes. Shared finalization retry repair has three red counterexamples. Full current-source CI remains required."
+        },
+        {
+          "id": "E13.session-cache",
+          "task": "Release transaction-owned decrypted caches on commit, rollback and recovery-callback failure without GC-policy changes",
+          "status": "Five valid red regressions, then117 SQLite focused passes. Diagnostic closed sessions retained after ten selections fall40 to0 without changing GC policy. PostgreSQL scope running; exact-source full/load acceptance remains open."
         }
       ],
       "checkpoint": "E13: candidate7b75210 pushed;41 SQLite/21 PostgreSQL final retry-cutover passes. Full CI39358321016 and frozen performance/native/resource acceptance remain open."

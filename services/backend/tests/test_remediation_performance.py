@@ -10,6 +10,61 @@ from conftest import completed_report, ready
 from sqlalchemy import event
 
 
+@pytest.mark.parametrize("completion", ["read", "commit", "rollback", "callback_failure"])
+def test_closed_transaction_releases_decrypted_cache_without_waiting_for_gc(workspace, app, completion):
+    import weakref
+    from contextlib import nullcontext
+
+    from app.db import get, prefetch, update
+
+    service = app.state.service
+    principal = {k: workspace[k] for k in ("tenant_id", "seller_id", "user_id")}
+    expected = (
+        pytest.raises(ValueError, match="synthetic boundary failure")
+        if completion in {"rollback", "callback_failure"}
+        else nullcontext()
+    )
+    callbacks = []
+
+    def after_transaction():
+        # Recovery is allowed to start a new transaction after writer admission releases.
+        with service.db.transaction(False) as recovery:
+            callbacks.append(get(recovery, "campaigns", workspace["campaign_id"]).id)
+        if completion == "callback_failure":
+            raise ValueError("synthetic boundary failure")
+
+    with expected, service.db.transaction(completion != "read") as session:
+        prefetch(session, principal, {"campaigns": []})
+        campaign = get(session, "campaigns", workspace["campaign_id"])
+        if completion != "read":
+            update(campaign, handling_seconds=125)
+            session.flush()  # Includes the report invalidation transaction reference.
+        payload = weakref.ref(campaign.data)
+        del campaign
+        session.info["after_transaction"] = [after_transaction]
+        if completion == "rollback":
+            raise ValueError("synthetic boundary failure")
+    assert callbacks == [workspace["campaign_id"]]
+    # Keep the closed session itself reachable, as exception traces/SQLAlchemy cycles can.
+    # No raw/decrypted request cache may survive the application's ownership boundary.
+    assert payload() is None, "Closed transaction retained decrypted context until cyclic GC"
+    assert session.info == {}
+
+
+def test_caller_owned_transaction_keeps_cache_until_its_outer_boundary(workspace, app):
+    from app.db import prefetch
+
+    service = app.state.service
+    principal = {k: workspace[k] for k in ("tenant_id", "seller_id", "user_id")}
+    with service.db.transaction() as outer:
+        prefetch(outer, principal, {"campaigns": []})
+        with service.db.transaction(session=outer) as nested:
+            assert nested is outer
+        assert outer.info["row_cache"]
+        assert outer.in_transaction()
+    assert outer.info == {}
+
+
 def test_sqlite_writers_wait_before_begin_without_blocking_reads_or_another_store(app, tmp_path):
     import threading
     from concurrent.futures import ThreadPoolExecutor

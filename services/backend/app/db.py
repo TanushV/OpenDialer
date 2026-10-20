@@ -585,8 +585,13 @@ class Database:
                     self._sqlite_writer.release()
                 # A journal failure inside a caller-owned transaction must persist
                 # its hold only after that transaction releases its write lock.
-                for callback in session.info.pop("after_transaction", []):
-                    callback()
+                try:
+                    for callback in session.info.pop("after_transaction", []):
+                        callback()
+                finally:
+                    # SQLAlchemy closes connections/identity maps, but keeps custom info.
+                    # Query/transaction cycles must not retain decrypted request caches.
+                    session.info.clear()
 
     def authorize_stream(self, session, principal):
         if not self.sqlite:
