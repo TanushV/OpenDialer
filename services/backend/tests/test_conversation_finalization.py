@@ -1245,7 +1245,8 @@ async def test_human_observation_retraction_invalidates_the_existing_brief(
     with service.db.transaction(False) as s:
         task = service.required(s, "followup_tasks", task_id, p)
         assert task.data["source_stale"] and task.data["review_required"]
-        assert task.data["status"] == ("open" if human_edit else "needs_confirmation")
+        # A human retraction closes untouched inferred work; it never holds outreach waiting.
+        assert task.data["status"] == ("open" if human_edit else "cancelled")
         if human_edit:
             assert task.data["note"] == "My independent follow-up decision."
         else:
@@ -1419,6 +1420,23 @@ async def test_unknown_job_kind_fails_closed_instead_of_running_a_default_handle
     assert not ran, "A kind without a registered handler must not fall through to another one"
     assert [e["error_type"] for e in result["errors"] if e["job_id"] == job["id"]] == ["UnknownJobKind"]
     assert service.jobs.get(job["id"])["status"] != "completed"
+
+
+@pytest.mark.asyncio
+async def test_retired_retry_plan_jobs_drain_as_no_ops(workspace, app, monkeypatch):
+    from test_remediation_privacy import principal
+
+    service, p, ran = app.state.service, principal(workspace), []
+    monkeypatch.setattr(service, "refresh_schedule_plans", lambda *args, **kwargs: ran.append(args))
+    job = service.jobs.enqueue(
+        "ml",
+        {"kind": "retry_plan_refresh", "campaign_id": workspace["campaign_id"], "seller_id": p["seller_id"]},
+        "retired-retry-plan",
+        tenant_id=p["tenant_id"],
+    )
+    result = await service.run_jobs(p["tenant_id"], ["ml"])
+    assert not ran, "Per-lead schedule plans are retired; persisted rows must not rebuild them"
+    assert service.jobs.get(job["id"])["status"] == "completed" and not result["errors"]
 
 
 @pytest.mark.asyncio
