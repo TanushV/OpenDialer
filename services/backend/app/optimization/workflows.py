@@ -8,13 +8,11 @@ from sqlalchemy import func, or_, select
 
 from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, update
 from app.optimization.experiments import ComparisonWorkflows
-from app.optimization.learning import (
-    freeze_features,
-    future_slots,
-    training_rows,
-)
-from app.optimization.numbering import capacity_forecast, number_health, timestamp
+from app.optimization.learning import freeze_features, training_rows
+from app.optimization.numbering import HealthPolicy, capacity_forecast, number_health, timestamp
 from app.scheduling.models import EstimatePolicy, prediction_key, profile_current, saved_prediction
+
+STAGES = ("p_human", "p_right_party_given_human", "p_conversion_given_right_party")
 
 DEFAULTS = {
     "conversion_goal": "meeting_held",
@@ -36,6 +34,57 @@ DEFAULTS = {
     "account_channel_limit": None,
     "minimum_expansion_age_hours": 24,
 }
+
+
+def next_attempts(leads, schedule, estimate, *, limit=100):
+    """Earliest planned attempt per lead, at most limit leads; compact estimate, no alternatives."""
+    from zoneinfo import ZoneInfo
+
+    by_id, seen, rows, cache = {lead["id"]: lead for lead in leads}, set(), [], {}
+    ordered = sorted(
+        (r for r in schedule if not r.get("contingent")),
+        key=lambda r: (r["at"], r["priority_class"], r["lead_id"]),
+    )
+    for row in ordered:
+        if row["lead_id"] in seen:
+            continue
+        seen.add(row["lead_id"])
+        if len(rows) == limit:
+            continue
+        lead = by_id[row["lead_id"]]
+        local = timestamp(row["at"]).astimezone(ZoneInfo(lead["timezone"]))
+        features = {
+            "segment": str(lead.get("segment", "unknown")),
+            "attempt_count": lead.get("attempt_count", 0),
+            "local_hour": local.hour,
+            "local_weekday": local.weekday(),
+        }
+        key = prediction_key(features)
+        if key not in cache:
+            value = estimate(features)
+            cache[key] = {
+                **{k: value[k] for k in (*STAGES, "expected_rep_seconds", "observations")},
+                "estimate_level": value["estimate_level"],
+            }
+        rows.append(
+            {
+                "lead_id": row["lead_id"],
+                "lead_version": lead.get("version"),
+                "at": row["at"],
+                "end_at": row["end_at"],
+                "local_hour": local.hour,
+                "rep_id": row["rep_id"],
+                "number_id": row["number_id"],
+                "priority_class": row["priority_class"],
+                "callback": row["callback"],
+                "reason": "requested_callback"
+                if row["callback"]
+                else "shared_capacity_and_expected_conversion",
+                "predicted_conversions": row["predicted_conversions"],
+                "estimate": cache[key],
+            }
+        )
+    return rows, len(seen) - len(rows)
 
 
 class OptimizationWorkflows(ComparisonWorkflows):
@@ -200,29 +249,6 @@ class OptimizationWorkflows(ComparisonWorkflows):
                     return trial
         return next((m for m in models if m.data.get("active")), None)
 
-    def slot_predictor(self, s, p, lead, config):
-        model = self.serving_model(s, p, config, lead.id)
-        if model is None:
-            return None
-        features = self.prediction_features(s, p, lead, calls=[], fast=True)
-        artifact, cached = dict(model.data), {}
-        directory = self.settings.data_dir / "models"
-
-        def predict(hour, weekday):
-            if not cached:
-                from app.ml.training import predict_funnel_batch
-
-                keys = [(day, slot) for day in range(7) for slot in range(24)]
-                values = predict_funnel_batch(
-                    artifact,
-                    [{**features, "local_hour": slot, "local_weekday": day} for day, slot in keys],
-                    directory,
-                )
-                cached.update(zip(keys, values, strict=True))
-            return cached[weekday, hour]
-
-        return predict
-
     def reconcile_goal_status(self, s, p, lead):
         from app.optimization.goals import goal_state
 
@@ -277,10 +303,8 @@ class OptimizationWorkflows(ComparisonWorkflows):
                     tenant_id=user["tenant_id"],
                 )
 
-    def optimization_config(self, s, p, campaign_id=None):
-        from app.optimization.api import HealthPolicy
-
-        campaign = (
+    def optimization_config(self, s, p, campaign_id=None, *, campaign=None):
+        campaign = campaign or (
             self.required(s, "campaigns", campaign_id, p) if campaign_id else self.selected_campaign(s, p)
         )
         config = {**DEFAULTS, **campaign.data.get("optimization", {})}
@@ -288,7 +312,13 @@ class OptimizationWorkflows(ComparisonWorkflows):
         config["estimate_policy"] = EstimatePolicy.model_validate(
             config.get("estimate_policy", {})
         ).model_dump(mode="json")
+        # The latest configuration read in this transaction also supplies per-number health checks.
+        s.info[("health_policy", p["tenant_id"], p["seller_id"])] = config["health_policy"]
         return config
+
+    def health_policy_in(self, s, p):
+        cached = s.info.get(("health_policy", p["tenant_id"], p["seller_id"]))
+        return cached if cached is not None else self.optimization_config(s, p)["health_policy"]
 
     def inventory_evidence(self, s, p, fast=False):
         from app.optimization.projections import read_number_health_metrics
@@ -323,27 +353,79 @@ class OptimizationWorkflows(ComparisonWorkflows):
         )
         if health is None:
             health = {r.data["number_id"]: dict(r.data) for r in self.scoped(s, "number_health", p)}
-        config = self.optimization_config(s, p)
+        campaign = self.selected_campaign(s, p)
+        config = self.optimization_config(s, p, campaign=campaign)
         leases = [r.data for r in self.scoped(s, "number_leases", p) if r.data.get("active")]
-        return [
-            {
-                **doc(n),
-                **self.number_readiness_in(s, p, n),
-                "health": number_health(
-                    health.get(n.id) or [],
-                    pooled_attempts=[],
-                    now=self.clock(),
-                    external=n.data.get("external_reputation"),
-                    policy=config["health_policy"],
-                    configuration_errors=self.number_readiness_in(s, p, n)["configuration_errors"],
-                ),
-                "used_today": used.get(n.id, 0),
-                "reserved_attempts": sum(c.number_id == n.id and not c.call_id for c in claims),
-                "active_obligations": sum(c.number_id == n.id for c in claims)
-                + sum(x["number_id"] == n.id for x in leases),
-            }
-            for n in self.scoped(s, "number_inventory", p)
+        ends = self.obligation_ends(s, p, claims, self.predicted_work_seconds(s, p, config, campaign))
+        delivery = {
+            identity: (value.get("delivery_samples", 0), value.get("delivery_failures", 0))
+            for identity, value in health.items()
+            if isinstance(value, dict) and value.get("assessment_schema") == 1
+        }
+        totals = [sum(v[i] for v in delivery.values()) for i in (0, 1)]
+        result = []
+        for n in self.scoped(s, "number_inventory", p):
+            readiness = self.number_readiness_in(s, p, n)
+            own = delivery.get(n.id, (0, 0))
+            finishes = [ends[c.id] for c in claims if c.number_id == n.id] + [
+                timestamp(x.get("expires_at")) or self.clock() for x in leases if x["number_id"] == n.id
+            ]
+            result.append(
+                {
+                    **doc(n),
+                    **readiness,
+                    "health": number_health(
+                        health.get(n.id) or [],
+                        pooled_attempts=[],
+                        now=self.clock(),
+                        external=n.data.get("external_reputation"),
+                        policy=config["health_policy"],
+                        configuration_errors=readiness["configuration_errors"],
+                        delivery_reference={"samples": totals[0] - own[0], "failures": totals[1] - own[1]},
+                    ),
+                    "used_today": used.get(n.id, 0),
+                    "reserved_attempts": sum(c.number_id == n.id and not c.call_id for c in claims),
+                    "active_obligations": len(finishes),
+                    "busy_until": max(finishes).isoformat() if finishes else None,
+                }
+            )
+        return result
+
+    def predicted_work_seconds(self, s, p, config, campaign=None):
+        campaign = campaign or self.selected_campaign(s, p)
+        profile = campaign.data.get("selection_profile", {})
+        return saved_prediction(profile if profile_current(profile, config) else {}, {}, config)[
+            "expected_rep_seconds"
         ]
+
+    def obligation_ends(self, s, p, claims, work_seconds):
+        """Predicted end of each obligation: live work from its start, a reservation at its lease.
+
+        An overrunning call is treated as ending now and is re-forecast on the next refresh;
+        no obligation is assumed to last for the whole horizon.
+        """
+        model, now = MODELS["call_attempts"], self.clock()
+        identities = [c.call_id for c in claims if c.call_id]
+        started = {
+            row.id: timestamp(row.data.get("submitted_at") or row.data.get("started_at"))
+            for row in (
+                s.scalars(
+                    select(model).where(
+                        model.tenant_id == p["tenant_id"],
+                        model.seller_id == p["seller_id"],
+                        model.id.in_(identities),
+                    )
+                )
+                if identities
+                else []
+            )
+        }
+        return {
+            claim.id: max(now, (started.get(claim.call_id) or now) + timedelta(seconds=work_seconds))
+            if claim.call_id
+            else timestamp(claim.expires_at)
+            for claim in claims
+        }
 
     def selection_profile(self, s, p, statistics, config):
         from app.optimization.learning import distribution_from_counts
@@ -543,12 +625,10 @@ class OptimizationWorkflows(ComparisonWorkflows):
             )
         )
         claimed_leads = {claim.lead_id for claim in claims}
-        # An uncertain live leg cannot be declared free just because its lease expired.
-        end = self.clock() + timedelta(hours=config["horizon_hours"])
-        busy = {
-            claim.rep_id: (end if claim.call_id else timestamp(claim.expires_at)).isoformat()
-            for claim in claims
-        }
+        pooled = saved_prediction(profile, {}, config)
+        # Live work occupies its rep for the predicted remaining work from call start.
+        ends = self.obligation_ends(s, p, claims, pooled["expected_rep_seconds"])
+        busy = {claim.rep_id: ends[claim.id].isoformat() for claim in claims}
         windows = config["staffed_windows"]
         roster = {rep for window in windows for rep in window.get("rep_ids", [])}
         users = MODELS["users"]
@@ -638,33 +718,26 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 sort_keys=True,
             ).encode()
         ).hexdigest()
-        pooled = saved_prediction(profile, {}, config)
-        estimate_cache = {}
-        regions = {"general", *(lead.get("region") or "general" for lead in leads)}
+        # Slot values depend on local time only; no location effect is assumed without support.
+        estimate_cache, by_key = {}, {}
         for lead in leads:
             cell = (str(lead.get("segment", "unknown")), lead.get("attempt_count", 0))
             if cell not in estimate_cache:
-                estimate_cache[cell] = {
-                    f"{day}:{hour}:{region}": math.prod(
-                        prediction[k]
-                        for k in ("p_human", "p_right_party_given_human", "p_conversion_given_right_party")
-                    )
-                    for day in range(7)
-                    for hour in range(24)
-                    for prediction in [
-                        saved_prediction(
-                            profile,
-                            {
-                                "segment": cell[0],
-                                "attempt_count": cell[1],
-                                "local_hour": hour,
-                                "local_weekday": day,
-                            },
-                            config,
-                        )
-                    ]
-                    for region in regions
-                }
+                values = {}
+                for day in range(7):
+                    for hour in range(24):
+                        features = {
+                            "segment": cell[0],
+                            "attempt_count": cell[1],
+                            "local_hour": hour,
+                            "local_weekday": day,
+                        }
+                        key = prediction_key(features)
+                        if key not in by_key:
+                            prediction = saved_prediction(profile, features, config)
+                            by_key[key] = math.prod(prediction[k] for k in STAGES)
+                        values[f"{day}:{hour}"] = by_key[key]
+                estimate_cache[cell] = values
             lead.update(
                 predicted_work_seconds=pooled["expected_rep_seconds"],
                 outcome_estimates=pooled,
@@ -740,19 +813,14 @@ class OptimizationWorkflows(ComparisonWorkflows):
             generation = self.report_revision(s, current)
             inputs, metadata = self.forecast_input(s, current, campaign_id=campaign_id, capacity=capacity)
             config = self.optimization_config(s, current, campaign_id)
-            campaign = self.required(s, "campaigns", campaign_id, current)
-            profile = campaign.data.get("selection_profile", {})
-            if not profile_current(profile, config):
-                profile = {}
+            profile = self.required(s, "campaigns", campaign_id, current).data.get("selection_profile", {})
+            profile = profile if profile_current(profile, config) else {}
         result = {**capacity_forecast(**inputs, schedule_row_limit=None), **metadata}
-        if capacity is None:
-            plans = self._publish_schedule_plans(
-                p, campaign_id, inputs, result, config, profile, generation, lease=lease
-            )
-            if plans["status"] != "ready":
-                return {"status": "superseded"}
-            generation = plans["source_revision"]
-        # Retain bounded display detail; per-lead plans above preserve all scheduled work.
+        # One bounded per-campaign summary is the per-lead view; nothing here gates a call.
+        result["next_attempts"], result["next_attempts_omitted"] = next_attempts(
+            inputs["leads"], result["existing_schedule"], lambda f: saved_prediction(profile, f, config)
+        )
+        result["next_attempts_expire_at"] = (inputs["now"] + timedelta(minutes=10)).isoformat()
         omitted = max(0, len(result["expanded_schedule"]) - 1000)
         for field in (
             "existing_schedule",
@@ -863,46 +931,44 @@ class OptimizationWorkflows(ComparisonWorkflows):
             for i in ids
             if i in records and (p["role"] != "rep" or records[i].get("rep_id") == p["user_id"])
         ]
-        model, leads = MODELS["scheduling_plans"], MODELS["leads"]
-        planned = list(
-            s.execute(
-                select(model, leads)
-                .join(
-                    leads,
-                    (model.op_lead_id == leads.id)
-                    & (model.tenant_id == leads.tenant_id)
-                    & (model.seller_id == leads.seller_id),
+        campaign = self.selected_campaign(s, p)
+        saved = self._by_key(s, p, "report_projections", f"planning:{campaign.id}:configured")
+        report = saved.data.get("report", {}) if saved else {}
+        planned = report.get("next_attempts", [])[:100]
+        expires = timestamp(report.get("next_attempts_expire_at"))
+        model = MODELS["leads"]
+        leads = (
+            {
+                r.id: r
+                for r in s.scalars(
+                    select(model).where(
+                        model.tenant_id == p["tenant_id"],
+                        model.seller_id == p["seller_id"],
+                        model.id.in_([row["lead_id"] for row in planned]),
+                    )
                 )
-                .where(
-                    model.tenant_id == p["tenant_id"],
-                    model.seller_id == p["seller_id"],
-                    model.external_key == "current:" + leads.id,
-                )
-                .order_by(model.op_at.desc(), model.id.desc())
-                .limit(101)
-            )
+            }
+            if planned and expires and expires > self.clock()
+            else {}
         )
-        futures = []
-        for record, lead in planned[:100]:
-            plan = record.data
-            if (
-                plan.get("selected")
-                and lead.data.get("status") == "eligible"
-                and not lead.data.get("outreach_hold")
-                and not lead.data.get("goal_completed")
-                and plan.get("source_lead_version") == lead.version
-                and (timestamp(plan.get("expires_at")) or self.clock()) > self.clock()
-            ):
-                futures.append({**plan["selected"], "name": lead.data["name"]})
+        futures = [
+            {**row, "name": lead.data["name"]}
+            for row in planned
+            if (lead := leads.get(row["lead_id"]))
+            and lead.data.get("status") == "eligible"
+            and not lead.data.get("outreach_hold")
+            and not lead.data.get("goal_completed")
+            and row.get("lead_version") == lead.version
+        ]
         return {
             "decisions": decisions,
-            "plans": [doc(r) for r, _ in planned[:100]],
+            "plans": planned,
             "future_slots": futures,
             "detail_coverage": {
                 "decisions_inspected": min(len(recent), 30),
                 "decisions_limited": len(recent) > 30,
-                "plans_inspected": min(len(planned), 100),
-                "plans_limited": len(planned) > 100,
+                "plans_inspected": len(planned),
+                "plans_limited": bool(report.get("next_attempts_omitted")),
             },
         }
 
@@ -1068,343 +1134,8 @@ class OptimizationWorkflows(ComparisonWorkflows):
     def refresh_schedule_plans(
         self, p, campaign_id, dataset_id=None, *, lead_ids=None, internal=False, lease=None
     ):
-        """Use the common allocator; changed pages retain other saved allocations."""
-        from app.optimization.capacity import plan_changed
-        from app.service import fail
-
-        with self.db.transaction(False) as s:
-            if not internal:
-                user, _, _, _ = self.report_scope(s, p)
-                if user["role"] != "admin":
-                    fail(403, "Administrator access required to refresh retry plans")
-            generation = self.report_revision(s, p)
-            inputs, _ = self.forecast_input(s, p, campaign_id=campaign_id, lead_ids=lead_ids)
-            config = self.optimization_config(s, p, campaign_id)
-            campaign = self.required(s, "campaigns", campaign_id, p)
-            profile = campaign.data.get("selection_profile", {})
-            if not profile_current(profile, config):
-                profile = {}
-            fixed = []
-            if lead_ids is not None:
-                plans, leads = MODELS["scheduling_plans"], MODELS["leads"]
-                saved = list(
-                    s.execute(
-                        select(plans, leads.version)
-                        .join(
-                            leads,
-                            (leads.id == plans.op_lead_id)
-                            & (leads.tenant_id == plans.tenant_id)
-                            & (leads.seller_id == plans.seller_id),
-                        )
-                        .where(
-                            plans.tenant_id == p["tenant_id"],
-                            plans.seller_id == p["seller_id"],
-                            plans.op_status == "ready",
-                            plans.op_lead_id.not_in(lead_ids),
-                        )
-                        .limit(10001)
-                    )
-                )
-                if len(saved) > 10000:
-                    return {
-                        "status": "limited",
-                        "saved": 0,
-                        "superseded": 0,
-                        "unchanged": 0,
-                        "reason": "saved_allocation_limit",
-                        "omitted_schedule_rows": None,
-                    }
-                for record, version in saved:
-                    value = record.data
-                    if (
-                        value.get("source_lead_version") == version
-                        and (timestamp(value.get("expires_at")) or inputs["now"]) > inputs["now"]
-                        and value.get("selected")
-                    ):
-                        fixed.append(value["selected"])
-        forecast = (
-            plan_changed(
-                **{
-                    k: v
-                    for k, v in inputs.items()
-                    if k
-                    not in {
-                        "daily_capacity_per_number",
-                        "additional_ready_after_hours",
-                        "retry_observations",
-                    }
-                },
-                fixed_schedule=fixed,
-            )
-            if lead_ids is not None
-            else capacity_forecast(**inputs, schedule_row_limit=None)
-        )
-        return self._publish_schedule_plans(
-            p,
-            campaign_id,
-            inputs,
-            forecast,
-            config,
-            profile,
-            generation,
-            dataset_id=dataset_id,
-            internal=internal,
-            lead_ids=lead_ids,
-            lease=lease,
-        )
-
-    def _publish_schedule_plans(
-        self,
-        p,
-        campaign_id,
-        inputs,
-        forecast,
-        config,
-        profile,
-        generation,
-        *,
-        dataset_id=None,
-        internal=False,
-        lead_ids=None,
-        lease=None,
-    ):
-        from zoneinfo import ZoneInfo
-
-        from app.service import fail
-
-        estimates = {**profile.get("predictions", {}), "pooled": saved_prediction(profile, {}, config)}
-        selected = {row["lead_id"]: row for row in forecast["existing_schedule"]}
-        saved, superseded, unchanged = 0, 0, 0
-        common = {k: v for k, v in inputs.items() if k not in {"now", "leads"}}
-        common["time_bucket"] = int(inputs["now"].timestamp()) // 600
-        common_hash = hashlib.sha256(json.dumps(common, sort_keys=True, default=str).encode()).hexdigest()
-
-        def fingerprint(lead):
-            # A different lead's priority may move or displace this allocation
-            # without changing this lead's inputs. Fingerprint the pure choice,
-            # before adding display predictions or publication metadata.
-            return hashlib.sha256(
-                json.dumps(
-                    [common_hash, lead, selected.get(lead["id"])], sort_keys=True, default=str
-                ).encode()
-            ).hexdigest()
-
-        for offset in range(0, len(inputs["leads"]), 100):
-            page = inputs["leads"][offset : offset + 100]
-            ids = [row["id"] for row in page]
-            with self.db.transaction(False) as s:
-                model = MODELS["leads"]
-                records = list(
-                    s.scalars(
-                        select(model).where(
-                            model.tenant_id == p["tenant_id"],
-                            model.seller_id == p["seller_id"],
-                            model.id.in_(ids),
-                        )
-                    )
-                )
-                self._queue_context(s, p, campaign_id, records)
-                predictors = {
-                    row.id: self.slot_predictor(s, p, row, config) for row in records if row.id in selected
-                }
-                plans = MODELS["scheduling_plans"]
-                prior = {
-                    row.data["lead_id"]: dict(row.data)
-                    for row in s.scalars(
-                        select(plans).where(
-                            plans.tenant_id == p["tenant_id"],
-                            plans.seller_id == p["seller_id"],
-                            plans.external_key.in_(["current:" + identity for identity in ids]),
-                        )
-                    )
-                }
-            computed = []
-            for lead in page:
-                # Derive only the cells needed by this bounded page; keep the
-                # same canonical sparse estimates used by live queue selection.
-                for day in (0, 5):
-                    for hour in range(24):
-                        features = {
-                            "segment": lead.get("segment", "unknown"),
-                            "attempt_count": lead.get("attempt_count", 0),
-                            "local_hour": hour,
-                            "local_weekday": day,
-                        }
-                        key = prediction_key(features)
-                        if key not in estimates:
-                            estimates[key] = saved_prediction(profile, features, config)
-                digest = fingerprint(lead)
-                old = prior.get(lead["id"], {})
-                if (
-                    old.get("input_fingerprint") == digest
-                    and (timestamp(old.get("expires_at")) or inputs["now"]) > inputs["now"]
-                ):
-                    unchanged += 1
-                    continue
-                choice = selected.get(lead["id"])
-                alternatives = (
-                    future_slots(
-                        lead,
-                        [],
-                        now=inputs["now"],
-                        policy=inputs["policy"],
-                        horizon_days=inputs["horizon_hours"] / 24,
-                        predictor=predictors.get(lead["id"]),
-                        estimates=estimates,
-                        staffed_windows=inputs["staffed_windows"],
-                        rep_minutes=inputs["rep_minutes"],
-                        inventory=inputs["inventory"],
-                        rep_busy_until=inputs["rep_busy_until"],
-                    )
-                    if choice
-                    else []
-                )
-                if choice:
-                    local = timestamp(choice["at"]).astimezone(ZoneInfo(lead["timezone"]))
-                    prediction = next(
-                        (r["predictions"] for r in alternatives if r["at"] == choice["at"]),
-                        estimates.get(
-                            prediction_key(
-                                {
-                                    "segment": lead.get("segment", "unknown"),
-                                    "local_hour": local.hour,
-                                    "local_weekday": local.weekday(),
-                                    "attempt_count": lead.get("attempt_count", 0),
-                                }
-                            )
-                        )
-                        or estimates["pooled"],
-                    )
-                    choice = {
-                        **choice,
-                        "local_hour": local.hour,
-                        "predictions": prediction,
-                        "reason": "requested_callback"
-                        if choice["callback"]
-                        else "shared_capacity_and_expected_conversion",
-                        "constraint_scope": forecast.get("constraint_scope", "whole_list_schedule"),
-                    }
-                computed.append((lead, choice, alternatives))
-            if not computed:
-                continue
-            with self.db.transaction() as s:
-                self.report_revision(s, p, lock=True)
-                self.jobs.require_owned_in(s, lease)
-                if not internal:
-                    user, _, _, _ = self.report_scope(s, p)
-                    if user["role"] != "admin":
-                        fail(403, "Planning owner no longer has administrator access")
-                if self.report_revision(s, p, lock=True) != generation:
-                    superseded += len(inputs["leads"]) - offset
-                    if lead_ids is None:
-                        self.jobs.enqueue_in(
-                            s,
-                            "ml",
-                            {
-                                "kind": "retry_plan_refresh",
-                                "seller_id": p["seller_id"],
-                                "user_id": p["user_id"],
-                                "campaign_id": campaign_id,
-                            },
-                            f"retry-plans:{campaign_id}:{self.report_revision(s, p)}",
-                            tenant_id=p["tenant_id"],
-                        )
-                    break
-                model, plans = MODELS["leads"], MODELS["scheduling_plans"]
-                current = {
-                    row.id: row
-                    for row in s.scalars(
-                        select(model).where(
-                            model.tenant_id == p["tenant_id"],
-                            model.seller_id == p["seller_id"],
-                            model.id.in_(ids),
-                        )
-                    )
-                }
-                existing = {
-                    row.data["lead_id"]: row
-                    for row in s.scalars(
-                        select(plans).where(
-                            plans.tenant_id == p["tenant_id"],
-                            plans.seller_id == p["seller_id"],
-                            plans.external_key.in_(["current:" + identity for identity in ids]),
-                        )
-                    )
-                }
-                for old, choice, alternatives in computed:
-                    lead = current.get(old["id"])
-                    if not lead or lead.version != old["version"]:
-                        superseded += 1
-                        continue
-                    if (
-                        choice
-                        and lead.data.get("attempt_count")
-                        and not lead.data.get("callback_due_at")
-                        and lead.data.get("next_attempt_at") != choice["at"]
-                    ):
-                        update(lead, next_attempt_at=choice["at"])
-                        old = {**old, "next_attempt_at": choice["at"], "version": lead.version}
-                    value = {
-                        "campaign_id": campaign_id,
-                        "lead_id": lead.id,
-                        "selected": choice,
-                        "alternatives": alternatives,
-                        "status": "ready" if choice else "unavailable",
-                        "dataset_id": dataset_id,
-                        "input_fingerprint": fingerprint(old),
-                        "source_lead_version": lead.version,
-                        "created_at": inputs["now"].isoformat(),
-                        "expires_at": (inputs["now"] + timedelta(minutes=10)).isoformat(),
-                        "schedule_fingerprint": forecast["input_fingerprint"],
-                        "planning_limited": forecast["planning_limited"],
-                        "priority_rebalance_pending": forecast.get("rebalance_required", False),
-                    }
-                    if lead.id in existing:
-                        update(existing[lead.id], **value)
-                    else:
-                        put(
-                            s,
-                            "scheduling_plans",
-                            p["tenant_id"],
-                            p["seller_id"],
-                            value,
-                            key="current:" + lead.id,
-                            now=inputs["now"],
-                        )
-                    saved += 1
-                s.flush()
-                generation = self.report_revision(s, p)
-        rebalance_job = None
-        if not superseded and forecast.get("rebalance_required"):
-            with self.db.transaction() as s:
-                if self.report_revision(s, p, lock=True) != generation:
-                    return {"status": "superseded"}
-                self.jobs.require_owned_in(s, lease)
-                rebalance_job = self.jobs.enqueue_in(
-                    s,
-                    "ml",
-                    {
-                        "kind": "retry_plan_refresh",
-                        "seller_id": p["seller_id"],
-                        "user_id": p.get("user_id"),
-                        "campaign_id": campaign_id,
-                        "internal": True,
-                        "input_fingerprint": forecast["input_fingerprint"],
-                    },
-                    f"planning-rebalance:{campaign_id}",
-                    tenant_id=p["tenant_id"],
-                    priority=16,
-                    latest=True,
-                )
-        return {
-            "status": "superseded" if superseded else "ready",
-            "source_revision": generation,
-            "saved": saved,
-            "superseded": superseded,
-            "unchanged": unchanged,
-            "omitted_schedule_rows": forecast["schedule_rows_omitted"],
-            "rebalance_job_id": rebalance_job["id"] if rebalance_job else None,
-        }
+        """Retired: forecasts publish one bounded summary; queued legacy jobs complete without writes."""
+        return {"status": "ready", "saved": 0, "superseded": 0, "unchanged": 0, "retired": True}
 
     def refresh_observed_health(self, p, *, lease=None):
         from app.service import fail

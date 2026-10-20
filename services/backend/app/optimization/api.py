@@ -9,21 +9,13 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validato
 
 from app.db import audit, doc, emit, put, uid, update
 from app.optimization.goals import goal_plan
-from app.optimization.numbering import timestamp
+from app.optimization.numbering import HealthPolicy, timestamp
 from app.scheduling.models import EstimatePolicy
 from app.service import fail
 
 
 class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
-
-class HealthPolicy(Strict):
-    min_comparable: int = Field(default=30, ge=10, le=1000, strict=True)
-    material_drop: float = Field(default=0.20, gt=0, lt=1, allow_inf_nan=False)
-    confidence: float = Field(default=0.95, ge=0.8, le=0.999, allow_inf_nan=False)
-    window_days: int = Field(default=90, ge=1, le=365, strict=True)
-    callback_proof_days: int = Field(default=30, ge=1, le=90, strict=True)
 
 
 class StaffedWindow(Strict):

@@ -251,7 +251,17 @@ def test_small_time_assignments_match_an_independent_exhaustive_oracle():
 
 
 def test_existing_schedule_does_not_spend_more_than_declared_work_budget():
+    # Simple staffing turns rep minutes into windows; declared windows supply their own time.
     result = capacity_forecast(
+        [lead(str(i)) for i in range(5)],
+        [number()],
+        now=NOW,
+        rep_minutes=4,
+        handling_seconds=120,
+        policy={"max_attempts": 1},
+    )
+    assert result["existing_only_capacity"] == 2
+    declared = capacity_forecast(
         [lead(str(i)) for i in range(5)],
         [number()],
         now=NOW,
@@ -260,7 +270,7 @@ def test_existing_schedule_does_not_spend_more_than_declared_work_budget():
         policy={"max_attempts": 1},
         staffed_windows=[window()],
     )
-    assert result["existing_only_capacity"] == 2
+    assert declared["existing_only_capacity"] == 5
 
 
 def test_low_sample_health_is_not_used_as_spam_proof_or_a_capacity_ban():
