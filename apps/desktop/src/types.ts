@@ -137,6 +137,8 @@ export interface Coach {
   evidence_segment_ids: string[];
 }
 export interface Call {
+  /** Rep-visible edit counter used for wrap-up conflicts (row version moves on bookkeeping). */
+  edit_version?: number;
   disposition_input?: {
     outcome: string;
     contact_role: string;

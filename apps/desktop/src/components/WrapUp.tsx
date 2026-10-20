@@ -90,6 +90,8 @@ export function WrapUp({
       contact_role: contactRole,
       callback_note: wrapNote,
       expected_version: call.version,
+      // Background bookkeeping bumps call.version; only rep edits move edit_version.
+      expected_edit_version: call.edit_version ?? 0,
       callback_at:
         outcome === "callback_requested" && callbackAt
           ? zonedInstant(callbackAt, zone.zone)

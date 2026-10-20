@@ -1006,6 +1006,9 @@ class RepWorkflows:
         due = zoned_time(data.get("callback_at"))
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
+            # Serialize with telephony/maintenance writers so a concurrent bump cannot raise
+            # StaleDataError mid-save; conflicts are decided by the rep edit counter below.
+            s.refresh(call, with_for_update=True)
             identity = self.local_edit_in(s, p, "disposition", call_id, call, data, "rep_id")
             if call.data["state"] not in TERMINAL:
                 fail(409, "End the call before wrap-up")
@@ -1018,8 +1021,21 @@ class RepWorkflows:
             }
             duplicate = call.data.get("disposition_input") == canonical
             task = callback_review = tasks = None
+            edit_version = call.data.get("edit_version", 0)
             if not identity[2]:
-                self.check_edit_version(call, data)
+                if data.get("expected_edit_version") is not None:
+                    if data["expected_edit_version"] != edit_version:
+                        fail(
+                            409,
+                            {
+                                "code": "version_conflict",
+                                "current_version": call.version,
+                                "current_edit_version": edit_version,
+                                "message": "This call's outcome changed; reload before saving",
+                            },
+                        )
+                else:
+                    self.check_edit_version(call, data)  # Older clients: whole-row version.
             previous_outcome = call.data.get("outcome")
             correcting_confirmed = call.data["state"] == "FINALIZED"
             correcting_meeting = (
@@ -1090,6 +1106,7 @@ class RepWorkflows:
                     state="FINALIZED",
                     callback_at=due,
                     disposition_input=canonical,
+                    edit_version=edit_version + 1,
                     outcome_available_at=self.clock().isoformat(),
                     outcome_source="rep_reported",
                     contact_role=canonical["contact_role"],
