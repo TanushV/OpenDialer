@@ -71,8 +71,8 @@
     {
       "id": "raw_expiry",
       "source": "services/backend/app/privacy.py",
-      "find": "if deadline <= now or monotonic_deadline <= mono:",
-      "replace": "if False:  # deliberate mutation: skip expiry",
+      "find": "while heap and heap[0][0] <= limit:",
+      "replace": "while False:  # deliberate mutation: skip expiry",
       "designated_test": "services/backend/tests/test_remediation_privacy.py::test_ephemeral_buffer_is_bounded_and_source_revision_does_not_reset_expiry",
       "status": "planned-not-executed"
     },

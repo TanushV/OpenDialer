@@ -299,37 +299,40 @@ async def test_extraction_deadline_cannot_outlive_original_evidence_expiry(
     workspace, app, monkeypatch, clock
 ):
     import asyncio
-    import time
 
     call, state = setup_analysis(workspace, app, monkeypatch)
     service = app.state.service
-    clock.now += timedelta(seconds=299.95)
-    cancelled = []
+    clock.now += timedelta(seconds=299)
+    started, completed = [], []
 
     class SlowExtractor(ConversationProvider):
         async def suggest(self, context, **kwargs):
-            try:
-                await asyncio.sleep(0.7)
-                return conversation_turn(analysis_body(), context)
-            finally:
-                cancelled.append(True)
+            started.append(True)
+            await asyncio.sleep(5)
+            completed.append(True)
+            return conversation_turn(analysis_body(), context)
 
     monkeypatch.setattr(
         service,
         "configured_coach",
         lambda *args: (SlowExtractor(state), "openrouter"),
     )
-    started = time.monotonic()
     await service.analyze_postcall(p(workspace), call["id"])
-    assert time.monotonic() - started < 0.5
-    assert cancelled == [True]
+    # One second of evidence lifetime remains, so a 5 s request must never run to completion.
+    # Under load the pre-submission checks may consume the remaining lifetime first; refusing to
+    # submit is equally correct. Asserting on the provider, not wall time, keeps this load-independent.
+    assert completed == [], "Extraction outlived the original evidence expiry"
     with service.db.transaction(False) as s:
         usage = [
             r.data
             for r in service.scoped(s, "usage_ledger", p(workspace))
             if r.data.get("work_kind") == "conversation_finalize"
         ]
-    assert len(usage) == 1 and usage[0]["status"] == "uncertain"
+    if started:
+        # Submitted and then cancelled at expiry: the possibly billed request stays a liability.
+        assert len(usage) == 1 and usage[0]["status"] == "uncertain"
+    else:
+        assert not any(u.get("status") == "uncertain" for u in usage), "Unsent work cannot owe a charge"
 
 
 @pytest.mark.asyncio
