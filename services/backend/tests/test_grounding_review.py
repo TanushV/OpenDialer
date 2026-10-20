@@ -10,6 +10,7 @@ from test_postcall_completion import (
     ConversationProvider,
     analysis_body,
     conversation_turn,
+    finalize,
     setup_analysis,
     stage_review,
 )
@@ -206,7 +207,7 @@ async def test_postcall_review_controls_publication_tasks_and_its_own_usage(
     call, state = setup_analysis(workspace, app, monkeypatch)
     service = app.state.service
     state["verdict"] = verdict
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     requests = [r for r in state["contexts"] if "fingerprint" in r]
     assert len(requests) == 1
     assert requests[0]["kind"] == "conversation"
@@ -240,7 +241,7 @@ async def test_missing_review_provider_cannot_create_inferred_task(workspace, ap
     call, state = setup_analysis(workspace, app, monkeypatch)
     service = app.state.service
     state["missing_review"] = True
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     with service.db.transaction(False) as s:
         assert not service.lead_records(s, p(workspace), "followup_tasks", call["lead_id"])
 
@@ -261,7 +262,7 @@ async def test_review_completion_cannot_extend_raw_lifetime(workspace, app, monk
         "configured_coach",
         lambda *args: (SlowReview(state), "openrouter"),
     )
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     with service.db.transaction(False) as s:
         assert not service.lead_records(s, p(workspace), "followup_tasks", call["lead_id"])
         usage = [
@@ -277,7 +278,7 @@ async def test_review_completion_cannot_extend_raw_lifetime(workspace, app, monk
 async def test_source_correction_invalidates_the_review_status(workspace, app, monkeypatch):
     call, state = setup_analysis(workspace, app, monkeypatch)
     service = app.state.service
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     assert service.analysis(p(workspace), call["id"])["grounding_status"] == "model_reviewed"
     await service.transcript(
         p(workspace),
@@ -317,7 +318,7 @@ async def test_extraction_deadline_cannot_outlive_original_evidence_expiry(
         "configured_coach",
         lambda *args: (SlowExtractor(state), "openrouter"),
     )
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     # One second of evidence lifetime remains, so a 5 s request must never run to completion.
     # Under load the pre-submission checks may consume the remaining lifetime first; refusing to
     # submit is equally correct. Asserting on the provider, not wall time, keeps this load-independent.

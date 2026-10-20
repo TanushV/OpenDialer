@@ -116,7 +116,12 @@ async def test_manual_failures_do_not_open_the_automatic_breaker():
         (TimeoutError(), True),
     ],
 )
-async def test_only_transport_faults_open_the_breaker(fault, counted):
+async def test_only_transport_faults_open_the_breaker(fault, counted, monkeypatch):
+    import app.coaching.engine as engine_module
+
+    # Breaker accounting, not admission timing, is under test: freeze the deadline clock so a
+    # loaded machine cannot turn a late admission into "busy" instead of "unavailable".
+    monkeypatch.setattr(engine_module, "monotonic", lambda: 0.0)
     engine = CoachEngine()
     for i in range(3):
         failed = await engine.suggest(str(i), {}, Raising(fault), FALLBACK, circuit_key="route")
@@ -126,7 +131,10 @@ async def test_only_transport_faults_open_the_breaker(fault, counted):
 
 
 @pytest.mark.asyncio
-async def test_transient_failure_stays_quiet_and_cached_knowledge_needs_an_open_circuit():
+async def test_transient_failure_stays_quiet_and_cached_knowledge_needs_an_open_circuit(monkeypatch):
+    import app.coaching.engine as engine_module
+
+    monkeypatch.setattr(engine_module, "monotonic", lambda: 0.0)
     cached = {"action": "SHOW_CARD", "kind": "cached_tip", "say_or_ask": "Cached knowledge"}
     engine = CoachEngine()
     failed = await engine.suggest("a", {}, Raising(httpx.ConnectError("down")), cached, circuit_key="k")

@@ -5,7 +5,7 @@ from copy import deepcopy
 import pytest
 from app.db import doc, get, update
 from conftest import start
-from test_postcall_completion import ConversationProvider, conversation_turn
+from test_postcall_completion import ConversationProvider, conversation_turn, finalize
 from test_remediation_rep_workflow import p
 
 
@@ -238,7 +238,7 @@ async def test_model_uses_selected_dimensions_weights_and_rejects_obsolete_rubri
             )
 
     monkeypatch.setattr(service, "configured_coach", lambda *_: (Provider(state), "openrouter"))
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     assert requests[0]["rubric"]["call_type"] == "discovery"
     assert requests[0]["rubric"]["dimensions"][0]["anchors"]["2"] == "Explored their workflow"
     result = service.analysis(p(workspace), call["id"])["scorecard"]

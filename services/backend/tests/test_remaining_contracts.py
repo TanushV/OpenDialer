@@ -3,10 +3,16 @@ import pytest
 from app.coaching.engine import CoachEngine
 from app.providers.telnyx import TelnyxCarrier
 from conftest import start
+from test_postcall_completion import finalize
 
 
 @pytest.mark.asyncio
-async def test_coach_circuit_breaker_falls_back_without_backlog():
+async def test_coach_circuit_breaker_falls_back_without_backlog(monkeypatch):
+    import app.coaching.engine as engine_module
+
+    # A frozen deadline clock keeps admission on time under machine load; the breaker is under test.
+    monkeypatch.setattr(engine_module, "monotonic", lambda: 0.0)
+
     class Failing:
         count = 0
 
@@ -117,7 +123,7 @@ async def test_provider_postcall_validates_evidence_and_preserves_human_notes(wo
         principal(workspace), call["id"], before["notes_version"], "Rep requested a precise callback time."
     )
     assert c.post(f"/v1/calls/{call['id']}/hangup", headers=h).status_code == 200
-    await service.analyze_postcall(principal(workspace), call["id"])
+    await finalize(service, principal(workspace), call["id"])
     analysis = c.get(f"/v1/calls/{call['id']}/analysis", headers=h).json()
     assert state["requests"] == 2
     assert analysis["finalization"]["status"] == "ready"

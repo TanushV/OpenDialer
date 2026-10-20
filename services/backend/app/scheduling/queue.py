@@ -1,6 +1,5 @@
 """Bounded queue reads, batched ranking, and a short authoritative resource claim."""
 
-import secrets
 from collections import OrderedDict
 from datetime import timedelta
 
@@ -10,9 +9,10 @@ from app.compliance.policy import authorize
 from app.db import MODELS, ActiveClaim, audit, doc, emit, prefetch, put, update
 from app.optimization.learning import (
     choose_cohort_candidate,
+    cohort_arm,
+    cohort_fraction,
     conversion_score,
     freeze_features,
-    learn_distribution,
     stable_control,
 )
 from app.optimization.numbering import select_number, timestamp
@@ -270,8 +270,7 @@ class ReservationPlanner:
                     }
                     for c in probes
                 ],
-                now=now,
-                draw=secrets.randbelow(1000000) / 1000000,
+                now=now,  # The cohort draw is the candidate's stable hash, not process randomness.
             )
             if not selection:
                 last = leads[-1] if leads else None
@@ -411,38 +410,15 @@ class ReservationPlanner:
                 for v in self.scoped(s, "treatment_variants", p)
                 if v.data.get("approved") and v.data["campaign_id"] == campaign_id
             ] or ["approved-default"]
-            urgent = bool(
-                lead.data.get("callback_due_at")
-                or lead.data.get("requested_contact")
-                or timestamp(lead.data["coverage_due_at"]) <= now
-            )
-            distribution = plan["profile"].get("treatments", {}).get(str(plan["features"]["segment"]))
-            if (
-                stable_control(lead.id)
-                or urgent
-                or not distribution
-                or set(distribution["probabilities"]) != set(actions)
-            ):
-                distribution = learn_distribution(
-                    actions,
-                    [],
-                    segment=plan["features"]["segment"],
-                    exploration=config["exploration"],
-                    control=stable_control(lead.id),
-                    urgent=urgent,
-                )
-            draw, cumulative, selected = secrets.randbelow(1000000) / 1000000, 0.0, actions[-1]
-            for action, probability in distribution["probabilities"].items():
-                cumulative += probability
-                if draw < cumulative:
-                    selected = action
-                    break
+            # No treatment may be randomized without a registered comparison (REMEDIATION 9.4);
+            # none exists, so the reviewed default is chosen with certainty and logged as such.
             choice = {
-                "action": selected,
-                "propensity": distribution["probabilities"][selected],
+                "action": actions[0],
+                "propensity": 1.0,
                 "eligible_actions": actions,
-                "action_distribution": distribution["probabilities"],
-                "treatment_estimates": distribution.get("estimates", {}),
+                "action_distribution": {action: float(action == actions[0]) for action in actions},
+                "treatment_estimates": {},
+                "treatment_reason": "no_registered_treatment_comparison",
             }
             snapshot = put(
                 s,
@@ -474,7 +450,7 @@ class ReservationPlanner:
                     "features": plan["features"],
                     "predictions": plan["prediction"],
                     "propensity": choice["propensity"],
-                    "experiment_arm": "control" if stable_control(lead.id) else "candidate",
+                    "experiment_arm": cohort_arm(lead.id, cohort_fraction(campaign.data, config, now)),
                 },
                 now=now,
             )
@@ -513,7 +489,7 @@ class ReservationPlanner:
                     "predictions": plan["prediction"],
                     "conversion_goal": config["conversion_goal"],
                     **plan["selection"],
-                    "experiment_arm": "control" if stable_control(lead.id) else "candidate",
+                    "experiment_arm": cohort_arm(lead.id, cohort_fraction(campaign.data, config, now)),
                     "outcome_window_days": config["window_days"],
                 },
                 now=now,

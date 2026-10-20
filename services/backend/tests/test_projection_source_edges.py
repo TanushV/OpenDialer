@@ -185,7 +185,7 @@ def test_campaign_specific_goal_cannot_pollute_another_campaign_estimate(workspa
                 "outcome": "sale_won",
                 "outcome_available_at": clock.now.isoformat(),
                 "contact_role": "right_party",
-                "outcome_source": "human",
+                "outcome_source": "rep_reported",
             },
             now=clock.now,
         )
@@ -305,7 +305,8 @@ def test_selection_profile_uses_selected_campaign_treatments(workspace, app, clo
         selected = {**p, "campaign_id": second.id}
         statistics = {"total": {}, "retry_observations": [], "treatment_counts": {"pooled": {}}}
         profile = service.selection_profile(s, selected, statistics, service.optimization_config(s, selected))
-        assert set(profile["treatments"]["pooled"]["probabilities"]) == {action.id}
+        # No commit-time treatment policy is derived without a registered treatment comparison.
+        assert action.id and "treatments" not in profile and "treatment_counts" not in profile["statistics"]
 
 
 def test_legacy_long_work_span_enqueues_bounded_days_and_resumes(workspace, app, clock):

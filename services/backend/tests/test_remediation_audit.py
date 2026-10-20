@@ -203,10 +203,12 @@ def test_corrected_transcript_invalidates_old_ai_scorecard(workspace, app):
         "text": "What business problem would you like us to help solve?",
     }
     assert c.post(path + "/transcript", headers=h, json=segment).status_code == 200
-    c.get(path + "/analysis", headers=h)
     p, service = principal(workspace), app.state.service
     with service.db.transaction() as s:
-        card = next(r for r in service.scoped(s, "scorecards", p) if r.external_key == call["id"])
+        # Reads no longer create the scorecard; seed the old score through the writer.
+        _, card = service._materialize_views_in(
+            s, p, service.required(s, "call_attempts", call["id"], p), notes=False
+        )
         update(
             card,
             items=[
@@ -288,7 +290,7 @@ def test_legacy_fixture_track_is_still_recognized():
 
 
 def test_delayed_labels_do_not_leak_past_the_validation_start():
-    from app.ml.training import independent_partitions
+    from comparison_oracle import independent_partitions
 
     now = datetime(2026, 9, 1, 10, tzinfo=UTC)
     rows = [

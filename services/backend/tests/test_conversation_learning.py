@@ -7,7 +7,7 @@ import pytest
 from app.db import update
 from conftest import disposition_body
 from test_grounding_review import review_response
-from test_postcall_completion import ConversationProvider, setup_analysis
+from test_postcall_completion import ConversationProvider, finalize, setup_analysis
 from test_remediation_rep_workflow import p
 
 
@@ -181,7 +181,7 @@ async def test_reviewed_observations_survive_expiry_without_raw_text_and_feed_da
 ):
     service = app.state.service
     call, _ = observed_call(workspace, app, monkeypatch)
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     result = service.analysis(p(workspace), call["id"])
     observation = result["observations"][0]
     assert observation["concept"] == "Procurement approval"
@@ -218,7 +218,7 @@ async def test_reviewed_observations_survive_expiry_without_raw_text_and_feed_da
 async def test_observation_rephrase_keeps_identity_but_rep_retraction_wins(workspace, app, monkeypatch):
     call, state = observed_call(workspace, app, monkeypatch)
     service = app.state.service
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     result = service.analysis(p(workspace), call["id"])
     first = result["observations"][0]
     c, h = workspace["client"], workspace["headers"]
@@ -242,7 +242,7 @@ async def test_observation_rephrase_keeps_identity_but_rep_retraction_wins(works
         == 409
     )
     state["body"]["observations"][0]["concept"] = "Purchasing permission"
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     second = service.analysis(p(workspace), call["id"])["observations"]
     assert len(second) == 1
     assert second[0]["id"] == first["id"]
@@ -254,7 +254,7 @@ async def test_observation_rephrase_keeps_identity_but_rep_retraction_wins(works
 async def test_source_correction_invalidates_observations_and_cached_guidance(workspace, app, monkeypatch):
     call, _ = observed_call(workspace, app, monkeypatch)
     service = app.state.service
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     with service.db.transaction() as s:
         campaign = service.required(s, "campaigns", workspace["campaign_id"], p(workspace))
         update(
@@ -292,7 +292,7 @@ async def test_observations_are_in_meaning_review_and_rejected_as_a_unit(workspa
             return review_response(context, verdict="CONTRADICTED")
 
     monkeypatch.setattr(app.state.service, "configured_coach", lambda *args: (Rejecting(state), "openrouter"))
-    await app.state.service.analyze_postcall(p(workspace), call["id"])
+    await finalize(app.state.service, p(workspace), call["id"])
     assert any(i.startswith("observations/") for i in seen)
     assert app.state.service.analysis(p(workspace), call["id"])["observations"] == []
 
@@ -528,7 +528,7 @@ async def test_interpretation_does_not_receive_outcomes_as_evidence_of_the_respo
     workspace, app, monkeypatch
 ):
     call, state = observed_call(workspace, app, monkeypatch)
-    await app.state.service.analyze_postcall(p(workspace), call["id"])
+    await finalize(app.state.service, p(workspace), call["id"])
     contexts = state["contexts"]
     assert contexts
     assert not any(i["kind"] == "outcome" and i["id"] == call["id"] for i in contexts[0]["evidence_catalog"])
@@ -540,7 +540,6 @@ async def test_legacy_unreviewed_observations_are_not_operational_training_input
 ):
     call, _ = observed_call(workspace, app, monkeypatch)
     service = app.state.service
-    service.analysis(p(workspace), call["id"])
     with service.db.transaction() as s:
         call_row = service.required(s, "call_attempts", call["id"], p(workspace))
         update(
@@ -549,7 +548,8 @@ async def test_legacy_unreviewed_observations_are_not_operational_training_input
             outcome_available_at=clock.now.isoformat(),
             outcome_source="rep_reported",
         )
-        note = service._by_key(s, p(workspace), "notes", call["id"])
+        # A writer, never the analysis read, materializes the note row.
+        note, _ = service._materialize_views_in(s, p(workspace), call_row, scorecard=False)
         update(note, observations=[{"concept": "An unchecked legacy guess", "approach": "Invented success"}])
     with service.db.transaction(False) as s:
         row = next(r for r in service.operational_dataset(s, p(workspace)) if r["call_id"] == call["id"])
@@ -562,7 +562,7 @@ async def test_prospect_brief_retains_reviewed_concepts_without_showing_retracte
 ):
     call, _ = observed_call(workspace, app, monkeypatch)
     service = app.state.service
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     packet = service.packet(p(workspace), call["lead_id"])
     assert packet["prospect_brief"]["observations"][0]["concept"] == "Procurement approval"
     observation = service.analysis(p(workspace), call["id"])["observations"][0]
@@ -592,7 +592,7 @@ async def test_rep_cannot_review_another_reps_observation_or_change_shared_names
 
     call, _ = observed_call(workspace, app, monkeypatch)
     service = app.state.service
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     observation = service.analysis(p(workspace), call["id"])["observations"][0]
     with service.db.transaction() as s:
         user = service.required(s, "users", workspace["user_id"], p(workspace))
