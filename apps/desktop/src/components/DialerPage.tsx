@@ -22,6 +22,7 @@ import { pausesPresence, Telephony } from "../telephony/client";
 import { InboundCall } from "./InboundCall";
 import { CallControls } from "./CallControls";
 import { CallbackReviewNotice, WrapUp } from "./WrapUp";
+import { nextLeadWithRetry } from "../state/queue";
 import { DueTasks } from "./FollowupTasks";
 import type { Call, Packet, Reservation } from "../types";
 import { isActiveCall, isTerminal } from "../types";
@@ -52,6 +53,7 @@ export function DialerPage() {
   const hangupGeneration = useRef(0);
   useSpeechExpiry(call, setCall);
   const [dialing, setDialing] = useState(false);
+  const [finding, setFinding] = useState(false);
   const [readying, setReadying] = useState(false);
   const readyingNow = useRef(false);
   const [transcript, setTranscript] = useState("");
@@ -341,9 +343,13 @@ export function DialerPage() {
       );
     if (owesWrapUp(currentCall.current))
       throw new Error("Save this call's outcome before the next lead.");
-    const next = await api<Reservation>("/v1/queue/next", "POST", {
-      campaign_id: w.campaign.id,
-    });
+    const next = await nextLeadWithRetry(
+      () =>
+        api<Reservation>("/v1/queue/next", "POST", {
+          campaign_id: w.campaign.id,
+        }),
+      { onWaiting: setFinding },
+    );
     setReservation(next);
     setCallbackReview(null);
     setPacket(await api(`/v1/leads/${next.lead.id}/packet`));
@@ -705,7 +711,9 @@ export function DialerPage() {
               </p>
               <button
                 className="primary"
-                disabled={!ready || active || pendingOptouts || !journalReady}
+                disabled={
+                  !ready || active || pendingOptouts || !journalReady || finding
+                }
                 onClick={() => void run(getNext)}
               >
                 View next lead
@@ -960,6 +968,7 @@ export function DialerPage() {
         ready={ready}
         audioStatus={audioStatus}
         dialing={dialing}
+        finding={finding}
         canOptOut={Boolean(selectedLead)}
         wrapUpPending={wrapUpPending}
         blocked={

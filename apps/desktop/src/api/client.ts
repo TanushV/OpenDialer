@@ -5,9 +5,31 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public readonly status: number,
+    /** The authority's stable refusal code, when it sent one. */
+    public readonly code?: string,
   ) {
     super(message);
   }
+}
+/** Coded refusals the rep or administrator can act on directly. */
+const ACTIONABLE: Record<string, string> = {
+  REP_AUDIO_NOT_READY:
+    "Check audio before calling. Reconnect your headset or microphone, then start the call.",
+  TELEPHONY_CREDENTIAL_MISCONFIGURED:
+    "Telnyx credential needs SIP URI calling set to internal, see Settings.",
+};
+type Detail = { code: string; message?: string; reasons?: string[] };
+function refusal(detail: unknown, status: number) {
+  if (typeof detail === "string") return new ApiError(detail, status);
+  if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+    const { code, message, reasons } = detail as Detail;
+    return new ApiError(
+      ACTIONABLE[code] ?? message ?? `${code}: ${reasons?.join(", ") ?? ""}`,
+      status,
+      code,
+    );
+  }
+  return new ApiError(`Request failed (${status})`, status);
 }
 // Only local, versioned business edits may replay after an uncertain transport result.
 // Telephony and charged provider actions retain their operation-specific recovery.
@@ -195,17 +217,7 @@ export async function request<T>(
   } finally {
     clearTimeout(timer);
   }
-  if (!response.ok) {
-    const detail = result.detail;
-    throw new ApiError(
-      typeof detail === "string"
-        ? detail
-        : detail && !Array.isArray(detail)
-          ? `${detail.code}: ${detail.reasons?.join(", ") ?? ""}`
-          : `Request failed (${response.status})`,
-      response.status,
-    );
-  }
+  if (!response.ok) throw refusal(result.detail, response.status);
   return result;
 }
 export interface SavedSession {
