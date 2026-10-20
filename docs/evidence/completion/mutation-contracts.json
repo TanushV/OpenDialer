@@ -47,7 +47,7 @@
     {
       "id": "human_note",
       "source": "services/backend/app/intelligence.py",
-      "find": "\"human_notes\": note.data.get(\"human_text\"),",
+      "find": "\"human_notes\": human,",
       "replace": "\"human_notes\": None,",
       "designated_test": "services/backend/tests/test_call_rubrics.py::test_rep_purpose_correction_invalidates_scores_but_preserves_human_note_and_reviews",
       "status": "planned-not-executed"

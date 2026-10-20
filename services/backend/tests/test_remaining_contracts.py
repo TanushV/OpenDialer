@@ -3,6 +3,7 @@ import pytest
 from app.coaching.engine import CoachEngine
 from app.providers.telnyx import TelnyxCarrier
 from conftest import start
+from test_postcall_completion import finalize
 
 
 @pytest.mark.asyncio
@@ -107,7 +108,7 @@ async def test_provider_postcall_validates_evidence_and_preserves_human_notes(wo
         principal(workspace), call["id"], before["notes_version"], "Rep requested a precise callback time."
     )
     assert c.post(f"/v1/calls/{call['id']}/hangup", headers=h).status_code == 200
-    await service.analyze_postcall(principal(workspace), call["id"])
+    await finalize(service, principal(workspace), call["id"])
     analysis = c.get(f"/v1/calls/{call['id']}/analysis", headers=h).json()
     assert state["requests"] == 2
     assert analysis["finalization"]["status"] == "ready"
