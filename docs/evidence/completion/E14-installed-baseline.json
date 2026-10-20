@@ -1,0 +1,62 @@
+{
+  "step_id": "E14",
+  "scope": "Protected pre-update baseline and copied-store migration only",
+  "source_commit": "c355fd8d32d4d259aada8e13dc9837746e392911",
+  "installed_version": "0.2.1",
+  "installed_bundle_id": "com.opendialer.desktop",
+  "installed_binary_sha256": {
+    "opendialer-backend": "f2a1feaf69d32252551f3edf2312d26dc6c91b276e5a83d2e2fd540ee76c7866",
+    "opendialer-desktop": "ab1f830253105daf0d42066830b3d4c4c75997d53624445501b780945125b96f"
+  },
+  "native_ui": {
+    "tool": "cua_repl",
+    "application": "OpenDialer",
+    "location": "tauri://localhost",
+    "session": "retained signed-in simulation workspace",
+    "calling_state": "paused",
+    "visible_version": "0.2.1",
+    "provider_requests": false
+  },
+  "copied_stores": [
+    {
+      "mode": "local",
+      "source_schema": "unversioned-empty",
+      "target_schema": "0017_metric_projections",
+      "source_authenticated_rows": 0,
+      "original_identity_sha256": "f35f4223ebd18d4c26f6149220bd0b0bdf383e742c3422bac65fc6b7178f725e",
+      "all_original_ids_preserved": true,
+      "human_notes_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "human_notes_preserved": true,
+      "source_unchanged": true,
+      "integrity": "ok",
+      "foreign_key_violations": 0,
+      "sanitized_backup_checksums": []
+    },
+    {
+      "mode": "simulation",
+      "source_schema": "0002_optimization",
+      "target_schema": "0017_metric_projections",
+      "source_authenticated_rows": 127,
+      "original_identity_sha256": "d99dba0a33c9ce434ba12863470e5a30bfacc2e9d9afef3065aff6d8f9dabd1a",
+      "all_original_ids_preserved": true,
+      "human_notes_sha256": "c0ae0a83f2ea8d1e7f5e442a392d48a4669780ba6750ce6aa68fe8adbd1c5df1",
+      "human_notes_preserved": true,
+      "source_unchanged": true,
+      "integrity": "ok",
+      "foreign_key_violations": 0,
+      "sanitized_backup_checksums": [
+        "3aa36e557c02b73894b30301f623df58687e5096f0671a5929296fc58803bb46"
+      ]
+    }
+  ],
+  "protected_receipts_sha256": {
+    "receipt.json": "a18924a90f0ec885fdc52c738f372cd7029f96a6364eb25969bcc43091a86ec9",
+    "native-baseline.json": "100e5a898a5f38c0085c131e61dce974d008cf146b09e9f9b9646f77d2cd7832"
+  },
+  "installed_changed": false,
+  "external_calls": false,
+  "known_limitations": [
+    "Actual signed update and after-update identity comparison remain open",
+    "No real telephony, inference or hardware validation occurred"
+  ]
+}

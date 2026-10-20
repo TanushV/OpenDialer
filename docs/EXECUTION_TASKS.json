@@ -1103,7 +1103,7 @@
         "A53",
         "A55"
       ],
-      "checkpoint": "Nine independent-review counterexamples red,61 focused harness/package checks green. Selected NSIS/MSI bytes/manifest/exit, unambiguous review, task remount and owned descendant cleanup repaired. Actual frozen/native/update acceptance remains open."
+      "checkpoint": "Protected current0.2.1 Mac baseline captured through native UI and exact binary/data hashes; copied stores migrate/sanitize without changing originals. Harness repairs pass; actual signed updates, fresh installer and delivered resources remain open."
     },
     {
       "id": "E15",
