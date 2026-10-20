@@ -1114,89 +1114,94 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             **{k: generated[k] for k in ("notes", "observations", "semantic_trackers", "grounding_status")},
         }
 
-    def analysis(self, p, call_id, *, force=False):
-        from app.postcall.analysis import behavioral_metrics, reviewed_tracker_matches
-        from app.postcall.review import reviewed_view
+    def _materialize_views_in(self, s, p, call, *, notes=True, scorecard=True, finalized=False):
+        """Write-side note/scorecard metadata for the call's current derived view.
 
-        with self.db.transaction() as s:
-            call = self.required(s, "call_attempts", call_id, p)
-            # Materialized notes/scores share the call's correction/finalization
-            # boundary, including concurrent first reads before those rows exist.
-            s.refresh(call, with_for_update=True)
-            metadata = self.transcript_metadata(s, p, call_id)
-            segments = self.transcript_rows(s, p, call_id, metadata=metadata)
-            memory = self._by_key(s, p, "conversation_states", call_id)
-            derived, generated = self.conversation_view_in(s, p, call, memory)
-            memory_revision = derived["version"]
-            note_metadata = {k: generated["notes"][k] for k in ("call_id", "transcript_version", "outcome")}
-            card_metadata = {
-                **generated["scorecard"],
-                "derived_state_revision": memory_revision,
-                "items": [
-                    {**i, "explanation": "Read the current conversation view."}
-                    for i in generated["scorecard"]["items"]
-                ],
+        Reads never create, repair or demote these rows. A writer that needs their
+        identity or version token (finalization, a human note, a score review, a purpose
+        change) materializes them inside its own transaction. The narrative itself lives
+        once, in the conversation state, so stored scorecard items carry no explanation.
+        """
+        derived, generated = self.conversation_view_in(s, p, call)
+        revision = derived["version"]
+        note = self._by_key(s, p, "notes", call.id) if notes else None
+        card = self._by_key(s, p, "scorecards", call.id) if scorecard else None
+        if notes:
+            human = note.data.get("human_text") if note else None
+            values = {
+                "notes": {k: generated["notes"][k] for k in ("call_id", "transcript_version", "outcome")},
+                "privacy_contract": 1,
+                "stale": False,
+                "grounding_status": generated["grounding_status"],
+                "derived_state_revision": revision,
+                "status": "human_confirmed"
+                if human is not None
+                else "ai_finalized"
+                if finalized
+                else note.data.get("status", "draft")
+                if note
+                else "draft",
             }
-            note = self._by_key(s, p, "notes", call_id)
-            card = self._by_key(s, p, "scorecards", call_id)
             if not note:
                 note = put(
                     s,
                     "notes",
                     p["tenant_id"],
                     p["seller_id"],
-                    {
-                        "call_id": call_id,
-                        "privacy_contract": 1,
-                        "notes": note_metadata,
-                        "human_text": None,
-                        "status": "ai_finalized" if force else "draft",
-                        "suggested_update": None,
-                        "grounding_status": generated["grounding_status"],
-                        "derived_state_revision": memory_revision,
-                    },
-                    key=call_id,
+                    {"call_id": call.id, "human_text": None, "suggested_update": None, **values},
+                    key=call.id,
                     now=self.clock(),
                 )
-            elif (
-                note.data["notes"]["transcript_version"] != call.data["transcript_version"]
-                or note.data["notes"].get("outcome") != (call.data.get("outcome") or "unconfirmed")
-                or note.data.get("derived_state_revision", 0) != memory_revision
-            ):
-                update(
-                    note,
-                    notes=note_metadata,
-                    privacy_contract=1,
-                    stale=False,
-                    grounding_status=generated["grounding_status"],
-                    status="human_confirmed"
-                    if note.data.get("human_text") is not None
-                    else "ai_finalized"
-                    if force
-                    else "draft",
-                    suggested_update=bool(note.data.get("human_text")),
-                    derived_state_revision=memory_revision,
-                )
-            elif force and note.data["status"] == "draft":
-                update(note, status="ai_finalized")
+            elif any(note.data.get(k) != v for k, v in values.items()):
+                drifted = any(note.data.get(k) != values[k] for k in ("notes", "derived_state_revision"))
+                update(note, **values, **({"suggested_update": human is not None} if drifted else {}))
+        if scorecard:
+            values = {
+                **generated["scorecard"],
+                "items": [
+                    {k: v for k, v in item.items() if k != "explanation"}
+                    for item in generated["scorecard"]["items"]
+                ],
+                "derived_state_revision": revision,
+                "privacy_contract": 1,
+                "stale": False,
+            }
             if not card:
                 card = put(
                     s,
                     "scorecards",
                     p["tenant_id"],
                     p["seller_id"],
-                    {"call_id": call_id, "privacy_contract": 1, **card_metadata},
-                    key=call_id,
+                    {"call_id": call.id, **values},
+                    key=call.id,
                     now=self.clock(),
                 )
-            elif (
-                card.data.get("stale")
-                or card.data.get("transcript_version") != call.data["transcript_version"]
-                or card.data.get("rubric_version") != generated["scorecard"]["rubric_version"]
-                or card.data.get("derived_state_revision", 0) != memory_revision
-            ):
-                update(card, **card_metadata, stale=False, privacy_contract=1)
-            reviews = [doc(r) for r in self.context_rows(s, p, "reviews", card.id, limit=None)]
+            elif any(card.data.get(k) != v for k, v in values.items()):
+                update(card, **values)
+        return note, card
+
+    def analysis(self, p, call_id):
+        """Saved views plus current TTL evidence. A read never runs a model or writes."""
+        from app.postcall.analysis import behavioral_metrics, reviewed_tracker_matches
+        from app.postcall.review import reviewed_view
+
+        with self.db.transaction(False) as s:
+            call = self.required(s, "call_attempts", call_id, p)
+            metadata = self.transcript_metadata(s, p, call_id)
+            segments = self.transcript_rows(s, p, call_id, metadata=metadata)
+            memory = self._by_key(s, p, "conversation_states", call_id)
+            derived, generated = self.conversation_view_in(s, p, call, memory)
+            revision = derived["version"]
+            note = self._by_key(s, p, "notes", call_id)
+            card = self._by_key(s, p, "scorecards", call_id)
+            human = note.data.get("human_text") if note else None
+            # Drift is reported for the human to accept; the next writer records it.
+            drifted = note is not None and (
+                note.data.get("derived_state_revision", 0) != revision
+                or note.data.get("notes", {}).get("transcript_version") != call.data["transcript_version"]
+            )
+            scorecard_id = card.id if card else call.id
+            reviews = [doc(r) for r in self.context_rows(s, p, "reviews", scorecard_id, limit=None)]
             comments = [doc(r) for r in self.context_rows(s, p, "comments", call_id, limit=None)]
             trackers = [doc(r) for r in self.scoped(s, "trackers", p) if r.data["kind"] == "semantic"]
             revisions = {r.data["segment_id"]: r.data.get("revision", 1) for r in metadata}
@@ -1212,14 +1217,13 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 and item.get("interpretation_revision") != item.get("revision", 1)
                 for item in stable_metadata
             )
-            reviewed_card, reviews = reviewed_view(
-                generated["scorecard"], reviews, revisions, {item["segment_id"] for item in segments}
-            )
+            reviewed_card, reviews = reviewed_view(generated["scorecard"], reviews, revisions, live_ids)
             return {
                 "call": doc(call),
                 "lead_timezone": self.required(s, "leads", call.data["lead_id"], p).data.get("timezone"),
                 "notes": generated["notes"],
                 "call_memory": derived,
+                "derived_state_revision": revision,
                 "finalization": derived["finalization"],
                 "source_conflicts": derived["source_conflicts"],
                 "interpretation_coverage": {
@@ -1231,14 +1235,21 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                         "rate_limited_opportunities", 0
                     ),
                 },
-                "notes_version": note.version,
-                "human_notes": note.data.get("human_text"),
-                "suggested_update": generated["notes"] if note.data.get("suggested_update") else None,
-                "status": note.data["status"],
+                "notes_version": note.version if note else 0,
+                "human_notes": human,
+                "suggested_update": generated["notes"]
+                if human is not None and (note.data.get("suggested_update") or drifted)
+                else None,
+                "status": "human_confirmed"
+                if human is not None
+                else note.data.get("status", "draft")
+                if note
+                else "draft",
                 "grounding_status": generated["grounding_status"],
                 "observations": generated["observations"],
-                "scorecard_id": card.id,
-                "scorecard_version": card.version,
+                # Until a writer materializes it, a call's scorecard is addressed by its call.
+                "scorecard_id": scorecard_id,
+                "scorecard_version": card.version if card else 0,
                 "scorecard": generated["scorecard"],
                 "reviewed_scorecard": reviewed_card,
                 "reviews": reviews,
@@ -1247,17 +1258,16 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 "comments": comments,
                 "recording_available": False,
                 "raw_evidence_status": self.raw_status(call, segments),
-                "provider": note.data.get("provider", generated["provider"]),
+                "provider": note.data.get("provider", generated["provider"])
+                if note
+                else generated["provider"],
                 "tracker_definitions": trackers[:20],
                 "tracker_definitions_omitted": max(0, len(trackers) - 20),
                 "trackers": self.tracker_matches(s, p, segments)
-                + reviewed_tracker_matches(
-                    generated, trackers, revisions, {item["segment_id"] for item in segments}
-                ),
+                + reviewed_tracker_matches(generated, trackers, revisions, live_ids),
             }
 
     def edit_notes(self, p, call_id, expected_version, text):
-        self.analysis(p, call_id)
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             call = self.required(s, "call_attempts", call_id, p)
@@ -1265,17 +1275,28 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             if not self._coach_authority(s, p, call):
                 fail(403, "Current account or session cannot edit these notes")
             note = self._by_key(s, p, "notes", call_id)
-            if note.version != expected_version:
-                fail(409, {"code": "NOTES_VERSION_CONFLICT", "current_version": note.version})
+            current = note.version if note else 0
+            if current != expected_version:
+                fail(409, {"code": "NOTES_VERSION_CONFLICT", "current_version": current})
             lead = self.required(s, "leads", call.data["lead_id"], p)
             s.refresh(lead, with_for_update=True)
-            update(note, human_text=text, status="human_confirmed", editor_id=p["user_id"])
+            note, _ = self._materialize_views_in(s, p, call, scorecard=False)
+            # The human has just read the current machine view.
+            update(
+                note,
+                human_text=text,
+                status="human_confirmed",
+                editor_id=p["user_id"],
+                suggested_update=False,
+            )
             self.refresh_packet_in(s, p, lead)
             audit(s, p["tenant_id"], p["seller_id"], p["user_id"], "notes.edited", note.id, self.clock())
             return {"notes_version": note.version, "human_notes": text}
 
     async def run_jobs(self, tenant_id=None, queues=None):
         from app.jobs.queue import LostJobLease
+        from app.postcall.finalize import KIND as FINALIZE_KIND
+        from app.postcall.finalize import UnknownJobKind
 
         if (queues is None or "ml" in queues) and self.settings.worker_enabled:
             await self.periodic_optimization(tenant_id)
@@ -1317,27 +1338,37 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                         logging.getLogger(__name__).warning("Job heartbeat deferred: %s", type(exc).__name__)
 
             pulse = asyncio.create_task(heartbeat())
+            kind = job["payload"].get("kind")
             try:
                 if lane == "webhook":
                     receipt = await self.process_webhook(job["tenant_id"], job["payload"]["receipt_id"])
                     if receipt["status"] in {"processing", "retry", "unmatched"}:
                         raise RuntimeError("Webhook processing is incomplete")
                 elif lane in {"research", "scripts"}:
-                    if job["payload"].get("kind") == "dnc_refresh":
+                    if kind == "dnc_refresh":
                         from app.compliance.screening import refresh_screening
 
                         await refresh_screening(self, p, job, worker_id)
-                    elif job["payload"].get("kind") == "batch_review":
+                    elif kind == "batch_review":
                         from app.preparation.batches import review_batch_result
 
                         await review_batch_result(self, p, job, worker_id)
-                    else:
+                    elif kind == "packet_refresh":
+                        # Lead recomputation moved out of the rep's save into this refresh.
+                        await asyncio.to_thread(self.refresh_continuity, p, job["payload"]["lead_ids"])
                         await self.prepare(p, job["payload"]["lead_ids"])
-                elif lane == "postcall":
-                    if job["payload"].get("kind") == "conversation_review":
-                        await self.review_conversation(p, job["payload"]["call_id"])
+                    elif kind is None:  # Advance preparation batches (queue_preparation_in).
+                        await self.prepare(p, job["payload"]["lead_ids"])
                     else:
+                        raise UnknownJobKind(f"No {lane} handler for job kind {kind!r}")
+                elif lane == "postcall":
+                    if kind == "conversation_review":
+                        await self.review_conversation(p, job["payload"]["call_id"])
+                    elif kind in {FINALIZE_KIND, None}:
+                        # None: persisted legacy jobs and producers not yet on enqueue_finalize.
                         await self.analyze_postcall(p, job["payload"]["call_id"])
+                    else:
+                        raise UnknownJobKind(f"No postcall handler for job kind {kind!r}")
                 elif lane == "live_coach":
                     await self.coach_turn(p, job["payload"]["call_id"])
                 elif lane == "ml":
@@ -1433,8 +1464,10 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                             return IDLE
                         if receipt["status"] == "superseded":
                             return await requeue(job, receipt)
-                    else:
+                    elif kind is None:  # Operational training snapshots carry no kind.
                         await self.train_model_job(p, job["payload"])
+                    else:
+                        raise UnknownJobKind(f"No ml handler for job kind {kind!r}")
                 else:
                     raise ValueError("Unknown work lane")
                 await asyncio.to_thread(self.jobs.complete, job["id"], worker_id)
@@ -1732,6 +1765,30 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             }
         )
 
+    def enqueue_finalize(self, s, p, call, reason):
+        """The single conversation_finalize enqueue, inside the caller's transaction.
+
+        `call` is the locked call row; `reason` names the trigger (hangup, webhook,
+        correction, wrap-up, purpose change). Identical input is one job.
+        """
+        from app.postcall.finalize import enqueue
+
+        return enqueue(self, s, p, call, reason)
+
+    def _carry_finalization(self, s, p, call, state, before):
+        """A review edit of an owned or completed finalization carries its fingerprints."""
+        from app.postcall.finalize import status_in
+
+        final, after = state["finalization"], self._conversation_signature(s, p, call, state)
+        if final.get("input_fingerprint") == before:
+            final["input_fingerprint"] = after
+        if final.get("completed_fingerprint") != before:
+            return False
+        status, coverage = status_in(self, s, p, call, state, True)
+        state["coverage"].update(coverage)
+        final.update(status=status, completed_fingerprint=after)
+        return True
+
     def _begin_finalization(self, p, call_id):
         from app.coaching.context import upgrade_state
         from app.postcall.rubrics import effective
@@ -1817,40 +1874,10 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             return self._conversation_current_in(s, p, call, request, owner=owner)
 
     def _conversation_context(self, p, call_id, mode):
-        from app.coaching.sources import digest
+        """Read-only finalize/review input; the live helper's writer is never used here."""
+        from app.postcall.finalize import request
 
-        snapshot = self._help_context(p, call_id, True, None, mode=mode)
-        if not snapshot:
-            return None
-        request = snapshot[0]
-        with self.db.transaction(False) as s:
-            call = self.required(s, "call_attempts", call_id, p)
-            note = self._by_key(s, p, "notes", call_id)
-            request.update(
-                call_id=call_id,
-                call_at=call.data.get("started_at"),
-                prospect_timezone=self.required(s, "leads", call.data["lead_id"], p).data.get("timezone"),
-                human_note=note.data.get("human_text") if note else None,
-                human_note_id=note.id if note else None,
-                human_note_version=note.version if note else None,
-                human_note_hash=digest(note.data.get("human_text") if note else None),
-                call_outcome=call.data.get("outcome"),
-                rubric_revision=call.data.get("rubric_revision"),
-                rubric=request["state"]["purpose"],
-                trackers=[doc(t) for t in self.scoped(s, "trackers", p) if t.data["kind"] == "semantic"][:20],
-            )
-        if mode == "finalize":
-            request["recent_dialogue"] = [
-                r for r in request["recent_dialogue"] if r.get("interpretation_revision") != r["revision"]
-            ]
-        if mode == "review":
-            with self.db.transaction(False) as s:
-                # At most one call's bounded raw buffer, not a historical transcript scan.
-                request["recent_dialogue"] = self.transcript_rows(s, p, call_id)
-        from app.coaching.context import guidance_sources
-
-        request["evidence_catalog"] = guidance_sources(request)
-        return request
+        return request(self, p, call_id, mode)
 
     async def _conversation_infer(
         self, p, call_id, request, provider, route, *, method, kind, current, raw_sources=None
@@ -1944,8 +1971,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             self._queue_conversation_review(s, p, call, state)
             return True
 
-    def _finish_finalization(self, p, call_id, owner, success):
+    def _finish_finalization(self, p, call_id, owner, success, offered=()):
         from app.coaching.context import upgrade_state
+        from app.postcall.finalize import status_in, unprocessed
 
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
@@ -1955,33 +1983,20 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 return
             state = upgrade_state(row.data)
             signature = self._conversation_signature(s, p, call, state)
+            # Live chunks beyond this turn's page are still finalization input. Chunks the
+            # turn was offered but did not interpret are not retried (bounded passes).
+            remaining = success and any(
+                r["segment_id"] not in offered for r in unprocessed(self.transcript_rows(s, p, call_id))
+            )
             changed = (
                 signature != state["finalization"].get("input_fingerprint")
                 or dt(state["finalization"]["lease_expires_at"]) <= self.clock()
+                or remaining
             )
-            segments = [
-                r.data
-                for r in self.transcript_metadata(s, p, call_id)
-                if r.data.get("is_final") and not r.data.get("system_audio")
-            ]
-            interpreted = sum(r.get("interpretation_revision") == r["revision"] for r in segments)
-            unavailable = len(segments) - interpreted
-            pending = any(
-                i.get("review_status") in {"pending", "unavailable", "rejected"}
-                for group in ("observations", "rubric_items", "tracker_matches")
-                for i in state[group]
-            )
-            state["coverage"].update(
-                accepted_segments=len(segments),
-                interpreted_segments=interpreted,
-                unavailable_segments=unavailable,
-            )
+            status, coverage = status_in(self, s, p, call, state, success)
+            state["coverage"].update(coverage)
             state["finalization"].update(
-                status="pending"
-                if changed
-                else "ready"
-                if success and not unavailable and not pending
-                else "partial",
+                status="pending" if changed else status,
                 owner=None,
                 source_version=state["version"],
                 completed_at=self.clock().isoformat(),
@@ -1991,60 +2006,103 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             )
             self._store_conversation(s, p, call, state, row)
             if changed:
-                self.jobs.enqueue_in(
-                    s,
-                    "postcall",
-                    {
-                        "kind": "conversation_finalize",
-                        "call_id": call.id,
-                        "user_id": call.data["rep_id"],
-                        "seller_id": p["seller_id"],
-                    },
-                    f"conversation-finalize:{call.id}:{signature}",
-                    tenant_id=p["tenant_id"],
-                )
+                self.enqueue_finalize(s, p, call, "changed_input")
+            self._materialize_views_in(s, p, call, finalized=True)
             lead = self.required(s, "leads", call.data["lead_id"], p)
             self.refresh_packet_in(s, p, lead)
             emit(s, p["tenant_id"], "analysis.ready", call, self.clock())
 
+    def _publish_unavailable_rundown(self, p, call_id):
+        """No AI is configured: publish the honest partial rundown once per input.
+
+        No request context, budget ledger or warning. `completed_fingerprint` stays
+        empty so configuring a provider later can still finalize the same input.
+        """
+        from app.coaching.context import upgrade_state
+        from app.postcall.finalize import status_in
+        from app.postcall.rubrics import effective
+
+        def due(s, call):
+            if not self._coach_authority(s, p, call):
+                return None
+            record = self._by_key(s, p, "conversation_states", call.id)
+            state = upgrade_state(record.data if record else {}, call_id=call.id, rubric=effective(call.data))
+            final = state["finalization"]
+            signature = self._conversation_signature(s, p, call, state)
+            if final.get("unavailable_fingerprint") == signature or (
+                final.get("owner") and dt(final["lease_expires_at"]) > self.clock()
+            ):
+                return None
+            return record, state, signature
+
+        with self.db.transaction(False) as s:
+            if not due(s, self.required(s, "call_attempts", call_id, p)):
+                return
+        with self.db.transaction() as s:
+            call = self.required(s, "call_attempts", call_id, p)
+            s.refresh(call, with_for_update=True)
+            found = due(s, call)
+            if not found:
+                return
+            record, state, signature = found
+            status, coverage = status_in(self, s, p, call, state, False)
+            state["coverage"].update(coverage)
+            state["finalization"].update(
+                status=status,
+                reason="ai_unavailable",
+                source_version=state["version"],
+                completed_at=self.clock().isoformat(),
+                unavailable_fingerprint=signature,
+            )
+            self._store_conversation(s, p, call, state, record)
+            self._materialize_views_in(s, p, call, finalized=True)
+            self.refresh_packet_in(s, p, self.required(s, "leads", call.data["lead_id"], p))
+            emit(s, p["tenant_id"], "analysis.ready", call, self.clock())
+
     async def analyze_postcall(self, p, call_id):
-        """Compatibility job entry: finalize the same state used during the conversation."""
-        await asyncio.to_thread(self.analysis, p, call_id, force=True)
+        """The conversation_finalize job: merge still-live unprocessed chunks into the call state.
+
+        Selective review of the merged items is the separately queued conversation_review.
+        """
+        provider, route = await asyncio.to_thread(self.configured_coach, p)
+        if not provider:
+            await asyncio.to_thread(self._publish_unavailable_rundown, p, call_id)
+            return
         owner = await asyncio.to_thread(self._begin_finalization, p, call_id)
         if not owner:
             return
-        success = False
+        success, offered = False, ()
         try:
             request = await asyncio.to_thread(self._conversation_context, p, call_id, "finalize")
-            if not request or not (request["recent_dialogue"] or request["state"]["observations"]):
-                return
-            provider, route = self.configured_coach(p)
-            result = await self._conversation_infer(
-                p,
-                call_id,
-                request,
-                provider,
-                route,
-                method="suggest",
-                kind="conversation_finalize",
-                current=lambda: self._conversation_request_current(p, call_id, request, owner=owner),
-            )
-            success = await asyncio.to_thread(self._merge_finalization, p, call_id, owner, request, result)
-            if success:
-                await self.review_conversation(p, call_id)
+            if request and not (request["recent_dialogue"] or request["state"]["observations"]):
+                success = True  # Nothing left to interpret; coverage alone decides ready/partial.
+            elif request:
+                offered = {r["segment_id"] for r in request["recent_dialogue"]}
+                result = await self._conversation_infer(
+                    p,
+                    call_id,
+                    request,
+                    provider,
+                    route,
+                    method="suggest",
+                    kind="conversation_finalize",
+                    current=lambda: self._conversation_request_current(p, call_id, request, owner=owner),
+                )
+                success = await asyncio.to_thread(
+                    self._merge_finalization, p, call_id, owner, request, result
+                )
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            import logging
-
             logging.getLogger(__name__).warning(
                 "Conversation finalization unavailable: %s", type(exc).__name__
             )
         finally:
             from app.coaching.engine import finish_shielded
 
-            await finish_shielded(asyncio.to_thread(self._finish_finalization, p, call_id, owner, success))
-            await asyncio.to_thread(self.analysis, p, call_id, force=True)
+            await finish_shielded(
+                asyncio.to_thread(self._finish_finalization, p, call_id, owner, success, offered)
+            )
 
     def _state_review_snapshot(self, p, call_id, request):
         from app.coaching.context import upgrade_state
@@ -2114,8 +2172,10 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     )
                     targets.append({"group": group, "id": identity, "digest": digest(item)})
             if unavailable:
+                before = self._conversation_signature(s, p, call, upgrade_state(row.data))
                 state["version"] += 1
-            self._store_conversation(s, p, call, state, row)
+                self._carry_finalization(s, p, call, state, before)
+                self._store_conversation(s, p, call, state, row)
             if not fields:
                 return None
             relevant = {identity for f in fields for identity in f["evidence"]}
@@ -2178,9 +2238,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             if receipt and receipt.fingerprint != active["fingerprint"]:
                 raise ValueError("Review receipt belongs to different conversation fields")
             state = upgrade_state(row.data)
-            owned_finalization = self._conversation_signature(s, p, call, state) == state["finalization"].get(
-                "input_fingerprint"
-            )
+            before = self._conversation_signature(s, p, call, state)
             changed, promises, retired, retractions = [], [], set(), set()
             history = self._conversation_lineage(s, p, call_id)
             for target in active["targets"]:
@@ -2223,11 +2281,13 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     item["state"] = "stale"
             state["observations"] = [i for i in state["observations"] if i["id"] not in retired]
             state["version"] += 1
-            if owned_finalization:
-                state["finalization"]["input_fingerprint"] = self._conversation_signature(s, p, call, state)
+            # Review certifies the finalized input; it is not a new input to finalize again.
+            finalized = self._carry_finalization(s, p, call, state, before)
             state["_lineage_updates"] = changed
             self._store_conversation(s, p, call, state, row)
             update(row, review_work={"owner": None})
+            if finalized:
+                self._materialize_views_in(s, p, call, finalized=True)
             if promises or retractions:
                 publish(self, s, p, call, promises, retracted_observations=retractions)
             self._queue_conversation_review(s, p, call, state)
@@ -2236,6 +2296,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
     async def review_conversation(self, p, call_id):
         from app.grounding import accept_review
 
+        provider, route = await asyncio.to_thread(self.configured_coach, p)
+        if not provider:
+            return  # Without a reviewer, pending items stay visibly unreviewed.
         request = await asyncio.to_thread(self._conversation_context, p, call_id, "review")
         if not request:
             return
@@ -2243,7 +2306,6 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
         if not work:
             return
         owner, review = work
-        provider, route = self.configured_coach(p)
         receipt = None
         try:
             # The review body is raw-lifetime bounded, with separate request/usage ownership.
@@ -2262,8 +2324,6 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            import logging
-
             logging.getLogger(__name__).warning("Conversation review unavailable: %s", type(exc).__name__)
         finally:
             from app.coaching.engine import finish_shielded

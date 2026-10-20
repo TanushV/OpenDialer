@@ -338,9 +338,10 @@ def bind_api(app, service, principal, administrator):
                 rubric_snapshot=snapshot(configuration(campaign), data.call_type),
                 rubric_revision=call.data.get("rubric_revision", 1) + 1,
             )
-            card = service._by_key(s, p, "scorecards", call_id)
-            if card:
-                update(card, stale=True)
+            # The stale token exists even before any reader: a rating of the old purpose
+            # can never be recorded against the new rubric.
+            _, card = service._materialize_views_in(s, p, call, notes=False)
+            update(card, stale=True)
             audit(
                 s,
                 p["tenant_id"],
@@ -356,12 +357,6 @@ def bind_api(app, service, principal, administrator):
                 },
             )
             if service.transcript_rows(s, p, call_id):
-                service.jobs.enqueue_in(
-                    s,
-                    "postcall",
-                    {"call_id": call_id, "seller_id": p["seller_id"], "user_id": p["user_id"]},
-                    f"rubric:{call_id}:{call.data['rubric_revision']}",
-                    tenant_id=p["tenant_id"],
-                )
+                service.enqueue_finalize(s, p, call, "purpose_changed")
             emit(s, p["tenant_id"], "call.updated", call, service.clock())
             return doc(call)

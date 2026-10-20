@@ -297,6 +297,12 @@ def restate_callback(service, who, call, *, revision=2):
     )
 
 
+async def finalize(service, who, call_id):
+    """The finalize job, then the selective review job it queues (never inline)."""
+    await service.analyze_postcall(who, call_id)
+    await service.review_conversation(who, call_id)
+
+
 def setup_analysis(workspace, app, monkeypatch):
     call = start(workspace)
     c, h = workspace["client"], workspace["headers"]
@@ -324,7 +330,7 @@ def setup_analysis(workspace, app, monkeypatch):
 async def test_rephrased_commitment_updates_one_task_and_preserves_rep_edit(workspace, app, monkeypatch):
     call, state = setup_analysis(workspace, app, monkeypatch)
     service = app.state.service
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     with service.db.transaction(False) as s:
         tasks = [doc(t) for t in service.lead_records(s, p(workspace), "followup_tasks", call["lead_id"])]
     assert len(tasks) == 1
@@ -342,7 +348,7 @@ async def test_rephrased_commitment_updates_one_task_and_preserves_rep_edit(work
     )
     state["body"] = analysis_body("Reconnect with the prospect")
     restate_callback(service, p(workspace), call)
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     with service.db.transaction(False) as s:
         tasks2 = [doc(t) for t in service.lead_records(s, p(workspace), "followup_tasks", call["lead_id"])]
         commitments = [doc(t) for t in service.lead_records(s, p(workspace), "commitments", call["lead_id"])]
@@ -357,7 +363,7 @@ async def test_rephrased_commitment_updates_one_task_and_preserves_rep_edit(work
 async def test_corrected_source_holds_inferred_task_without_erasing_it(workspace, app, monkeypatch):
     call, _ = setup_analysis(workspace, app, monkeypatch)
     service = app.state.service
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     c, h = workspace["client"], workspace["headers"]
     before = c.get("/v1/leads/" + call["lead_id"] + "/packet", headers=h).json()["tasks"]
     assert len(before) == 1
@@ -406,7 +412,7 @@ def test_non_exact_time_cannot_become_an_automatic_callback(expression):
 async def test_inference_never_reopens_finished_tasks(workspace, app, monkeypatch, status):
     call, state = setup_analysis(workspace, app, monkeypatch)
     service = app.state.service
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     with service.db.transaction(False) as s:
         task = doc(service.lead_records(s, p(workspace), "followup_tasks", call["lead_id"])[0])
     service.edit_task(
@@ -416,7 +422,7 @@ async def test_inference_never_reopens_finished_tasks(workspace, app, monkeypatc
     )
     state["body"] = analysis_body("Revisit this later")
     restate_callback(service, p(workspace), call)
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     with service.db.transaction(False) as s:
         after = service.lead_records(s, p(workspace), "followup_tasks", call["lead_id"])
         assert len(after) == 1
@@ -427,7 +433,7 @@ async def test_inference_never_reopens_finished_tasks(workspace, app, monkeypatc
 async def test_source_correction_preserves_human_task_but_flags_conflict(workspace, app, monkeypatch):
     call, _ = setup_analysis(workspace, app, monkeypatch)
     service = app.state.service
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     with service.db.transaction(False) as s:
         task = doc(service.lead_records(s, p(workspace), "followup_tasks", call["lead_id"])[0])
     service.edit_task(
@@ -470,9 +476,9 @@ async def test_omission_preserves_promise_and_explicit_reviewed_retraction_close
 
     call, state = setup_analysis(workspace, app, monkeypatch)
     service = app.state.service
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     state["body"]["commitments"] = []
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     with service.db.transaction(False) as s:
         task = service.lead_records(s, p(workspace), "followup_tasks", call["lead_id"])[0]
         assert task.data["status"] == "open", "Omission is not evidence of cancellation"
@@ -500,7 +506,7 @@ async def test_omission_preserves_promise_and_explicit_reviewed_retraction_close
             "replaces": [old["id"]],
         }
     ]
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     with service.db.transaction(False) as s:
         task = service.lead_records(s, p(workspace), "followup_tasks", call["lead_id"])[0]
         assert task.data["status"] == "cancelled"
@@ -508,7 +514,7 @@ async def test_omission_preserves_promise_and_explicit_reviewed_retraction_close
     # Retrying after raw expiry must not replace a valid rundown with the baseline.
     before = service.analysis(p(workspace), call["id"])["notes"]["summary"]
     clock.now += timedelta(seconds=301)
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     after = service.analysis(p(workspace), call["id"])
     assert after["notes"]["summary"] == before
     assert after["transcript"] == []
@@ -525,7 +531,7 @@ async def test_postcall_disposition_race_does_not_publish_old_interpretation(wor
         call["id"],
         disposition_body(workspace["client"], workspace["headers"], call["id"], **{"outcome": "wrong_party"}),
     )
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     with service.db.transaction(False) as s:
         assert not service.lead_records(s, p(workspace), "followup_tasks", call["lead_id"])
 
@@ -568,7 +574,7 @@ async def test_manual_and_inferred_callback_share_one_task(workspace, app, monke
 
     if rep_first:
         report()
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     if not rep_first:
         report()
     with service.db.transaction(False) as s:
@@ -582,7 +588,7 @@ async def test_manual_and_inferred_callback_share_one_task(workspace, app, monke
 async def test_confirming_corrected_task_acknowledges_review(workspace, app, monkeypatch):
     call, _ = setup_analysis(workspace, app, monkeypatch)
     service = app.state.service
-    await service.analyze_postcall(p(workspace), call["id"])
+    await finalize(service, p(workspace), call["id"])
     await service.transcript(
         p(workspace),
         call["id"],

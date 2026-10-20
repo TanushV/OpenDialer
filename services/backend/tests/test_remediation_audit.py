@@ -203,10 +203,12 @@ def test_corrected_transcript_invalidates_old_ai_scorecard(workspace, app):
         "text": "What business problem would you like us to help solve?",
     }
     assert c.post(path + "/transcript", headers=h, json=segment).status_code == 200
-    c.get(path + "/analysis", headers=h)
     p, service = principal(workspace), app.state.service
     with service.db.transaction() as s:
-        card = next(r for r in service.scoped(s, "scorecards", p) if r.external_key == call["id"])
+        # Reads no longer create the scorecard; seed the old score through the writer.
+        _, card = service._materialize_views_in(
+            s, p, service.required(s, "call_attempts", call["id"], p), notes=False
+        )
         update(
             card,
             items=[

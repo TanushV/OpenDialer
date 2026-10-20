@@ -723,7 +723,8 @@ def test_next_call_brief_reuses_prior_answers_questions_and_exposes_expired_gaps
         state["coverage"] = {"unavailable_segments": 1}
         state["finalization"] = {"status": "partial", "reason": "raw_expired_before_interpretation"}
         service._store_conversation(s, who, row, state)
-    service.analysis(who, call["id"])
+        # The finalization writer, not a read, materializes the call's note for the brief.
+        service._materialize_views_in(s, who, row, scorecard=False)
     clock.now += timedelta(seconds=301)
     packet = (
         workspace["client"].get(f"/v1/leads/{call['lead_id']}/packet", headers=workspace["headers"]).json()
