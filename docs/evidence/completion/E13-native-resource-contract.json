@@ -1,0 +1,34 @@
+{
+  "step_id": "E13",
+  "scope": "native resource acceptance instrumentation; actual native measurement pending",
+  "source_commit": "fa168a2d6bdb10a5cc48a572c9039e3bad25407c",
+  "candidate_files": {
+    "scripts/measure_completion.py": "87be04b75327ee2e9aa4a3447d7d207e0f07ad5b653f01f0f7c05962f887e1ad",
+    "scripts/windows_native_smoke.py": "b8fffbab8678f12cdb97de4235f7dae18bce489f999cf3c5df32d4da35c496b8",
+    "scripts/build_sidecar.py": "479718fb95b69587881e91d57f9661cff39945ce24064e8e6d3556d0c28354d1",
+    "tests/test_completion_measurements.py": "c690dde2a3c00ee9f8c869f9bf18a5a04f29229c422b3ed2fe8a5e069a27080c",
+    "tests/test_distribution_contract.py": "076eb797d7c0978e4189e267386ac45ccf93ea29ef2671276d1a49672490fc5a",
+    "pyproject.toml": "41bce21672c814f61945ba642636bb72ca4a2089b3ccb2ceb367d256c8c09dc6",
+    "uv.lock": "79e1e2de60e0bc1b1db8d168ee707b06a205379a264435b856e8ab7af12798cf"
+  },
+  "commands": [
+    ".venv/bin/python -m pytest tests/test_completion_measurements.py tests/test_distribution_contract.py tests/test_windows_native_contract.py tests/test_frozen_acceptance.py tests/test_native_update_wait.py -q --tb=short"
+  ],
+  "result_counts": {
+    "resource_contract_red": 4,
+    "dependency_contract_red": 1,
+    "focused_green": 90
+  },
+  "raw_log_sha256": {
+    "E14-resource-contract-red.txt": "e7497dbcc728d9bd8897bf9b7bde3f278aa2f1f925b4f4903b676ff4c3e677ec",
+    "E14-resource-dependency-red.txt": "e475d9dd1f8cc0afcaad59e3649b77a4edc2ffe88ca62b84b75435fcc314435d",
+    "E14-resource-contract-green.txt": "ab632c8344a3c87c7c93d9beb0f2a0043d3e0c5b7f0cb957c3bb5e11f04a1d45"
+  },
+  "external_calls": false,
+  "installed_app_changed": false,
+  "dependency_decision": "psutil7.2.2 development-only, explicitly excluded from frozen sidecar; avoids separate platform process parsers; actual frozen probe remains required",
+  "known_limitations": [
+    "No actual native resource measurement in this receipt",
+    "E13 full acceptance and E14 update remain open"
+  ]
+}

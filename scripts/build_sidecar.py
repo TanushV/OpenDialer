@@ -23,6 +23,8 @@ subprocess.run(  # noqa: S603 - fixed current interpreter and repository build e
         "--noconfirm",
         "--clean",
         "--onefile",
+        "--exclude-module",
+        "psutil",
         "--name",
         "opendialer-backend",
         "--paths",

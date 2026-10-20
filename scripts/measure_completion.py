@@ -172,11 +172,133 @@ def resource_gates(receipt):
             failures.append(field)
     if receipt.get("idle_seconds", 0) < 300:
         missing.append("five_minute_idle_sample")
+    if receipt.get("cpu_accounting_complete") is not True:
+        missing.append("complete_owned_process_cpu")
+    if not receipt.get("authority_process_count"):
+        missing.append("owned_authority_process")
     return {
         "status": "incomplete" if missing else "failed" if failures else "passed",
         "missing": missing,
         "failures": failures,
     }
+
+
+def summarize_native_resources(samples):
+    """Count the app, authority and WebView descendants, without dividing by host CPUs."""
+    if len(samples) < 2 or any(not sample["processes"] for sample in samples):
+        raise ValueError("Native resource samples are missing")
+    elapsed = samples[-1]["elapsed_seconds"] - samples[0]["elapsed_seconds"]
+    if not math.isfinite(elapsed) or elapsed <= 0:
+        raise ValueError("Native resource duration is invalid")
+    identities, baseline, latest, previous = set(), {}, {}, set()
+    complete = True
+    for index, sample in enumerate(samples):
+        current = set()
+        for row in sample["processes"]:
+            key = (row["pid"], row["create_time"])
+            if key in current or any(
+                not math.isfinite(row[k]) or row[k] < 0 for k in ("rss_mib", "cpu_seconds")
+            ):
+                raise ValueError("Invalid or duplicate native process measurement")
+            current.add(key)
+            identities.add(key)
+            if index == 0:
+                baseline[key] = row["cpu_seconds"]
+            elif row["cpu_seconds"] < latest.get(key, 0):
+                complete = False
+            latest[key] = row["cpu_seconds"]
+        if previous - current:
+            # Sampling cannot recover CPU consumed after the last observation of
+            # an exited process. Retain the samples but do not certify idle CPU.
+            complete = False
+        previous = current
+    return {
+        "idle_seconds": elapsed,
+        "desktop_rss_mib": max(sum(p["rss_mib"] for p in s["processes"]) for s in samples),
+        "authority_rss_mib": max(
+            sum(p["rss_mib"] for p in s["processes"] if p["role"] == "authority") for s in samples
+        ),
+        "idle_cpu_percent": 100
+        * sum(max(0, value - baseline.get(key, 0)) for key, value in latest.items())
+        / elapsed,
+        "cpu_accounting_complete": complete,
+        "observed_process_identities": len(identities),
+        "authority_process_count": len(
+            {
+                (row["pid"], row["create_time"])
+                for sample in samples
+                for row in sample["processes"]
+                if row["role"] == "authority"
+            }
+        ),
+        "samples": samples,
+    }
+
+
+def measure_native_resources(root_pid, application, backend, *, seconds=300, interval=5):
+    """Read only an exact installed app and its owned descendants for five minutes."""
+    import psutil
+
+    application, backend = Path(application).resolve(strict=True), Path(backend).resolve(strict=True)
+    root = psutil.Process(root_pid)
+    birth = root.create_time()
+    if Path(root.exe()).resolve() != application or seconds < 300 or not 0 < interval <= 30:
+        raise ValueError("Exact native process and five-minute sample are required")
+    source = source_metadata()
+    binary_hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in (application, backend)}
+    owned, samples, errors = {}, [], []
+    began = time.monotonic()
+    while True:
+        if not root.is_running() or root.create_time() != birth or Path(root.exe()).resolve() != application:
+            raise RuntimeError("Native root identity changed during measurement")
+        for process in [root, *root.children(recursive=True)]:
+            try:
+                owned[(process.pid, process.create_time())] = process
+            except psutil.NoSuchProcess:
+                errors.append("child_disappeared_before_identity")
+        rows = []
+        for (pid, created), process in owned.items():
+            try:
+                if not process.is_running() or process.create_time() != created:
+                    errors.append("owned_pid_reused")
+                    continue
+                executable = Path(process.exe()).resolve()
+                times = process.cpu_times()
+                rows.append(
+                    {
+                        "pid": pid,
+                        "create_time": created,
+                        "executable": executable.name,
+                        "role": "desktop"
+                        if executable == application
+                        else "authority"
+                        if executable == backend
+                        else "webview",
+                        "rss_mib": process.memory_info().rss / 1024**2,
+                        "cpu_seconds": times.user + times.system,
+                    }
+                )
+            except psutil.NoSuchProcess:
+                errors.append("owned_process_exited")
+        elapsed = time.monotonic() - began
+        samples.append({"elapsed_seconds": elapsed, "processes": rows})
+        if elapsed >= seconds:
+            break
+        time.sleep(min(interval, seconds - elapsed))
+    receipt = {
+        **source,
+        **summarize_native_resources(samples),
+        "binary_sha256": binary_hashes,
+        "frozen_native_processes": sorted(
+            {(row["pid"], row["create_time"], row["executable"]) for s in samples for row in s["processes"]}
+        ),
+        "process_errors": sorted(set(errors)),
+        "boundary": "Actual native app and descendants; peak aggregate RSS; CPU percent of one core; no training during idle",
+    }
+    if errors:
+        receipt["cpu_accounting_complete"] = False
+    receipt["gates"] = resource_gates(receipt)
+    return receipt
 
 
 def container_cgroup(path, container_id):

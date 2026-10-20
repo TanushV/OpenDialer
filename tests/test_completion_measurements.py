@@ -86,6 +86,106 @@ def test_native_resource_gate_requires_actual_frozen_process_receipts():
     assert "frozen_native_processes" in result["missing"]
 
 
+def test_native_resource_summary_counts_the_whole_owned_tree_and_one_core_cpu():
+    m = measurement()
+    samples = [
+        {
+            "elapsed_seconds": 0,
+            "processes": [
+                {"pid": 1, "create_time": 1, "role": "desktop", "rss_mib": 80, "cpu_seconds": 4},
+                {"pid": 2, "create_time": 2, "role": "authority", "rss_mib": 120, "cpu_seconds": 3},
+                {"pid": 3, "create_time": 3, "role": "webview", "rss_mib": 160, "cpu_seconds": 2},
+            ],
+        },
+        {
+            "elapsed_seconds": 300,
+            "processes": [
+                {"pid": 1, "create_time": 1, "role": "desktop", "rss_mib": 90, "cpu_seconds": 5},
+                {"pid": 2, "create_time": 2, "role": "authority", "rss_mib": 125, "cpu_seconds": 4},
+                {"pid": 3, "create_time": 3, "role": "webview", "rss_mib": 170, "cpu_seconds": 3},
+            ],
+        },
+    ]
+    result = m.summarize_native_resources(samples)
+    assert result["desktop_rss_mib"] == 385
+    assert result["authority_rss_mib"] == 125
+    assert result["idle_cpu_percent"] == 1
+    assert result["cpu_accounting_complete"] is True
+    assert result["idle_seconds"] == 300
+
+
+def test_native_resource_process_disappearance_or_pid_reuse_is_not_a_zero_cpu_success():
+    m = measurement()
+    before = {"pid": 1, "create_time": 1, "role": "desktop", "rss_mib": 10, "cpu_seconds": 4}
+    after = {**before, "create_time": 2, "cpu_seconds": 0.5}
+    result = m.summarize_native_resources(
+        [
+            {"elapsed_seconds": 0, "processes": [before]},
+            {"elapsed_seconds": 300, "processes": [after]},
+        ]
+    )
+    assert result["cpu_accounting_complete"] is False
+    assert (
+        m.resource_gates(
+            {**result, "frozen_native_processes": [1], "binary_sha256": "a" * 64, "source_hash": "b" * 64}
+        )["status"]
+        == "incomplete"
+    )
+
+
+@pytest.mark.parametrize("samples", [[], [{"elapsed_seconds": 0, "processes": []}]])
+def test_native_resource_summary_rejects_absent_process_samples(samples):
+    with pytest.raises(ValueError):
+        measurement().summarize_native_resources(samples)
+
+
+def test_native_collector_retains_owned_children_after_reparenting(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    import psutil
+
+    m, now = measurement(), [0.0]
+    files = [tmp_path / name for name in ("app.exe", "backend.exe", "webview.exe")]
+    for path in files:
+        path.write_bytes(b"synthetic executable identity")
+
+    class Process:
+        def __init__(self, pid, path, rss):
+            self.pid, self.path, self.rss = pid, path, rss
+
+        def create_time(self):
+            return self.pid
+
+        def is_running(self):
+            return True
+
+        def exe(self):
+            return str(self.path)
+
+        def children(self, recursive=False):
+            return children if now[0] == 0 else []
+
+        def cpu_times(self):
+            return SimpleNamespace(user=5 + now[0] / 300, system=1)
+
+        def memory_info(self):
+            return SimpleNamespace(rss=self.rss * 1024**2)
+
+    root = Process(11, files[0], 80)
+    children = [Process(12, files[1], 120), Process(13, files[2], 160)]
+    monkeypatch.setattr(psutil, "Process", lambda pid: root)
+    monkeypatch.setattr(m.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(m.time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds))
+    monkeypatch.setattr(m, "source_metadata", lambda: {"source_hash": "synthetic", "external_calls": False})
+    result = m.measure_native_resources(11, files[0], files[1])
+    assert result["gates"]["status"] == "passed"
+    assert result["desktop_rss_mib"] == 360 and result["authority_rss_mib"] == 120
+    assert result["idle_cpu_percent"] == 1 and result["idle_seconds"] == 300
+    assert all(len(s["processes"]) == 3 for s in result["samples"])
+    with pytest.raises(ValueError, match="Exact native"):
+        m.measure_native_resources(11, files[2], files[1])
+
+
 def test_duration_receipt_keeps_errors_and_does_not_shortcut_elapsed_time():
     m = measurement()
     now = [0.0]

@@ -4,6 +4,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_native_resource_probe_is_test_only_and_excluded_from_the_sidecar():
+    import tomllib
+
+    config = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    assert not any(value.startswith("psutil") for value in config["project"]["dependencies"])
+    assert "psutil==7.2.2" in config["dependency-groups"]["dev"]
+    build = (ROOT / "scripts/build_sidecar.py").read_text()
+    assert '"--exclude-module",\n        "psutil"' in build
+
+
 def test_native_minimum_window_supports_the_required_rep_journey():
     config = json.loads((ROOT / "apps/desktop/src-tauri/tauri.conf.json").read_text())
     assert config["app"]["windows"][0]["minWidth"] == 1024

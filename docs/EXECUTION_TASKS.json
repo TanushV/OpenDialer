@@ -998,7 +998,7 @@
         {
           "id": "E13.3",
           "task": "Complete performance/load/shift/resource runner",
-          "status": "42 measurement checks pass; actual inner errors and final queue states retained; actual process/network/PostgreSQL identity required. Full elapsed profiles/native resources open."
+          "status": "90 scoped measurement/native harness/package tests pass; five-minute owned-tree RSS/CPU probe implemented with dev-only excluded psutil. Actual native resources and full elapsed profiles remain open."
         },
         {
           "id": "E13.4",

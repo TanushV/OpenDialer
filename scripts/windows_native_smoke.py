@@ -512,6 +512,19 @@ def main():
                 ui.click("Try a simulated workspace")
                 ui.visible("SIMULATION")
             local = check_journey_restart(ui, current_journey(ui, "local"), "local", version)
+            import psutil
+
+            from scripts.measure_completion import measure_native_resources
+
+            native_root = next(
+                child
+                for child in psutil.Process(process.pid).children(recursive=True)
+                if Path(child.exe()).resolve() == application
+            )
+            resources = measure_native_resources(
+                native_root.pid, application, application.parent / "opendialer-backend.exe"
+            )
+            (output / "native-resources.json").write_text(json.dumps(resources, indent=2) + "\n")
             with connected_authority(application, version, output) as address:
                 ui.element('button[title="Sign out"]').click()
                 ui.click("Connect to a server")
@@ -529,17 +542,19 @@ def main():
                 ui.pause()
                 ui.preflight(version, "local")
             result = {
-                "passed": True,
+                "passed": resources["gates"]["status"] == "passed",
                 "installed_executable": application.name,
                 "version": version,
                 "update": update,
                 "journeys": [local, shared],
                 "startup_ms": ui.startup_ms,
+                "resource_gates": resources["gates"],
                 "source_runtime_on_path": False,
                 "provider_calls": 0,
                 "hardware_audio_certified": False,
             }
             (output / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+            assert resources["gates"]["status"] == "passed", "Native resource acceptance remains unpassed"
             print("PASS: installed native local/connected journeys and retained identity after restart.")
         except Exception:
             if ui.driver:
