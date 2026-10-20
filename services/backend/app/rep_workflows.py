@@ -13,10 +13,10 @@ from sqlalchemy import select
 
 from app.db import MODELS, audit, doc, emit, put, update
 from app.optimization.goals import review_token
+from app.postcall.commitments import ACTIVE as ACTIVE_TASKS
 from app.service import dt, fail
 from app.telephony.reducer import TERMINAL
 
-ACTIVE_TASKS = {"open", "snoozed", "needs_confirmation"}
 # An AI-suggested callback time defers automatic outreach this long at most; only a
 # rep-stated callback holds outreach until the rep confirms a time.
 SUGGESTION_HOLD = timedelta(days=7)

@@ -89,7 +89,10 @@ def test_partial_and_non_scored_rubrics_cannot_publish_an_inflated_score():
             }
         ],
     }
-    from app.postcall.analysis import DIMENSIONS, build_analysis
+    from app.postcall.analysis import build_analysis
+    from app.postcall.rubrics import effective
+
+    DIMENSIONS = [d["id"] for d in effective({})["dimensions"]]  # The default rubric.
 
     state = merge_test_analysis(body, [source])
     # Incremental updates may cover one dimension; the saved view always includes all.
@@ -627,7 +630,9 @@ async def test_confirming_corrected_task_acknowledges_review(workspace, app, mon
 
 
 def test_non_scored_dimensions_cannot_carry_a_score():
-    from app.postcall.analysis import DIMENSIONS
+    from app.postcall.rubrics import effective
+
+    DIMENSIONS = [d["id"] for d in effective({})["dimensions"]]  # The default rubric.
 
     body = analysis_body()
     body["commitments"] = []
