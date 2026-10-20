@@ -329,15 +329,15 @@ async def test_source_write_wakes_its_derived_projection_lane(workspace, app, cl
     service, p = app.state.service, principal(workspace)
     defer_existing_jobs(service, clock)
     quiet_schedulers(service, monkeypatch)
-    claimed, original_claim = [], service.jobs.claim
+    claimed, original_claim = [], service.jobs.claim_many
 
     def counted(queue, worker, *args, **kwargs):
-        job = original_claim(queue, worker, *args, **kwargs)
-        if job and job["key"].startswith("projection:"):
+        jobs = original_claim(queue, worker, *args, **kwargs)
+        if any(job["key"].startswith("projection:") for job in jobs):
             claimed.append(time.perf_counter())
-        return job
+        return jobs
 
-    monkeypatch.setattr(service.jobs, "claim", counted)
+    monkeypatch.setattr(service.jobs, "claim_many", counted)
     runtime = AuthorityRuntime(service, queues=["ml"])
     await runtime.start()
     try:
@@ -378,15 +378,14 @@ def ml_refresh(service, p, key, kind="home_refresh"):
 async def test_persistently_superseded_refresh_backs_off_without_spinning(workspace, app, clock, monkeypatch):
     service, p = app.state.service, principal(workspace)
     defer_existing_jobs(service, clock)
-    claims, original_claim = [], service.jobs.claim
+    claims, original_claim = [], service.jobs.claim_many
 
     def counted(queue, worker, *args, **kwargs):
-        job = original_claim(queue, worker, *args, **kwargs)
-        if job and job["key"] == "superseded-refresh":
-            claims.append(clock())
-        return job
+        jobs = original_claim(queue, worker, *args, **kwargs)
+        claims.extend(clock() for job in jobs if job["key"] == "superseded-refresh")
+        return jobs
 
-    monkeypatch.setattr(service.jobs, "claim", counted)
+    monkeypatch.setattr(service.jobs, "claim_many", counted)
     monkeypatch.setattr(service, "rebuild_home_metrics", lambda *a, **k: {"status": "superseded"})
     job = ml_refresh(service, p, "superseded-refresh")
     for _ in range(5):

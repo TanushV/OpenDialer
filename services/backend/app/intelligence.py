@@ -1485,22 +1485,42 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 "preparation" if len(pool) == 2 else "training" if execution_class == "training" else lane
             ]
 
-            async def admitted_job(lane=lane, capacity=capacity, pool=pool, admission=admission):
-                # Wait for a local slot while still queued, never while leased.
-                async with admission:
-                    job = await asyncio.to_thread(
-                        self.jobs.claim,
+            async def admitted_wave(size, lane=lane, capacity=capacity, pool=pool, admission=admission):
+                """Lease up to `size` jobs in one writer turn; each then runs in its own local slot.
+
+                Local slots are taken while the jobs are still queued, never while leased.
+                """
+                await admission.acquire()
+                slots = 1
+                while slots < size and not admission.locked():
+                    await admission.acquire()
+                    slots += 1
+                try:
+                    jobs = await asyncio.to_thread(
+                        self.jobs.claim_many,
                         lane,
                         worker_id,
+                        slots,
                         60,
                         tenant_id,
                         capacity=capacity,
                         shared_queues=pool,
                         execution_class=execution_class,
                     )
-                    if not job:
-                        return None
-                    return job["id"], await execute(lane, job)
+                except BaseException:
+                    for _ in range(slots):
+                        admission.release()
+                    raise
+                for _ in range(slots - len(jobs)):
+                    admission.release()
+
+                async def run(job):
+                    try:
+                        return job["id"], await execute(lane, job)
+                    finally:
+                        admission.release()
+
+                return [asyncio.create_task(run(job)) for job in jobs]
 
             # One probe, not a wave of claimers, finds an idle lane idle.
             if not await asyncio.to_thread(
@@ -1508,9 +1528,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             ):
                 return processed, True
             for offset in range(0, 20, capacity):
-                active = [asyncio.create_task(admitted_job()) for _ in range(min(capacity, 20 - offset))]
+                active = await admitted_wave(min(capacity, 20 - offset))
                 try:
-                    claimed = [result for result in await asyncio.gather(*active) if result is not None]
+                    claimed = await asyncio.gather(*active)
                     if not claimed:
                         return processed, True
                     processed += sum(outcome == DONE for _, outcome in claimed)
