@@ -488,10 +488,12 @@ def wait_installed(application, version, output, *, not_before):
 
 
 def diagnose_store(application, directory, output, version, *, timeout=90):
-    """After a failed restore, list the store and start the installed authority on a copy.
+    """After a failed open, list the store and start the installed authority on it, as the
+    app's next launch would, keeping that log.
 
-    The copy keeps the failed installation intact for diagnosis. The log holds only the
-    authority's startup output; the key travels on stdin and file contents are never read.
+    It runs on the store itself because the upgrade stage is bound to the store's path (a copy
+    elsewhere is refused before the real failure, as run 39669158235 showed). The log holds only
+    the authority's startup output; the key travels on stdin and file contents are never read.
     """
     files = sorted(
         (
@@ -503,50 +505,47 @@ def diagnose_store(application, directory, output, version, *, timeout=90):
     )
     result = {"files": files}
     log = output / "post-update-authority.log"
-    with tempfile.TemporaryDirectory(prefix="opendialer-restore-diagnosis-") as temporary:
-        copy = Path(temporary) / directory.name
-        shutil.copytree(directory, copy, ignore=shutil.ignore_patterns("authority.lock"))
-        with socket.socket() as listener:
-            listener.bind(("127.0.0.1", 0))
-            port = listener.getsockname()[1]
-        secrets_line = (
-            json.dumps(
-                {
-                    "local_token": secrets.token_urlsafe(32),
-                    "secret_key": (copy / "simulation-master").read_text(),
-                }
-            )
-            + "\n"
-        ).encode()
-        command = [
-            str(application.parent / "opendialer-backend.exe"),
-            "serve",
-            "--secrets-stdin",
-            "--simulation",
-            "--mode",
-            "local",
-            "--port",
-            str(port),
-            "--data-dir",
-            str(copy),
-        ]
-        with log.open("wb") as handle:
-            process = start_authority(  # noqa: S603 - the installed backend on a disposable copy
-                command,
-                secrets_line,
-                env=isolated_environment(os.environ),
-                cwd=copy,
-                stdout=handle,
-                stderr=subprocess.STDOUT,
-            )
-            try:
-                with httpx.Client(base_url=f"http://127.0.0.1:{port}", timeout=10) as client:
-                    health = await_ready(client, version, timeout=timeout, process=process, log=log)
-                result["authority"] = {"ready": True, "health": health}
-            except (RuntimeError, TimeoutError, ValueError) as exc:
-                result["authority"] = {"ready": False, "error": str(exc)[-4000:]}
-            finally:
-                stop_owned(process)
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    secrets_line = (
+        json.dumps(
+            {
+                "local_token": secrets.token_urlsafe(32),
+                "secret_key": (directory / "simulation-master").read_text(),
+            }
+        )
+        + "\n"
+    ).encode()
+    command = [
+        str(application.parent / "opendialer-backend.exe"),
+        "serve",
+        "--secrets-stdin",
+        "--simulation",
+        "--mode",
+        "local",
+        "--port",
+        str(port),
+        "--data-dir",
+        str(directory),
+    ]
+    with log.open("wb") as handle:
+        process = start_authority(  # noqa: S603 - the installed backend, as the app launches it
+            command,
+            secrets_line,
+            env=isolated_environment(os.environ),
+            cwd=output,
+            stdout=handle,
+            stderr=subprocess.STDOUT,
+        )
+        try:
+            with httpx.Client(base_url=f"http://127.0.0.1:{port}", timeout=10) as client:
+                health = await_ready(client, version, timeout=timeout, process=process, log=log)
+            result["authority"] = {"ready": True, "health": health}
+        except (RuntimeError, TimeoutError, ValueError) as exc:
+            result["authority"] = {"ready": False, "error": str(exc)[-4000:]}
+        finally:
+            stop_owned(process)
     (output / "post-update-diagnosis.json").write_text(json.dumps(result, indent=2) + "\n")
     return result
 

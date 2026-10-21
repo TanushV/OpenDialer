@@ -557,9 +557,9 @@ def test_the_native_ui_keeps_each_error_message_the_app_shows():
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="the stand-in authority is a POSIX script")
-def test_a_failed_restore_is_diagnosed_on_a_copy_of_the_store(tmp_path):
-    """After a failed restore the harness starts the installed authority on a copy of the store
-    and keeps its log and the store's file listing, never its contents or key."""
+def test_a_failed_open_is_diagnosed_by_starting_the_installed_authority_on_its_store(tmp_path):
+    """After a failed open the harness starts the installed authority on the store, as the app's
+    next launch would, and keeps its log and the store's file listing, never contents or key."""
     application = tmp_path / "install" / "opendialer-desktop.exe"
     application.parent.mkdir()
     backend = application.parent / "opendialer-backend.exe"
@@ -567,6 +567,7 @@ def test_a_failed_restore_is_diagnosed_on_a_copy_of_the_store(tmp_path):
         f"#!{sys.executable}\n"
         "import sys\n"
         "sys.stdin.readline()\n"
+        "print('data-dir=' + sys.argv[sys.argv.index('--data-dir') + 1])\n"
         "print('Traceback (most recent call last):')\n"
         "print('PermissionError: [WinError 32] stand-in startup failure')\n"
         "sys.exit(3)\n"
@@ -586,7 +587,8 @@ def test_a_failed_restore_is_diagnosed_on_a_copy_of_the_store(tmp_path):
     saved = (output / "post-update-diagnosis.json").read_text()
     assert "synthetic-key-never-logged" not in saved
     assert "synthetic-key-never-logged" not in (output / "post-update-authority.log").read_text()
-    assert (store / "opendialer.db").read_bytes() == b"synthetic database", "The original store is untouched"
+    assert f"data-dir={store}" in (output / "post-update-authority.log").read_text()
+    assert (store / "opendialer.db").read_bytes() == b"synthetic database"
 
 
 def test_an_update_that_loses_the_saved_session_is_diagnosed_and_fails():
