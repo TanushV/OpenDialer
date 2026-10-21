@@ -1,0 +1,65 @@
+{
+ "step_id": "E13",
+ "scope": "Installed Windows x64 app: NSIS install into a disposable GitHub runner, then the native harness drives the installed desktop through the local and connected journeys and measures native resources",
+ "run": "https://github.com/TanushV/OpenDialer/actions/runs/39630912414",
+ "source_commit": "35cb4f34ef323f9ea8917deb6c920aedd6345a65",
+ "source_hash": "9f08fc59458a838576ed6e3eb2884c74230893bae577d28ba047b21feffaeaec",
+ "harness_sha256": "735dd0962e2677b8759f6a12bc152ecdd0e270161f5402445bc419b2e899ff39",
+ "dirty_files": [],
+ "platform": "Windows-2022Server-10.0.20348-SP0",
+ "logical_cpus": 4,
+ "binary_sha256": {
+  "opendialer-desktop.exe": "42e39334fcb2d7e8ecdcefdd2ce4c2f7edf77275442c02ffbbebb465566070e2",
+  "opendialer-backend.exe": "01939b882af88ba7893cdf2b8634c0c1975161d3d58a81404a6cb085d6a42c4f"
+ },
+ "journeys": [
+  {
+   "mode": "local",
+   "session_restored": true,
+   "source_correction_verified": true,
+   "callback_time_preserved": true,
+   "raw_expiry_elapsed_seconds": 315.422,
+   "human_note_sha256": "2fcdbcc443f414da4f52102e12f6a188dc69f5507b4d183362e43112e7a2556a"
+  },
+  {
+   "mode": "connected",
+   "session_restored": true,
+   "source_correction_verified": true,
+   "callback_time_preserved": true,
+   "raw_expiry_elapsed_seconds": 315.797,
+   "human_note_sha256": "dac4f6a64d77cecaedf4457de6cca14add7c3d76010f8518f0093b3a6c7008f8"
+  }
+ ],
+ "startup_ms": [
+  7468.999999999824,
+  5594.000000000051,
+  2094.000000000051
+ ],
+ "provider_calls": 0,
+ "source_runtime_on_path": false,
+ "hardware_audio_certified": false,
+ "resources": {
+  "idle_seconds": 300.0160000000001,
+  "desktop_rss_mib": 545.234375,
+  "authority_rss_mib": 131.0390625,
+  "idle_cpu_percent": 0.9634902805183722,
+  "peak_webview_rss_mib": 392.88671875,
+  "gates": {
+   "status": "failed",
+   "missing": [],
+   "failures": [
+    "desktop_rss_mib"
+   ]
+  }
+ },
+ "raw_result_sha256": {
+  "result.json": "5bc0735b6393ef386d57a26a1087946650c1b9d04df0bdf64e004abb7a8cb6f6",
+  "native-resources.json": "a829a0f203597c14a3b0d3727bce63b08be7e9811bae0b2d4ac7aeeeb0b76782"
+ },
+ "known_limitations": [
+  "The run is red only on the desktop aggregate-RSS gate (545 MiB against 500): WebView2 accounts for 393 MiB on a GPU-less runner that renders in software, and aggregate RSS counts pages its processes share once per process. The gate is reported as defined.",
+  "Startup was 7.5 s on the first launch of a fresh install, then 5.6 s and 2.1 s.",
+  "Simulated providers and audio; hardware audio is X06. A fresh install, not the 0.2.1 in-place update (E14)."
+ ],
+ "external_calls": false
+}

@@ -1,0 +1,387 @@
+{
+ "step_id": "E13",
+ "profile": "shared",
+ "source_commit": "470d0bfa0a0a7369bbc7d20178dfce159ad1d4ae",
+ "production_tree_digest": "c4f2a7d0985e9ada31a4630b53e188cec8d9d1b6ac3ae05e3d6d12a4cec2c19a",
+ "test_tree_digest": "b07702c81f14623881064af4f7ea858950cfc231cdb87f6487f77d111e729270",
+ "harness_sha256": "a6fdba3e55984fb42df9be857afe53488c8cd719c4a1897024d0ad316d3d101d",
+ "case_ids": [
+  "A25",
+  "A50",
+  "A51"
+ ],
+ "mode": "PostgreSQL in the inspected 2-vCPU/4-GiB reference containers",
+ "fixture_seed": 20261018,
+ "commands": [
+  "docker exec <reference runner> python scripts/measure_completion.py --profile shared --reps 4 --seed 20261018 --output-dir /evidence/performance-470d0bf-shared-4reps"
+ ],
+ "environment": {
+  "platform": "Linux-6.8.0-100-generic-aarch64-with-glibc2.41",
+  "python": "3.12.15",
+  "logical_cpus": 4,
+  "locks": {
+   "pyproject.toml": "2a9bad818fd3de5d3c81d38065ed0f7d5c34029169dcbd39dc4078b868976447",
+   "uv.lock": "51f39f3e13bd2e25833ef3d0fb99ec9794f32224c596b06ef97b95eb7c619342",
+   "apps/desktop/package.json": "3a7ac17f0fdc84067e112781bad974623c33c2484c2bac2b58a84f1f05632959",
+   "apps/desktop/package-lock.json": "fa38442672fb0585458bb3e364e6ef92bfca4ee9b2f1ba8328b92433cdcb2211",
+   "apps/desktop/src-tauri/Cargo.toml": "42a8b884583ff283e0611b244e31754f4dde0edd9c4fba3792e6cb52a7fd2ea5",
+   "apps/desktop/src-tauri/Cargo.lock": "7caa52d5c71486783bcf42f7d5d9a398e6137b1b928aed0312e0c26a2aa7a567"
+  }
+ },
+ "dirty_files": [],
+ "profile_status": "failed",
+ "failed_gates": [
+  "writer",
+  "stalled_selection",
+  "load"
+ ],
+ "authority_startup_ms": 1495.487437932752,
+ "selection": {
+  "cold": {
+   "samples": 4,
+   "failures": 0,
+   "p50_ms": 303.2910699257627,
+   "p95_ms": 462.6684400718659,
+   "p99_ms": 462.6684400718659,
+   "max_ms": 462.6684400718659,
+   "sql_max": 44,
+   "decrypted_max": 199,
+   "target_ms": 1000,
+   "status": "passed"
+  },
+  "warm": {
+   "samples": 800,
+   "failures": 0,
+   "p50_ms": 105.51894304808229,
+   "p95_ms": 160.0352639798075,
+   "p99_ms": 215.76476900372654,
+   "max_ms": 262.1879440266639,
+   "sql_max": 28,
+   "decrypted_max": 105,
+   "target_ms": 250,
+   "status": "passed"
+  }
+ },
+ "cached_workspace": {
+  "samples": 200,
+  "failures": 0,
+  "p50_ms": 29.171223985031247,
+  "p95_ms": 42.34376095701009,
+  "p99_ms": 53.054698975756764,
+  "max_ms": 68.69950296822935,
+  "sql_max": 51,
+  "decrypted_max": 130,
+  "target_ms": 250,
+  "status": "passed"
+ },
+ "six_coach": {
+  "samples": 30,
+  "failures": 0,
+  "p50_ms": 744.6168550522998,
+  "p95_ms": 858.1468269694597,
+  "p99_ms": 1110.0136589957401,
+  "max_ms": 1110.0136589957401,
+  "sql_max": 0,
+  "decrypted_max": 0,
+  "target_ms": 1500,
+  "status": "passed"
+ },
+ "rebuild": {
+  "seconds": 488.7347512010019,
+  "pages": 428,
+  "published": true,
+  "status": "passed"
+ },
+ "writer_transactions": {
+  "samples": 47137,
+  "failures": 221,
+  "p50_ms": 17.782048089429736,
+  "p95_ms": 178.46926604397595,
+  "p99_ms": 474.18875992298126,
+  "max_ms": 4531.630713026971,
+  "sql_max": 0,
+  "decrypted_max": 0,
+  "target_ms": 25,
+  "status": "failed",
+  "phases": {
+   "control_paths": {
+    "samples": 3300,
+    "failures": 0,
+    "p50_ms": 12.778938980773091,
+    "p95_ms": 27.854243060573936,
+    "p99_ms": 42.115962016396224,
+    "max_ms": 1116.0546480678022,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "failed"
+   },
+   "load": {
+    "samples": 38137,
+    "failures": 218,
+    "p50_ms": 16.65181596763432,
+    "p95_ms": 203.2626000000164,
+    "p99_ms": 517.9391700075939,
+    "max_ms": 4531.630713026971,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "failed"
+   },
+   "selection": {
+    "samples": 2654,
+    "failures": 1,
+    "p50_ms": 32.25996298715472,
+    "p95_ms": 93.60122797079384,
+    "p99_ms": 136.33537793066353,
+    "max_ms": 189.5771489944309,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "failed"
+   },
+   "six_coach": {
+    "samples": 390,
+    "failures": 0,
+    "p50_ms": 5.677743931300938,
+    "p95_ms": 31.398501014336944,
+    "p99_ms": 110.89962406549603,
+    "max_ms": 201.2297420296818,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "failed"
+   },
+   "stalled_selection": {
+    "samples": 2655,
+    "failures": 2,
+    "p50_ms": 22.05793303437531,
+    "p95_ms": 88.48921209573746,
+    "p99_ms": 187.08467297255993,
+    "max_ms": 1194.1083420533687,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "failed"
+   },
+   "workload_capacity": {
+    "samples": 1,
+    "failures": 0,
+    "p50_ms": 13.772030011750758,
+    "p95_ms": 13.772030011750758,
+    "p99_ms": 13.772030011750758,
+    "max_ms": 13.772030011750758,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "passed"
+   }
+  },
+  "longest_holds": []
+ },
+ "control_paths": {
+  "event_ack": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 3.3356950152665377,
+   "p95_ms": 7.598142023198307,
+   "p99_ms": 8.791443076916039,
+   "max_ms": 23.433135938830674,
+   "sql_max": 4,
+   "decrypted_max": 0,
+   "target_ms": 100,
+   "status": "passed"
+  },
+  "event_state": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 23.5900089610368,
+   "p95_ms": 34.15146202314645,
+   "p99_ms": 51.57777504064143,
+   "max_ms": 1184.2978739878163,
+   "sql_max": 45,
+   "decrypted_max": 23,
+   "target_ms": 250,
+   "status": "passed"
+  },
+  "live_context": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 10.878002969548106,
+   "p95_ms": 18.382719019427896,
+   "p99_ms": 27.47779607307166,
+   "max_ms": 32.13074698578566,
+   "sql_max": 18,
+   "decrypted_max": 12,
+   "target_ms": 100,
+   "status": "passed"
+  },
+  "wrapup": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 21.312966011464596,
+   "p95_ms": 33.06991292629391,
+   "p99_ms": 37.47941693291068,
+   "max_ms": 46.16655805148184,
+   "sql_max": 38,
+   "decrypted_max": 16,
+   "target_ms": 250,
+   "status": "passed"
+  },
+  "hangup": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 38.240116904489696,
+   "p95_ms": 54.11208199802786,
+   "p99_ms": 84.66303697787225,
+   "max_ms": 275.6055990466848,
+   "sql_max": 46,
+   "decrypted_max": 27,
+   "target_ms": 250,
+   "status": "passed"
+  }
+ },
+ "load": {
+  "status": "failed",
+  "gate_failures": [
+   "cycle_failures",
+   "path:selection",
+   "path:event_state",
+   "path:live_context",
+   "path:hangup",
+   "path:wrapup",
+   "background_errors"
+  ],
+  "cycles": 180,
+  "background_errors": [
+   {
+    "lane": "ml",
+    "queue": "ml",
+    "error_type": "StaleDataError"
+   }
+  ],
+  "queue_recovery": "passed",
+  "paths": {
+   "selection": {
+    "samples": 720,
+    "failures": 0,
+    "p50_ms": 286.5276120137423,
+    "p95_ms": 1195.3272660030052,
+    "p99_ms": 1990.8233790192753,
+    "max_ms": 4943.250742042437,
+    "sql_max": 65,
+    "decrypted_max": 341,
+    "target_ms": 250,
+    "status": "failed"
+   },
+   "event_ack": {
+    "samples": 720,
+    "failures": 0,
+    "p50_ms": 10.80257201101631,
+    "p95_ms": 36.735476925969124,
+    "p99_ms": 82.34199101570994,
+    "max_ms": 205.78123501036316,
+    "sql_max": 4,
+    "decrypted_max": 0,
+    "target_ms": 100,
+    "status": "passed"
+   },
+   "event_state": {
+    "samples": 720,
+    "failures": 0,
+    "p50_ms": 248.15931799821556,
+    "p95_ms": 862.566523021087,
+    "p99_ms": 2907.040174002759,
+    "max_ms": 4148.165623075329,
+    "sql_max": 222,
+    "decrypted_max": 0,
+    "target_ms": 250,
+    "status": "failed"
+   },
+   "live_context": {
+    "samples": 720,
+    "failures": 0,
+    "p50_ms": 42.94413304887712,
+    "p95_ms": 135.14415395911783,
+    "p99_ms": 400.16749408096075,
+    "max_ms": 1421.7587469611317,
+    "sql_max": 18,
+    "decrypted_max": 13,
+    "target_ms": 100,
+    "status": "failed"
+   },
+   "hangup": {
+    "samples": 720,
+    "failures": 8,
+    "p50_ms": 188.03319393191487,
+    "p95_ms": 604.5628619613126,
+    "p99_ms": 1593.0573520017788,
+    "max_ms": 5404.34840193484,
+    "sql_max": 50,
+    "decrypted_max": 27,
+    "target_ms": 250,
+    "status": "failed"
+   },
+   "wrapup": {
+    "samples": 720,
+    "failures": 9,
+    "p50_ms": 93.65307504776865,
+    "p95_ms": 413.25502505060285,
+    "p99_ms": 1882.2418289491907,
+    "max_ms": 4907.486264943145,
+    "sql_max": 40,
+    "decrypted_max": 18,
+    "target_ms": 250,
+    "status": "failed"
+   },
+   "start": {
+    "samples": 720,
+    "failures": 0,
+    "p50_ms": 449.5619829976931,
+    "p95_ms": 1465.1366079924628,
+    "p99_ms": 2117.576780030504,
+    "max_ms": 4229.287286056206,
+    "sql_max": 94,
+    "decrypted_max": 52,
+    "target_ms": null,
+    "status": "reported"
+   },
+   "cleanup_hangup": {
+    "samples": 720,
+    "failures": 0,
+    "p50_ms": 47.11832897737622,
+    "p95_ms": 206.69525302946568,
+    "p99_ms": 689.2212870297953,
+    "max_ms": 1270.3773560933769,
+    "sql_max": 6,
+    "decrypted_max": 5,
+    "target_ms": null,
+    "status": "reported"
+   },
+   "pause": {
+    "samples": 720,
+    "failures": 0,
+    "p50_ms": 43.6373749980703,
+    "p95_ms": 197.21795804798603,
+    "p99_ms": 656.7981539992616,
+    "max_ms": 1194.385692011565,
+    "sql_max": 12,
+    "decrypted_max": 5,
+    "target_ms": null,
+    "status": "reported"
+   }
+  }
+ },
+ "shared_reference": {
+  "status": "passed",
+  "cpu_limit": 2.0,
+  "memory_limit_mib": 4096.0
+ },
+ "raw_result_sha256": "823bd4720f289d9853c7092a7be622ec23e5f0fa9b11bbbaa7ce818020ed96c8",
+ "known_limitations": [
+  "Capacity search: the shared profile at four reps (--reps 4), each running one full call journey every 10 s, synchronized, on 1.5 API vCPU plus a 0.5 vCPU PostgreSQL container.",
+  "Warm selection, cold selection, workspace, control paths and the coach fixture pass at four reps; load-phase selection, event-to-state, live context, hangup and wrap-up latency do not, so the 2-vCPU reference does not meet the load-path targets at this cadence.",
+  "Eight hangup and nine wrap-up cycle failures under load did not reproduce in 100 replayed journeys; failure_detail now records status and code for the next run."
+ ],
+ "external_calls": false
+}

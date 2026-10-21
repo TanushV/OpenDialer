@@ -1,0 +1,405 @@
+{
+ "step_id": "E13",
+ "profile": "local",
+ "source_commit": "df1269864fbba2cfd3733927a4cacaef6a0c9853",
+ "production_tree_digest": "c1e4edc94e0cdf3819ad06aa9142fd6767eb509b4325b0737638557c0eb3672c",
+ "test_tree_digest": "b9027ddaa7b8bfce044812dca28d80e2fb555e35cfdd828283a879d91f5297a4",
+ "harness_sha256": "372097352516d73c8d1c3ac1b45d0f778df45a7868d6c4bf87b56a5f555bb38b",
+ "case_ids": [
+  "A25",
+  "A50",
+  "A51"
+ ],
+ "mode": "SQLite on macOS ARM64",
+ "fixture_seed": 20261018,
+ "commands": [
+  "uv run python scripts/measure_completion.py --profile local --seed 20261018 --output-dir work/remediation/completion/performance-df12698-local"
+ ],
+ "environment": {
+  "platform": "macOS-26.5.1-arm64-arm-64bit",
+  "python": "3.12.13",
+  "logical_cpus": 10,
+  "locks": {
+   "pyproject.toml": "2a9bad818fd3de5d3c81d38065ed0f7d5c34029169dcbd39dc4078b868976447",
+   "uv.lock": "51f39f3e13bd2e25833ef3d0fb99ec9794f32224c596b06ef97b95eb7c619342",
+   "apps/desktop/package.json": "3a7ac17f0fdc84067e112781bad974623c33c2484c2bac2b58a84f1f05632959",
+   "apps/desktop/package-lock.json": "fa38442672fb0585458bb3e364e6ef92bfca4ee9b2f1ba8328b92433cdcb2211",
+   "apps/desktop/src-tauri/Cargo.toml": "42a8b884583ff283e0611b244e31754f4dde0edd9c4fba3792e6cb52a7fd2ea5",
+   "apps/desktop/src-tauri/Cargo.lock": "7caa52d5c71486783bcf42f7d5d9a398e6137b1b928aed0312e0c26a2aa7a567"
+  }
+ },
+ "dirty_files": [
+  " M deploy/runbooks/providers.md",
+  " M docs/EXECUTION_TASKS.json",
+  " M docs/STATUS.md"
+ ],
+ "profile_status": "passed",
+ "failed_gates": [],
+ "authority_startup_ms": 1237.914290977642,
+ "selection": {
+  "cold": {
+   "samples": 1,
+   "failures": 0,
+   "p50_ms": 57.510165963321924,
+   "p95_ms": 57.510165963321924,
+   "p99_ms": 57.510165963321924,
+   "max_ms": 57.510165963321924,
+   "sql_max": 25,
+   "decrypted_max": 84,
+   "target_ms": 1000,
+   "status": "passed"
+  },
+  "warm": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 17.923249979503453,
+   "p95_ms": 23.54987501166761,
+   "p99_ms": 25.76070895884186,
+   "max_ms": 30.554958037100732,
+   "sql_max": 25,
+   "decrypted_max": 88,
+   "target_ms": 250,
+   "status": "passed"
+  }
+ },
+ "cached_workspace": {
+  "samples": 200,
+  "failures": 0,
+  "p50_ms": 13.818125007674098,
+  "p95_ms": 18.080541980452836,
+  "p99_ms": 20.771165960468352,
+  "max_ms": 22.59154198691249,
+  "sql_max": 43,
+  "decrypted_max": 116,
+  "target_ms": 250,
+  "status": "passed"
+ },
+ "six_coach": {
+  "samples": 30,
+  "failures": 0,
+  "p50_ms": 717.698417021893,
+  "p95_ms": 741.188958985731,
+  "p99_ms": 843.3230409864336,
+  "max_ms": 843.3230409864336,
+  "sql_max": 0,
+  "decrypted_max": 0,
+  "target_ms": 1500,
+  "status": "passed"
+ },
+ "rebuild": {
+  "seconds": 209.51457258302253,
+  "pages": 428,
+  "published": true,
+  "status": "passed"
+ },
+ "writer_transactions": {
+  "samples": 19622,
+  "failures": 0,
+  "p50_ms": 4.518041969276965,
+  "p95_ms": 21.59374998882413,
+  "p99_ms": 41.552416048943996,
+  "max_ms": 616.3017499493435,
+  "sql_max": 0,
+  "decrypted_max": 0,
+  "target_ms": 25,
+  "status": "passed",
+  "phases": {
+   "control_paths": {
+    "samples": 3300,
+    "failures": 0,
+    "p50_ms": 6.586999981664121,
+    "p95_ms": 16.769458074122667,
+    "p99_ms": 27.12195902131498,
+    "max_ms": 252.82433291431516,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "passed"
+   },
+   "load": {
+    "samples": 15267,
+    "failures": 0,
+    "p50_ms": 4.1617079405114055,
+    "p95_ms": 23.626166977919638,
+    "p99_ms": 44.87824998795986,
+    "max_ms": 616.3017499493435,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "passed"
+   },
+   "selection": {
+    "samples": 664,
+    "failures": 0,
+    "p50_ms": 2.813083934597671,
+    "p95_ms": 9.329249965958297,
+    "p99_ms": 11.585749918594956,
+    "max_ms": 18.681374960578978,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "passed"
+   },
+   "six_coach": {
+    "samples": 390,
+    "failures": 0,
+    "p50_ms": 3.1874170526862144,
+    "p95_ms": 12.131334049627185,
+    "p99_ms": 54.975542007014155,
+    "max_ms": 89.69449996948242,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "passed"
+   },
+   "workload_capacity": {
+    "samples": 1,
+    "failures": 0,
+    "p50_ms": 4.693374969065189,
+    "p95_ms": 4.693374969065189,
+    "p99_ms": 4.693374969065189,
+    "max_ms": 4.693374969065189,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "passed"
+   }
+  },
+  "longest_holds": [
+   {
+    "caller": "app.optimization.projections:expand_dependents < app.optimization.projections:refresh_unit",
+    "phase": "load",
+    "held_ms": 547.1309579443187,
+    "at_s": 1648.117
+   },
+   {
+    "caller": "app.optimization.projections:refresh_units < app.optimization.projections:refresh_unit",
+    "phase": "load",
+    "held_ms": 470.511959050782,
+    "at_s": 1707.655
+   },
+   {
+    "caller": "app.service:Service._claim_hangup",
+    "phase": "load",
+    "held_ms": 301.3460839865729,
+    "at_s": 1887.696
+   },
+   {
+    "caller": "app.intelligence:Application.prepare_one.<locals>.publish",
+    "phase": "load",
+    "held_ms": 257.00562505517155,
+    "at_s": 1707.911
+   },
+   {
+    "caller": "app.service:Service._prepare_call",
+    "phase": "control_paths",
+    "held_ms": 252.6937919901684,
+    "at_s": 88.248
+   }
+  ]
+ },
+ "control_paths": {
+  "event_ack": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 2.43525009136647,
+   "p95_ms": 4.607708076946437,
+   "p99_ms": 7.947042002342641,
+   "max_ms": 21.043707965873182,
+   "sql_max": 5,
+   "decrypted_max": 0,
+   "target_ms": 100,
+   "status": "passed"
+  },
+  "event_state": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 12.060874956659973,
+   "p95_ms": 20.841999910771847,
+   "p99_ms": 31.19208395946771,
+   "max_ms": 38.716666982509196,
+   "sql_max": 45,
+   "decrypted_max": 22,
+   "target_ms": 250,
+   "status": "passed"
+  },
+  "live_context": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 6.479749921709299,
+   "p95_ms": 10.968124959617853,
+   "p99_ms": 15.735625056549907,
+   "max_ms": 23.350500036031008,
+   "sql_max": 19,
+   "decrypted_max": 12,
+   "target_ms": 100,
+   "status": "passed"
+  },
+  "wrapup": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 13.453374966047704,
+   "p95_ms": 22.737208055332303,
+   "p99_ms": 30.970708932727575,
+   "max_ms": 190.83708303514868,
+   "sql_max": 38,
+   "decrypted_max": 16,
+   "target_ms": 250,
+   "status": "passed"
+  },
+  "hangup": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 19.43474996369332,
+   "p95_ms": 31.910790945403278,
+   "p99_ms": 48.709040973335505,
+   "max_ms": 73.50099994800985,
+   "sql_max": 46,
+   "decrypted_max": 26,
+   "target_ms": 250,
+   "status": "passed"
+  }
+ },
+ "load": {
+  "status": "passed",
+  "gate_failures": [],
+  "cycles": 180,
+  "background_errors": [],
+  "queue_recovery": "passed",
+  "paths": {
+   "selection": {
+    "samples": 180,
+    "failures": 0,
+    "p50_ms": 45.80241604708135,
+    "p95_ms": 68.52070800960064,
+    "p99_ms": 128.95633396692574,
+    "max_ms": 135.2935420582071,
+    "sql_max": 27,
+    "decrypted_max": 90,
+    "target_ms": 250,
+    "status": "passed"
+   },
+   "event_ack": {
+    "samples": 180,
+    "failures": 0,
+    "p50_ms": 3.065750002861023,
+    "p95_ms": 6.391333998180926,
+    "p99_ms": 15.19308309070766,
+    "max_ms": 17.318541067652404,
+    "sql_max": 5,
+    "decrypted_max": 0,
+    "target_ms": 100,
+    "status": "passed"
+   },
+   "event_state": {
+    "samples": 180,
+    "failures": 0,
+    "p50_ms": 21.048041060566902,
+    "p95_ms": 37.51574992202222,
+    "p99_ms": 81.27120800781995,
+    "max_ms": 1043.7245419016108,
+    "sql_max": 295,
+    "decrypted_max": 0,
+    "target_ms": 250,
+    "status": "passed"
+   },
+   "live_context": {
+    "samples": 180,
+    "failures": 0,
+    "p50_ms": 7.81904102768749,
+    "p95_ms": 17.852916033007205,
+    "p99_ms": 57.557832915335894,
+    "max_ms": 70.24858298245817,
+    "sql_max": 19,
+    "decrypted_max": 13,
+    "target_ms": 100,
+    "status": "passed"
+   },
+   "hangup": {
+    "samples": 180,
+    "failures": 0,
+    "p50_ms": 23.948124959133565,
+    "p95_ms": 47.688291990198195,
+    "p99_ms": 64.20870893634856,
+    "max_ms": 792.1552910702303,
+    "sql_max": 48,
+    "decrypted_max": 27,
+    "target_ms": 250,
+    "status": "passed"
+   },
+   "wrapup": {
+    "samples": 180,
+    "failures": 0,
+    "p50_ms": 17.14124996215105,
+    "p95_ms": 34.235790953971446,
+    "p99_ms": 49.170332960784435,
+    "max_ms": 85.49725008197129,
+    "sql_max": 39,
+    "decrypted_max": 18,
+    "target_ms": 250,
+    "status": "passed"
+   },
+   "start": {
+    "samples": 180,
+    "failures": 0,
+    "p50_ms": 37.61479095555842,
+    "p95_ms": 65.56979194283485,
+    "p99_ms": 76.28220901824534,
+    "max_ms": 81.46141597535461,
+    "sql_max": 91,
+    "decrypted_max": 50,
+    "target_ms": null,
+    "status": "reported"
+   },
+   "cleanup_hangup": {
+    "samples": 180,
+    "failures": 0,
+    "p50_ms": 4.143750062212348,
+    "p95_ms": 18.68458290118724,
+    "p99_ms": 33.78816694021225,
+    "max_ms": 35.91016703285277,
+    "sql_max": 5,
+    "decrypted_max": 4,
+    "target_ms": null,
+    "status": "reported"
+   },
+   "pause": {
+    "samples": 180,
+    "failures": 0,
+    "p50_ms": 9.938790928572416,
+    "p95_ms": 27.609292068518698,
+    "p99_ms": 42.679041041992605,
+    "max_ms": 47.085249912925065,
+    "sql_max": 12,
+    "decrypted_max": 5,
+    "target_ms": null,
+    "status": "reported"
+   }
+  },
+  "write_conflicts": []
+ },
+ "live_admission": {
+  "status": "passed",
+  "opportunities": 30,
+  "accepted": 30,
+  "rejected": 0,
+  "queue": {
+   "samples": 30,
+   "failures": 0,
+   "p50_ms": 0.15579198952764273,
+   "p95_ms": 0.39499998092651367,
+   "p99_ms": 0.7920000934973359,
+   "max_ms": 0.7920000934973359,
+   "sql_max": 0,
+   "decrypted_max": 0,
+   "target_ms": 100,
+   "status": "passed"
+  }
+ },
+ "shared_reference": {},
+ "raw_result_sha256": "4f00429b67d14b9314a3c9dc6f137515827d04d486d501e126c03b72159c32a0",
+ "known_limitations": [
+  "Ran alone on the development Mac (no reference-container run or test suite in parallel); unrelated desktop applications were open."
+ ],
+ "external_calls": false
+}
