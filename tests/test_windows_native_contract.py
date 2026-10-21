@@ -697,3 +697,13 @@ def test_signing_out_fails_with_the_reason_when_the_app_keeps_the_button_disable
         ui.sign_out()
     source = inspect.getsource(native().main)
     assert "ui.press('button[title=\"Sign out\"]')" not in source and source.count("ui.sign_out()") == 2
+
+
+def test_the_driver_runs_in_its_own_process_group_so_an_updater_ctrl_c_cannot_stop_it():
+    """Run 39694452712: the exiting 0.2.1 MSI updater's console CTRL_C reached tauri-driver,
+    which the harness started before ignoring interrupts, so reopening the updated app was
+    refused. A new process group starts with CTRL_C disabled, and its children inherit that."""
+    module = native()
+    assert module.driver_creationflags("nt") == 0x00000200  # CREATE_NEW_PROCESS_GROUP
+    assert module.driver_creationflags("posix") == 0
+    assert "creationflags=driver_creationflags(os.name)" in inspect.getsource(module.main)

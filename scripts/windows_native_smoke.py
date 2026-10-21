@@ -422,6 +422,12 @@ def legacy_baseline(ui):
     return lead_name
 
 
+def driver_creationflags(os_name):
+    """A new process group starts with CTRL_C disabled, inherited by the driver's children: the
+    exiting 0.2.1 MSI updater's console CTRL_C stopped tauri-driver in run 39694452712."""
+    return 0x00000200 if os_name == "nt" else 0  # CREATE_NEW_PROCESS_GROUP
+
+
 @contextmanager
 def console_interrupts_ignored(kernel32=None):
     """The exiting 0.2.1 updater can deliver CTRL_C to every process on the runner's console
@@ -822,6 +828,7 @@ def main():
             env=desktop_environment(os.environ),
             stdout=log,
             stderr=log,
+            creationflags=driver_creationflags(os.name),
         )
         ui = NativeUI(application, output)
         try:
