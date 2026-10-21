@@ -633,3 +633,34 @@ def test_waiting_for_the_workspace_keeps_the_error_the_app_shows_meanwhile():
     ui.driver = Page(["The bundled local service did not start."])
     assert ui.shows("SIMULATION", timeout=0.3) is False
     assert ui.messages == ["The bundled local service did not start."]
+
+
+@pytest.mark.parametrize("dropped", [0, 1, 2])
+def test_pausing_presses_pause_again_when_0_2_1_drops_the_request(dropped):
+    """Run 39669158235: the MSI runner's 0.2.1 app kept showing Pause dialing after the click."""
+
+    class Dialer(native().NativeUI):
+        def __init__(self):
+            super().__init__(Path("app.exe"), Path("out"))
+            self.dropped, self.ready = dropped, True
+
+        def body(self):
+            return "SIMULATION " + ("Pause dialing" if self.ready else "Go ready")
+
+        def click(self, label):
+            if label == "Pause dialing":
+                if self.dropped:
+                    self.dropped -= 1
+                else:
+                    self.ready = False
+
+        def wait(self, action, timeout=60):
+            from selenium.common.exceptions import TimeoutException
+
+            if not action():
+                raise TimeoutException("synthetic")
+            return True
+
+    dialer = Dialer()
+    dialer.pause()
+    assert not dialer.ready

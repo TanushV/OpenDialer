@@ -291,9 +291,16 @@ class NativeUI:
 
     def pause(self):
         self.click("Dialer")
-        if "Pause dialing" in self.body():
-            self.click("Pause dialing")
-        self.visible("Go ready")
+        for attempt in range(3):
+            # 0.2.1 can drop the presence request; press Pause again, as a rep would.
+            if "Pause dialing" in self.body():
+                self.click("Pause dialing")
+            try:
+                self.wait(lambda: "Go ready" in self.body(), timeout=20)
+                break
+            except TimeoutException:
+                if attempt == 2:
+                    raise
         assert "Hang up" not in self.body(), "Native journey left an active call"
 
     def review(self, lead_name, note=None, *, legacy=False):
