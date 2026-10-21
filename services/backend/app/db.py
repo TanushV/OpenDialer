@@ -629,11 +629,19 @@ class Database:
                 )
             yield session
 
-    def authorize_stream(self, session, principal):
+    def authorize_stream(self, session, principal, *, shared=False):
+        """Order this transaction against the seller's authorization changes.
+
+        Authorization changes (opt-outs, consent, policy) take the lock exclusively. A
+        transaction that only consumes authorization and protects its own conflicts with
+        row locks and unique constraints may take it shared, so such transactions run in
+        parallel; it must never also request the exclusive lock in the same transaction.
+        """
         if not self.sqlite:
             scope = principal["tenant_id"] + ":" + principal["seller_id"]
             key = int.from_bytes(hashlib.sha256(scope.encode()).digest()[:8], signed=True)
-            session.execute(text("SELECT pg_advisory_xact_lock(:scope)"), {"scope": key})
+            function = "pg_advisory_xact_lock_shared" if shared else "pg_advisory_xact_lock"
+            session.execute(text(f"SELECT {function}(:scope)"), {"scope": key})
 
     def reset(self):
         Base.metadata.drop_all(self.engine)

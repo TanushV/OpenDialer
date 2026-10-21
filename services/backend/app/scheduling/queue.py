@@ -6,6 +6,7 @@ from collections import OrderedDict
 from datetime import timedelta
 
 from sqlalchemy import and_, delete, or_, select, tuple_
+from sqlalchemy.exc import IntegrityError
 
 from app.compliance.policy import authorize
 from app.db import MODELS, ActiveClaim, audit, doc, emit, prefetch, put, update
@@ -383,6 +384,9 @@ class ReservationPlanner:
                 return self._claim_selection(p, campaign_id, plan)
             except SelectionChanged as changed:
                 reasons.update(*changed.args)
+            except IntegrityError:
+                # A parallel claim won the same endpoint, lead or rep slot; select again.
+                reasons.add("CONCURRENT_CLAIM")
             finally:
                 self._release_in_flight(p, [plan["selection"]["lead_id"]])
                 if plan["allocation"]["number_id"]:
@@ -394,7 +398,15 @@ class ReservationPlanner:
 
         now = self.clock()
         with self.db.transaction() as s, s.no_autoflush:
-            self.db.authorize_stream(s, p)
+            # Claims run in parallel (shared); opt-outs and other authorization changes still
+            # order against them. Endpoint, lead and rep uniqueness are constraints; the planned
+            # number's capacity is serialized by its row lock, taken before capacity is read.
+            self.db.authorize_stream(s, p, shared=True)
+            if not self.db.sqlite and plan["allocation"]["number_id"]:
+                model = MODELS["number_inventory"]
+                s.execute(
+                    select(model.id).where(model.id == plan["allocation"]["number_id"]).with_for_update()
+                )
             lead = self.required(s, "leads", plan["selection"]["lead_id"], p)
             if decision_state(lead) != plan["lead_state"]:
                 raise SelectionChanged()
