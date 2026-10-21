@@ -329,6 +329,7 @@ class NativeUI:
         self.screenshot(mode + "-preflight")
         if readied:
             self.pause()  # Leave the rep as found: paused, with no active claim.
+            self.click("Settings")  # Callers continue in Settings.
         return result
 
 
