@@ -699,11 +699,36 @@ def test_signing_out_fails_with_the_reason_when_the_app_keeps_the_button_disable
     assert "ui.press('button[title=\"Sign out\"]')" not in source and source.count("ui.sign_out()") == 2
 
 
-def test_the_driver_runs_in_its_own_process_group_so_an_updater_ctrl_c_cannot_stop_it():
-    """Run 39694452712: the exiting 0.2.1 MSI updater's console CTRL_C reached tauri-driver,
-    which the harness started before ignoring interrupts, so reopening the updated app was
-    refused. A new process group starts with CTRL_C disabled, and its children inherit that."""
-    module = native()
-    assert module.driver_creationflags("nt") == 0x00000200  # CREATE_NEW_PROCESS_GROUP
-    assert module.driver_creationflags("posix") == 0
-    assert "creationflags=driver_creationflags(os.name)" in inspect.getsource(module.main)
+def test_a_driver_stopped_by_the_exiting_updater_is_restarted_before_reopening():
+    """Run 39694452712: the exiting 0.2.1 MSI updater's console CTRL_C stopped tauri-driver.
+    A separate process group would also disable CTRL_C for the 0.2.1 app and backend it starts,
+    which 0.2.1's own cleanup relies on (run 39694859328 left its backend running and the NSIS
+    installer blocked). So the driver keeps the shared console and is restarted if it stopped."""
+
+    class Process:
+        def __init__(self):
+            self.code = None
+
+        def poll(self):
+            return self.code
+
+    started, readied = [], []
+
+    def popen(command, **kwargs):
+        assert "creationflags" not in kwargs
+        started.append(Process())
+        return started[-1]
+
+    driver = native().DriverProcess(["tauri-driver"], {}, None, popen=popen, ready=lambda: readied.append(1))
+    driver.start()
+    driver.ensure()
+    assert len(started) == 1 and driver.restarts == 0
+    started[0].code = 1  # Stopped by the updater's console CTRL_C.
+    driver.ensure()
+    assert len(started) == 2 and driver.restarts == 1 and len(readied) == 2
+    source = inspect.getsource(native().upgrade)
+    assert (
+        source.index("installed = wait_installed(")
+        < source.index("driver.ensure()")
+        < source.index("ui.open()")
+    )

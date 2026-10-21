@@ -422,10 +422,38 @@ def legacy_baseline(ui):
     return lead_name
 
 
-def driver_creationflags(os_name):
-    """A new process group starts with CTRL_C disabled, inherited by the driver's children: the
-    exiting 0.2.1 MSI updater's console CTRL_C stopped tauri-driver in run 39694452712."""
-    return 0x00000200 if os_name == "nt" else 0  # CREATE_NEW_PROCESS_GROUP
+def wait_for_driver():
+    for _ in range(100):
+        try:
+            if httpx.get("http://127.0.0.1:4444/status", timeout=1).status_code == 200:
+                return
+        except httpx.HTTPError:
+            pass
+        time.sleep(0.1)
+
+
+class DriverProcess:
+    """tauri-driver on the shared console, as a person's app would run, restarted if something
+    outside the harness stops it: the exiting 0.2.1 MSI updater's console CTRL_C did (run
+    39694452712). A separate process group would also disable CTRL_C for the 0.2.1 app and
+    backend, which 0.2.1's own cleanup relies on (run 39694859328)."""
+
+    def __init__(self, command, env, log, *, popen=subprocess.Popen, ready=wait_for_driver):
+        self.command, self.env, self.log = command, env, log
+        self.popen, self.ready = popen, ready
+        self.process, self.restarts = None, 0
+
+    def start(self):
+        self.process = self.popen(self.command, env=self.env, stdout=self.log, stderr=self.log)
+        self.ready()
+        return self.process
+
+    def ensure(self):
+        if self.process is not None and self.process.poll() is None:
+            return
+        if self.process is not None:
+            self.restarts += 1
+        self.start()
 
 
 @contextmanager
@@ -568,7 +596,7 @@ def diagnose_store(application, directory, output, version, *, timeout=90):
     return result
 
 
-def upgrade(ui, version, database):
+def upgrade(ui, version, database, driver=None):
     lead_name = legacy_baseline(ui)
     before = saved_ids(database)
     assert before["notes"] and before["suppressions"] and before["sessions"]
@@ -593,6 +621,8 @@ def upgrade(ui, version, database):
         except WebDriverException:
             pass
         installed = wait_installed(ui.application, version, ui.output, not_before=not_before)
+    if driver is not None:
+        driver.ensure()
     ui.open()
     kept = ui.driver.execute_script("return localStorage.getItem('opendialer.harness-profile')") == probe
     if not kept:
@@ -823,26 +853,16 @@ def main():
     if not launcher:
         raise RuntimeError("The official tauri-driver is required")
     with (output / "driver.log").open("w") as log:
-        process = subprocess.Popen(  # noqa: S603 - official driver, isolated child environment
-            [launcher, "--native-driver", str(native_driver)],
-            env=desktop_environment(os.environ),
-            stdout=log,
-            stderr=log,
-            creationflags=driver_creationflags(os.name),
+        driver = DriverProcess(  # official driver, isolated child environment
+            [launcher, "--native-driver", str(native_driver)], desktop_environment(os.environ), log
         )
+        driver.start()
         ui = NativeUI(application, output)
         try:
-            for _ in range(100):
-                try:
-                    if httpx.get("http://127.0.0.1:4444/status", timeout=1).status_code == 200:
-                        break
-                except httpx.HTTPError:
-                    pass
-                time.sleep(0.1)
             ui.open()
             database = Path(os.environ["APPDATA"]) / "com.opendialer.desktop" / "simulation" / "opendialer.db"
             update_to = os.environ.get("OPENDIALER_UPDATE_TO_VERSION")
-            update = upgrade(ui, update_to, database) if update_to else None
+            update = upgrade(ui, update_to, database, driver) if update_to else None
             if not update_to:
                 ui.click("Try a simulated workspace")
                 ui.visible("SIMULATION")
@@ -853,7 +873,7 @@ def main():
 
             native_root = next(
                 child
-                for child in psutil.Process(process.pid).children(recursive=True)
+                for child in psutil.Process(driver.process.pid).children(recursive=True)
                 if Path(child.exe()).resolve() == application
             )
             resources = measure_native_resources(
@@ -887,6 +907,7 @@ def main():
                 "installed_executable": application.name,
                 "version": version,
                 "update": update,
+                "driver_restarts": driver.restarts,
                 "journeys": [local, shared],
                 "startup_ms": ui.startup_ms,
                 "resource_gates": resources["gates"],
@@ -909,7 +930,7 @@ def main():
             try:
                 ui.close()
             finally:
-                stop_owned(process)
+                stop_owned(driver.process)
     return 0
 
 
