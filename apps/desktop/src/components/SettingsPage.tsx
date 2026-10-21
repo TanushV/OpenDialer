@@ -1,4 +1,4 @@
-import { useHistory } from "../state/useHistory";
+import { countLabel, useHistory } from "../state/useHistory";
 import { HistoryMore } from "./HistoryMore";
 import { BillingReconciliation } from "./BillingReconciliation";
 import { OperatingPolicySettings } from "./OperatingPolicySettings";
@@ -466,7 +466,7 @@ function SetupChecklist({
         state={leads ? "configured" : "unconfigured"}
         summary={
           leads
-            ? `${leads} leads imported; suppressions are preserved.`
+            ? `${countLabel(leads, w.pages?.leads?.total_capped)} leads imported; suppressions are preserved.`
             : "Import a CSV of the people you are allowed to call."
         }
       >

@@ -374,6 +374,44 @@ class Job(Base):
     )
 
 
+PLANNED_ROWS = 1_000_000
+
+
+def plan_statistics(connection):
+    """Fixed SQLite planner statistics (sqlite_stat1), written when the authority opens.
+
+    With no statistics SQLite takes an equality on tenant_id/seller_id as selective, so a scoped
+    `id IN (...)` lookup scanned the seller's whole unique-key range (650 ms for 32 of 100k
+    endpoints). A real ANALYZE costs seconds per index on a large store while holding the
+    writer. One local authority holds one tenant and normally one seller, so record exactly
+    that: scope-column prefixes match every row of a large table; other columns keep SQLite's
+    default narrowing. See https://www.sqlite.org/optoverview.html#manctrl."""
+    connection.exec_driver_sql("ANALYZE sqlite_schema")  # Creates the statistics tables.
+    rows = []
+    tables = connection.exec_driver_sql(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+    )
+    for (table,) in list(tables):
+        for _, index, unique, *_ in list(connection.exec_driver_sql(f'PRAGMA index_list("{table}")')):
+            columns = [row[2] for row in connection.exec_driver_sql(f'PRAGMA index_info("{index}")')]
+            if not columns or None in columns:
+                continue  # Expression indexes keep SQLite's defaults.
+            stat, narrowing = [PLANNED_ROWS], 10
+            for i in range(len(columns)):
+                if set(columns[: i + 1]) <= {"tenant_id", "seller_id"}:
+                    stat.append(PLANNED_ROWS)
+                else:
+                    stat.append(1 if unique and i == len(columns) - 1 else narrowing)
+                    narrowing = max(1, narrowing - 1)
+            rows.append((table, index, " ".join(map(str, stat))))
+    connection.exec_driver_sql("DELETE FROM sqlite_stat1")
+    if connection.exec_driver_sql("SELECT 1 FROM sqlite_master WHERE name = 'sqlite_stat4'").first():
+        connection.exec_driver_sql("DELETE FROM sqlite_stat4")
+    if rows:
+        connection.exec_driver_sql("INSERT INTO sqlite_stat1 (tbl, idx, stat) VALUES (?, ?, ?)", rows)
+    connection.exec_driver_sql("ANALYZE sqlite_schema")  # Reload for this connection.
+
+
 class Database:
     def __init__(self, url, encryption_key=None):
         if not encryption_key:
@@ -414,6 +452,7 @@ class Database:
 
         self.sessions = sessionmaker(self.engine, expire_on_commit=False)
         if current:
+            self.plan()
             return
         # create_all is additive for new tables; migrate metadata columns before mapped reads.
         with self.engine.begin() as connection:
@@ -421,6 +460,13 @@ class Database:
         Base.metadata.create_all(self.engine)
         self.encrypt_legacy_records()
         self.backfill_operational_columns()
+        self.plan()
+
+    def plan(self):
+        if self.sqlite:
+            with self.engine.begin() as connection:
+                plan_statistics(connection)
+            self.engine.dispose()  # Pooled connections reload the statistics on next use.
 
     def encrypt_legacy_records(self):
         # A one-time transactional codec migration preserves IDs and human edits during an app update.

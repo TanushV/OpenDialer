@@ -6,7 +6,7 @@ export function HistoryMore({
 }: {
   history: {
     items: unknown[];
-    total?: number | null;
+    totalLabel?: string | null;
     cursor?: string | null;
     busy: boolean;
     load: (append?: boolean) => Promise<void>;
@@ -18,7 +18,9 @@ export function HistoryMore({
     <div className="button-row">
       <span className="fine">
         {history.items.length} displayed
-        {history.total != null ? ` · ${history.total} records in scope` : ""}
+        {history.totalLabel != null
+          ? ` · ${history.totalLabel} records in scope`
+          : ""}
       </span>
       {history.cursor && (
         <button

@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { useWorkspace } from "../context";
 import type { HistoryPage } from "../types";
 
+/** A page total, shown as a lower bound once the server stopped counting. */
+export function countLabel(total: number, capped?: boolean) {
+  return capped ? `${total.toLocaleString()}+` : String(total);
+}
+
 /** Bounded reads; newer searches and authority changes discard late results. */
 export function useHistory<T extends { id: string; version?: number }>(
   section: string,
@@ -35,6 +40,7 @@ export function useHistory<T extends { id: string; version?: number }>(
     }) || initial;
   const cursor = loaded ? loaded.next_cursor : preview?.next_cursor;
   const total = loaded ? loaded.total : preview?.total;
+  const capped = loaded ? loaded.total_capped : preview?.total_capped;
   async function load(append = false, query = "", filter = "all") {
     const request = ++generation.current;
     const scope = current.current;
@@ -79,6 +85,7 @@ export function useHistory<T extends { id: string; version?: number }>(
   return {
     items,
     total,
+    totalLabel: total == null ? null : countLabel(total, capped),
     cursor,
     busy,
     load,

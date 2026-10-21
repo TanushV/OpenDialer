@@ -146,7 +146,7 @@ export function LeadsPage() {
       <section className="card table-card">
         <div className="table-toolbar">
           <h3>
-            {history.total ?? w.leads.length} leads{" "}
+            {history.totalLabel ?? w.leads.length} leads{" "}
             <span className="subtle-count">
               {w.metrics.suppressed ?? "Unknown"} suppressed
             </span>
