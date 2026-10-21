@@ -137,7 +137,10 @@ class NativeUI:
             lambda: next(
                 (
                     e
-                    for e in self.driver.find_elements(By.XPATH, f"//button[normalize-space(.)='{text}']")
+                    # The accessible name: a navigation item's label stays exact beside its count badge.
+                    for e in self.driver.find_elements(
+                        By.XPATH, f"//button[@aria-label='{text}' or normalize-space(.)='{text}']"
+                    )
                     if e.is_displayed() and e.is_enabled()
                 ),
                 None,

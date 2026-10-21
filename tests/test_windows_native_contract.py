@@ -184,3 +184,27 @@ def test_native_child_environment_keeps_system_root_with_windows_key_case():
     result = native().desktop_environment(source)
     assert result["SYSTEMROOT"] == r"C:\Windows" and result["LOCALAPPDATA"].endswith("Local")
     assert result["PATH"] == r"C:\Windows\System32"
+
+
+def test_native_buttons_are_found_by_accessible_name_beside_a_count_badge():
+    """The Leads navigation item reads "Leads 4" as text; its accessible name stays "Leads"."""
+    m = native()
+    queries = []
+
+    class Button:
+        def is_displayed(self):
+            return True
+
+        def is_enabled(self):
+            return True
+
+    class Driver:
+        def find_elements(self, by, query):
+            queries.append(query)
+            return [Button()] if "@aria-label='Leads'" in query else []
+
+    ui = m.NativeUI.__new__(m.NativeUI)
+    ui.driver = Driver()
+    ui.wait = lambda action, timeout=60: action()
+    assert isinstance(ui.button("Leads"), Button)
+    assert any("normalize-space(.)='Leads'" in q for q in queries)
