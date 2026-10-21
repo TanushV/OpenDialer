@@ -187,6 +187,21 @@ class NativeUI:
 
         self.wait(opened)
 
+    def press(self, selector):
+        """Click a control by CSS selector as a person would: bring it into view, retry if covered."""
+
+        def perform():
+            element = next(
+                (e for e in self.driver.find_elements(By.CSS_SELECTOR, selector) if e.is_displayed()), None
+            )
+            if element is None:
+                return False
+            self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", element)
+            element.click()
+            return True
+
+        self.wait(perform)
+
     def field(self, label, *, prefix=False):
         # A prefix match covers labels that carry a live caption, such as the callback time zone.
         test = (
@@ -194,7 +209,7 @@ class NativeUI:
             if prefix
             else f"normalize-space(text())='{label}'"
         )
-        return self.wait(
+        found = self.wait(
             lambda: next(
                 (
                     e
@@ -207,6 +222,9 @@ class NativeUI:
                 None,
             )
         )
+        # A select's option click or typing must not land on the call dock that may cover it.
+        self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", found)
+        return found
 
     def fill(self, element, value):
         element.send_keys(Keys.CONTROL, "a")
@@ -251,7 +269,7 @@ class NativeUI:
             if element.get_attribute("aria-label") == "Review call " + lead_name
         ]
         assert len(matches) == 1, "Selected journey review is missing or ambiguous"
-        matches[0].click()
+        self.press(f'button[aria-label="Review call {lead_name}"]')
         box = self.element("textarea" if legacy else 'textarea[aria-label="Your notes"]')
         if note is not None:
             self.fill(box, note)
@@ -288,14 +306,14 @@ class NativeUI:
             if item.get_attribute("aria-label") == "Open lead " + receipt["lead_name"]
         ]
         assert len(matches) == 1, "Next-call lead identity is missing or ambiguous"
-        matches[0].click()
+        self.press(f'button[aria-label="Open lead {receipt["lead_name"]}"]')
         self.element(".modal")
         self.open_details("Prior conversation & next step")
         brief = self.element('.modal [data-testid="prospect-brief"]').text
         assert receipt["note"] in brief and "Last outcome: Callback requested" in brief
         assert "Next question:" in brief
         self.screenshot("next-call-context")
-        self.element(".modal .close-modal").click()
+        self.press(".modal .close-modal")
 
     def preflight(self, version, mode):
         self.click("Settings")
@@ -449,7 +467,7 @@ def current_journey(ui, mode):
     ) else ui.in_view(".call-dock")
     raw = "Synthetic native speech sentinel; our next review is Tuesday."
     ui.fill(ui.element('input[aria-label="Simulation transcript"]'), raw)
-    ui.element('button[aria-label="Add prospect turn"]').click()
+    ui.press('button[aria-label="Add prospect turn"]')
     ui.open_details("Live transcript")  # The ephemeral transcript is an optional expansion during the call.
     ui.visible(raw)
     ui.click("Mute tips")
@@ -464,7 +482,7 @@ def current_journey(ui, mode):
     while time.monotonic() - began < RAW_EXPIRY_WAIT_SECONDS:
         time.sleep(5)
         # Real input keeps this synthetic rep present; no API heartbeat shortcuts.
-        ui.element('input[aria-label="Simulation transcript"]').click()
+        ui.press('input[aria-label="Simulation transcript"]')
     ui.wait(lambda: raw not in ui.element(".transcript-scroll").text)
     ui.click("Hang up")
     ui.visible("How did the conversation go?")
@@ -640,7 +658,7 @@ def main():
             )
             (output / "native-resources.json").write_text(json.dumps(resources, indent=2) + "\n")
             with connected_authority(application, version, output) as address:
-                ui.element('button[title="Sign out"]').click()
+                ui.press('button[title="Sign out"]')
                 ui.click("Connect to a server")
                 ui.fill(ui.field("Server URL"), address)
                 ui.fill(ui.field("Email"), "native@example.test")
@@ -648,7 +666,7 @@ def main():
                 ui.click("Sign in")
                 ui.visible("SIMULATION")
                 shared = check_journey_restart(ui, current_journey(ui, "connected"), "connected", version)
-                ui.element('button[title="Sign out"]').click()
+                ui.press('button[title="Sign out"]')
                 ui.click("Try a simulated workspace")
                 ui.visible("SIMULATION")
                 assert (

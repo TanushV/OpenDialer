@@ -116,13 +116,24 @@ def test_review_requires_an_unambiguous_selected_journey_instead_of_history_orde
 
     opened = []
     buttons = [
-        SimpleNamespace(get_attribute=lambda _: "Review call Old lead", click=lambda: opened.append("old")),
         SimpleNamespace(
-            get_attribute=lambda _: "Review call Current lead", click=lambda: opened.append("current")
+            get_attribute=lambda _: "Review call Old lead",
+            click=lambda: opened.append("old"),
+            is_displayed=lambda: True,
+        ),
+        SimpleNamespace(
+            get_attribute=lambda _: "Review call Current lead",
+            click=lambda: opened.append("current"),
+            is_displayed=lambda: True,
         ),
     ]
+
+    def find_elements(by, query):
+        exact = [b for b in buttons if f'[aria-label="{b.get_attribute("aria-label")}"]' in query]
+        return exact if 'aria-label="' in query else buttons
+
     ui = native().NativeUI(Path("unused"), Path("unused"))
-    ui.driver = SimpleNamespace(find_elements=lambda *_: buttons)
+    ui.driver = SimpleNamespace(find_elements=find_elements, execute_script=lambda *_: None)
     ui.click = lambda _: None
     ui.visible = lambda _: None
     ui.fill = lambda *_: None
@@ -310,3 +321,46 @@ def test_the_collapsed_live_transcript_is_opened_once_before_its_text_is_read():
     assert details.open and len(clicks) == 1
     journey = inspect.getsource(m.current_journey)
     assert journey.index('ui.open_details("Live transcript")') < journey.index("ui.visible(raw)")
+
+
+def test_a_control_under_the_call_dock_is_scrolled_into_view_before_its_click():
+    """The keep-present click on the simulation input was covered by the call dock at 1024x720."""
+    from selenium.common.exceptions import ElementClickInterceptedException
+
+    m = native()
+    state = {"scrolled": False, "clicked": 0}
+
+    class Input:
+        def is_displayed(self):
+            return True
+
+        def click(self):
+            if not state["scrolled"]:
+                raise ElementClickInterceptedException("Other element would receive the click: dock-tool")
+            state["clicked"] += 1
+
+    class Driver:
+        def find_elements(self, by, query):
+            return [Input()] if query == 'input[aria-label="Simulation transcript"]' else []
+
+        def execute_script(self, script, *args):
+            state["scrolled"] = state["scrolled"] or "scrollIntoView" in script
+
+    ui = m.NativeUI.__new__(m.NativeUI)
+    ui.driver = Driver()
+    original = m.WebDriverWait
+
+    class Immediate(original):
+        def __init__(self, driver, timeout, **kwargs):
+            super().__init__(driver, 1, poll_frequency=0.01, **kwargs)
+
+    m.WebDriverWait = Immediate
+    try:
+        ui.press('input[aria-label="Simulation transcript"]')
+    finally:
+        m.WebDriverWait = original
+    assert state == {"scrolled": True, "clicked": 1}
+    source = (ROOT / "scripts/windows_native_smoke.py").read_text()
+    assert "ui.element(" not in "\n".join(
+        line for line in source.splitlines() if line.rstrip().endswith(".click()")
+    )
