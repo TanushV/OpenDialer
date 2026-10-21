@@ -290,7 +290,7 @@ class NativeUI:
 
     def correct_contact_role(self, note):
         self.open_details("Correct confirmed outcome")
-        assert self.field("Disposition").get_attribute("value") == "callback_requested"
+        assert self.element('.wrap-up button[aria-pressed="true"]').text == "Talked: callback requested"
         assert self.field("Wrap-up note").get_attribute("value") == note
         Select(self.field("Who did you speak with?")).select_by_value("gatekeeper")
         self.click("Save outcome")
@@ -486,9 +486,9 @@ def current_journey(ui, mode):
     ui.wait(lambda: raw not in ui.element(".transcript-scroll").text)
     ui.click("Hang up")
     ui.visible("How did the conversation go?")
-    Select(ui.field("Disposition")).select_by_value("callback_requested")
+    ui.click("Talked: callback requested")  # The primary outcome chip; Disposition is under More outcomes.
     Select(ui.field("Who did you speak with?")).select_by_value("right_party")
-    ui.date("Confirmed callback time", "2026-10-21T14:00")
+    ui.date("Confirmed callback time", "2026-10-21T14:00", prefix=True)
     note = NOTE + " " + mode
     ui.fill(ui.field("Wrap-up note"), note)
     ui.click("Save outcome")

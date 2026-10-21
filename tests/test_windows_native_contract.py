@@ -364,3 +364,17 @@ def test_a_control_under_the_call_dock_is_scrolled_into_view_before_its_click():
     assert "ui.element(" not in "\n".join(
         line for line in source.splitlines() if line.rstrip().endswith(".click()")
     )
+
+
+def test_wrap_up_uses_the_rep_visible_outcome_chip_and_the_zoned_callback_label():
+    """The Disposition select sits in a collapsed More outcomes section; the callback label
+    carries its time-zone caption. The journey uses what a rep sees."""
+    journey = inspect.getsource(native().current_journey)
+    correction = inspect.getsource(native().NativeUI.correct_contact_role)
+    assert 'ui.click("Talked: callback requested")' in journey
+    assert 'field("Disposition")' not in journey + correction
+    assert 'ui.date("Confirmed callback time", "2026-10-21T14:00", prefix=True)' in journey
+    source = "\n".join(p.read_text() for p in (ROOT / "apps/desktop/src/components").glob("WrapUp.tsx"))
+    assert (
+        '"Talked: callback requested"' in source and "Confirmed callback time ({zoneCaption(zone)})" in source
+    )
