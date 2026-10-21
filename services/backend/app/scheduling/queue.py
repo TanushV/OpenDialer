@@ -24,6 +24,16 @@ from app.scheduling.policy import queue_decision, rank_candidates
 # Top K per page: only these leads and their endpoints are decrypted, scored and checked.
 # Another page is read only when every candidate on this one is denied.
 PAGE_SIZE, PAGES = 32, 3
+# Preparation bookkeeping on the lead row. Packet work targets exactly the top-of-queue
+# leads, so a claim must not abort on it; any other change (eligibility, queue order or a
+# model feature) re-selects, so the frozen decision inputs match the claimed lead.
+BOOKKEEPING_FIELDS = frozenset({"preparation", "preparation_lease", "preparation_revision"})
+
+
+def decision_state(lead):
+    return {k: v for k, v in lead.data.items() if k not in BOOKKEEPING_FIELDS}
+
+
 IN_FLIGHT_SECONDS = 30  # Safety expiry; a claim attempt releases its pick as soon as it ends.
 _IN_FLIGHT_LOCK = threading.Lock()
 
@@ -47,6 +57,22 @@ class ReservationPlanner:
                 return False
             held[key] = (p["user_id"], now + IN_FLIGHT_SECONDS)
             return True
+
+    def _number_holds(self, p, number_id, *, hold=None):
+        """Count other reps' in-flight claims on a number; optionally add or drop this rep's."""
+        held = self.__dict__.setdefault("_in_flight_numbers", {})
+        key, now = (p["tenant_id"], p["seller_id"], number_id), time.monotonic()
+        with _IN_FLIGHT_LOCK:
+            owners = {u: t for u, t in held.get(key, {}).items() if t > now}
+            if hold is True:
+                owners[p["user_id"]] = now + IN_FLIGHT_SECONDS
+            elif hold is False:
+                owners.pop(p["user_id"], None)
+            if owners:
+                held[key] = owners
+            else:
+                held.pop(key, None)
+            return sum(user != p["user_id"] for user in owners)
 
     def _release_in_flight(self, p, lead_ids):
         held = self.__dict__.setdefault("_in_flight_leads", {})
@@ -187,7 +213,12 @@ class ReservationPlanner:
             profile = campaign.data.get("selection_profile", {})
             if not profile_current(profile, config):
                 profile = {}
-            inventory = self.inventory_evidence(s, p, fast=True)
+            # Another rep's selection may be claiming a number right now; count it as load so
+            # concurrent reps plan on different numbers (the claim rereads capacity).
+            inventory = [
+                {**n, "active_obligations": n.get("active_obligations", 0) + self._number_holds(p, n["id"])}
+                for n in self.inventory_evidence(s, p, fast=True)
+            ]
             claims = s.info["active_claims"]
             own = next((c for c in claims if c.rep_id == p["user_id"]), None)
             if own:
@@ -320,6 +351,8 @@ class ReservationPlanner:
                 return None, cursor, denied, len(leads) < PAGE_SIZE
             identifier = selection["lead_id"]
             self._release_in_flight(p, [lead_id for lead_id in held if lead_id != identifier])
+            if allocations[identifier]["number_id"]:
+                self._number_holds(p, allocations[identifier]["number_id"], hold=True)
             return (
                 {
                     "selection": selection,
@@ -328,6 +361,7 @@ class ReservationPlanner:
                     "allocation": allocations[identifier],
                     "profile": profile,
                     "lead_version": by_id[identifier].version,
+                    "lead_state": decision_state(by_id[identifier]),
                     "configuration": {
                         k: config[k]
                         for k in ("conversion_goal", "window_days", "estimate_policy", "exploration")
@@ -351,6 +385,8 @@ class ReservationPlanner:
                 reasons.update(*changed.args)
             finally:
                 self._release_in_flight(p, [plan["selection"]["lead_id"]])
+                if plan["allocation"]["number_id"]:
+                    self._number_holds(p, plan["allocation"]["number_id"], hold=False)
         fail(409, {"code": "QUEUE_CHANGED", "retryable": True, "reasons": sorted(reasons)})
 
     def _claim_selection(self, p, campaign_id, plan):
@@ -360,7 +396,7 @@ class ReservationPlanner:
         with self.db.transaction() as s, s.no_autoflush:
             self.db.authorize_stream(s, p)
             lead = self.required(s, "leads", plan["selection"]["lead_id"], p)
-            if lead.version != plan["lead_version"]:
+            if decision_state(lead) != plan["lead_state"]:
                 raise SelectionChanged()
             self._queue_context(s, p, campaign_id, [lead])
             self._queue_presence(s, p)
