@@ -1,6 +1,8 @@
 """Native acceptance must preserve identity and exercise the delivered product."""
 
+import html
 import importlib
+import inspect
 import sqlite3
 from pathlib import Path
 
@@ -217,11 +219,12 @@ def test_every_label_the_native_journey_uses_exists_in_the_desktop_source():
     import re
 
     harness = (ROOT / "scripts/windows_native_smoke.py").read_text()
-    labels = set(re.findall(r'\.(?:click|visible|field|button|date)\("([^"]+)"', harness))
+    labels = set(re.findall(r'\.(?:click|visible|field|button|date|open_details)\("([^"]+)"', harness))
     dynamic = {"1 imported", "HUMAN", "RINGING"}  # Rendered from data, not literal source text.
     source = "\n".join(p.read_text() for p in (ROOT / "apps/desktop/src").rglob("*.tsx")) + "\n".join(
         p.read_text() for p in (ROOT / "apps/desktop/src").rglob("*.ts")
     )
+    source = html.unescape(source)  # JSX writes "&" in text as "&amp;".
     missing = sorted(label for label in labels - dynamic if label not in source)
     assert labels and not missing, missing
 
@@ -265,3 +268,45 @@ def test_a_click_covered_by_a_transient_toast_is_retried():
     finally:
         m.WebDriverWait = original
     assert len(attempts) == 2
+
+
+def test_the_collapsed_live_transcript_is_opened_once_before_its_text_is_read():
+    """The ephemeral transcript is an optional <details> expansion; clicking an open one closes it."""
+    m = native()
+    clicks = []
+
+    class Details:
+        def __init__(self):
+            self.open = False
+
+        def get_attribute(self, name):
+            return "" if name == "open" and self.open else None
+
+    details = Details()
+
+    class Summary:
+        def is_displayed(self):
+            return True
+
+        def find_element(self, by, query):
+            return details
+
+        def click(self):
+            clicks.append(True)
+            details.open = not details.open
+
+    class Driver:
+        def find_elements(self, by, query):
+            return [Summary()] if "summary" in query and "Live transcript" in query else []
+
+        def execute_script(self, *args):
+            return None
+
+    ui = m.NativeUI.__new__(m.NativeUI)
+    ui.driver = Driver()
+    ui.wait = lambda action, timeout=60: action()
+    ui.open_details("Live transcript")
+    ui.open_details("Live transcript")
+    assert details.open and len(clicks) == 1
+    journey = inspect.getsource(m.current_journey)
+    assert journey.index('ui.open_details("Live transcript")') < journey.index("ui.visible(raw)")
