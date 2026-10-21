@@ -174,10 +174,18 @@ def test_replay_uses_selective_review_and_accounts_each_attempt(workspace, app, 
 
 
 def test_replay_without_a_receipt_retains_uncertain_charge(workspace, app, monkeypatch):
+    from app.coaching import replay
+
     class Failing(Quiet):
         async def suggest(self, request, deadline_ms):
+            sent.append(True)
             raise TimeoutError("Private provider error text must not be persisted")
 
+    # The case targets a sent request that failed. Under parallel CI load the authorization and
+    # budget steps alone could exhaust the default 1.2 s case deadline, and an unsent request is
+    # correctly released; the widest permitted window keeps the case on its target.
+    sent, original = [], replay.evaluate
+    monkeypatch.setattr(replay, "evaluate", lambda *a, **k: original(*a, **{**k, "deadline_ms": 8000}))
     service, p = app.state.service, principal(workspace)
     monkeypatch.setattr(service, "configured_coach", lambda p: (Failing(), "openrouter"))
     monkeypatch.setattr(service.settings, "simulation", False)
@@ -185,6 +193,7 @@ def test_replay_without_a_receipt_retains_uncertain_charge(workspace, app, monke
     assert response.status_code == 200, response.text
     with service.db.transaction(False) as s:
         usage = [r.data for r in service.scoped(s, "usage_ledger", p)]
+    assert sent == [True]
     assert len(usage) == 1 and usage[0]["status"] == "uncertain"
     assert usage[0]["provider"] == "openrouter"
     assert "Private provider" not in str(usage) + response.text
