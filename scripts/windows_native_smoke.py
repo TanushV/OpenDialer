@@ -156,14 +156,20 @@ class NativeUI:
 
         self.wait(perform)
 
-    def field(self, label):
+    def field(self, label, *, prefix=False):
+        # A prefix match covers labels that carry a live caption, such as the callback time zone.
+        test = (
+            f"starts-with(normalize-space(text()), '{label}')"
+            if prefix
+            else f"normalize-space(text())='{label}'"
+        )
         return self.wait(
             lambda: next(
                 (
                     e
                     for e in self.driver.find_elements(
                         By.XPATH,
-                        f"//label[normalize-space(text())='{label}']/*[self::input or self::select or self::textarea]",
+                        f"//label[{test}]/*[self::input or self::select or self::textarea]",
                     )
                     if e.is_displayed()
                 ),
@@ -175,8 +181,8 @@ class NativeUI:
         element.send_keys(Keys.CONTROL, "a")
         element.send_keys(value)
 
-    def date(self, label, value):
-        element = self.field(label)
+    def date(self, label, value, *, prefix=False):
+        element = self.field(label, prefix=prefix)
         # HTML datetime-local's segmented keyboard format varies by Windows locale.
         # Use its DOM input event, never an HTTP/domain-state shortcut.
         self.driver.execute_script(
@@ -225,12 +231,12 @@ class NativeUI:
     def save_followup(self, due):
         call_id = self.element(".followup-task").get_attribute("data-call-id")
         assert call_id
-        self.date("Callback time (your device timezone)", due)
+        self.date("Callback time", due, prefix=True)
         self.click("Save follow-up")
         self.visible("Follow-up saved")
         current = self.element(f'.followup-task[data-call-id="{call_id}"]')
         assert current.get_attribute("data-call-id") == call_id
-        assert self.field("Callback time (your device timezone)").get_attribute("value") == due
+        assert self.field("Callback time", prefix=True).get_attribute("value") == due
         return call_id
 
     def open_details(self, text):
@@ -404,10 +410,8 @@ def current_journey(ui, mode):
     ui.click("Import leads")
     ui.visible("1 imported")
     ui.click("Prepare displayed lead packets")
-    ui.visible("Preparation queued")
-    ui.click("Intelligence")
-    ui.click("Process queued work")
-    ui.visible("queued jobs processed")
+    ui.click("Queue preparation")  # Preparation is previewed with its count and budget first.
+    ui.visible("Preparation queued")  # The authority's own lanes prepare the packet.
     ui.click("Dialer")
     if "Go ready" in ui.body():
         ui.click("Go ready")
@@ -460,7 +464,7 @@ def current_journey(ui, mode):
     ui.click("Intelligence")
     ui.element(".followup-task")
     assert len(ui.driver.find_elements(By.CSS_SELECTOR, ".followup-task")) == 1, "Duplicate callback task"
-    due = ui.field("Callback time (your device timezone)").get_attribute("value")
+    due = ui.field("Callback time", prefix=True).get_attribute("value")
     assert due
     task_call_id = ui.save_followup("2026-10-22T14:00")
     ui.screenshot(mode + "-followup")
@@ -482,7 +486,7 @@ def check_journey_restart(ui, receipt, mode, version):
         ui.element(".followup-task")
         tasks = ui.driver.find_elements(By.CSS_SELECTOR, ".followup-task")
     assert len(tasks) == 1 and tasks[0].get_attribute("data-call-id") == receipt["task_call_id"]
-    assert ui.field("Callback time (your device timezone)").get_attribute("value") == receipt["due"]
+    assert ui.field("Callback time", prefix=True).get_attribute("value") == receipt["due"]
     assert ui.review(receipt["lead_name"]) == receipt["note"]
     ui.open_details("Correct confirmed outcome")
     assert ui.field("Who did you speak with?").get_attribute("value") == "gatekeeper"

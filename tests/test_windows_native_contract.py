@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 def native():
     return importlib.import_module("scripts.windows_native_smoke")
@@ -150,8 +152,8 @@ def test_followup_save_reacquires_the_remounted_row():
     ui.element = lambda _: after if saved else before
     ui.click = lambda _: saved.append(True)
     ui.visible = lambda _: None
-    ui.date = lambda *_: None
-    ui.field = lambda _: SimpleNamespace(get_attribute=lambda _: "2026-10-22T14:00")
+    ui.date = lambda *_, **__: None
+    ui.field = lambda _, **__: SimpleNamespace(get_attribute=lambda _: "2026-10-22T14:00")
     assert ui.save_followup("2026-10-22T14:00") == "selected-call"
 
 
@@ -208,3 +210,17 @@ def test_native_buttons_are_found_by_accessible_name_beside_a_count_badge():
     ui.wait = lambda action, timeout=60: action()
     assert isinstance(ui.button("Leads"), Button)
     assert any("normalize-space(.)='Leads'" in q for q in queries)
+
+
+def test_every_label_the_native_journey_uses_exists_in_the_desktop_source():
+    """Removed or renamed controls broke the installed-app journey only on a Windows runner."""
+    import re
+
+    harness = (ROOT / "scripts/windows_native_smoke.py").read_text()
+    labels = set(re.findall(r'\.(?:click|visible|field|button|date)\("([^"]+)"', harness))
+    dynamic = {"1 imported", "HUMAN", "RINGING"}  # Rendered from data, not literal source text.
+    source = "\n".join(p.read_text() for p in (ROOT / "apps/desktop/src").rglob("*.tsx")) + "\n".join(
+        p.read_text() for p in (ROOT / "apps/desktop/src").rglob("*.ts")
+    )
+    missing = sorted(label for label in labels - dynamic if label not in source)
+    assert labels and not missing, missing
