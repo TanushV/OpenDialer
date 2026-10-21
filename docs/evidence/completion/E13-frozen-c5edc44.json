@@ -1,0 +1,50 @@
+{
+ "step_id": "E13",
+ "scope": "Frozen macOS ARM64 authority and trainer sidecars built from c5edc44; packaged-runtime journey, restart and training child",
+ "source_commit": "c5edc440d3b7f48cbecb05603d8bf23acb69b956",
+ "commands": [
+  "uv run python scripts/build_sidecar.py",
+  "uv run python scripts/frozen_acceptance.py --expected-version 0.3.0 --output work/remediation/completion/frozen-c5edc44/frozen-runtime.json"
+ ],
+ "result": {
+  "version": "0.3.0",
+  "binary_sha256": "8ca3aa28213f14cfa0654ae4c41de5130b25e16b28bac69cd0e999d6d3d5fb4f",
+  "trainer_sha256": "dcd55d7baa24a5b5704da56221170b6a7a80d0a6d6034b30bbd65e898d69c7a9",
+  "startup_ms": 4241.781499935314,
+  "journey": {
+   "call_id": "97d0e8bc-82f6-4359-85ac-c260543e8e56",
+   "lead_id": "030d67fc-a206-4459-b6b2-0d751d85c29b",
+   "task_id": "78117300-96da-4e32-a608-88445e7b21ef",
+   "callback_at": "2026-10-20T21:00:00+00:00",
+   "note_hash": "7dc795e9f3c83936d9af00ffd4e817edb99e8529b51ed9388f6d55c931e19b72",
+   "raw_expired": true,
+   "helper_cancelled": true,
+   "helper_evidence": "simulation fallback and request lifecycle; no funded inference",
+   "elapsed_call_seconds": 720
+  },
+  "restart": {
+   "task_id": "78117300-96da-4e32-a608-88445e7b21ef",
+   "note_hash": "7dc795e9f3c83936d9af00ffd4e817edb99e8529b51ed9388f6d55c931e19b72",
+   "integrity_ok": true
+  },
+  "training": {
+   "checksum": "c8b9cff006416947db26cce6234846245bb9984e9f015ae368a8a47818112373",
+   "runtime": {
+    "pid": 34706,
+    "native_threads": 1,
+    "priority": "low"
+   },
+   "stages": [
+    "human"
+   ]
+  },
+  "source_runtime_on_path": false,
+  "external_calls": false
+ },
+ "known_limitations": [
+  "Cold start measured while the shared profile ran in the reference containers on the same host.",
+  "Simulated providers; the helper evidence is the fallback and request lifecycle, not funded inference.",
+  "Installed-app resources and the in-place update (E14) require the published release."
+ ],
+ "external_calls": false
+}

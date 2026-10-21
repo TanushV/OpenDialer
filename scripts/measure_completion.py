@@ -1926,11 +1926,18 @@ def main(argv=None):
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--native-receipt", type=Path, help="JSON receipt from measure_native_resources")
     parser.add_argument(
+        "--reps",
+        type=int,
+        help="Capacity search: run one profile with this many reps; recorded, never the defined profile",
+    )
+    parser.add_argument(
         "--require-native-resources",
         action="store_true",
         help="Fail unless a current native resource receipt passes; by default it is reported only",
     )
     args = parser.parse_args(argv)
+    if args.reps is not None and (args.profile == "all" or args.reps < 1):
+        parser.error("--reps applies to one profile and must be positive")
     try:
         output = validate_output(args.output_dir)
     except ValueError as exc:
@@ -1944,8 +1951,12 @@ def main(argv=None):
         "profiles": {},
         "resource_gates": native,
         "native_resources_required": args.require_native_resources,
+        "reps_override": args.reps,
         "status": "running",
     }
+    defined = dict(PROFILES)
+    if args.reps is not None:
+        PROFILES[args.profile] = {**PROFILES[args.profile], "reps": args.reps}
     for name in PROFILES if args.profile == "all" else [args.profile]:
 
         def checkpoint(progress, name=name):
@@ -1963,6 +1974,8 @@ def main(argv=None):
             summary["profiles"][name] = profile["status"]
             save(output / "summary.json", summary)
             print(json.dumps({"profile": name, "status": profile["status"]}), flush=True)
+    PROFILES.clear()
+    PROFILES.update(defined)
     statuses = list(summary["profiles"].values())
     native_ok = native["status"] == "passed" or not args.require_native_resources
     if "failed" in statuses or not native_ok:
