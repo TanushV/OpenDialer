@@ -1038,6 +1038,21 @@ def run_requests(service, p, campaign, reps, measurement, checkpoint):
     }
 
 
+RETRYABLE_SELECTION = {"QUEUE_SCAN_CONTINUES", "QUEUE_CHANGED"}
+
+
+def next_lead(request, campaign, *, tries=5, delay=0.4, sleep=time.sleep):
+    """POST /v1/queue/next with the desktop's bounded retry of retryable queue refusals."""
+    for tried in range(1, tries + 1):
+        try:
+            return request("POST", "/v1/queue/next", json={"campaign_id": campaign})
+        except Exception as exc:
+            code = failure_detail(exc).get("code")
+            if code not in RETRYABLE_SELECTION or tried == tries:
+                raise
+            sleep(delay)
+
+
 def call_cycle(
     client, headers, campaign, measured, identity, *, simulated_seconds=0, callback=False, runtime=False
 ):
@@ -1090,9 +1105,7 @@ def call_cycle(
                 + hashlib.sha256(headers["Authorization"].encode()).hexdigest()[:12],
             },
         )
-        selected = record(
-            "selection", lambda: request("POST", "/v1/queue/next", json={"campaign_id": campaign})
-        )
+        selected = record("selection", lambda: next_lead(request, campaign))
         call = record(
             "start",
             lambda: request(

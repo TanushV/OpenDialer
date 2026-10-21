@@ -129,6 +129,19 @@ describe("next lead while the queue scan continues", () => {
     expect(attempt).toHaveBeenCalledTimes(5);
   });
 
+  it("also retries a claim that lost to another rep's concurrent claim", async () => {
+    const attempt = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new ApiError("QUEUE_CHANGED", 409, "QUEUE_CHANGED"),
+      )
+      .mockResolvedValueOnce({ reservation_id: "found" });
+    await expect(
+      nextLeadWithRetry(attempt, { delayMs: 0, onWaiting: () => {} }),
+    ).resolves.toEqual({ reservation_id: "found" });
+    expect(attempt).toHaveBeenCalledTimes(2);
+  });
+
   it("does not retry any other refusal", async () => {
     const attempt = vi
       .fn()
