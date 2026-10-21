@@ -1,6 +1,6 @@
 [project]
 name = "opendialer"
-version = "0.3.1"
+version = "0.3.2"
 description = "Local-first Tauri sales dialer with an authenticated shared authority"
 requires-python = ">=3.12,<3.15"
 dependencies = [

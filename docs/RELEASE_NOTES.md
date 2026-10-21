@@ -1,8 +1,12 @@
-OpenDialer 0.3.1 — developer preview; installed-update validation in progress.
+OpenDialer 0.3.2 — developer preview; installed-update validation in progress.
 
-0.3.1 replaces 0.3.0, which was withdrawn the day it was published. On Windows, 0.3.0 could not open a workspace it had just migrated from 0.2.1: the upgrade flushed its retained recovery copy through a read-only file handle, which Windows rejects (macOS accepts it), so every start stopped before the workspace opened. The installed data stayed intact. 0.3.1 flushes through a writable handle, and the upgrade, lock and journal suites now also run on Windows in CI. Nothing else changed from 0.3.0.
+0.3.2 replaces 0.3.0 and 0.3.1, both withdrawn on October 21 after installed-update validation found a product defect. Installed data stayed intact throughout.
+- 0.3.0, on Windows, could not open a workspace it had just migrated from 0.2.1: the upgrade flushed its retained recovery copy through a read-only file handle, which Windows rejects (macOS accepts it). Fixed in 0.3.1; the upgrade, lock and journal suites now also run on Windows in CI.
+- 0.3.1 opened and used the migrated workspace, but could not sign out of it: 0.2.1 left simulated prospect legs open behind ended calls, and 0.3.x counted them as live. Startup now closes a terminal call's leftover prospect leg, as 0.3.x does for its own calls.
 
-0.3.1 is the lean completion of the calling workflow:
+Nothing else changed from 0.3.0.
+
+0.3.2 is the lean completion of the calling workflow:
 - A proactive Cerebras helper (through OpenRouter, zero data retention) sits above the prepared script.
 - One conversation state feeds live help, the post-call rundown and the next call.
 - Local callbacks and tasks, plus rep-reported meetings.
