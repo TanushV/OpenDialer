@@ -1,0 +1,413 @@
+{
+ "step_id": "E13",
+ "profile": "shared",
+ "source_commit": "4ee289475136aef433492e3d9be06ae22138a387",
+ "production_tree_digest": "b09aa415779c6b907d642be0a5b425d99d71655517ec66ca5584b870519f5362",
+ "test_tree_digest": "d777a2c2c2defee95f32ee724d0fdb957fbdc31893d9cad33611d1c921dbefb7",
+ "harness_sha256": "5cf57e0b56d376b4deb24c982a1d5db3a51282c6e8b7e93f0723d1a8c93ced84",
+ "case_ids": [
+  "A25",
+  "A50",
+  "A51"
+ ],
+ "mode": "PostgreSQL in the inspected 2-vCPU/4-GiB reference containers",
+ "fixture_seed": 20261018,
+ "commands": [
+  "docker exec <reference runner> python scripts/measure_completion.py --profile shared --reps 2 --seed 20261018 --output-dir /evidence/performance-4ee2894-shared-2reps"
+ ],
+ "environment": {
+  "platform": "Linux-6.8.0-100-generic-aarch64-with-glibc2.41",
+  "python": "3.12.15",
+  "logical_cpus": 4,
+  "locks": {
+   "pyproject.toml": "2a9bad818fd3de5d3c81d38065ed0f7d5c34029169dcbd39dc4078b868976447",
+   "uv.lock": "51f39f3e13bd2e25833ef3d0fb99ec9794f32224c596b06ef97b95eb7c619342",
+   "apps/desktop/package.json": "3a7ac17f0fdc84067e112781bad974623c33c2484c2bac2b58a84f1f05632959",
+   "apps/desktop/package-lock.json": "fa38442672fb0585458bb3e364e6ef92bfca4ee9b2f1ba8328b92433cdcb2211",
+   "apps/desktop/src-tauri/Cargo.toml": "42a8b884583ff283e0611b244e31754f4dde0edd9c4fba3792e6cb52a7fd2ea5",
+   "apps/desktop/src-tauri/Cargo.lock": "7caa52d5c71486783bcf42f7d5d9a398e6137b1b928aed0312e0c26a2aa7a567"
+  }
+ },
+ "dirty_files": [],
+ "profile_status": "failed",
+ "failed_gates": [
+  "writer",
+  "stalled_selection",
+  "load"
+ ],
+ "authority_startup_ms": 1881.1070659430698,
+ "selection": {
+  "cold": {
+   "samples": 2,
+   "failures": 0,
+   "p50_ms": 141.5965990163386,
+   "p95_ms": 165.23948800750077,
+   "p99_ms": 165.23948800750077,
+   "max_ms": 165.23948800750077,
+   "sql_max": 40,
+   "decrypted_max": 177,
+   "target_ms": 1000,
+   "status": "passed"
+  },
+  "warm": {
+   "samples": 400,
+   "failures": 0,
+   "p50_ms": 68.5258989688009,
+   "p95_ms": 190.68802404217422,
+   "p99_ms": 425.2655010204762,
+   "max_ms": 1416.2441630614921,
+   "sql_max": 26,
+   "decrypted_max": 93,
+   "target_ms": 250,
+   "status": "passed"
+  }
+ },
+ "cached_workspace": {
+  "samples": 200,
+  "failures": 0,
+  "p50_ms": 32.28501905687153,
+  "p95_ms": 43.06682909373194,
+  "p99_ms": 50.742513965815306,
+  "max_ms": 76.05222100391984,
+  "sql_max": 44,
+  "decrypted_max": 119,
+  "target_ms": 250,
+  "status": "passed"
+ },
+ "six_coach": {
+  "samples": 30,
+  "failures": 0,
+  "p50_ms": 738.1374560063705,
+  "p95_ms": 847.2774201072752,
+  "p99_ms": 854.940006043762,
+  "max_ms": 854.940006043762,
+  "sql_max": 0,
+  "decrypted_max": 0,
+  "target_ms": 1500,
+  "status": "passed"
+ },
+ "rebuild": {
+  "seconds": 699.2387022890616,
+  "pages": 428,
+  "published": true,
+  "status": "passed"
+ },
+ "writer_transactions": {
+  "samples": 28502,
+  "failures": 150,
+  "p50_ms": 23.454376962035894,
+  "p95_ms": 225.63718899618834,
+  "p99_ms": 825.2341459738091,
+  "max_ms": 10765.404554083943,
+  "sql_max": 0,
+  "decrypted_max": 0,
+  "target_ms": 25,
+  "status": "failed",
+  "phases": {
+   "control_paths": {
+    "samples": 3300,
+    "failures": 0,
+    "p50_ms": 23.343416047282517,
+    "p95_ms": 83.89502798672765,
+    "p99_ms": 190.50077092833817,
+    "max_ms": 1319.54636098817,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "failed"
+   },
+   "load": {
+    "samples": 22127,
+    "failures": 120,
+    "p50_ms": 22.88160694297403,
+    "p95_ms": 274.4687970262021,
+    "p99_ms": 981.7755519179627,
+    "max_ms": 10765.404554083943,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "failed"
+   },
+   "selection": {
+    "samples": 1328,
+    "failures": 1,
+    "p50_ms": 22.294066031463444,
+    "p95_ms": 67.00493197422475,
+    "p99_ms": 130.26937004178762,
+    "max_ms": 403.307642089203,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "failed"
+   },
+   "six_coach": {
+    "samples": 390,
+    "failures": 0,
+    "p50_ms": 6.768233026377857,
+    "p95_ms": 24.833386996760964,
+    "p99_ms": 50.25284399744123,
+    "max_ms": 111.26372194848955,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "passed"
+   },
+   "stalled_selection": {
+    "samples": 1356,
+    "failures": 29,
+    "p50_ms": 48.37583506014198,
+    "p95_ms": 236.08574899844825,
+    "p99_ms": 515.3061950113624,
+    "max_ms": 681.6570590017363,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "failed"
+   },
+   "workload_capacity": {
+    "samples": 1,
+    "failures": 0,
+    "p50_ms": 16.152243013493717,
+    "p95_ms": 16.152243013493717,
+    "p99_ms": 16.152243013493717,
+    "max_ms": 16.152243013493717,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "passed"
+   }
+  },
+  "longest_holds": []
+ },
+ "control_paths": {
+  "event_ack": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 6.875650957226753,
+   "p95_ms": 22.70538592711091,
+   "p99_ms": 36.21881105937064,
+   "max_ms": 1341.8929480249062,
+   "sql_max": 4,
+   "decrypted_max": 0,
+   "target_ms": 100,
+   "status": "passed"
+  },
+  "event_state": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 44.56339497119188,
+   "p95_ms": 117.583843995817,
+   "p99_ms": 243.3162940433249,
+   "max_ms": 1568.98760702461,
+   "sql_max": 44,
+   "decrypted_max": 22,
+   "target_ms": 250,
+   "status": "passed"
+  },
+  "live_context": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 19.941363018006086,
+   "p95_ms": 68.51690402254462,
+   "p99_ms": 117.88513499777764,
+   "max_ms": 210.86796699091792,
+   "sql_max": 18,
+   "decrypted_max": 12,
+   "target_ms": 100,
+   "status": "passed"
+  },
+  "wrapup": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 47.10484098177403,
+   "p95_ms": 146.8470540130511,
+   "p99_ms": 244.37838303856552,
+   "max_ms": 384.93163406383246,
+   "sql_max": 38,
+   "decrypted_max": 16,
+   "target_ms": 250,
+   "status": "passed"
+  },
+  "hangup": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 76.2564199976623,
+   "p95_ms": 248.5655229538679,
+   "p99_ms": 519.3878990830854,
+   "max_ms": 532.4805850395933,
+   "sql_max": 46,
+   "decrypted_max": 27,
+   "target_ms": 250,
+   "status": "passed"
+  }
+ },
+ "load": {
+  "status": "failed",
+  "gate_failures": [
+   "cycle_failures",
+   "path:selection",
+   "path:event_ack",
+   "path:event_state",
+   "path:live_context",
+   "path:hangup",
+   "path:wrapup"
+  ],
+  "cycles": 172,
+  "background_errors": [],
+  "queue_recovery": "passed",
+  "paths": {
+   "selection": {
+    "samples": 344,
+    "failures": 0,
+    "p50_ms": 215.4390229843557,
+    "p95_ms": 1680.2361839218065,
+    "p99_ms": 3780.627481988631,
+    "max_ms": 10642.61803298723,
+    "sql_max": 43,
+    "decrypted_max": 193,
+    "target_ms": 250,
+    "status": "failed"
+   },
+   "event_ack": {
+    "samples": 344,
+    "failures": 1,
+    "p50_ms": 11.975425062701106,
+    "p95_ms": 112.16155905276537,
+    "p99_ms": 381.8308940390125,
+    "max_ms": 2382.176449056715,
+    "sql_max": 4,
+    "decrypted_max": 0,
+    "target_ms": 100,
+    "status": "failed"
+   },
+   "event_state": {
+    "samples": 344,
+    "failures": 1,
+    "p50_ms": 132.60187592823058,
+    "p95_ms": 1563.7992940610275,
+    "p99_ms": 4311.949525028467,
+    "max_ms": 5026.208081049845,
+    "sql_max": 258,
+    "decrypted_max": 0,
+    "target_ms": 250,
+    "status": "failed"
+   },
+   "live_context": {
+    "samples": 344,
+    "failures": 1,
+    "p50_ms": 43.05560595821589,
+    "p95_ms": 331.65257703512907,
+    "p99_ms": 1918.5135760344565,
+    "max_ms": 2382.176449056715,
+    "sql_max": 18,
+    "decrypted_max": 13,
+    "target_ms": 100,
+    "status": "failed"
+   },
+   "hangup": {
+    "samples": 344,
+    "failures": 5,
+    "p50_ms": 184.77381695993245,
+    "p95_ms": 2003.358147921972,
+    "p99_ms": 3889.1292199259624,
+    "max_ms": 5608.447035076097,
+    "sql_max": 49,
+    "decrypted_max": 28,
+    "target_ms": 250,
+    "status": "failed"
+   },
+   "wrapup": {
+    "samples": 344,
+    "failures": 5,
+    "p50_ms": 77.32642290648073,
+    "p95_ms": 985.2052390342578,
+    "p99_ms": 2382.176449056715,
+    "max_ms": 3012.88883399684,
+    "sql_max": 39,
+    "decrypted_max": 18,
+    "target_ms": 250,
+    "status": "failed"
+   },
+   "start": {
+    "samples": 344,
+    "failures": 1,
+    "p50_ms": 278.5087809897959,
+    "p95_ms": 2918.2832209626213,
+    "p99_ms": 5143.496542936191,
+    "max_ms": 9103.012495907024,
+    "sql_max": 92,
+    "decrypted_max": 50,
+    "target_ms": null,
+    "status": "reported"
+   },
+   "cleanup_hangup": {
+    "samples": 344,
+    "failures": 1,
+    "p50_ms": 21.007579984143376,
+    "p95_ms": 364.0443590702489,
+    "p99_ms": 1071.8506099656224,
+    "max_ms": 2419.7966980282217,
+    "sql_max": 6,
+    "decrypted_max": 5,
+    "target_ms": null,
+    "status": "reported"
+   },
+   "pause": {
+    "samples": 344,
+    "failures": 0,
+    "p50_ms": 31.10307303722948,
+    "p95_ms": 331.10691304318607,
+    "p99_ms": 637.4004350509495,
+    "max_ms": 5516.935029067099,
+    "sql_max": 12,
+    "decrypted_max": 5,
+    "target_ms": null,
+    "status": "reported"
+   }
+  },
+  "write_conflicts": [
+   {
+    "type": "StaleDataError",
+    "table": "call_attempts",
+    "constraint": null,
+    "count": 4
+   },
+   {
+    "type": "StaleDataError",
+    "table": "leads",
+    "constraint": null,
+    "count": 1
+   }
+  ]
+ },
+ "live_admission": {
+  "status": "passed",
+  "opportunities": 60,
+  "accepted": 60,
+  "rejected": 0,
+  "queue": {
+   "samples": 60,
+   "failures": 0,
+   "p50_ms": 0.1732790842652321,
+   "p95_ms": 3.5935379564762115,
+   "p99_ms": 127.53521301783621,
+   "max_ms": 127.53521301783621,
+   "sql_max": 0,
+   "decrypted_max": 0,
+   "target_ms": 100,
+   "status": "passed"
+  }
+ },
+ "shared_reference": {
+  "status": "passed",
+  "cpu_limit": 2.0,
+  "memory_limit_mib": 4096.0
+ },
+ "raw_result_sha256": "7a5eee20a0bbae467479034248b223a95260bab39a5a4e9ed89f66731b418c0a",
+ "known_limitations": [
+  "Capacity point: two synchronized reps at the same cadence on the same 2-vCPU reference.",
+  "Warm and cold selection, workspace and control paths pass; under load, selection (1.7 s), event-to-state, live context, hangup and wrap-up miss their targets even at two reps.",
+  "Write-conflict counts named the remaining 409s (StaleDataError on call_attempts x4, leads x1); fixed in 7ed0301 and 07f7e19 with PostgreSQL regressions."
+ ],
+ "external_calls": false
+}
