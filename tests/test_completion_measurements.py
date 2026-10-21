@@ -983,3 +983,31 @@ def test_load_receipt_counts_write_conflicts_by_table_without_values():
         {"type": "IntegrityError", "table": "campaigns", "constraint": None, "count": 1},
     ]
     assert not any(isinstance(h, module.ConflictCounter) for h in logger.handlers)
+
+
+def test_load_selection_retries_a_changed_queue_as_the_desktop_does():
+    """QUEUE_CHANGED and QUEUE_SCAN_CONTINUES are retryable; the desktop retries them five
+    times 400 ms apart, so the harness does too and keeps the wait in the measured time."""
+    import httpx
+
+    module, calls, slept = measurement(), [], []
+
+    def refused(code):
+        request = httpx.Request("POST", "http://fixture/v1/queue/next")
+        response = httpx.Response(409, json={"detail": {"code": code, "retryable": True}}, request=request)
+        return httpx.HTTPStatusError("conflict", request=request, response=response)
+
+    answers = [refused("QUEUE_CHANGED"), refused("QUEUE_SCAN_CONTINUES"), {"reservation_id": "found"}]
+
+    def request(method, path, **kwargs):
+        calls.append(path)
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    assert module.next_lead(request, "campaign", sleep=slept.append) == {"reservation_id": "found"}
+    assert calls == ["/v1/queue/next"] * 3 and slept == [0.4, 0.4]
+    answers[:] = [refused("NO_ELIGIBLE_LEADS")]
+    with pytest.raises(httpx.HTTPStatusError):
+        module.next_lead(request, "campaign", sleep=slept.append)
