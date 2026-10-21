@@ -641,8 +641,21 @@ function useProviderDraft(settings: AdminSettingsState, keys: string[]) {
   const [draft, setDraft] = useState<Record<string, string>>(read);
   const [busy, setBusy] = useState(false);
   const edit = useRef<{ body: string; request_id: string } | null>(null);
+  const server = useRef<Record<string, string>>(draft);
   useEffect(() => {
-    setDraft(read());
+    // Newly read settings refresh only the fields the person has not changed;
+    // a choice made while the first read was in flight is kept, not reset.
+    const previous = server.current;
+    const next = read();
+    server.current = next;
+    setDraft((current) =>
+      Object.fromEntries(
+        keys.map((key) => [
+          key,
+          current[key] !== previous[key] ? current[key] : next[key],
+        ]),
+      ),
+    );
     edit.current = null;
   }, [data?.version]);
   const save = async (done: string) => {
