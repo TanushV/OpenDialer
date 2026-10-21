@@ -38,9 +38,21 @@ def isolated_environment(source):
     }
 
 
-def await_ready(client, expected_version, *, timeout=30):
+def log_tail(log, lines=40):
+    try:
+        return "\n".join(log.read_text(errors="replace").splitlines()[-lines:]) if log else ""
+    except OSError:
+        return ""
+
+
+def await_ready(client, expected_version, *, timeout=60, process=None, log=None):
+    """The reported startup time is measured separately; this bound only stops a stuck run."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        if process is not None and process.poll() is not None:
+            raise RuntimeError(
+                f"Frozen authority exited with code {process.returncode} before it was ready\n{log_tail(log)}"
+            )
         try:
             response = client.get("/health")
             response.raise_for_status()
@@ -51,7 +63,7 @@ def await_ready(client, expected_version, *, timeout=30):
         if health.get("version") != expected_version:
             raise ValueError("Frozen backend version differs from the frozen release input")
         return health
-    raise TimeoutError("Frozen authority did not become ready")
+    raise TimeoutError(f"Frozen authority did not become ready\n{log_tail(log)}")
 
 
 def start_owned(*args, **kwargs):
@@ -401,8 +413,12 @@ def main():
         )
     ).resolve(strict=True)
     trainer = trainer_for(binary, os.environ.get("OPENDIALER_TEST_TRAINER"))
-    with tempfile.TemporaryDirectory(prefix="opendialer-frozen-proof-") as temporary:
-        directory = Path(temporary)
+    with (
+        tempfile.TemporaryDirectory(prefix="opendialer-frozen-proof-") as temporary,
+        tempfile.TemporaryDirectory(prefix="opendialer-frozen-log-") as logs,
+    ):
+        directory, log = Path(temporary), Path(logs) / "authority.log"
+        log_file = log.open("ab")  # Startup diagnostics only; secrets arrive on stdin and are never logged.
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
             port = listener.getsockname()[1]
@@ -432,13 +448,13 @@ def main():
                 secrets_line,
                 env=environment,
                 cwd=directory,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
                 start_new_session=True,
             )
             started = time.monotonic()
             with httpx.Client(base_url=f"http://127.0.0.1:{port}", timeout=30) as client:
-                await_ready(client, args.expected_version)
+                await_ready(client, args.expected_version, process=process, log=log)
                 boot_ms = (time.monotonic() - started) * 1000
                 token = request(
                     client,
@@ -470,11 +486,11 @@ def main():
                     secrets_line,
                     env=environment,
                     cwd=directory,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
                     start_new_session=True,
                 )
-                await_ready(client, args.expected_version)
+                await_ready(client, args.expected_version, process=process, log=log)
                 retained = check_persisted(client, headers, journey)
                 for store in directory.glob("opendialer.db*"):  # include -wal/-shm, not only the main file
                     assert b"frozen@example.test" not in store.read_bytes(), store.name
@@ -498,6 +514,7 @@ def main():
         finally:
             if process is not None:
                 stop_owned(process)
+            log_file.close()
     return 0
 
 
