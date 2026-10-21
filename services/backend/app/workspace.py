@@ -3,9 +3,9 @@
 import hashlib
 import hmac
 
-from sqlalchemy import and_, func, literal_column, or_, select
+from sqlalchemy import func, literal_column, or_, select
 
-from app.db import MODELS, ActiveClaim, Event, Job, doc
+from app.db import MODELS, ActiveClaim, Event, Job, after_key, doc
 from app.ml.training import retired_reason
 from app.operational_schema import PAGE_TABLES
 from app.service import fail
@@ -34,12 +34,7 @@ def scoped_query(model, p):
 
 
 def after(model, anchor, descending):
-    at, time = anchor.created_at, model.created_at
-    return (
-        or_(time < at, and_(time == at, model.id < anchor.id))
-        if descending
-        else or_(time > at, and_(time == at, model.id > anchor.id))
-    )
+    return after_key(model.created_at, model.id, anchor.created_at, anchor.id, descending=descending)
 
 
 class WorkspaceReads:

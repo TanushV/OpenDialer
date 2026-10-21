@@ -15,7 +15,9 @@ def conflicts(caplog):
 
 def test_a_stale_version_conflict_is_logged_by_table(workspace, app, monkeypatch, caplog):
     def stale(*args, **kwargs):
-        raise StaleDataError("UPDATE statement on table 'campaigns' expected to update 1 row(s); 0 were matched.")
+        raise StaleDataError(
+            "UPDATE statement on table 'campaigns' expected to update 1 row(s); 0 were matched."
+        )
 
     monkeypatch.setattr(app.state.service, "presence", stale)
     with caplog.at_level(logging.WARNING, logger="app.conflicts"):
