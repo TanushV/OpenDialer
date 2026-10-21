@@ -1,5 +1,5 @@
 import { useEffect, type Dispatch, type SetStateAction } from "react";
-import { expireSpeech, speechDeadline } from "./privacy";
+import { expireSpeech, watchSpeechExpiry } from "./privacy";
 import type { Call } from "../types";
 
 type View = Pick<Call, "transcript" | "coach" | "raw_evidence_status">;
@@ -11,12 +11,11 @@ export function useSpeechExpiry<T extends View>(
     if (!value) return;
     const purge = () =>
       setValue((current) => (current ? expireSpeech(current) : null));
-    const delay = speechDeadline(value);
-    const timer = delay === null ? undefined : setTimeout(purge, delay);
+    const cancel = watchSpeechExpiry(value, purge);
     window.addEventListener("pageshow", purge);
     document.addEventListener("visibilitychange", purge);
     return () => {
-      clearTimeout(timer);
+      cancel();
       window.removeEventListener("pageshow", purge);
       document.removeEventListener("visibilitychange", purge);
     };

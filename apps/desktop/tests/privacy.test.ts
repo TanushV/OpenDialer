@@ -4,6 +4,7 @@ import {
   persistentCache,
   receiveSpeech,
   expireSpeech,
+  watchSpeechExpiry,
 } from "../src/state/privacy";
 
 test("disk cache strips raw conversation and helper content while preserving allowed data", () => {
@@ -94,4 +95,51 @@ test("saved keypad digits outlive only their replay window", () => {
   expect(boundKeypad(value, at + 301_000)).toBeNull();
   expect(boundKeypad({ ...value, created_at: at + 60_000 }, at)).toBeNull();
   expect(boundKeypad(null, at)).toBeNull();
+});
+
+test("raw speech is purged even when the expiry timer fires before both clocks agree", () => {
+  // Windows update run 39686189128 (NSIS) kept a raw sentence on screen past six minutes. Date.now
+  // and performance.now drift apart (time sync slews the wall clock; performance.now is coarsened),
+  // so a timer due on one clock can fire while the other still reads "live". The purge then
+  // changes nothing, React keeps the same value, and no new timer was ever scheduled.
+  let wall = 0;
+  let mono = 0;
+  const timers: { at: number; run: () => void }[] = [];
+  const clock = {
+    now: () => wall,
+    mono: () => mono,
+    setTimer: (run: () => void, delay: number) =>
+      timers.push({ at: mono + delay, run }),
+    clearTimer: () => {},
+  };
+  let current = receiveSpeech(
+    {
+      transcript: [
+        { segment_id: "s", text: "RAW-VOICE", raw_remaining_ms: 1000 },
+      ],
+      coach: null,
+    },
+    wall,
+    mono,
+  );
+  const purge = () => {
+    current = expireSpeech(current, wall, mono);
+  };
+  let cancel = watchSpeechExpiry(current, purge, clock);
+  for (let step = 0; step < 10 && timers.length; step++) {
+    const due = timers.shift()!;
+    // The monotonic timer fires on time; the wall clock was slewed 0.4 ms slow and
+    // performance.now is coarsened 0.05 ms down, so neither clock reads expired yet.
+    mono = due.at - 0.05;
+    wall = due.at - 0.4;
+    const before = current;
+    due.run();
+    if (current !== before) {
+      cancel();
+      cancel = watchSpeechExpiry(current, purge, clock); // React re-runs the effect on change.
+    }
+    mono += 2;
+    wall += 2;
+  }
+  expect(JSON.stringify(current)).not.toContain("RAW-VOICE");
 });
