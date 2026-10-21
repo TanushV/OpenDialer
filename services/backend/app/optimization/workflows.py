@@ -1091,8 +1091,9 @@ class OptimizationWorkflows(ComparisonWorkflows):
             }
         key = dataset_checksum(value)
         with self.db.transaction() as s:
+            # Campaign row first, then job rows: every campaign publisher takes them in this order.
+            campaign = self.required(s, "campaigns", campaign_id, p, lock=True)
             self.jobs.require_owned_in(s, lease)
-            campaign = self.required(s, "campaigns", campaign_id, p)
             user, _, _, _ = self.report_scope(s, p)
             if user["role"] != "admin":
                 from app.service import fail
@@ -1271,13 +1272,14 @@ class OptimizationWorkflows(ComparisonWorkflows):
             "window_days": dataset["window_days"],
         }
         with self.db.transaction() as s:
+            # Campaign row first, then job rows: every campaign publisher takes them in this order.
+            campaign = self.required(s, "campaigns", campaign_id, p, lock=True)
             self.jobs.require_owned_in(s, lease)
             owner, _, _, _ = self.report_scope(s, p)
             if owner["role"] != "admin":
                 from app.service import fail
 
                 fail(403, "Learning owner no longer has administrator access")
-            campaign = self.required(s, "campaigns", campaign_id, p)
             config = self.optimization_config(s, p, campaign_id)
             if not (
                 dataset.get("conversation_revision") == campaign.data.get("conversation_revision", 0)
@@ -1334,13 +1336,14 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 ).encode()
             ).hexdigest()
         with self.db.transaction() as s:
+            # Campaign row first, then job rows: every campaign publisher takes them in this order.
+            campaign = self.required(s, "campaigns", campaign_id, p, lock=True)
             user, _, _, _ = self.report_scope(s, p)
             if user["role"] != "admin":
                 from app.service import fail
 
                 fail(403, "Optimization owner no longer has administrator access")
             self.jobs.require_owned_in(s, lease)
-            campaign = self.required(s, "campaigns", campaign_id, p)
             update(campaign, selection_profile=profile)
             jobs = []
             for kind in ("health_refresh", "forecast_refresh", "learning_refresh"):
