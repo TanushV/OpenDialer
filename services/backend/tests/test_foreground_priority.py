@@ -348,3 +348,26 @@ def test_yielding_is_duty_cycled_so_background_work_slows_at_most_about_twofold(
     worked, slept = 1000 * 0.0001, sum(pauses)
     assert pauses, "Calling work still gets the interpreter"
     assert slept <= worked * 1.05, f"{slept:.4f}s asleep for {worked:.4f}s of work"
+
+
+def test_an_in_flight_write_gets_full_yielding_while_calling_traffic_gets_the_duty_cycle(monkeypatch):
+    """Writes are short and hold the single SQLite writer; only continuous HTTP traffic needs the bound."""
+    import threading
+
+    import app.priority as priority
+
+    clock, pauses = [0.0], []
+    monkeypatch.setattr(priority, "GATE", priority.ForegroundGate())
+    monkeypatch.setattr(priority, "_YIELD_STATE", threading.local())
+    monkeypatch.setattr(priority.time, "perf_counter", lambda: clock[0])
+
+    def sleep(seconds):
+        pauses.append(seconds)
+        clock[0] += seconds
+
+    monkeypatch.setattr(priority.time, "sleep", sleep)
+    monkeypatch.setattr(priority, "_WRITER_THREADS", {-1})  # Another thread holds the writer.
+    for _ in range(100):
+        clock[0] += 0.0001
+        priority.yield_to_calling_work()
+    assert len(pauses) == 100, "Every checkpoint steps aside while a write is in flight"
