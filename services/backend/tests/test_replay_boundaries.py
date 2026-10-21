@@ -133,9 +133,15 @@ def post(workspace, cases):
 
 
 def test_replay_uses_selective_review_and_accounts_each_attempt(workspace, app, monkeypatch):
+    from app.coaching import replay
     from test_grounding_review import review_response
     from test_remediation_coach import advice
 
+    # Generation, review and their authorization/budget steps share one case deadline; CI's
+    # parallel coverage run (39680499141) exhausted the default 1.2 s and scored the case invalid.
+    # The widest permitted window keeps this accounting case on its target, as in the case below.
+    original = replay.evaluate
+    monkeypatch.setattr(replay, "evaluate", lambda *a, **k: original(*a, **{**k, "deadline_ms": 8000}))
     seen = []
 
     class Provider(Quiet):
