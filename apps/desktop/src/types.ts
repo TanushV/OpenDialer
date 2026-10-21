@@ -588,6 +588,7 @@ export interface Analysis {
     unknowns: string[];
   };
   notes_version: number;
+  notes_edit_version?: number;
   human_notes: string | null;
   suggested_update: unknown;
   status: string;

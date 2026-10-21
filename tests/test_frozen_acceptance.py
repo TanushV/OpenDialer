@@ -222,3 +222,17 @@ def test_frozen_authority_receives_secrets_on_stdin_like_the_desktop(monkeypatch
     assert "--secrets-stdin" in captured["command"], "The production launch path takes secrets on stdin"
     assert captured["stdin"] == subprocess.PIPE
     assert not {"OPENDIALER_SECRET_KEY", "OPENDIALER_LOCAL_TOKEN"} & set(captured["env"])
+
+
+def test_isolated_environment_keeps_windows_system_root_whatever_its_key_case():
+    """Windows reports environment keys upper-cased; a child without SYSTEMROOT cannot start."""
+    source = {
+        "SYSTEMROOT": r"C:\Windows",
+        "WINDIR": r"C:\Windows",
+        "TEMP": r"C:\Temp",
+        "PATH": r"C:\Python",
+        "OPENROUTER_API_KEY": "must-not-pass",
+    }
+    result = module().isolated_environment(source)
+    assert result["SYSTEMROOT"] == r"C:\Windows" and result["TEMP"] == r"C:\Temp"
+    assert result["PATH"] == "" and "OPENROUTER_API_KEY" not in result

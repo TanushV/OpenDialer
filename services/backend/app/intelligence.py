@@ -1228,6 +1228,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     ),
                 },
                 "notes_version": note.version if note else 0,
+                "notes_edit_version": note.data.get("human_edit_version", 0) if note else 0,
                 "human_notes": human,
                 "suggested_update": generated["notes"]
                 if human is not None and (note.data.get("suggested_update") or drifted)
@@ -1259,7 +1260,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 + reviewed_tracker_matches(generated, trackers, revisions, live_ids),
             }
 
-    def edit_notes(self, p, call_id, expected_version, text):
+    def edit_notes(self, p, call_id, expected_version, text, *, expected_edit_version=None):
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             call = self.required(s, "call_attempts", call_id, p)
@@ -1267,9 +1268,13 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             if not self._coach_authority(s, p, call):
                 fail(403, "Current account or session cannot edit these notes")
             note = self._by_key(s, p, "notes", call_id)
-            current = note.version if note else 0
-            if current != expected_version:
-                fail(409, {"code": "NOTES_VERSION_CONFLICT", "current_version": current})
+            edits = note.data.get("human_edit_version", 0) if note else 0
+            if expected_edit_version is not None:
+                # Only another human save conflicts; finalization re-materializes derived fields.
+                if edits != expected_edit_version:
+                    fail(409, {"code": "NOTES_VERSION_CONFLICT", "current_edit_version": edits})
+            elif (note.version if note else 0) != expected_version:
+                fail(409, {"code": "NOTES_VERSION_CONFLICT", "current_version": note.version if note else 0})
             lead = self.required(s, "leads", call.data["lead_id"], p)
             s.refresh(lead, with_for_update=True)
             note, _ = self._materialize_views_in(s, p, call, scorecard=False)
@@ -1280,10 +1285,11 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 status="human_confirmed",
                 editor_id=p["user_id"],
                 suggested_update=False,
+                human_edit_version=edits + 1,
             )
             self.refresh_packet_in(s, p, lead)
             audit(s, p["tenant_id"], p["seller_id"], p["user_id"], "notes.edited", note.id, self.clock())
-            return {"notes_version": note.version, "human_notes": text}
+            return {"notes_version": note.version, "notes_edit_version": edits + 1, "human_notes": text}
 
     async def run_jobs(self, tenant_id=None, queues=None):
         from app.jobs.queue import LostJobLease

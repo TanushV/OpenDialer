@@ -44,10 +44,13 @@ NOTE = "Windows native acceptance: preserve this human note across restart."
 
 
 def desktop_environment(source):
-    allowed = {"SystemRoot", "WINDIR", "TEMP", "TMP", "APPDATA", "LOCALAPPDATA", "USERPROFILE", "COMSPEC"}
+    # Windows reports environment keys upper-cased (SYSTEMROOT); match case-insensitively.
+    allowed = {"SYSTEMROOT", "WINDIR", "TEMP", "TMP", "APPDATA", "LOCALAPPDATA", "USERPROFILE", "COMSPEC"}
+    kept = {k: v for k, v in source.items() if k.upper() in allowed}
+    system_root = next(v for k, v in kept.items() if k.upper() == "SYSTEMROOT")
     return {
-        **{k: v for k, v in source.items() if k in allowed},
-        "PATH": ntpath.join(source["SystemRoot"], "System32"),
+        **kept,
+        "PATH": ntpath.join(system_root, "System32"),
         "PYTHONNOUSERSITE": "1",
         "OMP_NUM_THREADS": "1",
         "OPENBLAS_NUM_THREADS": "1",

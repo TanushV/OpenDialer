@@ -372,15 +372,18 @@ export function ReviewPage() {
                     throw new Error(
                       "Another human changed these notes. Your text is retained; review the saved version before replacing it.",
                     );
-                  const result = await api<{ notes_version: number }>(
-                    `/v1/calls/${analysis.call.id}/notes`,
-                    "PATCH",
-                    { expected_version: latest.notes_version, text: notes },
-                  );
+                  const result = await api<{
+                    notes_version: number;
+                    notes_edit_version: number;
+                  }>(`/v1/calls/${analysis.call.id}/notes`, "PATCH", {
+                    expected_edit_version: latest.notes_edit_version ?? 0,
+                    text: notes,
+                  });
                   savedNotes.current = notes;
                   setAnalysis({
                     ...latest,
                     notes_version: result.notes_version,
+                    notes_edit_version: result.notes_edit_version,
                     human_notes: notes,
                   });
                   notice("Notes saved");

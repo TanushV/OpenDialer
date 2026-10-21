@@ -50,9 +50,9 @@ def test_authority_sidecar_excludes_fitting_postgres_and_phone_tables_and_traine
         "phonenumbers.carrierdata",
         "phonenumbers.tzdata",
     } <= excluded
-    assert authority[-1].endswith("scripts/backend_entry.py")
+    assert Path(authority[-1]).as_posix().endswith("scripts/backend_entry.py")
     trainer = build.trainer_arguments()
-    assert trainer[-1].endswith("scripts/trainer_entry.py")
+    assert Path(trainer[-1]).as_posix().endswith("scripts/trainer_entry.py")
     assert not {"numpy", "scipy", "sklearn", "joblib"} & set(build.TRAINER_EXCLUDES)
     assert {"sklearn.ensemble", "sklearn.calibration", "app.ml.worker"} <= set(build.TRAINER_IMPORTS)
     hook = (ROOT / "scripts/pyinstaller_hooks/hook-phonenumbers.py").read_text()

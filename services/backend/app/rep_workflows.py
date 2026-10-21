@@ -1077,7 +1077,12 @@ class RepWorkflows:
                     text = (previous + "\n\nWrap-up: " if previous else "") + canonical["callback_note"]
                     if len(text) > 20000:
                         fail(422, "The human note is full; review it before adding another wrap-up note")
-                    values = {"human_text": text, "status": "human_confirmed", "editor_id": p["user_id"]}
+                    values = {
+                        "human_text": text,
+                        "status": "human_confirmed",
+                        "editor_id": p["user_id"],
+                        "human_edit_version": (note.data.get("human_edit_version", 0) if note else 0) + 1,
+                    }
                     if note:
                         update(note, **values)
                     else:
