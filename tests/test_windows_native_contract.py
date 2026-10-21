@@ -385,3 +385,5 @@ def test_native_preflight_readies_the_rep_first_as_a_person_would_after_restart(
     the journey goes ready before it expects the simulation checks to pass."""
     source = inspect.getsource(native().NativeUI.preflight)
     assert source.index('self.click("Go ready")') < source.index('self.click("Run preflight")')
+    # Pausing again goes through the Dialer; the journey's next step is a Settings tab.
+    assert source.rindex("self.pause()") < source.rindex('self.click("Settings")')
