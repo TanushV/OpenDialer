@@ -223,6 +223,18 @@ class NativeUI:
 
         self.wait(opened)
 
+    def sign_out(self):
+        """Sign out, failing with the reason when the app keeps the control disabled."""
+        selector = 'button[title="Sign out"]'
+        button = next(
+            (e for e in self.driver.find_elements(By.CSS_SELECTOR, selector) if e.is_displayed()), None
+        )
+        if button is not None and button.get_attribute("disabled") is not None:
+            raise RuntimeError(
+                "Sign out is disabled: the workspace reports an unresolved obligation (Settings shows the reason)"
+            )
+        self.press(selector)
+
     def press(self, selector):
         """Click a control by CSS selector as a person would: bring it into view, retry if covered."""
 
@@ -842,7 +854,7 @@ def main():
             )
             (output / "native-resources.json").write_text(json.dumps(resources, indent=2) + "\n")
             with connected_authority(application, version, output) as address:
-                ui.press('button[title="Sign out"]')
+                ui.sign_out()
                 ui.click("Connect to a server")
                 ui.fill(ui.field("Server URL"), address)
                 ui.fill(ui.field("Email"), "native@example.test")
@@ -850,7 +862,7 @@ def main():
                 ui.click("Sign in")
                 ui.visible("SIMULATION")
                 shared = check_journey_restart(ui, current_journey(ui, "connected"), "connected", version)
-                ui.press('button[title="Sign out"]')
+                ui.sign_out()
                 ui.click("Try a simulated workspace")
                 ui.visible("SIMULATION")
                 assert (

@@ -666,3 +666,34 @@ def test_pausing_presses_pause_again_when_0_2_1_drops_the_request(dropped):
     dialer = Dialer()
     dialer.pause()
     assert not dialer.ready
+
+
+def test_signing_out_fails_with_the_reason_when_the_app_keeps_the_button_disabled():
+    """Run 39677713214: an upgraded workspace kept Sign out disabled (an open obligation), and the
+    harness only timed out looking for the welcome screen."""
+
+    class Button:
+        def __init__(self, disabled):
+            self.disabled = disabled
+
+        def is_displayed(self):
+            return True
+
+        def get_attribute(self, name):
+            return "true" if name == "disabled" and self.disabled else None
+
+    class Page:
+        def __init__(self, disabled):
+            self.button = Button(disabled)
+            self.clicked = False
+
+        def find_elements(self, _by, selector):
+            assert selector == 'button[title="Sign out"]'
+            return [self.button]
+
+    ui = native().NativeUI(Path("app.exe"), Path("out"))
+    ui.driver = Page(disabled=True)
+    with pytest.raises(RuntimeError, match="Sign out is disabled"):
+        ui.sign_out()
+    source = inspect.getsource(native().main)
+    assert "ui.press('button[title=\"Sign out\"]')" not in source and source.count("ui.sign_out()") == 2
