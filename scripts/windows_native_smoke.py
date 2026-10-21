@@ -349,17 +349,19 @@ def legacy_baseline(ui):
     """Create the fixed 0.2.1 fixture using only that released UI."""
     ui.click("Try a simulated workspace")
     ui.visible("SIMULATION")
-    for attempt in range(2):
-        # 0.2.1 marks the rep ready asynchronously; one dropped session is retried, as a rep would.
-        if "Go ready" in ui.body():
-            ui.click("Go ready")
-        ui.visible("Pause dialing")
-        ui.click("Get next lead")
+    for attempt in range(3):
+        # 0.2.1 marks the rep ready asynchronously and can drop a ready or next-lead request;
+        # press it again, as a rep would.
         try:
+            if "Go ready" in ui.body():
+                ui.click("Go ready")
+            ui.wait(lambda: "Pause dialing" in ui.body(), timeout=30)
+            if "Start call" not in ui.body():
+                ui.click("Get next lead")
             ui.wait(lambda: "Start call" in ui.body(), timeout=30)
             break
         except TimeoutException:
-            if attempt:
+            if attempt == 2:
                 raise
     lead_name = ui.element('[data-testid="lead-name"]').text
     ui.click("Start call")

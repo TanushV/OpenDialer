@@ -474,8 +474,57 @@ def test_the_install_probe_waits_through_files_an_installer_has_briefly_removed(
     assert "try {$hash=(Get-FileHash" in probe
 
 
-def test_the_legacy_baseline_waits_for_ready_and_retries_a_dropped_session():
-    source = inspect.getsource(native().legacy_baseline)
-    assert 'ui.visible("Pause dialing")' in source
-    assert source.index('ui.visible("Pause dialing")') < source.index('ui.click("Get next lead")')
-    assert "for attempt in range(2)" in source
+class LegacyDialer:
+    """0.2.1's simulated dialer, which can drop a ready or next-lead request."""
+
+    class Reached(Exception):
+        pass
+
+    def __init__(self, dropped_ready=0, dropped_lead=0):
+        self.dropped = {"Go ready": dropped_ready, "Get next lead": dropped_lead}
+        self.ready = self.lead = False
+
+    def body(self):
+        if not self.ready:
+            return "SIMULATION Go ready"
+        return "SIMULATION Pause dialing " + ("Start call" if self.lead else "Get next lead")
+
+    def click(self, label):
+        if label == "Start call":
+            raise self.Reached
+        if self.dropped.get(label):
+            self.dropped[label] -= 1
+        elif label == "Go ready":
+            self.ready = True
+        elif label == "Get next lead":
+            self.lead = True
+
+    def wait(self, action, timeout=60):
+        from selenium.common.exceptions import TimeoutException
+
+        if not action():
+            raise TimeoutException("synthetic")
+        return True
+
+    def visible(self, text):
+        return self.wait(lambda: text in self.body())
+
+    def element(self, _selector):
+        return type("Lead", (), {"text": "Synthetic lead"})()
+
+
+@pytest.mark.parametrize(("dropped_ready", "dropped_lead"), [(0, 0), (1, 0), (0, 1), (2, 0), (1, 1)])
+def test_the_legacy_baseline_retries_a_dropped_ready_or_lead_request(dropped_ready, dropped_lead):
+    """Run 39666476735: the MSI runner's 0.2.1 app ignored the first Go ready, and the baseline
+    gave up waiting for Pause dialing instead of pressing it again as a rep would."""
+    dialer = LegacyDialer(dropped_ready, dropped_lead)
+    with pytest.raises(LegacyDialer.Reached):
+        native().legacy_baseline(dialer)
+    assert dialer.ready and dialer.lead
+
+
+def test_the_legacy_baseline_still_fails_when_the_dialer_never_becomes_ready():
+    from selenium.common.exceptions import TimeoutException
+
+    with pytest.raises(TimeoutException):
+        native().legacy_baseline(LegacyDialer(dropped_ready=5))
