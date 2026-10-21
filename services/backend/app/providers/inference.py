@@ -17,10 +17,10 @@ class InferenceResult:
 
 class InferenceClient:
     def __init__(self, mode, api_key, model, *, base_url=None, http=None, timeout=30, search_enabled=False):
-        if mode not in {"api", "litellm"}:
-            raise ValueError("Unsupported inference route")
         self.mode, self.api_key, self.model = mode, api_key, model
         self.base_url = (base_url or "https://api.openai.com/v1").rstrip("/")
+        if mode == "chatgpt_plan" and self.base_url != "https://api.openai.com/v1":
+            raise ValueError("ChatGPT plan inference requires the official public Responses endpoint")
         self.http, self.timeout = http, timeout
         self.search_enabled = bool(
             search_enabled and mode == "api" and self.base_url == "https://api.openai.com/v1"
@@ -116,9 +116,14 @@ class InferenceClient:
             body.update(
                 input=[{"role": "system", "content": instructions}, {"role": "user", "content": untrusted}],
                 store=False,
-                max_output_tokens=2000,
-                text={"format": {"type": "json_schema", "name": "result", "strict": True, "schema": schema}},
             )
+            if self.mode == "chatgpt_plan":
+                body["stream"] = True
+            else:
+                body["max_output_tokens"] = 2000
+                body["text"] = {
+                    "format": {"type": "json_schema", "name": "result", "strict": True, "schema": schema}
+                }
 
         async def send(http):
             try:
@@ -132,6 +137,24 @@ class InferenceClient:
                     if r.status_code != 200:
                         await r.aread()
                         raise InferenceError(f"Inference HTTP {r.status_code}")
+                    if self.mode == "chatgpt_plan":
+                        output, completed, usage, request_id = "", False, {}, None
+                        async for line in r.aiter_lines():
+                            if not line.startswith("data:") or line[5:].strip() == "[DONE]":
+                                continue
+                            event = json.loads(line[5:])
+                            event_type = event.get("type")
+                            if event_type == "response.output_text.delta":
+                                output += event.get("delta", "")
+                            if event_type in {"response.failed", "response.incomplete", "error"}:
+                                raise InferenceError(f"Plan inference terminated: {event_type}")
+                            if event_type == "response.completed":
+                                completed = True
+                                usage = event.get("response", {}).get("usage", {})
+                                request_id = event.get("response", {}).get("id")
+                        if not completed:
+                            raise InferenceError("Stream interrupted before response.completed")
+                        return InferenceResult(json.loads(output), usage, request_id)
                     payload = json.loads(await r.aread())
                     if self.mode == "litellm":
                         message = payload["choices"][0]["message"]

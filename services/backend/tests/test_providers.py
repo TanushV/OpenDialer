@@ -100,6 +100,34 @@ async def test_litellm_explicit_openai_compatible_route():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "terminal,success",
+    [("response.completed", True), ("response.failed", False), ("response.incomplete", False), (None, False)],
+)
+async def test_official_chatgpt_plan_stream_requires_completed_terminal_event(terminal, success):
+    captured = []
+    events = ["data: " + json.dumps({"type": "response.output_text.delta", "delta": '{"ok":true}'}) + "\n\n"]
+    if terminal:
+        events.append("data: " + json.dumps({"type": terminal, "response": {"usage": {}}}) + "\n\n")
+
+    def handler(request):
+        captured.append(request)
+        return httpx.Response(200, text="".join(events), headers={"content-type": "text/event-stream"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        adapter = InferenceClient("chatgpt_plan", "oauth-access-token", "account-model", http=http)
+        if success:
+            assert (await adapter.complete("Return JSON", {}, {"type": "object"})).data["ok"]
+        else:
+            with pytest.raises(InferenceError):
+                await adapter.complete("Return JSON", {}, {"type": "object"})
+    body = json.loads(captured[0].content)
+    assert body["stream"] is True and body["store"] is False
+    assert str(captured[0].url) == "https://api.openai.com/v1/responses"
+    assert "max_output_tokens" not in body
+
+
+@pytest.mark.asyncio
 async def test_provider_refusal_does_not_become_empty_success():
     def handler(request):
         return httpx.Response(
@@ -154,6 +182,7 @@ async def test_research_search_is_explicit_official_bounded_and_identity_filtere
         for mode, enabled, base in [
             ("api", False, None),
             ("litellm", True, "https://proxy.example/v1"),
+            ("chatgpt_plan", True, None),
         ]:
             other = InferenceClient(
                 mode, "fixture", "configured-model", http=http, base_url=base, search_enabled=enabled

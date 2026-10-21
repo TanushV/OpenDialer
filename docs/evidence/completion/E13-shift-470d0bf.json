@@ -1,0 +1,261 @@
+{
+ "step_id": "E13",
+ "profile": "shift",
+ "source_commit": "470d0bfa0a0a7369bbc7d20178dfce159ad1d4ae",
+ "production_tree_digest": "c4f2a7d0985e9ada31a4630b53e188cec8d9d1b6ac3ae05e3d6d12a4cec2c19a",
+ "test_tree_digest": "b07702c81f14623881064af4f7ea858950cfc231cdb87f6487f77d111e729270",
+ "harness_sha256": "a6fdba3e55984fb42df9be857afe53488c8cd719c4a1897024d0ad316d3d101d",
+ "case_ids": [
+  "A25",
+  "A50",
+  "A51"
+ ],
+ "mode": "SQLite on macOS ARM64",
+ "fixture_seed": 20261018,
+ "commands": [
+  "uv run python scripts/measure_completion.py --profile shift --seed 20261018 --output-dir work/remediation/completion/performance-c5edc44-shift"
+ ],
+ "environment": {
+  "platform": "macOS-26.5.1-arm64-arm-64bit",
+  "python": "3.12.13",
+  "logical_cpus": 10,
+  "locks": {
+   "pyproject.toml": "2a9bad818fd3de5d3c81d38065ed0f7d5c34029169dcbd39dc4078b868976447",
+   "uv.lock": "51f39f3e13bd2e25833ef3d0fb99ec9794f32224c596b06ef97b95eb7c619342",
+   "apps/desktop/package.json": "3a7ac17f0fdc84067e112781bad974623c33c2484c2bac2b58a84f1f05632959",
+   "apps/desktop/package-lock.json": "fa38442672fb0585458bb3e364e6ef92bfca4ee9b2f1ba8328b92433cdcb2211",
+   "apps/desktop/src-tauri/Cargo.toml": "42a8b884583ff283e0611b244e31754f4dde0edd9c4fba3792e6cb52a7fd2ea5",
+   "apps/desktop/src-tauri/Cargo.lock": "7caa52d5c71486783bcf42f7d5d9a398e6137b1b928aed0312e0c26a2aa7a567"
+  }
+ },
+ "dirty_files": [],
+ "profile_status": "passed",
+ "failed_gates": [],
+ "authority_startup_ms": 1168.1999580468982,
+ "selection": {
+  "cold": {
+   "samples": 1,
+   "failures": 0,
+   "p50_ms": 25.97645891364664,
+   "p95_ms": 25.97645891364664,
+   "p99_ms": 25.97645891364664,
+   "max_ms": 25.97645891364664,
+   "sql_max": 27,
+   "decrypted_max": 86,
+   "target_ms": 1000,
+   "status": "passed"
+  },
+  "warm": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 19.30187502875924,
+   "p95_ms": 37.03149990178645,
+   "p99_ms": 43.606832972727716,
+   "max_ms": 46.910917037166655,
+   "sql_max": 27,
+   "decrypted_max": 90,
+   "target_ms": 250,
+   "status": "passed"
+  }
+ },
+ "cached_workspace": {
+  "samples": 200,
+  "failures": 0,
+  "p50_ms": 8.422084036283195,
+  "p95_ms": 12.049709097482264,
+  "p99_ms": 15.460208989679813,
+  "max_ms": 25.19466693047434,
+  "sql_max": 44,
+  "decrypted_max": 70,
+  "target_ms": 250,
+  "status": "passed"
+ },
+ "six_coach": {
+  "samples": 30,
+  "failures": 0,
+  "p50_ms": 716.85345901642,
+  "p95_ms": 754.7345829661936,
+  "p99_ms": 758.7695419788361,
+  "max_ms": 758.7695419788361,
+  "sql_max": 0,
+  "decrypted_max": 0,
+  "target_ms": 1500,
+  "status": "passed"
+ },
+ "rebuild": {
+  "seconds": 0.6420944170095026,
+  "pages": 9,
+  "published": true,
+  "status": "passed"
+ },
+ "writer_transactions": {
+  "samples": 4355,
+  "failures": 0,
+  "p50_ms": 5.56575006339699,
+  "p95_ms": 14.416583115234971,
+  "p99_ms": 23.811165941879153,
+  "max_ms": 182.67091596499085,
+  "sql_max": 0,
+  "decrypted_max": 0,
+  "target_ms": 25,
+  "status": "passed",
+  "phases": {
+   "control_paths": {
+    "samples": 3300,
+    "failures": 0,
+    "p50_ms": 6.053499993868172,
+    "p95_ms": 14.93433304131031,
+    "p99_ms": 25.525374920107424,
+    "max_ms": 182.67091596499085,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "passed"
+   },
+   "selection": {
+    "samples": 664,
+    "failures": 0,
+    "p50_ms": 3.0190000543370843,
+    "p95_ms": 11.547416914254427,
+    "p99_ms": 18.23616703040898,
+    "max_ms": 54.300458054058254,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "passed"
+   },
+   "six_coach": {
+    "samples": 390,
+    "failures": 0,
+    "p50_ms": 2.2388750221580267,
+    "p95_ms": 12.08104204852134,
+    "p99_ms": 23.96683394908905,
+    "max_ms": 44.89691695198417,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "passed"
+   },
+   "workload_capacity": {
+    "samples": 1,
+    "failures": 0,
+    "p50_ms": 2.024292014539242,
+    "p95_ms": 2.024292014539242,
+    "p99_ms": 2.024292014539242,
+    "max_ms": 2.024292014539242,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "passed"
+   }
+  },
+  "longest_holds": [
+   {
+    "caller": "app.scheduling.queue:ReservationPlanner._claim_selection < app.scheduling.queue:ReservationPlanner.reserve < app.main:create_app.<locals>.next_lead",
+    "phase": "control_paths",
+    "held_ms": 182.32733302284032,
+    "at_s": 83.27
+   },
+   {
+    "caller": "app.telephony.ingress:WebhookIngress._process_webhook < __main__:call_cycle.<locals>.settle < __main__:call_cycle.<locals>.<lambda>",
+    "phase": "control_paths",
+    "held_ms": 102.14545798953623,
+    "at_s": 83.943
+   },
+   {
+    "caller": "app.service:Service._hangup_completed",
+    "phase": "control_paths",
+    "held_ms": 80.66199999302626,
+    "at_s": 82.696
+   },
+   {
+    "caller": "app.rep_workflows:RepWorkflows.save_disposition < app.main:create_app.<locals>.disposition < fastapi.telemetry._api:_run_sync_endpoint",
+    "phase": "control_paths",
+    "held_ms": 67.2211250057444,
+    "at_s": 82.806
+   },
+   {
+    "caller": "app.service:Service.presence < app.main:create_app.<locals>.presence < fastapi.telemetry._api:_run_sync_endpoint",
+    "phase": "control_paths",
+    "held_ms": 60.170667013153434,
+    "at_s": 82.195
+   }
+  ]
+ },
+ "control_paths": {
+  "event_ack": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 1.929249963723123,
+   "p95_ms": 3.683833056129515,
+   "p99_ms": 6.1007499461993575,
+   "max_ms": 8.394457981921732,
+   "sql_max": 5,
+   "decrypted_max": 0,
+   "target_ms": 100,
+   "status": "passed"
+  },
+  "event_state": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 11.365832993760705,
+   "p95_ms": 20.167083013802767,
+   "p99_ms": 35.81224998924881,
+   "max_ms": 103.3847089856863,
+   "sql_max": 46,
+   "decrypted_max": 23,
+   "target_ms": 250,
+   "status": "passed"
+  },
+  "live_context": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 5.805167020298541,
+   "p95_ms": 11.23204198665917,
+   "p99_ms": 21.439458010718226,
+   "max_ms": 39.307500002905726,
+   "sql_max": 19,
+   "decrypted_max": 9,
+   "target_ms": 100,
+   "status": "passed"
+  },
+  "wrapup": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 11.130541912280023,
+   "p95_ms": 20.6828749505803,
+   "p99_ms": 55.12904201168567,
+   "max_ms": 81.99687500018626,
+   "sql_max": 38,
+   "decrypted_max": 16,
+   "target_ms": 250,
+   "status": "passed"
+  },
+  "hangup": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 18.277249997481704,
+   "p95_ms": 33.92979199998081,
+   "p99_ms": 79.62795800995082,
+   "max_ms": 119.03891596011817,
+   "sql_max": 47,
+   "decrypted_max": 27,
+   "target_ms": 250,
+   "status": "passed"
+  }
+ },
+ "load": {
+  "status": null,
+  "gate_failures": null,
+  "cycles": 0,
+  "background_errors": [],
+  "queue_recovery": null,
+  "paths": {}
+ },
+ "shared_reference": {},
+ "raw_result_sha256": "e5ffc3cd7ed57af798e0804983635d2799358bbc7958b4e3900ca9c2919db29f",
+ "known_limitations": [
+  "Simulated clock, carrier and provider failures; real authority restarts and persistence. Ran while the four-rep capacity run populated the reference containers."
+ ],
+ "external_calls": false
+}

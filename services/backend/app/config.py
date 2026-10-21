@@ -7,8 +7,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class ProviderDefaults(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-    inference_mode: Literal["api", "litellm"] = "api"
+    inference_mode: Literal["api", "litellm", "chatgpt_plan"] = "api"
     model: str = "gpt-6-luna"
+    plan_model: str = "gpt-6.1-sol"
     coach_provider: Literal["openrouter", "static"] = "openrouter"
     coach_model: str = "openai/gpt-oss-120b"
     research_search: Literal["disabled", "openai_web_search"] = "disabled"
@@ -19,14 +20,13 @@ class ProviderDefaults(BaseModel):
 PROVIDER_DEFAULTS = ProviderDefaults()
 
 
-def inference_mode(config):
-    """The configured route, or None for a retired value such as the removed ChatGPT-plan mode."""
-    mode = config.get("inference_mode", PROVIDER_DEFAULTS.inference_mode)
-    return mode if mode in {"api", "litellm"} else None
-
-
 def inference_model(config, role=None):
-    return config.get(f"{role}_model") or config.get("model") or PROVIDER_DEFAULTS.model
+    default = (
+        PROVIDER_DEFAULTS.plan_model
+        if config.get("inference_mode") == "chatgpt_plan"
+        else PROVIDER_DEFAULTS.model
+    )
+    return config.get(f"{role}_model") or config.get("model") or default
 
 
 class RuntimeLimits(BaseModel):

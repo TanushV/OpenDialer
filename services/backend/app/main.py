@@ -150,6 +150,13 @@ class Transcript(Strict):
     system_audio: bool = False
 
 
+HOSTED_PLAN_REDIRECT = "http://127.0.0.1:1455/auth/callback"
+
+
+class PlanCompletion(Strict):
+    redirect_url: str = Field(min_length=1, max_length=4096)
+
+
 class NoteEdit(Strict):
     # Current clients send the human edit version; finalization bookkeeping never moves it.
     expected_edit_version: int | None = Field(default=None, ge=0, strict=True)
@@ -240,7 +247,7 @@ class ProviderSettings(Strict):
     webhook_url: str | None = None
     traffic_approval_reference: str | None = None
     openai_api_key: str | None = None
-    inference_mode: Literal["api", "litellm"] | None = None
+    inference_mode: Literal["api", "litellm", "chatgpt_plan"] | None = None
     inference_base_url: str | None = None
     model: str | None = None
     research_extract_model: str | None = None
@@ -248,6 +255,7 @@ class ProviderSettings(Strict):
     script_write_model: str | None = None
     postcall_extract_model: str | None = None
     scorecard_review_model: str | None = None
+    chatgpt_access_token: str | None = None
     coach_provider: Literal["openrouter", "static"] | None = None
     openrouter_api_key: str | None = None
     coach_model: str | None = Field(default=None, min_length=3, max_length=200)
@@ -258,6 +266,7 @@ SECRET_FIELDS = {
     "telnyx_api_key",
     "openai_api_key",
     "openrouter_api_key",
+    "chatgpt_access_token",
 }
 # Retired non-ZDR coaching settings stored by older releases: never echoed or reported.
 RETIRED_FIELDS = {"groq_api_key", "groq_model"}
@@ -868,17 +877,15 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.get("/v1/admin/settings")
     def read_settings(p=Depends(administrator)):
         from app.compliance.operating import OperatingPolicy
-        from app.config import PROVIDER_DEFAULTS, inference_mode, inference_model
+        from app.config import PROVIDER_DEFAULTS, inference_model
         from app.optimization.api import HealthPolicy
         from app.optimization.workflows import DEFAULTS as OPTIMIZATION_DEFAULTS
         from app.preparation.templates import PreparationPolicy
         from app.scheduling.models import EstimatePolicy
 
         config = service.vault.read(p["tenant_id"])
-        # A route retired by this release (the ChatGPT-plan adapter) is reported, never
-        # offered as the current choice: saving the form cannot resubmit an invalid value.
-        mode = inference_mode(config)
-        retired = {} if mode else {"inference_mode": config.pop("inference_mode")}
+        own_profile = service.vault.read("plan-" + p["user_id"])
+        config["chatgpt_access_token"] = own_profile.get("access_token", "")
         with db.transaction(False) as s:
             budget = service.scoped(s, "budgets", p)[0]
             budget_values = Budget.model_validate(
@@ -896,13 +903,11 @@ def create_app(settings=None, *, clock=None, carrier=None):
             "version": config.get("version", 0),
             "budget": budget_values,
             "optimization": optimization,
-            **({"retired": retired} if retired else {}),
             "effective": {
                 **{
                     key: config.get(key, getattr(PROVIDER_DEFAULTS, key))
-                    for key in ("coach_provider", "coach_model", "research_search")
+                    for key in ("inference_mode", "coach_provider", "coach_model", "research_search")
                 },
-                "inference_mode": mode,
                 "model": inference_model(config),
                 **{
                     role + "_model": inference_model(config, role)
@@ -930,6 +935,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
         expected_version = values.pop("expected_version", None)
         if (request_id is None) != (expected_version is None):
             fail(422, "Provider edits require request_id and expected_version together")
+        if request_id and "chatgpt_access_token" in values:
+            fail(422, "Use the per-user plan authorization flow for this credential")
         if values.get("dnc_seller_authorization"):
             values["dnc_seller_authorization"]["seller_id"] = p["seller_id"]
         from urllib.parse import urlsplit
@@ -953,6 +960,10 @@ def create_app(settings=None, *, clock=None, carrier=None):
         with db.transaction() as s:
             db.authorize_stream(s, p)
             service._restore_operator(s, p)
+            if "chatgpt_access_token" in values:
+                service.vault.write(
+                    "plan-" + p["user_id"], {"access_token": values.pop("chatgpt_access_token")}
+                )
             service.vault.write(
                 p["tenant_id"],
                 values,
@@ -1616,6 +1627,134 @@ def create_app(settings=None, *, clock=None, carrier=None):
             if data["result"] in {"yes", "no_data"}:
                 update(endpoint, reassignment_review_required=True)
             return doc(result)
+
+    @app.post("/v1/inference/chatgpt/start")
+    def chatgpt_start(request: Request, p=Depends(principal)):
+        from app.providers.oauth import PlanOAuth
+
+        # A local authority receives the browser's loopback redirect itself. A hosted one
+        # cannot; the user pastes the loopback address shown after signing in instead.
+        local = settings.mode == "local"
+        redirect = str(request.base_url).rstrip("/") + "/auth/callback" if local else HOSTED_PLAN_REDIRECT
+        profile_key = "plan-" + p["user_id"]
+        profile = service.vault.read(profile_key)
+        pending = PlanOAuth(service.host_id(), clock).begin(redirect, profile)
+        service.vault.write(profile_key, {"pending": pending})
+        return {
+            "authorization_url": pending["authorization_url"],
+            "expires_in": 600,
+            "completion": "loopback" if local else "paste",
+        }
+
+    @app.post("/v1/inference/chatgpt/complete")
+    async def chatgpt_complete(data: PlanCompletion, p=Depends(principal)):
+        """Hosted sign-in: the code arrives in a pasted address and is exchanged with the server's
+        own verifier. It is single-use and bound to this user's pending flow; no token is returned."""
+        from urllib.parse import parse_qs, urlsplit
+
+        from app.providers.oauth import OAuthError, PlanOAuth
+
+        address = urlsplit(data.redirect_url.strip())
+        if (address.scheme, address.hostname, address.path) != ("http", "127.0.0.1", "/auth/callback"):
+            fail(422, "Paste the full 127.0.0.1/auth/callback address your browser shows after signing in")
+        query = {name: values[0] for name, values in parse_qs(address.query).items()}
+        key = "plan-" + p["user_id"]
+        pending = service.vault.read(key).get("pending") or {}
+        if pending.get("used") or not secrets.compare_digest(
+            query.get("state", ""), pending.get("state", "")
+        ):
+            fail(400, "This sign-in address does not match your pending ChatGPT authorization")
+        service.vault.write(key, {"pending": {**pending, "used": True}})
+        try:
+            result = await PlanOAuth(service.host_id(), clock).finish(
+                pending,
+                state=query.get("state"),
+                code=query.get("code"),
+                client_id=query.get("client_id"),
+                error=query.get("error"),
+                http=service.background_http,
+            )
+        except (OAuthError, Exception) as exc:
+            fail(400, "Authorization was not completed: " + type(exc).__name__)
+        service.vault.write(key, {**result, "pending": {}})  # The vault skips None values.
+        return {"connected": True}
+
+    @app.get("/auth/callback")
+    async def chatgpt_callback(
+        state: str, code: str | None = None, client_id: str | None = None, error: str | None = None
+    ):
+        from fastapi.responses import HTMLResponse
+
+        from app.providers.oauth import OAuthError, PlanOAuth
+
+        if settings.mode != "local":
+            fail(403, "Loopback authorization is local only")
+        with db.transaction(False) as session:
+            users = rows(session, "users")
+        matched = next(
+            (u for u in users if service.vault.read("plan-" + u.id).get("pending", {}).get("state") == state),
+            None,
+        )
+        if not matched:
+            fail(400, "OAuth state does not match a pending local authorization")
+        key = "plan-" + matched.id
+        pending = service.vault.read(key)["pending"]
+        service.vault.write(key, {"pending": {**pending, "used": True}})
+        try:
+            result = await PlanOAuth(service.host_id(), clock).finish(
+                pending,
+                state=state,
+                code=code,
+                client_id=client_id,
+                error=error,
+                http=service.background_http,
+            )
+        except (OAuthError, Exception) as exc:
+            fail(400, "Authorization was not completed: " + type(exc).__name__)
+        service.vault.write(key, {**result, "pending": {}})  # The vault skips None values.
+        service.vault.write(matched.tenant_id, {"inference_mode": "chatgpt_plan"})
+        return HTMLResponse(
+            "<!doctype html><title>OpenDialer authorization</title><h1>ChatGPT is connected to your OpenDialer user.</h1><p>You may return to the desktop application.</p>"
+        )
+
+    @app.post("/v1/inference/chatgpt/import")
+    async def import_chatgpt_profile(data: dict, p=Depends(principal)):
+        from app.providers.oauth import PlanOAuth
+
+        if (
+            data.get("client_id") == "dynamic_agent_client"
+            or not data.get("access_token")
+            or not data.get("id_token")
+        ):
+            fail(422, "A complete protected official registration is required")
+        identity = await PlanOAuth(service.host_id(), clock).identity(
+            data["id_token"], data["client_id"], service.background_http
+        )
+        if identity["sub"] != data.get("subject") or "chatgpt.tokens.use.direct" not in data.get(
+            "scopes", []
+        ):
+            fail(403, "Identity or plan permission mismatch")
+        service.vault.write("plan-" + p["user_id"], {**data, "ext_agent_host_id": service.host_id()})
+        return {"imported": True, "client_id": data["client_id"], "personal_user_id": p["user_id"]}
+
+    @app.get("/v1/inference/chatgpt/models")
+    async def chatgpt_models(p=Depends(principal)):
+        profile = service.vault.read("plan-" + p["user_id"])
+        if not profile.get("access_token"):
+            fail(409, "Sign in with your own eligible ChatGPT account first")
+        response = await service.background_http.get(
+            "https://api.openai.com/v1/models",
+            headers={"Authorization": "Bearer " + profile["access_token"]},
+            timeout=10,
+        )
+        response.raise_for_status()
+        return {
+            "models": [
+                {"slug": m["slug"], "display_name": m["display_name"]}
+                for m in response.json().get("models", [])
+                if m.get("visibility") == "list"
+            ]
+        }
 
     @app.post("/v1/admin/restore/reconcile")
     async def reconcile_restore(data: dict, p=Depends(administrator)):

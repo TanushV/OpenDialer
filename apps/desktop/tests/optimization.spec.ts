@@ -207,43 +207,6 @@ test("optimization goals, forecast, learning state and provider settings persist
   await expect(page.getByLabel("OpenRouter API key")).toBeVisible();
 });
 
-test("ChatGPT plan route is gone and a legacy choice asks for a supported route", async ({
-  page,
-}) => {
-  await simulation(page);
-  // A store saved by an earlier release reports its retired route instead of offering it.
-  await page.route("**/v1/admin/settings", async (route) => {
-    if (route.request().method() !== "GET") return route.fallback();
-    const response = await route.fetch();
-    const body = await response.json();
-    delete body.inference_mode;
-    body.effective = { ...body.effective, inference_mode: null };
-    body.retired = { inference_mode: "chatgpt_plan" };
-    await route.fulfill({ response, json: body });
-  });
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByText("Advanced", { exact: true }).click();
-  const routes = page.getByLabel("Preparation and analysis route");
-  await expect(routes.locator("option")).toHaveText([
-    "Choose a route",
-    "OpenAI Responses API",
-    "Explicit OpenAI-compatible LiteLLM endpoint",
-  ]);
-  await expect(page.getByText(/ChatGPT plan usage was removed/)).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Continue with ChatGPT" }),
-  ).toHaveCount(0);
-  await page.unroute("**/v1/admin/settings");
-  await page.reload();
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByText("Advanced", { exact: true }).click();
-  await expect(routes.locator("option")).toHaveText([
-    "OpenAI Responses API",
-    "Explicit OpenAI-compatible LiteLLM endpoint",
-  ]);
-  await expect(page.getByText(/ChatGPT plan usage was removed/)).toHaveCount(0);
-});
-
 test("live events deliver cached guidance and conversion recording without call polling", async ({
   page,
 }) => {

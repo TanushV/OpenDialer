@@ -127,7 +127,9 @@ def test_configured_vs_verified_capabilities(workspace, app, carrier, monkeypatc
     assert not carrier.dials and not carrier.actions and not carrier.purchases
 
 
-@pytest.mark.parametrize("mode,model", [("api", "gpt-6-luna"), ("litellm", "gpt-6-luna")])
+@pytest.mark.parametrize(
+    "mode,model", [("api", "gpt-6-luna"), ("litellm", "gpt-6-luna"), ("chatgpt_plan", "gpt-6.1-sol")]
+)
 def test_settings_expose_effective_provider_defaults_used_by_runtime(workspace, mode, model):
     c, h = workspace["client"], workspace["headers"]
     response = c.put("/v1/admin/settings", headers=h, json={"inference_mode": mode})
