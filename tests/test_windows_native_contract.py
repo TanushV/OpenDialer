@@ -4,6 +4,7 @@ import html
 import importlib
 import inspect
 import sqlite3
+import sys
 from pathlib import Path
 
 import pytest
@@ -424,3 +425,15 @@ def test_reading_the_page_while_the_document_is_replaced_is_retried():
     ui.driver = Closed()
     with pytest.raises(WebDriverException):
         ui.body()
+
+
+def test_the_connected_journey_serves_from_the_server_runtime_not_the_desktop_sidecar():
+    """The slim desktop sidecar has no PostgreSQL driver and refuses connected mode; the
+    native check is the installed desktop connecting to a server, so the harness runs the
+    server from the checkout as the server image does."""
+    m = native()
+    command = m.connected_server_command(4321, "C:/temp/authority")
+    assert command[:4] == [sys.executable, "-m", "app.cli", "serve"]
+    assert "opendialer-backend" not in " ".join(command)
+    assert command[command.index("--mode") + 1] == "connected"
+    assert command[command.index("--port") + 1] == "4321"
