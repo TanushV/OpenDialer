@@ -2,6 +2,7 @@ import asyncio
 import functools
 import hashlib
 import json
+import logging
 import re
 import secrets
 import time
@@ -282,6 +283,20 @@ _BOUND_KEYS = {
 }
 
 
+CONFLICTS = logging.getLogger("app.conflicts")
+
+
+def write_conflict(error):
+    """The conflicting table and constraint, never row values (PostgreSQL detail text carries them)."""
+    diag = getattr(getattr(error, "orig", None), "diag", None)
+    table, constraint = getattr(diag, "table_name", None), getattr(diag, "constraint_name", None)
+    if table is None:
+        # StaleDataError names its table; SQLite names table.column only.
+        found = re.search(r"table '(\w+)'|constraint failed: (\w+)\.", str(getattr(error, "orig", error)))
+        table = found and (found.group(1) or found.group(2))
+    return {"type": type(error).__name__, "table": table, "constraint": constraint}
+
+
 def _bound(schema):
     out = {}
     for option in schema.get("anyOf", [schema]):
@@ -427,6 +442,10 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.exception_handler(StaleDataError)
     @app.exception_handler(IntegrityError)
     async def constraint_error(request, error):
+        conflict = write_conflict(error)
+        CONFLICTS.warning(
+            "Write conflict: %s on %s", conflict["type"], conflict["table"], extra={"conflict": conflict}
+        )
         return JSONResponse(
             {"detail": "Concurrent operation conflicts with an existing reservation or identity"},
             status_code=409,

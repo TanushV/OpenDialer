@@ -964,3 +964,22 @@ def test_a_failed_request_sample_records_its_status_and_product_code():
     assert row["ok"] is False and row["status_code"] == 409 and row["code"] == "QUEUE_CHANGED"
     row, _ = measured.sample(plain)
     assert row["code"] == "Concurrent operation conflicts"
+
+
+def test_load_receipt_counts_write_conflicts_by_table_without_values():
+    import logging
+
+    module = measurement()
+    logger = logging.getLogger("app.conflicts")
+    with module.counted_conflicts() as counted:
+        for table in ("jobs", "jobs", "campaigns"):
+            logger.warning(
+                "Write conflict",
+                extra={"conflict": {"type": "IntegrityError", "table": table, "constraint": None}},
+            )
+        logger.warning("Unrelated warning")
+    assert counted() == [
+        {"type": "IntegrityError", "table": "jobs", "constraint": None, "count": 2},
+        {"type": "IntegrityError", "table": "campaigns", "constraint": None, "count": 1},
+    ]
+    assert not any(isinstance(h, module.ConflictCounter) for h in logger.handlers)
