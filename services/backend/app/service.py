@@ -876,7 +876,8 @@ class Service(ReservationPlanner):
     def _claim_dial(self, p, call_id, owner):
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
-            call = self.required(s, "call_attempts", call_id, p)
+            # Lock call, then lead, as other call writers do: the dial claim updates both.
+            call = self.required(s, "call_attempts", call_id, p, lock=True)
             model = MODELS["command_outbox"]
             command = s.scalar(
                 select(model).where(
@@ -890,7 +891,7 @@ class Service(ReservationPlanner):
                 fail(409, "Original dial intent is missing; review this call before retrying")
             if command.data["status"] != "pending":
                 return
-            lead = self.required(s, "leads", call.data["lead_id"], p)
+            lead = self.required(s, "leads", call.data["lead_id"], p, lock=True)
             number = self.required(s, "number_inventory", call.data["number_id"], p)
             decision = authorize(self.context(s, p, lead, number))
             submission_decision = self.record_decision(s, p, lead, decision)
@@ -1172,9 +1173,8 @@ class Service(ReservationPlanner):
                 else:
                     update(current, status="completed", lease_owner=None, lease_until=None)
                     if self.settings.simulation:
-                        self.finish_call(
-                            s, p, self.required(s, "call_attempts", call_id, p), "simulated_hangup_receipt"
-                        )
+                        call = self.required(s, "call_attempts", call_id, p, lock=True)
+                        self.finish_call(s, p, call, "simulated_hangup_receipt")
                 self.journal_effect_in(
                     s, p, "hangup", current.external_key, "receipt", [current], emergency=True
                 )
