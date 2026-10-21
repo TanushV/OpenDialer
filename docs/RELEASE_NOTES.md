@@ -1,10 +1,27 @@
-OpenDialer 0.3.0 candidate — acceptance in progress; not yet an accepted installed update.
+OpenDialer 0.3.0 — developer preview; installed-update validation in progress.
 
-This candidate adds proactive contextual Cerebras guidance above the prepared script; one compact conversation state for live help, post-call rundown and the next call; local callback/task and rep-reported meeting workflows; advance template filling with gatekeeper/iPhone sections; sparse statistical estimates; one inventory/staffing/list capacity calculation; observed number health; and incremental reports. Existing numbers come first. New subscriptions/rentals, recording and CRM/calendar sync are disabled. Raw speech/private quote-bearing content expires within five minutes.
+0.3.0 is the lean completion of the calling workflow:
+- A proactive Cerebras helper (through OpenRouter, zero data retention) sits above the prepared script.
+- One conversation state feeds live help, the post-call rundown and the next call.
+- Local callbacks and tasks, plus rep-reported meetings.
+- Preparation runs in advance, with gatekeeper and iPhone screening sections.
+- Sparse statistical estimates, one capacity view from your existing numbers, and observed number health.
+- National and internal do-not-call screening before every US submission.
+- Final-attempt-only voicemail.
 
-The calling workflow preserves independent hangup/opt-out/recovery controls, current source/authority checks, original action identities and uncertain costs. The shared conversation and preparation writers now preserve each other's changes; normal superseded preparation requeues without hiding real failures.
+New subscriptions or number rentals, call recording and CRM/calendar sync stay disabled. Raw speech and quote-bearing helper content expire within five minutes. Research and script writing can optionally use your own ChatGPT plan; the live helper never does.
 
-Mac ARM64 and Windows x64 0.3.0 packages, signed in-place update and native acceptance are still pending E13–E15. Existing users must update through Settings → App updates, never uninstall/reset. No real carrier/media/funded inference/quality or publisher-trust acceptance is claimed. These notes will record exact artifacts only after their gates pass.
+The authority is smaller and faster:
+- An idle authority makes no database writes.
+- Calling work runs ahead of background work.
+- Next-lead selection, the workspace view and reports stay bounded as history grows. At 100,000 leads and 1,000,000 attempts a warm next-lead decision takes about 21 ms.
+- Training runs in a separate bundled trainer, and models are served from JSON.
+
+Concurrency, storage and privacy defects found by whole-system load, scaling and native runs are fixed. The validation record lists them with their tests.
+
+Existing users must update in place through Settings → App updates; never uninstall or reset. The app identity and workspace data are preserved. Mac ARM64 (macOS 14+) and Windows x64 packages include their backend and trainer, and simulation works without provider keys.
+
+This release is published so the existing 0.2.1 updaters can be exercised. It becomes an accepted update only after the Mac and Windows in-place updates pass; the validation record will say so. Live carrier calls, funded Cerebras quality and latency, DNC vendor access, provider retention terms, hardware audio and measured campaign lift remain separate gates. Packages carry pinned-key updater signatures; trusted Apple/Windows publisher signing and notarization are not configured. Connected (server) latency is not yet certified on the 2-vCPU reference.
 
 ---
 

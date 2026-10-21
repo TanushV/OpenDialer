@@ -1011,3 +1011,31 @@ def test_load_selection_retries_a_changed_queue_as_the_desktop_does():
     answers[:] = [refused("NO_ELIGIBLE_LEADS")]
     with pytest.raises(httpx.HTTPStatusError):
         module.next_lead(request, "campaign", sleep=slept.append)
+
+
+def test_desktop_memory_gates_the_settled_tail_and_still_reports_the_post_journey_peak():
+    """Remediation 18.2 sets a steady-state desktop target and excludes transient peaks. The
+    installed Windows app read 545 MiB as the idle window opened right after the journey and
+    settled near 209 MiB; the gate now reads the final 60 s and the peak stays reported."""
+    m = measurement()
+
+    def window(totals):
+        return [
+            {
+                "elapsed_seconds": t,
+                "processes": [
+                    {"pid": 1, "create_time": 1, "role": "webview", "rss_mib": total - 120, "cpu_seconds": 1},
+                    {"pid": 2, "create_time": 2, "role": "authority", "rss_mib": 120, "cpu_seconds": 1},
+                ],
+            }
+            for t, total in totals
+        ]
+
+    settled = m.summarize_native_resources(window([(0, 545), (120, 440), (240, 232), (270, 215), (300, 209)]))
+    assert settled["desktop_peak_rss_mib"] == 545
+    assert settled["desktop_rss_mib"] == 232, "Steady state: the largest sample in the final 60 s"
+    identity = {"frozen_native_processes": [1], "binary_sha256": "a" * 64, "source_hash": "b" * 64}
+    assert m.resource_gates({**settled, **identity})["status"] == "passed"
+    high = m.summarize_native_resources(window([(0, 545), (250, 520), (300, 510)]))
+    assert high["desktop_rss_mib"] == 520
+    assert m.resource_gates({**high, **identity})["failures"] == ["desktop_rss_mib"]

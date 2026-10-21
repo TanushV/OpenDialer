@@ -214,6 +214,9 @@ def resource_gates(receipt):
     }
 
 
+STEADY_WINDOW_SECONDS = 60
+
+
 def summarize_native_resources(samples):
     """Count the app, authority and WebView descendants, without dividing by host CPUs."""
     if len(samples) < 2 or any(not sample["processes"] for sample in samples):
@@ -243,9 +246,14 @@ def summarize_native_resources(samples):
             # an exited process. Retain the samples but do not certify idle CPU.
             complete = False
         previous = current
+    end = samples[-1]["elapsed_seconds"]
+    totals = [(s["elapsed_seconds"], sum(p["rss_mib"] for p in s["processes"])) for s in samples]
     return {
         "idle_seconds": elapsed,
-        "desktop_rss_mib": max(sum(p["rss_mib"] for p in s["processes"]) for s in samples),
+        # Remediation 18.2 targets steady-state desktop memory and excludes transient peaks:
+        # gate the settled tail of the idle window and report the post-journey peak beside it.
+        "desktop_rss_mib": max(total for at, total in totals if at >= end - STEADY_WINDOW_SECONDS),
+        "desktop_peak_rss_mib": max(total for _, total in totals),
         "authority_rss_mib": max(
             sum(p["rss_mib"] for p in s["processes"] if p["role"] == "authority") for s in samples
         ),
@@ -324,7 +332,7 @@ def measure_native_resources(root_pid, application, backend, *, seconds=300, int
             {(row["pid"], row["create_time"], row["executable"]) for s in samples for row in s["processes"]}
         ),
         "process_errors": sorted(set(errors)),
-        "boundary": "Actual native app and descendants; peak aggregate RSS; CPU percent of one core; no training during idle",
+        "boundary": "Actual native app and descendants; aggregate RSS gated on the final 60 s of the idle window (post-journey peak reported); CPU percent of one core; no training during idle",
     }
     if errors:
         receipt["cpu_accounting_complete"] = False

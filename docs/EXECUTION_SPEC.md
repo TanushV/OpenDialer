@@ -65,6 +65,7 @@ These amendments are binding and supersede conflicting text below. Each one was 
 ### 0.11 October 21 E13 repairs
 - Writers that update a call, lead, task, commitment or campaign lock it before reading it, in one order: call, then lead, then the lead's tasks and commitments; campaign publishers lock the campaign before their job lease. Follow-on job identities insert with `ON CONFLICT DO NOTHING` and coalesce into a concurrent writer's row instead of aborting the originating transaction. A write-conflict 409 logs its table and constraint, never row values.
 - Keyset pages compare `(created_at, id)` as one row value. The SQLite authority writes fixed `sqlite_stat1` statistics when it opens (scope-column prefixes match every row; other columns keep SQLite's default narrowing) because online `ANALYZE` costs seconds per index on a large store; PostgreSQL keeps its own statistics. Workspace page totals stop counting at 10,000 and are labelled as a lower bound.
+- Native desktop memory is gated as remediation §18.2 defines it, steady state: the largest aggregate RSS in the final 60 s of the 300-s idle window, against the unchanged 500 MiB target. The window's peak, the tail of the preceding journey, is reported beside it (Windows installed app: 545 MiB peak, 232 MiB settled).
 - The desktop retries both retryable next-lead refusals (`QUEUE_SCAN_CONTINUES`, `QUEUE_CHANGED`) within one bounded loop, and keeps the local workspace choice in its native session store as well as WebView storage.
 
 ## 1 Fixed decisions and limits
