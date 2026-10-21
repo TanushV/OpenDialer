@@ -617,3 +617,25 @@ def test_snapshot_carries_the_live_cursor_so_clients_skip_replay(workspace, app)
     found = later.json()["events"]
     assert found and all(event["sequence"] > first["event_cursor"] for event in found)
     assert snapshot(workspace)["event_cursor"] == latest() > first["event_cursor"]
+
+
+def test_a_user_record_without_a_display_name_does_not_break_the_workspace(workspace, app):
+    """Older or minimal user records must not take the whole workspace view down."""
+    from app.db import put
+    from test_control_completion import principal
+
+    service, p = app.state.service, principal(workspace)
+    with service.db.transaction() as s:
+        put(
+            s,
+            "users",
+            p["tenant_id"],
+            p["seller_id"],
+            {"role": "rep", "email": "unnamed@example.test", "disabled": False},
+            now=service.clock(),
+        )
+    response = workspace["client"].get("/v1/workspace", headers=workspace["headers"])
+    assert response.status_code == 200, response.text
+    owners = response.json()["task_owners"]
+    owners = owners["items"] if isinstance(owners, dict) else owners
+    assert any(owner["name"] == "unnamed@example.test" for owner in owners), owners

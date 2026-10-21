@@ -151,7 +151,7 @@ class WorkspaceReads:
                 if section == "task_owners":
                     if value.get("disabled"):
                         continue
-                    value = {"id": row.id, "name": value["name"]}
+                    value = {"id": row.id, "name": value.get("name") or value.get("email", "")}
                 if section == "numbers":
                     value.update(self.number_readiness_in(s, p, row))
                 if section == "registries":

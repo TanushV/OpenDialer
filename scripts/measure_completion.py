@@ -977,7 +977,12 @@ def run_requests(service, p, campaign, reps, measurement, checkpoint):
                 "users",
                 p["tenant_id"],
                 p["seller_id"],
-                {"role": "rep", "email": f"measure-{i}@example.test", "disabled": False},
+                {
+                    "role": "rep",
+                    "email": f"measure-{i}@example.test",
+                    "name": f"Measure rep {i}",
+                    "disabled": False,
+                },
                 now=service.clock(),
             )
             principals.append({**p, "user_id": user.id, "role": "rep"})
