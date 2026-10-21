@@ -78,8 +78,9 @@ def test_production_call_commands_belong_to_the_calls_rep(workspace, app, monkey
     assert "EXTERNAL_OPERATION_UNRESOLVED" in service_quiescence(service, {**p, "user_id": rep})["reasons"]
 
 
-def test_legacy_unowned_call_command_does_not_block_admin_sign_out(workspace, app, monkeypatch):
+def test_legacy_unowned_call_command_still_blocks_admin_sign_out(workspace, app, monkeypatch):
+    """Fail closed: an unresolved carrier effect from an earlier build has no known owner."""
     service, p = app.state.service, principal(workspace)
     monkeypatch.setattr(service.settings, "mode", "connected")
     outbox(service, p, "uncertain", kind="hangup", call_id="c-legacy")  # Written before rep stamping.
-    assert service_quiescence(service, p)["reasons"] == []
+    assert "EXTERNAL_OPERATION_UNRESOLVED" in service_quiescence(service, p)["reasons"]

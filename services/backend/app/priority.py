@@ -47,20 +47,27 @@ class ForegroundGate:
 GATE = ForegroundGate()
 YIELD_SECONDS = 0.0005
 _WRITER_THREADS = set()  # Threads holding a SQLite writer admission.
+_YIELD_STATE = threading.local()
 
 
 def yield_to_calling_work():
-    """Background CPU loops call this between small units of work.
+    """Background CPU loops and bulk reads call this between small units of work.
 
     A CPU-bound background thread otherwise holds the interpreter lock for whole switch
-    intervals, and a thread making database calls waits for it again after each one.
-    While calling work or another thread's write transaction is in flight, release the
-    lock briefly instead. Calling work and the writer's own thread never yield.
+    intervals (5 ms), and a thread making database calls waits for it again after each
+    one. While calling work or another thread's write is in flight, a background thread
+    instead pauses 0.5 ms after each 0.5 ms of its own work: the others wait at most that
+    long, and background work slows at most about twofold, even under continuous traffic.
+    Calling work and the writer's own thread never yield.
     """
-    if FOREGROUND.get():
+    if FOREGROUND.get() or threading.get_ident() in _WRITER_THREADS:
         return
-    if GATE.active or (_WRITER_THREADS and threading.get_ident() not in _WRITER_THREADS):
-        time.sleep(YIELD_SECONDS)
+    if not (GATE.active or _WRITER_THREADS):
+        return
+    if time.perf_counter() < getattr(_YIELD_STATE, "resume_at", 0.0):
+        return
+    time.sleep(YIELD_SECONDS)
+    _YIELD_STATE.resume_at = time.perf_counter() + YIELD_SECONDS
 
 
 class WriterAdmission:
@@ -130,6 +137,7 @@ def settle_heap():
     several full collections per run, each pausing every thread for tens of milliseconds.
     Reference counting still frees nearly everything at once; only cyclic garbage waits.
     """
+    gc.unfreeze()  # Idempotent: a second call refreezes the current heap, not a second copy.
     gc.collect()
     gc.freeze()
     _, middle, oldest = gc.get_threshold()

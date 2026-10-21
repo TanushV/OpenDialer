@@ -75,9 +75,12 @@ def test_writer_admission_times_out_like_a_lock():
 
     admission = WriterAdmission()
     assert admission.acquire(timeout=1)
-    started = time.monotonic()
-    assert admission.acquire(timeout=0.1) is False
-    assert time.monotonic() - started < 1
+    try:
+        started = time.monotonic()
+        assert admission.acquire(timeout=0.1) is False
+        assert time.monotonic() - started < 1
+    finally:
+        admission.release()
 
 
 @pytest.mark.asyncio
@@ -179,6 +182,8 @@ def test_background_planning_yields_while_calling_work_is_in_flight(monkeypatch)
     monkeypatch.setattr(priority, "GATE", gate)
     pauses = []
     monkeypatch.setattr(priority.time, "sleep", lambda seconds: pauses.append(seconds))
+    monkeypatch.setattr(priority, "_YIELD_STATE", threading.local())
+    monkeypatch.setattr(priority, "_WRITER_THREADS", set())
     rows = [lead(f"l-{i}") for i in range(40)]
     plan(rows, [number()], staffed_windows=[window(minutes=120)])
     assert pauses == [], "Idle authorities plan at full speed"
@@ -188,7 +193,7 @@ def test_background_planning_yields_while_calling_work_is_in_flight(monkeypatch)
             plan(rows, [number()], staffed_windows=[window(minutes=120)])
         finally:
             priority.FOREGROUND.reset(token)
-    assert len(pauses) > len(rows), "The planner yields at each work item and placement"
+    assert pauses, "The planner yields while calling work is in flight"
     pauses.clear()
     with gate.work():
         plan(rows, [number()], staffed_windows=[window(minutes=120)])
@@ -203,12 +208,14 @@ def test_background_bulk_reads_yield_but_never_inside_a_write(workspace, app, mo
     service, gate, pauses = app.state.service, priority.ForegroundGate(), []
     monkeypatch.setattr(priority, "GATE", gate)
     monkeypatch.setattr(priority.time, "sleep", lambda seconds: pauses.append(seconds))
+    monkeypatch.setattr(priority, "_YIELD_STATE", threading.local())
+    monkeypatch.setattr(priority, "_WRITER_THREADS", set())
     with gate.work():
         token = priority.FOREGROUND.set(False)
         try:
             with service.db.transaction(False) as s:
                 read = len(rows(s, "leads"))
-            assert read and len(pauses) >= read, "Background bulk reads yield per decrypted row"
+            assert read and pauses, "Background bulk reads yield while calling work is in flight"
             pauses.clear()
             with service.db.transaction() as s:
                 assert rows(s, "leads")
@@ -260,6 +267,8 @@ def test_background_cpu_work_also_steps_aside_while_another_thread_holds_the_wri
     monkeypatch.setattr(priority, "GATE", priority.ForegroundGate())
     pauses = []
     monkeypatch.setattr(priority.time, "sleep", lambda seconds: pauses.append(seconds))
+    monkeypatch.setattr(priority, "_YIELD_STATE", threading.local())
+    monkeypatch.setattr(priority, "_WRITER_THREADS", set())
     admission = priority.WriterAdmission()
     priority.yield_to_calling_work()
     assert pauses == [], "Nothing in flight: background work runs at full speed"
@@ -287,3 +296,55 @@ def test_background_cpu_work_also_steps_aside_while_another_thread_holds_the_wri
         assert pauses == [], "The writer's own thread never sleeps while holding the writer"
     finally:
         admission.release()
+
+
+def test_a_read_nested_inside_a_write_never_yields_while_the_writer_is_held(workspace, app, monkeypatch):
+    """A helper that opens its own read session inside a write still holds that write's locks."""
+    import app.priority as priority
+    from app.db import rows
+
+    service, gate, pauses = app.state.service, priority.ForegroundGate(), []
+    monkeypatch.setattr(priority, "GATE", gate)
+    monkeypatch.setattr(priority.time, "sleep", lambda seconds: pauses.append(seconds))
+    monkeypatch.setattr(priority, "_YIELD_STATE", threading.local())
+    monkeypatch.setattr(priority, "_WRITER_THREADS", set())
+    with gate.work():
+        token = priority.FOREGROUND.set(False)
+        try:
+            with service.db.transaction() as outer:
+                assert rows(outer, "leads")
+                with service.db.transaction(False) as inner:
+                    assert rows(inner, "leads")
+            assert pauses == [], "Sleeping here would hold the writer (or PostgreSQL row locks)"
+        finally:
+            priority.FOREGROUND.reset(token)
+
+
+def test_yielding_is_duty_cycled_so_background_work_slows_at_most_about_twofold(monkeypatch):
+    """Continuous HTTP traffic (connected mode runs post-call work beside it) must not stall it."""
+    import threading
+
+    import app.priority as priority
+
+    gate, clock, pauses = priority.ForegroundGate(), [0.0], []
+    monkeypatch.setattr(priority, "GATE", gate)
+    monkeypatch.setattr(priority, "_YIELD_STATE", threading.local())
+    monkeypatch.setattr(priority, "_WRITER_THREADS", set())
+    monkeypatch.setattr(priority.time, "perf_counter", lambda: clock[0])
+
+    def sleep(seconds):
+        pauses.append(seconds)
+        clock[0] += seconds
+
+    monkeypatch.setattr(priority.time, "sleep", sleep)
+    with gate.work():
+        token = priority.FOREGROUND.set(False)
+        try:
+            for _ in range(1000):  # 1000 checkpoints of 0.1 ms background work each.
+                clock[0] += 0.0001
+                priority.yield_to_calling_work()
+        finally:
+            priority.FOREGROUND.reset(token)
+    worked, slept = 1000 * 0.0001, sum(pauses)
+    assert pauses, "Calling work still gets the interpreter"
+    assert slept <= worked * 1.05, f"{slept:.4f}s asleep for {worked:.4f}s of work"

@@ -573,7 +573,8 @@ class Database:
         with self.sessions() as session:
             context_token = _DATABASE_CIPHER.set(self.cipher)
             lookup_token = _DATABASE_LOOKUP_KEY.set(self.identity_key)
-            write_token = _WRITE_TRANSACTION.set(write)
+            # Sticky: a read session opened inside a write still runs under that write's locks.
+            write_token = _WRITE_TRANSACTION.set(write or _WRITE_TRANSACTION.get())
             session.info["write"] = write
             session.info["database"] = self
             admitted = committed = False
