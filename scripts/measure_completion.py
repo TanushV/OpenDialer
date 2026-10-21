@@ -523,7 +523,7 @@ def caller_identity(frame, limit=3):
 
 
 class WriterAdmission:
-    """Wraps the SQLite writer lock and records each thread's admission wait."""
+    """Wraps the SQLite writer lock and records each thread's admission wait and hold time."""
 
     def __init__(self, lock):
         self.lock, self.local = lock, threading.local()
@@ -533,16 +533,18 @@ class WriterAdmission:
         try:
             return self.lock.acquire(*args, **kwargs)
         finally:
-            self.local.wait_ms = (time.perf_counter() - begun) * 1000
+            self.local.admitted_at = time.perf_counter()
+            self.local.wait_ms = (self.local.admitted_at - begun) * 1000
 
     def release(self):
+        self.local.held_ms = (time.perf_counter() - self.local.admitted_at) * 1000
         return self.lock.release()
 
 
 class Measurements:
     def __init__(self, service, *, stall_ms=0):
         self.service, self.writes, self.lock = service, [], threading.Lock()
-        self.stall_ms = stall_ms
+        self.stall_ms, self.begun = stall_ms, time.perf_counter()
         self.phase = None  # Set by run_profile around each measured phase.
 
     @contextmanager
@@ -573,7 +575,7 @@ class Measurements:
             recorded = write and session is None
             caller = caller_identity(inspect.currentframe().f_back) if recorded else None
             if recorded and admission is not None:
-                admission.local.wait_ms = None
+                admission.local.wait_ms = admission.local.held_ms = None
             begun = time.perf_counter()
             ok, error = False, None
             try:
@@ -591,6 +593,8 @@ class Measurements:
                         "caller": caller,
                         "phase": self.phase,
                         "admission_ms": admission.local.wait_ms if admission is not None else None,
+                        "held_ms": admission.local.held_ms if admission is not None else None,
+                        "at": begun - self.begun,
                     }
                     if error:
                         row["error"] = error
@@ -635,6 +639,7 @@ def summarize_writes(rows, *, target_ms=25):
     for caller, items in callers.items():
         times = sorted(r["ms"] for r in items)
         waits = sorted(r["admission_ms"] for r in items if r.get("admission_ms") is not None)
+        held = sorted(r["held_ms"] for r in items if r.get("held_ms") is not None)
         attribution.append(
             {
                 "caller": caller,
@@ -645,14 +650,27 @@ def summarize_writes(rows, *, target_ms=25):
                 "max_ms": times[-1],
                 "total_ms": sum(times),
                 "admission_p95_ms": percentile(waits, 0.95) if waits else None,
+                "held_p95_ms": percentile(held, 0.95) if held else None,
+                "held_max_ms": held[-1] if held else None,
                 "errors": dict(sorted(Counter(r["error"] for r in items if r.get("error")).items())),
             }
         )
     attribution.sort(key=lambda a: (-a["total_ms"], a["caller"]))
     waits = [{"ms": r["admission_ms"], "ok": True} for r in rows if r.get("admission_ms") is not None]
+    holds = sorted((r for r in rows if r.get("held_ms") is not None), key=lambda r: -r["held_ms"])
     return {
         **overall,
         "attribution": attribution,
+        # Who kept the single SQLite writer longest, so admission waits have a named cause.
+        "longest_holds": [
+            {
+                "caller": r.get("caller") or "unknown",
+                "phase": r.get("phase") or "unassigned",
+                "held_ms": r["held_ms"],
+                "at_s": round(r.get("at", 0.0), 3),
+            }
+            for r in holds[:20]
+        ],
         "phases": {name: summarize(items, target_ms=target_ms) for name, items in sorted(phases.items())},
         "admission": reported(waits) if waits else {"samples": 0, "status": "not_applicable"},
         "boundary": "every write transaction, background lanes included; admission is the SQLite writer-lock wait",
