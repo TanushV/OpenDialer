@@ -12,6 +12,7 @@ from app.service import fail
 
 PAGE_SIZE = 50
 SEARCH_SCAN = 200
+TOTAL_CAP = 10_000  # Page totals stop counting here: a labelled lower bound, never a full scan.
 REGISTRY_FIELDS = {
     "id",
     "version",
@@ -115,7 +116,11 @@ class WorkspaceReads:
                 query = query.where(closed if filter == "closed" else or_(~closed, model.op_status.is_(None)))
                 if filter == "overdue":
                     query = query.where(model.op_due_at <= self.clock())
-            total = s.scalar(select(func.count()).select_from(query.with_only_columns(model.id).subquery()))
+            total = s.scalar(
+                select(func.count()).select_from(
+                    query.with_only_columns(model.id).limit(TOTAL_CAP + 1).subquery()
+                )
+            )
             descending = section not in {"leads", "playbooks", "trackers", "task_owners"}
             if cursor:
                 anchor = s.scalar(query.where(model.id == cursor))
@@ -163,7 +168,8 @@ class WorkspaceReads:
                 self._label_leads(s, p, selected)
             return {
                 "items": selected,
-                "total": total,
+                "total": min(total, TOTAL_CAP),
+                "total_capped": total > TOTAL_CAP,
                 "next_cursor": examined[-1].id if more and examined else None,
                 "scanned": len(examined),
                 "search_complete": not more,

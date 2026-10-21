@@ -1,5 +1,6 @@
 import { coalesceRefresh } from "./state/refresh";
 import { useWorkHeartbeat } from "./state/useWorkHeartbeat";
+import { countLabel } from "./state/useHistory";
 import { receiveSpeech } from "./state/privacy";
 import {
   Activity,
@@ -827,7 +828,10 @@ export function App() {
                   {title}
                   {title === "Leads" && (
                     <span className="nav-count">
-                      {snapshot.pages?.leads?.total ?? snapshot.leads.length}
+                      {countLabel(
+                        snapshot.pages?.leads?.total ?? snapshot.leads.length,
+                        snapshot.pages?.leads?.total_capped,
+                      )}
                     </span>
                   )}
                 </button>

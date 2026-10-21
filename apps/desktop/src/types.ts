@@ -401,6 +401,8 @@ export interface Playbook {
 export interface HistoryPage<T> {
   items: T[];
   total: number | null;
+  /** The server stopped counting at its cap: `total` is a lower bound. */
+  total_capped?: boolean;
   next_cursor: string | null;
   search_complete?: boolean;
   scanned?: number;

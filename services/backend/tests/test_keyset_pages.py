@@ -76,3 +76,22 @@ def test_a_late_cursor_page_does_constant_work(workspace, app, clock, descending
     work, found = steps(service, query)
     assert len(found) == 5
     assert work < 600, f"{work} VM steps: the page rescanned history before its cursor"
+
+
+@pytest.mark.sqlite_only
+def test_a_scoped_id_lookup_uses_the_primary_key_not_the_sellers_whole_range(workspace, app, clock):
+    """Without planner statistics SQLite took tenant_id/seller_id equality as selective and
+    scanned the seller's whole unique-key range for `id IN (...)`: 650 ms for 32 of 100k
+    endpoints in the 100k-lead profile, inside every next-lead decision."""
+    from test_control_completion import principal
+
+    service, p = app.state.service, principal(workspace)
+    model, _ = history(service, p, clock)
+    with service.db.transaction(False) as s:
+        wanted = list(s.scalars(select(model.id).order_by(model.created_at.desc()).limit(5)))
+    query = select(model.id).where(
+        model.tenant_id == p["tenant_id"], model.seller_id == p["seller_id"], model.id.in_(wanted)
+    )
+    work, found = steps(service, query)
+    assert sorted(r[0] for r in found) == sorted(wanted)
+    assert work < 600, f"{work} VM steps: the lookup scanned the seller's rows"

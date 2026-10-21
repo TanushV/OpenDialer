@@ -100,6 +100,7 @@ def test_open_call_queries_skip_finalized_history_in_the_database(workspace, app
     def before(conn, cursor, statement, parameters, context, many):
         if (
             statement.startswith("SELECT")
+            and not statement.startswith("SELECT count(")  # The capped page total has its own test.
             and "FROM call_attempts" in statement
             and (
                 "op_status !=" in statement or "LIMIT" in statement and "SELECT call_attempts.id" in statement
@@ -639,3 +640,17 @@ def test_a_user_record_without_a_display_name_does_not_break_the_workspace(works
     owners = response.json()["task_owners"]
     owners = owners["items"] if isinstance(owners, dict) else owners
     assert any(owner["name"] == "unnamed@example.test" for owner in owners), owners
+
+
+def test_a_page_total_counts_at_most_its_cap_and_says_when_it_stopped(workspace, app, clock, monkeypatch):
+    """At 1M attempts an exact count(*) on every workspace GET took seconds; past the cap
+    the total is a labelled lower bound, never a full-history count."""
+    from app import workspace as pages
+
+    fill(workspace, app, clock)  # 130 synthetic leads plus the seeded ones
+    exact = page(workspace, "leads")
+    assert exact["total_capped"] is False and exact["total"] > 100
+    monkeypatch.setattr(pages, "TOTAL_CAP", 100)
+    capped = page(workspace, "leads")
+    assert capped["total"] == 100 and capped["total_capped"] is True
+    assert len(capped["items"]) == len(exact["items"]), "Capping the total never hides a row"
