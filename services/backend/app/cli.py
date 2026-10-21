@@ -241,6 +241,9 @@ def run(args, settings, watch_stdin):
         return
     if watch_stdin:
         watch_launcher(sys.stdin.buffer)  # After migrations, so launcher loss never interrupts them.
+    from app import priority
+
+    priority.settle_heap()
     if args.command == "worker":
         settings.worker_enabled = True  # Separate worker processes also own bounded automatic scheduling.
 

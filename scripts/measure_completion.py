@@ -1786,6 +1786,9 @@ def run_profile(name, directory, seed, checkpoint):
     )
     begun = time.perf_counter()
     app = create_app(settings, clock=clock)
+    from app.priority import settle_heap
+
+    settle_heap()  # As the serving authority does after startup.
     result = {"profile": name, "declared": spec, "status": "running"}
     if reference:
         result["shared_reference"] = reference

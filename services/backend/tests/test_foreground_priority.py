@@ -167,3 +167,85 @@ def test_manual_job_drain_runs_background_work_as_background(workspace, app, mon
     response = workspace["client"].post("/v1/admin/jobs/run", headers=workspace["headers"])
     assert response.status_code == 200, response.text
     assert seen == [(0, False)]
+
+
+def test_background_planning_yields_while_calling_work_is_in_flight(monkeypatch):
+    """A CPU-bound planner thread made every database call of a request queue for the GIL."""
+    import app.priority as priority
+    from test_time_capacity import lead, number, window
+    from test_unified_planning import plan
+
+    gate = priority.ForegroundGate()
+    monkeypatch.setattr(priority, "GATE", gate)
+    pauses = []
+    monkeypatch.setattr(priority.time, "sleep", lambda seconds: pauses.append(seconds))
+    rows = [lead(f"l-{i}") for i in range(40)]
+    plan(rows, [number()], staffed_windows=[window(minutes=120)])
+    assert pauses == [], "Idle authorities plan at full speed"
+    with gate.work():
+        token = priority.FOREGROUND.set(False)  # The planner runs on a background thread.
+        try:
+            plan(rows, [number()], staffed_windows=[window(minutes=120)])
+        finally:
+            priority.FOREGROUND.reset(token)
+    assert len(pauses) > len(rows), "The planner yields at each work item and placement"
+    pauses.clear()
+    with gate.work():
+        plan(rows, [number()], staffed_windows=[window(minutes=120)])
+    assert pauses == [], "Calling work itself never yields"
+
+
+def test_background_bulk_reads_yield_but_never_inside_a_write(workspace, app, monkeypatch):
+    """Decrypting a page of rows yields to calling work; a held writer is never left sleeping."""
+    import app.priority as priority
+    from app.db import rows
+
+    service, gate, pauses = app.state.service, priority.ForegroundGate(), []
+    monkeypatch.setattr(priority, "GATE", gate)
+    monkeypatch.setattr(priority.time, "sleep", lambda seconds: pauses.append(seconds))
+    with gate.work():
+        token = priority.FOREGROUND.set(False)
+        try:
+            with service.db.transaction(False) as s:
+                read = len(rows(s, "leads"))
+            assert read and len(pauses) >= read, "Background bulk reads yield per decrypted row"
+            pauses.clear()
+            with service.db.transaction() as s:
+                assert rows(s, "leads")
+            assert pauses == [], "A write transaction never sleeps while it holds the writer"
+        finally:
+            priority.FOREGROUND.reset(token)
+
+
+def test_settled_heap_freezes_startup_objects_and_collects_young_objects_less_often():
+    import gc
+
+    from app.priority import GC_YOUNG_THRESHOLD, settle_heap
+
+    before = gc.get_threshold()
+    try:
+        settle_heap()
+        assert gc.get_freeze_count() > 0
+        assert gc.get_threshold() == (GC_YOUNG_THRESHOLD, before[1], before[2])
+    finally:
+        gc.unfreeze()
+        gc.set_threshold(*before)
+
+
+def test_serving_authority_settles_its_heap_after_startup(monkeypatch, tmp_path):
+    import sys
+
+    import app.cli as cli
+    import app.priority as priority
+
+    calls = []
+    monkeypatch.setattr(priority, "settle_heap", lambda: calls.append("settled"))
+    monkeypatch.setitem(sys.modules, "uvicorn", type(sys)("uvicorn"))
+    sys.modules["uvicorn"].run = lambda *args, **kwargs: calls.append("served")
+    monkeypatch.setenv("OPENDIALER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("OPENDIALER_SECRET_KEY", "synthetic-test-" + "b" * 48)
+    monkeypatch.setenv("OPENDIALER_LOCAL_TOKEN", "synthetic-test-local-token")
+    monkeypatch.setenv("OPENDIALER_DATABASE_URL", "sqlite:///" + str(tmp_path / "authority.db"))
+    monkeypatch.setattr(sys, "argv", ["opendialer-authority", "serve", "--port", "0"])
+    cli.main()
+    assert calls == ["settled", "served"]

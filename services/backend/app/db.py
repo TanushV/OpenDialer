@@ -53,9 +53,11 @@ from app.operational_schema import (
     page_indexes,
     sync_columns,
 )
+from app.priority import yield_to_calling_work
 
 _DATABASE_CIPHER = contextvars.ContextVar("opendialer_database_cipher", default=None)
 _DATABASE_LOOKUP_KEY = contextvars.ContextVar("opendialer_database_lookup_key", default=None)
+_WRITE_TRANSACTION = contextvars.ContextVar("opendialer_write_transaction", default=False)
 STARTUP_CONTRACT = "completion-0017-raw2-v2"
 # Additive schema heads reuse the business cutover contract above; a store
 # behind this head is upgraded, a store at it skips re-initialization.
@@ -137,6 +139,9 @@ class EncryptedJSON(TypeDecorator):
 
     def process_result_value(self, value, dialect):
         if isinstance(value, dict) and value.get("od_encrypted") == 1:
+            if not _WRITE_TRANSACTION.get():
+                # Bulk background reads step aside for calling work; a writer never sleeps.
+                yield_to_calling_work()
             cipher = _DATABASE_CIPHER.get()
             if cipher is None:
                 raise ValueError("A database encryption context is required")
@@ -568,6 +573,7 @@ class Database:
         with self.sessions() as session:
             context_token = _DATABASE_CIPHER.set(self.cipher)
             lookup_token = _DATABASE_LOOKUP_KEY.set(self.identity_key)
+            write_token = _WRITE_TRANSACTION.set(write)
             session.info["write"] = write
             session.info["database"] = self
             admitted = committed = False
@@ -588,6 +594,7 @@ class Database:
             finally:
                 _DATABASE_CIPHER.reset(context_token)
                 _DATABASE_LOOKUP_KEY.reset(lookup_token)
+                _WRITE_TRANSACTION.reset(write_token)
                 if admitted:
                     self._sqlite_writer.release()
                 # A journal failure inside a caller-owned transaction must persist
