@@ -940,3 +940,27 @@ def test_a_capacity_search_overrides_reps_for_one_profile_and_records_it(tmp_pat
     assert summary["reps_override"] == 4
     assert json.loads((tmp_path / "shared.json").read_text())["declared"]["reps"] == 4
     assert m.PROFILES["shared"]["reps"] == 8, "The defined acceptance profile is not changed"
+
+
+def test_a_failed_request_sample_records_its_status_and_product_code():
+    """Profile failures said only HTTPStatusError; the cause stays content-free but named."""
+    import httpx
+
+    m = measurement()
+    measured = m.Measurements(type("Service", (), {})())
+    request = httpx.Request("POST", "http://authority/v1/calls/x/hangup")
+
+    def conflict():
+        response = httpx.Response(
+            409, json={"detail": {"code": "QUEUE_CHANGED", "reasons": []}}, request=request
+        )
+        response.raise_for_status()
+
+    def plain():
+        response = httpx.Response(409, json={"detail": "Concurrent operation conflicts"}, request=request)
+        response.raise_for_status()
+
+    row, _ = measured.sample(conflict)
+    assert row["ok"] is False and row["status_code"] == 409 and row["code"] == "QUEUE_CHANGED"
+    row, _ = measured.sample(plain)
+    assert row["code"] == "Concurrent operation conflicts"

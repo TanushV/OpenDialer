@@ -62,7 +62,9 @@ test("work time is visible, supported by a heartbeat and correctable after pause
     start.getTime() - start.getTimezoneOffset() * 60_000,
   )
     .toISOString()
-    .slice(0, 19);
+    .slice(0, 19)
+    // Chromium writes whole minutes without ":00"; filling them would be reported as malformed.
+    .replace(/:00$/, "");
   await page.getByLabel("Work started", { exact: true }).fill(localStart);
   await page
     .getByLabel("Correction reason", { exact: true })
