@@ -376,6 +376,11 @@ class RequestAccounting:
             or cost < 0
         ):
             cost = None
+        # A request included in the user's own ChatGPT plan has no marginal charge; the plan's
+        # subscription is the owner's existing cost, so this is a labeled estimate, not a bill.
+        plan = provider == "chatgpt_plan"
+        if plan:
+            cost = 0.0
         if (
             isinstance(reserved, bool)
             or not isinstance(reserved, (int, float))
@@ -439,9 +444,9 @@ class RequestAccounting:
                 if cost is not None
                 else max(reserved, (target.data if target else {}).get("reserved_usd", 0)),
                 "cost_usd": cost,
-                "billing_verified": cost is not None,
+                "billing_verified": cost is not None and not plan,
                 "status": "settled" if cost is not None else "uncertain",
-                "estimate_source": None,
+                "estimate_source": "chatgpt_plan_included" if plan else None,
             }
             if target:
                 update(target, **values)

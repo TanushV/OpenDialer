@@ -431,7 +431,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     await asyncio.to_thread(
                         self.usage,
                         p,
-                        "openai",
+                        getattr(provider, "billing", "openai"),
                         "script_write",
                         result,
                         object_id=lead_id,
@@ -817,7 +817,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                                     asyncio.to_thread(
                                         self.usage,
                                         p,
-                                        "openai",
+                                        getattr(provider, "billing", "openai"),
                                         "research_search",
                                         InferenceResult({}, {}, None),
                                         object_id=company_id,
@@ -832,7 +832,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                                 asyncio.to_thread(
                                     self.usage,
                                     p,
-                                    "openai",
+                                    getattr(provider, "billing", "openai"),
                                     "research_search",
                                     result,
                                     object_id=company_id,
@@ -1007,7 +1007,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 asyncio.to_thread(
                     self.usage,
                     p,
-                    "openai",
+                    getattr(provider, "billing", "openai"),
                     "research_extract",
                     InferenceResult({}, {}, None),
                     object_id=company_id,
@@ -1020,7 +1020,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             asyncio.to_thread(
                 self.usage,
                 p,
-                "openai",
+                getattr(provider, "billing", "openai"),
                 "research_extract",
                 result,
                 object_id=company_id,

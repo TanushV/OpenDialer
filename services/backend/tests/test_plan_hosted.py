@@ -102,3 +102,43 @@ def test_local_mode_keeps_its_own_loopback_listener(workspace):
     assert flow["completion"] == "loopback"
     redirect = parse_qs(urlsplit(flow["authorization_url"]).query)["redirect_uri"][0]
     assert urlsplit(redirect).hostname == "127.0.0.1" and redirect.endswith("/auth/callback")
+
+
+@pytest.mark.asyncio
+async def test_plan_requests_settle_at_zero_marginal_cost_labeled_as_plan_usage(
+    workspace, app, clock, monkeypatch
+):
+    """Plan-subsidised work must not consume the metered optional budget or stay uncertain."""
+    from app.db import MODELS
+    from app.providers.inference import InferenceClient, InferenceResult
+    from sqlalchemy import select
+
+    service, p = app.state.service, principal(workspace)
+    service.vault.write(p["tenant_id"], {"inference_mode": "chatgpt_plan"})
+    service.vault.write(
+        "plan-" + p["user_id"],
+        {
+            "access_token": "plan-test",
+            "expires_at": clock().timestamp() + 3600,
+            "scopes": ["chatgpt.tokens.use.direct"],
+        },
+    )
+    provider = service.inference(p["tenant_id"], "script_write", p["user_id"])
+    assert provider.billing == "chatgpt_plan"
+
+    async def complete(self, instructions, context, schema):
+        return InferenceResult({}, {"input_tokens": 120, "output_tokens": 40}, "plan-request-1")
+
+    monkeypatch.setattr(InferenceClient, "complete", complete)
+    result = await provider.complete("Write", {}, {"type": "object"})
+    key = "script:plan-test"
+    assert service.reserve_optional_budget(p, key, 0.05, object_id="lead-plan", work_kind="script_write")
+    service.usage(p, provider.billing, "script_write", result, object_id="lead-plan", request_key=key)
+    with service.db.transaction(False) as s:
+        rows = [r.data for r in s.scalars(select(MODELS["usage_ledger"])) if r.data.get("request_key") == key]
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["provider"] == "chatgpt_plan" and row["status"] == "settled"
+    assert row["cost_usd"] == 0 and row["reserved_usd"] == 0
+    assert row["billing_verified"] is False and row["estimate_source"] == "chatgpt_plan_included"
+    assert row["usage"]["input_tokens"] == 120, "Token counts stay visible for plan limits"
