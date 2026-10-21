@@ -23,7 +23,11 @@ async function callWithHelper(page: Page, helper: Record<string, unknown>) {
       },
     };
     data.calls = [call];
-    await route.fulfill({ response, json: data });
+    // The app may abandon this read (it refetches on entering the workspace);
+    // a late fulfil of an aborted request is not a test failure.
+    await route.fulfill({ response, json: data }).catch((error: Error) => {
+      if (!/already handled/i.test(error.message)) throw error;
+    });
   });
   await page.route("**/v1/calls/helper-status-call", (route) =>
     route.fulfill({ json: call }),
