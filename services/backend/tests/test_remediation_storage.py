@@ -197,3 +197,58 @@ def test_bounded_scan_reports_exhaustion_after_all_pages_are_denied(workspace, a
     result = next_after_scan(workspace)
     assert result.status_code == 409
     assert result.json()["detail"]["code"] == "NO_ELIGIBLE_LEADS"
+
+
+def test_concurrent_reps_do_not_race_for_the_lead_another_rep_is_claiming(workspace, app, monkeypatch):
+    """Eight reps ranked the same top candidate: one claim won and the rest re-selected repeatedly."""
+    import threading
+
+    from app.db import put
+    from test_control_completion import principal
+
+    from scripts import measure_completion as measure
+
+    service, p = app.state.service, principal(workspace)
+    measure.workload_capacity(service, p, 2)
+    with service.db.transaction() as s:
+        user = put(
+            s,
+            "users",
+            p["tenant_id"],
+            p["seller_id"],
+            {"role": "rep", "email": "second-rep@example.test", "disabled": False},
+            now=service.clock(),
+        )
+    second = {**p, "user_id": user.id, "role": "rep"}
+    for who in (p, second):
+        service.presence(
+            who,
+            {
+                "status": "ready",
+                "audio_ready": True,
+                "telephony_ready": True,
+                "agent_call_control_id": "synthetic-" + who["user_id"],
+            },
+        )
+    original, planned, release, picks = service._claim_selection, threading.Event(), threading.Event(), {}
+
+    def claim(who, campaign_id, plan):
+        if who["user_id"] == p["user_id"] and "first_plan" not in picks:
+            picks["first_plan"] = plan["selection"]["lead_id"]
+            planned.set()
+            release.wait(10)
+        return original(who, campaign_id, plan)
+
+    monkeypatch.setattr(service, "_claim_selection", claim)
+    first = threading.Thread(
+        target=lambda: picks.setdefault("first", service.reserve(p, workspace["campaign_id"]))
+    )
+    first.start()
+    assert planned.wait(10)
+    try:
+        taken = service.reserve(second, workspace["campaign_id"])
+    finally:
+        release.set()
+        first.join(10)
+    assert taken["lead"]["id"] != picks["first_plan"], "The second rep skips a lead already being claimed"
+    assert picks["first"]["lead"]["id"] == picks["first_plan"], "The first rep keeps its pick"

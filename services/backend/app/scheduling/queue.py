@@ -1,5 +1,7 @@
 """Bounded queue reads, batched ranking, and a short authoritative resource claim."""
 
+import threading
+import time
 from collections import OrderedDict
 from datetime import timedelta
 
@@ -22,6 +24,8 @@ from app.scheduling.policy import queue_decision, rank_candidates
 # Top K per page: only these leads and their endpoints are decrypted, scored and checked.
 # Another page is read only when every candidate on this one is denied.
 PAGE_SIZE, PAGES = 32, 3
+IN_FLIGHT_SECONDS = 30  # Safety expiry; a claim attempt releases its pick as soon as it ends.
+_IN_FLIGHT_LOCK = threading.Lock()
 
 
 class SelectionChanged(Exception):
@@ -29,6 +33,29 @@ class SelectionChanged(Exception):
 
 
 class ReservationPlanner:
+    def _hold_in_flight(self, p, lead_id):
+        """Atomically mark a candidate as being claimed by this rep within this authority.
+
+        Concurrent reps otherwise rank the same top candidate: one claim wins and the rest
+        re-select repeatedly. This is a ranking hint; the database claim stays authoritative.
+        """
+        held = self.__dict__.setdefault("_in_flight_leads", {})
+        key, now = (p["tenant_id"], p["seller_id"], lead_id), time.monotonic()
+        with _IN_FLIGHT_LOCK:
+            owner = held.get(key)
+            if owner and owner[0] != p["user_id"] and owner[1] > now:
+                return False
+            held[key] = (p["user_id"], now + IN_FLIGHT_SECONDS)
+            return True
+
+    def _release_in_flight(self, p, lead_ids):
+        held = self.__dict__.setdefault("_in_flight_leads", {})
+        with _IN_FLIGHT_LOCK:
+            for lead_id in lead_ids:
+                key = (p["tenant_id"], p["seller_id"], lead_id)
+                if held.get(key, (None,))[0] == p["user_id"]:
+                    del held[key]
+
     def _queue_context(self, s, p, campaign_id, leads):
         ids = [lead.id for lead in leads]
         endpoints = [lead.data["endpoint_id"] for lead in leads]
@@ -225,8 +252,14 @@ class ReservationPlanner:
             claimed = {c.endpoint_id for c in claims}
             denied = []
 
+            held = []
+
             def permitted(candidate):
                 lead = by_id[candidate["id"]]
+                if not self._hold_in_flight(p, lead.id):
+                    denied.append("CANDIDATE_IN_FLIGHT")
+                    return False
+                held.append(lead.id)
                 number = next(
                     (
                         n
@@ -242,6 +275,8 @@ class ReservationPlanner:
                     endpoint_claimed=lead.data["endpoint_id"] in claimed,
                 )
                 denied.extend(decision.reasons)
+                if not decision.allowed:
+                    self._release_in_flight(p, [held.pop()])
                 return decision.allowed
 
             urgent = next(
@@ -279,10 +314,12 @@ class ReservationPlanner:
                 now=now,  # The cohort draw is the candidate's stable hash, not process randomness.
             )
             if not selection:
+                self._release_in_flight(p, held)
                 last = leads[-1] if leads else None
                 cursor = (last.op_priority, last.op_coverage_at, last.id) if last else None
                 return None, cursor, denied, len(leads) < PAGE_SIZE
             identifier = selection["lead_id"]
+            self._release_in_flight(p, [lead_id for lead_id in held if lead_id != identifier])
             return (
                 {
                     "selection": selection,
@@ -312,6 +349,8 @@ class ReservationPlanner:
                 return self._claim_selection(p, campaign_id, plan)
             except SelectionChanged as changed:
                 reasons.update(*changed.args)
+            finally:
+                self._release_in_flight(p, [plan["selection"]["lead_id"]])
         fail(409, {"code": "QUEUE_CHANGED", "retryable": True, "reasons": sorted(reasons)})
 
     def _claim_selection(self, p, campaign_id, plan):

@@ -1843,6 +1843,9 @@ def run_profile(name, directory, seed, checkpoint):
             service.rebuild_optimization_report(p)
             measured = Measurements(service)
             with measured.instrument():
+                # Declared before any multi-rep phase: concurrent reps each need a number.
+                measured.phase = "workload_capacity"
+                result["workload_capacity"] = workload_capacity(service, p, spec["reps"])
                 measured.phase = "selection"
                 result["selection"] = run_requests(service, p, campaign, spec["reps"], measured, checkpoint)
                 measured.phase = "cached_workspace"
@@ -1855,8 +1858,6 @@ def run_profile(name, directory, seed, checkpoint):
                 result["six_coach"] = client.portal.call(coach_fixture, service, p)
                 measured.phase = "live_admission"
                 result["live_admission"] = client.portal.call(admission_fixture, service, spec["reps"])
-                measured.phase = "workload_capacity"
-                result["workload_capacity"] = workload_capacity(service, p, spec["reps"])
                 measured.phase = "control_paths"
                 result["control_paths"] = run_control_paths(client, headers, campaign, measured, checkpoint)
                 if "load_seconds" in spec:

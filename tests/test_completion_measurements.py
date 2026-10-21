@@ -1,5 +1,6 @@
 """E13 measurement receipts must retain failures and the declared workload."""
 
+import contextlib
 import importlib.util
 from pathlib import Path
 
@@ -891,3 +892,31 @@ def test_reference_reads_the_connected_postgres_process_limits_not_only_its_clus
     assert result["status"] == "failed", (
         "The same PostgreSQL cluster under changed effective limits cannot pass"
     )
+
+
+def test_multi_rep_profiles_declare_number_capacity_before_any_concurrent_phase(tmp_path, monkeypatch):
+    """Eight reps selected against the two seeded numbers: every candidate looked unauthorized."""
+    m = measurement()
+    calls = []
+
+    def recorder(name, value=None):
+        def record(*args, **kwargs):
+            calls.append(name)
+            return value if value is not None else {"status": "passed", "samples": []}
+
+        return record
+
+    monkeypatch.setattr(m, "populate", recorder("populate", {"leads": 0, "call_attempts": 0}))
+    monkeypatch.setattr(m, "rebuild", recorder("rebuild", {"status": "passed", "published": True}))
+    monkeypatch.setattr(m, "run_requests", recorder("selection"))
+    monkeypatch.setattr(m, "workload_capacity", recorder("workload_capacity", {"numbers": 9}))
+    monkeypatch.setattr(m, "coach_fixture", recorder("six_coach"))
+    monkeypatch.setattr(m, "admission_fixture", recorder("live_admission"))
+    monkeypatch.setattr(m, "run_control_paths", recorder("control_paths"))
+    monkeypatch.setattr(m, "run_load", recorder("load"))
+    monkeypatch.setitem(m.PROFILES, "local", {**m.PROFILES["local"], "load_seconds": 1})
+    # Summaries of the recorded stand-ins may be incomplete; only the phase order matters here.
+    with contextlib.suppress(Exception):
+        m.run_profile("local", tmp_path, 20261018, lambda _: None)
+    assert "workload_capacity" in calls and "selection" in calls, calls
+    assert calls.index("workload_capacity") < calls.index("selection"), calls
