@@ -378,3 +378,10 @@ def test_wrap_up_uses_the_rep_visible_outcome_chip_and_the_zoned_callback_label(
     assert (
         '"Talked: callback requested"' in source and "Confirmed callback time ({zoneCaption(zone)})" in source
     )
+
+
+def test_native_preflight_readies_the_rep_first_as_a_person_would_after_restart():
+    """After a restart the rep is not audio-ready, so preflight honestly reports a blocker;
+    the journey goes ready before it expects the simulation checks to pass."""
+    source = inspect.getsource(native().NativeUI.preflight)
+    assert source.index('self.click("Go ready")') < source.index('self.click("Run preflight")')
