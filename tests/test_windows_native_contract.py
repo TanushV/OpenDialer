@@ -458,11 +458,11 @@ def test_a_choice_card_button_is_found_by_its_title():
 
 
 def test_after_an_update_a_lost_session_is_told_apart_from_a_reset_driver_profile():
-    """Edge WebDriver may start each session with a fresh WebView2 profile; a probe planted
-    before the update decides whether the app itself had to restore its saved session."""
+    """A probe planted before the update decides whether the app itself had to restore its
+    saved session. Run 39666476735 kept the profile, so a lost session is the app's failure."""
     source = inspect.getsource(native().upgrade)
     assert "localStorage.setItem('opendialer.harness-profile'" in source
-    assert source.index("if kept:") < source.index('ui.visible("SIMULATION")  # Same WebView profile')
+    assert source.index("if kept:") < source.index('if "SIMULATION" not in ui.body():')
     assert '"session_restored": kept' in source
 
 
@@ -528,3 +528,67 @@ def test_the_legacy_baseline_still_fails_when_the_dialer_never_becomes_ready():
 
     with pytest.raises(TimeoutException):
         native().legacy_baseline(LegacyDialer(dropped_ready=5))
+
+
+class ToastDriver:
+    """A WebDriver whose page shows the given error toasts."""
+
+    def __init__(self, toasts):
+        self.toasts = toasts
+
+    def find_elements(self, _by, selector):
+        assert selector == ".toast"
+        return [
+            type("Toast", (), {"text": text, "is_displayed": lambda self: True})() for text in self.toasts
+        ]
+
+
+def test_the_native_ui_keeps_each_error_message_the_app_shows():
+    """The app explains a failed restore in a toast that vanishes after five seconds; the
+    harness must keep it, or a failed update carries no reason (run 39666476735)."""
+    ui = native().NativeUI(Path("app.exe"), Path("out"))
+    ui.driver = ToastDriver(["The bundled local service did not start."])
+    ui.note_toasts()
+    ui.note_toasts()
+    ui.driver = ToastDriver([])
+    ui.note_toasts()
+    assert ui.messages == ["The bundled local service did not start."]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the stand-in authority is a POSIX script")
+def test_a_failed_restore_is_diagnosed_on_a_copy_of_the_store(tmp_path):
+    """After a failed restore the harness starts the installed authority on a copy of the store
+    and keeps its log and the store's file listing, never its contents or key."""
+    application = tmp_path / "install" / "opendialer-desktop.exe"
+    application.parent.mkdir()
+    backend = application.parent / "opendialer-backend.exe"
+    backend.write_text(
+        f"#!{sys.executable}\n"
+        "import sys\n"
+        "sys.stdin.readline()\n"
+        "print('Traceback (most recent call last):')\n"
+        "print('PermissionError: [WinError 32] stand-in startup failure')\n"
+        "sys.exit(3)\n"
+    )
+    backend.chmod(0o755)
+    store = tmp_path / "simulation"
+    (store / ".opendialer-upgrade-v1").mkdir(parents=True)
+    (store / "opendialer.db").write_bytes(b"synthetic database")
+    (store / "simulation-master").write_text("synthetic-key-never-logged")
+    (store / ".opendialer-upgrade-v1" / "candidate.db").write_bytes(b"x" * 7)
+    output = tmp_path / "output"
+    output.mkdir()
+    result = native().diagnose_store(application, store, output, "0.3.0", timeout=20)
+    assert result["authority"]["ready"] is False
+    assert "WinError 32" in result["authority"]["error"]
+    assert {"path": ".opendialer-upgrade-v1/candidate.db", "bytes": 7} in result["files"]
+    saved = (output / "post-update-diagnosis.json").read_text()
+    assert "synthetic-key-never-logged" not in saved
+    assert "synthetic-key-never-logged" not in (output / "post-update-authority.log").read_text()
+    assert (store / "opendialer.db").read_bytes() == b"synthetic database", "The original store is untouched"
+
+
+def test_an_update_that_loses_the_saved_session_is_diagnosed_and_fails():
+    source = inspect.getsource(native().upgrade)
+    assert "diagnose_store(" in source
+    assert "ui.messages" in source

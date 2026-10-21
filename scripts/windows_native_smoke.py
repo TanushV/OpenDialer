@@ -31,7 +31,14 @@ from selenium.webdriver.support.ui import Select, WebDriverWait
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.disposable_database import validate_database_url
-from scripts.frozen_acceptance import await_ready, isolated_environment, request, start_owned, stop_owned
+from scripts.frozen_acceptance import (
+    await_ready,
+    isolated_environment,
+    request,
+    start_authority,
+    start_owned,
+    stop_owned,
+)
 from scripts.native_update import installation_ready, read_updaters, update_installed_or_window_closed
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -94,6 +101,7 @@ class NativeUI:
         self.application, self.output = application, output
         self.driver = None
         self.startup_ms = []
+        self.messages = []  # Every error toast seen; they vanish after five seconds.
 
     def open(self, *, restored=False):
         options = ArgOptions()
@@ -104,7 +112,8 @@ class NativeUI:
         self.driver.set_window_size(1024, 720)
         self.wait(
             lambda: (
-                "Opening your workspace…" not in self.body()
+                self.note_toasts() is None
+                and "Opening your workspace…" not in self.body()
                 and ("SIMULATION" in self.body() or "Try a simulated workspace" in self.body())
             )
         )
@@ -137,6 +146,13 @@ class NativeUI:
             if "does not belong to the document" in str(exc):
                 return ""
             raise
+
+    def note_toasts(self):
+        try:
+            shown = [e.text for e in self.driver.find_elements(By.CSS_SELECTOR, ".toast") if e.is_displayed()]
+        except WebDriverException:
+            return
+        self.messages.extend(text for text in dict.fromkeys(shown) if text and text not in self.messages)
 
     def visible(self, text):
         return self.wait(lambda: text in self.body())
@@ -436,6 +452,70 @@ def wait_installed(application, version, output, *, not_before):
     )
 
 
+def diagnose_store(application, directory, output, version, *, timeout=90):
+    """After a failed restore, list the store and start the installed authority on a copy.
+
+    The copy keeps the failed installation intact for diagnosis. The log holds only the
+    authority's startup output; the key travels on stdin and file contents are never read.
+    """
+    files = sorted(
+        (
+            {"path": path.relative_to(directory).as_posix(), "bytes": path.stat().st_size}
+            for path in directory.rglob("*")
+            if path.is_file()
+        ),
+        key=lambda row: row["path"],
+    )
+    result = {"files": files}
+    log = output / "post-update-authority.log"
+    with tempfile.TemporaryDirectory(prefix="opendialer-restore-diagnosis-") as temporary:
+        copy = Path(temporary) / directory.name
+        shutil.copytree(directory, copy, ignore=shutil.ignore_patterns("authority.lock"))
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            port = listener.getsockname()[1]
+        secrets_line = (
+            json.dumps(
+                {
+                    "local_token": secrets.token_urlsafe(32),
+                    "secret_key": (copy / "simulation-master").read_text(),
+                }
+            )
+            + "\n"
+        ).encode()
+        command = [
+            str(application.parent / "opendialer-backend.exe"),
+            "serve",
+            "--secrets-stdin",
+            "--simulation",
+            "--mode",
+            "local",
+            "--port",
+            str(port),
+            "--data-dir",
+            str(copy),
+        ]
+        with log.open("wb") as handle:
+            process = start_authority(  # noqa: S603 - the installed backend on a disposable copy
+                command,
+                secrets_line,
+                env=isolated_environment(os.environ),
+                cwd=copy,
+                stdout=handle,
+                stderr=subprocess.STDOUT,
+            )
+            try:
+                with httpx.Client(base_url=f"http://127.0.0.1:{port}", timeout=10) as client:
+                    health = await_ready(client, version, timeout=timeout, process=process, log=log)
+                result["authority"] = {"ready": True, "health": health}
+            except (RuntimeError, TimeoutError, ValueError) as exc:
+                result["authority"] = {"ready": False, "error": str(exc)[-4000:]}
+            finally:
+                stop_owned(process)
+    (output / "post-update-diagnosis.json").write_text(json.dumps(result, indent=2) + "\n")
+    return result
+
+
 def upgrade(ui, version, database):
     lead_name = legacy_baseline(ui)
     before = saved_ids(database)
@@ -463,7 +543,17 @@ def upgrade(ui, version, database):
     ui.open()
     kept = ui.driver.execute_script("return localStorage.getItem('opendialer.harness-profile')") == probe
     if kept:
-        ui.visible("SIMULATION")  # Same WebView profile: the saved 0.2.1 session must restore.
+        # Same WebView profile: the saved 0.2.1 session must restore. open() has already waited
+        # for the restore to finish, so the welcome screen here is the app's final answer.
+        if "SIMULATION" not in ui.body():
+            ui.screenshot("post-update-restore")
+            (ui.output / "post-update-restore.txt").write_text(ui.body())
+            ui.close()  # Let the app's authority exit before copying its store.
+            diagnosis = diagnose_store(ui.application, database.parent, ui.output, version)
+            raise RuntimeError(
+                "The saved 0.2.1 session did not restore after the update; "
+                f"app messages: {ui.messages or 'none'}; authority: {diagnosis['authority']}"
+            )
     else:
         # The driver reset the WebView profile, so no saved choice can survive; re-entering the
         # simulated workspace reuses the same store, which the continuity checks then verify.
