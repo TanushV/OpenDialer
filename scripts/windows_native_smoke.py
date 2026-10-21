@@ -163,6 +163,30 @@ class NativeUI:
 
         self.wait(perform)
 
+    def open_details(self, summary):
+        """Open a collapsed <details> section once; clicking an open one would close it."""
+
+        def opened():
+            element = next(
+                (
+                    e
+                    for e in self.driver.find_elements(
+                        By.XPATH, f"//summary[contains(normalize-space(.), '{summary}')]"
+                    )
+                    if e.is_displayed()
+                ),
+                None,
+            )
+            if element is None:
+                return False
+            details = element.find_element(By.XPATH, "..")
+            if details.get_attribute("open") is None:
+                self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", element)
+                element.click()
+            return details.get_attribute("open") is not None
+
+        self.wait(opened)
+
     def field(self, label, *, prefix=False):
         # A prefix match covers labels that carry a live caption, such as the callback time zone.
         test = (
@@ -245,19 +269,6 @@ class NativeUI:
         assert current.get_attribute("data-call-id") == call_id
         assert self.field("Callback time", prefix=True).get_attribute("value") == due
         return call_id
-
-    def open_details(self, text):
-        summary = self.wait(
-            lambda: next(
-                (
-                    item
-                    for item in self.driver.find_elements(By.TAG_NAME, "summary")
-                    if item.is_displayed() and item.text == text
-                ),
-                None,
-            )
-        )
-        summary.click()
 
     def correct_contact_role(self, note):
         self.open_details("Correct confirmed outcome")
@@ -439,6 +450,7 @@ def current_journey(ui, mode):
     raw = "Synthetic native speech sentinel; our next review is Tuesday."
     ui.fill(ui.element('input[aria-label="Simulation transcript"]'), raw)
     ui.element('button[aria-label="Add prospect turn"]').click()
+    ui.open_details("Live transcript")  # The ephemeral transcript is an optional expansion during the call.
     ui.visible(raw)
     ui.click("Mute tips")
     ui.visible("Automatic tips muted")
