@@ -3,7 +3,9 @@ import { expect, test, type Page } from "./fixtures";
 async function activeHelper(page: Page, coach?: Record<string, unknown>) {
   let call: Record<string, unknown> = {};
   await page.route("**/v1/workspace", async (route) => {
-    const response = await route.fetch();
+    // The app can abort a workspace read it has superseded while this awaits the real one.
+    const response = await route.fetch().catch(() => null);
+    if (!response) return;
     const data = await response.json();
     call = {
       id: "helper-cancel-call",
@@ -27,11 +29,25 @@ async function activeHelper(page: Page, coach?: Record<string, unknown>) {
   await page.route("**/v1/calls/helper-cancel-call", (route) =>
     route.fulfill({ json: call }),
   );
-  await page.goto("/");
-  await expect(page.getByText("Opening your workspace…")).toBeHidden();
-  const enter = page.getByRole("button", { name: "Try a simulated workspace" });
-  if (await enter.isVisible()) await enter.click();
-  await page.getByRole("button", { name: "Private help", exact: true }).click();
+  const help = page.getByRole("button", { name: "Private help", exact: true });
+  for (let attempt = 0; ; attempt++) {
+    await page.goto("/");
+    await expect(page.getByText("Opening your workspace…")).toBeHidden();
+    const enter = page.getByRole("button", {
+      name: "Try a simulated workspace",
+    });
+    if (await enter.isVisible()) await enter.click();
+    // The injected call rides on a workspace read the app may abort and replace while this
+    // fixture awaits the real response (CI runs 39682453717, 39689277229): reopen until it shows.
+    const shown = await help.waitFor({ timeout: 8000 }).then(
+      () => true,
+      () => false,
+    );
+    if (shown) break;
+    if (attempt === 2)
+      throw new Error("The injected helper call never appeared");
+  }
+  await help.click();
   return () => {
     coach = undefined;
     delete call.coach;
