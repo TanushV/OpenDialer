@@ -33,6 +33,7 @@ from scripts.disposable_database import validate_database_url
 from scripts.frozen_acceptance import await_ready, isolated_environment, request, start_owned, stop_owned
 from scripts.native_update import installation_ready, read_updaters, update_installed_or_window_closed
 
+ROOT = Path(__file__).resolve().parents[1]
 RAW_EXPIRY_WAIT_SECONDS = 305
 NATIVE_MODES = ("local", "connected")
 IDENTITY_TABLES = (
@@ -569,32 +570,44 @@ def check_journey_restart(ui, receipt, mode, version):
     }
 
 
+def connected_server_command(port, directory):
+    """The server runtime, as the server image runs it. The installed desktop sidecar has no
+    PostgreSQL driver and refuses connected mode; what this journey checks is the installed
+    desktop client connecting to a server."""
+    return [
+        sys.executable,
+        "-m",
+        "app.cli",
+        "serve",
+        "--mode",
+        "connected",
+        "--simulation",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(port),
+        "--data-dir",
+        str(directory),
+    ]
+
+
 @contextmanager
 def connected_authority(application, version, output):
     url = validate_database_url(os.environ["OPENDIALER_E2E_DATABASE_URL"], purpose="browser")
-    binary = application.parent / "opendialer-backend.exe"
     with tempfile.TemporaryDirectory(prefix="opendialer-native-connected-") as directory:
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
             port = listener.getsockname()[1]
         environment = isolated_environment(os.environ)
         bootstrap = secrets.token_urlsafe(32)
-        environment.update(OPENDIALER_DATABASE_URL=url, OPENDIALER_BOOTSTRAP_TOKEN=bootstrap)
+        environment.update(
+            OPENDIALER_DATABASE_URL=url,
+            OPENDIALER_BOOTSTRAP_TOKEN=bootstrap,
+            PYTHONPATH=str(ROOT / "services/backend"),
+        )
         with (output / "connected-authority.log").open("w") as log:
-            process = start_owned(  # noqa: S603 - exact installed backend, owned temporary data
-                [
-                    str(binary),
-                    "serve",
-                    "--mode",
-                    "connected",
-                    "--simulation",
-                    "--host",
-                    "127.0.0.1",
-                    "--port",
-                    str(port),
-                    "--data-dir",
-                    directory,
-                ],
+            process = start_owned(  # noqa: S603 - the checkout's server runtime, owned temporary data
+                connected_server_command(port, directory),
                 env=environment,
                 cwd=directory,
                 stdout=log,
