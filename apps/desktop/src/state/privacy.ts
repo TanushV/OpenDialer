@@ -124,12 +124,19 @@ type Speech = {
   coach?: Temporary | null;
   raw_evidence_status?: string;
 };
+/** First-seen deadlines by segment revision: a refresh may shorten a countdown, never restart it. */
+const deadlines = new Map<string, { wall: number; mono: number }>();
+
 export function receiveSpeech<T extends Speech>(
   value: T,
   now = Date.now(),
   mono = performance.now(),
 ): T {
-  const stamp = <V extends Temporary>(
+  for (const [key, seen] of deadlines)
+    if (seen.wall <= now || seen.mono <= mono) deadlines.delete(key);
+  const stamp = <
+    V extends Temporary & { segment_id?: string; revision?: number },
+  >(
     v: V,
     remaining: number | undefined,
   ): V => {
@@ -137,7 +144,18 @@ export function receiveSpeech<T extends Speech>(
       300000,
       Math.max(0, Number.isFinite(remaining) ? remaining! : 0),
     );
-    return { ...v, _expires: now + ttl, _monoExpires: mono + ttl };
+    let wall = now + ttl;
+    let monoEnd = mono + ttl;
+    if (v.segment_id) {
+      const key = `${v.segment_id}:${v.revision ?? ""}`;
+      const seen = deadlines.get(key);
+      if (seen) {
+        wall = Math.min(wall, seen.wall);
+        monoEnd = Math.min(monoEnd, seen.mono);
+      }
+      deadlines.set(key, { wall, mono: monoEnd });
+    }
+    return { ...v, _expires: wall, _monoExpires: monoEnd };
   };
   return {
     ...value,

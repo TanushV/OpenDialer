@@ -175,6 +175,18 @@ class EphemeralBuffer:
             item = self._items.get(key)
             return json.loads(item.text) if item and item.text is not None else None
 
+    def remaining_ms(self, key):
+        """Time left on the earlier of the wall and monotonic deadlines; None once gone.
+
+        A frozen or shifted business clock cannot restart a client's countdown."""
+        with self._lock:
+            self._purge()
+            item = self._items.get(key)
+            if item is None or item.text is None:
+                return None
+            wall = (item.deadline - self.clock()).total_seconds()
+            return max(0, int(min(wall, item.mono - time.monotonic()) * 1000))
+
     def has(self, key):
         """Presence without copying the content."""
         with self._lock:
@@ -533,17 +545,14 @@ class SpeechPrivacy:
             )
         result = []
         for row in metadata:
-            item = self.raw.get(self.raw_key(p, call_id, row.data["segment_id"]))
+            key = self.raw_key(p, call_id, row.data["segment_id"])
+            item = self.raw.get(key)
             if item is not None:
-                from app.service import dt
-
                 result.append(
                     {
                         **item,
                         "interpretation_revision": row.data.get("interpretation_revision"),
-                        "raw_remaining_ms": max(
-                            0, int((dt(item["raw_expires_at"]) - self.clock()).total_seconds() * 1000)
-                        ),
+                        "raw_remaining_ms": self.raw.remaining_ms(key) or 0,
                     }
                 )
         return sorted(result, key=lambda item: (item.get("server_received_at", ""), item["segment_id"]))
