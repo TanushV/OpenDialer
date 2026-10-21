@@ -252,3 +252,87 @@ def test_concurrent_reps_do_not_race_for_the_lead_another_rep_is_claiming(worksp
         first.join(10)
     assert taken["lead"]["id"] != picks["first_plan"], "The second rep skips a lead already being claimed"
     assert picks["first"]["lead"]["id"] == picks["first_plan"], "The first rep keeps its pick"
+
+
+def test_background_bookkeeping_on_the_chosen_lead_does_not_abort_its_claim(workspace, app, monkeypatch):
+    """Preparation updates exactly the top-of-queue leads; only queue-relevant changes re-select."""
+    from conftest import ready
+
+    ready(workspace)
+    service = app.state.service
+    selection, touched = service._selection, []
+
+    def bookkeeping(p, campaign_id, *args, **kwargs):
+        plan = selection(p, campaign_id, *args, **kwargs)
+        identifier = plan["selection"]["lead_id"]
+        with service.db.transaction() as s:
+            lead = get(s, "leads", identifier)
+            update(lead, preparation_revision=lead.data.get("preparation_revision", 0) + 1)
+        touched.append(identifier)
+        return plan
+
+    monkeypatch.setattr(service, "_selection", bookkeeping)
+    result = workspace["client"].post(
+        "/v1/queue/next", headers=workspace["headers"], json={"campaign_id": workspace["campaign_id"]}
+    )
+    assert result.status_code == 200, result.text
+    assert result.json()["lead"]["id"] == touched[0], "The first pick is claimed despite the bookkeeping"
+    assert len(touched) == 1, "No re-selection for a change that does not affect the queue"
+
+
+def test_concurrent_reps_are_allocated_different_numbers_while_one_claim_is_in_flight(
+    workspace, app, monkeypatch
+):
+    """Every concurrent selection chose the least-loaded number, so all but one claim re-selected."""
+    import threading
+
+    from app.db import put
+    from test_control_completion import principal
+
+    from scripts import measure_completion as measure
+
+    service, p = app.state.service, principal(workspace)
+    measure.workload_capacity(service, p, 2)
+    with service.db.transaction() as s:
+        for lead in service.scoped(s, "leads", p):  # One region: both reps compete for its numbers.
+            update(lead, region="415")
+        user = put(
+            s,
+            "users",
+            p["tenant_id"],
+            p["seller_id"],
+            {"role": "rep", "email": "number-rep@example.test", "name": "Number rep", "disabled": False},
+            now=service.clock(),
+        )
+    second = {**p, "user_id": user.id, "role": "rep"}
+    for who in (p, second):
+        service.presence(
+            who,
+            {
+                "status": "ready",
+                "audio_ready": True,
+                "telephony_ready": True,
+                "agent_call_control_id": "synthetic-" + who["user_id"],
+            },
+        )
+    original, planned, release, picks = service._claim_selection, threading.Event(), threading.Event(), {}
+
+    def claim(who, campaign_id, plan):
+        if who["user_id"] == p["user_id"] and "first" not in picks:
+            picks["first"] = plan["allocation"]["number_id"]
+            planned.set()
+            release.wait(10)
+        elif who["user_id"] == second["user_id"]:
+            picks.setdefault("second", plan["allocation"]["number_id"])
+        return original(who, campaign_id, plan)
+
+    monkeypatch.setattr(service, "_claim_selection", claim)
+    first = threading.Thread(target=lambda: service.reserve(p, workspace["campaign_id"]))
+    first.start()
+    assert planned.wait(10)
+    try:
+        service.reserve(second, workspace["campaign_id"])
+    finally:
+        release.set()
+        first.join(10)
+    assert picks["second"] != picks["first"], "The second rep plans on a number not already being claimed"
