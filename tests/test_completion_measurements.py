@@ -1039,3 +1039,88 @@ def test_desktop_memory_gates_the_settled_tail_and_still_reports_the_post_journe
     high = m.summarize_native_resources(window([(0, 545), (250, 520), (300, 510)]))
     assert high["desktop_rss_mib"] == 520
     assert m.resource_gates({**high, **identity})["failures"] == ["desktop_rss_mib"]
+
+
+def _native_fixture(tmp_path, monkeypatch, *, sample_cost=0.0, child_exits_at=None):
+    from types import SimpleNamespace
+
+    import psutil
+
+    m, now = measurement(), [0.0]
+    files = [tmp_path / name for name in ("app.exe", "backend.exe", "webview.exe")]
+    for path in files:
+        path.write_bytes(b"synthetic executable identity")
+
+    class Process:
+        def __init__(self, pid, path, rss, exits_at=None):
+            self.pid, self.path, self.rss, self.exits_at = pid, path, rss, exits_at
+
+        def alive(self):
+            if self.exits_at is not None and now[0] >= self.exits_at:
+                raise psutil.NoSuchProcess(self.pid)
+
+        def create_time(self):
+            return self.pid
+
+        def is_running(self):
+            self.alive()
+            return True
+
+        def exe(self):
+            self.alive()
+            return str(self.path)
+
+        def children(self, recursive=False):
+            return [c for c in kids if c.exits_at is None or now[0] < c.exits_at]
+
+        def cpu_times(self):
+            self.alive()
+            if now[0] < 1:  # The first sample, which also discovers every process, is the slow one.
+                now[0] += sample_cost / 3
+            return SimpleNamespace(user=1 + now[0] / 300, system=0)
+
+        def memory_info(self):
+            self.alive()
+            return SimpleNamespace(rss=self.rss * 1024**2)
+
+    root = Process(11, files[0], 80)
+    kids = [Process(12, files[1], 120), Process(13, files[2], 160, child_exits_at)]
+    monkeypatch.setattr(psutil, "Process", lambda pid: root)
+    monkeypatch.setattr(m.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(m.time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds))
+    monkeypatch.setattr(m, "source_metadata", lambda: {"source_hash": "synthetic", "external_calls": False})
+    return m, files
+
+
+def test_the_idle_window_is_timed_from_the_first_sample(tmp_path, monkeypatch):
+    """A Windows receipt measured 299.985 s first-to-last and was refused as short."""
+    m, files = _native_fixture(tmp_path, monkeypatch, sample_cost=0.015)
+    result = m.measure_native_resources(11, files[0], files[1])
+    assert result["idle_seconds"] >= 300
+
+
+class _Handles:
+    """Stands in for held Windows process handles: an exited process's final CPU stays readable."""
+
+    def __init__(self, final):
+        self.final = final
+
+    def watch(self, key):
+        pass
+
+    def final_cpu(self, key):
+        return self.final.get(key[0])
+
+    def close(self):
+        pass
+
+
+def test_a_helper_process_that_exits_mid_window_is_accounted_from_its_held_handle(tmp_path, monkeypatch):
+    """A WebView2 helper started and exited inside the window; its exit CPU is read exactly."""
+    m, files = _native_fixture(tmp_path, monkeypatch, child_exits_at=150)
+    result = m.measure_native_resources(11, files[0], files[1], handles=_Handles({13: 1.6}))
+    assert result["cpu_accounting_complete"] is True and not result["process_errors"]
+    assert result["gates"]["status"] == "passed"
+    m, files = _native_fixture(tmp_path, monkeypatch, child_exits_at=150)
+    unread = m.measure_native_resources(11, files[0], files[1], handles=_Handles({}))
+    assert unread["cpu_accounting_complete"] is False, "An exit whose CPU cannot be read stays incomplete"

@@ -274,7 +274,67 @@ def summarize_native_resources(samples):
     }
 
 
-def measure_native_resources(root_pid, application, backend, *, seconds=300, interval=5):
+class ProcessHandles:
+    """Windows: hold a query handle from first sight, so an exited process's CPU stays exact.
+
+    psutil cannot read an exited process; a handle keeps its kernel object, and with it the
+    final GetProcessTimes, until closed. Elsewhere this returns None and the exit stays unread."""
+
+    QUERY_LIMITED_INFORMATION = 0x1000
+
+    def __init__(self):
+        self.handles, self.kernel = {}, None
+        if os.name == "nt":
+            import ctypes
+            from ctypes import wintypes
+
+            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            kernel.OpenProcess.restype = wintypes.HANDLE
+            kernel.GetProcessTimes.argtypes = [wintypes.HANDLE, *[ctypes.POINTER(wintypes.FILETIME)] * 4]
+            kernel.GetProcessTimes.restype = wintypes.BOOL
+            kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+            kernel.CloseHandle.restype = wintypes.BOOL
+            self.kernel = kernel
+
+    def watch(self, key):
+        if self.kernel is None or key in self.handles:
+            return
+        handle = self.kernel.OpenProcess(self.QUERY_LIMITED_INFORMATION, False, key[0])
+        if not handle:
+            return
+        created = self._times(handle)[0]
+        if created is not None and abs(created - key[1]) < 0.5:  # The same process, not a reused PID.
+            self.handles[key] = handle
+        else:
+            self.kernel.CloseHandle(handle)
+
+    def _times(self, handle):
+        import ctypes
+        from ctypes import wintypes
+
+        created, exited, kernel, user = (wintypes.FILETIME() for _ in range(4))
+        if not self.kernel.GetProcessTimes(
+            handle, ctypes.byref(created), ctypes.byref(exited), ctypes.byref(kernel), ctypes.byref(user)
+        ):
+            return None, None
+
+        def seconds(value):
+            return (value.dwHighDateTime << 32 | value.dwLowDateTime) / 1e7
+
+        return seconds(created) - 11644473600, seconds(kernel) + seconds(user)
+
+    def final_cpu(self, key):
+        handle = self.handles.get(key)
+        return self._times(handle)[1] if handle else None
+
+    def close(self):
+        for handle in self.handles.values():
+            self.kernel.CloseHandle(handle)
+        self.handles.clear()
+
+
+def measure_native_resources(root_pid, application, backend, *, seconds=300, interval=5, handles=None):
     """Read only an exact installed app and its owned descendants for five minutes."""
     import psutil
 
@@ -285,14 +345,17 @@ def measure_native_resources(root_pid, application, backend, *, seconds=300, int
         raise ValueError("Exact native process and five-minute sample are required")
     source = source_metadata()
     binary_hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in (application, backend)}
-    owned, samples, errors = {}, [], []
+    owned, known, samples, errors = {}, {}, [], []
+    handles = handles if handles is not None else ProcessHandles()
     began = time.monotonic()
     while True:
         if not root.is_running() or root.create_time() != birth or Path(root.exe()).resolve() != application:
             raise RuntimeError("Native root identity changed during measurement")
         for process in [root, *root.children(recursive=True)]:
             try:
-                owned[(process.pid, process.create_time())] = process
+                key = (process.pid, process.create_time())
+                owned[key] = process
+                handles.watch(key)
             except psutil.NoSuchProcess:
                 errors.append("child_disappeared_before_identity")
         rows = []
@@ -303,27 +366,45 @@ def measure_native_resources(root_pid, application, backend, *, seconds=300, int
                     continue
                 executable = Path(process.exe()).resolve()
                 times = process.cpu_times()
+                known[(pid, created)] = {
+                    "executable": executable.name,
+                    "role": "desktop"
+                    if executable == application
+                    else "authority"
+                    if executable == backend
+                    else "webview",
+                }
                 rows.append(
                     {
                         "pid": pid,
                         "create_time": created,
-                        "executable": executable.name,
-                        "role": "desktop"
-                        if executable == application
-                        else "authority"
-                        if executable == backend
-                        else "webview",
+                        **known[(pid, created)],
                         "rss_mib": process.memory_info().rss / 1024**2,
                         "cpu_seconds": times.user + times.system,
                     }
                 )
             except psutil.NoSuchProcess:
-                errors.append("owned_process_exited")
+                final = handles.final_cpu((pid, created))
+                if final is None or (pid, created) not in known:
+                    errors.append("owned_process_exited")
+                else:  # Exited: its exact final CPU from the held handle; no memory remains.
+                    rows.append(
+                        {
+                            "pid": pid,
+                            "create_time": created,
+                            **known[(pid, created)],
+                            "rss_mib": 0.0,
+                            "cpu_seconds": final,
+                        }
+                    )
         elapsed = time.monotonic() - began
         samples.append({"elapsed_seconds": elapsed, "processes": rows})
-        if elapsed >= seconds:
+        # The window is first sample to last: the first one's collection time does not count.
+        window = elapsed - samples[0]["elapsed_seconds"]
+        if window >= seconds:
             break
-        time.sleep(min(interval, seconds - elapsed))
+        time.sleep(min(interval, seconds - window))
+    handles.close()
     receipt = {
         **source,
         **summarize_native_resources(samples),
