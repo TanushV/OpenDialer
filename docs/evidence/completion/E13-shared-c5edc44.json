@@ -1,0 +1,389 @@
+{
+ "step_id": "E13",
+ "profile": "shared",
+ "source_commit": "c5edc440d3b7f48cbecb05603d8bf23acb69b956",
+ "production_tree_digest": "c4f2a7d0985e9ada31a4630b53e188cec8d9d1b6ac3ae05e3d6d12a4cec2c19a",
+ "test_tree_digest": "e8fad4cf24fac561e90ce1f3fc403625ea109e2655e21f11a840b84e20c2eeec",
+ "harness_sha256": "a7e2436fb388dd578a5e5112feda84eeb85b918ef2bfd7677f069605a5e97fff",
+ "case_ids": [
+  "A25",
+  "A50",
+  "A51"
+ ],
+ "mode": "PostgreSQL in the inspected 2-vCPU/4-GiB reference containers",
+ "fixture_seed": 20261018,
+ "commands": [
+  "docker exec <reference runner> python scripts/measure_completion.py --profile shared --seed 20261018 --output-dir /evidence/performance-c5edc44-shared"
+ ],
+ "environment": {
+  "platform": "Linux-6.8.0-100-generic-aarch64-with-glibc2.41",
+  "python": "3.12.15",
+  "logical_cpus": 4,
+  "locks": {
+   "pyproject.toml": "2a9bad818fd3de5d3c81d38065ed0f7d5c34029169dcbd39dc4078b868976447",
+   "uv.lock": "51f39f3e13bd2e25833ef3d0fb99ec9794f32224c596b06ef97b95eb7c619342",
+   "apps/desktop/package.json": "3a7ac17f0fdc84067e112781bad974623c33c2484c2bac2b58a84f1f05632959",
+   "apps/desktop/package-lock.json": "fa38442672fb0585458bb3e364e6ef92bfca4ee9b2f1ba8328b92433cdcb2211",
+   "apps/desktop/src-tauri/Cargo.toml": "42a8b884583ff283e0611b244e31754f4dde0edd9c4fba3792e6cb52a7fd2ea5",
+   "apps/desktop/src-tauri/Cargo.lock": "7caa52d5c71486783bcf42f7d5d9a398e6137b1b928aed0312e0c26a2aa7a567"
+  }
+ },
+ "dirty_files": [],
+ "profile_status": "failed",
+ "failed_gates": [
+  "warm_selection",
+  "writer",
+  "stalled_selection",
+  "load"
+ ],
+ "authority_startup_ms": 1432.259606081061,
+ "selection": {
+  "cold": {
+   "samples": 8,
+   "failures": 0,
+   "p50_ms": 335.4841829277575,
+   "p95_ms": 641.786438995041,
+   "p99_ms": 641.786438995041,
+   "max_ms": 641.786438995041,
+   "sql_max": 44,
+   "decrypted_max": 234,
+   "target_ms": 1000,
+   "status": "passed"
+  },
+  "warm": {
+   "samples": 1600,
+   "failures": 0,
+   "p50_ms": 238.0997089203447,
+   "p95_ms": 392.02849206048995,
+   "p99_ms": 528.5340480040759,
+   "max_ms": 2036.7538310820237,
+   "sql_max": 44,
+   "decrypted_max": 252,
+   "target_ms": 250,
+   "status": "failed"
+  }
+ },
+ "cached_workspace": {
+  "samples": 200,
+  "failures": 0,
+  "p50_ms": 35.929851001128554,
+  "p95_ms": 76.24356297310442,
+  "p99_ms": 189.23423800151795,
+  "max_ms": 637.7605659654364,
+  "sql_max": 59,
+  "decrypted_max": 146,
+  "target_ms": 250,
+  "status": "passed"
+ },
+ "six_coach": {
+  "samples": 30,
+  "failures": 0,
+  "p50_ms": 736.1183979082853,
+  "p95_ms": 778.0981239629909,
+  "p99_ms": 781.2138550216332,
+  "max_ms": 781.2138550216332,
+  "sql_max": 0,
+  "decrypted_max": 0,
+  "target_ms": 1500,
+  "status": "passed"
+ },
+ "rebuild": {
+  "seconds": 511.8929796869634,
+  "pages": 428,
+  "published": true,
+  "status": "passed"
+ },
+ "writer_transactions": {
+  "samples": 79699,
+  "failures": 682,
+  "p50_ms": 26.094247004948556,
+  "p95_ms": 419.75107800681144,
+  "p99_ms": 852.3391670314595,
+  "max_ms": 7929.268132080324,
+  "sql_max": 0,
+  "decrypted_max": 0,
+  "target_ms": 25,
+  "status": "failed",
+  "phases": {
+   "control_paths": {
+    "samples": 3300,
+    "failures": 0,
+    "p50_ms": 15.561844920739532,
+    "p95_ms": 42.42100799456239,
+    "p99_ms": 75.5460310028866,
+    "max_ms": 1604.5991219580173,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "failed"
+   },
+   "load": {
+    "samples": 65173,
+    "failures": 457,
+    "p50_ms": 20.862911944277585,
+    "p95_ms": 463.12132594175637,
+    "p99_ms": 926.4350830344483,
+    "max_ms": 7929.268132080324,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "failed"
+   },
+   "selection": {
+    "samples": 5327,
+    "failures": 22,
+    "p50_ms": 74.13485995493829,
+    "p95_ms": 255.89846807997674,
+    "p99_ms": 361.75893200561404,
+    "max_ms": 1995.912195998244,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "failed"
+   },
+   "six_coach": {
+    "samples": 390,
+    "failures": 0,
+    "p50_ms": 4.163745092228055,
+    "p95_ms": 19.529299926944077,
+    "p99_ms": 25.41571599431336,
+    "max_ms": 39.654248976148665,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "passed"
+   },
+   "stalled_selection": {
+    "samples": 5508,
+    "failures": 203,
+    "p50_ms": 66.73957698512822,
+    "p95_ms": 199.10903193522245,
+    "p99_ms": 296.5435329824686,
+    "max_ms": 2607.4684869963676,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "failed"
+   },
+   "workload_capacity": {
+    "samples": 1,
+    "failures": 0,
+    "p50_ms": 17.88913900963962,
+    "p95_ms": 17.88913900963962,
+    "p99_ms": 17.88913900963962,
+    "max_ms": 17.88913900963962,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "passed"
+   }
+  },
+  "longest_holds": []
+ },
+ "control_paths": {
+  "event_ack": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 3.872163943015039,
+   "p95_ms": 8.31598904915154,
+   "p99_ms": 15.759089030325413,
+   "max_ms": 26.78052708506584,
+   "sql_max": 4,
+   "decrypted_max": 0,
+   "target_ms": 100,
+   "status": "passed"
+  },
+  "event_state": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 26.16258803755045,
+   "p95_ms": 51.282547996379435,
+   "p99_ms": 80.74753300752491,
+   "max_ms": 144.15963098872453,
+   "sql_max": 45,
+   "decrypted_max": 23,
+   "target_ms": 250,
+   "status": "passed"
+  },
+  "live_context": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 12.90633191820234,
+   "p95_ms": 32.38615102600306,
+   "p99_ms": 58.72157390695065,
+   "max_ms": 64.45016502402723,
+   "sql_max": 18,
+   "decrypted_max": 12,
+   "target_ms": 100,
+   "status": "passed"
+  },
+  "wrapup": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 23.68935802951455,
+   "p95_ms": 51.164322067052126,
+   "p99_ms": 85.67756996490061,
+   "max_ms": 353.34284300915897,
+   "sql_max": 38,
+   "decrypted_max": 16,
+   "target_ms": 250,
+   "status": "passed"
+  },
+  "hangup": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 44.69952802173793,
+   "p95_ms": 97.4765750579536,
+   "p99_ms": 136.98189705610275,
+   "max_ms": 410.68942891433835,
+   "sql_max": 46,
+   "decrypted_max": 27,
+   "target_ms": 250,
+   "status": "passed"
+  }
+ },
+ "load": {
+  "status": "failed",
+  "gate_failures": [
+   "cycle_failures",
+   "path:selection",
+   "path:event_ack",
+   "path:event_state",
+   "path:live_context",
+   "path:hangup",
+   "path:wrapup",
+   "background_errors"
+  ],
+  "cycles": 177,
+  "background_errors": [
+   {
+    "lane": "ml",
+    "queue": "ml",
+    "error_type": "StaleDataError"
+   }
+  ],
+  "queue_recovery": "passed",
+  "paths": {
+   "selection": {
+    "samples": 1416,
+    "failures": 12,
+    "p50_ms": 462.49794005416334,
+    "p95_ms": 1404.863278963603,
+    "p99_ms": 2016.155861900188,
+    "max_ms": 6911.8655771017075,
+    "sql_max": 65,
+    "decrypted_max": 434,
+    "target_ms": 250,
+    "status": "failed"
+   },
+   "event_ack": {
+    "samples": 1416,
+    "failures": 12,
+    "p50_ms": 14.747260953299701,
+    "p95_ms": 52.374708000570536,
+    "p99_ms": 271.3564969599247,
+    "max_ms": 5201.194538036361,
+    "sql_max": 4,
+    "decrypted_max": 0,
+    "target_ms": 100,
+    "status": "failed"
+   },
+   "event_state": {
+    "samples": 1416,
+    "failures": 12,
+    "p50_ms": 783.3966469625011,
+    "p95_ms": 2789.8767750011757,
+    "p99_ms": 5154.294096049853,
+    "max_ms": 8365.194831974804,
+    "sql_max": 326,
+    "decrypted_max": 0,
+    "target_ms": 250,
+    "status": "failed"
+   },
+   "live_context": {
+    "samples": 1416,
+    "failures": 12,
+    "p50_ms": 64.24531794618815,
+    "p95_ms": 223.97350193932652,
+    "p99_ms": 1431.9935929961503,
+    "max_ms": 5201.194538036361,
+    "sql_max": 18,
+    "decrypted_max": 13,
+    "target_ms": 100,
+    "status": "failed"
+   },
+   "hangup": {
+    "samples": 1416,
+    "failures": 13,
+    "p50_ms": 526.084934012033,
+    "p95_ms": 1803.3095590071753,
+    "p99_ms": 4414.794503012672,
+    "max_ms": 8329.661641037092,
+    "sql_max": 50,
+    "decrypted_max": 28,
+    "target_ms": 250,
+    "status": "failed"
+   },
+   "wrapup": {
+    "samples": 1416,
+    "failures": 13,
+    "p50_ms": 265.2441899990663,
+    "p95_ms": 769.3357929820195,
+    "p99_ms": 3874.1355889942497,
+    "max_ms": 7981.3656010665,
+    "sql_max": 40,
+    "decrypted_max": 16,
+    "target_ms": 250,
+    "status": "failed"
+   },
+   "start": {
+    "samples": 1416,
+    "failures": 12,
+    "p50_ms": 902.9344100272283,
+    "p95_ms": 2475.7573830429465,
+    "p99_ms": 5218.799107009545,
+    "max_ms": 7488.688805955462,
+    "sql_max": 95,
+    "decrypted_max": 52,
+    "target_ms": null,
+    "status": "reported"
+   },
+   "cleanup_hangup": {
+    "samples": 1416,
+    "failures": 12,
+    "p50_ms": 204.4949650298804,
+    "p95_ms": 545.0546420179307,
+    "p99_ms": 1728.1701170140877,
+    "max_ms": 5201.194538036361,
+    "sql_max": 6,
+    "decrypted_max": 5,
+    "target_ms": null,
+    "status": "reported"
+   },
+   "pause": {
+    "samples": 1416,
+    "failures": 0,
+    "p50_ms": 137.92898401152343,
+    "p95_ms": 422.3684339085594,
+    "p99_ms": 932.3371039936319,
+    "max_ms": 3490.1094289962202,
+    "sql_max": 12,
+    "decrypted_max": 5,
+    "target_ms": null,
+    "status": "reported"
+   }
+  }
+ },
+ "shared_reference": {
+  "status": "passed",
+  "cpu_limit": 2.0,
+  "memory_limit_mib": 4096.0
+ },
+ "raw_result_sha256": "74caad1326f0a5e1c20c9d3354f97040d356ba127b1c99a3d130538bf168863b",
+ "known_limitations": [
+  "Eight reps each run one full call journey every 10 s (about 360 calls per rep-hour, several times a real dialing rate), synchronized across reps, on 1.5 API vCPU plus a 0.5 vCPU PostgreSQL container.",
+  "Latency targets are not met at eight synchronized reps on this reference; correctness gates (cold selection, workspace, control paths, coach fixture, queue recovery) pass. Supported connected capacity on this reference is recorded in STATUS.",
+  "One ml-lane StaleDataError (optimistic concurrency) retried and the queue recovered."
+ ],
+ "external_calls": false
+}

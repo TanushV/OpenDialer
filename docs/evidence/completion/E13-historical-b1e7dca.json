@@ -1,0 +1,261 @@
+{
+ "step_id": "E13",
+ "profile": "historical",
+ "source_commit": "37635aa7c56a203e638e88ebf6917120eb49882e",
+ "production_tree_digest": "2d06c8b73b6c5d5361931cafc511550b8fc660a982b5ebe134b109d803a792ab",
+ "test_tree_digest": "ab5e7890a6aefda25f780bf0454de7af4cea1906afcd290fe730d1b7fa175ff9",
+ "harness_sha256": "a7e2436fb388dd578a5e5112feda84eeb85b918ef2bfd7677f069605a5e97fff",
+ "case_ids": [
+  "A25",
+  "A50",
+  "A51"
+ ],
+ "mode": "SQLite on macOS ARM64",
+ "fixture_seed": 20261018,
+ "commands": [
+  "python scripts/measure_completion.py --profile historical --seed 20261018 --output-dir work/remediation/completion/performance-b1e7dca-historical"
+ ],
+ "environment": {
+  "platform": "macOS-26.5.1-arm64-arm-64bit",
+  "python": "3.12.13",
+  "logical_cpus": 10,
+  "locks": {
+   "pyproject.toml": "2a9bad818fd3de5d3c81d38065ed0f7d5c34029169dcbd39dc4078b868976447",
+   "uv.lock": "51f39f3e13bd2e25833ef3d0fb99ec9794f32224c596b06ef97b95eb7c619342",
+   "apps/desktop/package.json": "3a7ac17f0fdc84067e112781bad974623c33c2484c2bac2b58a84f1f05632959",
+   "apps/desktop/package-lock.json": "fa38442672fb0585458bb3e364e6ef92bfca4ee9b2f1ba8328b92433cdcb2211",
+   "apps/desktop/src-tauri/Cargo.toml": "42a8b884583ff283e0611b244e31754f4dde0edd9c4fba3792e6cb52a7fd2ea5",
+   "apps/desktop/src-tauri/Cargo.lock": "7caa52d5c71486783bcf42f7d5d9a398e6137b1b928aed0312e0c26a2aa7a567"
+  }
+ },
+ "dirty_files": [],
+ "profile_status": "passed",
+ "failed_gates": [],
+ "authority_startup_ms": 2926.588832982816,
+ "selection": {
+  "cold": {
+   "samples": 1,
+   "failures": 0,
+   "p50_ms": 33.16466696560383,
+   "p95_ms": 33.16466696560383,
+   "p99_ms": 33.16466696560383,
+   "max_ms": 33.16466696560383,
+   "sql_max": 28,
+   "decrypted_max": 120,
+   "target_ms": 1000,
+   "status": "passed"
+  },
+  "warm": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 21.421957993879914,
+   "p95_ms": 33.45341607928276,
+   "p99_ms": 50.03295803908259,
+   "max_ms": 124.08816698007286,
+   "sql_max": 27,
+   "decrypted_max": 123,
+   "target_ms": 250,
+   "status": "passed"
+  }
+ },
+ "cached_workspace": {
+  "samples": 200,
+  "failures": 0,
+  "p50_ms": 9.194332989864051,
+  "p95_ms": 15.229374985210598,
+  "p99_ms": 18.258915981277823,
+  "max_ms": 58.0276669934392,
+  "sql_max": 44,
+  "decrypted_max": 70,
+  "target_ms": 250,
+  "status": "passed"
+ },
+ "six_coach": {
+  "samples": 30,
+  "failures": 0,
+  "p50_ms": 716.0759579855949,
+  "p95_ms": 736.2460839794949,
+  "p99_ms": 824.8668749583885,
+  "max_ms": 824.8668749583885,
+  "sql_max": 0,
+  "decrypted_max": 0,
+  "target_ms": 1500,
+  "status": "passed"
+ },
+ "rebuild": {
+  "seconds": 1.7889664589893073,
+  "pages": 14,
+  "published": true,
+  "status": "passed"
+ },
+ "writer_transactions": {
+  "samples": 4355,
+  "failures": 0,
+  "p50_ms": 5.588124971836805,
+  "p95_ms": 15.860415995121002,
+  "p99_ms": 24.983583018183708,
+  "max_ms": 132.8280420275405,
+  "sql_max": 0,
+  "decrypted_max": 0,
+  "target_ms": 25,
+  "status": "passed",
+  "phases": {
+   "control_paths": {
+    "samples": 3300,
+    "failures": 0,
+    "p50_ms": 6.507374928332865,
+    "p95_ms": 16.81662502232939,
+    "p99_ms": 25.608708965592086,
+    "max_ms": 132.8280420275405,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "passed"
+   },
+   "selection": {
+    "samples": 664,
+    "failures": 0,
+    "p50_ms": 3.0848750611767173,
+    "p95_ms": 11.386416968889534,
+    "p99_ms": 18.5770409880206,
+    "max_ms": 28.431499958969653,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "passed"
+   },
+   "six_coach": {
+    "samples": 390,
+    "failures": 0,
+    "p50_ms": 2.4458750849589705,
+    "p95_ms": 12.62308401055634,
+    "p99_ms": 43.999791028909385,
+    "max_ms": 104.70150003675371,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "passed"
+   },
+   "workload_capacity": {
+    "samples": 1,
+    "failures": 0,
+    "p50_ms": 2.7024579467251897,
+    "p95_ms": 2.7024579467251897,
+    "p99_ms": 2.7024579467251897,
+    "max_ms": 2.7024579467251897,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "passed"
+   }
+  },
+  "longest_holds": [
+   {
+    "caller": "app.service:Service._claim_dial",
+    "phase": "control_paths",
+    "held_ms": 132.26175005547702,
+    "at_s": 69.66
+   },
+   {
+    "caller": "app.service:Service._claim_dial",
+    "phase": "control_paths",
+    "held_ms": 115.45000004116446,
+    "at_s": 80.039
+   },
+   {
+    "caller": "app.service:Service._dial_completed",
+    "phase": "control_paths",
+    "held_ms": 71.5924579417333,
+    "at_s": 73.539
+   },
+   {
+    "caller": "app.telephony.ingress:WebhookIngress._process_webhook < __main__:call_cycle.<locals>.settle < __main__:call_cycle.<locals>.<lambda>",
+    "phase": "control_paths",
+    "held_ms": 69.50637500267476,
+    "at_s": 69.128
+   },
+   {
+    "caller": "app.scheduling.queue:ReservationPlanner._claim_selection < app.scheduling.queue:ReservationPlanner.reserve < app.main:create_app.<locals>.next_lead",
+    "phase": "control_paths",
+    "held_ms": 67.7269590087235,
+    "at_s": 86.633
+   }
+  ]
+ },
+ "control_paths": {
+  "event_ack": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 1.9524999661371112,
+   "p95_ms": 4.229000071063638,
+   "p99_ms": 9.20937501359731,
+   "max_ms": 37.85520896781236,
+   "sql_max": 5,
+   "decrypted_max": 0,
+   "target_ms": 100,
+   "status": "passed"
+  },
+  "event_state": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 12.376041966490448,
+   "p95_ms": 23.550499929115176,
+   "p99_ms": 36.24891594517976,
+   "max_ms": 75.93341707251966,
+   "sql_max": 46,
+   "decrypted_max": 23,
+   "target_ms": 250,
+   "status": "passed"
+  },
+  "live_context": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 5.8477920247241855,
+   "p95_ms": 11.250791954807937,
+   "p99_ms": 17.204625066369772,
+   "max_ms": 18.28091696370393,
+   "sql_max": 19,
+   "decrypted_max": 9,
+   "target_ms": 100,
+   "status": "passed"
+  },
+  "wrapup": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 12.099417042918503,
+   "p95_ms": 23.65541597828269,
+   "p99_ms": 28.474709019064903,
+   "max_ms": 49.82600000221282,
+   "sql_max": 38,
+   "decrypted_max": 16,
+   "target_ms": 250,
+   "status": "passed"
+  },
+  "hangup": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 19.706874969415367,
+   "p95_ms": 34.509000019170344,
+   "p99_ms": 41.2902079988271,
+   "max_ms": 51.1857079109177,
+   "sql_max": 47,
+   "decrypted_max": 27,
+   "target_ms": 250,
+   "status": "passed"
+  }
+ },
+ "load": {
+  "status": null,
+  "gate_failures": null,
+  "cycles": 0,
+  "background_errors": [],
+  "queue_recovery": null,
+  "paths": {}
+ },
+ "shared_reference": {},
+ "raw_result_sha256": "c9b34d2c89886cc961a48eec5eef08078bb4599fe536231f765923b593662bfa",
+ "known_limitations": [
+  "Ran while the shared profile occupied the reference containers on the same host."
+ ],
+ "external_calls": false
+}

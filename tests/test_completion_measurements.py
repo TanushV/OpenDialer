@@ -2,6 +2,7 @@
 
 import contextlib
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -920,3 +921,22 @@ def test_multi_rep_profiles_declare_number_capacity_before_any_concurrent_phase(
         m.run_profile("local", tmp_path, 20261018, lambda _: None)
     assert "workload_capacity" in calls and "selection" in calls, calls
     assert calls.index("workload_capacity") < calls.index("selection"), calls
+
+
+def test_a_capacity_search_overrides_reps_for_one_profile_and_records_it(tmp_path, monkeypatch):
+    m = measurement()
+    seen = {}
+
+    def profile(name, directory, seed, checkpoint):
+        seen[name] = m.PROFILES[name]["reps"]
+        return {"profile": name, "status": "passed", "declared": m.PROFILES[name]}
+
+    monkeypatch.setattr(m, "run_profile", profile)
+    monkeypatch.setattr(m, "source_metadata", lambda: {"source_commit": "c" * 40})
+    monkeypatch.setattr(m, "validate_output", lambda path: path)
+    m.main(["--profile", "shared", "--reps", "4", "--output-dir", str(tmp_path)])
+    assert seen == {"shared": 4}
+    summary = json.loads((tmp_path / "summary.json").read_text())
+    assert summary["reps_override"] == 4
+    assert json.loads((tmp_path / "shared.json").read_text())["declared"]["reps"] == 4
+    assert m.PROFILES["shared"]["reps"] == 8, "The defined acceptance profile is not changed"
