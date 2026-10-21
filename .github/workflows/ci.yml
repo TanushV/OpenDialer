@@ -55,6 +55,28 @@ jobs:
           path: |
             work/remediation/completion/sqlite-coverage.json
             work/remediation/completion/sqlite-junit.xml
+  backend-windows-storage:
+    # Installed Windows stores migrate and journal through these paths. POSIX file semantics
+    # hid a read-only flush that stopped the signed 0.2.1 -> 0.3.0 Windows update (E14).
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.10.12'
+      - run: uv sync --frozen --python 3.12
+      - run: >-
+          uv run pytest -q
+          services/backend/tests/test_installed_copy_migration.py
+          services/backend/tests/test_migrations.py
+          services/backend/tests/test_authority_lock.py
+          services/backend/tests/test_encrypted_storage.py
+          services/backend/tests/test_consent_journal.py
+          services/backend/tests/test_effect_journal.py
+          services/backend/tests/test_suppression_durability.py
   backend-postgres:
     runs-on: ubuntu-24.04
     timeout-minutes: 60

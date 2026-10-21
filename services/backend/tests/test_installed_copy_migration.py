@@ -587,3 +587,37 @@ def test_actual_update_allowed_data(platform):
     assert receipt["session_restored"] is True
     assert {"local", "connected_postgresql"} <= receipt["native_journeys"].keys()
     assert all(row["passed"] for row in receipt["native_journeys"].values())
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows itself enforces this; the stand-in is POSIX")
+def test_upgrade_flushes_only_through_writable_handles_as_windows_requires(tmp_path, monkeypatch):
+    """Windows os.fsync is _commit/FlushFileBuffers, which fails with EBADF on a read-only handle.
+    The signed 0.2.1 -> 0.3.0 Windows update could not open its migrated workspace (runs
+    39665326098, 39666476735, 39668123126); POSIX accepts the same flush, so emulate Windows."""
+    import errno
+    import fcntl
+    import sqlite3
+    import stat
+
+    from app.main import create_app
+
+    flush = os.fsync
+
+    def windows_fsync(descriptor):
+        # Directory flushes are POSIX-only in the product (Vault._sync_directory skips Windows).
+        directory = stat.S_ISDIR(os.fstat(descriptor).st_mode)
+        if not directory and fcntl.fcntl(descriptor, fcntl.F_GETFL) & os.O_ACCMODE == os.O_RDONLY:
+            raise OSError(errno.EBADF, "Bad file descriptor")
+        flush(descriptor)
+
+    settings = legacy_upgrade_store(tmp_path)
+    monkeypatch.setattr(os, "fsync", windows_fsync)
+    upgraded = create_app(settings)
+    try:
+        with upgraded.state.db.transaction(False) as s:
+            assert get(s, "notes", "human").data["human_text"] == "Retain this relationship note"
+    finally:
+        upgraded.state.db.engine.dispose()
+    assert not (tmp_path / ".opendialer-upgrade-v1").exists()
+    with closing(sqlite3.connect(next((tmp_path / "sanitized-upgrades").glob("*.db")))) as retained:
+        assert retained.execute("PRAGMA integrity_check").fetchone() == ("ok",)
