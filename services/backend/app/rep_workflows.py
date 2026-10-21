@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import select
 
-from app.db import MODELS, audit, doc, emit, put, update
+from app.db import MODELS, audit, doc, emit, get, put, update
 from app.optimization.goals import review_token
 from app.postcall.commitments import ACTIVE as ACTIVE_TASKS
 from app.service import dt, fail
@@ -773,6 +773,13 @@ class RepWorkflows:
             task = self.required(s, "followup_tasks", task_id, p)
             if task.data.get("alias_of"):
                 task = self.required(s, "followup_tasks", task.data["alias_of"], p)
+            # Lock in the call writers' order (source call, lead, then the task and its
+            # promise) so post-call work and packet refresh wait instead of going stale.
+            if task.data.get("call_id"):
+                get(s, "call_attempts", task.data["call_id"], p["tenant_id"], lock=True)
+            if task.data.get("lead_id"):
+                get(s, "leads", task.data["lead_id"], p["tenant_id"], lock=True)
+            s.refresh(task, with_for_update=True)
             identity = self.local_edit_in(s, p, "task", task_id, task, data, "owner_id")
             if identity[2]:
                 return {**doc(task), "edit_receipt": identity[2]}
@@ -833,7 +840,7 @@ class RepWorkflows:
             )
             if task.data.get("commitment_id"):
                 # A person's decision on the task is the promise's state in every brief.
-                commitment = self.required(s, "commitments", task.data["commitment_id"], p)
+                commitment = self.required(s, "commitments", task.data["commitment_id"], p, lock=True)
                 update(
                     commitment,
                     task_status=task.data["status"],
@@ -1012,7 +1019,7 @@ class RepWorkflows:
             identity = self.local_edit_in(s, p, "disposition", call_id, call, data, "rep_id")
             if call.data["state"] not in TERMINAL:
                 fail(409, "End the call before wrap-up")
-            lead = self.required(s, "leads", call.data["lead_id"], p)
+            lead = self.required(s, "leads", call.data["lead_id"], p, lock=True)  # Call, then lead.
             canonical = {
                 "outcome": outcome,
                 "callback_at": due,
