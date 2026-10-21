@@ -460,7 +460,9 @@ def test_load_keeps_swallowed_lane_errors_and_maintenance_exceptions_and_fails(t
 def test_slow_selection_under_load_fails_even_when_every_cycle_was_ok(tmp_path, monkeypatch):
     m = measurement()
     service, _ = lane_service(tmp_path, m)
-    monkeypatch.setattr(m, "call_cycle", lambda *args, **kwargs: completed_cycle(selection=400.0, start=5000.0))
+    monkeypatch.setattr(
+        m, "call_cycle", lambda *args, **kwargs: completed_cycle(selection=400.0, start=5000.0)
+    )
     result = run_load_with_portal(m, service)
     assert all(sample["ok"] for sample in result["samples"])
     assert result["paths"]["selection"]["status"] == "failed"
@@ -564,12 +566,19 @@ def test_writer_attribution_identifies_callers_and_admission_wait(tmp_path):
         assert row["phase"] == "contention" and row["ok"] is True
     assert rows["contending_transaction"]["admission_ms"] >= 150
     assert rows["holder_transaction"]["admission_ms"] < 150
+    assert rows["holder_transaction"]["held_ms"] >= 150, "The holder kept the writer while the other waited"
+    assert rows["contending_transaction"]["held_ms"] < 150
     summary = m.summarize_writes(measured.writes, target_ms=25)
     assert summary["samples"] == 2 and summary["target_ms"] == 25
     assert [a["count"] for a in summary["attribution"]] == [1, 1]
     totals = [a["total_ms"] for a in summary["attribution"]]
     assert totals == sorted(totals, reverse=True)
     assert summary["attribution"][0]["admission_p95_ms"] is not None
+    holder = next(a for a in summary["attribution"] if a["caller"].endswith("holder_transaction"))
+    assert holder["held_p95_ms"] >= 150 and holder["held_max_ms"] >= 150
+    longest = summary["longest_holds"][0]
+    assert longest["caller"].endswith("holder_transaction") and longest["held_ms"] >= 150
+    assert longest["phase"] == "contention" and longest["at_s"] >= 0
     assert summary["phases"]["contention"]["samples"] == 2
     assert summary["admission"]["samples"] == 2
     assert summary["admission"]["max_ms"] >= 150
