@@ -249,3 +249,41 @@ def test_serving_authority_settles_its_heap_after_startup(monkeypatch, tmp_path)
     monkeypatch.setattr(sys, "argv", ["opendialer-authority", "serve", "--port", "0"])
     cli.main()
     assert calls == ["settled", "served"]
+
+
+def test_background_cpu_work_also_steps_aside_while_another_thread_holds_the_writer(monkeypatch):
+    """Every write holds the single SQLite writer; background CPU loops must not slow its body."""
+    import threading
+
+    import app.priority as priority
+
+    monkeypatch.setattr(priority, "GATE", priority.ForegroundGate())
+    pauses = []
+    monkeypatch.setattr(priority.time, "sleep", lambda seconds: pauses.append(seconds))
+    admission = priority.WriterAdmission()
+    priority.yield_to_calling_work()
+    assert pauses == [], "Nothing in flight: background work runs at full speed"
+    held, done = threading.Event(), threading.Event()
+
+    def writer():
+        assert admission.acquire(timeout=1)
+        held.set()
+        done.wait(5)
+        admission.release()
+
+    thread = threading.Thread(target=writer)
+    thread.start()
+    assert held.wait(5)
+    priority.yield_to_calling_work()
+    assert pauses, "Another thread's write is in flight"
+    done.set()
+    thread.join(5)
+    pauses.clear()
+    priority.yield_to_calling_work()
+    assert pauses == []
+    assert admission.acquire(timeout=1)
+    try:
+        priority.yield_to_calling_work()
+        assert pauses == [], "The writer's own thread never sleeps while holding the writer"
+    finally:
+        admission.release()

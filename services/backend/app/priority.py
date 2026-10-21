@@ -46,16 +46,20 @@ class ForegroundGate:
 
 GATE = ForegroundGate()
 YIELD_SECONDS = 0.0005
+_WRITER_THREADS = set()  # Threads holding a SQLite writer admission.
 
 
 def yield_to_calling_work():
     """Background CPU loops call this between small units of work.
 
     A CPU-bound background thread otherwise holds the interpreter lock for whole switch
-    intervals, and a request thread waits for it again after every database call. While
-    calling work is in flight, release the lock briefly instead. Calling work never yields.
+    intervals, and a thread making database calls waits for it again after each one.
+    While calling work or another thread's write transaction is in flight, release the
+    lock briefly instead. Calling work and the writer's own thread never yield.
     """
-    if GATE.active and not FOREGROUND.get():
+    if FOREGROUND.get():
+        return
+    if GATE.active or (_WRITER_THREADS and threading.get_ident() not in _WRITER_THREADS):
         time.sleep(YIELD_SECONDS)
 
 
@@ -93,6 +97,7 @@ class WriterAdmission:
                         or (not foreground and (aged or not self._waiting_foreground))
                     ):
                         self._held = True
+                        _WRITER_THREADS.add(threading.get_ident())
                         return True
                     remaining = deadline - now
                     if remaining <= 0:
@@ -111,6 +116,7 @@ class WriterAdmission:
     def release(self):
         with self._condition:
             self._held = False
+            _WRITER_THREADS.discard(threading.get_ident())
             self._condition.notify_all()
 
 
