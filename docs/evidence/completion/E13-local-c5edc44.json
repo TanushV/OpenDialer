@@ -1,0 +1,382 @@
+{
+ "step_id": "E13",
+ "profile": "local",
+ "source_commit": "33d76772dcb1661b21f8bfec77098dee77ecd67c",
+ "production_tree_digest": "c4f2a7d0985e9ada31a4630b53e188cec8d9d1b6ac3ae05e3d6d12a4cec2c19a",
+ "test_tree_digest": "794626dfdc76f76909de9908b392122c3e2792ac0cb198b7f8ee277b536f6936",
+ "harness_sha256": "a7e2436fb388dd578a5e5112feda84eeb85b918ef2bfd7677f069605a5e97fff",
+ "case_ids": [
+  "A25",
+  "A50",
+  "A51"
+ ],
+ "mode": "SQLite on macOS ARM64",
+ "fixture_seed": 20261018,
+ "commands": [
+  "uv run python scripts/measure_completion.py --profile local --seed 20261018 --output-dir work/remediation/completion/performance-c5edc44-local"
+ ],
+ "environment": {
+  "platform": "macOS-26.5.1-arm64-arm-64bit",
+  "python": "3.12.13",
+  "logical_cpus": 10,
+  "locks": {
+   "pyproject.toml": "2a9bad818fd3de5d3c81d38065ed0f7d5c34029169dcbd39dc4078b868976447",
+   "uv.lock": "51f39f3e13bd2e25833ef3d0fb99ec9794f32224c596b06ef97b95eb7c619342",
+   "apps/desktop/package.json": "3a7ac17f0fdc84067e112781bad974623c33c2484c2bac2b58a84f1f05632959",
+   "apps/desktop/package-lock.json": "fa38442672fb0585458bb3e364e6ef92bfca4ee9b2f1ba8328b92433cdcb2211",
+   "apps/desktop/src-tauri/Cargo.toml": "42a8b884583ff283e0611b244e31754f4dde0edd9c4fba3792e6cb52a7fd2ea5",
+   "apps/desktop/src-tauri/Cargo.lock": "7caa52d5c71486783bcf42f7d5d9a398e6137b1b928aed0312e0c26a2aa7a567"
+  }
+ },
+ "dirty_files": [],
+ "profile_status": "passed",
+ "failed_gates": [],
+ "authority_startup_ms": 1284.2576659750193,
+ "selection": {
+  "cold": {
+   "samples": 1,
+   "failures": 0,
+   "p50_ms": 103.69224997702986,
+   "p95_ms": 103.69224997702986,
+   "p99_ms": 103.69224997702986,
+   "max_ms": 103.69224997702986,
+   "sql_max": 27,
+   "decrypted_max": 86,
+   "target_ms": 1000,
+   "status": "passed"
+  },
+  "warm": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 31.72562492545694,
+   "p95_ms": 67.66483292449266,
+   "p99_ms": 152.804333018139,
+   "max_ms": 598.632000037469,
+   "sql_max": 27,
+   "decrypted_max": 90,
+   "target_ms": 250,
+   "status": "passed"
+  }
+ },
+ "cached_workspace": {
+  "samples": 200,
+  "failures": 0,
+  "p50_ms": 29.249708983115852,
+  "p95_ms": 40.27183307334781,
+  "p99_ms": 84.74662504158914,
+  "max_ms": 192.0332080917433,
+  "sql_max": 45,
+  "decrypted_max": 118,
+  "target_ms": 250,
+  "status": "passed"
+ },
+ "six_coach": {
+  "samples": 30,
+  "failures": 0,
+  "p50_ms": 718.8801249722019,
+  "p95_ms": 727.5200410513207,
+  "p99_ms": 733.895167009905,
+  "max_ms": 733.895167009905,
+  "sql_max": 0,
+  "decrypted_max": 0,
+  "target_ms": 1500,
+  "status": "passed"
+ },
+ "rebuild": {
+  "seconds": 203.22849550005049,
+  "pages": 428,
+  "published": true,
+  "status": "passed"
+ },
+ "writer_transactions": {
+  "samples": 19611,
+  "failures": 0,
+  "p50_ms": 3.6396250361576676,
+  "p95_ms": 18.41516699641943,
+  "p99_ms": 34.34545896016061,
+  "max_ms": 288.0775830708444,
+  "sql_max": 0,
+  "decrypted_max": 0,
+  "target_ms": 25,
+  "status": "passed",
+  "phases": {
+   "control_paths": {
+    "samples": 3300,
+    "failures": 0,
+    "p50_ms": 5.476167076267302,
+    "p95_ms": 13.853125041350722,
+    "p99_ms": 21.56887506134808,
+    "max_ms": 91.23916609678417,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "passed"
+   },
+   "load": {
+    "samples": 15256,
+    "failures": 0,
+    "p50_ms": 3.291417029686272,
+    "p95_ms": 20.080332993529737,
+    "p99_ms": 36.15225001703948,
+    "max_ms": 268.90587504021823,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "passed"
+   },
+   "selection": {
+    "samples": 664,
+    "failures": 0,
+    "p50_ms": 2.8355419635772705,
+    "p95_ms": 11.739875073544681,
+    "p99_ms": 21.71183400787413,
+    "max_ms": 288.0775830708444,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "passed"
+   },
+   "six_coach": {
+    "samples": 390,
+    "failures": 0,
+    "p50_ms": 2.0080000394955277,
+    "p95_ms": 11.714500025846064,
+    "p99_ms": 16.36729098390788,
+    "max_ms": 21.371625014580786,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "passed"
+   },
+   "workload_capacity": {
+    "samples": 1,
+    "failures": 0,
+    "p50_ms": 3.4448340302333236,
+    "p95_ms": 3.4448340302333236,
+    "p99_ms": 3.4448340302333236,
+    "max_ms": 3.4448340302333236,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "passed"
+   }
+  },
+  "longest_holds": [
+   {
+    "caller": "app.scheduling.queue:ReservationPlanner._claim_selection < app.scheduling.queue:ReservationPlanner.reserve < __main__:run_requests.<locals>.selection.<locals>.<lambda>",
+    "phase": "selection",
+    "held_ms": 281.42429201398045,
+    "at_s": 8.705
+   },
+   {
+    "caller": "app.service:Service._hangup_completed",
+    "phase": "load",
+    "held_ms": 268.5945000266656,
+    "at_s": 435.651
+   },
+   {
+    "caller": "app.service:Service.presence < __main__:run_requests.<locals>.selection",
+    "phase": "selection",
+    "held_ms": 173.88066707644612,
+    "at_s": 8.994
+   },
+   {
+    "caller": "app.service:Service._claim_hangup",
+    "phase": "load",
+    "held_ms": 147.3307500127703,
+    "at_s": 435.469
+   },
+   {
+    "caller": "app.rep_workflows:RepWorkflows.save_disposition < app.main:create_app.<locals>.disposition < fastapi.telemetry._api:_run_sync_endpoint",
+    "phase": "load",
+    "held_ms": 132.22608400974423,
+    "at_s": 436.057
+   }
+  ]
+ },
+ "control_paths": {
+  "event_ack": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 1.80004199501127,
+   "p95_ms": 5.184209090657532,
+   "p99_ms": 9.634333080612123,
+   "max_ms": 12.557124951854348,
+   "sql_max": 5,
+   "decrypted_max": 0,
+   "target_ms": 100,
+   "status": "passed"
+  },
+  "event_state": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 10.679459082894027,
+   "p95_ms": 19.853792036883533,
+   "p99_ms": 30.72312497533858,
+   "max_ms": 51.94283300079405,
+   "sql_max": 46,
+   "decrypted_max": 23,
+   "target_ms": 250,
+   "status": "passed"
+  },
+  "live_context": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 5.638499977067113,
+   "p95_ms": 9.591499925591052,
+   "p99_ms": 17.10720907431096,
+   "max_ms": 21.799416048452258,
+   "sql_max": 19,
+   "decrypted_max": 12,
+   "target_ms": 100,
+   "status": "passed"
+  },
+  "wrapup": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 9.811457945033908,
+   "p95_ms": 18.290125066414475,
+   "p99_ms": 26.53420902788639,
+   "max_ms": 105.40804092306644,
+   "sql_max": 38,
+   "decrypted_max": 16,
+   "target_ms": 250,
+   "status": "passed"
+  },
+  "hangup": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 16.162832966074347,
+   "p95_ms": 27.064458001405,
+   "p99_ms": 46.48166708648205,
+   "max_ms": 78.806999954395,
+   "sql_max": 47,
+   "decrypted_max": 27,
+   "target_ms": 250,
+   "status": "passed"
+  }
+ },
+ "load": {
+  "status": "passed",
+  "gate_failures": [],
+  "cycles": 180,
+  "background_errors": [],
+  "queue_recovery": "passed",
+  "paths": {
+   "selection": {
+    "samples": 180,
+    "failures": 0,
+    "p50_ms": 64.38791705295444,
+    "p95_ms": 102.05220908392221,
+    "p99_ms": 136.66333304718137,
+    "max_ms": 137.5040829880163,
+    "sql_max": 29,
+    "decrypted_max": 92,
+    "target_ms": 250,
+    "status": "passed"
+   },
+   "event_ack": {
+    "samples": 180,
+    "failures": 0,
+    "p50_ms": 2.4025419261306524,
+    "p95_ms": 7.151208934374154,
+    "p99_ms": 16.98591699823737,
+    "max_ms": 17.410125001333654,
+    "sql_max": 5,
+    "decrypted_max": 0,
+    "target_ms": 100,
+    "status": "passed"
+   },
+   "event_state": {
+    "samples": 180,
+    "failures": 0,
+    "p50_ms": 18.72641604859382,
+    "p95_ms": 32.36325003672391,
+    "p99_ms": 51.92058300599456,
+    "max_ms": 695.7434170180932,
+    "sql_max": 207,
+    "decrypted_max": 0,
+    "target_ms": 250,
+    "status": "passed"
+   },
+   "live_context": {
+    "samples": 180,
+    "failures": 0,
+    "p50_ms": 6.8558750208467245,
+    "p95_ms": 12.154208961874247,
+    "p99_ms": 16.793624963611364,
+    "max_ms": 22.120916051790118,
+    "sql_max": 19,
+    "decrypted_max": 13,
+    "target_ms": 100,
+    "status": "passed"
+   },
+   "hangup": {
+    "samples": 180,
+    "failures": 0,
+    "p50_ms": 20.68216702900827,
+    "p95_ms": 38.54666696861386,
+    "p99_ms": 59.515582979656756,
+    "max_ms": 487.37712495494634,
+    "sql_max": 49,
+    "decrypted_max": 27,
+    "target_ms": 250,
+    "status": "passed"
+   },
+   "wrapup": {
+    "samples": 180,
+    "failures": 0,
+    "p50_ms": 12.869041063822806,
+    "p95_ms": 33.6849169107154,
+    "p99_ms": 51.66100000496954,
+    "max_ms": 204.00554197840393,
+    "sql_max": 39,
+    "decrypted_max": 18,
+    "target_ms": 250,
+    "status": "passed"
+   },
+   "start": {
+    "samples": 180,
+    "failures": 0,
+    "p50_ms": 34.5571250654757,
+    "p95_ms": 55.15354196541011,
+    "p99_ms": 71.39908301178366,
+    "max_ms": 77.00825005304068,
+    "sql_max": 93,
+    "decrypted_max": 52,
+    "target_ms": null,
+    "status": "reported"
+   },
+   "cleanup_hangup": {
+    "samples": 180,
+    "failures": 0,
+    "p50_ms": 3.528041997924447,
+    "p95_ms": 21.94541704375297,
+    "p99_ms": 34.208000055514276,
+    "max_ms": 39.28987495601177,
+    "sql_max": 5,
+    "decrypted_max": 4,
+    "target_ms": null,
+    "status": "reported"
+   },
+   "pause": {
+    "samples": 180,
+    "failures": 0,
+    "p50_ms": 6.4139170572161674,
+    "p95_ms": 23.889124975539744,
+    "p99_ms": 40.50337499938905,
+    "max_ms": 56.4955830341205,
+    "sql_max": 12,
+    "decrypted_max": 5,
+    "target_ms": null,
+    "status": "reported"
+   }
+  }
+ },
+ "shared_reference": {},
+ "raw_result_sha256": "8b63e2d3cb6b3ea4095a1a1c6b0d6830b39e8c0b05faa11435c58d773f5b8ddf",
+ "known_limitations": [
+  "Ran alone on the development Mac (no reference-container run in parallel); unrelated desktop applications were open."
+ ],
+ "external_calls": false
+}

@@ -62,12 +62,14 @@ class InboundCallbacks:
         seller = self.required(s, "sellers", p["seller_id"], p)
         config = {**DEFAULTS, **seller.data.get("callback_routing", {})}
         # Single-seller legacy settings can migrate without assigning another seller's destination.
-        if not seller.data.get("callback_routing") and len(rows(s, "sellers", p["tenant_id"])) == 1:
+        # The cached vault read comes first: only a stored legacy destination needs the seller count.
+        if not seller.data.get("callback_routing"):
             legacy = self.vault.read(p["tenant_id"]).get("inbound_fallback_destination", "")
-            try:
-                config["destination"] = valid_destination(legacy)
-            except ValueError:
-                pass
+            if legacy and len(rows(s, "sellers", p["tenant_id"])) == 1:
+                try:
+                    config["destination"] = valid_destination(legacy)
+                except ValueError:
+                    pass
         return config
 
     def read_callback_routing(self, p):
