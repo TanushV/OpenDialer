@@ -18,7 +18,11 @@ from pathlib import Path
 
 import httpx
 from selenium import webdriver
-from selenium.common.exceptions import StaleElementReferenceException, WebDriverException
+from selenium.common.exceptions import (
+    ElementClickInterceptedException,
+    StaleElementReferenceException,
+    WebDriverException,
+)
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.options import ArgOptions
@@ -115,8 +119,11 @@ class NativeUI:
                 self.driver = None
 
     def wait(self, action, timeout=60):
+        # A transient toast (dismissed after 5 s) may cover a control: retry, as a person would.
         return WebDriverWait(
-            self.driver, timeout, ignored_exceptions=(StaleElementReferenceException,)
+            self.driver,
+            timeout,
+            ignored_exceptions=(StaleElementReferenceException, ElementClickInterceptedException),
         ).until(lambda _driver: action())
 
     def body(self):

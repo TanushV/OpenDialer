@@ -224,3 +224,44 @@ def test_every_label_the_native_journey_uses_exists_in_the_desktop_source():
     )
     missing = sorted(label for label in labels - dynamic if label not in source)
     assert labels and not missing, missing
+
+
+def test_a_click_covered_by_a_transient_toast_is_retried():
+    from selenium.common.exceptions import ElementClickInterceptedException
+
+    m = native()
+    attempts = []
+
+    class Button:
+        def is_displayed(self):
+            return True
+
+        def is_enabled(self):
+            return True
+
+        def click(self):
+            attempts.append(True)
+            if len(attempts) == 1:
+                raise ElementClickInterceptedException("covered by a toast")
+
+    class Driver:
+        def find_elements(self, by, query):
+            return [Button()]
+
+        def execute_script(self, *args):
+            return None
+
+    ui = m.NativeUI.__new__(m.NativeUI)
+    ui.driver = Driver()
+    original = m.WebDriverWait
+
+    class Immediate(original):
+        def __init__(self, driver, timeout, **kwargs):
+            super().__init__(driver, 1, poll_frequency=0.01, **kwargs)
+
+    m.WebDriverWait = Immediate
+    try:
+        ui.click("Start call")
+    finally:
+        m.WebDriverWait = original
+    assert len(attempts) == 2

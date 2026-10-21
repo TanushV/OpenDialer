@@ -541,6 +541,19 @@ class WriterAdmission:
         return self.lock.release()
 
 
+def failure_detail(exc):
+    """HTTP status and the product's error code for a failed request; never response content."""
+    response = getattr(exc, "response", None)
+    if response is None or not hasattr(response, "status_code"):
+        return {}
+    try:
+        detail = response.json().get("detail")
+    except (ValueError, AttributeError):
+        detail = None
+    code = detail.get("code") if isinstance(detail, dict) else detail
+    return {"status_code": response.status_code, "code": str(code)[:80] if code is not None else None}
+
+
 class Measurements:
     def __init__(self, service, *, stall_ms=0):
         self.service, self.writes, self.lock = service, [], threading.Lock()
@@ -622,6 +635,7 @@ class Measurements:
             row["ok"] = True
         except Exception as exc:
             row["error"] = type(exc).__name__
+            row.update(failure_detail(exc))
         finally:
             row["ms"] = (time.perf_counter() - begun) * 1000
             CURRENT.reset(token)
