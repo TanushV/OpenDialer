@@ -54,17 +54,19 @@ def yield_to_calling_work():
     """Background CPU loops and bulk reads call this between small units of work.
 
     A CPU-bound background thread otherwise holds the interpreter lock for whole switch
-    intervals (5 ms), and a thread making database calls waits for it again after each
-    one. While calling work or another thread's write is in flight, a background thread
-    instead pauses 0.5 ms after each 0.5 ms of its own work: the others wait at most that
-    long, and background work slows at most about twofold, even under continuous traffic.
+    intervals (5 ms), and a thread making database calls waits for it again after each one.
+    While another thread holds the SQLite writer (short windows), a background thread steps
+    aside at every checkpoint so the write finishes quickly. While only calling work is in
+    flight, which can be continuous, it pauses 0.5 ms after each 0.5 ms of its own work: the
+    others wait at most that long and background work slows at most about twofold.
     Calling work and the writer's own thread never yield.
     """
     if FOREGROUND.get() or threading.get_ident() in _WRITER_THREADS:
         return
-    if not (GATE.active or _WRITER_THREADS):
+    if _WRITER_THREADS:
+        time.sleep(YIELD_SECONDS)
         return
-    if time.perf_counter() < getattr(_YIELD_STATE, "resume_at", 0.0):
+    if not GATE.active or time.perf_counter() < getattr(_YIELD_STATE, "resume_at", 0.0):
         return
     time.sleep(YIELD_SECONDS)
     _YIELD_STATE.resume_at = time.perf_counter() + YIELD_SECONDS
