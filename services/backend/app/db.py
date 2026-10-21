@@ -735,6 +735,21 @@ def announce_job_changes(session, _):
             session.info.setdefault("job_wakeups", set()).add(row.queue)
 
 
+def insert_jobs(session, rows):
+    """Insert new job identities, skipping any a concurrent writer is adding (see insert_absent).
+
+    Core inserts bypass the ORM hooks above, so this applies them: scope columns come
+    from the payload and inserted work wakes its lane after commit."""
+    for row in rows:
+        row["seller_id"] = row["payload"].get("seller_id") or ""
+        row["owner_id"] = row["payload"].get("user_id") or ""
+    inserted = insert_absent(session, Job, rows, ("tenant_id", "key"))
+    for row in rows:
+        if (row["tenant_id"], row["key"]) in inserted:
+            session.info.setdefault("job_wakeups", set()).add(row["queue"])
+    return inserted
+
+
 def get(s, kind, object_id, tenant_id=None, *, lock=False):
     obj = s.get(MODELS[kind], object_id, with_for_update=True if lock else None)
     return obj if obj and (tenant_id is None or obj.tenant_id == tenant_id) else None
@@ -764,6 +779,22 @@ def put(s, kind, tenant_id, seller_id, data, *, object_id=None, key=None, now=No
     if not s.info.get("defer_flush"):
         s.flush()
     return obj
+
+
+def insert_absent(session, model, rows, keys):
+    """INSERT ... ON CONFLICT DO NOTHING; returns the key tuples this statement inserted.
+
+    A concurrent transaction adding the same new identity makes this wait for it and
+    skip the row instead of aborting the caller's whole transaction."""
+    if not rows:
+        return set()
+    if session.bind.dialect.name == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert
+    else:
+        from sqlalchemy.dialects.postgresql import insert
+    columns = [getattr(model, k) for k in keys]
+    statement = insert(model).values(rows).on_conflict_do_nothing(index_elements=columns).returning(*columns)
+    return {tuple(row) for row in session.execute(statement)}
 
 
 def update(obj, **data):

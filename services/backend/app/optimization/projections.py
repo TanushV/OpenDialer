@@ -14,7 +14,7 @@ from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 
 from sqlalchemy import func, or_, select
 
-from app.db import MODELS, Job, doc, put, uid, update
+from app.db import MODELS, Job, doc, insert_jobs, put, uid, update
 from app.operational_schema import call_work_bounds
 from app.optimization.learning import (
     conversion_at,
@@ -473,41 +473,58 @@ def enqueue_units(session, units):
                 .with_for_update()
             ):
                 pending[tenant, job.key] = job
+    # New identities insert first; a concurrent writer adding the same one makes this wait
+    # and then coalesce into its row, instead of aborting the originating transaction.
+    epoch, fresh = datetime(1970, 1, 1, tzinfo=UTC), {}
     for tenant, seller, kind, identity in sorted(units):
         key = f"projection:{seller}:{kind}:{identity}"
-        job = pending.get((tenant, key))
-        payload = {
-            "kind": "metric_dependents"
-            if kind in {"endpoint-leads", "lead-calls", "campaign-leads", "rep-days"}
-            else "metric_refresh",
-            "seller_id": seller,
-            "source_kind": kind,
-            "source_id": identity,
-            "desired_generation": (job.payload.get("desired_generation", 0) if job else 0) + 1,
-            "claimed_generation": job.payload.get("claimed_generation", 0) if job else 0,
-        }
-        if not job:
-            job = Job(
-                id=uid(),
-                tenant_id=tenant,
-                seller_id=seller,
-                owner_id="",
-                queue="ml",
-                key=key,
-                payload=payload,
-                status="queued",
-                priority=30,
-                attempts=0,
-                max_attempts=3,
-                available_at=datetime(1970, 1, 1, tzinfo=UTC),
-            )
-            session.add(job)
-            pending[tenant, key] = job
-        else:
-            job.payload = payload
-            job.available_at = datetime(1970, 1, 1, tzinfo=UTC)
-            if job.status != "running":
-                job.status, job.error, job.attempts = "queued", None, 0
+        if (tenant, key) not in pending:
+            fresh[tenant, key] = {
+                "id": uid(),
+                "tenant_id": tenant,
+                "queue": "ml",
+                "key": key,
+                "payload": unit_payload(seller, kind, identity, None),
+                "status": "queued",
+                "priority": 30,
+                "attempts": 0,
+                "max_attempts": 3,
+                "available_at": epoch,
+            }
+    inserted = insert_jobs(session, list(fresh.values()))
+    lost = {}
+    for tenant, key in sorted(set(fresh) - inserted):
+        lost.setdefault(tenant, []).append(key)
+    for tenant, identities in lost.items():
+        for job in session.scalars(
+            select(Job)
+            .where(Job.tenant_id == tenant, Job.key.in_(identities))
+            .order_by(Job.key)
+            .with_for_update()
+        ):
+            pending[tenant, job.key] = job
+    for tenant, seller, kind, identity in sorted(units):
+        key = f"projection:{seller}:{kind}:{identity}"
+        if (tenant, key) in inserted:
+            continue
+        job = pending[tenant, key]
+        job.payload = unit_payload(seller, kind, identity, job)
+        job.available_at = epoch
+        if job.status != "running":
+            job.status, job.error, job.attempts = "queued", None, 0
+
+
+def unit_payload(seller, kind, identity, job):
+    return {
+        "kind": "metric_dependents"
+        if kind in {"endpoint-leads", "lead-calls", "campaign-leads", "rep-days"}
+        else "metric_refresh",
+        "seller_id": seller,
+        "source_kind": kind,
+        "source_id": identity,
+        "desired_generation": (job.payload.get("desired_generation", 0) if job else 0) + 1,
+        "claimed_generation": job.payload.get("claimed_generation", 0) if job else 0,
+    }
 
 
 def definition_version(config, epoch):

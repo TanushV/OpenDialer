@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import func, select, text
 
-from app.db import Job, uid
+from app.db import Job, insert_jobs, uid
 from app.privacy import job_metadata
 
 
@@ -103,21 +103,38 @@ class JobQueue:
                         previous.lease_owner = previous.lease_expires_at = None
                     s.flush()
             return jobdoc(previous)
-        if latest:
-            payload = {**payload, "desired_generation": 1, "claimed_generation": 0}
-        job = Job(
-            id=uid(),
-            tenant_id=tenant_id,
-            queue=queue,
-            key=key,
-            payload=payload,
-            priority=priority,
-            max_attempts=max_attempts,
-            available_at=available_at or self.clock(),
-        )
-        s.add(job)
-        s.flush()
-        return jobdoc(job)
+        fresh = {**payload, "desired_generation": 1, "claimed_generation": 0} if latest else payload
+        job = {
+            "id": uid(),
+            "tenant_id": tenant_id,
+            "queue": queue,
+            "key": key,
+            "payload": fresh,
+            "status": "queued",
+            "priority": priority,
+            "attempts": 0,
+            "max_attempts": max_attempts,
+            "available_at": available_at or self.clock(),
+        }
+        if not insert_jobs(s, [job]):
+            # Another transaction added this identity meanwhile: coalesce into it.
+            return self.enqueue_in(
+                s,
+                queue,
+                payload,
+                key,
+                tenant_id=tenant_id,
+                priority=priority,
+                max_attempts=max_attempts,
+                available_at=available_at,
+                latest=latest,
+            )
+        return {
+            **{k: job[k] for k in ("id", "tenant_id", "queue", "key", "payload", "status", "attempts")},
+            "error": None,
+            "lease_owner": None,
+            "available_at": aware(job["available_at"]).isoformat(),
+        }
 
     @staticmethod
     def _execution_class(queue, execution_class):
