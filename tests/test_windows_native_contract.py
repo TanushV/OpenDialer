@@ -487,3 +487,18 @@ def test_every_driver_session_reuses_the_apps_own_webview_profile(monkeypatch):
             + str(Path(r"C:\Users\runner\AppData\Local") / "com.opendialer.desktop" / "EBWebView")
         ]
     )
+
+
+def test_the_install_probe_waits_through_files_an_installer_has_briefly_removed():
+    """An MSI update removes the old executables before writing new ones; reading a missing
+    desktop or backend is "not installed yet", not a failed probe."""
+    probe = inspect.getsource(native().wait_installed)
+    assert "if(Test-Path $env:OPENDIALER_INSTALL_PATH)" in probe
+    assert "try {$hash=(Get-FileHash" in probe
+
+
+def test_the_legacy_baseline_waits_for_ready_and_retries_a_dropped_session():
+    source = inspect.getsource(native().legacy_baseline)
+    assert 'ui.visible("Pause dialing")' in source
+    assert source.index('ui.visible("Pause dialing")') < source.index('ui.click("Get next lead")')
+    assert "for attempt in range(2)" in source

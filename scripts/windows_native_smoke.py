@@ -21,6 +21,7 @@ from selenium import webdriver
 from selenium.common.exceptions import (
     ElementClickInterceptedException,
     StaleElementReferenceException,
+    TimeoutException,
     WebDriverException,
 )
 from selenium.webdriver.common.by import By
@@ -353,8 +354,18 @@ def legacy_baseline(ui):
     """Create the fixed 0.2.1 fixture using only that released UI."""
     ui.click("Try a simulated workspace")
     ui.visible("SIMULATION")
-    ui.click("Go ready")
-    ui.click("Get next lead")
+    for attempt in range(2):
+        # 0.2.1 marks the rep ready asynchronously; one dropped session is retried, as a rep would.
+        if "Go ready" in ui.body():
+            ui.click("Go ready")
+        ui.visible("Pause dialing")
+        ui.click("Get next lead")
+        try:
+            ui.wait(lambda: "Start call" in ui.body(), timeout=30)
+            break
+        except TimeoutException:
+            if attempt:
+                raise
     lead_name = ui.element('[data-testid="lead-name"]').text
     ui.click("Start call")
     ui.visible("RINGING")
@@ -388,10 +399,13 @@ def wait_installed(application, version, output, *, not_before):
                 powershell,
                 "-NoProfile",
                 "-Command",
-                "$ErrorActionPreference='Stop';"
-                "$version=[Diagnostics.FileVersionInfo]::GetVersionInfo($env:OPENDIALER_INSTALL_PATH).ProductVersion;"
-                "$hash=$null;$backend=Join-Path (Split-Path $env:OPENDIALER_INSTALL_PATH) 'opendialer-backend.exe';"
-                "if(Test-Path $backend) {$hash=(Get-FileHash $backend -Algorithm SHA256).Hash.ToLower()};"
+                "$ErrorActionPreference='Stop';$version=$null;$hash=$null;"
+                # The installer removes and rewrites these files: absent or locked is "not yet".
+                "if(Test-Path $env:OPENDIALER_INSTALL_PATH) {"
+                "$version=[Diagnostics.FileVersionInfo]::GetVersionInfo($env:OPENDIALER_INSTALL_PATH).ProductVersion};"
+                "$backend=Join-Path (Split-Path $env:OPENDIALER_INSTALL_PATH) 'opendialer-backend.exe';"
+                "if(Test-Path $backend) {"
+                "try {$hash=(Get-FileHash $backend -Algorithm SHA256).Hash.ToLower()} catch {$hash=$null}};"
                 "@{version=$version;backend_sha256=$hash}|ConvertTo-Json -Compress",
             ],
             env=env,
