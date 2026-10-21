@@ -60,6 +60,26 @@ def test_frozen_health_does_not_accept_the_backend_as_its_own_version_oracle():
         module().await_ready(client, "0.3.0", timeout=0.1)
 
 
+def test_an_authority_that_exits_before_ready_fails_at_once_with_its_log_tail(tmp_path):
+    """A silent 30 s timeout hid why the Windows sidecar never answered."""
+    from types import SimpleNamespace
+
+    log = tmp_path / "authority.log"
+    log.write_text("starting\nTraceback: synthetic startup failure\n")
+    process = SimpleNamespace(poll=lambda: 3, returncode=3)
+    with (
+        httpx.Client(
+            base_url="http://fixture",
+            transport=httpx.MockTransport(lambda _: (_ for _ in ()).throw(httpx.ConnectError("refused"))),
+        ) as client,
+        pytest.raises(RuntimeError, match="exited with code 3") as failure,
+    ):
+        began = time.monotonic()
+        module().await_ready(client, "0.3.0", timeout=30, process=process, log=log)
+    assert time.monotonic() - began < 5
+    assert "synthetic startup failure" in str(failure.value)
+
+
 def test_windows_cleanup_targets_only_the_started_process_tree(monkeypatch, tmp_path):
     from types import SimpleNamespace
 
