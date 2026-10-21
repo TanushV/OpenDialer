@@ -97,7 +97,12 @@ class NativeUI:
     def open(self, *, restored=False):
         options = ArgOptions()
         options.set_capability("browserName", "wry")
-        options.set_capability("tauri:options", {"application": str(self.application)})
+        # The app's own WebView2 profile: without it Edge WebDriver starts every session in a
+        # fresh temporary profile, which a person's installed app never does.
+        profile = Path(os.environ["LOCALAPPDATA"]) / "com.opendialer.desktop" / "EBWebView"
+        options.set_capability(
+            "tauri:options", {"application": str(self.application), "args": [f"--user-data-dir={profile}"]}
+        )
         began = time.monotonic()
         self.driver = webdriver.Remote("http://127.0.0.1:4444", options=options)
         self.driver.set_window_size(1024, 720)
