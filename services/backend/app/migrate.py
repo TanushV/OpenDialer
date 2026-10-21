@@ -74,10 +74,30 @@ def close_retired_batches(service):
                 close_retired_batch(s, row, service.clock())
 
 
+def close_legacy_prospect_legs(service):
+    """A terminal call closes its prospect leg (Dialer.finish_call); 0.2.1 left simulated ones
+    open, which would block every later sign-out. Bounded by open legs; idempotent."""
+    from app.telephony.reducer import TERMINAL
+
+    legs, calls = MODELS["call_legs"], MODELS["call_attempts"]
+    with service.db.transaction() as s:
+        for leg in s.scalars(
+            select(legs).where(legs.op_status.not_in([*TERMINAL, "ended", "failed", "cancelled"]))
+        ):
+            if leg.data.get("kind") != "prospect" or not leg.data.get("call_id"):
+                continue
+            call = s.scalar(
+                select(calls).where(calls.tenant_id == leg.tenant_id, calls.id == leg.data["call_id"])
+            )
+            if call is not None and call.data.get("state") in TERMINAL:
+                update(leg, state="ENDED", ended_at=call.data.get("ended_at"))
+
+
 def migrate_business_state(service):
     # The legacy journal is a separate file, including after a DB-only copy cutover.
     service.vault.sanitize_legacy_authorization()
     close_retired_batches(service)
+    close_legacy_prospect_legs(service)
     if startup_contract_current(service.db.engine, service.db.cipher):
         return
     from app.compliance.registry import migrate_registry_chunks

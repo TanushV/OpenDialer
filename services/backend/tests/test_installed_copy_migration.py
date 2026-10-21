@@ -621,3 +621,62 @@ def test_upgrade_flushes_only_through_writable_handles_as_windows_requires(tmp_p
     assert not (tmp_path / ".opendialer-upgrade-v1").exists()
     with closing(sqlite3.connect(next((tmp_path / "sanitized-upgrades").glob("*.db")))) as retained:
         assert retained.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+
+
+def test_startup_closes_prospect_legs_0_2_1_left_open_behind_terminal_calls(workspace, app):
+    """0.2.1 never closed a simulated prospect leg when its call ended. 0.3.x closes a terminal
+    call's prospect leg, so an upgraded workspace reported ACTIVE_LEG forever and could not sign
+    out (Windows update run 39677713214). Startup applies the current rule to such legacy legs."""
+    from app.db import get, put
+    from app.migrate import migrate_business_state
+    from test_remediation_privacy import principal
+
+    c, h, p = workspace["client"], workspace["headers"], principal(workspace)
+    service = app.state.service
+    call = start(workspace)
+    assert c.post(f"/v1/calls/{call['id']}/hangup", headers=h).status_code == 200
+    with service.db.transaction() as s:
+        ended_at = get(s, "call_attempts", call["id"]).data["ended_at"]
+        legacy = put(
+            s,
+            "call_legs",
+            p["tenant_id"],
+            p["seller_id"],
+            {"call_id": call["id"], "provider_id": "sim-legacy", "kind": "prospect", "state": "RINGING"},
+            key="sim-legacy",
+        ).id
+    assert c.get("/v1/auth/quiescence", headers=h).json()["reasons"] == ["ACTIVE_LEG"]
+    migrate_business_state(service)
+    with service.db.transaction(False) as s:
+        leg = get(s, "call_legs", legacy).data
+    assert leg["state"] == "ENDED" and leg["ended_at"] == ended_at
+    assert c.get("/v1/auth/quiescence", headers=h).json()["can_disconnect"]
+
+
+def test_startup_leaves_legs_of_live_calls_and_agent_legs_open(workspace, app):
+    from app.db import get, put
+    from app.migrate import migrate_business_state
+    from test_remediation_privacy import principal
+
+    p, service = principal(workspace), app.state.service
+    call = start(workspace)  # Still live: its prospect leg is a real obligation.
+    with service.db.transaction() as s:
+        live = put(
+            s,
+            "call_legs",
+            p["tenant_id"],
+            p["seller_id"],
+            {"call_id": call["id"], "provider_id": "sim-live", "kind": "prospect", "state": "RINGING"},
+            key="sim-live",
+        ).id
+        agent = put(
+            s,
+            "call_legs",
+            p["tenant_id"],
+            p["seller_id"],
+            {"kind": "agent", "state": "answered", "rep_id": p["user_id"]},
+        ).id
+    migrate_business_state(service)
+    with service.db.transaction(False) as s:
+        assert get(s, "call_legs", live).data["state"] == "RINGING"
+        assert get(s, "call_legs", agent).data["state"] == "answered"
