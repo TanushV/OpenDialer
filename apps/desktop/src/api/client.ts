@@ -229,17 +229,19 @@ export interface SavedSession {
 export async function saveSession(data: SavedSession) {
   const value = JSON.stringify(data);
   if (native()) {
-    if (data.connection === "connected") {
-      await invoke("save_session", { value });
-      localStorage.setItem("opendialer.mode", "connected");
-    } else localStorage.setItem("opendialer.mode", value);
+    // The native store survives a reset WebView profile; the WebView marker
+    // still restores installs that saved their local choice only there.
+    await invoke("save_session", { value });
+    localStorage.setItem(
+      "opendialer.mode",
+      data.connection === "connected" ? "connected" : value,
+    );
   } else sessionStorage.setItem("opendialer.session", value);
 }
 export async function loadSession(): Promise<SavedSession | null> {
   if (native()) {
     const mode = localStorage.getItem("opendialer.mode");
-    if (!mode) return null;
-    if (mode !== "connected") return JSON.parse(mode) as SavedSession;
+    if (mode && mode !== "connected") return JSON.parse(mode) as SavedSession;
     const value = await invoke<string | null>("load_session");
     return value ? (JSON.parse(value) as SavedSession) : null;
   }
@@ -248,8 +250,7 @@ export async function loadSession(): Promise<SavedSession | null> {
 }
 export async function clearSession() {
   if (native()) {
-    if (localStorage.getItem("opendialer.mode") === "connected")
-      await invoke("clear_session");
+    await invoke("clear_session");
     localStorage.removeItem("opendialer.mode");
   } else sessionStorage.removeItem("opendialer.session");
 }
