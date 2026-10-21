@@ -79,7 +79,11 @@ jobs:
       - name: Prepare the isolated connected PostgreSQL authority
         shell: pwsh
         run: |
-          Start-Service postgresql-x64-14
+          # The runner image ships PostgreSQL with its service disabled; enable it for this job only.
+          $service = Get-Service -Name 'postgresql*' | Select-Object -First 1
+          if (-not $service) { throw 'The runner image has no PostgreSQL service' }
+          Set-Service -Name $service.Name -StartupType Manual
+          Start-Service -Name $service.Name
           $env:PGPASSWORD = 'root'
           & "$env:PGBIN/psql.exe" -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "ALTER USER postgres PASSWORD 'disposable_ci_test';"
           if ($LASTEXITCODE -ne 0) { throw 'Disposable PostgreSQL setup failed' }
