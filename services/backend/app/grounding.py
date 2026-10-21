@@ -137,7 +137,7 @@ async def review_generated(service, p, request, *, object_id, role, seconds=15):
             asyncio.to_thread(
                 service.usage,
                 p,
-                "openai",
+                getattr(provider, "billing", "openai"),
                 "grounding_review",
                 InferenceResult({}, {}, None),
                 object_id=object_id,
@@ -149,7 +149,7 @@ async def review_generated(service, p, request, *, object_id, role, seconds=15):
     await asyncio.to_thread(
         service.usage,
         p,
-        "openai",
+        getattr(provider, "billing", "openai"),
         "grounding_review",
         result,
         object_id=object_id,

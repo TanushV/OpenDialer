@@ -178,6 +178,9 @@ class PlanOAuth:
 
 
 class RegisteredPlanClient:
+    # Usage ledger provider: requests are included in the user's own ChatGPT plan.
+    billing = "chatgpt_plan"
+
     def __init__(self, load, save, model, host_id, clock, *, http=None):
         self.load, self.save, self.model = load, save, model
         self.oauth = PlanOAuth(host_id, clock)
