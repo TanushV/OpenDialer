@@ -921,3 +921,32 @@ def test_pending_budget_exhaustion_does_not_publish_an_unproved_addition_count(m
     assert result["minimum_additional_numbers"] == 1
     assert result["pending_planning_complete"] is False
     assert result["proposed_additional_numbers"] is None
+
+
+def test_fingerprint_is_canonical_and_result_matches_asdict(monkeypatch):
+    """The planner avoids asdict's deep copy (most of a 10k-lead forecast) with equivalent output."""
+    import dataclasses
+
+    import app.optimization.capacity as capacity
+
+    built = []
+    original = capacity.PlanningResult
+
+    def recording(*args, **kwargs):
+        built.append(original(*args, **kwargs))
+        return built[-1]
+
+    monkeypatch.setattr(capacity, "PlanningResult", recording)
+    rows = [lead("b", callback_due_at=NOW.isoformat()), lead("a", expected_conversion=0.4), lead("c")]
+    options = {"staffed_windows": [window(minutes=30)]}
+    first = plan(rows, [number(), number("n-2")], **options)
+    again = plan(rows[::-1], [number("n-2"), number()], **options)
+    changed = plan([*rows[:2], lead("c", expected_conversion=0.2)], [number(), number("n-2")], **options)
+    other_head = plan(rows, [number(), number("n-2")], staffed_windows=[window(minutes=45)])
+    assert first["input_fingerprint"] == again["input_fingerprint"]
+    assert (
+        len({first["input_fingerprint"], changed["input_fingerprint"], other_head["input_fingerprint"]}) == 3
+    )
+    result = built[0]
+    shallow = {f.name: getattr(result, f.name) for f in dataclasses.fields(result)}
+    assert shallow == dataclasses.asdict(result)

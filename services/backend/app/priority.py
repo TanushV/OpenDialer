@@ -8,6 +8,7 @@ finite, so background work slows under load but never stops.
 
 import asyncio
 import contextvars
+import gc
 import threading
 import time
 from contextlib import contextmanager
@@ -44,6 +45,18 @@ class ForegroundGate:
 
 
 GATE = ForegroundGate()
+YIELD_SECONDS = 0.0005
+
+
+def yield_to_calling_work():
+    """Background CPU loops call this between small units of work.
+
+    A CPU-bound background thread otherwise holds the interpreter lock for whole switch
+    intervals, and a request thread waits for it again after every database call. While
+    calling work is in flight, release the lock briefly instead. Calling work never yields.
+    """
+    if GATE.active and not FOREGROUND.get():
+        time.sleep(YIELD_SECONDS)
 
 
 class WriterAdmission:
@@ -99,3 +112,19 @@ class WriterAdmission:
         with self._condition:
             self._held = False
             self._condition.notify_all()
+
+
+GC_YOUNG_THRESHOLD = 20_000
+
+
+def settle_heap():
+    """After startup, freeze the long-lived heap and collect young objects less often.
+
+    Otherwise a background job that allocates heavily (a 10,000-lead forecast) triggers
+    several full collections per run, each pausing every thread for tens of milliseconds.
+    Reference counting still frees nearly everything at once; only cyclic garbage waits.
+    """
+    gc.collect()
+    gc.freeze()
+    _, middle, oldest = gc.get_threshold()
+    gc.set_threshold(GC_YOUNG_THRESHOLD, middle, oldest)

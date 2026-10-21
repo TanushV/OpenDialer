@@ -7,16 +7,18 @@ coverage-due leads and other leads served, in that order. Predicted
 conversions only break ties between schedules that serve the same counts.
 """
 
+import functools
 import hashlib
 import itertools
 import json
 import math
 from bisect import bisect_left, bisect_right
 from collections import Counter, defaultdict
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass, fields, is_dataclass, replace
 from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from app import priority
 from app.config import RuntimeLimits
 from app.optimization.numbering import number_ready, timestamp, wilson
 from app.scheduling.models import OPTIMIZATION_DEFAULTS
@@ -28,6 +30,34 @@ MAX_PLANNING_STEPS = _LIMITS.planning_operations
 # Lifecycles still completing their declared setup. Paused or investigating
 # numbers are held for evidence and are never assumed to become ready.
 SETUP_PENDING = {"purchased", "identity_configured", "callback_tested"}
+
+
+@functools.cache
+def _field_names(cls):
+    return tuple(field.name for field in fields(cls))
+
+
+def _canonical(value):
+    """json default hook: the same canonical form as asdict, without its recursive deep copy."""
+    if is_dataclass(value) and not isinstance(value, type):
+        return {name: getattr(value, name) for name in _field_names(type(value))}
+    return str(value)
+
+
+def input_fingerprint(snapshot):
+    """Canonical digest of a planning input, one bounded chunk per work item.
+
+    One json.dumps of a 10,000-lead snapshot holds the interpreter lock for a third of a
+    second in C; separate chunks let calling work run between them.
+    """
+    encoder = json.JSONEncoder(sort_keys=True, default=_canonical)
+    digest = hashlib.sha256()
+    head = {name: getattr(snapshot, name) for name in _field_names(type(snapshot)) if name != "work"}
+    digest.update(encoder.encode(head).encode())
+    for item in snapshot.work:
+        priority.yield_to_calling_work()
+        digest.update(b"\x1e" + encoder.encode(item).encode())
+    return digest.hexdigest()
 
 
 @dataclass(frozen=True)
@@ -138,6 +168,7 @@ class SearchBudget:
         if self.operations >= MAX_PLANNING_STEPS or node and self.nodes >= MAX_SEARCH_NODES:
             self.exhausted = True
             return False
+        priority.yield_to_calling_work()
         self.operations += 1
         self.nodes += int(node)
         return True
@@ -156,6 +187,7 @@ def priority_class(lead, now):
 def work_items(leads, now, end, policy, handling_seconds=OPTIMIZATION_DEFAULTS["handling_seconds"]):
     work, unknown = [], 0
     for lead in sorted(leads, key=lambda row: row["id"]):
+        priority.yield_to_calling_work()
         if (
             lead.get("status", "eligible") != "eligible"
             or lead.get("suppressed")
@@ -1149,9 +1181,7 @@ def time_forecast(
             ).encode()
         ).hexdigest(),
     )
-    fingerprint = hashlib.sha256(
-        json.dumps(asdict(snapshot), sort_keys=True, default=str).encode()
-    ).hexdigest()
+    fingerprint = input_fingerprint(snapshot)
     budget = SearchBudget()
     assignment = Assignment(work, slots, now, policy, grid, len(work), owners, budget=budget)
     existing, existing_exact = assignment.solve(snapshot.inventory)
@@ -1317,7 +1347,7 @@ def time_forecast(
         ),
     )
     return {
-        **asdict(result),
+        **{name: getattr(result, name) for name in _field_names(type(result))},
         "contingent_retry_low_mean_high": retries,
         "contingent_capacity": later,
         "omitted_rows": dict(result.omitted_rows),
