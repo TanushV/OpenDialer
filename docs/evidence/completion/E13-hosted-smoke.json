@@ -1,0 +1,45 @@
+{
+ "step_id": "E13",
+ "scope": "Hosted (connected) mode on the real deploy/compose.yml topology: migrate job, API with webhook/live_coach/postcall/maintenance lanes, a separate background worker (research/scripts/ml), PostgreSQL 17; read-only filesystems and dropped capabilities as shipped",
+ "source_commit": "c06739fbb99c55372cd6a72bb789c813d39c60c2",
+ "overrides": "simulated providers; Caddy omitted (needs a public DNS name and ports 80/443); API published on 127.0.0.1:18766 only",
+ "commands": [
+  "docker compose -p opendialer-hosted-smoke --env-file <synthetic secrets> -f deploy/compose.yml -f work/remediation/completion/compose.smoke.yml up -d --build",
+  "python work/remediation/completion/hosted_smoke.py http://127.0.0.1:18766 <bootstrap> setup|journey|after_restart <state>",
+  "docker compose ... restart api worker-background"
+ ],
+ "results": {
+  "health": {
+   "version": "0.3.0",
+   "mode": "connected",
+   "simulation": true
+  },
+  "migrate_exit_code": 0,
+  "setup": {
+   "bootstrap_setup": true,
+   "rep_created": true,
+   "imported": 3,
+   "prepared_by_background_worker": 3,
+   "queued_after": 0,
+   "plan_sign_in_completion": "paste"
+  },
+  "journey": {
+   "rep_login": true,
+   "selection_and_start": true,
+   "simulated_answer_and_transcript": true,
+   "hangup": true,
+   "wrap_up_callback_task": true,
+   "call_state": "FINALIZED"
+  },
+  "after_restart": {
+   "call_outcome_retained": true,
+   "callback_task_listed": true,
+   "preflight_mode": "connected"
+  },
+  "service_log_errors": {
+   "api": 0,
+   "worker-background": 0
+  }
+ },
+ "external_calls": false
+}
