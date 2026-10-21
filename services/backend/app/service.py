@@ -70,8 +70,8 @@ class Service(ReservationPlanner):
             }.items()
         }
 
-    def required(self, s, kind, object_id, p):
-        obj = get(s, kind, object_id, p["tenant_id"])
+    def required(self, s, kind, object_id, p, *, lock=False):
+        obj = get(s, kind, object_id, p["tenant_id"], lock=lock)
         if not obj or (obj.seller_id and obj.seller_id != p["seller_id"]):
             fail(404, "Object not found")
         if p.get("role") == "rep" and kind == "call_attempts" and obj.data.get("rep_id") != p["user_id"]:

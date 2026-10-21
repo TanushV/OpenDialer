@@ -735,8 +735,8 @@ def announce_job_changes(session, _):
             session.info.setdefault("job_wakeups", set()).add(row.queue)
 
 
-def get(s, kind, object_id, tenant_id=None):
-    obj = s.get(MODELS[kind], object_id)
+def get(s, kind, object_id, tenant_id=None, *, lock=False):
+    obj = s.get(MODELS[kind], object_id, with_for_update=True if lock else None)
     return obj if obj and (tenant_id is None or obj.tenant_id == tenant_id) else None
 
 
