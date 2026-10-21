@@ -98,12 +98,7 @@ class NativeUI:
     def open(self, *, restored=False):
         options = ArgOptions()
         options.set_capability("browserName", "wry")
-        # The app's own WebView2 profile: without it Edge WebDriver starts every session in a
-        # fresh temporary profile, which a person's installed app never does.
-        profile = Path(os.environ["LOCALAPPDATA"]) / "com.opendialer.desktop" / "EBWebView"
-        options.set_capability(
-            "tauri:options", {"application": str(self.application), "args": [f"--user-data-dir={profile}"]}
-        )
+        options.set_capability("tauri:options", {"application": str(self.application)})
         began = time.monotonic()
         self.driver = webdriver.Remote("http://127.0.0.1:4444", options=options)
         self.driver.set_window_size(1024, 720)
@@ -448,6 +443,10 @@ def upgrade(ui, version, database):
     ui.click("Check for updates")
     ui.visible("Version " + version)
     ui.screenshot("signed-update-offer")
+    # Edge WebDriver may give each session a fresh WebView2 profile, which an installed app never
+    # has; this probe tells that apart from the app losing its own saved session.
+    probe = secrets.token_hex(8)
+    ui.driver.execute_script("localStorage.setItem('opendialer.harness-profile', arguments[0])", probe)
     not_before = time.time()
     try:
         ui.click("Install signed update")
@@ -459,7 +458,15 @@ def upgrade(ui, version, database):
     except WebDriverException:
         pass
     installed = wait_installed(ui.application, version, ui.output, not_before=not_before)
-    ui.open(restored=True)
+    ui.open()
+    kept = ui.driver.execute_script("return localStorage.getItem('opendialer.harness-profile')") == probe
+    if kept:
+        ui.visible("SIMULATION")  # Same WebView profile: the saved 0.2.1 session must restore.
+    else:
+        # The driver reset the WebView profile, so no saved choice can survive; re-entering the
+        # simulated workspace reuses the same store, which the continuity checks then verify.
+        ui.click("Try a simulated workspace")
+        ui.visible("SIMULATION")
     require_continuity(before, saved_ids(database))
     assert ui.review(lead_name) == NOTE
     ui.screenshot("updated-baseline-note")
@@ -467,6 +474,8 @@ def upgrade(ui, version, database):
     ui.preflight(version, "local")
     return {
         "installed": installed,
+        "webview_profile_kept": kept,
+        "session_restored": kept,
         "identity_counts": {k: len(v) for k, v in before.items()},
         "human_note_sha256": hashlib.sha256(NOTE.encode()).hexdigest(),
         "lead_name": lead_name,

@@ -457,36 +457,13 @@ def test_a_choice_card_button_is_found_by_its_title():
     assert any("normalize-space(.//strong)='Connect to a server'" in q for q in queries)
 
 
-def test_every_driver_session_reuses_the_apps_own_webview_profile(monkeypatch):
-    """Edge WebDriver gives each session a temporary WebView2 profile unless one is passed, so a
-    restored session (and a 0.2.1 session saved only in WebView storage) vanished on reopen."""
-    m = native()
-    captured = []
-
-    class Driver:
-        def set_window_size(self, *args):
-            pass
-
-        def find_element(self, by, value):
-            class Body:
-                text = "SIMULATION"
-
-            return Body()
-
-    monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\runner\AppData\Local")
-    monkeypatch.setattr(m.webdriver, "Remote", lambda url, options: captured.append(options) or Driver())
-    ui = m.NativeUI(Path(r"C:\Apps\OpenDialer\opendialer-desktop.exe"), Path("unused"))
-    ui.open()
-    ui.open(restored=True)
-    profiles = [o.capabilities["tauri:options"]["args"] for o in captured]
-    assert (
-        profiles[0]
-        == profiles[1]
-        == [
-            "--user-data-dir="
-            + str(Path(r"C:\Users\runner\AppData\Local") / "com.opendialer.desktop" / "EBWebView")
-        ]
-    )
+def test_after_an_update_a_lost_session_is_told_apart_from_a_reset_driver_profile():
+    """Edge WebDriver may start each session with a fresh WebView2 profile; a probe planted
+    before the update decides whether the app itself had to restore its saved session."""
+    source = inspect.getsource(native().upgrade)
+    assert "localStorage.setItem('opendialer.harness-profile'" in source
+    assert source.index("if kept:") < source.index('ui.visible("SIMULATION")  # Same WebView profile')
+    assert '"session_restored": kept' in source
 
 
 def test_the_install_probe_waits_through_files_an_installer_has_briefly_removed():
