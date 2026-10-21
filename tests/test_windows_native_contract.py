@@ -177,3 +177,10 @@ def test_installed_journey_requires_outcome_correction_and_next_call_context():
     assert "correct_contact_role" in journey
     assert "check_next_call_context" in restart
     assert '"source_correction_verified"' in restart
+
+
+def test_native_child_environment_keeps_system_root_with_windows_key_case():
+    source = {"SYSTEMROOT": r"C:\Windows", "LOCALAPPDATA": r"C:\Users\u\AppData\Local", "PATH": r"C:\dev"}
+    result = native().desktop_environment(source)
+    assert result["SYSTEMROOT"] == r"C:\Windows" and result["LOCALAPPDATA"].endswith("Local")
+    assert result["PATH"] == r"C:\Windows\System32"

@@ -18,9 +18,10 @@ import httpx
 
 
 def isolated_environment(source):
-    allowed = {"SystemRoot", "WINDIR", "TEMP", "TMP", "LANG", "LC_ALL"}
+    # Windows reports environment keys upper-cased (SYSTEMROOT); match case-insensitively.
+    allowed = {"SYSTEMROOT", "WINDIR", "TEMP", "TMP", "LANG", "LC_ALL"}
     return {
-        **{k: v for k, v in source.items() if k in allowed},
+        **{k: v for k, v in source.items() if k.upper() in allowed},
         "PATH": "",
         "PYTHONNOUSERSITE": "1",
         "PYTHONDONTWRITEBYTECODE": "1",

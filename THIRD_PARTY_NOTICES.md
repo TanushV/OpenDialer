@@ -547,7 +547,7 @@ This inventory includes locked application, build and test dependencies. Not eve
 | Python | attrs | 26.1.0 | MIT | 882115c95dfc2af1 |
 | Python | beautifulsoup4 | 4.15.0 | MIT License | 55b4d8d4b1e5bc86 |
 | Python | boolean.py | 5.0 | BSD-2-Clause | 5ea0cdf8cfc824b4 |
-| Python | certifi | 2026.7.22 | MPL-2.0 | e93716da6b9c0d5a |
+| Python | certifi | 2026.10.19 | MPL-2.0 | e93716da6b9c0d5a |
 | Python | cffi | 2.1.1 | MIT-0 | 5ba24ddc57067f92 |
 | Python | charset-normalizer | 3.5.2 | MIT | 6d0d41bfe170ac6c |
 | Python | click | 8.5.0 | BSD-3-Clause | 9a8ad106a394e853 |

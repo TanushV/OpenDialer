@@ -151,8 +151,16 @@ class Transcript(Strict):
 
 
 class NoteEdit(Strict):
-    expected_version: int
+    # Current clients send the human edit version; finalization bookkeeping never moves it.
+    expected_edit_version: int | None = Field(default=None, ge=0, strict=True)
+    expected_version: int | None = None
     text: str = Field(max_length=20000)
+
+    @model_validator(mode="after")
+    def one_version(self):
+        if self.expected_edit_version is None and self.expected_version is None:
+            raise ValueError("expected_edit_version is required")
+        return self
 
 
 class Disposition(Strict):
@@ -680,7 +688,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.patch("/v1/calls/{call_id}/notes")
     def edit_notes(call_id: str, data: NoteEdit, p=Depends(principal)):
-        return service.edit_notes(p, call_id, data.expected_version, data.text)
+        return service.edit_notes(
+            p, call_id, data.expected_version, data.text, expected_edit_version=data.expected_edit_version
+        )
 
     @app.post("/v1/calls/{call_id}/comments")
     def comment(call_id: str, data: dict, p=Depends(principal)):
