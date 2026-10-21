@@ -255,7 +255,7 @@ This inventory includes locked application, build and test dependencies. Not eve
 | Cargo | once_cell | 1.21.4 | MIT OR Apache-2.0 | 23f18e03dc49df91, a60eea8175145316 |
 | Cargo | opaque-debug | 0.3.1 | MIT OR Apache-2.0 | a9040321c3712d8f, f59f5a78193597e0 |
 | Cargo | open | 5.4.4 | MIT | e63690624d604aa6 |
-| Cargo | opendialer-desktop | 0.3.2 | Apache-2.0 |  |
+| Cargo | opendialer-desktop | 0.3.3 | Apache-2.0 |  |
 | Cargo | openssl-probe | 0.2.1 | MIT OR Apache-2.0 | 378f5840b258e277, a60eea8175145316 |
 | Cargo | option-ext | 0.2.0 | MPL-2.0 | 66a3107d5ad6a058 |
 | Cargo | ordered-stream | 0.2.0 | MIT OR Apache-2.0 | 23f18e03dc49df91, a60eea8175145316 |
@@ -573,7 +573,7 @@ This inventory includes locked application, build and test dependencies. Not eve
 | Python | msgpack | 1.2.3 | Apache-2.0 | 492dedba85da5872 |
 | Python | narwhals | 2.27.1 | MIT | 811445f30147b8f0 |
 | Python | numpy | 2.5.4 | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 | 05f3b88351988ecf, 0e111337b25494a7, 103166b62b80443a, 211e7d737d6179a0, 268b0ca06759d31e, 3f2c1ffa76383a55, 469778be8f33d54e, 649a589ab31076e7, 6f5828a57223d4cc, 9d4098846018319c, a14cc25e10d40a3a, a85ca13fdf90160b, c17011467b4fe6e2, e340270d4f643845, e7d4f4fb20358f31, f7b14309e5f54e50, fbc539f47d0cf83b |
-| Python | opendialer | 0.3.2 | See included license text | c71d239df91726fc |
+| Python | opendialer | 0.3.3 | See included license text | c71d239df91726fc |
 | Python | opentelemetry-api | 1.45.1 | Apache-2.0 | c71d239df91726fc |
 | Python | outcome | 1.3.0.post0 | MIT OR Apache-2.0 | 3e6dae555eb92787, 652c878488d14563, cfc7749b96f63bd3 |
 | Python | packageurl-python | 0.17.6 | MIT |  |

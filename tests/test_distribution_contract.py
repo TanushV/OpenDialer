@@ -102,7 +102,7 @@ def test_version_identity_artifact_contract():
         next(p["version"] for p in python_lock["package"] if p["name"] == "opendialer"),
         next(p["version"] for p in cargo_lock["package"] if p["name"] == "opendialer-desktop"),
     ]
-    assert versions == ["0.3.2"] * len(versions)
+    assert versions == ["0.3.3"] * len(versions)
     assert tauri["identifier"] == "com.opendialer.desktop"
     updater = tauri["plugins"]["updater"]
     assert (
