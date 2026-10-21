@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 
 import pytest
 from app.compliance.policy import authorize
@@ -103,7 +104,8 @@ def test_revocation_journal_is_encrypted_and_restores_a_lost_newer_record(worksp
     path = service.settings.data_dir / "consent-journal.enc"
     assert path.exists(), "Revocation needs a journal independent of the database backup"
     assert body["evidence_reference"].encode() not in path.read_bytes()
-    assert (path.stat().st_mode & 0o777) == 0o600
+    if os.name != "nt":  # Windows has no POSIX permission bits; its profile ACL protects the file.
+        assert (path.stat().st_mode & 0o777) == 0o600
     with service.db.transaction() as s:
         s.execute(delete(MODELS["consent_evidence"]))  # Lost writes after the older backup.
     service.restore(p, backup["backup_id"])

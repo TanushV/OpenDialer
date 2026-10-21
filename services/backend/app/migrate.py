@@ -256,8 +256,12 @@ def prepare_database(settings, clock):
             with closing(sqlite3.connect(saved)) as destination:
                 clean.backup(destination)
             saved.chmod(0o600)
-            with saved.open("rb") as retained:
-                os.fsync(retained.fileno())
+            # Windows flushes only through a writable handle (FlushFileBuffers needs write access).
+            retained = os.open(saved, os.O_RDWR | getattr(os, "O_BINARY", 0))
+            try:
+                os.fsync(retained)
+            finally:
+                os.close(retained)
             from app.security import Vault
 
             Vault._sync_directory(recovery)
