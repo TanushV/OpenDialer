@@ -15,6 +15,7 @@ import hashlib
 import hmac
 import inspect
 import json
+import logging
 import math
 import os
 import platform
@@ -1576,6 +1577,39 @@ def load_paths(samples, reps):
     }
 
 
+class ConflictCounter(logging.Handler):
+    """Counts the product's content-free write-conflict records (table/constraint, no values)."""
+
+    FIELDS = ("type", "table", "constraint")
+
+    def __init__(self):
+        super().__init__(logging.WARNING)
+        self.counts, self.lock_ = Counter(), threading.Lock()
+
+    def emit(self, record):
+        conflict = getattr(record, "conflict", None)
+        if isinstance(conflict, dict):
+            with self.lock_:
+                self.counts[tuple(conflict.get(k) for k in self.FIELDS)] += 1
+
+
+@contextmanager
+def counted_conflicts():
+    logger, counter = logging.getLogger("app.conflicts"), ConflictCounter()
+    previous = logger.level
+    logger.addHandler(counter)
+    if logger.getEffectiveLevel() > logging.WARNING:
+        logger.setLevel(logging.WARNING)
+    try:
+        yield lambda: [
+            {**dict(zip(ConflictCounter.FIELDS, key, strict=True)), "count": n}
+            for key, n in counter.counts.most_common()
+        ]
+    finally:
+        logger.removeHandler(counter)
+        logger.setLevel(previous)
+
+
 def await_recovery(
     service,
     recorder,
@@ -1643,6 +1677,7 @@ def run_load(
 
     with (
         recorder.recording(),
+        counted_conflicts() as conflicts,
         follow() if follow else nullcontext(),
         production_runtime(client, service),
     ):
@@ -1654,6 +1689,7 @@ def run_load(
         )
         recovery.update(queue_snapshot(service, recorder.job_ids()))
         followed = (service.clock() - began).total_seconds()
+        write_conflicts = conflicts()
     background = recorder.receipt()
     samples = cycles.get("samples") or []
     paths = load_paths(samples, reps) if samples else {}
@@ -1681,6 +1717,7 @@ def run_load(
             "clock_followed_seconds": followed,
         },
         "background": background,
+        "write_conflicts": write_conflicts,
         "queue_end": end,
         "queue_recovery": recovery,
         "boundary": "HTTP rep journeys with production AuthorityRuntime lanes; business clock follows real time",
