@@ -14,7 +14,7 @@ from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 
 from sqlalchemy import func, or_, select
 
-from app.db import MODELS, Job, doc, insert_jobs, put, uid, update
+from app.db import MODELS, Job, after_key, doc, insert_jobs, put, uid, update
 from app.operational_schema import call_work_bounds
 from app.optimization.learning import (
     conversion_at,
@@ -1962,7 +1962,6 @@ def _rebuild_control(service, p, *, start, lease=None):
 
 def _rebuild_source_page(service, p, state, lease=None):
     """At most500 indexed source identities, replaced 100 per write; work spans resume within a row."""
-    from sqlalchemy import and_, or_
 
     cursor = dict(state["cursor"])
     table, kind = _REBUILD_SOURCES[cursor["phase"]]
@@ -1976,9 +1975,7 @@ def _rebuild_source_page(service, p, state, lease=None):
         query = select(*fields).where(model.tenant_id == p["tenant_id"], model.seller_id == p["seller_id"])
         if cursor["after_at"]:
             at = timestamp(cursor["after_at"])
-            query = query.where(
-                or_(model.created_at > at, and_(model.created_at == at, model.id > cursor["after_id"]))
-            )
+            query = query.where(after_key(model.created_at, model.id, at, cursor["after_id"]))
         rows = list(session.execute(query.order_by(model.created_at, model.id).limit(500)))
     processed, identities, stop = 0, [], None
     for row in rows:

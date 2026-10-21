@@ -24,6 +24,7 @@ from sqlalchemy import (
     literal,
     select,
     text,
+    tuple_,
     union_all,
 )
 from sqlalchemy.ext.mutable import MutableDict
@@ -779,6 +780,15 @@ def put(s, kind, tenant_id, seller_id, data, *, object_id=None, key=None, now=No
     if not s.info.get("defer_flush"):
         s.flush()
     return obj
+
+
+def after_key(time, identity, at, anchor, *, descending=False):
+    """Rows strictly after (or before) a (time, id) cursor, as one row-value comparison.
+
+    `time > at OR (time = at AND id > anchor)` makes SQLite scan from the start of the
+    index range; the row value seeks the same (..., created_at, id) index to the cursor."""
+    key, cursor = tuple_(time, identity), tuple_(at, anchor)
+    return key < cursor if descending else key > cursor
 
 
 def insert_absent(session, model, rows, keys):

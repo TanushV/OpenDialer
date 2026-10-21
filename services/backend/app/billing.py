@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import and_, or_, select
 
 from app.compliance.operating import COSTS
-from app.db import MODELS, put, update
+from app.db import MODELS, after_key, put, update
 from app.operational_schema import receipt_key
 from app.providers.inference import InferenceResult
 from app.service import dt, fail
@@ -464,12 +464,7 @@ def bind_api(app, service, administrator):
                 query = query.where(model.op_status == "settled")
             if cursor:
                 row = service.required(s, "usage_ledger", cursor, p)
-                query = query.where(
-                    or_(
-                        model.created_at > row.created_at,
-                        and_(model.created_at == row.created_at, model.id > row.id),
-                    )
-                )
+                query = query.where(after_key(model.created_at, model.id, row.created_at, row.id))
             found = list(s.scalars(query.order_by(model.created_at, model.id).limit(51)))
             return {
                 "entries": [view(row) for row in found[:50]],
