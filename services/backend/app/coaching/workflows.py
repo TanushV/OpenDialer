@@ -244,12 +244,7 @@ class LiveHelper:
                     return (
                         None,
                         (
-                            {
-                                **value,
-                                "raw_remaining_ms": max(
-                                    0, int((expires - self.clock()).total_seconds() * 1000)
-                                ),
-                            }
+                            {**value, "raw_remaining_ms": self.raw.remaining_ms(raw_key) or 0}
                             if value
                             else {"status": "expired" if expires <= self.clock() else prior.data["status"]}
                         ),
@@ -417,10 +412,13 @@ class LiveHelper:
             self.raw.put(
                 raw_key, result, expires_at=expires, scope=p["tenant_id"] + ":practice:" + p["user_id"]
             )
+        remaining = self.raw.remaining_ms(raw_key)
         return {
             **result,
             "raw_expires_at": expires.isoformat(),
-            "raw_remaining_ms": max(0, int((expires - self.clock()).total_seconds() * 1000)),
+            "raw_remaining_ms": remaining
+            if remaining is not None
+            else max(0, int((expires - self.clock()).total_seconds() * 1000)),
         }
 
     def coach_content(self, p, record):
@@ -451,11 +449,14 @@ class LiveHelper:
                 continue
             content = self.coach_content(p, doc(row))
             if content and sources.current(self, s, p, row.data.get("context_sources")):
+                shown = int((deadline - self.clock()).total_seconds() * 1000)
+                raw = self.raw.remaining_ms("help:" + p["tenant_id"] + ":" + row.id)
                 return {
                     **content,
                     "pinned": is_pinned,
                     "expires_at": deadline.isoformat(),
-                    "remaining_ms": max(0, int((deadline - self.clock()).total_seconds() * 1000)),
+                    # The display deadline, never past the raw content's own lifetime.
+                    "remaining_ms": max(0, min(shown, raw if raw is not None else shown)),
                 }
         return None
 

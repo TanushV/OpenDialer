@@ -38,6 +38,20 @@ test("browser expiry uses original remaining life and monotonic time even if wal
   expect(expireSpeech(state, 500, 1101).transcript).toEqual([]);
 });
 
+test("a refreshed view can shorten but never restart a segment's countdown", () => {
+  // A server on a frozen simulation clock kept reporting about 300 s left.
+  const segment = {
+    segment_id: "kept",
+    revision: 1,
+    text: "private",
+    raw_remaining_ms: 300000,
+  };
+  receiveSpeech({ transcript: [segment] }, 10_000, 10_000);
+  const later = receiveSpeech({ transcript: [segment] }, 210_000, 210_000);
+  expect(expireSpeech(later, 309_000, 309_000).transcript).toHaveLength(1);
+  expect(expireSpeech(later, 310_001, 310_001).transcript).toEqual([]);
+});
+
 test("missing or excessive raw lifetime is never an indefinite UI cache", () => {
   const state = receiveSpeech(
     {
