@@ -437,3 +437,21 @@ def test_the_connected_journey_serves_from_the_server_runtime_not_the_desktop_si
     assert "opendialer-backend" not in " ".join(command)
     assert command[command.index("--mode") + 1] == "connected"
     assert command[command.index("--port") + 1] == "4321"
+
+
+def test_a_choice_card_button_is_found_by_its_title():
+    """Welcome choice cards read "Connect to a server Shared leads, ..." as text; the title
+    is the card's <strong> element."""
+    m = native()
+    queries = []
+
+    class Driver:
+        def find_elements(self, by, query):
+            queries.append(query)
+            return []
+
+    ui = m.NativeUI.__new__(m.NativeUI)
+    ui.driver = Driver()
+    ui.wait = lambda action, timeout=60: action()
+    ui.button("Connect to a server")
+    assert any("normalize-space(.//strong)='Connect to a server'" in q for q in queries)
