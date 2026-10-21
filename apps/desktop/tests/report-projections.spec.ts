@@ -191,9 +191,16 @@ test("checking a pending historical cohort keeps the selected cohort", async ({
     }),
   ).toBeVisible();
   await expect(page.getByText(/3 unique conversions/)).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "Check report status", exact: true })
-    .click();
+  // The app may refresh the pending report on its own before the rep checks it (CI run
+  // 39682453717 removed the button that way); either path must keep the selected cohort.
+  const check = page.getByRole("button", {
+    name: "Check report status",
+    exact: true,
+  });
+  await Promise.race([
+    check.click().catch(() => undefined),
+    page.getByText(/2 unique conversions/).waitFor(),
+  ]);
   await expect(page.getByText(/2 unique conversions/)).toBeVisible();
   await expect(page.getByLabel("Cohort history")).toHaveValue("historical");
 });

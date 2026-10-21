@@ -18,7 +18,11 @@ async function activeHelper(page: Page, coach?: Record<string, unknown>) {
       coach,
     };
     data.calls = [call];
-    await route.fulfill({ response, json: data });
+    // A refresh the app supersedes is aborted while this handler awaits the real response;
+    // fulfilling that request then fails with "Route is already handled" (CI run 39682453717).
+    await route.fulfill({ response, json: data }).catch((error: Error) => {
+      if (!error.message.includes("Route is already handled")) throw error;
+    });
   });
   await page.route("**/v1/calls/helper-cancel-call", (route) =>
     route.fulfill({ json: call }),
