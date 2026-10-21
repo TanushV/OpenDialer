@@ -459,10 +459,11 @@ def test_a_choice_card_button_is_found_by_its_title():
 
 def test_after_an_update_a_lost_session_is_told_apart_from_a_reset_driver_profile():
     """A probe planted before the update decides whether the app itself had to restore its
-    saved session. Run 39666476735 kept the profile, so a lost session is the app's failure."""
+    saved session. Runs 39665326098 and 39666476735 lost the profile, then could not reopen the
+    simulated workspace either; both paths must end in the same diagnosed check."""
     source = inspect.getsource(native().upgrade)
     assert "localStorage.setItem('opendialer.harness-profile'" in source
-    assert source.index("if kept:") < source.index('if "SIMULATION" not in ui.body():')
+    assert source.index("if not kept:") < source.index('if not ui.shows("SIMULATION", timeout=120):')
     assert '"session_restored": kept' in source
 
 
@@ -592,3 +593,43 @@ def test_an_update_that_loses_the_saved_session_is_diagnosed_and_fails():
     source = inspect.getsource(native().upgrade)
     assert "diagnose_store(" in source
     assert "ui.messages" in source
+
+
+class ConsoleKernel:
+    def __init__(self):
+        self.calls = []
+
+    def SetConsoleCtrlHandler(self, handler, ignore):  # noqa: N802 - the Win32 name
+        self.calls.append((handler, ignore))
+        return 1
+
+
+def test_console_interrupts_are_ignored_only_while_the_signed_update_installs():
+    """Run 39668123126: the exiting 0.2.1 updater delivered CTRL_C to the runner's console and
+    interrupted the install probe. Ignoring it is inherited by the probe and lasts only for the update."""
+    kernel = ConsoleKernel()
+    with native().console_interrupts_ignored(kernel32=kernel):
+        kernel.calls.append("installing")
+    assert kernel.calls == [(None, True), "installing", (None, False)]
+    kernel = ConsoleKernel()
+    with pytest.raises(RuntimeError), native().console_interrupts_ignored(kernel32=kernel):
+        raise RuntimeError("install failed")
+    assert kernel.calls[-1] == (None, False), "A failed install restores interrupts"
+    source = inspect.getsource(native().upgrade)
+    assert source.index("with console_interrupts_ignored():") < source.index(
+        'ui.click("Install signed update")'
+    )
+    assert source.index('ui.click("Install signed update")') < source.index("installed = wait_installed(")
+
+
+def test_waiting_for_the_workspace_keeps_the_error_the_app_shows_meanwhile():
+    """After clicking into the simulated workspace the app may answer only with a toast."""
+
+    class Page(ToastDriver):
+        def find_element(self, _by, _tag):
+            return type("Body", (), {"text": "Try a simulated workspace"})()
+
+    ui = native().NativeUI(Path("app.exe"), Path("out"))
+    ui.driver = Page(["The bundled local service did not start."])
+    assert ui.shows("SIMULATION", timeout=0.3) is False
+    assert ui.messages == ["The bundled local service did not start."]

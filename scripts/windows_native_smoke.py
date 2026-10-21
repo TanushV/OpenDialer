@@ -154,6 +154,14 @@ class NativeUI:
             return
         self.messages.extend(text for text in dict.fromkeys(shown) if text and text not in self.messages)
 
+    def shows(self, text, timeout=60):
+        """Whether `text` appears, keeping any error toast shown meanwhile."""
+        try:
+            self.wait(lambda: self.note_toasts() is None and text in self.body(), timeout=timeout)
+        except TimeoutException:
+            return False
+        return True
+
     def visible(self, text):
         return self.wait(lambda: text in self.body())
 
@@ -395,6 +403,26 @@ def legacy_baseline(ui):
     return lead_name
 
 
+@contextmanager
+def console_interrupts_ignored(kernel32=None):
+    """The exiting 0.2.1 updater can deliver CTRL_C to every process on the runner's console
+    (run 39668123126 interrupted the install probe). Ignore it only while the update installs;
+    probes started meanwhile inherit this, and an unanswered install still fails on its own bound.
+    """
+    if kernel32 is None and os.name == "nt":
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+    if kernel32 is None:
+        yield
+        return
+    kernel32.SetConsoleCtrlHandler(None, True)
+    try:
+        yield
+    finally:
+        kernel32.SetConsoleCtrlHandler(None, False)
+
+
 def wait_installed(application, version, output, *, not_before):
     powershell = shutil.which("pwsh.exe") or shutil.which("powershell.exe")
     if not powershell:
@@ -530,35 +558,33 @@ def upgrade(ui, version, database):
     probe = secrets.token_hex(8)
     ui.driver.execute_script("localStorage.setItem('opendialer.harness-profile', arguments[0])", probe)
     not_before = time.time()
-    try:
-        ui.click("Install signed update")
-        WebDriverWait(ui.driver, 120).until(update_installed_or_window_closed)
-    except WebDriverException:
-        pass  # The authoritative exit-and-byte probe below must still succeed.
-    try:
-        ui.close()
-    except WebDriverException:
-        pass
-    installed = wait_installed(ui.application, version, ui.output, not_before=not_before)
+    with console_interrupts_ignored():
+        try:
+            ui.click("Install signed update")
+            WebDriverWait(ui.driver, 120).until(update_installed_or_window_closed)
+        except WebDriverException:
+            pass  # The authoritative exit-and-byte probe below must still succeed.
+        try:
+            ui.close()
+        except WebDriverException:
+            pass
+        installed = wait_installed(ui.application, version, ui.output, not_before=not_before)
     ui.open()
     kept = ui.driver.execute_script("return localStorage.getItem('opendialer.harness-profile')") == probe
-    if kept:
-        # Same WebView profile: the saved 0.2.1 session must restore. open() has already waited
-        # for the restore to finish, so the welcome screen here is the app's final answer.
-        if "SIMULATION" not in ui.body():
-            ui.screenshot("post-update-restore")
-            (ui.output / "post-update-restore.txt").write_text(ui.body())
-            ui.close()  # Let the app's authority exit before copying its store.
-            diagnosis = diagnose_store(ui.application, database.parent, ui.output, version)
-            raise RuntimeError(
-                "The saved 0.2.1 session did not restore after the update; "
-                f"app messages: {ui.messages or 'none'}; authority: {diagnosis['authority']}"
-            )
-    else:
-        # The driver reset the WebView profile, so no saved choice can survive; re-entering the
-        # simulated workspace reuses the same store, which the continuity checks then verify.
+    if not kept:
+        # The driver reset the WebView profile (runs 39665326098, 39666476735), so no saved choice
+        # can survive; re-entering the simulated workspace reopens the same migrated store.
         ui.click("Try a simulated workspace")
-        ui.visible("SIMULATION")
+    # With the profile kept, the saved 0.2.1 session itself must restore.
+    if not ui.shows("SIMULATION", timeout=120):
+        ui.screenshot("post-update-open")
+        (ui.output / "post-update-open.txt").write_text(ui.body())
+        ui.close()  # Let the app's authority exit before copying its store.
+        diagnosis = diagnose_store(ui.application, database.parent, ui.output, version)
+        raise RuntimeError(
+            "The updated app did not open the 0.2.1 workspace; "
+            f"app messages: {ui.messages or 'none'}; authority: {diagnosis['authority']}"
+        )
     require_continuity(before, saved_ids(database))
     assert ui.review(lead_name) == NOTE
     ui.screenshot("updated-baseline-note")
