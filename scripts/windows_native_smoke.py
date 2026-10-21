@@ -154,7 +154,10 @@ class NativeUI:
                     e
                     # The accessible name: a navigation item's label stays exact beside its count badge.
                     for e in self.driver.find_elements(
-                        By.XPATH, f"//button[@aria-label='{text}' or normalize-space(.)='{text}']"
+                        By.XPATH,
+                        # The accessible name, the exact text, or a choice card's <strong> title.
+                        f"//button[@aria-label='{text}' or normalize-space(.)='{text}'"
+                        f" or normalize-space(.//strong)='{text}']",
                     )
                     if e.is_displayed() and e.is_enabled()
                 ),
