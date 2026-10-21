@@ -127,7 +127,14 @@ class NativeUI:
         ).until(lambda _driver: action())
 
     def body(self):
-        return self.driver.find_element(By.TAG_NAME, "body").text or ""
+        try:
+            return self.driver.find_element(By.TAG_NAME, "body").text or ""
+        except WebDriverException as exc:
+            # While the app loads, the document can be replaced between finding <body> and
+            # reading it; that is a stale read to retry, not a failure.
+            if "does not belong to the document" in str(exc):
+                return ""
+            raise
 
     def visible(self, text):
         return self.wait(lambda: text in self.body())

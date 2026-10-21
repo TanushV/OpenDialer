@@ -387,3 +387,40 @@ def test_native_preflight_readies_the_rep_first_as_a_person_would_after_restart(
     assert source.index('self.click("Go ready")') < source.index('self.click("Run preflight")')
     # Pausing again goes through the Dialer; the journey's next step is a Settings tab.
     assert source.rindex("self.pause()") < source.rindex('self.click("Settings")')
+
+
+def test_reading_the_page_while_the_document_is_replaced_is_retried():
+    """Reopening the app replaced the document between finding <body> and reading it."""
+    from selenium.common.exceptions import WebDriverException
+
+    m = native()
+    reads = []
+
+    class Body:
+        @property
+        def text(self):
+            reads.append(True)
+            if len(reads) == 1:
+                raise WebDriverException(
+                    'unknown error: unhandled inspector error: {"code":-32000,'
+                    '"message":"Node with given id does not belong to the document"}'
+                )
+            return "SIMULATION"
+
+    class Driver:
+        def find_element(self, by, value):
+            return Body()
+
+    ui = m.NativeUI.__new__(m.NativeUI)
+    ui.driver = Driver()
+    ui.wait = lambda action, timeout=60: next(v for v in iter(action, None) if v)
+    assert ui.body() == ""
+    assert ui.body() == "SIMULATION"
+
+    class Closed(Driver):
+        def find_element(self, by, value):
+            raise WebDriverException("chrome not reachable")
+
+    ui.driver = Closed()
+    with pytest.raises(WebDriverException):
+        ui.body()
