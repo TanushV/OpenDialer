@@ -316,11 +316,19 @@ class NativeUI:
         self.press(".modal .close-modal")
 
     def preflight(self, version, mode):
+        # Readiness includes the rep's audio check, which a restart resets: go ready first.
+        self.click("Dialer")
+        readied = "Go ready" in self.body()
+        if readied:
+            self.click("Go ready")
+        self.visible("Pause dialing")
         self.click("Settings")
         self.click("Run preflight")
         self.visible("Database integrity verified")
         result = check_preflight(self.element(".preflight").text, version, mode)
         self.screenshot(mode + "-preflight")
+        if readied:
+            self.pause()  # Leave the rep as found: paused, with no active claim.
         return result
 
 
