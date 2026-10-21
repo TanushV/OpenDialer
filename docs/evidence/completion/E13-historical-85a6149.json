@@ -1,7 +1,7 @@
 {
  "step_id": "E13",
  "profile": "historical",
- "source_commit": "37635aa7c56a203e638e88ebf6917120eb49882e",
+ "source_commit": "c8a9a4ab913296c83292798d1d64ce7c0a5c65ee",
  "production_tree_digest": "2d06c8b73b6c5d5361931cafc511550b8fc660a982b5ebe134b109d803a792ab",
  "test_tree_digest": "ab5e7890a6aefda25f780bf0454de7af4cea1906afcd290fe730d1b7fa175ff9",
  "harness_sha256": "a7e2436fb388dd578a5e5112feda84eeb85b918ef2bfd7677f069605a5e97fff",
@@ -13,7 +13,7 @@
  "mode": "SQLite on macOS ARM64",
  "fixture_seed": 20261018,
  "commands": [
-  "python scripts/measure_completion.py --profile historical --seed 20261018 --output-dir work/remediation/completion/performance-b1e7dca-historical"
+  "python scripts/measure_completion.py --profile historical --seed 20261018 --output-dir work/remediation/completion/performance-85a6149-historical"
  ],
  "environment": {
   "platform": "macOS-26.5.1-arm64-arm-64bit",

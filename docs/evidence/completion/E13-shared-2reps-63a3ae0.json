@@ -1,7 +1,7 @@
 {
  "step_id": "E13",
  "profile": "shared",
- "source_commit": "4ee289475136aef433492e3d9be06ae22138a387",
+ "source_commit": "63a3ae08dc44c61a2be0efc47b480ad6b8fc0633",
  "production_tree_digest": "b09aa415779c6b907d642be0a5b425d99d71655517ec66ca5584b870519f5362",
  "test_tree_digest": "d777a2c2c2defee95f32ee724d0fdb957fbdc31893d9cad33611d1c921dbefb7",
  "harness_sha256": "5cf57e0b56d376b4deb24c982a1d5db3a51282c6e8b7e93f0723d1a8c93ced84",
@@ -13,7 +13,7 @@
  "mode": "PostgreSQL in the inspected 2-vCPU/4-GiB reference containers",
  "fixture_seed": 20261018,
  "commands": [
-  "docker exec <reference runner> python scripts/measure_completion.py --profile shared --reps 2 --seed 20261018 --output-dir /evidence/performance-4ee2894-shared-2reps"
+  "docker exec <reference runner> python scripts/measure_completion.py --profile shared --reps 2 --seed 20261018 --output-dir /evidence/performance-63a3ae0-shared-2reps"
  ],
  "environment": {
   "platform": "Linux-6.8.0-100-generic-aarch64-with-glibc2.41",
@@ -407,7 +407,7 @@
  "known_limitations": [
   "Capacity point: two synchronized reps at the same cadence on the same 2-vCPU reference.",
   "Warm and cold selection, workspace and control paths pass; under load, selection (1.7 s), event-to-state, live context, hangup and wrap-up miss their targets even at two reps.",
-  "Write-conflict counts named the remaining 409s (StaleDataError on call_attempts x4, leads x1); fixed in 7ed0301 and 07f7e19 with PostgreSQL regressions."
+  "Write-conflict counts named the remaining 409s (StaleDataError on call_attempts x4, leads x1); fixed in 20048a5 and 84b4d65 with PostgreSQL regressions."
  ],
  "external_calls": false
 }

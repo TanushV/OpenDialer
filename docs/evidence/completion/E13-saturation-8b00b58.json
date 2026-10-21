@@ -1,7 +1,7 @@
 {
  "step_id": "E13",
  "profile": "saturation",
- "source_commit": "be40b6c5f877794e5046e85e89e1c67ff2be650e",
+ "source_commit": "8b00b58c653f8ecccab3b8259f8c936b4fc58f60",
  "production_tree_digest": "97a8529cc5e6a159db304c58cf2eeee5289ff095cdce37282e4ec247adcdafd2",
  "test_tree_digest": "89e772114701bea5dbfec77ad1afd62a65b742b60209043f3e158042feb9b4c5",
  "harness_sha256": "afeec724d54ed5414ab666b7b5f27bdc1b7563ddc58390516128119acb51d014",
@@ -13,7 +13,7 @@
  "mode": "PostgreSQL in the inspected 2-vCPU/4-GiB reference containers",
  "fixture_seed": 20261018,
  "commands": [
-  "docker exec <reference runner> python scripts/measure_completion.py --profile saturation --seed 20261018 --output-dir /evidence/performance-be40b6c-saturation"
+  "docker exec <reference runner> python scripts/measure_completion.py --profile saturation --seed 20261018 --output-dir /evidence/performance-8b00b58-saturation"
  ],
  "environment": {
   "platform": "Linux-6.8.0-100-generic-aarch64-with-glibc2.41",
@@ -397,7 +397,7 @@
  "known_limitations": [
   "Twenty synchronized reps, each running one full call journey every 10 s, on 1.5 API vCPU plus a 0.5 vCPU PostgreSQL container: an intentional overload.",
   "Live admission and backpressure pass (240 accepted, 360 rejected as busy, queue p95 15 ms); no background errors or dead jobs. Latency fails: 21 cycles hit the 10 s event-to-state timeout and about 2,700 derived jobs were still due after the 120 s recovery window.",
-  "Two hangups and one cleanup hangup returned 409 from a concurrent new-job insert; fixed in 4ef5f9b with a PostgreSQL regression."
+  "Two hangups and one cleanup hangup returned 409 from a concurrent new-job insert; fixed in 0ac40b3 with a PostgreSQL regression."
  ],
  "external_calls": false
 }

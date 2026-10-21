@@ -1,7 +1,7 @@
 {
  "step_id": "E13",
  "profile": "shared",
- "source_commit": "7ed0301f87117634a3c0a1d1154957134aacf177",
+ "source_commit": "20048a5a27bb887acce5f24e121c1bc99ea47f34",
  "production_tree_digest": "3c96a187c95f10b79ef83ea7c11cec28174b117481b1291eca5792e4e381e912",
  "test_tree_digest": "6dbfb379b395c38e7297c44895cbafca4451ca3db0c92d307cd0a8e590b4cb90",
  "harness_sha256": "5cf57e0b56d376b4deb24c982a1d5db3a51282c6e8b7e93f0723d1a8c93ced84",
@@ -13,7 +13,7 @@
  "mode": "PostgreSQL in the inspected 2-vCPU/4-GiB reference containers",
  "fixture_seed": 20261018,
  "commands": [
-  "docker exec <reference runner> python scripts/measure_completion.py --profile shared --seed 20261018 --output-dir /evidence/performance-7ed0301-shared"
+  "docker exec <reference runner> python scripts/measure_completion.py --profile shared --seed 20261018 --output-dir /evidence/performance-20048a5-shared"
  ],
  "environment": {
   "platform": "Linux-6.8.0-100-generic-aarch64-with-glibc2.41",
@@ -395,7 +395,7 @@
  "known_limitations": [
   "Eight synchronized reps, each running one full call journey every 10 s (about 360 calls per rep-hour), on 1.5 API vCPU plus a 0.5 vCPU PostgreSQL container.",
   "Correctness: zero write conflicts, zero background errors, queue recovered; cold selection, workspace, control paths and the coach fixture pass. Latency targets for warm selection, writer and every load path are not met on 2 vCPU.",
-  "The only failed cycles were ten next-lead 409 QUEUE_CHANGED answers, which the harness did not yet retry; df12698 adds the desktop's bounded retry to both."
+  "The only failed cycles were ten next-lead 409 QUEUE_CHANGED answers, which the harness did not yet retry; edc48e3 adds the desktop's bounded retry to both."
  ],
  "external_calls": false
 }

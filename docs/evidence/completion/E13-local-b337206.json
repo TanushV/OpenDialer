@@ -1,7 +1,7 @@
 {
  "step_id": "E13",
  "profile": "local",
- "source_commit": "33d76772dcb1661b21f8bfec77098dee77ecd67c",
+ "source_commit": "8142b9ae4e0f88a40bcb222d07902fab5b81f71e",
  "production_tree_digest": "c4f2a7d0985e9ada31a4630b53e188cec8d9d1b6ac3ae05e3d6d12a4cec2c19a",
  "test_tree_digest": "794626dfdc76f76909de9908b392122c3e2792ac0cb198b7f8ee277b536f6936",
  "harness_sha256": "a7e2436fb388dd578a5e5112feda84eeb85b918ef2bfd7677f069605a5e97fff",
@@ -13,7 +13,7 @@
  "mode": "SQLite on macOS ARM64",
  "fixture_seed": 20261018,
  "commands": [
-  "uv run python scripts/measure_completion.py --profile local --seed 20261018 --output-dir work/remediation/completion/performance-c5edc44-local"
+  "uv run python scripts/measure_completion.py --profile local --seed 20261018 --output-dir work/remediation/completion/performance-b337206-local"
  ],
  "environment": {
   "platform": "macOS-26.5.1-arm64-arm-64bit",

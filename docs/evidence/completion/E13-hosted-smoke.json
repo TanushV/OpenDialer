@@ -1,7 +1,7 @@
 {
  "step_id": "E13",
  "scope": "Hosted (connected) mode on the real deploy/compose.yml topology: migrate job, API with webhook/live_coach/postcall/maintenance lanes, a separate background worker (research/scripts/ml), PostgreSQL 17; read-only filesystems and dropped capabilities as shipped",
- "source_commit": "c06739fbb99c55372cd6a72bb789c813d39c60c2",
+ "source_commit": "1166b4837443e44f72397f3b05148ea10662206d",
  "overrides": "simulated providers; Caddy omitted (needs a public DNS name and ports 80/443); API published on 127.0.0.1:18766 only",
  "commands": [
   "docker compose -p opendialer-hosted-smoke --env-file <synthetic secrets> -f deploy/compose.yml -f work/remediation/completion/compose.smoke.yml up -d --build",

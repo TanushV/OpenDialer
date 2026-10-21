@@ -1,10 +1,10 @@
 {
  "step_id": "E13",
- "scope": "Frozen macOS ARM64 authority and trainer sidecars built from c5edc44; packaged-runtime journey, restart and training child",
- "source_commit": "c5edc440d3b7f48cbecb05603d8bf23acb69b956",
+ "scope": "Frozen macOS ARM64 authority and trainer sidecars built from b337206; packaged-runtime journey, restart and training child",
+ "source_commit": "b337206b56e6624e85faa023e9b2066d364c8635",
  "commands": [
   "uv run python scripts/build_sidecar.py",
-  "uv run python scripts/frozen_acceptance.py --expected-version 0.3.0 --output work/remediation/completion/frozen-c5edc44/frozen-runtime.json"
+  "uv run python scripts/frozen_acceptance.py --expected-version 0.3.0 --output work/remediation/completion/frozen-b337206/frozen-runtime.json"
  ],
  "result": {
   "version": "0.3.0",

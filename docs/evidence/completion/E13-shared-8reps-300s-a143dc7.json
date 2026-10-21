@@ -1,7 +1,7 @@
 {
  "step_id": "E13",
  "profile": "saturation",
- "source_commit": "37a51166e1e4bbb52f66416384b32e8cdb93ac53",
+ "source_commit": "a143dc723091c04ed6e7089b6902d48604129069",
  "production_tree_digest": "e26442f119bc476a421315f4ce9b2a596285b0a6dec49fe064ec067b405fd7ac",
  "test_tree_digest": "04e3316311c6eaff74f97092c5731012a73d4b2fd5cfca5d5f4fe1eae65229d2",
  "harness_sha256": "5cf57e0b56d376b4deb24c982a1d5db3a51282c6e8b7e93f0723d1a8c93ced84",
@@ -13,7 +13,7 @@
  "mode": "PostgreSQL in the inspected 2-vCPU/4-GiB reference containers",
  "fixture_seed": 20261018,
  "commands": [
-  "docker exec <reference runner> python scripts/measure_completion.py --profile saturation --reps 8 --seed 20261018 --output-dir /evidence/performance-37a5116-conflicts-8reps"
+  "docker exec <reference runner> python scripts/measure_completion.py --profile saturation --reps 8 --seed 20261018 --output-dir /evidence/performance-a143dc7-conflicts-8reps"
  ],
  "environment": {
   "platform": "Linux-6.8.0-100-generic-aarch64-with-glibc2.41",

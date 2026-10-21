@@ -2,7 +2,7 @@
  "step_id": "E13",
  "scope": "Installed Windows x64 app: NSIS install into a disposable GitHub runner, then the native harness drives the installed desktop through the local and connected journeys and measures native resources",
  "run": "https://github.com/TanushV/OpenDialer/actions/runs/39630912414",
- "source_commit": "35cb4f34ef323f9ea8917deb6c920aedd6345a65",
+ "source_commit": "c675dfc214caa60c7e3dd2dcf2e77630cbbf1974",
  "source_hash": "9f08fc59458a838576ed6e3eb2884c74230893bae577d28ba047b21feffaeaec",
  "harness_sha256": "735dd0962e2677b8759f6a12bc152ecdd0e270161f5402445bc419b2e899ff39",
  "dirty_files": [],

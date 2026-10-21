@@ -1,7 +1,7 @@
 {
  "step_id": "E13",
  "profile": "shared",
- "source_commit": "470d0bfa0a0a7369bbc7d20178dfce159ad1d4ae",
+ "source_commit": "cd14424549d4d9323fd04cca24a27a89e8a31076",
  "production_tree_digest": "c4f2a7d0985e9ada31a4630b53e188cec8d9d1b6ac3ae05e3d6d12a4cec2c19a",
  "test_tree_digest": "b07702c81f14623881064af4f7ea858950cfc231cdb87f6487f77d111e729270",
  "harness_sha256": "a6fdba3e55984fb42df9be857afe53488c8cd719c4a1897024d0ad316d3d101d",
@@ -13,7 +13,7 @@
  "mode": "PostgreSQL in the inspected 2-vCPU/4-GiB reference containers",
  "fixture_seed": 20261018,
  "commands": [
-  "docker exec <reference runner> python scripts/measure_completion.py --profile shared --reps 4 --seed 20261018 --output-dir /evidence/performance-470d0bf-shared-4reps"
+  "docker exec <reference runner> python scripts/measure_completion.py --profile shared --reps 4 --seed 20261018 --output-dir /evidence/performance-cd14424-shared-4reps"
  ],
  "environment": {
   "platform": "Linux-6.8.0-100-generic-aarch64-with-glibc2.41",

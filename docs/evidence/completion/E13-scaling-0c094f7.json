@@ -1,7 +1,7 @@
 {
  "step_id": "E13",
  "profile": "scaling",
- "source_commit": "3a60785d86b86fa91dca7c7f3f14f51d147baeea",
+ "source_commit": "0c094f746cc8b2c8d56eaf25477fc9972d39439e",
  "production_tree_digest": "c1e4edc94e0cdf3819ad06aa9142fd6767eb509b4325b0737638557c0eb3672c",
  "test_tree_digest": "f16b27844f8350d4a124aa9e77702d1571c7c05b0686a7809ea369e68c12b7e3",
  "harness_sha256": "372097352516d73c8d1c3ac1b45d0f778df45a7868d6c4bf87b56a5f555bb38b",
@@ -13,7 +13,7 @@
  "mode": "SQLite on macOS ARM64",
  "fixture_seed": 20261018,
  "commands": [
-  "uv run python scripts/measure_completion.py --profile scaling --seed 20261018 --output-dir work/remediation/completion/performance-3a60785-scaling"
+  "uv run python scripts/measure_completion.py --profile scaling --seed 20261018 --output-dir work/remediation/completion/performance-0c094f7-scaling"
  ],
  "environment": {
   "platform": "macOS-26.5.1-arm64-arm-64bit",
