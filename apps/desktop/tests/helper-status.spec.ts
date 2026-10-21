@@ -38,9 +38,8 @@ async function callWithHelper(page: Page, helper: Record<string, unknown>) {
   if (await enter.isVisible()) await enter.click();
 }
 
-test.afterEach(async ({ page }) => {
-  await page.unrouteAll({ behavior: "wait" });
-});
+// Route cleanup is the shared fixture's: it ignores handlers still serving reads
+// the page abandoned, where waiting for them could hang until the test timeout.
 
 for (const [helper, text] of [
   [
