@@ -164,6 +164,49 @@ test("seller can save a fixed script and an overnight preparation window", async
   );
 });
 
+test("a provider choice made before settings finish loading is the one saved", async ({
+  page,
+}) => {
+  await enter(page);
+  // Hold every settings read until after the choice, as a slow authority would.
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/v1/admin/settings", async (route) => {
+    if (route.request().method() === "GET") await held;
+    await route.continue();
+  });
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByText("Advanced", { exact: true }).click();
+  const search = page.getByLabel("Optional research search", { exact: true });
+  await search.selectOption("openai_web_search");
+  const loaded = page.waitForResponse(
+    (r) =>
+      r.url().endsWith("/v1/admin/settings") && r.request().method() === "GET",
+  );
+  release();
+  await loaded;
+  await expect(search).toHaveValue("openai_web_search");
+  const saved = page.waitForRequest(
+    (r) => r.url().endsWith("/v1/admin/settings") && r.method() === "PUT",
+  );
+  await page
+    .getByRole("button", { name: "Save provider settings", exact: true })
+    .click();
+  expect((await saved).postDataJSON().research_search).toBe(
+    "openai_web_search",
+  );
+  await expect(
+    page.getByText("Provider configuration saved securely."),
+  ).toBeVisible();
+  await search.selectOption("disabled");
+  await page
+    .getByRole("button", { name: "Save provider settings", exact: true })
+    .click();
+  await expect(
+    page.getByText("Provider configuration saved securely."),
+  ).toBeVisible();
+});
+
 test("optional metered research search is an explicit saved choice", async ({
   page,
 }) => {
