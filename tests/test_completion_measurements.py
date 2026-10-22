@@ -942,6 +942,34 @@ def test_a_capacity_search_overrides_reps_for_one_profile_and_records_it(tmp_pat
     assert m.PROFILES["shared"]["reps"] == 8, "The defined acceptance profile is not changed"
 
 
+def test_a_capacity_search_can_set_the_journey_cadence_and_records_it(tmp_path, monkeypatch):
+    """The shared profile starts one full call journey per rep every 10 s (about 360 calls per
+    rep-hour, several times real dialing). A capacity point at a stated cadence is a recorded
+    search, never the defined profile, and the load loop must actually use it."""
+    import inspect
+
+    m = measurement()
+    seen, load, run = (
+        {},
+        inspect.getsource(measurement().run_load),
+        inspect.getsource(measurement().run_profile),
+    )
+
+    def profile(name, directory, seed, checkpoint):
+        seen[name] = (m.PROFILES[name]["reps"], m.PROFILES[name]["cadence_seconds"])
+        return {"profile": name, "status": "passed", "declared": m.PROFILES[name]}
+
+    monkeypatch.setattr(m, "run_profile", profile)
+    monkeypatch.setattr(m, "source_metadata", lambda: {"source_commit": "c" * 40})
+    monkeypatch.setattr(m, "validate_output", lambda path: path)
+    m.main(["--profile", "shared", "--reps", "8", "--cadence", "60", "--output-dir", str(tmp_path)])
+    assert seen == {"shared": (8, 60)}
+    assert json.loads((tmp_path / "summary.json").read_text())["cadence_override"] == 60
+    assert "cadence_seconds" not in m.PROFILES["shared"], "The defined acceptance profile is not changed"
+    assert "cadence=cadence" in load
+    assert 'cadence=spec.get("cadence_seconds", LOAD_CADENCE_SECONDS)' in run
+
+
 def test_a_failed_request_sample_records_its_status_and_product_code():
     """Profile failures said only HTTPStatusError; the cause stays content-free but named."""
     import httpx

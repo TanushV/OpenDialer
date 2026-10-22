@@ -114,7 +114,10 @@ def reported(rows):
     return {**summarize(rows, target_ms=math.inf), "target_ms": None, "status": "reported"}
 
 
-def run_for(seconds, operation, *, monotonic=time.monotonic, pause=time.sleep, cadence=10):
+LOAD_CADENCE_SECONDS = 10  # One full call journey per rep every 10 s in the defined profiles.
+
+
+def run_for(seconds, operation, *, monotonic=time.monotonic, pause=time.sleep, cadence=LOAD_CADENCE_SECONDS):
     """Real elapsed load; failures stay in the sequence, never shortened to a count."""
     if seconds <= 0 or cadence <= 0:
         raise ValueError("Positive duration and cadence required")
@@ -1752,7 +1755,17 @@ def await_recovery(
 
 
 def run_load(
-    client, headers, campaign, measured, seconds, checkpoint, *, p, reps, recovery_seconds=RECOVERY_SECONDS
+    client,
+    headers,
+    campaign,
+    measured,
+    seconds,
+    checkpoint,
+    *,
+    p,
+    reps,
+    recovery_seconds=RECOVERY_SECONDS,
+    cadence=LOAD_CADENCE_SECONDS,
 ):
     """Rep journeys against the production runtime lanes, on a clock that follows real time."""
     service = client.app.state.service
@@ -1789,7 +1802,7 @@ def run_load(
         production_runtime(client, service),
     ):
         began = service.clock()
-        cycles = run_for(seconds, cycle)
+        cycles = run_for(seconds, cycle, cadence=cadence)
         end = queue_snapshot(service, recorder.job_ids())
         recovery = await_recovery(
             service, recorder, lanes, follows=follow is not None, seconds=recovery_seconds
@@ -2034,6 +2047,7 @@ def run_profile(name, directory, seed, checkpoint):
                         checkpoint,
                         p=p,
                         reps=spec["reps"],
+                        cadence=spec.get("cadence_seconds", LOAD_CADENCE_SECONDS),
                     )
                 if name in {"shared", "saturation"}:
                     measured.phase = "stalled_selection"
@@ -2093,9 +2107,16 @@ def main(argv=None):
         action="store_true",
         help="Fail unless a current native resource receipt passes; by default it is reported only",
     )
+    parser.add_argument(
+        "--cadence",
+        type=int,
+        help="Capacity search: seconds between each rep's call journeys; recorded, never the defined profile",
+    )
     args = parser.parse_args(argv)
     if args.reps is not None and (args.profile == "all" or args.reps < 1):
         parser.error("--reps applies to one profile and must be positive")
+    if args.cadence is not None and (args.profile == "all" or args.cadence < 1):
+        parser.error("--cadence applies to one profile and must be positive")
     try:
         output = validate_output(args.output_dir)
     except ValueError as exc:
@@ -2110,11 +2131,14 @@ def main(argv=None):
         "resource_gates": native,
         "native_resources_required": args.require_native_resources,
         "reps_override": args.reps,
+        "cadence_override": args.cadence,
         "status": "running",
     }
     defined = dict(PROFILES)
     if args.reps is not None:
         PROFILES[args.profile] = {**PROFILES[args.profile], "reps": args.reps}
+    if args.cadence is not None:
+        PROFILES[args.profile] = {**PROFILES[args.profile], "cadence_seconds": args.cadence}
     for name in PROFILES if args.profile == "all" else [args.profile]:
 
         def checkpoint(progress, name=name):
