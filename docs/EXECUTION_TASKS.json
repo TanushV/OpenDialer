@@ -1003,7 +1003,10 @@
         "docs/evidence/completion/E13-shift-cd14424.json",
         "docs/evidence/completion/E13-windows-native-c675dfc.json",
         "docs/evidence/completion/E13-writer-admission.json",
-        "docs/evidence/completion/E13-connected-stream-order.json"
+        "docs/evidence/completion/E13-connected-stream-order.json",
+        "docs/evidence/completion/E13-shared-8reps-60s-7d571d1.json",
+        "docs/evidence/completion/E13-shared-2reps-60s-7d571d1.json",
+        "docs/evidence/completion/E13-hosted-smoke-7d571d1.json"
       ],
       "planned_case_ids": [
         "C051",

@@ -1,0 +1,41 @@
+{
+  "step_id": "E13",
+  "scope": "Hosted (connected) mode on the shipped compose topology",
+  "source_commit": "7d571d10bd31da293337c4f4678640c543f00949",
+  "production_tree_digest": "98d8791323d7c57e6f771eaf65453f28dcc3ca257fc516c8ec159fe8de443434",
+  "test_tree_digest": "acafeefc1aa5bda46b52f3a509f8c52c591876beeb1eb455b2a1ad834b61c557",
+  "case_ids": [
+    "A46",
+    "A51"
+  ],
+  "mode": "docker compose: migrate job, API with live lanes (webhook, live_coach, postcall, maintenance), separate background worker (research, scripts, ml), PostgreSQL 17; Caddy omitted locally",
+  "commands": [
+    "docker compose -p opendialer-hosted-smoke --env-file <synthetic secrets> -f deploy/compose.yml -f work/remediation/completion/compose.smoke.yml up -d --build",
+    "python work/remediation/completion/hosted_smoke.py http://127.0.0.1:18766 <bootstrap> setup|journey|after_restart <state>",
+    "docker compose ... restart api worker-background"
+  ],
+  "result": {
+    "setup": {
+      "imported": 3,
+      "prepared_by_worker": 3,
+      "plan_sign_in": "paste"
+    },
+    "journey": {
+      "call_state": "FINALIZED",
+      "callback_task": true
+    },
+    "after_restart": {
+      "call_outcome_retained": true,
+      "task_retained": true,
+      "preflight_mode": "connected"
+    },
+    "service_log_errors": {
+      "api": 0,
+      "worker-background": 0,
+      "migrate": 0
+    }
+  },
+  "includes": "the PostgreSQL lock-order fix (64fee58) and every 0.3.3 product change",
+  "provider_calls": 0,
+  "external_calls": false
+}

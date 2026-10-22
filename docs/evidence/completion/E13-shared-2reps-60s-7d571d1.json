@@ -1,0 +1,401 @@
+{
+ "step_id": "E13",
+ "profile": "shared",
+ "source_commit": "7d571d10bd31da293337c4f4678640c543f00949",
+ "production_tree_digest": "ff5729c1d2389474090f7f6fbe921176a690a2d27545b48c86693632b721ea70",
+ "test_tree_digest": "f5cfb38495322b860195297edcce46ed6e24fd425c0f88b70806262d2ed471a5",
+ "harness_sha256": "cb6d14a212632a04c53d4f589361fd87a3f158bbd78ebf6225dfd5b9ec715310",
+ "case_ids": [
+  "A25",
+  "A50",
+  "A51"
+ ],
+ "mode": "PostgreSQL in the inspected 2-vCPU/4-GiB reference containers",
+ "fixture_seed": 20261018,
+ "commands": [
+  "docker exec <2-vCPU reference runner> python scripts/measure_completion.py --profile shared --reps 2 --cadence 60 --output-dir /evidence/performance-7d571d1-shared-2reps-60s"
+ ],
+ "environment": {
+  "platform": "Linux-6.8.0-100-generic-aarch64-with-glibc2.41",
+  "python": "3.12.15",
+  "logical_cpus": 4,
+  "locks": {
+   "pyproject.toml": "d5a18630e8d1a9d49f4a655e4f452509d3674758073a63f0a8b9d5385ca79aec",
+   "uv.lock": "ffd22718ca066f0c9ea3e291bba30cc41e06ac1077982ebd0b5422ce9e691b4e",
+   "apps/desktop/package.json": "cbceb1a6fa4f8302f86ea136de3697a98fc1afbdf02a2a6dfe70c519808c1fed",
+   "apps/desktop/package-lock.json": "0066d149bc86a6e44aaa9071cf53a50c6a4630db132b4016b9c8c667aa137765",
+   "apps/desktop/src-tauri/Cargo.toml": "3ed09dd125081fa1e995525c1b098f057db3494219a1b2aec1897fd6db148d8d",
+   "apps/desktop/src-tauri/Cargo.lock": "7236fc0a69eefed5700b4e115fd97fd67417dfcf066a43b5dd3cad6b92b8fbfc"
+  }
+ },
+ "dirty_files": [],
+ "profile_status": "failed",
+ "failed_gates": [
+  "warm_selection",
+  "writer",
+  "rebuild",
+  "control_paths",
+  "stalled_selection",
+  "load"
+ ],
+ "authority_startup_ms": 4603.282685042359,
+ "selection": {
+  "cold": {
+   "samples": 2,
+   "failures": 0,
+   "p50_ms": 349.7909309808165,
+   "p95_ms": 429.0702260332182,
+   "p99_ms": 429.0702260332182,
+   "max_ms": 429.0702260332182,
+   "sql_max": 40,
+   "decrypted_max": 177,
+   "target_ms": 1000,
+   "status": "passed"
+  },
+  "warm": {
+   "samples": 400,
+   "failures": 0,
+   "p50_ms": 89.04500992503017,
+   "p95_ms": 293.2214579777792,
+   "p99_ms": 501.8320929957554,
+   "max_ms": 1614.3490609247237,
+   "sql_max": 26,
+   "decrypted_max": 93,
+   "target_ms": 250,
+   "status": "failed"
+  }
+ },
+ "cached_workspace": {
+  "samples": 200,
+  "failures": 0,
+  "p50_ms": 39.02496094815433,
+  "p95_ms": 162.03076601959765,
+  "p99_ms": 732.2730249725282,
+  "max_ms": 3463.019486051053,
+  "sql_max": 44,
+  "decrypted_max": 119,
+  "target_ms": 250,
+  "status": "passed"
+ },
+ "six_coach": {
+  "samples": 30,
+  "failures": 0,
+  "p50_ms": 750.7885210216045,
+  "p95_ms": 861.0782469622791,
+  "p99_ms": 947.1640170086175,
+  "max_ms": 947.1640170086175,
+  "sql_max": 0,
+  "decrypted_max": 0,
+  "target_ms": 1500,
+  "status": "passed"
+ },
+ "rebuild": {
+  "seconds": 1205.033904114971,
+  "pages": 132,
+  "published": false,
+  "status": "failed"
+ },
+ "writer_transactions": {
+  "samples": 16254,
+  "failures": 21,
+  "p50_ms": 24.924605037085712,
+  "p95_ms": 200.1168120186776,
+  "p99_ms": 526.7723170109093,
+  "max_ms": 5986.504049040377,
+  "sql_max": 0,
+  "decrypted_max": 0,
+  "target_ms": 25,
+  "status": "failed",
+  "phases": {
+   "control_paths": {
+    "samples": 3300,
+    "failures": 0,
+    "p50_ms": 37.972621037624776,
+    "p95_ms": 265.37452498450875,
+    "p99_ms": 715.9391799941659,
+    "max_ms": 5986.504049040377,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "failed"
+   },
+   "load": {
+    "samples": 9907,
+    "failures": 19,
+    "p50_ms": 19.470533006824553,
+    "p95_ms": 204.97920794878155,
+    "p99_ms": 546.6007479699329,
+    "max_ms": 5961.467991000973,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "failed"
+   },
+   "selection": {
+    "samples": 1328,
+    "failures": 1,
+    "p50_ms": 28.162467991933227,
+    "p95_ms": 97.17538894619793,
+    "p99_ms": 207.00833189766854,
+    "max_ms": 1213.3206769358367,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "failed"
+   },
+   "six_coach": {
+    "samples": 390,
+    "failures": 0,
+    "p50_ms": 8.478229050524533,
+    "p95_ms": 31.67072799988091,
+    "p99_ms": 65.33923500683159,
+    "max_ms": 148.87819590512663,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "failed"
+   },
+   "stalled_selection": {
+    "samples": 1328,
+    "failures": 1,
+    "p50_ms": 35.532090929336846,
+    "p95_ms": 133.46870406530797,
+    "p99_ms": 314.53776196576655,
+    "max_ms": 837.9291130695492,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "failed"
+   },
+   "workload_capacity": {
+    "samples": 1,
+    "failures": 0,
+    "p50_ms": 38.47587795462459,
+    "p95_ms": 38.47587795462459,
+    "p99_ms": 38.47587795462459,
+    "max_ms": 38.47587795462459,
+    "sql_max": 0,
+    "decrypted_max": 0,
+    "target_ms": 25,
+    "status": "failed"
+   }
+  },
+  "longest_holds": []
+ },
+ "control_paths": {
+  "event_ack": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 12.23773299716413,
+   "p95_ms": 61.684175045229495,
+   "p99_ms": 290.2595220366493,
+   "max_ms": 370.7882500020787,
+   "sql_max": 4,
+   "decrypted_max": 0,
+   "target_ms": 100,
+   "status": "passed"
+  },
+  "event_state": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 77.1317440085113,
+   "p95_ms": 342.9474929580465,
+   "p99_ms": 1476.235807989724,
+   "max_ms": 3974.179831915535,
+   "sql_max": 44,
+   "decrypted_max": 22,
+   "target_ms": 250,
+   "status": "failed"
+  },
+  "live_context": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 34.56262301187962,
+   "p95_ms": 198.20803601760417,
+   "p99_ms": 540.7047579064965,
+   "max_ms": 587.3981380136684,
+   "sql_max": 18,
+   "decrypted_max": 12,
+   "target_ms": 100,
+   "status": "failed"
+  },
+  "wrapup": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 71.66309002786875,
+   "p95_ms": 365.4500739648938,
+   "p99_ms": 895.3428179956973,
+   "max_ms": 2724.8560399748385,
+   "sql_max": 39,
+   "decrypted_max": 16,
+   "target_ms": 250,
+   "status": "failed"
+  },
+  "hangup": {
+   "samples": 200,
+   "failures": 0,
+   "p50_ms": 123.01702098920941,
+   "p95_ms": 592.2428339254111,
+   "p99_ms": 972.4173239665106,
+   "max_ms": 1199.6499130036682,
+   "sql_max": 45,
+   "decrypted_max": 26,
+   "target_ms": 250,
+   "status": "failed"
+  }
+ },
+ "load": {
+  "status": "failed",
+  "gate_failures": [
+   "path:selection",
+   "path:event_state",
+   "path:live_context",
+   "path:hangup",
+   "path:wrapup"
+  ],
+  "cycles": 30,
+  "background_errors": [],
+  "queue_recovery": "passed",
+  "paths": {
+   "selection": {
+    "samples": 60,
+    "failures": 0,
+    "p50_ms": 410.91748501639813,
+    "p95_ms": 1183.752843993716,
+    "p99_ms": 1649.9500389909372,
+    "max_ms": 1649.9500389909372,
+    "sql_max": 43,
+    "decrypted_max": 192,
+    "target_ms": 250,
+    "status": "failed"
+   },
+   "event_ack": {
+    "samples": 60,
+    "failures": 0,
+    "p50_ms": 20.165816065855324,
+    "p95_ms": 91.58568899147213,
+    "p99_ms": 225.93286202754825,
+    "max_ms": 225.93286202754825,
+    "sql_max": 4,
+    "decrypted_max": 0,
+    "target_ms": 100,
+    "status": "passed"
+   },
+   "event_state": {
+    "samples": 60,
+    "failures": 0,
+    "p50_ms": 179.05319400597364,
+    "p95_ms": 1491.2080380599946,
+    "p99_ms": 6069.241579971276,
+    "max_ms": 6069.241579971276,
+    "sql_max": 267,
+    "decrypted_max": 0,
+    "target_ms": 250,
+    "status": "failed"
+   },
+   "live_context": {
+    "samples": 60,
+    "failures": 0,
+    "p50_ms": 59.21499105170369,
+    "p95_ms": 367.87403596099466,
+    "p99_ms": 784.7857320448384,
+    "max_ms": 784.7857320448384,
+    "sql_max": 18,
+    "decrypted_max": 13,
+    "target_ms": 100,
+    "status": "failed"
+   },
+   "hangup": {
+    "samples": 60,
+    "failures": 0,
+    "p50_ms": 274.25929403398186,
+    "p95_ms": 1582.7104590134695,
+    "p99_ms": 2955.757998046465,
+    "max_ms": 2955.757998046465,
+    "sql_max": 48,
+    "decrypted_max": 27,
+    "target_ms": 250,
+    "status": "failed"
+   },
+   "wrapup": {
+    "samples": 60,
+    "failures": 0,
+    "p50_ms": 124.6271290583536,
+    "p95_ms": 783.8678699918091,
+    "p99_ms": 1273.5589309595525,
+    "max_ms": 1273.5589309595525,
+    "sql_max": 40,
+    "decrypted_max": 18,
+    "target_ms": 250,
+    "status": "failed"
+   },
+   "start": {
+    "samples": 60,
+    "failures": 0,
+    "p50_ms": 498.4804589767009,
+    "p95_ms": 2236.0832509584725,
+    "p99_ms": 3633.9873819379136,
+    "max_ms": 3633.9873819379136,
+    "sql_max": 90,
+    "decrypted_max": 50,
+    "target_ms": null,
+    "status": "reported"
+   },
+   "cleanup_hangup": {
+    "samples": 60,
+    "failures": 0,
+    "p50_ms": 33.999222912825644,
+    "p95_ms": 378.236994962208,
+    "p99_ms": 704.0434760274366,
+    "max_ms": 704.0434760274366,
+    "sql_max": 5,
+    "decrypted_max": 4,
+    "target_ms": null,
+    "status": "reported"
+   },
+   "pause": {
+    "samples": 60,
+    "failures": 0,
+    "p50_ms": 53.43450198415667,
+    "p95_ms": 328.0930139590055,
+    "p99_ms": 466.7830540565774,
+    "max_ms": 466.7830540565774,
+    "sql_max": 12,
+    "decrypted_max": 5,
+    "target_ms": null,
+    "status": "reported"
+   }
+  },
+  "write_conflicts": []
+ },
+ "live_admission": {
+  "status": "passed",
+  "opportunities": 60,
+  "accepted": 60,
+  "rejected": 0,
+  "queue": {
+   "samples": 60,
+   "failures": 0,
+   "p50_ms": 0.33290800638496876,
+   "p95_ms": 2.2522929357364774,
+   "p99_ms": 11.606651940383017,
+   "max_ms": 11.606651940383017,
+   "sql_max": 0,
+   "decrypted_max": 0,
+   "target_ms": 100,
+   "status": "passed"
+  }
+ },
+ "shared_reference": {
+  "status": "passed",
+  "cpu_limit": 2.0,
+  "memory_limit_mib": 4096.0
+ },
+ "raw_result_sha256": "2f2c534b20201c9700b87b9928b58d4447db4ebb5642cb13a3314dc743aef40d",
+ "known_limitations": [
+  "Capacity point: two synchronized reps, one full call journey per rep per minute, on the 2-vCPU/4-GiB reference with every lane in one process.",
+  "The explicit 100k-attempt rebuild did not publish within its 20-minute bound (132 pages) and kept running through the load; the preceding 8-rep run on the same reference rebuilt in 699 s (428 pages). The reference shares a 4-CPU VM with unrelated database stacks using about 1.2 CPU, so these figures carry host contention.",
+  "Correctness holds: zero write conflicts, zero background errors, no failed journeys, queue recovery passed. Latency misses: selection p50 411 ms / p95 1.18 s, event-to-state p95 1.49 s, hangup p95 1.58 s; event acknowledgement passes (92 ms)."
+ ],
+ "external_calls": false
+}
