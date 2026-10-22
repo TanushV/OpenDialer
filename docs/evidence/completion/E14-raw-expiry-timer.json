@@ -1,0 +1,36 @@
+{
+  "step_id": "E14",
+  "scope": "Raw speech stayed on screen past five minutes in the installed Windows app",
+  "source_commit": "b296bfb8bbff0b50d5fefd3d804870f0100ffec4",
+  "production_tree_digest": "db7a3dc03ffd8e2138a66c198d761c0e42aa694a9b62c37924a260e79ae1be59",
+  "test_tree_digest": "15f65ed69cadb05b98a7b1aa07de1c9136e1c23304fea6bcbf8973d722c635bd",
+  "case_ids": [
+    "A27",
+    "A41"
+  ],
+  "mode": "Desktop expiry watch (TypeScript unit regression with injected clocks and timers)",
+  "fixture_seed": null,
+  "commands": [
+    "npx vitest run tests/privacy.test.ts (apps/desktop)"
+  ],
+  "evidence_runs": {
+    "windows_update_0_2_1_to_0_3_2": "39686189128: MSI passed the whole update acceptance (raw expiry 314.6 s and 314.2 s); NSIS kept the raw sentinel visible beyond 365 s in the local journey",
+    "earlier_native_runs": "raw expiry observed at 314-315 s in runs 39655092403, 39671111386, 39677713214 (both formats) and 39680510791"
+  },
+  "root_cause": "The desktop purges temporary speech at the earlier of a wall and a monotonic deadline, but Date.now and performance.now drift (wall-clock slew, coarsened performance.now). A timer could fire while both still read live; the purge changed nothing, React kept the same value, and no timer was scheduled again.",
+  "repair": "watchSpeechExpiry checks before purging and schedules again until the speech is gone (apps/desktop/src/state/privacy.ts); the hook uses it.",
+  "result_counts": {
+    "red": 1,
+    "green_unit": 78
+  },
+  "failed_cases": [],
+  "raw_log_sha256": {
+    "raw-expiry-timer-red.log": "8563aba72d7b97a6c2da7094fe7bb388c7f7ca7f06a9ad11ddcfad06129e8075"
+  },
+  "retired_paths": [],
+  "known_limitations": [
+    "0.3.2 was public 2026-10-21T22:23Z to 22:45Z, then marked prerelease so releases/latest returned to 0.2.1; 0.3.3 carries the repair.",
+    "The defect was intermittent (one of eleven native journeys); the installed-update runs on 0.3.3 are its native evidence."
+  ],
+  "external_calls": false
+}

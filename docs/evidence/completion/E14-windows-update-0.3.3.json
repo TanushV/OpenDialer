@@ -1,0 +1,141 @@
+{
+  "version": "0.3.3",
+  "baseline_version": "0.2.1",
+  "artifact_source_commit": "beb3cf3b220e4f0435f5e9fc9bb29578109a1463",
+  "artifact_build_run": 39689279665,
+  "harness_commit": "5b708edd468214cedf5b61c6a0fe0baa798e0d32",
+  "method": "published 0.2.1 installed fresh, baseline created through its own UI, then its signed in-app updater installed 0.3.3; the harness waited for the updater to exit and for the exact accepted backend bytes before reopening",
+  "nsis": {
+    "native_update_run": 39708283954,
+    "installer_format": "exe",
+    "completed_installation": {
+      "version": "0.3.3",
+      "backend_sha256": "cb67c5b5e3b187a4ddfc7df6bd698416edafbd20fafbeb8f11b8dca4d5bb1d00",
+      "active_updaters": 0,
+      "expected_backend_sha256": "cb67c5b5e3b187a4ddfc7df6bd698416edafbd20fafbeb8f11b8dca4d5bb1d00",
+      "installer_format": "exe",
+      "actual_update_payload_verified": true
+    },
+    "baseline_identity_counts": {
+      "leads": 3,
+      "call_attempts": 1,
+      "notes": 1,
+      "suppressions": 1,
+      "followup_tasks": 0,
+      "sessions": 1,
+      "command_outbox": 3
+    },
+    "baseline_human_note_sha256": "d8c3c37e2d5cefcb60e4bda052e96a50a2f6e18390d26114f7dd51dd43a6b883",
+    "webview_profile_kept_by_driver": false,
+    "journeys": [
+      {
+        "mode": "local",
+        "lead_name": "Native local continuity",
+        "task_call_id": "af18124d-2b52-4fda-b09d-0b989c5e1996",
+        "human_note_sha256": "2fcdbcc443f414da4f52102e12f6a188dc69f5507b4d183362e43112e7a2556a",
+        "callback_time_preserved": true,
+        "raw_expiry_elapsed_seconds": 314.9379999999999,
+        "session_restored": true,
+        "source_correction_verified": true
+      },
+      {
+        "mode": "connected",
+        "lead_name": "Morgan Reed",
+        "task_call_id": "3a28942e-9e69-4a01-aefb-02a33bbc9a5c",
+        "human_note_sha256": "dac4f6a64d77cecaedf4457de6cca14add7c3d76010f8518f0093b3a6c7008f8",
+        "callback_time_preserved": true,
+        "raw_expiry_elapsed_seconds": 315.28099999999995,
+        "session_restored": true,
+        "source_correction_verified": true
+      }
+    ],
+    "resources": {
+      "desktop_rss_mib": 237.25390625,
+      "desktop_peak_rss_mib": 543.58203125,
+      "authority_rss_mib": 131.08203125,
+      "idle_cpu_percent": 0.6770833333333334,
+      "idle_seconds": 300.0,
+      "cpu_accounting_complete": true
+    },
+    "resource_gates": {
+      "status": "passed",
+      "missing": [],
+      "failures": []
+    },
+    "startup_ms": [
+      9547.000000000025,
+      3296.000000000049,
+      6155.999999999949,
+      1984.000000000151
+    ],
+    "passed": true
+  },
+  "msi": {
+    "native_update_run": 39708283954,
+    "installer_format": "msi",
+    "completed_installation": {
+      "version": "0.3.3",
+      "backend_sha256": "cb67c5b5e3b187a4ddfc7df6bd698416edafbd20fafbeb8f11b8dca4d5bb1d00",
+      "active_updaters": 0,
+      "expected_backend_sha256": "cb67c5b5e3b187a4ddfc7df6bd698416edafbd20fafbeb8f11b8dca4d5bb1d00",
+      "installer_format": "msi",
+      "actual_update_payload_verified": true
+    },
+    "baseline_identity_counts": {
+      "leads": 3,
+      "call_attempts": 1,
+      "notes": 1,
+      "suppressions": 1,
+      "followup_tasks": 0,
+      "sessions": 1,
+      "command_outbox": 3
+    },
+    "baseline_human_note_sha256": "d8c3c37e2d5cefcb60e4bda052e96a50a2f6e18390d26114f7dd51dd43a6b883",
+    "webview_profile_kept_by_driver": false,
+    "journeys": [
+      {
+        "mode": "local",
+        "lead_name": "Native local continuity",
+        "task_call_id": "3a7cde1d-6a37-45a5-9c3c-20615cac7f8f",
+        "human_note_sha256": "2fcdbcc443f414da4f52102e12f6a188dc69f5507b4d183362e43112e7a2556a",
+        "callback_time_preserved": true,
+        "raw_expiry_elapsed_seconds": 314.484,
+        "session_restored": true,
+        "source_correction_verified": true
+      },
+      {
+        "mode": "connected",
+        "lead_name": "Morgan Reed",
+        "task_call_id": "bece0b7a-3a1f-4c46-be99-733031140c54",
+        "human_note_sha256": "dac4f6a64d77cecaedf4457de6cca14add7c3d76010f8518f0093b3a6c7008f8",
+        "callback_time_preserved": true,
+        "raw_expiry_elapsed_seconds": 315.28100000000006,
+        "session_restored": true,
+        "source_correction_verified": true
+      }
+    ],
+    "resources": {
+      "desktop_rss_mib": 230.3046875,
+      "desktop_peak_rss_mib": 545.96484375,
+      "authority_rss_mib": 131.0078125,
+      "idle_cpu_percent": 0.6875,
+      "idle_seconds": 300.0,
+      "cpu_accounting_complete": true
+    },
+    "resource_gates": {
+      "status": "passed",
+      "missing": [],
+      "failures": []
+    },
+    "startup_ms": [
+      6843.9999999999945,
+      3468.999999999994,
+      5672.0000000000255,
+      2047.0000000000255
+    ],
+    "passed": true
+  },
+  "session_continuity": "Session records, IDs and the human note are preserved; the WebDriver session resets the WebView profile, so a 0.2.1 session kept in WebView storage cannot be observed, and 0.3.3's own sessions restore across native restarts in both journeys.",
+  "provider_calls": 0,
+  "hardware_audio_certified": false
+}

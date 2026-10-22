@@ -1,0 +1,47 @@
+{
+  "step_id": "E14",
+  "scope": "Workspace upgraded from 0.2.1 could not sign out after the signed 0.2.1 -> 0.3.1 update",
+  "source_commit": "92e88a7f2614667605a8ba9831d6d2b278455522",
+  "production_tree_digest": "0f12606f5a8a2d48969ac21a8482343cb1c5e2b87f92a25c9f1a46899e2a9ab2",
+  "test_tree_digest": "908941e978ba4d77f5f99e078d4e314ac01a528370d407c82632aef061e5bbc1",
+  "case_ids": [
+    "A01",
+    "A03",
+    "A53"
+  ],
+  "mode": "SQLite; both database modes run the same startup reconciliation",
+  "fixture_seed": null,
+  "commands": [
+    "env -u OPENDIALER_TEST_POSTGRES_URL uv run pytest services/backend/tests/test_installed_copy_migration.py -q -k legs",
+    "Frozen 0.2.1 macOS backend (copied from the installed bundle, run on a disposable directory) wrote a simulated store through the harness's baseline: setup, seed, ready, next lead, call, human answer, opt-out, hangup, opt_out wrap-up, pause. The 0.3.x source authority then migrated it and answered /v1/auth/quiescence and /v1/auth/logout."
+  ],
+  "evidence_runs": {
+    "windows_update_0_2_1_to_0_3_1": "39677713214: NSIS and MSI installed the exact accepted backend, reopened the migrated workspace with every baseline ID and the human note, passed the local journey and resource gates, then could not sign out",
+    "reproduction_before_fix": {
+      "can_disconnect": false,
+      "reasons": [
+        "ACTIVE_LEG"
+      ],
+      "leg": "0.2.1 prospect leg RINGING behind a FINALIZED call"
+    },
+    "reproduction_after_fix": {
+      "can_disconnect": true,
+      "logout_status": 200
+    }
+  },
+  "root_cause": "0.2.1 never closed a simulated prospect leg when its call ended; 0.3.x closes a terminal call's prospect leg (Dialer.finish_call) and counts any other open leg as a live obligation.",
+  "repair": "Each startup closes a prospect leg whose call is terminal, as finish_call would have; legs of live calls and agent legs stay open (migrate.close_legacy_prospect_legs).",
+  "result_counts": {
+    "red": 1,
+    "green": 2
+  },
+  "failed_cases": [],
+  "raw_log_sha256": {
+    "legacy-legs-red.log": "98a8825a8f39804009b6cc44a16488ab533e267d4db695d342f3478c0d18b79f"
+  },
+  "retired_paths": [],
+  "known_limitations": [
+    "0.3.1 was public 2026-10-21T21:18Z to 21:37Z, then marked prerelease so releases/latest returned to 0.2.1; 0.3.2 carries the repair."
+  ],
+  "external_calls": false
+}

@@ -1,0 +1,36 @@
+{
+  "step_id": "E13",
+  "scope": "Connected (PostgreSQL) task edits and wrap-up corrections could deadlock",
+  "source_commit": "64fee588fa5c13df7148d2658e35d17a139bc1b1",
+  "production_tree_digest": "98d8791323d7c57e6f771eaf65453f28dcc3ca257fc516c8ec159fe8de443434",
+  "test_tree_digest": "d9d26f3f943ab9b68fe0e90e3d7a5c80cbdf035060a0493bd24b98a3135255b5",
+  "case_ids": [
+    "A08",
+    "A46"
+  ],
+  "mode": "PostgreSQL 17 disposable store; SQLite has no stream lock",
+  "fixture_seed": null,
+  "commands": [
+    "OPENDIALER_TEST_POSTGRES_URL=<disposable> uv run pytest services/backend/tests/test_call_write_locks.py -q -k authorization_stream",
+    "OPENDIALER_TEST_POSTGRES_URL=<disposable> uv run pytest services/backend/tests/test_call_write_locks.py services/backend/tests/test_local_followthrough.py services/backend/tests/test_remediation_rep_workflow.py -q"
+  ],
+  "evidence_runs": {
+    "ci_e2e_deadlock": "CI on 8a862fa: the connected e2e web server logged DeadlockDetected (advisory stream lock vs call row) in a task edit, failing the follow-up lost-response browser case"
+  },
+  "root_cause": "edit_task locked the call, lead and task rows and then took the seller's exclusive authorization-stream advisory lock (via local_edit_in); save_disposition locked the call row first too. Writers that take the stream first and then the call row could deadlock with them.",
+  "repair": "Both take the authorization stream before any row lock, then call, lead and tasks, the order every other writer uses (rep_workflows.edit_task, save_disposition).",
+  "result_counts": {
+    "red": 2,
+    "green_postgres": 82,
+    "green_sqlite": 94
+  },
+  "failed_cases": [],
+  "raw_log_sha256": {
+    "stream-order-red.log": "8d6d4ff5a62d33399585a88d4d98fe190dffc2e4dd070b9fe0a4a788027af769"
+  },
+  "retired_paths": [],
+  "known_limitations": [
+    "The desktop's local authority uses SQLite, where the stream lock is a no-op; the 0.3.3 desktop binaries are unaffected. Connected servers built from source at or after this commit carry the fix."
+  ],
+  "external_calls": false
+}

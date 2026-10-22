@@ -3,10 +3,10 @@
   "written_at": "2026-10-18",
   "baseline_commit": "63f4d4242f60672777f596177fe98fe57f715bf9",
   "baseline_product_test_commit": "6611d3c2fb486b0aac65df2bb42e20663457552a",
-  "status": "implementation-authorized; E00-E12 scoped software accepted; E13 in progress (local, historical, shift and 100k/1M hot paths pass; connected correctness passes, connected latency not certified on the 2-vCPU reference; full rebuild at 1M attempts ~45 min); E14 awaits a published 0.3.0 validation release",
+  "status": "implementation-authorized; E00-E12 scoped software accepted; E13 software evidence recorded with two measured exceptions (connected latency not certified on the 2-vCPU reference; full rebuild at 1M attempts ~45 min); E14 Windows in-place updates accepted on 0.3.3, Mac in-place update pending a person's click; E15 in progress",
   "requirements_source": "docs/REMEDIATION_PLAN.md",
   "implementation_source": "docs/EXECUTION_SPEC.md",
-  "next_step": "E13",
+  "next_step": "E14",
   "receipt_rule": "No inherited checkbox or planned node is a current passing receipt. Update by actual source-bound evidence.",
   "steps": [
     {
@@ -1002,7 +1002,8 @@
         "docs/evidence/completion/E13-shared-b337206.json",
         "docs/evidence/completion/E13-shift-cd14424.json",
         "docs/evidence/completion/E13-windows-native-c675dfc.json",
-        "docs/evidence/completion/E13-writer-admission.json"
+        "docs/evidence/completion/E13-writer-admission.json",
+        "docs/evidence/completion/E13-connected-stream-order.json"
       ],
       "planned_case_ids": [
         "C051",
@@ -1129,7 +1130,7 @@
     {
       "id": "E14",
       "title": "Deliver Mac and Windows updates without reinstalling",
-      "status": "open",
+      "status": "in-progress",
       "depends_on": [
         "E13"
       ],
@@ -1142,7 +1143,11 @@
       "receipts": [
         "docs/evidence/completion/E14-installed-baseline.json",
         "docs/evidence/completion/E14-native-harness.json",
-        "docs/evidence/completion/E14-review-harness-repairs.json"
+        "docs/evidence/completion/E14-review-harness-repairs.json",
+        "docs/evidence/completion/E14-windows-upgrade-flush.json",
+        "docs/evidence/completion/E14-legacy-prospect-legs.json",
+        "docs/evidence/completion/E14-raw-expiry-timer.json",
+        "docs/evidence/completion/E14-windows-update-0.3.3.json"
       ],
       "planned_case_ids": [
         "C054",
@@ -1160,12 +1165,12 @@
         "A53",
         "A55"
       ],
-      "checkpoint": "Protected current0.2.1 Mac baseline captured through native UI and exact binary/data hashes; copied stores migrate/sanitize without changing originals. Harness repairs pass; actual signed updates, fresh installer and delivered resources remain open."
+      "checkpoint": "Windows accepted: the signed 0.2.1 -> 0.3.3 in-place update passed on NSIS and MSI (run 39708283954; exact backend bytes, preserved IDs and human note, local and connected journeys, resources). 0.3.0-0.3.2 were published and withdrawn after three product defects found here. Mac pending: the installed 0.2.1 app installs 0.3.3 from Settings -> App updates (a person's click), then mac_update_check.py after and the native journeys."
     },
     {
       "id": "E15",
       "title": "Final preflight and handoff",
-      "status": "open",
+      "status": "in-progress",
       "depends_on": [
         "E14"
       ],
@@ -1178,7 +1183,7 @@
         "C057"
       ],
       "acceptance_families": [],
-      "checkpoint": "Current-behavior quickstart, account cost worksheet, online/offline deployment, migration recovery and controlled update-publication instructions drafted in existing docs. Acceptance/release remain explicitly pending; final installed preflight, exact artifacts, receipt closure and scoped cleanup still open."
+      "checkpoint": "Docs current for 0.3.3 (README, RELEASE_NOTES, VALIDATION, runbooks, STATUS); task containers and temporary files removed; final installed-store preflight waits for the Mac update."
     }
   ],
   "requirements": [

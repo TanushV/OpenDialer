@@ -1,0 +1,53 @@
+{
+  "step_id": "E14",
+  "scope": "Signed 0.2.1 -> 0.3.0 Windows update could not open the migrated workspace",
+  "source_commit": "b1b5307fba78ead5bbab8e0f7b674265cf5bfbcc",
+  "production_tree_digest": "b1cae7df7425d68ba1ddf1be2768a578f7771e8af9f879d1a54d7ca6d8053991",
+  "test_tree_digest": "d66c27a04ad15511abaf8893721570037dd92eb2994aeb5612bdebf92e487df7",
+  "case_ids": [
+    "A01",
+    "A42",
+    "A53"
+  ],
+  "mode": "SQLite installed-copy upgrade; Windows 2022 CI and the emulated Windows flush on macOS",
+  "fixture_seed": null,
+  "commands": [
+    "env -u OPENDIALER_TEST_POSTGRES_URL uv run pytest services/backend/tests/test_installed_copy_migration.py -q -k writable",
+    "CI job backend-windows-storage (windows-2022): upgrade, migration, lock and journal suites"
+  ],
+  "environment": {
+    "red_local": "macOS 26 ARM64, Python 3.12",
+    "red_platform": "GitHub windows-2022, Python 3.12"
+  },
+  "evidence_runs": {
+    "update_attempts_failing_to_open": [
+      "39665326098",
+      "39666476735",
+      "39668123126",
+      "39669158235"
+    ],
+    "windows_ci_red": "39669580659 (commit 2c92244): 12 failed, 106 passed, 3 skipped; 11 upgrade/migration cases EBADF or masked by it, 1 POSIX-mode assertion",
+    "installed_store_after_failure": "stage, candidate and retained sanitized copy present; original store unpublished",
+    "windows_ci_green": "39670960937 (commit e2a9c8a): 118 passed, 3 skipped (the POSIX stand-in regression and two pending-receipt checks)"
+  },
+  "root_cause": "migrate.prepare_database flushed the retained sanitized copy with os.fsync on a read-only handle; Windows os.fsync is _commit/FlushFileBuffers, which requires write access (EBADF). POSIX accepts it.",
+  "repair": "Flush through an O_RDWR handle (b1b5307). The consent-journal permission-bit check applies only where POSIX modes exist.",
+  "result_counts": {
+    "red_local": 1,
+    "red_windows": 12,
+    "green_local_storage_suites": 119,
+    "skipped": 2,
+    "green_windows": 118
+  },
+  "failed_cases": [],
+  "raw_log_sha256": {
+    "red.log": "14702ddcbefd6576856330499c21b3021266d1d197feac828c258c1233b729c1",
+    "windows-ci-red.log": "a697021890018f5547e380fcc054286bf7725af06375ba4834aae8f9c29962f4"
+  },
+  "retired_paths": [],
+  "known_limitations": [
+    "The repaired Windows update needs a new signed package (0.3.1) and its own installed-update receipt.",
+    "0.3.0 was public 2026-10-21T19:34Z to 20:31Z, then marked prerelease so releases/latest returned to 0.2.1."
+  ],
+  "external_calls": false
+}
