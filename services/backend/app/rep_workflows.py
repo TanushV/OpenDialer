@@ -770,6 +770,9 @@ class RepWorkflows:
 
     def edit_task(self, p, task_id, data):
         with self.db.transaction() as s:
+            # The seller's authorization stream comes before any row lock, as in every writer;
+            # taking it after the rows deadlocked against a stream holder waiting for the call.
+            self.db.authorize_stream(s, p)
             task = self.required(s, "followup_tasks", task_id, p)
             if task.data.get("alias_of"):
                 task = self.required(s, "followup_tasks", task.data["alias_of"], p)
@@ -1012,6 +1015,7 @@ class RepWorkflows:
         outcome = data["outcome"]
         due = zoned_time(data.get("callback_at"))
         with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)  # Stream first, then call, then lead.
             call = self.required(s, "call_attempts", call_id, p)
             # Serialize with telephony/maintenance writers so a concurrent bump cannot raise
             # StaleDataError mid-save; conflicts are decided by the rep edit counter below.

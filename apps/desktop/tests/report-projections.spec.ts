@@ -147,14 +147,15 @@ test("stale totals disclose their definition and failed refresh without losing s
 test("checking a pending historical cohort keeps the selected cohort", async ({
   page,
 }) => {
-  let historyViews = 0;
+  // The report stays pending until the rep checks it: the app refreshes a pending report on its
+  // own, and CI runs 39682453717 and 8a862fa caught it turning ready before or after the check.
+  let released = false;
   await page.route(/\/v1\/optimization(?:\?.*)?$/, (route) => {
     const historical =
       new URL(route.request().url()).searchParams.get("epoch") === "historical";
-    if (historical) historyViews++;
     return route.fulfill({
       json:
-        historical && historyViews === 1
+        historical && !released
           ? {
               settings,
               projection: {
@@ -191,16 +192,10 @@ test("checking a pending historical cohort keeps the selected cohort", async ({
     }),
   ).toBeVisible();
   await expect(page.getByText(/3 unique conversions/)).toHaveCount(0);
-  // The app may refresh the pending report on its own before the rep checks it (CI run
-  // 39682453717 removed the button that way); either path must keep the selected cohort.
-  const check = page.getByRole("button", {
-    name: "Check report status",
-    exact: true,
-  });
-  await Promise.race([
-    check.click().catch(() => undefined),
-    page.getByText(/2 unique conversions/).waitFor(),
-  ]);
+  released = true;
+  await page
+    .getByRole("button", { name: "Check report status", exact: true })
+    .click();
   await expect(page.getByText(/2 unique conversions/)).toBeVisible();
   await expect(page.getByLabel("Cohort history")).toHaveValue("historical");
 });
