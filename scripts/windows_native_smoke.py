@@ -432,19 +432,25 @@ def wait_for_driver():
         time.sleep(0.1)
 
 
-class DriverProcess:
-    """tauri-driver on the shared console, as a person's app would run, restarted if something
-    outside the harness stops it: the exiting 0.2.1 MSI updater's console CTRL_C did (run
-    39694452712). A separate process group would also disable CTRL_C for the 0.2.1 app and
-    backend, which 0.2.1's own cleanup relies on (run 39694859328)."""
+def driver_console_flags(os_name):
+    return 0x00000010 if os_name == "nt" else 0  # CREATE_NEW_CONSOLE
 
-    def __init__(self, command, env, log, *, popen=subprocess.Popen, ready=wait_for_driver):
+
+class DriverProcess:
+    """tauri-driver and the app it starts run on their own console, as an app opened from the
+    desktop has none of the harness's: the exiting 0.2.1 MSI updater sends CTRL_C to its whole
+    console, which stopped the driver (run 39694452712) and made the step shell exit 1 after a
+    passing run (39698794815). The app tree still receives it, as 0.2.1's cleanup expects; a
+    process group with CTRL_C disabled broke that (run 39694859328). A stopped driver restarts."""
+
+    def __init__(self, command, env, log, *, popen=subprocess.Popen, ready=wait_for_driver, os_name=os.name):
         self.command, self.env, self.log = command, env, log
-        self.popen, self.ready = popen, ready
+        self.popen, self.ready, self.flags = popen, ready, driver_console_flags(os_name)
         self.process, self.restarts = None, 0
 
     def start(self):
-        self.process = self.popen(self.command, env=self.env, stdout=self.log, stderr=self.log)
+        options = {"creationflags": self.flags} if self.flags else {}
+        self.process = self.popen(self.command, env=self.env, stdout=self.log, stderr=self.log, **options)
         self.ready()
         return self.process
 

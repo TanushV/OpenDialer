@@ -715,11 +715,15 @@ def test_a_driver_stopped_by_the_exiting_updater_is_restarted_before_reopening()
     started, readied = [], []
 
     def popen(command, **kwargs):
-        assert "creationflags" not in kwargs
+        # Its own console, so the updater's CTRL_C reaches only the app tree (as 0.2.1's cleanup
+        # expects), never the harness, uv or the step shell (run 39698794815 exited 1 after PASS).
+        assert kwargs.get("creationflags") == 0x00000010  # CREATE_NEW_CONSOLE
         started.append(Process())
         return started[-1]
 
-    driver = native().DriverProcess(["tauri-driver"], {}, None, popen=popen, ready=lambda: readied.append(1))
+    driver = native().DriverProcess(
+        ["tauri-driver"], {}, None, popen=popen, ready=lambda: readied.append(1), os_name="nt"
+    )
     driver.start()
     driver.ensure()
     assert len(started) == 1 and driver.restarts == 0
@@ -732,3 +736,8 @@ def test_a_driver_stopped_by_the_exiting_updater_is_restarted_before_reopening()
         < source.index("driver.ensure()")
         < source.index("ui.open()")
     )
+
+
+def test_the_driver_console_flag_applies_only_on_windows():
+    assert native().driver_console_flags("nt") == 0x00000010
+    assert native().driver_console_flags("posix") == 0
