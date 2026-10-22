@@ -347,6 +347,23 @@ def measure_native_resources(root_pid, application, backend, *, seconds=300, int
     binary_hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in (application, backend)}
     owned, known, samples, errors = {}, {}, [], []
     handles = handles if handles is not None else ProcessHandles()
+
+    def exited(pid, created):
+        """Exited (psutil may report its PID as reused): its exact final CPU from the held handle."""
+        final = handles.final_cpu((pid, created))
+        if final is None or (pid, created) not in known:
+            errors.append("owned_process_exited")
+            return []
+        return [
+            {
+                "pid": pid,
+                "create_time": created,
+                **known[(pid, created)],
+                "rss_mib": 0.0,
+                "cpu_seconds": final,
+            }
+        ]
+
     began = time.monotonic()
     while True:
         if not root.is_running() or root.create_time() != birth or Path(root.exe()).resolve() != application:
@@ -362,7 +379,7 @@ def measure_native_resources(root_pid, application, backend, *, seconds=300, int
         for (pid, created), process in owned.items():
             try:
                 if not process.is_running() or process.create_time() != created:
-                    errors.append("owned_pid_reused")
+                    rows.extend(exited(pid, created))
                     continue
                 executable = Path(process.exe()).resolve()
                 times = process.cpu_times()
@@ -384,19 +401,7 @@ def measure_native_resources(root_pid, application, backend, *, seconds=300, int
                     }
                 )
             except psutil.NoSuchProcess:
-                final = handles.final_cpu((pid, created))
-                if final is None or (pid, created) not in known:
-                    errors.append("owned_process_exited")
-                else:  # Exited: its exact final CPU from the held handle; no memory remains.
-                    rows.append(
-                        {
-                            "pid": pid,
-                            "create_time": created,
-                            **known[(pid, created)],
-                            "rss_mib": 0.0,
-                            "cpu_seconds": final,
-                        }
-                    )
+                rows.extend(exited(pid, created))
         elapsed = time.monotonic() - began
         samples.append({"elapsed_seconds": elapsed, "processes": rows})
         # The window is first sample to last: the first one's collection time does not count.

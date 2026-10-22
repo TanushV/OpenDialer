@@ -1041,7 +1041,9 @@ def test_desktop_memory_gates_the_settled_tail_and_still_reports_the_post_journe
     assert m.resource_gates({**high, **identity})["failures"] == ["desktop_rss_mib"]
 
 
-def _native_fixture(tmp_path, monkeypatch, *, sample_cost=0.0, child_exits_at=None):
+def _native_fixture(
+    tmp_path, monkeypatch, *, sample_cost=0.0, child_exits_at=None, gone_is_not_running=False
+):
     from types import SimpleNamespace
 
     import psutil
@@ -1063,6 +1065,8 @@ def _native_fixture(tmp_path, monkeypatch, *, sample_cost=0.0, child_exits_at=No
             return self.pid
 
         def is_running(self):
+            if gone_is_not_running and self.exits_at is not None and now[0] >= self.exits_at:
+                return False  # Real psutil: an exited (or reused) PID reads as not running.
             self.alive()
             return True
 
@@ -1124,3 +1128,16 @@ def test_a_helper_process_that_exits_mid_window_is_accounted_from_its_held_handl
     m, files = _native_fixture(tmp_path, monkeypatch, child_exits_at=150)
     unread = m.measure_native_resources(11, files[0], files[1], handles=_Handles({}))
     assert unread["cpu_accounting_complete"] is False, "An exit whose CPU cannot be read stays incomplete"
+
+
+def test_a_helper_that_psutil_reports_not_running_is_accounted_from_its_held_handle(tmp_path, monkeypatch):
+    """Windows update run 39696124396 (MSI): psutil reported an exited WebView helper as not
+    running (its PID reused), which the probe filed as an unaccounted PID instead of reading the
+    helper's final CPU from its held handle, so the resource gate stayed incomplete."""
+    m, files = _native_fixture(tmp_path, monkeypatch, child_exits_at=150, gone_is_not_running=True)
+    result = m.measure_native_resources(11, files[0], files[1], handles=_Handles({13: 1.6}))
+    assert result["cpu_accounting_complete"] is True and not result["process_errors"]
+    assert result["gates"]["status"] == "passed"
+    m, files = _native_fixture(tmp_path, monkeypatch, child_exits_at=150, gone_is_not_running=True)
+    unread = m.measure_native_resources(11, files[0], files[1], handles=_Handles({}))
+    assert unread["cpu_accounting_complete"] is False, "Without a held handle it stays incomplete"
