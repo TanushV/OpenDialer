@@ -741,3 +741,39 @@ def test_a_driver_stopped_by_the_exiting_updater_is_restarted_before_reopening()
 def test_the_driver_console_flag_applies_only_on_windows():
     assert native().driver_console_flags("nt") == 0x00000010
     assert native().driver_console_flags("posix") == 0
+
+
+def test_the_install_probe_never_opens_installed_files_while_an_updater_runs(tmp_path, monkeypatch):
+    """Runs 39698794815 and 39706062503 (MSI) passed every check, then the step exited 1: the
+    probe hashed opendialer-backend.exe while msiexec replaced it, so Restart Manager sent
+    CTRL_C to the probe's console. An NSIS copy can also fail on a file the probe holds open."""
+    import hashlib
+    import json
+
+    module = native()
+    payload = tmp_path / "OpenDialer-0.3.3-updater-1" / "OpenDialer-0.3.3-installer.msi"
+    payload.parent.mkdir()
+    payload.write_bytes(b"synthetic installer")
+    monkeypatch.setenv("TEMP", str(tmp_path))
+    monkeypatch.setenv("OPENDIALER_INSTALLER_KIND", "msi")
+    monkeypatch.setenv("OPENDIALER_EXPECTED_BACKEND_SHA256", "b" * 64)
+    monkeypatch.setenv(
+        "OPENDIALER_EXPECTED_INSTALLER_SHA256", hashlib.sha256(b"synthetic installer").hexdigest()
+    )
+    running = [[7], [7], [7], [], []]  # msiexec still running for the first polls
+    probes = []
+
+    def updaters(version, temporary):
+        return running.pop(0) if running else []
+
+    def probe(command, **kwargs):
+        probes.append(len(running))
+        return json.dumps({"version": "0.3.3", "backend_sha256": "b" * 64})
+
+    monkeypatch.setattr(module.shutil, "which", lambda name: "pwsh.exe")
+    monkeypatch.setattr(module, "read_updaters", updaters)
+    monkeypatch.setattr(module.subprocess, "check_output", probe)
+    monkeypatch.setattr(module.time, "sleep", lambda seconds: None)
+    status = module.wait_installed(tmp_path / "opendialer-desktop.exe", "0.3.3", tmp_path, not_before=0)
+    assert status["active_updaters"] == 0 and status["backend_sha256"] == "b" * 64
+    assert probes and all(remaining <= 1 for remaining in probes), "No file probe while msiexec runs"

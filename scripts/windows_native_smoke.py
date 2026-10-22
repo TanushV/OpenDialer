@@ -494,6 +494,14 @@ def wait_installed(application, version, output, *, not_before):
     expected_installer = os.environ["OPENDIALER_EXPECTED_INSTALLER_SHA256"]
     for _ in range(180):
         active_before = read_updaters(version, str(temporary))
+        if active_before:
+            # Never open installed files while an updater runs: msiexec's Restart Manager sends
+            # CTRL_C to the console of a process holding a file it replaces (runs 39698794815,
+            # 39706062503), and an NSIS copy fails on a file held open.
+            status = {"active_updaters": len(active_before), "installer_format": extension}
+            (output / "installation-probe.json").write_text(json.dumps(status, indent=2))
+            time.sleep(1)
+            continue
         value = subprocess.check_output(  # noqa: S603 - read-only exact-installation probe
             [
                 powershell,
