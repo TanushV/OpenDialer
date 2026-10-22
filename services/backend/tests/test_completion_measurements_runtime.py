@@ -216,7 +216,7 @@ def test_load_retains_errors_caught_inside_actual_maintenance_or_job_runner(
             "measurement-inner-failure",
             tenant_id=p["tenant_id"],
         )
-    monkeypatch.setattr(measure, "run_for", lambda seconds, cycle: cycle(0))
+    monkeypatch.setattr(measure, "run_for", lambda seconds, cycle, cadence=10: cycle(0))
     monkeypatch.setattr(measure, "call_cycle", lambda *args, **kwargs: {"ok": True})
     measured = measure.Measurements(service)
     with measured.instrument():
@@ -289,7 +289,7 @@ def test_load_cycle_leaves_webhook_processing_to_the_runtime_lane(workspace, app
         return original(tenant_id, receipt_id)
 
     monkeypatch.setattr(service, "_process_webhook", counted)
-    monkeypatch.setattr(measure, "run_for", lambda seconds, cycle: {"samples": [cycle(0)]})
+    monkeypatch.setattr(measure, "run_for", lambda seconds, cycle, cadence=10: {"samples": [cycle(0)]})
     measured = measure.Measurements(service)
     with measured.instrument():
         result = measure.run_load(
