@@ -13,6 +13,7 @@ starting one call journey per cadence.
 import argparse
 import base64
 import json
+import shutil
 import statistics
 import subprocess
 import sys
@@ -243,13 +244,15 @@ def run(leads, attempts, samples):
         for name, values in timings.items()
     }
     paths["next_lead"]["sql_statements_max"] = max(sql_next)
+    store_bytes = (directory / "bench.db").stat().st_size
+    shutil.rmtree(directory, ignore_errors=True)
     return {
         "leads": leads,
         "attempts": loaded,
         "samples": samples,
         "paths": paths,
         "startup_ms": round(startup_ms),
-        "store_bytes": (directory / "bench.db").stat().st_size,
+        "store_bytes": store_bytes,
     }
 
 
@@ -397,6 +400,7 @@ def run_hosted(database_url, leads, reps, cadence, duration):
     server.should_exit = True
     worker.terminate()
     worker.wait()
+    shutil.rmtree(directory, ignore_errors=True)
     return {
         "mode": "hosted",
         "reps": reps,
