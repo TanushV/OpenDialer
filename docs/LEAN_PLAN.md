@@ -157,4 +157,61 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 - Baseline size (`scripts/size.py`): backend 88 files / 39,459 lines / 270,889 nodes; backend tests 52,034 lines;
   repo tests 3,027; frontend 16,487 lines / 89,588 tokens; frontend tests 9,569; Rust 2,463; scripts 5,211;
   workflows 680.
-- Step 3 in progress.
+- Step 3 done (588a2b4, 85f0670): plain JSON documents and plain lookup keys; no journals, Vault encryption,
+  startup contract, Alembic chain or legacy cutovers; plain JSON config store; opaque session tokens; plain backups
+  merged on restore; nine dead tables dropped; research-fetch pinning and login-throttle extras removed. Old tests
+  that covered only removed machinery deleted (backend tests 52k -> 9.8k lines); kept unit tests share `helpers.py`.
+- Step 4 done (f0365dd, 6b5416f, b9bc30a, f5b60d3, a9a129c): reports computed directly from source records with the same
+  per-record definitions (no contribution/bucket tables, dirty units, rebuild namespaces or cleanup jobs); the recovery
+  policy table replaced by one stop set; simpler job runner, priority gate and SQLite writer lock; next lead ranks and
+  claims in one transaction (28 -> 15 SQL statements); preparation heartbeats dropped. Runtime limits are plain
+  constants and the three HTTP pools are one shared client (a26f5a3). Inbound return calls already run as one routing
+  chain on the task (attempts inline, one watchdog); preparation keeps a plain expiring per-lead marker so two
+  batches cannot pay for the same lead.
+- Step 5 done: number-order reconciliation, refused purchase and recording stubs, retired model formats, legacy shims,
+  redundant admin re-checks and host/origin middleware removed. The acceptance suite's pinned defect (task events
+  visible to other reps) is fixed, and it found a real PostgreSQL race (a hangup applied concurrently with its leg's
+  answer stalled callback fall-through); webhooks now apply in arrival order.
+- Step 6 done (37275ac): Rust shell 2,463 -> 965 lines (sidecar launch and webhook tunnel only); UI keeps sessions,
+  opt-out queue and offline copies in local storage with raw speech and helper text stripped, enters provider keys
+  inline, and shares one loader hook; number orders UI removed.
+- Step 7 done: CI is lint, backend SQLite + PostgreSQL, frontend, browser and desktop shell (runs in ~7 minutes);
+  release workflow keeps the signed build; harness scripts and Windows acceptance/staging workflows deleted;
+  README, runbooks, security policy and architecture notes rewritten for the lean build.
+- Step 8 (October 23, 2026):
+  - Suites: backend + repo tests 556 passed on SQLite and 557 passed on PostgreSQL (each with its own skips);
+    frontend typecheck, format, build and 74 unit tests pass; Rust fmt, tests and clippy pass; GitHub CI green.
+  - Hosted compose smoke (`docs/evidence/lean/hosted-smoke.json`): migrate job, API, background worker and
+    PostgreSQL complete bootstrap, import, worker preparation, a rep call through wrap-up with a callback task, and
+    an API/worker restart that keeps both; no error lines.
+  - Local speed, 10k leads / 100k attempts, baseline (c4e9707) and lean run back to back in both orders on the same
+    shared Mac (load average 15-30). Lean first, p50 / p95 ms: next lead 101 / 176 -> 25 / 80; webhook receipt
+    15 / 29 -> 5 / 13; event to state 36 / 68 -> 10 / 22; wrap-up 49 / 69 -> 14 / 33; workspace 94 / 204 -> 29 / 71;
+    startup 359 -> 74 ms; store 374 -> 308 MB. Final code under two hash seeds: next lead 25-27 / 50-55 ms with 15
+    SQL statements, webhook 6-7 / 13, event 11-12 / 26, wrap-up 16-18 / 24-31, workspace 35-40 / 68-77, startup
+    74-94 ms; every local target met.
+  - Found while benching: some runs read the workspace in about 1 s. The fixed SQLite statistics rated the partial
+    open-calls index the same as the full owner index, so the plan followed index creation order, which follows
+    the process's string hash seed; a rep owning 100k finalized calls then scanned all of them. Partial indexes now
+    estimate fewer rows (`test_sqlite_plans.py` checks both creation orders); the same store reads in 28 ms instead
+    of 580 ms.
+  - Hosted, 8 reps each starting one call per minute for 5 minutes on the 2-vCPU reference shape (1.5 vCPU app +
+    0.5 vCPU PostgreSQL sharing a network namespace), 40 journeys and no failures in each run. With every lane in the
+    API process: next lead p50 100 / p95 790 ms, event to state 34 / 85, wrap-up 49 / 96. `bench.py --hosted` now
+    lays processes out like compose (calling lanes in the API, research/scripts/ML in a second process); that run,
+    on a busier host: next lead 198 / 1217, event to state 58 / 209, wrap-up 80 / 270. Next lead misses the 250 ms
+    p95 target in both, and Docker CPU caps on this oversubscribed Mac cap but do not reserve CPU, so the hosted
+    numbers stay a gate for a dedicated host. The baseline on the same shape had selection p95 24.8 s with 27 of
+    224 journeys timing out.
+  - Size versus a950675: backend 39,459 -> 33,972 lines, 270,889 -> 233,433 Python AST nodes (-14%, short of the
+    -30% target); backend + repo tests 55,061 -> 10,435 lines (-81%); Rust 2,463 -> 965 (-61%); scripts 5,211 ->
+    1,388 (-73%); workflows 680 -> 186 (-73%); frontend 16,487 -> 16,171 lines (-2%, short of -20%); browser and
+    unit tests 9,569 -> 9,344 (-2%). All Python together: 687k -> 313k AST nodes (-54%). What remains in the backend
+    is the kept features' own logic (capacity planner, statistical ML and learning, coaching state, compliance,
+    telephony recovery); a scan for repeated code finds only four small duplicates. Reaching -30% would mean
+    rewriting those algorithms rather than removing bloat, so the target is reported as missed.
+- Plan complete (October 23, 2026). Every kept feature passes its HTTP journeys on SQLite and PostgreSQL and the
+  browser journeys in both modes. Open items: the backend (-14%) and frontend (-2%) size targets were missed; hosted
+  next-lead p95 needs a dedicated-host measurement; live Telnyx, funded Cerebras, DNC vendor access, provider
+  retention terms, hardware audio and campaign lift remain external gates. The lean build is not released and must
+  not be published to existing 0.2/0.3 installs.

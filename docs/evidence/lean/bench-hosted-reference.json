@@ -1,0 +1,23 @@
+{
+  "mode": "hosted",
+  "reps": 8,
+  "cadence_seconds": 60.0,
+  "duration_seconds": 300.0,
+  "journeys": 40,
+  "failures": [],
+  "failure_count": 0,
+  "paths": {
+    "next_lead": {
+      "p50_ms": 198.0,
+      "p95_ms": 1217.0
+    },
+    "event_to_state": {
+      "p50_ms": 58.3,
+      "p95_ms": 209.0
+    },
+    "wrap_up": {
+      "p50_ms": 79.8,
+      "p95_ms": 270.0
+    }
+  }
+}

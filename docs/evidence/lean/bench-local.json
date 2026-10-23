@@ -1,0 +1,40 @@
+{
+  "leads": 10000,
+  "attempts": 100000,
+  "samples": 40,
+  "paths": {
+    "next_lead": {
+      "p50_ms": 25.2,
+      "p95_ms": 50.1,
+      "target_p95_ms": 100,
+      "pass": true,
+      "sql_statements_max": 15
+    },
+    "webhook_receipt": {
+      "p50_ms": 5.9,
+      "p95_ms": 12.9,
+      "target_p95_ms": 30,
+      "pass": true
+    },
+    "event_to_state": {
+      "p50_ms": 11.3,
+      "p95_ms": 25.6,
+      "target_p95_ms": 100,
+      "pass": true
+    },
+    "wrap_up": {
+      "p50_ms": 15.5,
+      "p95_ms": 24.3,
+      "target_p95_ms": 100,
+      "pass": true
+    },
+    "workspace": {
+      "p50_ms": 35.4,
+      "p95_ms": 68.1,
+      "target_p95_ms": 150,
+      "pass": true
+    }
+  },
+  "startup_ms": 74,
+  "store_bytes": 307781632
+}

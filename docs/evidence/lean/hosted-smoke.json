@@ -1,0 +1,16 @@
+{
+  "source": "a9a129c",
+  "date": "2026-10-23",
+  "topology": "deploy/compose.yml: migrate job, API with webhook/live_coach/postcall/maintenance lanes, separate background worker, PostgreSQL 17; Caddy disabled and the API port bound to loopback for the smoke; OPENDIALER_SIMULATION=true (test override)",
+  "result": {
+    "imported": 20,
+    "prepared_by_worker": 5,
+    "call_outcome": "callback_requested",
+    "callback_task": true,
+    "metrics_attempts": 1,
+    "outcome_after_restart": "callback_requested",
+    "task_after_restart": true,
+    "error_lines": []
+  },
+  "passed": true
+}

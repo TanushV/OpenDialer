@@ -1,3 +1,19 @@
+# OpenDialer lean build validation
+
+**Status: lean build on `main` (October 23, 2026), not released.** It reads only fresh stores and must not be published to existing 0.2/0.3 installations. Plan and step receipts: [LEAN_PLAN.md](LEAN_PLAN.md).
+
+| Gate | Result |
+| --- | --- |
+| Feature acceptance | `services/backend/tests/acceptance/` drives every kept feature over HTTP (98 journeys) and passes on SQLite and PostgreSQL. |
+| Backend suites | 556 passed on SQLite and 557 on PostgreSQL (acceptance, unit and repo tests). GitHub CI green. |
+| Browser | Playwright journeys in local (SQLite) and connected (PostgreSQL) modes pass; on a heavily loaded Mac a few connected steps need the 10 s expectation / 60 s test timeouts now configured. |
+| Desktop shell | Rust fmt, tests and clippy pass; the shell only launches the local service and runs the SSH webhook forward. |
+| Hosted topology | Compose smoke passes: migrate job, API, background worker, PostgreSQL; bootstrap, import, worker preparation, a rep call through wrap-up with a callback task, restart persistence, no error lines (`evidence/lean/hosted-smoke.json`). |
+| Local speed | 10k leads / 100k attempts, baseline and lean back to back on the same shared Mac: every hot path 2.5-4x faster (next lead p95 176 -> 80 ms, wrap-up 69 -> 33 ms, workspace 204 -> 71 ms, startup 359 -> 74 ms) and every local target met, including 15 SQL statements for next lead (`evidence/lean/bench-local.json`). |
+| Hosted speed | 2-vCPU reference shape, 8 reps at one call per minute for 5 minutes, no failures in two runs on a shared Mac: event to state p95 85-209 ms and wrap-up p95 96-270 ms; next lead p95 0.8-1.2 s misses the 250 ms target (p50 100-200 ms). Docker CPU caps on that host do not reserve CPU; size a dedicated host and measure with `scripts/bench.py --hosted` (`evidence/lean/bench-hosted-reference.json`). |
+
+Simulated providers prove software behavior only. Live Telnyx traffic, funded Cerebras quality and latency, DNC vendor access, provider retention terms, hardware audio and campaign lift remain external gates.
+
 # OpenDialer 0.3.3 validation
 
 **Status: developer preview, published October 21, 2026 as [v0.3.3](https://github.com/TanushV/OpenDialer/releases/tag/v0.3.3). The Windows in-place update from 0.2.1 is accepted; the Mac in-place update is pending.** Source `beb3cf3b220e4f0435f5e9fc9bb29578109a1463`; product code is 0.3.0 plus three fixes found by validating the update from 0.2.1. Execution evidence is in [STATUS.md](STATUS.md) and [evidence/completion](evidence/completion/).
