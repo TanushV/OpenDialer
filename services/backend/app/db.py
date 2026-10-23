@@ -292,6 +292,10 @@ def plan_statistics(connection):
     connection.exec_driver_sql("ANALYZE sqlite_schema")  # Reload for this connection.
 
 
+class OldStore(RuntimeError):
+    """A 0.2/0.3 store (Alembic-migrated, encrypted); this build starts only from fresh stores."""
+
+
 class Database:
     def __init__(self, url):
         self.url = url
@@ -314,7 +318,13 @@ class Database:
                 connection.execute("PRAGMA synchronous=NORMAL")
 
         self.sessions = sessionmaker(self.engine, expire_on_commit=False)
-        if not set(Base.metadata.tables) <= set(inspect(self.engine).get_table_names()):
+        tables = set(inspect(self.engine).get_table_names())
+        if "alembic_version" in tables:
+            raise OldStore(
+                "This database was created by OpenDialer 0.2 or 0.3, which this version cannot read. "
+                "Use a new database or data folder; the old one is left unchanged."
+            )
+        if not set(Base.metadata.tables) <= tables:
             Base.metadata.create_all(self.engine)
         self.plan()
 

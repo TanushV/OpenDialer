@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.config import Settings
+from app.db import OldStore
 
 AUTHORITY_BUSY_EXIT = 75  # EX_TEMPFAIL; the desktop maps it to an actionable message.
 SECRET_LINE_LIMIT = 16384
@@ -144,6 +145,9 @@ def main():
     except AuthorityBusy as busy:
         print(busy, file=sys.stderr)
         raise SystemExit(AUTHORITY_BUSY_EXIT) from None
+    except OldStore as old:
+        print(old, file=sys.stderr)
+        raise SystemExit(2) from None
 
 
 def run(args, settings, watch_stdin):

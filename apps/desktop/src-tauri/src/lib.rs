@@ -563,11 +563,17 @@ fn start_backend(
     if let Some(existing) = state.current()?.filter(|c| c.simulation == simulation) {
         return Ok(existing);
     }
+    // Store format 2: 0.2/0.3 kept encrypted stores in `local` and `simulation`, which this
+    // authority cannot read. New folders start fresh and leave that data untouched.
     let directory = app
         .path()
         .app_data_dir()
         .map_err(|_| "App data directory unavailable")?
-        .join(if simulation { "simulation" } else { "local" });
+        .join(if simulation {
+            "simulation-2"
+        } else {
+            "local-2"
+        });
     std::fs::create_dir_all(&directory).map_err(|_| "Cannot create private application data")?;
     let mut locked = state
         .0
