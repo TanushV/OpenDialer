@@ -277,10 +277,6 @@ def test_rep_event_feed_hides_other_reps_call_events_in_hosted_mode(hosted):
     assert mine["id"] not in seen_by_b
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT: task.updated events carry no rep scope, so every rep of the seller sees another rep's task events",
-)
 def test_rep_event_feed_hides_other_reps_task_events_in_hosted_mode(hosted):
     ws = hosted_owner(hosted)
     _, rep_a = add_user(ws, "rep-a@example.test")

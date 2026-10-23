@@ -189,11 +189,6 @@ class TelnyxCarrier:
 
         return await self.request("GET", f"/phone_numbers/{quote(number_id, safe='')}")
 
-    async def get_number_order(self, order_id):
-        from urllib.parse import quote
-
-        return await self.request("GET", f"/number_orders/{quote(order_id, safe='')}")
-
     async def verify_incoming_only_credential(self, credential_id, *, sip_username=None):
         """The browser credential must be incoming-only and reachable by this account's agent dial."""
         from urllib.parse import quote

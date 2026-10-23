@@ -172,12 +172,10 @@ class RecoveryActions:
                         "can_reconcile": r.data.get("kind") == "number_configure"
                         and r.data["status"] in {"sending", "reconciling", "uncertain", "review_required"},
                         "reason": r.data.get("recovery_reason")
-                        or {
-                            "number_configure": "Verify the original number route; callback testing is separate.",
-                            "purchase": "Use prior order recovery in Numbers to verify the original carrier order.",
-                        }.get(
-                            r.data.get("kind"),
-                            "Unsupported effect requires operator review; it cannot be retried as a call.",
+                        or (
+                            "Verify the original number route; callback testing is separate."
+                            if r.data.get("kind") == "number_configure"
+                            else "Unsupported effect requires operator review; it cannot be retried as a call."
                         ),
                     }
                     for r in operations
