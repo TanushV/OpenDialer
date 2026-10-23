@@ -2,7 +2,7 @@
 
 A desktop calling workspace for small internal sales teams, with two authority modes: a private local backend on this computer (SQLite) and a shared server for a team (PostgreSQL). It covers lead import and correction, compliant next-lead selection, Telnyx calling with a live Cerebras helper, post-call rundowns and coaching, follow-up tasks, script preparation, statistical estimates and controlled experiments, number capacity planning, costs and work time.
 
-This is the lean build ([plan](docs/LEAN_PLAN.md)): internal use, no hardening layers, fresh stores only. It does not upgrade 0.2/0.3 installations. What is proven and what is not is in [validation](docs/VALIDATION.md). Simulated providers prove software behavior only; live carrier calls, funded inference quality, the DNC vendor account, hardware audio and campaign lift need their own evidence.
+This is the lean build, 0.4.0 ([plan](docs/LEAN_PLAN.md)): internal use, no hardening layers. It does not read 0.2/0.3 workspaces: the desktop starts a fresh one in its own data folders and leaves old data untouched, and a server refuses an old database. What is proven and what is not is in [validation](docs/VALIDATION.md). Simulated providers prove software behavior only; live carrier calls, funded inference quality, the DNC vendor account, hardware audio and campaign lift need their own evidence.
 
 ## Try it
 

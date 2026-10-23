@@ -7,9 +7,9 @@
 5. In the desktop, connect to the HTTPS server, sign in and configure providers, policy, registries and budgets in Settings. Create users with individual incoming-only WebRTC credentials. Never share the carrier account key with rep desktops.
 6. Exercise backup/restore and signed webhook events on permissioned test endpoints before admitting production traffic. Unconfigured providers and missing legal evidence fail closed.
 
-The API process runs call control, webhook processing, live coaching and post-call work (`OPENDIALER_WORKER_QUEUES`). The background worker runs preparation, research and the statistical refresh and training. Each process keeps separate HTTP pools for call control (16), live coaching (12) and background work (4). Provider keys live in the shared data volume as plain JSON; protect the host and its backups accordingly.
+The API process runs call control, webhook processing, live coaching and post-call work (`OPENDIALER_WORKER_QUEUES`). The background worker runs preparation, research and the statistical refresh and training. Each process shares one HTTP client (up to 32 connections); job lane capacities bound how much of it background work holds. Provider keys live in the shared data volume as plain JSON; protect the host and its backups accordingly.
 
-Fresh stores only: this release creates its schema on an empty database and does not upgrade stores from 0.2/0.3.
+Fresh stores only: this release creates its schema on an empty database and does not upgrade stores from 0.2/0.3; pointed at a 0.2/0.3 database, the migrate job and API exit and say so, leaving it unchanged.
 
 ## Local authority with an existing SSH host
 

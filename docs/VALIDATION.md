@@ -1,13 +1,15 @@
 # OpenDialer lean build validation
 
-**Status: lean build on `main` (October 23, 2026), not released.** It reads only fresh stores and must not be published to existing 0.2/0.3 installations. Plan and step receipts: [LEAN_PLAN.md](LEAN_PLAN.md).
+**Status: 0.4.0 lean build on `main` (October 23, 2026), not yet released.** It does not read 0.2/0.3 workspaces: the desktop opens a fresh one in `local-2/` and leaves the old folders untouched; a server refuses a 0.2/0.3 database. Plan and step receipts: [LEAN_PLAN.md](LEAN_PLAN.md).
 
 | Gate | Result |
 | --- | --- |
-| Feature acceptance | `services/backend/tests/acceptance/` drives every kept feature over HTTP (98 journeys) and passes on SQLite and PostgreSQL. |
-| Backend suites | 556 passed on SQLite and 557 on PostgreSQL (acceptance, unit and repo tests). GitHub CI green. |
+| Feature acceptance | `services/backend/tests/acceptance/` drives every kept feature over HTTP (99 journeys) and passes on SQLite and PostgreSQL. |
+| Backend suites | 557 passed on SQLite and 558 on PostgreSQL (acceptance, unit and repo tests). GitHub CI green. |
 | Browser | Playwright journeys in local (SQLite) and connected (PostgreSQL) modes pass; on a heavily loaded Mac a few connected steps need the 10 s expectation / 60 s test timeouts now configured. |
 | Desktop shell | Rust fmt, tests and clippy pass; the shell only launches the local service and runs the SSH webhook forward. |
+| Packaging | Sidecars freeze; the frozen authority runs 200 simulated calls; the frozen trainer trains the challenger; the 0.4.0 Mac bundle seals, verifies and starts both sidecars under the hardened runtime and passes archive verification (the updater signature is applied by the release workflow). |
+| Old installs | The desktop keeps 0.4.0 data in new folders; a 0.2/0.3 database is refused with a plain message and left unchanged (checked on a real 0.3.3 store). |
 | Hosted topology | Compose smoke passes: migrate job, API, background worker, PostgreSQL; bootstrap, import, worker preparation, a rep call through wrap-up with a callback task, restart persistence, no error lines (`evidence/lean/hosted-smoke.json`). |
 | Local speed | 10k leads / 100k attempts, baseline and lean back to back on the same shared Mac: every hot path 2.5-4x faster (next lead p95 176 -> 80 ms, wrap-up 69 -> 33 ms, workspace 204 -> 71 ms, startup 359 -> 74 ms) and every local target met, including 15 SQL statements for next lead (`evidence/lean/bench-local.json`). |
 | Hosted speed | 2-vCPU reference shape, 8 reps at one call per minute for 5 minutes, no failures in two runs on a shared Mac: event to state p95 85-209 ms and wrap-up p95 96-270 ms; next lead p95 0.8-1.2 s misses the 250 ms target (p50 100-200 ms). Docker CPU caps on that host do not reserve CPU; size a dedicated host and measure with `scripts/bench.py --hosted` (`evidence/lean/bench-hosted-reference.json`). |

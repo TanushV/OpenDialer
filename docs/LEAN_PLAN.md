@@ -179,7 +179,7 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
   release workflow keeps the signed build; harness scripts and Windows acceptance/staging workflows deleted;
   README, runbooks, security policy and architecture notes rewritten for the lean build.
 - Step 8 (October 23, 2026):
-  - Suites: backend + repo tests 556 passed on SQLite and 557 passed on PostgreSQL (each with its own skips);
+  - Suites: backend + repo tests 557 passed on SQLite and 558 passed on PostgreSQL (each with its own skips);
     frontend typecheck, format, build and 74 unit tests pass; Rust fmt, tests and clippy pass; GitHub CI green.
   - Hosted compose smoke (`docs/evidence/lean/hosted-smoke.json`): migrate job, API, background worker and
     PostgreSQL complete bootstrap, import, worker preparation, a rep call through wrap-up with a callback task, and
@@ -211,7 +211,15 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
     telephony recovery); a scan for repeated code finds only four small duplicates. Reaching -30% would mean
     rewriting those algorithms rather than removing bloat, so the target is reported as missed.
 - Plan complete (October 23, 2026). Every kept feature passes its HTTP journeys on SQLite and PostgreSQL and the
-  browser journeys in both modes. Open items: the backend (-14%) and frontend (-2%) size targets were missed; hosted
-  next-lead p95 needs a dedicated-host measurement; live Telnyx, funded Cerebras, DNC vendor access, provider
-  retention terms, hardware audio and campaign lift remain external gates. The lean build is not released and must
-  not be published to existing 0.2/0.3 installs.
+  browser journeys in both modes.
+- Ready for live testing (October 23, 2026), version 0.4.0:
+  - Packaging: both sidecars freeze; the frozen authority runs 200 simulated calls with metrics and post-call
+    analysis; the frozen trainer trains the challenger in the acceptance training journey; the 0.4.0 bundle seals,
+    verifies, starts both sidecars under the hardened runtime and passes archive verification, stopping only at the
+    updater signature, whose key lives in the release workflow's secrets.
+  - Old installs: a 0.3.3 store used to open and then fail at login (HTTP 500). The desktop now keeps 0.4.0 data in
+    `local-2/` and `simulation-2/`, leaving 0.2/0.3 folders untouched, and the backend refuses a 0.2/0.3 database
+    with a plain message (`test_store_format.py`; checked on a real 0.3.3 store, left byte-identical).
+  - Open items: the backend (-14%) and frontend (-2%) size targets were missed. Live testing remains: Telnyx calls
+    and audio, funded Cerebras, DNC vendor access, provider retention terms, hosted latency on a dedicated host and
+    campaign lift. Publishing 0.4.0 to existing installs starts them on a fresh workspace.

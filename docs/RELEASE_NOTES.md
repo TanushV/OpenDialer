@@ -1,3 +1,21 @@
+OpenDialer 0.4.0: the lean build, for internal use.
+
+Every 0.3.3 feature stays: calling with ready/pause, next lead, bridged Telnyx legs, keypad, opt-out and final-attempt voicemail; inbound return calls; compliance screening; the Cerebras live helper; post-call rundown, scorecards, rubrics, tasks and notes; coaching; preparation and research; statistical estimates, model training and trials, experiments and conversation learning; numbers, capacity and health; metrics, work time, costs; settings, users, backup and restore.
+
+What changed underneath:
+- Plain storage: no encryption at rest, journals or migration chain; reports computed straight from the records.
+- Faster on a store with 10,000 leads and 100,000 calls: next lead, wrap-up and the workspace view are 2.5 to 4 times quicker, and startup takes under 0.1 s.
+- A smaller desktop shell: it only launches the local service and the webhook forward.
+- Provider keys are entered in Settings and stored unencrypted on the authority.
+
+0.4.0 starts with a fresh workspace and does not read 0.2/0.3 data. On a machine that ran 0.2/0.3, the old workspace stays untouched in the app data folder (`local/` and `simulation/`); 0.4.0 keeps its own in `local-2/` and `simulation-2/`. A server pointed at a 0.2/0.3 database refuses to start and says why.
+
+Simulated providers prove software behavior only. Live Telnyx calls, funded Cerebras quality and latency, DNC vendor access, provider retention terms, hardware audio, connected-server latency on a dedicated host and campaign lift remain to be tested live. Packages carry pinned-key updater signatures; trusted Apple/Windows publisher signing and notarization are not configured.
+
+---
+
+Historical 0.3.3 release notes follow.
+
 OpenDialer 0.3.3 — developer preview; installed-update validation in progress.
 
 0.3.3 replaces 0.3.0, 0.3.1 and 0.3.2, each withdrawn on October 21 after installed-update validation found a product defect. Installed data stayed intact throughout.

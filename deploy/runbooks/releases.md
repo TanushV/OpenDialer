@@ -8,4 +8,4 @@ Review the draft, install it on a test machine, then publish it. The installed u
 
 Trusted Apple Developer ID signing/notarization and Windows publisher signing are not configured; the preview is signed only for updater integrity.
 
-**Do not publish the lean build to existing 0.2/0.3 installations.** It reads only fresh, unencrypted stores; an installed 0.2/0.3 workspace would not open after the update. Ship it to new installations, or plan an explicit export/import first.
+**0.4.0 does not migrate 0.2/0.3 workspaces.** An updated installation opens a fresh workspace in `local-2/` (and `simulation-2/`); the old `local/` and `simulation/` folders stay untouched and only 0.3.3 can read them. Publish to existing installations only when starting fresh is acceptable.
