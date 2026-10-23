@@ -77,54 +77,17 @@ export type ProviderCredential =
   | "openrouter_api_key"
   | "openai_api_key"
   | "dnc_api_key";
-export async function bindAuthority(
-  runtime: Runtime,
-  session: Session,
-  local: boolean,
-) {
-  if (native())
-    await invoke("bind_authority", {
-      binding: {
-        url: runtime.url,
-        token: session.access_token,
-        tenant_id: session.tenant_id,
-        local,
-        simulation: runtime.simulation,
-      },
-    });
-}
-export async function protectedProviderInput(
-  field: ProviderCredential,
-  version: number,
-) {
-  if (!native())
-    throw new Error(
-      "Enter provider credentials in the installed desktop's protected dialog.",
-    );
-  return await invoke<{ version: number; configured: Record<string, boolean> }>(
-    "protected_provider_input",
-    { field, expectedVersion: version },
-  );
-}
-export async function disconnectNativeAuthority() {
-  await invoke("disconnect_authority");
-}
-export async function assertNoPendingOptouts(
-  tenantId: string,
-  simulation: boolean,
-) {
-  const raw = native()
-    ? await readCache(`optouts-${tenantId}`, simulation)
-    : localStorage.getItem(`opendialer.optouts.${tenantId}`);
+export function assertNoPendingOptouts(tenantId: string) {
+  const raw = localStorage.getItem(`opendialer.optouts.${tenantId}`);
   if (raw === null) return;
   let pending: unknown;
   try {
     pending = JSON.parse(raw);
   } catch {
-    throw new Error("Recover the damaged opt-out journal before continuing.");
+    throw new Error("Recover the damaged opt-out queue before continuing.");
   }
   if (!Array.isArray(pending))
-    throw new Error("Recover the damaged opt-out journal before continuing.");
+    throw new Error("Recover the damaged opt-out queue before continuing.");
   if (pending.length)
     throw new Error(
       "Synchronize pending opt-outs before updating or changing workspace.",
@@ -226,41 +189,23 @@ export interface SavedSession {
   url?: string;
   session?: Session;
 }
-export async function saveSession(data: SavedSession) {
-  const value = JSON.stringify(data);
-  if (native()) {
-    // The native store survives a reset WebView profile; the WebView marker
-    // still restores installs that saved their local choice only there.
-    await invoke("save_session", { value });
-    localStorage.setItem(
-      "opendialer.mode",
-      data.connection === "connected" ? "connected" : value,
-    );
-  } else sessionStorage.setItem("opendialer.session", value);
+const SESSION_KEY = "opendialer.session";
+export function saveSession(data: SavedSession) {
+  localStorage.setItem(SESSION_KEY, JSON.stringify(data));
 }
-export async function loadSession(): Promise<SavedSession | null> {
-  if (native()) {
-    const mode = localStorage.getItem("opendialer.mode");
-    if (mode && mode !== "connected") return JSON.parse(mode) as SavedSession;
-    const value = await invoke<string | null>("load_session");
-    return value ? (JSON.parse(value) as SavedSession) : null;
-  }
-  const value = sessionStorage.getItem("opendialer.session");
+export function loadSession(): SavedSession | null {
+  const value = localStorage.getItem(SESSION_KEY);
   return value ? (JSON.parse(value) as SavedSession) : null;
 }
-export async function clearSession() {
-  if (native()) {
-    await invoke("clear_session");
-    localStorage.removeItem("opendialer.mode");
-  } else sessionStorage.removeItem("opendialer.session");
+export function clearSession() {
+  localStorage.removeItem(SESSION_KEY);
 }
 export async function openSource(url: string) {
   if (!url.startsWith("https://")) return;
   if (native()) await invoke("open_source", { value: url });
   else window.open(url, "_blank", "noopener,noreferrer");
 }
-export async function validateServer(url: string) {
-  if (native()) return await invoke("check_server_url", { value: url });
+export function validateServer(url: string) {
   const parsed = new URL(url);
   if (
     parsed.username ||
@@ -277,29 +222,17 @@ export async function validateServer(url: string) {
       "Use HTTPS for your server, or a loopback HTTP development server.",
     );
 }
-export async function readCache(
-  namespace: string,
-  simulation: boolean,
-): Promise<string | null> {
-  if (!native()) return null;
-  return await invoke("cache_read", {
-    namespace: namespace.startsWith("optouts-")
-      ? namespace
-      : "safe-v1-" + namespace,
-    simulation,
-  });
+/** Offline viewing: the last copy of a read, without raw speech, kept in local storage. */
+export function readCache(namespace: string): string | null {
+  return localStorage.getItem("opendialer.cache." + namespace);
 }
-export async function writeCache(
-  namespace: string,
-  value: unknown,
-  simulation: boolean,
-): Promise<void> {
-  if (native())
-    await invoke("cache_write", {
-      namespace: namespace.startsWith("optouts-")
-        ? namespace
-        : "safe-v1-" + namespace,
-      value: JSON.stringify(persistentCache(value)),
-      simulation,
-    });
+export function writeCache(namespace: string, value: unknown) {
+  try {
+    localStorage.setItem(
+      "opendialer.cache." + namespace,
+      JSON.stringify(persistentCache(value)),
+    );
+  } catch {
+    /* A full store only loses the offline copy. */
+  }
 }

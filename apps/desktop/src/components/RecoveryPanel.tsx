@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { label, useWorkspace } from "../context";
+import { useLoad } from "../state/useLoad";
 
 interface RecoveryItem {
   id: string;
@@ -32,27 +33,15 @@ interface RecoveryState {
 
 export function RecoveryPanel() {
   const { api, refresh } = useWorkspace();
-  const [data, setData] = useState<RecoveryState | null>(null);
+  const {
+    data,
+    error,
+    setError,
+    reload: load,
+  } = useLoad<RecoveryState>("/v1/admin/recovery");
   const [references, setReferences] = useState<Record<string, string>>({});
   const [evidence, setEvidence] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState("");
-  async function load() {
-    setData(await api<RecoveryState>("/v1/admin/recovery"));
-  }
-  useEffect(() => {
-    let current = true;
-    void api<RecoveryState>("/v1/admin/recovery")
-      .then((result) => {
-        if (current) setData(result);
-      })
-      .catch((reason: unknown) => {
-        if (current) setError(String(reason));
-      });
-    return () => {
-      current = false;
-    };
-  }, [api]);
   async function act(id: string, path: string, body: unknown) {
     setBusy(id);
     setError("");

@@ -1,4 +1,4 @@
-"""Authenticated restore reconciles the append-only opt-out journal before resuming work."""
+"""Restore a backup through an authenticated administrator session; outbound stays paused until reconciled."""
 
 import argparse
 import getpass

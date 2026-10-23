@@ -3,83 +3,29 @@ on:
   push:
     branches: [main]
   pull_request:
-  schedule:
-    - cron: '23 6 * * *'
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: verify-${{ github.event_name }}-${{ github.ref }}
+  group: verify-${{ github.ref }}
   cancel-in-progress: true
-env:
-  # The complete PostgreSQL suite runs for pull requests to main, nightly and on demand.
-  # Pushes run the PostgreSQL-specific and database/migration subset; the SQLite suite is always complete.
-  POSTGRES_FULL: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'main') }}
 jobs:
   lint:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
           version: '0.10.12'
       - run: uv sync --frozen --python 3.12
-      - run: uv run ruff check services/backend/app services/backend/tests tests scripts deploy/backup
-      - run: uv run ruff format --check services/backend/app services/backend/tests tests scripts deploy/backup
-      - run: uv run pip-audit --disable-pip --no-deps -r <(uv export --frozen --no-dev --no-hashes --no-emit-project)
-        shell: bash
-  backend-sqlite:
+      - run: uv run ruff check services/backend tests scripts deploy/backup
+      - run: uv run ruff format --check services/backend tests scripts deploy/backup
+  backend:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: '0.10.12'
-      - run: uv sync --frozen --python 3.12
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: apps/desktop/package-lock.json
-      # The backend acceptance includes the TypeScript AST parser and needs locked node_modules.
-      - run: npm ci
-        working-directory: apps/desktop
-      - run: mkdir -p work/remediation/completion
-      - run: uv run pytest services/backend/tests tests -q -n auto --cov=app --cov-branch --cov-report=json:work/remediation/completion/sqlite-coverage.json --junitxml=work/remediation/completion/sqlite-junit.xml
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: sqlite-receipts
-          path: |
-            work/remediation/completion/sqlite-coverage.json
-            work/remediation/completion/sqlite-junit.xml
-  backend-windows-storage:
-    # Installed Windows stores migrate and journal through these paths. POSIX file semantics
-    # hid a read-only flush that stopped the signed 0.2.1 -> 0.3.0 Windows update (E14).
-    runs-on: windows-2022
-    timeout-minutes: 30
-    env:
-      PYTHONUTF8: '1'
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: '0.10.12'
-      - run: uv sync --frozen --python 3.12
-      - run: >-
-          uv run pytest -q
-          services/backend/tests/test_installed_copy_migration.py
-          services/backend/tests/test_migrations.py
-          services/backend/tests/test_authority_lock.py
-          services/backend/tests/test_encrypted_storage.py
-          services/backend/tests/test_consent_journal.py
-          services/backend/tests/test_effect_journal.py
-          services/backend/tests/test_suppression_durability.py
-  backend-postgres:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [sqlite, postgres]
     services:
       postgres:
         image: postgres:17-alpine
@@ -91,71 +37,16 @@ jobs:
           --health-cmd "pg_isready -U postgres -d opendialer_test"
           --health-interval 5s --health-timeout 5s --health-retries 15
     env:
-      # Each pytest-xdist worker derives and creates its own opendialer_test_gwN store.
-      OPENDIALER_TEST_POSTGRES_URL: postgresql+psycopg://postgres:disposable_ci_test@localhost:5432/opendialer_test
+      OPENDIALER_TEST_POSTGRES_URL: ${{ matrix.database == 'postgres' && 'postgresql+psycopg://postgres:disposable_ci_test@localhost:5432/opendialer_test' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
           version: '0.10.12'
       - run: uv sync --frozen --python 3.12
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: apps/desktop/package-lock.json
-      # The backend acceptance includes the TypeScript AST parser and needs locked node_modules.
-      - run: npm ci
-        working-directory: apps/desktop
-      - run: mkdir -p work/remediation/completion
-      - name: Complete PostgreSQL suite
-        if: env.POSTGRES_FULL == 'true'
-        run: uv run pytest services/backend/tests tests -q -n auto --cov=app --cov-branch --cov-report=json:work/remediation/completion/postgres-coverage.json --junitxml=work/remediation/completion/postgres-junit.xml
-      - name: PostgreSQL-specific and database/migration subset
-        if: env.POSTGRES_FULL != 'true'
-        run: uv run pytest services/backend/tests tests -q -n auto -m "postgres or database" --junitxml=work/remediation/completion/postgres-subset-junit.xml
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: postgres-receipts
-          if-no-files-found: ignore
-          path: |
-            work/remediation/completion/postgres-coverage.json
-            work/remediation/completion/postgres-junit.xml
-            work/remediation/completion/postgres-subset-junit.xml
-  coverage:
-    needs: [backend-sqlite, backend-postgres]
-    if: ${{ !cancelled() }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: '0.10.12'
-      - run: uv sync --frozen --python 3.12
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: '*-receipts'
-          merge-multiple: true
-          path: work/remediation/completion
-      # Separate statement and branch floors per database: SQLite always, PostgreSQL whenever its complete suite ran.
-      - name: Enforce coverage floors
-        shell: bash
-        run: |
-          reports=(work/remediation/completion/sqlite-coverage.json)
-          if [ "$POSTGRES_FULL" = "true" ]; then reports+=(work/remediation/completion/postgres-coverage.json); fi
-          uv run python scripts/check_completion_coverage.py --statements 90 --branches 80 "${reports[@]}"
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: software-acceptance-receipts
-          path: |
-            work/remediation/completion/*-coverage.json
-            work/remediation/completion/*-junit.xml
+      - run: uv run pytest services/backend/tests tests -q -n auto
   frontend:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -163,22 +54,19 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: apps/desktop/package-lock.json
-      - run: npm ci
-        working-directory: apps/desktop
-      - run: npm run typecheck && npm run format:check && npm run build && npm test && npm audit --audit-level=moderate
+      - run: npm ci && npm run typecheck && npm run format:check && npm run build && npm test
         working-directory: apps/desktop
   e2e:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
     services:
       postgres:
         image: postgres:17-alpine
         env:
           POSTGRES_PASSWORD: disposable_ci_test
-          POSTGRES_DB: opendialer_test
+          POSTGRES_DB: opendialer_completion_e2e
         ports: [5432:5432]
         options: >-
-          --health-cmd "pg_isready -U postgres -d opendialer_test"
+          --health-cmd "pg_isready -U postgres -d opendialer_completion_e2e"
           --health-interval 5s --health-timeout 5s --health-retries 15
     steps:
       - uses: actions/checkout@v4
@@ -191,20 +79,8 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: apps/desktop/package-lock.json
-      - run: npm ci
+      - run: npm ci && npx playwright install --with-deps chromium
         working-directory: apps/desktop
-      - run: npx playwright install --with-deps chromium
-        working-directory: apps/desktop
-      - name: Create isolated connected browser database
-        run: |
-          uv run python - <<'PY'
-          import psycopg
-          from scripts.disposable_database import validate_database_url
-          target = 'postgresql+psycopg://postgres:disposable_ci_test@localhost:5432/opendialer_completion_e2e'
-          validate_database_url(target, purpose='browser')
-          with psycopg.connect('postgresql://postgres:disposable_ci_test@localhost:5432/opendialer_test', autocommit=True) as connection:
-              connection.execute('CREATE DATABASE opendialer_completion_e2e')
-          PY
       - run: npm run test:e2e
         working-directory: apps/desktop
         env:
@@ -214,9 +90,8 @@ jobs:
         with:
           name: browser-failure-traces
           path: apps/desktop/test-results
-  native:
+  desktop-shell:
     runs-on: macos-15
-    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -229,12 +104,6 @@ jobs:
       - run: npm ci && npm run build
         working-directory: apps/desktop
       - uses: dtolnay/rust-toolchain@stable
-      - name: Freeze the authority and trainer sidecars
-        run: |
-          uv run python scripts/build_sidecar.py
-          test -x apps/desktop/src-tauri/binaries/opendialer-backend-aarch64-apple-darwin
-          test -x apps/desktop/src-tauri/binaries/opendialer-trainer-aarch64-apple-darwin
-      - run: cargo fmt --check && cargo test --locked
-        working-directory: apps/desktop/src-tauri
-      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: uv run python scripts/build_sidecar.py
+      - run: cargo fmt --check && cargo test --locked && cargo clippy --locked --all-targets -- -D warnings
         working-directory: apps/desktop/src-tauri

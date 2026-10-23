@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { date, label, useWorkspace } from "../context";
+import { useLoad } from "../state/useLoad";
 import { options, useDefinitions } from "../state/definitions";
 import type { Call } from "../types";
 
@@ -17,7 +18,7 @@ export function ConversionForm({ call }: { call: Call }) {
   const [eventId, setEventId] = useState(() => crypto.randomUUID());
   const [saved, setSaved] = useState(false);
   const [correction, setCorrection] = useState("");
-  const [events, setEvents] = useState<
+  const conversions = useLoad<
     {
       id: string;
       kind: string;
@@ -25,13 +26,9 @@ export function ConversionForm({ call }: { call: Call }) {
       occurred_at: string;
       retracted?: boolean;
     }[]
-  >([]);
-  const load = useCallback(async () => {
-    setEvents(await api("/v1/leads/" + call.lead_id + "/conversions"));
-  }, [api, call.lead_id]);
-  useEffect(() => {
-    void run(load);
-  }, [load, run]);
+  >(`/v1/leads/${call.lead_id}/conversions`);
+  const events = conversions.data ?? [];
+  const load = conversions.reload;
   return (
     <section className="card padded optimization-panel">
       <h3>Record a later conversion</h3>

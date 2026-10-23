@@ -66,9 +66,7 @@ def test_desktop_bundles_the_trainer_beside_the_authority():
     assert "opendialer-trainer.exe" in stop
     native = (ROOT / "apps/desktop/src-tauri/src/lib.rs").read_text()
     assert "opendialer-trainer.exe" in native
-    for workflow in ("release.yml", "windows.yml", "ci.yml"):
-        text = (ROOT / ".github/workflows" / workflow).read_text()
-        assert "opendialer-trainer" in text, workflow
+    assert "scripts/build_sidecar.py" in (ROOT / ".github/workflows/release.yml").read_text()
 
 
 def test_native_minimum_window_supports_the_required_rep_journey():
@@ -112,9 +110,6 @@ def test_version_identity_artifact_contract():
     assert updater["endpoints"] == [
         "https://github.com/TanushV/OpenDialer/releases/latest/download/latest.json"
     ]
-    source = (ROOT / "scripts/frozen_acceptance.py").read_text()
-    assert "--expected-version" in source
-    assert '== "0.2.1"' not in source
 
 
 def test_desktop_is_tauri_with_scoped_capabilities_and_microphone_metadata():

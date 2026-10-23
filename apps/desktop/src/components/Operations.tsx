@@ -19,7 +19,6 @@ import { LONG_REQUEST_MS, openSource } from "../api/client";
 import { date, isAdmin, label, percent, useWorkspace } from "../context";
 import { parseCSV } from "../state/csv";
 import type { Lead, NumberRecord, Packet } from "../types";
-import { NumberOrders } from "./NumberOrders";
 import { FollowupTasks } from "./FollowupTasks";
 import { ProspectBrief } from "./ProspectBrief";
 import { PreparationRunway } from "./Preparation";
@@ -820,7 +819,6 @@ export function NumbersPage() {
         planning={planning}
         onPlan={() => void run(requestPlan)}
       />
-      <NumberOrders />
     </>
   );
 }

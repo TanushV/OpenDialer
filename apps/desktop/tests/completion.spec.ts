@@ -37,7 +37,7 @@ test("late superseded settings load cannot replace a rep's template edits", asyn
   }
 });
 
-test("setup shows capability evidence and uses protected native credential entry", async ({
+test("setup shows capability evidence and saves a write-only provider key", async ({
   page,
 }) => {
   await enter(page, false);
@@ -45,28 +45,6 @@ test("setup shows capability evidence and uses protected native credential entry
   page.on("request", (r) => {
     if (r.method() === "PUT" && r.url().endsWith("/admin/settings"))
       requests.push(r.postData() || "");
-  });
-  await page.evaluate(() => {
-    const state = window as unknown as {
-      __TAURI_INTERNALS__: {
-        invoke: (name: string, args: unknown) => Promise<unknown>;
-      };
-      protectedCalls: unknown[];
-    };
-    state.protectedCalls = [];
-    state.__TAURI_INTERNALS__ = {
-      invoke: async (name, args) => {
-        state.protectedCalls.push({ name, args });
-        if (name === "webhook_tunnel_status")
-          return {
-            config: { enabled: false, host: "", user: "", remote_port: 18765 },
-            state: "disabled",
-          };
-        if (name === "protected_provider_input")
-          return { version: 1, configured: { openrouter_api_key: true } };
-        return null;
-      },
-    };
   });
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page
@@ -78,31 +56,18 @@ test("setup shows capability evidence and uses protected native credential entry
   await expect(page.getByTestId("capability-live_helper")).toContainText(
     "Software verified",
   );
-  await expect(page.locator('input[type="password"]')).toHaveCount(0);
   await page.getByTestId("setup-helper").locator(":scope > summary").click();
-  await page
-    .getByRole("button", { name: "OpenRouter API key", exact: true })
+  const field = page.getByTestId("credential-openrouter_api_key");
+  await field.getByLabel("OpenRouter API key").fill("sk-or-test-only");
+  await field
+    .getByRole("button", { name: "Save OpenRouter API key", exact: true })
     .click();
-  await expect(page.getByTestId("credential-openrouter_api_key")).toContainText(
-    "Configured",
-  );
-  const calls = await page.evaluate(
-    () =>
-      (
-        window as unknown as {
-          protectedCalls: { name: string; args: unknown }[];
-        }
-      ).protectedCalls,
-  );
-  const call = calls.find((x) => x.name === "protected_provider_input")!;
-  expect(call.args).toEqual({
-    field: "openrouter_api_key",
-    expectedVersion: 0,
-  });
-  expect(requests).toEqual([]);
-  await page.evaluate(() => {
-    delete (window as unknown as { __TAURI_INTERNALS__?: unknown })
-      .__TAURI_INTERNALS__;
+  await expect(field).toContainText("Configured");
+  await expect(field.getByLabel("OpenRouter API key")).toHaveValue("");
+  expect(requests).toHaveLength(1);
+  expect(JSON.parse(requests[0])).toMatchObject({
+    openrouter_api_key: "sk-or-test-only",
+    expected_version: 0,
   });
 });
 

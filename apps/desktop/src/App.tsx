@@ -36,9 +36,6 @@ import {
   validateServer,
   waitForRuntime,
   writeCache,
-  bindAuthority,
-  protectedProviderInput,
-  disconnectNativeAuthority,
   assertNoPendingOptouts,
   type RequestOptions,
 } from "./api/client";
@@ -188,8 +185,7 @@ export function App() {
           undefined,
           options,
         );
-        if (cacheable && key)
-          void writeCache(key, result, runtime.simulation).catch(() => {});
+        if (cacheable && key) writeCache(key, result);
         if (result && typeof result === "object" && "transcript" in result)
           return receiveSpeech(
             result as { transcript?: import("./types").Segment[] },
@@ -199,7 +195,7 @@ export function App() {
         if (error instanceof ApiError && error.status === 401)
           void sessionExpired(session);
         if (cacheable && key && canUseOfflineCache(error)) {
-          const cached = await readCache(key, runtime.simulation);
+          const cached = readCache(key);
           if (cached) return JSON.parse(cached) as T;
         }
         throw error;
@@ -241,11 +237,10 @@ export function App() {
           setSnapshot(result);
           setOffline(false);
           setExpired(false);
-          void writeCache(
-            `workspace-${session.user_id}`,
-            { ...result, leads: result.leads.slice(0, 20) },
-            result.simulation,
-          ).catch(() => {});
+          writeCache(`workspace-${session.user_id}`, {
+            ...result,
+            leads: result.leads.slice(0, 20),
+          });
         },
       ),
     [runtime, session, sessionExpired],
@@ -284,13 +279,13 @@ export function App() {
   useEffect(() => {
     void (async () => {
       try {
-        const saved = await loadSession();
+        const saved = loadSession();
         if (native() && !saved) {
           setStartup(false);
           return;
         }
         if (saved?.connection === "connected" && saved.url && saved.session) {
-          await validateServer(saved.url);
+          validateServer(saved.url);
           let snap: Workspace;
           try {
             snap = await request<Workspace>(
@@ -300,10 +295,7 @@ export function App() {
             );
           } catch (error) {
             if (!canUseOfflineCache(error)) throw error;
-            const cached = await readCache(
-              `workspace-${saved.session.user_id}`,
-              saved.simulation,
-            );
+            const cached = readCache(`workspace-${saved.session.user_id}`);
             if (!cached) throw error;
             snap = JSON.parse(cached) as Workspace;
             snap.user.presence = { status: "paused", audio_ready: false };
@@ -358,7 +350,6 @@ export function App() {
   }, []);
   useEffect(() => {
     if (!session || !runtime) return;
-    void run(() => bindAuthority(runtime, session, connection === "local"));
     void run(refresh);
     let connected = false;
     let pending: ReturnType<typeof setTimeout> | null = null;
@@ -451,7 +442,7 @@ export function App() {
           "/v1/simulation/seed",
           "POST",
         );
-      await saveSession({ connection: "local", simulation });
+      saveSession({ connection: "local", simulation });
       setConnection("local");
       setSession(token);
       setSnapshot(
@@ -464,7 +455,7 @@ export function App() {
   async function signIn() {
     setWorking(true);
     await run(async () => {
-      await validateServer(form.server);
+      validateServer(form.server);
       const token = await request<Session>(
         form.server,
         null,
@@ -485,7 +476,7 @@ export function App() {
       setSession(token);
       setSnapshot(snap);
       setConnection("connected");
-      await saveSession({
+      saveSession({
         connection: "connected",
         simulation: snap.simulation,
         url: form.server,
@@ -498,18 +489,9 @@ export function App() {
   }
   async function disconnect() {
     if (!runtime || !session) return;
-    await assertNoPendingOptouts(session.tenant_id, runtime.simulation);
-    if (native()) {
-      await bindAuthority(runtime, session, connection === "local");
-      await disconnectNativeAuthority();
-    } else
-      await request(
-        runtime.url,
-        session.access_token,
-        "/v1/auth/logout",
-        "POST",
-      );
-    await clearSession();
+    assertNoPendingOptouts(session.tenant_id);
+    await request(runtime.url, session.access_token, "/v1/auth/logout", "POST");
+    clearSession();
     setSession(null);
     setRuntime(null);
     setSnapshot(null);
@@ -524,7 +506,7 @@ export function App() {
       return;
     }
     const server = runtime?.url ?? "";
-    await clearSession();
+    clearSession();
     setExpired(false);
     setSession(null);
     setRuntime(null);
@@ -535,13 +517,17 @@ export function App() {
   const configureCredential = useCallback<
     WorkspaceContext["configureCredential"]
   >(
-    async (field, version) => {
-      const { runtime: bound, session: current } = authority.current;
-      if (!bound || !current) throw new Error("Choose a workspace first.");
-      await bindAuthority(bound, current, connection === "local");
-      return await protectedProviderInput(field, version);
-    },
-    [connection],
+    async (field, version, value) =>
+      await api<{ version: number; configured: Record<string, boolean> }>(
+        "/v1/admin/settings",
+        "PUT",
+        {
+          request_id: crypto.randomUUID(),
+          expected_version: version,
+          [field]: value,
+        },
+      ),
+    [api],
   );
   // A stable value: consumers re-render only when something they read changes.
   const context = useMemo<WorkspaceContext | null>(

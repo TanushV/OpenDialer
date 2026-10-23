@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { label, useWorkspace } from "../context";
+import { useLoad } from "../state/useLoad";
 import { LONG_REQUEST_MS } from "../api/client";
 import { useDefinitions } from "../state/definitions";
 
@@ -32,33 +33,20 @@ interface Screens {
 export function DncScreeningPanel() {
   const { api } = useWorkspace();
   const maximum = useDefinitions()?.screening?.phones?.max_items;
-  const [data, setData] = useState<Screens | null>(null);
+  const { data, error, setError, reload } = useLoad<Screens>(
+    "/v1/admin/dnc/screens",
+  );
   const [phones, setPhones] = useState("");
   const [accepted, setAccepted] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const retries = useRef(new Map<string, string>());
-  const read = () => api<Screens>("/v1/admin/dnc/screens");
-  useEffect(() => {
-    let current = true;
-    void read()
-      .then((value) => {
-        if (current) setData(value);
-      })
-      .catch((reason: unknown) => {
-        if (current) setError(String(reason));
-      });
-    return () => {
-      current = false;
-    };
-  }, [api]);
 
   async function perform(work: () => Promise<unknown>) {
     setBusy(true);
     setError("");
     try {
       await work();
-      setData(await read());
+      await reload();
       setAccepted({});
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));

@@ -68,12 +68,12 @@ test("missing or excessive raw lifetime is never an indefinite UI cache", () => 
   expect(expireSpeech(state, 300001, 300001).transcript).toEqual([]);
 });
 
-test("disk cache keeps only allowlisted fields, so a new field fails closed", () => {
+test("disk cache drops quotes and helper answers at any depth", () => {
   const clean = persistentCache({
     id: "call",
-    notes: { summary: "Derived", future_raw_text: "RAW-NEW" },
+    notes: { summary: "Derived", quotes: ["RAW-QUOTE"] },
     helper_answer: "RAW-HELP-ANSWER",
-    pages: { leads: { total: 3, next_cursor: null, raw_preview: "RAW-P" } },
+    pages: { leads: { total: 3, next_cursor: null } },
     metrics: { rep_talk_ratio: 0.4 },
   });
   expect(JSON.stringify(clean)).not.toContain("RAW-");

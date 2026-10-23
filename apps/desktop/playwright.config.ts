@@ -3,6 +3,9 @@ export default defineConfig({
   testDir: "./tests",
   testMatch: "**/*.spec.ts",
   workers: 1,
+  // Connected-mode steps make several PostgreSQL round trips; allow for a loaded machine.
+  expect: { timeout: 10_000 },
+  timeout: 60_000,
   use: {
     baseURL: "http://127.0.0.1:1420",
     trace: "retain-on-failure",

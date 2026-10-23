@@ -14,6 +14,7 @@ import {
   type OptimizationSettings,
 } from "./OptimizationPanel";
 import { WeeklySchedule, type SimpleStaffing } from "./Staffing";
+import { CredentialField } from "./CredentialField";
 import type { Update } from "@tauri-apps/plugin-updater";
 import {
   ArrowDownToLine,
@@ -587,43 +588,25 @@ function CredentialButton({
   title: string;
   settings: AdminSettingsState;
 }) {
-  const { run, notice, refresh, configureCredential } = useWorkspace();
-  const [busy, setBusy] = useState(false);
+  const { notice, refresh } = useWorkspace();
   const data = settings.data;
   return (
-    <div data-testid={`credential-${field}`}>
-      <button
-        className="secondary"
-        aria-label={title}
-        disabled={!data || busy || !native()}
-        onClick={() =>
-          void run(async () => {
-            if (!data) return;
-            setBusy(true);
-            try {
-              const result = await configureCredential(field, data.version);
-              settings.setData({
-                ...data,
-                version: result.version,
-                configured: { ...data.configured, ...result.configured },
-              });
-              notice("Credential saved in the selected authority.");
-              await refresh();
-            } finally {
-              setBusy(false);
-            }
-          })
-        }
-      >
-        {title}
-      </button>
-      <p className="fine">
-        {data?.configured[field] ? "Configured" : "Not configured"} ·{" "}
-        {native()
-          ? "Enter in a protected system dialog"
-          : "Use the installed desktop to enter keys"}
-      </p>
-    </div>
+    <CredentialField
+      field={field}
+      title={title}
+      version={data?.version}
+      configured={data?.configured[field]}
+      onSaved={(result) => {
+        if (data)
+          settings.setData({
+            ...data,
+            version: result.version,
+            configured: { ...data.configured, ...result.configured },
+          });
+        notice("Credential saved in the selected authority.");
+        void refresh();
+      }}
+    />
   );
 }
 
@@ -1652,9 +1635,8 @@ function OperationsSettings({ onDisconnect }: { onDisconnect: () => void }) {
         <h2>Encrypted backups</h2>
         <p className="muted small">
           Restore recovers missing records and keeps current records and live
-          obligations. It reconciles denial journals and pauses outbound work
-          for review. Backups contain business records, never unencrypted
-          provider credentials.
+          obligations, then pauses outbound work until carrier reconciliation.
+          Backups contain business records, not provider credentials.
         </p>
         <button
           className="primary"
@@ -1667,12 +1649,12 @@ function OperationsSettings({ onDisconnect }: { onDisconnect: () => void }) {
                 { timeoutMs: LONG_REQUEST_MS },
               );
               setBackupId(r.backup_id);
-              notice("Encrypted backup created");
+              notice("Backup created");
             })
           }
         >
           <Database size={15} />
-          Create encrypted backup
+          Create backup
         </button>
         {backupId && <p className="mono small">Backup ID: {backupId}</p>}
         <label>
@@ -1944,8 +1926,7 @@ function AdvancedProviders({ settings }: { settings: AdminSettingsState }) {
       <div className="settings-save">
         <LockKeyhole size={16} />
         <span>
-          Write-only secrets · encrypted at rest · no credentials in workspace
-          snapshots
+          Write-only secrets · never shown again after saving snapshots
         </span>
         <button
           className="primary"
@@ -2072,8 +2053,8 @@ function UpdateSettings() {
       <h2>Updates without starting over</h2>
       <p className="muted">
         OpenDialer verifies signed update artifacts before replacing the
-        installed app. Your workspace database and protected credentials stay in
-        the application's data directory.
+        installed app. Your workspace database and provider settings stay in the
+        application's data directory.
       </p>
       <div className="update-version">
         <span className="brand-symbol">
@@ -2132,7 +2113,7 @@ function UpdateSettings() {
             disabled={updateBusy}
             onClick={() =>
               void run(async () => {
-                await assertNoPendingOptouts(session.tenant_id, w.simulation);
+                assertNoPendingOptouts(session.tenant_id);
                 const status = await api<{
                   can_disconnect: boolean;
                   reasons: string[];

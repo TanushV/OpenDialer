@@ -15,9 +15,9 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { native, openSource, readCache, writeCache } from "../api/client";
+import { openSource } from "../api/client";
 import { label, useWorkspace } from "../context";
-import { MemoryStorage, OptOutJournal, type OptOut } from "../state/optouts";
+import { OptOutJournal } from "../state/optouts";
 import { pausesPresence, Telephony } from "../telephony/client";
 import { InboundCall } from "./InboundCall";
 import { CallControls } from "./CallControls";
@@ -64,11 +64,8 @@ export function DialerPage() {
   const responseReceived = useRef<number | null>(null);
   const audio = useRef<HTMLAudioElement>(null);
   const telephony = useRef(new Telephony());
-  const journalStore = useRef(native() ? new MemoryStorage() : localStorage);
-  const journal = useRef(
-    new OptOutJournal(journalStore.current, session.tenant_id),
-  );
-  const [journalReady, setJournalReady] = useState(!native());
+  const journal = useRef(new OptOutJournal(localStorage, session.tenant_id));
+  const [journalReady, setJournalReady] = useState(false);
   const [pendingOptouts, setPendingOptouts] = useState(
     journal.current.blocksCalling,
   );
@@ -209,13 +206,6 @@ export function DialerPage() {
     if (returnProvider) telephony.current.expectReturnLeg(returnProvider);
   }, [returnProvider]);
 
-  async function persistJournal() {
-    await writeCache(
-      `optouts-${session.tenant_id}`,
-      journal.current.pending,
-      w.simulation,
-    );
-  }
   async function syncOptouts() {
     await journal.current.synchronize((event) =>
       api("/v1/suppressions", "POST", {
@@ -224,29 +214,10 @@ export function DialerPage() {
         event_id: event.id,
       }),
     );
-    await persistJournal();
     setPendingOptouts(journal.current.blocksCalling);
   }
   useEffect(() => {
     void run(async () => {
-      if (native()) {
-        const saved = await readCache(
-          `optouts-${session.tenant_id}`,
-          w.simulation,
-        );
-        if (saved) {
-          const items = JSON.parse(saved) as OptOut[];
-          if (!Array.isArray(items) || items.some((e) => !e.phone || !e.id))
-            throw new Error(
-              "Protected opt-out journal needs recovery; calling remains paused.",
-            );
-          journalStore.current.setItem(
-            `opendialer.optouts.${session.tenant_id}`,
-            JSON.stringify(items),
-          );
-        }
-      }
-      setPendingOptouts(journal.current.blocksCalling);
       await syncOptouts();
       setJournalReady(true);
     });
@@ -271,7 +242,7 @@ export function DialerPage() {
           "Complete the incoming call before becoming ready for outbound calls.",
         );
       if (!journalReady)
-        throw new Error("Wait for the protected opt-out journal to open.");
+        throw new Error("Wait for pending opt-outs to synchronize.");
       await syncOptouts();
       if (journal.current.blocksCalling)
         throw new Error(
@@ -402,11 +373,9 @@ export function DialerPage() {
     // Journal locally, end the conversation at once, then synchronize.
     journal.current.add(selectedLead.phone, "opt_out");
     setPendingOptouts(true);
-    const [saved, ended] = await Promise.allSettled([
-      persistJournal(),
+    const [ended] = await Promise.allSettled([
       isActiveCall(currentCall.current) ? hangup() : Promise.resolve(),
     ]);
-    if (saved.status === "rejected") throw saved.reason;
     await syncOptouts();
     void refresh().catch(() => {});
     notice(

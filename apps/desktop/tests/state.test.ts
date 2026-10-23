@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isActiveCall, isTerminal } from "../src/types";
-import {
-  MemoryStorage as ProtectedMemoryStorage,
-  OptOutJournal,
-} from "../src/state/optouts";
+import { OptOutJournal } from "../src/state/optouts";
 
 class MemoryStorage {
   values = new Map<string, string>();
@@ -54,13 +51,4 @@ describe("one call-state definition", () => {
     expect(isActiveCall({ state: "NO_ANSWER" })).toBe(false);
     expect(isActiveCall(null)).toBe(false);
   });
-});
-
-it("keeps sample journal memory separate and removable", () => {
-  const m = new ProtectedMemoryStorage();
-  expect(m.getItem("missing")).toBe(null);
-  m.setItem("a", "b");
-  expect(m.getItem("a")).toBe("b");
-  m.removeItem("a");
-  expect(m.getItem("a")).toBe(null);
 });

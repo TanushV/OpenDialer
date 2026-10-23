@@ -23,6 +23,7 @@ export interface WorkspaceContext {
   configureCredential: (
     field: ProviderCredential,
     version: number,
+    value: string,
   ) => Promise<{ version: number; configured: Record<string, boolean> }>;
 }
 export const Context = createContext<WorkspaceContext | null>(null);

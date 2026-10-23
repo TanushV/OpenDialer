@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
-import { ApiError, native, readCache, writeCache } from "../api/client";
+import { ApiError } from "../api/client";
 import { useWorkspace } from "../context";
 import { boundKeypad, KEYPAD_REPLAY_MS } from "../state/privacy";
 
@@ -12,13 +12,6 @@ type Pending = {
 };
 type Receipt = { status: string; sent: boolean; reason?: string };
 
-// One window owns this cache. A reopened keypad must await its predecessor's native write.
-let cacheWork: Promise<unknown> = Promise.resolve();
-function cacheOperation<T>(operation: () => Promise<T> | T): Promise<T> {
-  const next = cacheWork.then(operation);
-  cacheWork = next.catch(() => {});
-  return next;
-}
 const fresh = (value: Pending) =>
   Number.isFinite(value.created_at) &&
   Date.now() - value.created_at >= 0 &&
@@ -31,7 +24,7 @@ export function Keypad({
   callId: string;
   close: () => void;
 }) {
-  const { api, session, snapshot } = useWorkspace();
+  const { api, session } = useWorkspace();
   const [pending, setPending] = useState<Pending | null>(null);
   const [busy, setBusy] = useState(true);
   const [message, setMessage] = useState("");
@@ -39,19 +32,15 @@ export function Keypad({
   const [reviewedChoice, setReviewedChoice] = useState(false);
   const locked = useRef(false);
   const mounted = useRef(true);
-  const namespace = `keypad-${session.user_id}`;
-  const storageKey = `opendialer.${namespace}`;
+  const storageKey = `opendialer.keypad-${session.user_id}`;
 
   async function save(next: Pending | null) {
     // Digits are kept only for the short replay window; the key remains checkable.
     const value = boundKeypad(next);
-    await cacheOperation(async () => {
-      if (!mounted.current) return;
-      if (native()) await writeCache(namespace, value, snapshot.simulation);
-      else if (value) sessionStorage.setItem(storageKey, JSON.stringify(value));
-      else sessionStorage.removeItem(storageKey);
-    });
-    if (mounted.current) setPending(value);
+    if (!mounted.current) return;
+    if (value) sessionStorage.setItem(storageKey, JSON.stringify(value));
+    else sessionStorage.removeItem(storageKey);
+    setPending(value);
   }
   useEffect(() => {
     if (!pending?.digits) return;
@@ -105,11 +94,7 @@ export function Keypad({
     void (async () => {
       let loaded = false;
       try {
-        const stored = await cacheOperation(() =>
-          native()
-            ? readCache(namespace, snapshot.simulation)
-            : sessionStorage.getItem(storageKey),
-        );
+        const stored = sessionStorage.getItem(storageKey);
         if (disposed) return;
         const saved = stored ? (JSON.parse(stored) as Pending | null) : null;
         if (

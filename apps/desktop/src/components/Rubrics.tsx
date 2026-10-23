@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { label, useWorkspace } from "../context";
+import { useLoad } from "../state/useLoad";
 import type { Analysis } from "../types";
 
 const callTypes = [
@@ -29,26 +30,17 @@ interface Configuration {
 
 export function RubricSettings() {
   const { api, snapshot, run } = useWorkspace();
-  const [config, setConfig] = useState<Configuration | null>(null);
+  const {
+    data: config,
+    setData: setConfig,
+    error,
+  } = useLoad<Configuration>(
+    `/v1/admin/rubrics?campaign_id=${encodeURIComponent(snapshot.campaign.id)}`,
+  );
   const [selected, setSelected] = useState<CallType>("cold_introduction");
-  const [status, setStatus] = useState("");
+  const [saved, setStatus] = useState("");
+  const status = saved || error;
   const [busy, setBusy] = useState(false);
-  const campaign = snapshot.campaign.id;
-  useEffect(() => {
-    let current = true;
-    void api<Configuration>(
-      `/v1/admin/rubrics?campaign_id=${encodeURIComponent(campaign)}`,
-    )
-      .then((value) => {
-        if (current) setConfig(value);
-      })
-      .catch((error: unknown) => {
-        if (current) setStatus(String(error));
-      });
-    return () => {
-      current = false;
-    };
-  }, [api, campaign]);
   const rubric = config?.rubrics[selected];
   function change(patch: Partial<Rubric>) {
     if (config && rubric)

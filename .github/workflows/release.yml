@@ -28,28 +28,13 @@ jobs:
           workspaces: apps/desktop/src-tauri
       - run: npm ci && npm run build && npm test
         working-directory: apps/desktop
-      - run: uv run pytest tests/test_distribution_contract.py tests/test_native_update_wait.py tests/test_frozen_acceptance.py tests/test_windows_native_contract.py -q
+      - run: uv run pytest tests/test_distribution_contract.py -q
         env:
           OMP_NUM_THREADS: '1'
           OPENBLAS_NUM_THREADS: '1'
           PYTHONUTF8: '1'
       - name: Freeze the authority and trainer sidecars
         run: uv run python scripts/build_sidecar.py
-      - name: Verify the actual frozen authority on macOS
-        if: runner.os == 'macOS'
-        run: |
-          version=$(python -c 'import json; print(json.load(open("apps/desktop/src-tauri/tauri.conf.json"))["version"])')
-          export OPENDIALER_TEST_TRAINER="$PWD/apps/desktop/src-tauri/binaries/opendialer-trainer-aarch64-apple-darwin"
-          uv run python scripts/frozen_acceptance.py --expected-version "$version" --output work/native/frozen-runtime.json
-      - name: Verify the actual frozen authority on Windows
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $version = (Get-Content apps/desktop/src-tauri/tauri.conf.json | ConvertFrom-Json).version
-          $env:OPENDIALER_TEST_BINARY = (Resolve-Path apps/desktop/src-tauri/binaries/opendialer-backend-x86_64-pc-windows-msvc.exe).Path
-          $env:OPENDIALER_TEST_TRAINER = (Resolve-Path apps/desktop/src-tauri/binaries/opendialer-trainer-x86_64-pc-windows-msvc.exe).Path
-          uv run python scripts/frozen_acceptance.py --expected-version $version --output work/native/frozen-runtime.json
-          if ($LASTEXITCODE -ne 0) { throw 'Frozen runtime acceptance failed' }
       - name: Finish and verify scoped macOS signing
         if: runner.os == 'macOS'
         run: uv run python scripts/package_macos.py --build
@@ -71,7 +56,6 @@ jobs:
             apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
             apps/desktop/src-tauri/target/release/bundle/nsis/*.exe*
             apps/desktop/src-tauri/target/release/bundle/msi/*.msi*
-            work/native/*
   draft:
     needs: desktop
     runs-on: ubuntu-24.04

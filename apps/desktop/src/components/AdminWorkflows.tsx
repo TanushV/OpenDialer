@@ -80,9 +80,8 @@ export function AccessAndRecovery() {
       <section className="card padded">
         <h2>Restore authorization review</h2>
         <p className="muted small">
-          After a restore, resolve any uncertain carrier submissions and
-          reconcile the append-only authorization journal. This does not clear
-          an opt-out.
+          After a restore, confirm every restored live call ended at the carrier
+          before outbound work resumes. This does not clear an opt-out.
         </p>
         <label>
           Restore reconciliation reference
@@ -100,9 +99,7 @@ export function AccessAndRecovery() {
                 review_reference: reference,
               });
               await refresh();
-              notice(
-                "Authorization journal reconciled. Check preflight before going ready.",
-              );
+              notice("Restore reconciled. Check preflight before going ready.");
             })
           }
         >
