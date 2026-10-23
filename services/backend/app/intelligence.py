@@ -1380,44 +1380,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 elif lane == "live_coach":
                     await self.coach_turn(p, job["payload"]["call_id"])
                 elif lane == "ml":
-                    if job["payload"].get("kind") == "metric_cleanup":
-                        from app.optimization.projections import cleanup_page
-
-                        receipt = await asyncio.to_thread(
-                            cleanup_page, self, p, job["payload"], lease=(job["id"], worker_id)
-                        )
-                        if receipt["status"] == "lost_lease":
-                            return IDLE
-                        if receipt["status"] == "pending":
-                            return await requeue(job, receipt)
-                    elif job["payload"].get("kind") == "metric_rebuild":
-                        from app.optimization.projections import rebuild_page
-
-                        receipt = await asyncio.to_thread(rebuild_page, self, p, lease=(job["id"], worker_id))
-                        if receipt["status"] == "lost_lease":
-                            return IDLE
-                        if receipt["status"] == "pending":
-                            return await requeue(job, receipt)
-                        if receipt["status"] == "blocked":
-                            raise RuntimeError("Projection replay awaits a failed source job")
-                    elif job["payload"].get("kind") in {"metric_refresh", "metric_dependents"}:
-                        from app.optimization.projections import refresh_unit
-
-                        receipt = await asyncio.to_thread(
-                            refresh_unit,
-                            self,
-                            p,
-                            {
-                                **job["payload"],
-                                "job_id": job["id"],
-                                "lease_owner": worker_id,
-                            },
-                        )
-                        if receipt["status"] == "lost_lease":
-                            return IDLE
-                        if receipt["status"] in {"superseded", "pending"}:
-                            return await requeue(job, receipt)
-                    elif job["payload"].get("kind") == "forecast_refresh":
+                    if job["payload"].get("kind") == "forecast_refresh":
                         receipt = await asyncio.to_thread(
                             self.build_forecast,
                             p,
@@ -1428,28 +1391,22 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                         if receipt["status"] in {"superseded", "pending"}:
                             return await requeue(job, receipt)
                     elif job["payload"].get("kind") == "home_refresh":
-                        receipt = await asyncio.to_thread(
+                        await asyncio.to_thread(
                             self.rebuild_home_metrics,
                             {**p, "role": job["payload"].get("role", "rep")},
                             lease=(job["id"], worker_id),
                         )
-                        if receipt["status"] in {"superseded", "pending"}:
-                            return await requeue(job, receipt)
                     elif job["payload"].get("kind") == "report_refresh":
-                        receipt = await asyncio.to_thread(
+                        await asyncio.to_thread(
                             self.rebuild_optimization_report,
                             {**p, "role": job["payload"].get("role", "rep")},
                             job["payload"].get("epoch"),
                             lease=(job["id"], worker_id),
                         )
-                        if receipt["status"] in {"superseded", "pending"}:
-                            return await requeue(job, receipt)
                     elif job["payload"].get("kind") == "optimization_refresh":
-                        receipt = await asyncio.to_thread(
+                        await asyncio.to_thread(
                             self.refresh_optimization_job, p, lease=(job["id"], worker_id)
                         )
-                        if receipt and receipt.get("status") in {"superseded", "pending"}:
-                            return await requeue(job, receipt)
                     elif job["payload"].get("kind") in {"health_refresh", "learning_refresh"}:
                         method = (
                             self.refresh_observed_health

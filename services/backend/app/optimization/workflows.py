@@ -295,15 +295,6 @@ class OptimizationWorkflows(ComparisonWorkflows):
             if identity in seen:
                 continue
             seen.add(identity)
-            # Saved views whose watermark moved; a read-only probe unless one is due.
-            self.schedule_report_refreshes(
-                {
-                    "tenant_id": user["tenant_id"],
-                    "seller_id": user["seller_id"],
-                    "user_id": user["id"],
-                    "role": "admin",
-                }
-            )
             with self.db.transaction(False) as session:
                 model = MODELS["campaigns"]
                 campaigns = list(
@@ -360,10 +351,14 @@ class OptimizationWorkflows(ComparisonWorkflows):
             s.info[key] = cached
         return cached
 
-    def inventory_evidence(self, s, p, fast=False):
-        from app.optimization.projections import read_number_health_metrics
+    def inventory_evidence(self, s, p, fast=False, totals=None):
+        from app.optimization.projections import compute, read_number_health_metrics
 
-        return self.inventory_capacity(s, p, health=None if fast else read_number_health_metrics(self, p))
+        if fast:
+            return self.inventory_capacity(s, p)
+        return self.inventory_capacity(
+            s, p, health=read_number_health_metrics(self, p, totals or compute(self, p))
+        )
 
     def inventory_capacity(self, s, p, *, health=None):
         """Current capacity is authoritative; health reads the last derived observation."""
@@ -1023,26 +1018,29 @@ class OptimizationWorkflows(ComparisonWorkflows):
             },
         }
 
-    def optimization_report(self, p, epoch=None):
+    def optimization_report(self, p, epoch=None, totals=None):
         from app.optimization.projections import (
+            compute,
             read_coaching_metrics,
             read_comparison_metrics,
             read_dataset_metrics,
             read_drift_metrics,
+            read_metrics,
             read_trial_metrics,
         )
 
+        totals = totals or compute(self, p)
         with self.db.transaction(False) as s:
             s.info["row_cache"] = {}
-            trial = read_trial_metrics(self, p, epoch=epoch)
+            trial = read_trial_metrics(self, p, totals, epoch=epoch)
             cohort_history = trial.pop("cohort_history")
-            measured = self.metrics(p)
+            measured = read_metrics(self, p, totals)
             return {
                 "settings": self.optimization_config(s, p),
-                "comparisons": read_comparison_metrics(self, p),
+                "comparisons": read_comparison_metrics(self, p, totals),
                 "cohort_history": cohort_history,
                 "forecast": self.saved_forecast(s, p),
-                "numbers": self.inventory_evidence(s, p),
+                "numbers": self.inventory_evidence(s, p, totals=totals),
                 "metrics": {
                     **measured,
                     "imported_leads": measured["original_cohort"],
@@ -1051,11 +1049,11 @@ class OptimizationWorkflows(ComparisonWorkflows):
                     "human_answers": measured["human_pickups"],
                     "unique_right_party": measured["right_party_unique"],
                 },
-                "dataset": read_dataset_metrics(self, p),
+                "dataset": read_dataset_metrics(self, p, totals),
                 **self.report_details(s, p),
-                "drift": read_drift_metrics(self, p),
+                "drift": read_drift_metrics(self, p, totals),
                 "trial": trial,
-                "coaching": read_coaching_metrics(self, p),
+                "coaching": read_coaching_metrics(self, p, totals),
                 "simulation": self.settings.simulation,
                 "as_of": self.clock().isoformat(),
             }
@@ -1127,8 +1125,6 @@ class OptimizationWorkflows(ComparisonWorkflows):
             if manifest != revised:
                 update(campaign, dataset_summaries=revised)
             dataset = doc(result)
-        if manifest != revised:
-            self.schedule_report_refreshes(p)  # Saved views list the new snapshot.
         return dataset
 
     def train_operational(self, p, dataset=None):
@@ -1240,8 +1236,6 @@ class OptimizationWorkflows(ComparisonWorkflows):
                                 "reason_codes": number["health"]["reason_codes"],
                             },
                         )
-        if updated:
-            self.schedule_report_refreshes(p)  # A delivery hold changes saved inventory views.
         return {"status": "ready", "updated": updated}
 
     def refresh_learning(self, p, *, lease=None):
@@ -1296,11 +1290,9 @@ class OptimizationWorkflows(ComparisonWorkflows):
         }
 
     def refresh_optimization(self, p, *, lease=None):
-        from app.optimization.projections import read_estimate_statistics
+        from app.optimization.projections import compute, read_estimate_statistics
 
-        # Bounded catch-up, then publish from the as-of totals; an incomplete page
-        # that made progress continues at once, otherwise the dirty chain repairs it.
-        complete, processed, _ = self._catch_up(p)
+        totals = compute(self, p)
         with self.db.transaction(False) as s:
             user, _, _, _ = self.report_scope(s, p)
             if user["role"] != "admin":
@@ -1311,7 +1303,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
             campaign = self.selected_campaign(s, p)
             campaign_id = campaign.id
             config = self.optimization_config(s, p, campaign_id)
-            statistics = read_estimate_statistics(self, p)
+            statistics = read_estimate_statistics(self, p, totals)
             profile = self.selection_profile(s, p, statistics, config)
             stable_statistics = {
                 **statistics,
@@ -1372,10 +1364,9 @@ class OptimizationWorkflows(ComparisonWorkflows):
                     )
                 )
             emit(s, p["tenant_id"], "optimization.updated", campaign, self.clock())
-        self.rebuild_optimization_report(p, lease=lease)
+        self.rebuild_optimization_report(p, lease=lease, totals=totals)
         return {
-            "status": "pending" if processed and not complete else "ready",
-            "processed": processed,
+            "status": "ready",
             "rows": profile["samples"],
             "jobs": [{"id": j["id"], "kind": j["payload"]["kind"]} for j in jobs],
         }

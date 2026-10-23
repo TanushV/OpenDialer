@@ -34,13 +34,10 @@ from sqlalchemy.orm import (
 from app.operational_schema import (
     CONTEXT_FIELDS,
     HOT_TABLES,
-    METRIC_TABLES,
     columns,
     context_columns,
     context_indexes,
     indexes,
-    metric_columns,
-    metric_indexes,
     page_indexes,
     sync_columns,
 )
@@ -128,10 +125,8 @@ TABLES = [
     "coaching_feedback",
     "work_intervals",
     "report_projections",
-    "metric_contributions",
-    "metric_buckets",
 ]
-DERIVED_TABLES = frozenset({"report_projections", *METRIC_TABLES})
+DERIVED_TABLES = frozenset({"report_projections"})
 MODELS = {}
 for _name in TABLES:
     MODELS[_name] = type(
@@ -142,7 +137,6 @@ for _name in TABLES:
             **(columns(_name) if _name in HOT_TABLES else {}),
             **({"op_kind": Column(String(40), nullable=True)} if _name == "command_outbox" else {}),
             **(context_columns(_name) if _name in CONTEXT_FIELDS else {}),
-            **(metric_columns(_name) if _name in METRIC_TABLES else {}),
             **(
                 {
                     "op_owner_id": Column(String(36), nullable=False),
@@ -157,7 +151,6 @@ for _name in TABLES:
                 *(indexes(_name) if _name in HOT_TABLES else ()),
                 *page_indexes(_name),
                 *(context_indexes(_name) if _name in CONTEXT_FIELDS else ()),
-                *(metric_indexes(_name) if _name in METRIC_TABLES else ()),
                 *(
                     (
                         Index(
@@ -482,13 +475,6 @@ def report_revision_last(session):
     from app.reporting import publish_report_changes
 
     publish_report_changes(session)
-
-
-@event.listens_for(Session, "after_soft_rollback")
-def forget_rolled_back_reports(session, previous_transaction):
-    from app.reporting import discard_report_changes
-
-    discard_report_changes(session, previous_transaction)
 
 
 @event.listens_for(Session, "after_flush")

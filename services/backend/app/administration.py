@@ -159,11 +159,6 @@ class Dialer(
     TelephonyWorkflows,
     Application,
 ):
-    def metrics(self, p):
-        from app.optimization.projections import read_metrics
-
-        return read_metrics(self, p)
-
     def preflight(self, p, *, full=True, deep=False):
         if not full:
             cached = self.capability_cache.get((p["tenant_id"], p["seller_id"]), {})

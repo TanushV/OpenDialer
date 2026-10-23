@@ -5,10 +5,8 @@ import json
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import (
-    BigInteger,
     Boolean,
     Column,
-    Date,
     DateTime,
     Float,
     Index,
@@ -16,62 +14,6 @@ from sqlalchemy import (
     String,
     text,
 )
-
-METRIC_TABLES = {"metric_contributions", "metric_buckets"}
-
-
-def metric_columns(kind):
-    return {
-        # Namespace/hash keys are ASCII identifiers, not language-sensitive text.
-        # The scoped unique index must support identical prefix ranges on both DBs.
-        "external_key": Column(
-            String(512).with_variant(String(512, collation="C"), "postgresql"), nullable=True
-        ),
-        "campaign_id": Column(String(36), nullable=True),
-        "definition_version": Column(String(64), nullable=False),
-        **(
-            {
-                "source_kind": Column(String(24), nullable=False),
-                "source_id": Column(String(128), nullable=False),
-                "source_version": Column(BigInteger, nullable=False),
-                "next_refresh_at": Column(DateTime(timezone=True), nullable=True),
-            }
-            if kind == "metric_contributions"
-            else {
-                "bucket_day": Column(Date, nullable=True),
-                "bucket_kind": Column(String(32), nullable=False),
-                "group_key": Column(String(64), nullable=False),
-            }
-        ),
-    }
-
-
-def metric_indexes(kind):
-    if kind == "metric_contributions":
-        return (
-            Index("ix_metric_contributions_due", "tenant_id", "seller_id", "next_refresh_at"),
-            Index(
-                "ix_metric_contributions_source",
-                "tenant_id",
-                "seller_id",
-                "campaign_id",
-                "source_kind",
-                "source_id",
-                "definition_version",
-            ),
-        )
-    return (
-        Index(
-            "ix_metric_buckets_group",
-            "tenant_id",
-            "seller_id",
-            "campaign_id",
-            "definition_version",
-            "bucket_kind",
-            "bucket_day",
-        ),
-    )
-
 
 PAGE_TABLES = {
     "leads": "leads",
@@ -355,23 +297,6 @@ def call_work_bounds(data):
 
 
 def sync_columns(row):
-    if row.__tablename__ in METRIC_TABLES:
-        from datetime import date
-
-        row.campaign_id = row.data.get("campaign_id")
-        row.definition_version = row.data["definition_version"]
-        if row.__tablename__ == "metric_contributions":
-            for field in ("source_kind", "source_id", "source_version"):
-                setattr(row, field, row.data[field])
-            row.next_refresh_at = as_time(row.data.get("next_refresh_at"))
-        else:
-            day = row.data.get("bucket_day")
-            row.bucket_day = date.fromisoformat(day) if day else None
-            row.bucket_kind = row.data["bucket_kind"]
-            row.group_key = hashlib.sha256(
-                json.dumps(row.data["group"], sort_keys=True, separators=(",", ":")).encode()
-            ).hexdigest()
-        return
     if row.__tablename__ in CONTEXT_FIELDS:
         key, status, expiry = CONTEXT_FIELDS[row.__tablename__]
         row.ctx_key = context_key(row.__tablename__, row.data.get(key))
