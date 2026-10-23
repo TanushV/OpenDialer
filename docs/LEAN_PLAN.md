@@ -143,4 +143,18 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
-- Step 1 in progress (October 22, 2026).
+- Step 1 done (98a9018).
+- Step 2 done (c4e9707). `services/backend/tests/acceptance/`: 99 HTTP journeys (98 pass, 1 strict xfail for a
+  found defect: task.updated events carry no rep scope, so in hosted mode another rep sees a callback task's id and
+  time). Green on SQLite (1m52s, -n 6) and PostgreSQL (4m54s, -n 6). One seam touches internals:
+  `test_feature_models.install_fake_models` replaces `service.configured_coach` and turns simulation off for model
+  output; keep that seam stable. Not drivable in simulation (covered by provider contract tests only): prepaid DNC
+  success, live ingress success, simulated agent-leg uncertainty. Browser baseline: 156/156 on a quiet machine
+  (3 load flakes when run alongside other suites, all passing on rerun).
+- Baseline speed (`scripts/bench.py`, 10k leads, 100k attempts, 40 samples, quiet Mac, a950675): next lead p50 38.6 /
+  p95 82.1 ms with 28 SQL statements; webhook receipt 7.3 / 13.2 ms; event to state 15.6 / 33.6 ms; wrap-up
+  19.6 / 32.7 ms; workspace 40.0 / 73.5 ms; reopen 144 ms; store 374 MB.
+- Baseline size (`scripts/size.py`): backend 88 files / 39,459 lines / 270,889 nodes; backend tests 52,034 lines;
+  repo tests 3,027; frontend 16,487 lines / 89,588 tokens; frontend tests 9,569; Rust 2,463; scripts 5,211;
+  workflows 680.
+- Step 3 in progress.
