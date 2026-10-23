@@ -6,8 +6,9 @@ from datetime import timedelta
 from pathlib import Path
 
 from fastapi import HTTPException
+from sqlalchemy import select
 
-from app.db import get, put, uid
+from app.db import MODELS, put, uid
 
 
 class LazyPasswordHash:
@@ -120,9 +121,18 @@ def decode_session(db, settings, token, now, *, logout_receipt_only=False):
     from datetime import datetime
 
     session_id, _, secret = (token or "").partition(".")
+    sessions, users = MODELS["sessions"], MODELS["users"]
     with db.transaction(False) as s:
-        session = get(s, "sessions", session_id) if session_id and secret else None
-        user = get(s, "users", session.data.get("user_id"), session.tenant_id) if session else None
+        found = (
+            s.execute(
+                select(sessions, users)
+                .join(users, users.id == sessions.data["user_id"].as_string())
+                .where(sessions.id == session_id, users.tenant_id == sessions.tenant_id)
+            ).first()
+            if session_id and secret
+            else None
+        )
+        session, user = found if found else (None, None)
         valid = bool(
             session
             and user

@@ -1439,8 +1439,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     await pulse
 
         limits = self.settings.runtime_limits
+        # Carrier events apply in arrival order (an answer before its hangup): one webhook at a time.
         capacity = {
-            "webhook": limits.live_active,
+            "webhook": 1,
             "live_coach": limits.live_active,
             "postcall": limits.postcall_active,
         }

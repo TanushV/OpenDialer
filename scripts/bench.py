@@ -1,9 +1,12 @@
-"""Local speed bench: hot calling paths on a populated store (simulated carrier, no paid calls).
+"""Speed bench: hot calling paths on a populated store (simulated carrier, no paid calls).
 
     .venv/bin/python scripts/bench.py [--leads 10000] [--attempts 100000] [--samples 40] [--out FILE]
+    .venv/bin/python scripts/bench.py --hosted POSTGRES_URL [--reps 8] [--cadence 60] [--duration 300]
 
-Builds a fresh store in a temporary directory, imports leads over HTTP, inserts call history
-directly (fixture loading only), then times each hot path through the HTTP API.
+Local mode builds a fresh SQLite store, imports leads over HTTP, inserts call history directly
+(fixture loading only), then times each hot path. Hosted mode serves a connected authority on
+the disposable PostgreSQL over real HTTP with its background lanes running, and drives several
+reps, each starting one call journey per cadence.
 """
 
 import argparse
@@ -248,14 +251,180 @@ def run(leads, attempts, samples):
     }
 
 
+def run_hosted(database_url, leads, reps, cadence, duration):
+    import threading
+
+    import httpx
+    import uvicorn
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from scripts.disposable_database import validate_database_url
+
+    directory = Path(tempfile.mkdtemp(prefix="opendialer-bench-hosted-"))
+    settings_ = settings(directory).model_copy(
+        update={
+            "mode": "connected",
+            "database_url": validate_database_url(database_url, purpose="performance"),
+            "worker_enabled": True,
+        }
+    )
+    began, start = time.monotonic(), Clock().now  # Inside the leads' calling window, advancing in real time.
+    app = create_app(
+        settings_,
+        clock=lambda: start + timedelta(seconds=time.monotonic() - began),
+        carrier=SimulatedCarrier(),
+    )
+    app.state.db.reset()
+    owner = app.state.service.setup(
+        {
+            "seller_name": "Bench",
+            "campaign_name": "Bench",
+            "email": "owner@example.test",
+            "password": "bench-only-password-123",
+        }
+    )
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=18765, log_level="warning"))
+    threading.Thread(target=server.run, daemon=True).start()
+    while not server.started:
+        time.sleep(0.05)
+    base = "http://127.0.0.1:18765"
+    admin = httpx.Client(
+        base_url=base, headers={"Authorization": "Bearer " + owner["access_token"]}, timeout=60
+    )
+    campaign = admin.post("/v1/simulation/seed").raise_for_status().json()["campaign_id"]
+    for offset in range(0, leads, 500):
+        rows = [
+            {
+                "name": f"Bench {i}",
+                "phone": f"+1415{5600000 + i:07d}",
+                "company": f"Bench Co {i}",
+                "timezone": "America/Los_Angeles",
+                "timezone_confidence": "confirmed",
+                "region": "415",
+            }
+            for i in range(offset, min(offset + 500, leads))
+        ]
+        admin.post("/v1/leads/import", json={"campaign_id": campaign, "rows": rows}).raise_for_status()
+    admin.patch(
+        "/v1/admin/numbers/" + admin.get("/v1/workspace").json()["numbers"][0]["id"],
+        json={"daily_limit": 1000},
+    )
+    timings = {name: [] for name in ("next_lead", "event_to_state", "wrap_up")}
+    failures, lock = [], threading.Lock()
+
+    def rep(index):
+        email = f"rep{index}@example.test"
+        admin.post(
+            "/v1/admin/users",
+            json={"email": email, "password": "bench-only-password-123", "role": "rep", "name": email},
+        )
+        token = httpx.post(
+            base + "/v1/auth/session", json={"email": email, "password": "bench-only-password-123"}
+        ).json()["access_token"]
+        client = httpx.Client(base_url=base, headers={"Authorization": "Bearer " + token}, timeout=60)
+        deadline = time.monotonic() + duration
+        time.sleep(index * cadence / reps)
+        cycle = 0
+        while time.monotonic() < deadline:
+            started = time.monotonic()
+            try:
+                client.post(
+                    "/v1/rep/presence",
+                    json={
+                        "status": "ready",
+                        "audio_ready": True,
+                        "telephony_ready": True,
+                        "agent_call_control_id": "a",
+                    },
+                ).raise_for_status()
+                measured = {}
+                t0 = time.perf_counter()
+                packet = (
+                    client.post("/v1/queue/next", json={"campaign_id": campaign}).raise_for_status().json()
+                )
+                measured["next_lead"] = [(time.perf_counter() - t0) * 1000]
+                call = (
+                    client.post(
+                        "/v1/calls/start",
+                        json={
+                            "reservation_id": packet["reservation_id"],
+                            "idempotency_key": f"r{index}-{cycle}",
+                        },
+                    )
+                    .raise_for_status()
+                    .json()
+                )
+                measured["event_to_state"] = []
+                for kind in ("call.answered", "human.confirmed", "call.hangup"):
+                    t0 = time.perf_counter()
+                    client.post(
+                        "/v1/simulation/event",
+                        json={
+                            "event_id": str(uuid4()),
+                            "event_type": kind,
+                            "call_id": call["id"],
+                            "payload": {},
+                        },
+                    ).raise_for_status()
+                    measured["event_to_state"].append((time.perf_counter() - t0) * 1000)
+                version = client.get(f"/v1/calls/{call['id']}").json()["version"]
+                t0 = time.perf_counter()
+                client.post(
+                    f"/v1/calls/{call['id']}/disposition",
+                    json={
+                        "request_id": str(uuid4()),
+                        "expected_version": version,
+                        "outcome": "not_interested",
+                    },
+                ).raise_for_status()
+                measured["wrap_up"] = [(time.perf_counter() - t0) * 1000]
+                with lock:
+                    for name, values in measured.items():
+                        timings[name].extend(values)
+            except Exception as exc:
+                detail = getattr(getattr(exc, "response", None), "text", "")
+                with lock:
+                    failures.append(type(exc).__name__ + ": " + (detail or str(exc))[:160])
+            cycle += 1
+            time.sleep(max(0.0, cadence - (time.monotonic() - started)))
+
+    threads = [threading.Thread(target=rep, args=(i,)) for i in range(reps)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    server.should_exit = True
+    return {
+        "mode": "hosted",
+        "reps": reps,
+        "cadence_seconds": cadence,
+        "duration_seconds": duration,
+        "journeys": len(timings["wrap_up"]),
+        "failures": failures[:20],
+        "failure_count": len(failures),
+        "paths": {
+            name: {"p50_ms": round(statistics.median(v), 1), "p95_ms": round(percentile(v, 0.95), 1)}
+            for name, v in timings.items()
+            if v
+        },
+    }
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--leads", type=int, default=10000)
     parser.add_argument("--attempts", type=int, default=100000)
     parser.add_argument("--samples", type=int, default=40)
+    parser.add_argument("--hosted", metavar="POSTGRES_URL")
+    parser.add_argument("--reps", type=int, default=8)
+    parser.add_argument("--cadence", type=float, default=60)
+    parser.add_argument("--duration", type=float, default=300)
     parser.add_argument("--out")
     args = parser.parse_args(argv)
-    result = run(args.leads, args.attempts, args.samples)
+    if args.hosted:
+        result = run_hosted(args.hosted, args.leads, args.reps, args.cadence, args.duration)
+    else:
+        result = run(args.leads, args.attempts, args.samples)
     text = json.dumps(result, indent=2)
     if args.out:
         Path(args.out).write_text(text + "\n")
