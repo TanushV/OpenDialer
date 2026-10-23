@@ -6,7 +6,6 @@ x-backend: &backend
   environment: &environment
     OPENDIALER_MODE: connected
     OPENDIALER_DATABASE_URL: postgresql+psycopg://opendialer:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres/opendialer
-    OPENDIALER_SECRET_KEY: ${OPENDIALER_SECRET_KEY:?set a persistent random secret}
     OPENDIALER_BOOTSTRAP_TOKEN: ${OPENDIALER_BOOTSTRAP_TOKEN:?set a one-time random bootstrap token}
     OPENDIALER_ALLOWED_ORIGINS: '["tauri://localhost","http://tauri.localhost","https://tauri.localhost"]'
     OPENDIALER_WORKER_ENABLED: 'false'

@@ -80,7 +80,7 @@ COMPANY_FETCH_SECONDS = 45
 
 class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Service):
     def inference(self, tenant_id, role, user_id=None):
-        conf = self.vault.read(tenant_id)
+        conf = self.configs.read(tenant_id)
         if (
             role in {"postcall_extract", "scorecard_review"}
             and not self.settings.simulation
@@ -94,11 +94,11 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             if not user_id:
                 return None
             key = "plan-" + user_id
-            if not self.vault.read(key).get("access_token"):
+            if not self.configs.read(key).get("access_token"):
                 return None
             return RegisteredPlanClient(
-                lambda: self.vault.read(key),
-                lambda value: self.vault.write(key, value),
+                lambda: self.configs.read(key),
+                lambda value: self.configs.write(key, value),
                 inference_model(conf, role),
                 self.host_id(),
                 self.clock,
@@ -371,7 +371,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
         fallback = dict(script)
         review = None
         provider = await asyncio.to_thread(self.inference, p["tenant_id"], "script_write", p["user_id"])
-        config = await asyncio.to_thread(self.vault.read, p["tenant_id"])
+        config = await asyncio.to_thread(self.configs.read, p["tenant_id"])
         input_key = hashlib.sha256(
             json.dumps(
                 [
@@ -659,7 +659,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             if not provider:
                 return
         owner = uid()
-        provider_config = await asyncio.to_thread(self.vault.read, p["tenant_id"])
+        provider_config = await asyncio.to_thread(self.configs.read, p["tenant_id"])
         research_key = hashlib.sha256(
             json.dumps(
                 [
@@ -1076,7 +1076,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
         return extracted, review
 
     def configured_coach(self, p):
-        conf = self.vault.read(p["tenant_id"])
+        conf = self.configs.read(p["tenant_id"])
         provider = conf.get("coach_provider", PROVIDER_DEFAULTS.coach_provider)
         if provider == "openrouter" and conf.get("openrouter_api_key"):
             return OpenRouterCoach(
@@ -1361,10 +1361,6 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                         from app.compliance.screening import refresh_screening
 
                         await refresh_screening(self, p, job, worker_id)
-                    elif kind == "batch_review":
-                        # Retired deferred Batch pipeline: queued legacy reviews finish
-                        # without effect; their outbox rows close at startup.
-                        pass
                     elif kind == "packet_refresh":
                         # Lead recomputation moved out of the rep's save into this refresh.
                         await asyncio.to_thread(self.refresh_continuity, p, job["payload"]["lead_ids"])
@@ -1463,8 +1459,6 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                         receipt = await asyncio.to_thread(method, p, lease=(job["id"], worker_id))
                         if receipt["status"] in {"superseded", "pending"}:
                             return await requeue(job, receipt)
-                    elif kind == "retry_plan_refresh":
-                        pass  # Per-lead schedule plans are retired; persisted rows drain as no-ops.
                     elif kind is None:  # Operational training snapshots carry no kind.
                         await self.train_model_job(p, job["payload"])
                     else:
@@ -1987,7 +1981,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 request["recent_dialogue"],
                 request_id=owner,
                 at=self.clock(),
-                secret=self.db.identity_key,
+                hash_sources=True,
                 limits=self.settings.runtime_limits,
                 catalog=request["evidence_catalog"],
                 call_at=dt(request["call_at"]),

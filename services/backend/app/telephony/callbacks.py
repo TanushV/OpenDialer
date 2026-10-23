@@ -2,8 +2,6 @@
 
 import asyncio
 import base64
-import hashlib
-import hmac
 import ipaddress
 import json
 import logging
@@ -14,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import delete, select
 
 from app.compliance.operating import COSTS
-from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, rows, uid, update
+from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, uid, update
 from app.optimization.numbering import route_fingerprint
 from app.service import dt, fail
 
@@ -60,17 +58,7 @@ class CallbackRoutingEdit(BaseModel):
 class InboundCallbacks:
     def callback_config(self, s, p):
         seller = self.required(s, "sellers", p["seller_id"], p)
-        config = {**DEFAULTS, **seller.data.get("callback_routing", {})}
-        # Single-seller legacy settings can migrate without assigning another seller's destination.
-        # The cached vault read comes first: only a stored legacy destination needs the seller count.
-        if not seller.data.get("callback_routing"):
-            legacy = self.vault.read(p["tenant_id"]).get("inbound_fallback_destination", "")
-            if legacy and len(rows(s, "sellers", p["tenant_id"])) == 1:
-                try:
-                    config["destination"] = valid_destination(legacy)
-                except ValueError:
-                    pass
-        return config
+        return {**DEFAULTS, **seller.data.get("callback_routing", {})}
 
     def read_callback_routing(self, p):
         with self.db.transaction(False) as s:
@@ -242,7 +230,7 @@ class InboundCallbacks:
                 model = MODELS[kind]
                 if not isinstance(phone, str) or not phone.startswith("+"):
                     return []
-                key = hmac.new(self.db.identity_key, phone.encode(), hashlib.sha256).hexdigest()
+                key = phone
                 found = s.scalars(
                     select(model)
                     .where(model.tenant_id == tenant_id, *scope, model.external_key == key)
@@ -354,7 +342,6 @@ class InboundCallbacks:
             update(task, inbound_state="ended", ended_at=self.clock().isoformat())
             self._release_inbound_claim(s, task)
         emit(s, p["tenant_id"], "task.updated", task, self.clock())
-        self.journal_effect_in(s, p, "inbound", task.id, "receipt", (task,), emergency=True)
 
     def inbound_event(self, tenant_id, payload, event_type, *, session=None, receipt=None):
         provider_id = payload.get("call_control_id")

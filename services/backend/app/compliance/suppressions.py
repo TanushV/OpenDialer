@@ -1,14 +1,12 @@
-"""Exact opt-out receipts, bounded effects and independent denial recovery."""
+"""Exact opt-out receipts and their effects on reservations and live calls."""
 
 import hashlib
-import hmac
 import json
-import logging
 
 from sqlalchemy import delete, select
 
 from app.compliance.phone import normalize_phone
-from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, uid, update
+from app.db import MODELS, ActiveClaim, audit, doc, emit, put, uid, update
 from app.service import dt, fail
 
 
@@ -20,33 +18,10 @@ def fingerprint(entry):
     return hashlib.sha256(json.dumps([entry["phone"], entry["reason"]]).encode()).hexdigest()
 
 
-def journal_entries(service):
-    entries = service.vault.read_journal("suppression")
-    seen = {}
-    for entry in entries:
-        try:
-            valid = (
-                all(
-                    isinstance(entry.get(k), str) and entry[k]
-                    for k in ("event_id", "tenant_id", "seller_id", "phone", "at")
-                )
-                and normalize_phone(entry["phone"]).e164 == entry["phone"]
-                and entry["reason"] in {"opt_out", "wrong_party", "temporary_hold", "invalid_endpoint"}
-                and dt(entry["at"]).tzinfo is not None
-            )
-            key = (entry["tenant_id"], entry["seller_id"], identity(entry))
-            if not valid or key in seen and seen[key] != fingerprint(entry):
-                raise ValueError("Conflicting denial")
-            seen[key] = fingerprint(entry)
-        except (ValueError, KeyError, TypeError, AttributeError):
-            fail(409, "Suppression journal cannot be verified; recover its protected copy before resuming")
-    return entries
-
-
 def apply_in(service, s, entry):
     p = {k: entry[k] for k in ("tenant_id", "seller_id")}
-    p.update(user_id=entry.get("user_id", "journal-recovery"), role="admin")
-    key = hmac.new(service.db.identity_key, entry["phone"].encode(), hashlib.sha256).hexdigest()
+    p.update(user_id=entry["user_id"], role="admin")
+    key = entry["phone"]
     receipt = service._by_key(s, p, "audit_events", identity(entry))
     if receipt and receipt.data.get("detail", {}).get("request_hash") != fingerprint(entry):
         fail(409, "Opt-out request identity already describes another endpoint or reason")
@@ -78,7 +53,7 @@ def apply_in(service, s, entry):
             now=dt(entry["at"]),
         )
     elif hold and entry["event_id"] in row.data.get("released_event_ids", []):
-        pass  # A reviewed release of exactly this hold survives journal replay.
+        pass  # A repeated request for a hold that was already released stays released.
     elif not row.data.get("active", True) or not row.data.get("permanent"):
         permanent = row.data.get("permanent") or not hold
         reason = row.data["reason"] if row.data.get("permanent") else entry["reason"]
@@ -124,41 +99,6 @@ def apply_in(service, s, entry):
     return doc(row)
 
 
-def replay_in(service, s, *, p=None, entries=None):
-    entries = journal_entries(service) if entries is None else entries
-    for entry in entries:
-        if p and (entry["tenant_id"], entry["seller_id"]) != (p["tenant_id"], p["seller_id"]):
-            continue
-        seller = get(s, "sellers", entry["seller_id"], entry["tenant_id"])
-        if seller:
-            service.db.authorize_stream(s, entry)
-            apply_in(service, s, entry)
-
-
-def replay(service):
-    entries = journal_entries(service)
-    if entries:
-        with service.db.transaction() as s:
-            replay_in(service, s, entries=entries)
-
-
-def persist_fault(service, p, entry):
-    try:
-        with service.db.transaction() as s:
-            service.db.authorize_stream(s, p)
-            seller = service.required(s, "sellers", p["seller_id"], p)
-            update(
-                seller,
-                journal_recovery_required=True,
-                journal_expected={
-                    **seller.data.get("journal_expected", {}),
-                    identity(entry): fingerprint(entry),
-                },
-            )
-    except Exception as exc:
-        logging.getLogger(__name__).error("Opt-out recovery hold could not persist: %s", type(exc).__name__)
-
-
 def release_hold(service, p, phone, reason):
     """A temporary hold never lapses; an administrator releases it with a recorded reason.
 
@@ -172,7 +112,7 @@ def release_hold(service, p, phone, reason):
         user = service.required(s, "users", p["user_id"], p)
         if user.data.get("disabled") or user.data.get("role") not in {"owner", "admin"}:
             fail(403, "Current administrator authority is required")
-        key = hmac.new(service.db.identity_key, normalized.e164.encode(), hashlib.sha256).hexdigest()
+        key = normalized.e164
         row = service._by_key(s, p, "suppressions", key)
         if not row or not row.data.get("active", True) or row.data.get("phone") != normalized.e164:
             fail(404, "No active hold for this endpoint")
@@ -212,39 +152,7 @@ def record(service, p, phone, reason, *, event_id=None, session=None):
         "reason": reason,
         "at": service.clock().isoformat(),
     }
-    started = False
-    failed = False
-
-    def mark_failed():
-        nonlocal failed
-        failed = True
-        service.__dict__.setdefault("_journal_faults", set()).add((p["tenant_id"], p["seller_id"]))
-
-    try:
-        with service.db.transaction(session=session) as s:
-            service.db.authorize_stream(s, p)
-            seller = service.required(s, "sellers", p["seller_id"], p)
-            expected = seller.data.get("journal_expected", {})
-            if identity(entry) in expected and expected[identity(entry)] != fingerprint(entry):
-                fail(409, "Recover the original opt-out request; its endpoint or reason cannot change")
-            prior = service._by_key(s, p, "audit_events", identity(entry))
-            if prior and prior.data.get("detail", {}).get("request_hash") != fingerprint(entry):
-                fail(409, "Opt-out request identity already describes another endpoint or reason")
-            if seller.data.get("journal_recovery_required") or (
-                p["tenant_id"],
-                p["seller_id"],
-            ) in service.__dict__.get("_journal_faults", set()):
-                journal_entries(service)  # Never extend known partial/corrupt storage during repair.
-            started = True
-            s.info.setdefault("before_rollback", []).append(mark_failed)
-            s.info.setdefault("after_transaction", []).append(
-                lambda: persist_fault(service, p, entry) if failed else None
-            )
-            if not prior:
-                service.vault.append_journal("suppression", entry)
-            return apply_in(service, s, entry)
-    except Exception:
-        if not started:
-            raise
-        mark_failed()
-        fail(503, "Opt-out receipt is incomplete; outbound held until journal recovery is reviewed")
+    with service.db.transaction(session=session) as s:
+        service.db.authorize_stream(s, p)
+        service.required(s, "sellers", p["seller_id"], p)
+        return apply_in(service, s, entry)

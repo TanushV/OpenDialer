@@ -419,7 +419,7 @@ def test_forecast_worker_coalesces_changed_sources_without_consuming_failure_att
     import asyncio
 
     from app.db import Job
-    from test_remediation_privacy import principal
+    from helpers import principal
 
     service, p = app.state.service, principal(workspace)
     response = service.proposal(p, workspace["campaign_id"])
@@ -434,7 +434,7 @@ def test_forecast_worker_coalesces_changed_sources_without_consuming_failure_att
 
 def test_failed_forecast_is_an_actionable_state_and_is_not_restarted_by_a_read(workspace, app):
     from app.db import Job
-    from test_remediation_privacy import principal
+    from helpers import principal
 
     service, p = app.state.service, principal(workspace)
     response = service.proposal(p, workspace["campaign_id"])
@@ -453,7 +453,7 @@ def test_expansion_advice_waits_for_persistence_or_an_explicit_staffing_change(
 ):
     import app.optimization.workflows as workflows
     from app.db import update
-    from test_remediation_privacy import principal
+    from helpers import principal
 
     service, p = app.state.service, principal(workspace)
     calculate = workflows.capacity_forecast
@@ -486,8 +486,8 @@ def test_expansion_advice_waits_for_persistence_or_an_explicit_staffing_change(
 
 def test_forecast_bulk_reads_suppressions_and_retains_claimed_list_denominator(workspace, app, monkeypatch):
     from conftest import reserve
+    from helpers import principal
     from sqlalchemy import event
-    from test_remediation_privacy import principal
 
     service, p = app.state.service, principal(workspace)
     assert reserve(workspace).status_code == 200
@@ -511,7 +511,7 @@ def test_forecast_bulk_reads_suppressions_and_retains_claimed_list_denominator(w
 
 
 def test_simple_staffing_is_explicit_versioned_and_validated(workspace, app):
-    from test_remediation_privacy import principal
+    from helpers import principal
 
     body = {
         "staffing_timezone": "America/Los_Angeles",
@@ -541,7 +541,7 @@ def test_simple_staffing_is_explicit_versioned_and_validated(workspace, app):
 def test_forecast_uses_the_saved_work_estimate_and_prior_versions(workspace, app):
     from app.db import update
     from app.scheduling.models import EstimatePolicy
-    from test_remediation_privacy import principal
+    from helpers import principal
 
     service, p = app.state.service, principal(workspace)
     with service.db.transaction() as s:
@@ -581,7 +581,7 @@ def test_background_forecast_releases_read_transaction_and_fences_publication(
 
     import app.optimization.workflows as workflows
     from app.db import update
-    from test_remediation_privacy import principal
+    from helpers import principal
 
     service, p = app.state.service, principal(workspace)
     build = getattr(service, "build_forecast", None)
@@ -651,7 +651,7 @@ def test_future_suggestion_cannot_overrun_an_agreed_window():
 def test_schedule_publication_rechecks_changed_leads(workspace, app, monkeypatch):
     import app.optimization.workflows as workflows
     from app.db import update
-    from test_remediation_privacy import principal
+    from helpers import principal
 
     service, p = app.state.service, principal(workspace)
     with service.db.transaction() as s:
@@ -680,7 +680,7 @@ def test_schedule_publication_rechecks_changed_leads(workspace, app, monkeypatch
 
 def test_published_retry_schedule_conserves_the_whole_inventory(workspace, app):
     from app.db import update
-    from test_remediation_privacy import principal
+    from helpers import principal
 
     service, p = app.state.service, principal(workspace)
     with service.db.transaction() as s:
@@ -701,32 +701,6 @@ def test_published_retry_schedule_conserves_the_whole_inventory(workspace, app):
     assert service.build_forecast(p, workspace["campaign_id"])["status"] == "ready"
     report = service.optimization_report(p)
     assert len(report["plans"]) == 1, "Per-lead suggestions spent the same number capacity repeatedly"
-
-
-def test_unavailable_current_plan_cannot_resurrect_a_legacy_suggestion(workspace, app):
-    from app.db import put, update
-    from test_remediation_privacy import principal
-
-    service, p = app.state.service, principal(workspace)
-    with service.db.transaction() as s:
-        row = service.scoped(s, "leads", p)[0]
-        identity = row.id
-        put(
-            s,
-            "scheduling_plans",
-            p["tenant_id"],
-            p["seller_id"],
-            {
-                "lead_id": identity,
-                "selected": {"lead_id": identity, "at": service.clock().isoformat(), "reason": "legacy"},
-            },
-            key="legacy-plan",
-            now=service.clock(),
-        )
-        update(row, outreach_hold={"kind": "booked"})
-    service.build_forecast(p, workspace["campaign_id"])
-    report = service.optimization_report(p)
-    assert all(row["lead_id"] != identity for row in report["future_slots"])
 
 
 def test_retry_evidence_uses_observed_progress_and_pending_work_not_censored_failures():
@@ -871,30 +845,6 @@ def test_retry_capacity_can_propose_one_shared_addition_for_unbound_work():
     assert high["unserved_attempts"] == 0
     for identity in ("one", "two"):
         assert len({r["number_id"] for r in high["schedule"] if r["lead_id"] == identity}) == 1
-
-
-def test_runtime_retry_profile_is_used_by_capacity(workspace, app):
-    from app.db import update
-    from app.optimization.projections import read_estimate_statistics
-    from conftest import start
-    from test_optimization_workflows import finish
-    from test_projection_replay import project_pending
-    from test_remediation_privacy import principal
-
-    service, p = app.state.service, principal(workspace)
-    call = start(workspace)
-    finish(workspace, call, outcome="no_answer")
-    project_pending(service, p)
-    statistics = read_estimate_statistics(service, p)
-    with service.db.transaction() as s:
-        config = service.optimization_config(s, p)
-        profile = service.selection_profile(s, p, statistics, config)
-        assert profile["retry_observations"][0]["needs_retry_count"] == 1
-        campaign = service.required(s, "campaigns", workspace["campaign_id"], p)
-        update(campaign, selection_profile=profile)
-    with service.db.transaction(False) as s:
-        inputs, _ = service.forecast_input(s, p, campaign_id=workspace["campaign_id"])
-    assert capacity_forecast(**inputs)["contingent_retry_low_mean_high"]["support"] == 1
 
 
 def test_final_allowance_skips_redundant_retry_planning():

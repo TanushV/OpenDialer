@@ -431,7 +431,7 @@ def test_provider_keys_are_stored_but_never_echoed_back(workspace):
 def test_backup_and_restore_keep_business_data_and_hold_outbound_until_reconciled(workspace):
     leads = sorted(lead["phone"] for lead in get(workspace, "/v1/workspace/leads")["items"])
     backup = post(workspace, "/v1/admin/backup")
-    assert backup["encrypted"] is True and len(backup["checksum"]) == 64
+    assert len(backup["checksum"]) == 64
     post(workspace, "/v1/admin/numbers", {"phone": "+16505550123", "region": "650"})
     post(workspace, "/v1/suppressions", {"phone": PT, "reason": "opt_out"})
     restored = post(workspace, "/v1/admin/restore", {"backup_id": backup["backup_id"]})

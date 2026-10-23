@@ -1,7 +1,6 @@
 import asyncio
 import base64
 import hashlib
-import hmac
 import json
 import logging
 import threading
@@ -21,7 +20,7 @@ from app.privacy import event_metadata
 from app.providers.simulated import CarrierNotSubmitted, SimulatedCarrier
 from app.providers.telnyx import TelnyxCarrier
 from app.scheduling.queue import ReservationPlanner
-from app.security import PASSWORDS, Vault, issue_session
+from app.security import PASSWORDS, ConfigStore, issue_session
 from app.telephony.reducer import TERMINAL, owns_effect, reduce_state
 
 # Telnyx detection modes that report `beep_detected` (greeting_end reports only `ended`).
@@ -41,7 +40,7 @@ class Service(ReservationPlanner):
         self.db, self.settings, self.clock = db, settings, clock
         self.injected_carrier = carrier
         self.simulated_carrier = carrier or SimulatedCarrier()
-        self.vault = Vault(settings.data_dir, settings.secret_key)
+        self.configs = ConfigStore(settings.data_dir)
         self.ingress_lock = threading.Lock()
         self.ingress_challenges = {}
         self.capability_cache = {}
@@ -107,7 +106,7 @@ class Service(ReservationPlanner):
                 .where(
                     model.tenant_id == p["tenant_id"],
                     model.seller_id == p["seller_id"],
-                    model.ctx_key == context_key(kind, value, self.db.identity_key),
+                    model.ctx_key == context_key(kind, value),
                     *conditions,
                 )
                 .order_by(model.created_at.desc(), model.id.desc())
@@ -118,7 +117,7 @@ class Service(ReservationPlanner):
     def carrier(self, tenant_id):
         if self.settings.simulation:
             return self.simulated_carrier
-        conf = self.vault.read(tenant_id)
+        conf = self.configs.read(tenant_id)
         if not conf.get("telnyx_api_key") or not conf.get("telnyx_connection_id"):
             fail(503, "TELNYX_NOT_CONFIGURED")
         return TelnyxCarrier(
@@ -160,15 +159,6 @@ class Service(ReservationPlanner):
                     "disabled": False,
                     "presence": {"status": "paused", "audio_ready": False},
                 },
-                now=now,
-            )
-            put(
-                s,
-                "memberships",
-                tenant_id,
-                seller_id,
-                {"user_id": user.id, "role": "owner"},
-                key=user.id,
                 now=now,
             )
             put(
@@ -372,7 +362,7 @@ class Service(ReservationPlanner):
         cache = s.info.get("row_cache", {}).get(("suppressions", p["tenant_id"], p["seller_id"]))
         if cache is None:
             model = MODELS["suppressions"]
-            key = hmac.new(self.db.identity_key, phone.encode(), hashlib.sha256).hexdigest()
+            key = phone
             row = s.scalar(
                 select(model).where(
                     model.tenant_id == p["tenant_id"],
@@ -457,15 +447,6 @@ class Service(ReservationPlanner):
                         "synthetic": self.settings.simulation,
                     },
                     key=body["campaign_id"] + ":" + endpoint.id,
-                    now=now,
-                )
-                put(
-                    s,
-                    "lead_phone_links",
-                    p["tenant_id"],
-                    p["seller_id"],
-                    {"lead_id": lead.id, "endpoint_id": endpoint.id},
-                    key=lead.id,
                     now=now,
                 )
                 existing.add((body["campaign_id"], endpoint.id))
@@ -579,10 +560,6 @@ class Service(ReservationPlanner):
             now=self.clock(),
             seller_approved=seller.data.get("approved", False),
             authorization_reconciled=not seller.data.get("restore_hold", False),
-            journal_reconciled=not seller.data.get("journal_recovery_required", False)
-            and not seller.data.get("effect_journal_pending")
-            and not getattr(self, "_effect_journal_fault", False)
-            and (p["tenant_id"], p["seller_id"]) not in self.__dict__.get("_journal_faults", set()),
             policy_published=config.get("approved", False)
             and (self.settings.simulation or not config.get("synthetic")),
             outreach_hold=bool(lead.data.get("outreach_hold") or lead.data.get("conversion_goal_achieved"))
@@ -598,9 +575,6 @@ class Service(ReservationPlanner):
             timezone_confidence=lead.data.get("timezone_confidence", "unknown"),
             registry_required=True,
             registry_decision=national,
-            registry_checked_at=max((dt(x["checked_at"]) for x in national["sources"]), default=None),
-            registry_covered=national["covered"],
-            registry_listed=national["decision"] == "listed",
             state_registry_required=config.get("state_registry_required", False),
             state_registry_current=state_current,
             state_registry_listed=state_listed,
@@ -791,7 +765,6 @@ class Service(ReservationPlanner):
                     "treatment_variant_id": reservation.data.get("treatment_variant_id"),
                     "feature_snapshot_id": reservation.data.get("feature_snapshot_id"),
                     "decision_id": reservation.data.get("policy_decision_id"),
-                    "allocation_decision_id": reservation.data.get("allocation_decision_id"),
                     "coaching_comparison": reservation.data.get("coaching_comparison"),
                     "script_snapshot": self.selected_script(
                         s, p, lead, variant_id=reservation.data.get("treatment_variant_id")
@@ -943,9 +916,6 @@ class Service(ReservationPlanner):
                     self.clock() + timedelta(seconds=policy.data.get("min_retry_seconds", 3600))
                 ).isoformat(),
             )
-            records = [call, command, self._by_key(s, p, "usage_ledger", "call:" + call.id)]
-            self.journal_effect_in(s, p, "dial", call.id, "intent", records, source=payload)
-            self.journal_effect_in(s, p, "dial", call.id, "submitted", records, source=payload)
             return command.id, doc(call), lead.data["phone"], payload
 
     def _dial_failed(self, p, call_id, command_id, owner, exc):
@@ -982,17 +952,6 @@ class Service(ReservationPlanner):
             call = self.required(s, "call_attempts", call_id, p)
             current = self.required(s, "command_outbox", command_id, p)
             s.refresh(current, with_for_update=True)
-            self.journal_effect_in(
-                s,
-                p,
-                "dial",
-                call_id,
-                "receipt",
-                [call, current],
-                provider_id=receipt["call_control_id"],
-                source=payload,
-                emergency=True,
-            )
             if current.data["status"] != "completed":
                 if current.data["status"] != "sending" or not owns_effect(current.data, owner, self.clock()):
                     return
@@ -1143,16 +1102,6 @@ class Service(ReservationPlanner):
             )
             update(call, state="ENDING")
             self.stop_agent_transcription_in(s, p, call)
-            self.journal_effect_in(
-                s,
-                p,
-                "hangup",
-                command_id,
-                "submitted",
-                [existing, call],
-                provider_id=provider_id,
-                emergency=True,
-            )
             self.coach.cancel(call.id)
             emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": "ENDING"})
             return doc(call), {"id": existing.id, "provider_id": provider_id, "command_id": command_id}
@@ -1175,9 +1124,6 @@ class Service(ReservationPlanner):
                     if self.settings.simulation:
                         call = self.required(s, "call_attempts", call_id, p, lock=True)
                         self.finish_call(s, p, call, "simulated_hangup_receipt")
-                self.journal_effect_in(
-                    s, p, "hangup", current.external_key, "receipt", [current], emergency=True
-                )
             call = self.required(s, "call_attempts", call_id, p)
             if call.data["state"] in TERMINAL:
                 s.refresh(call, with_for_update=True)

@@ -655,31 +655,14 @@ def _train_challenger(rows, output_dir, *, baseline=None):
 
 
 def promotion_allowed(model):
-    if model.get("feature_schema_version", 1) == 2:
-        return bool(
-            model.get("reviewable")
-            and model.get("manual_approved")
-            and model.get("online_trial_passed")
-            and model.get("coverage_delta", -1) >= 0
-            and model.get("policy_violations", 1) == 0
-        )
     return bool(
-        model.get("manual_approved")
+        model.get("feature_schema_version", 1) == 2
+        and model.get("reviewable")
+        and model.get("manual_approved")
         and model.get("online_trial_passed")
         and model.get("coverage_delta", -1) >= 0
         and model.get("policy_violations", 1) == 0
-        and model.get("metrics", {}).get("brier", 1)
-        < model.get("metrics", {}).get(
-            "pooled_baseline_brier", model.get("metrics", {}).get("baseline_brier", 0)
-        )
     )
-
-
-def retired_reason(model):
-    """Record-level: an artifact from before pure serving (joblib/pickle) is never opened."""
-    if model.get("artifact") and model.get("artifact_format") != serving.FORMAT:
-        return serving.RETIRED
-    return None
 
 
 def _verified_stages(model, artifact_root):
@@ -710,7 +693,7 @@ def predict_funnel_batch(model, features, artifact_root):
         return []
     empty = [{} for _ in features]
     try:
-        if retired_reason(model) or model.get("feature_schema_version", 1) != 2:
+        if model.get("artifact_format") != serving.FORMAT or model.get("feature_schema_version", 1) != 2:
             return empty
         stages = _verified_stages(model, artifact_root)
         if stages is None:

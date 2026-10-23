@@ -1,7 +1,6 @@
 """No-recurring-spend policy and seller-authorized, cached prepaid screening."""
 
 import hashlib
-import hmac
 import json
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -414,7 +413,7 @@ def screening_snapshot(service, s, p, phone=None, *, internal_suppressed=None):
     if internal_suppressed:
         return base
     if "provider_config" not in s.info:
-        s.info["provider_config"] = service.vault.read(p["tenant_id"])
+        s.info["provider_config"] = service.configs.read(p["tenant_id"])
     config = s.info["provider_config"]
     national = []
     for row in published_snapshots(s, p):
@@ -438,7 +437,7 @@ def screening_snapshot(service, s, p, phone=None, *, internal_suppressed=None):
 
 
 def screening_key(service, phone):
-    return "prepaid:" + hmac.new(service.db.identity_key, phone.encode(), hashlib.sha256).hexdigest()
+    return "prepaid:" + phone
 
 
 def screening_page(service, s, p, phones, denied):
@@ -509,7 +508,7 @@ def authorized_screen(service, config, phone, max_age_days=31):
 
 def cached_screen(service, s, p, phone):
     if "provider_config" not in s.info:
-        s.info["provider_config"] = service.vault.read(p["tenant_id"])
+        s.info["provider_config"] = service.configs.read(p["tenant_id"])
     config = s.info["provider_config"]
     max_age = screening_max_age(service, s, p)
     if not authorized_screen(service, config, phone, max_age) or (
@@ -574,7 +573,7 @@ def bind_operating_api(app, service, administrator):
             "version": version,
             "template_version": template_version(policy["script_template"]),
             "template_defaults": ScriptTemplate().model_dump(),
-            "coach_provider": service.vault.read(p["tenant_id"]).get(
+            "coach_provider": service.configs.read(p["tenant_id"]).get(
                 "coach_provider", PROVIDER_DEFAULTS.coach_provider
             ),
             "external_reputation": {

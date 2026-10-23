@@ -1,15 +1,8 @@
-import base64
-import contextvars
 import hashlib
-import hmac
-import json
-import threading
-from collections import OrderedDict
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import (
     JSON,
     Column,
@@ -37,8 +30,6 @@ from sqlalchemy.orm import (
     mapped_column,
     sessionmaker,
 )
-from sqlalchemy.orm.attributes import flag_modified
-from sqlalchemy.types import TypeDecorator
 
 from app.operational_schema import (
     CONTEXT_FIELDS,
@@ -47,110 +38,12 @@ from app.operational_schema import (
     columns,
     context_columns,
     context_indexes,
-    ensure_columns,
     indexes,
     metric_columns,
     metric_indexes,
     page_indexes,
     sync_columns,
 )
-from app.priority import yield_to_calling_work
-
-_DATABASE_CIPHER = contextvars.ContextVar("opendialer_database_cipher", default=None)
-_DATABASE_LOOKUP_KEY = contextvars.ContextVar("opendialer_database_lookup_key", default=None)
-_WRITE_TRANSACTION = contextvars.ContextVar("opendialer_write_transaction", default=False)
-STARTUP_CONTRACT = "completion-0017-raw2-v2"
-# Additive schema heads reuse the business cutover contract above; a store
-# behind this head is upgraded, a store at it skips re-initialization.
-SCHEMA_HEAD = "0019_lead_queue_order"
-
-
-def database_cipher(key):
-    return Fernet(base64.urlsafe_b64encode(hashlib.sha256((key + ":database:v1").encode()).digest()))
-
-
-def startup_contract_current(engine, cipher):
-    """Authenticate the completed cutover once, without rescanning historical payloads."""
-    with engine.connect() as connection:
-        existing = set(inspect(connection).get_table_names())
-        if not {*TABLES, "events", "jobs", "alembic_version"}.issubset(existing):
-            return False
-        if connection.execute(text("SELECT version_num FROM alembic_version")).scalar() != SCHEMA_HEAD:
-            return False
-        value = connection.execute(
-            text(
-                "SELECT data FROM audit_events WHERE tenant_id='' AND seller_id='' "
-                "AND external_key='completion-startup'"
-            )
-        ).scalar()
-        if not value:
-            return False
-        try:
-            value = json.loads(value) if isinstance(value, str) else value
-            value = json.loads(cipher.decrypt(value["token"].encode()))
-        except (InvalidToken, KeyError, ValueError, AttributeError, TypeError) as exc:
-            raise ValueError("Stored data cannot be authenticated with this authority key") from exc
-        return value.get("contract") == STARTUP_CONTRACT
-
-
-def authenticate_store(engine, cipher):
-    """Read all existing encrypted payloads before any upgrade DDL or backfill.
-
-    Raw SQL intentionally does not require the *new* mapped columns to exist.
-    Fetch pages stay bounded; no plaintext content leaves this check.
-    """
-    with engine.connect() as connection:
-        existing = set(inspect(connection).get_table_names())
-        for name in [*TABLES, "events", "jobs"]:
-            if name not in existing:
-                continue
-            field = "payload" if name in {"events", "jobs"} else "data"
-            rows = connection.execution_options(stream_results=True).execute(
-                text(f'SELECT "{field}" FROM "{name}"')  # noqa: S608 - fixed table/field allowlists
-            )
-            for page in rows.partitions(500):
-                for (value,) in page:
-                    value = json.loads(value) if isinstance(value, str) else value
-                    if isinstance(value, dict) and value.get("od_encrypted") == 1:
-                        try:
-                            json.loads(cipher.decrypt(value["token"].encode()))
-                        except (InvalidToken, KeyError, ValueError, AttributeError, TypeError) as exc:
-                            raise ValueError(
-                                "Stored data cannot be authenticated with this authority key"
-                            ) from exc
-
-
-class EncryptedJSON(TypeDecorator):
-    impl = JSON
-    cache_ok = True
-
-    def coerce_compared_value(self, op, value):
-        return self.impl.coerce_compared_value(op, value)
-
-    def process_bind_param(self, value, dialect):
-        if value is None:
-            return None
-        cipher = _DATABASE_CIPHER.get()
-        if cipher is None:
-            raise ValueError("A database encryption context is required")
-        return {
-            "od_encrypted": 1,
-            "token": cipher.encrypt(json.dumps(value, separators=(",", ":")).encode()).decode(),
-        }
-
-    def process_result_value(self, value, dialect):
-        if isinstance(value, dict) and value.get("od_encrypted") == 1:
-            if not _WRITE_TRANSACTION.get():
-                # Bulk background reads step aside for calling work; a writer never sleeps.
-                yield_to_calling_work()
-            cipher = _DATABASE_CIPHER.get()
-            if cipher is None:
-                raise ValueError("A database encryption context is required")
-            try:
-                return json.loads(cipher.decrypt(value["token"].encode()))
-            except (InvalidToken, KeyError, ValueError) as exc:
-                raise ValueError("Stored data cannot be authenticated with this authority key") from exc
-        return value
 
 
 def uid():
@@ -170,7 +63,7 @@ class Document:
     tenant_id: Mapped[str] = mapped_column(String(36), index=True, default="")
     seller_id: Mapped[str] = mapped_column(String(36), index=True, default="")
     external_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    data: Mapped[dict] = mapped_column(MutableDict.as_mutable(EncryptedJSON), default=dict)
+    data: Mapped[dict] = mapped_column(MutableDict.as_mutable(JSON), default=dict)
     version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -185,17 +78,14 @@ TABLES = [
     "tenants",
     "sellers",
     "users",
-    "memberships",
     "sessions",
     "campaigns",
     "policy_versions",
     "companies",
     "leads",
     "phone_endpoints",
-    "lead_phone_links",
     "consent_evidence",
     "suppressions",
-    "registry_subscriptions",
     "registry_snapshots",
     "compliance_decisions",
     "number_inventory",
@@ -209,7 +99,6 @@ TABLES = [
     "webhook_inbox",
     "command_outbox",
     "transcript_segments",
-    "transcript_revisions",
     "research_sources",
     "research_facts",
     "playbooks",
@@ -219,7 +108,6 @@ TABLES = [
     "conversation_states",
     "notes",
     "scorecards",
-    "scorecard_items",
     "reviews",
     "followup_tasks",
     "commitments",
@@ -234,12 +122,8 @@ TABLES = [
     "trackers",
     "snippets",
     "comments",
-    "batch_requests",
-    "rnd_queries",
     "learning_datasets",
     "conversion_events",
-    "allocation_decisions",
-    "scheduling_plans",
     "evaluation_reports",
     "coaching_feedback",
     "work_intervals",
@@ -346,7 +230,7 @@ class Event(Base):
     entity_id: Mapped[str] = mapped_column(String(36))
     entity_version: Mapped[int] = mapped_column(Integer, default=1)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    payload: Mapped[dict] = mapped_column(EncryptedJSON, default=dict)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class Job(Base):
@@ -357,7 +241,7 @@ class Job(Base):
     owner_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     queue: Mapped[str] = mapped_column(String(40), index=True)
     key: Mapped[str] = mapped_column(String(512))
-    payload: Mapped[dict] = mapped_column(EncryptedJSON)
+    payload: Mapped[dict] = mapped_column(JSON)
     status: Mapped[str] = mapped_column(String(20), default="queued", index=True)
     priority: Mapped[int] = mapped_column(Integer, default=0)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
@@ -413,15 +297,8 @@ def plan_statistics(connection):
 
 
 class Database:
-    def __init__(self, url, encryption_key=None):
-        if not encryption_key:
-            raise ValueError("A persistent authority encryption key is required")
-        self.cipher = database_cipher(encryption_key)
-        self.identity_key = hashlib.sha256((encryption_key + ":lookup:v1").encode()).digest()
+    def __init__(self, url):
         self.url = url
-        self.registry_lru = OrderedDict()
-        self.registry_lru_lock = threading.Lock()
-        self.registry_lru_bytes = 0
         self.sqlite = url.startswith("sqlite")
         from app.priority import WriterAdmission
 
@@ -434,32 +311,17 @@ class Database:
             pool_pre_ping=True,
             connect_args={"check_same_thread": False, "timeout": 30} if self.sqlite else {},
         )
-        try:
-            current = startup_contract_current(self.engine, self.cipher)
-            if not current:
-                authenticate_store(self.engine, self.cipher)
-        finally:
-            # Authentication connections must not skip the runtime pragmas below.
-            self.engine.dispose()
         if self.sqlite:
 
             @event.listens_for(self.engine, "connect")
             def pragmas(connection, _):
                 connection.execute("PRAGMA journal_mode=WAL")
                 connection.execute("PRAGMA foreign_keys=ON")
-                connection.execute("PRAGMA synchronous=FULL")
-                connection.execute("PRAGMA secure_delete=ON")
+                connection.execute("PRAGMA synchronous=NORMAL")
 
         self.sessions = sessionmaker(self.engine, expire_on_commit=False)
-        if current:
-            self.plan()
-            return
-        # create_all is additive for new tables; migrate metadata columns before mapped reads.
-        with self.engine.begin() as connection:
-            ensure_columns(connection, Base.metadata)
-        Base.metadata.create_all(self.engine)
-        self.encrypt_legacy_records()
-        self.backfill_operational_columns()
+        if not set(Base.metadata.tables) <= set(inspect(self.engine).get_table_names()):
+            Base.metadata.create_all(self.engine)
         self.plan()
 
     def plan(self):
@@ -467,143 +329,6 @@ class Database:
             with self.engine.begin() as connection:
                 plan_statistics(connection)
             self.engine.dispose()  # Pooled connections reload the statistics on next use.
-
-    def encrypt_legacy_records(self):
-        # A one-time transactional codec migration preserves IDs and human edits during an app update.
-        changed = False
-        with self.transaction() as session:
-            for model in MODELS.values():
-                session.scalar(
-                    select(model).limit(1)
-                )  # Authenticate an existing encrypted store before any rewrite.
-                for obj in session.scalars(
-                    select(model).where(model.data["od_encrypted"].as_integer().is_(None))
-                ):
-                    if (
-                        obj.external_key
-                        and model.__tablename__ in {"phone_endpoints", "number_inventory", "suppressions"}
-                        and obj.external_key.startswith("+")
-                    ):
-                        obj.external_key = hmac.new(
-                            self.identity_key, obj.external_key.encode(), hashlib.sha256
-                        ).hexdigest()
-                    flag_modified(obj, "data")
-                    changed = True
-            for model in (Event, Job):
-                for obj in session.scalars(
-                    select(model).where(model.payload["od_encrypted"].as_integer().is_(None))
-                ):
-                    flag_modified(obj, "payload")
-                    changed = True
-        if changed and self.sqlite:
-            with self.engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
-                connection.exec_driver_sql("VACUUM")
-                connection.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
-
-    def backfill_operational_columns(self):
-        while True:
-            with self.transaction() as s:
-                jobs = list(s.scalars(select(Job).where(Job.seller_id.is_(None)).limit(500)))
-                if not jobs:
-                    break
-                for job in jobs:
-                    job.seller_id = job.payload.get("seller_id") or ""
-                    job.owner_id = job.payload.get("user_id") or ""
-        for kind in sorted(HOT_TABLES | CONTEXT_FIELDS.keys()):
-            model = MODELS[kind]
-            version = model.op_index_version if kind in HOT_TABLES else model.ctx_index_version
-            outdated = version.is_(None)
-            if kind in {
-                "command_outbox",
-                "usage_ledger",
-                "registry_snapshots",
-                "call_attempts",
-                "followup_tasks",
-            }:
-                outdated = outdated | (
-                    version < (5 if kind == "call_attempts" else 4 if kind == "usage_ledger" else 2)
-                )
-            while True:
-                with self.transaction() as s:
-                    batch = list(s.scalars(select(model).where(outdated).limit(500)))
-                    if not batch:
-                        break
-                    for row in batch:
-                        if (
-                            kind == "usage_ledger"
-                            and row.data.get("kind") == "call_authorization"
-                            and row.data.get("reconciled_to_provider_records")
-                            and row.data.get("status") != "settled"
-                        ):
-                            # Older imports cleared the entire 5-cent call estimate on the
-                            # first CDR. No complete-statement proof existed in that version.
-                            update(
-                                row,
-                                status="uncertain",
-                                cost_usd=None,
-                                reserved_usd=row.data.get("estimate_usd", 0.05),
-                                billing_verified=False,
-                                reconciled_to_provider_records=False,
-                                review_reason="Legacy partial receipt did not prove complete call charges",
-                            )
-                            audit(
-                                s,
-                                row.tenant_id,
-                                row.seller_id,
-                                "system-migration",
-                                "billing.legacy_partial_reopened",
-                                row.id,
-                                utcnow(),
-                            )
-                        sync_columns(
-                            row, self.identity_key
-                        )  # Other index repairs preserve source content/version.
-        self.backfill_work_dates()
-
-    def backfill_work_dates(self):
-        """A saved keyset cursor also terminates for legacy intervals with unknown dates."""
-        sellers, work = MODELS["sellers"], MODELS["work_intervals"]
-        last_seller = ""
-        while True:
-            with self.transaction(False) as session:
-                identities = list(
-                    session.scalars(
-                        select(sellers.id).where(sellers.id > last_seller).order_by(sellers.id).limit(100)
-                    )
-                )
-            if not identities:
-                return
-            for identity in identities:
-                while True:
-                    with self.transaction() as session:
-                        seller = session.get(sellers, identity)
-                        contracts = dict(seller.data.get("completion_contracts", {}))
-                        marker = contracts.get("work_index_v1", {})
-                        if marker.get("completed_at"):
-                            break
-                        rows = list(
-                            session.scalars(
-                                select(work)
-                                .where(
-                                    work.tenant_id == seller.tenant_id,
-                                    work.seller_id == seller.id,
-                                    work.id > marker.get("last_id", ""),
-                                )
-                                .order_by(work.id)
-                                .limit(500)
-                            )
-                        )
-                        for row in rows:
-                            sync_columns(row, self.identity_key)
-                        contracts["work_index_v1"] = {
-                            "schema_version": 1,
-                            "last_id": rows[-1].id if rows else marker.get("last_id", ""),
-                            "completed_at": utcnow().isoformat() if len(rows) < 500 else None,
-                        }
-                        seller.data = {**seller.data, "completion_contracts": contracts}
-                    if len(rows) < 500:
-                        break
-            last_seller = identities[-1]
 
     @contextmanager
     def transaction(self, write=True, *, session=None):
@@ -618,10 +343,6 @@ class Database:
         # WAL readers and other stores never wait on this writer-only admission.
         # PostgreSQL row/unique constraints and explicit seller authorization fences protect conflicts.
         with self.sessions() as session:
-            context_token = _DATABASE_CIPHER.set(self.cipher)
-            lookup_token = _DATABASE_LOOKUP_KEY.set(self.identity_key)
-            # Sticky: a read session opened inside a write still runs under that write's locks.
-            write_token = _WRITE_TRANSACTION.set(write or _WRITE_TRANSACTION.get())
             session.info["write"] = write
             session.info["database"] = self
             admitted = committed = False
@@ -640,9 +361,6 @@ class Database:
                 session.rollback()
                 raise
             finally:
-                _DATABASE_CIPHER.reset(context_token)
-                _DATABASE_LOOKUP_KEY.reset(lookup_token)
-                _WRITE_TRANSACTION.reset(write_token)
                 if admitted:
                     self._sqlite_writer.release()
                 # A journal failure inside a caller-owned transaction must persist
@@ -752,7 +470,7 @@ def index_pending_rows(session, *_):
             job.owner_id = job.payload.get("user_id") or ""
     for row in session.new | session.dirty:
         if isinstance(row, Document):
-            sync_columns(row, _DATABASE_LOOKUP_KEY.get())
+            sync_columns(row)
     from app.reporting import collect_report_changes
 
     collect_report_changes(session)
@@ -803,12 +521,6 @@ def get(s, kind, object_id, tenant_id=None, *, lock=False):
 
 
 def put(s, kind, tenant_id, seller_id, data, *, object_id=None, key=None, now=None):
-    if key and kind in {"phone_endpoints", "number_inventory", "suppressions"} and key.startswith("+"):
-        # Lookup keys expose no phone digits at rest. The authoritative endpoint lives in encrypted JSON.
-        cipher = _DATABASE_CIPHER.get()
-        if cipher is None:
-            raise ValueError("Encryption context missing")
-        key = hmac.new(_DATABASE_LOOKUP_KEY.get(), key.encode(), hashlib.sha256).hexdigest()
     obj = MODELS[kind](
         id=object_id or uid(),
         tenant_id=tenant_id,

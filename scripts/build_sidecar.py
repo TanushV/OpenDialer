@@ -72,8 +72,6 @@ TRAINER_EXCLUDES = (
     "watchfiles",
     "websockets",
     "sqlalchemy",
-    "alembic",
-    "mako",
     "cryptography",
     "phonenumbers",
     "httpx",
@@ -163,10 +161,6 @@ def authority_arguments():
         str(root / "scripts/pyinstaller_hooks"),
         "--collect-all",
         "tzdata",
-        "--add-data",
-        f"{root / 'services/backend/migrations'}{os.pathsep}migrations",
-        "--add-data",
-        f"{root / 'services/backend/alembic.ini'}{os.pathsep}alembic.ini",
         str(root / "scripts/backend_entry.py"),
     ]
 

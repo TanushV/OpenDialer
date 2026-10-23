@@ -6,15 +6,15 @@ import pytest
 from app.db import doc
 from app.preparation.templates import ScriptTemplate, fill
 from app.providers.inference import InferenceResult
-from test_postcall_completion import (
+from helpers import (
     ConversationProvider,
     analysis_body,
     conversation_turn,
     finalize,
+    p,
     setup_analysis,
     stage_review,
 )
-from test_remediation_rep_workflow import p
 
 
 def review_response(request, *, verdict="SUPPORTED"):

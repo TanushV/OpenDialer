@@ -17,7 +17,7 @@ from app.providers.telnyx import CarrierConfigurationError, TelnyxCarrier
 from app.telephony.recovery import COMMAND_RETRY_SECONDS, within_command_window
 from app.telephony.reducer import reduce_state
 from conftest import start
-from test_final_attempt_voicemail import voicemail_policy
+from helpers import voicemail_policy
 
 CREDENTIAL = {
     "id": "c215ade3-0d39-418e-94be-c5f780760199",
@@ -112,7 +112,9 @@ async def test_token_request_accepts_the_documented_plain_text_jwt():
 def live_agent(service, carrier, monkeypatch, p, *, error=None):
     service.settings.simulation = False
     monkeypatch.setattr(service, "carrier", lambda _: carrier)
-    service.vault.write(p["tenant_id"], {"sip_username": "rep-browser", "telephony_credential_id": "cred-1"})
+    service.configs.write(
+        p["tenant_id"], {"sip_username": "rep-browser", "telephony_credential_id": "cred-1"}
+    )
     checked = []
 
     async def verify(credential_id, *, sip_username=None):
@@ -426,10 +428,10 @@ def test_definitive_prepaid_refusal_never_clears_and_needs_no_paid_retry(
     workspace, app, clock, monkeypatch, reason, status, liability
 ):
     from app.providers.dnc import DNCError, PrepaidDNC
-    from test_dnc_recovery import screen
+    from helpers import screen
 
     service, p = app.state.service, principal(workspace)
-    service.vault.write(
+    service.configs.write(
         p["tenant_id"],
         {
             "dnc_api_key": "synthetic-private-key",

@@ -60,7 +60,6 @@ class RuntimeLimits(BaseModel):
     planning_nodes: int = Field(20000, ge=1, le=20000)
     projection_batch: int = Field(100, ge=1, le=100)
     rebuild_batch: int = Field(500, ge=1, le=500)
-    registry_lru_bytes: int = Field(16777216, ge=1, le=16777216)
 
     @model_validator(mode="after")
     def ordered_deadlines(self):
@@ -91,7 +90,6 @@ class Settings(BaseSettings):
     backup_copy_dir: Path | None = None
     local_token: str = ""
     bootstrap_token: str = ""
-    secret_key: str = ""
     simulation: bool = False
     worker_enabled: bool = True
     worker_queues: list[

@@ -8,7 +8,6 @@ class CallContext:
     now: datetime
     seller_approved: bool = False
     authorization_reconciled: bool = True
-    journal_reconciled: bool = True
     policy_published: bool = False
     outreach_hold: bool = False
     callback_owner_matches: bool = True
@@ -17,9 +16,6 @@ class CallContext:
     timezone: str | None = None
     timezone_confidence: str = "unknown"
     registry_required: bool = True
-    registry_checked_at: datetime | None = None
-    registry_covered: bool = False
-    registry_listed: bool = False
     registry_decision: dict | None = None
     state_registry_required: bool = False
     state_registry_current: bool = False
@@ -60,7 +56,6 @@ def authorize(c: CallContext) -> Decision:
 
     require(c.seller_approved, "SELLER_NOT_APPROVED")
     require(c.authorization_reconciled, "RESTORE_RECONCILIATION_REQUIRED")
-    require(c.journal_reconciled, "JOURNAL_RECOVERY_REQUIRED")
     require(c.policy_published, "POLICY_NOT_PUBLISHED")
     require(not c.outreach_hold, "OUTREACH_HOLD")
     require(c.callback_owner_matches, "CALLBACK_ASSIGNED_TO_ANOTHER_REP")
@@ -68,21 +63,14 @@ def authorize(c: CallContext) -> Decision:
     require(c.ownership != "wrong_party", "WRONG_PARTY")
     require(not c.internal_suppressed, "INTERNAL_SUPPRESSION")
     if c.registry_required:
-        if c.registry_decision is not None:
-            # Only a clearance computed for this exact endpoint permits a dial; an account-level
-            # "available" or endpoint-free decision is never a clearance.
-            national = c.registry_decision
-            if national.get("decision") != "clear":
-                codes = national.get("reason_codes") or ["REGISTRY_NOT_CLEARED_FOR_ENDPOINT"]
-                reasons.extend(r for r in codes if r not in reasons)
-            elif not national.get("endpoint"):
-                reasons.append("REGISTRY_NOT_CLEARED_FOR_ENDPOINT")
-        else:  # Legacy pure-policy callers; runtime always supplies the shared national decision.
-            require(c.registry_checked_at is not None, "REGISTRY_MISSING")
-            if c.registry_checked_at:
-                require(0 <= (c.now - c.registry_checked_at).total_seconds() <= 31 * 86400, "REGISTRY_STALE")
-            require(c.registry_covered, "REGISTRY_COVERAGE_MISSING")
-            require(not c.registry_listed, "REGISTRY_LISTED")
+        # Only a clearance computed for this exact endpoint permits a dial; an account-level
+        # "available" or endpoint-free decision is never a clearance.
+        national = c.registry_decision or {}
+        if national.get("decision") != "clear":
+            codes = national.get("reason_codes") or ["REGISTRY_NOT_CLEARED_FOR_ENDPOINT"]
+            reasons.extend(r for r in codes if r not in reasons)
+        elif not national.get("endpoint"):
+            reasons.append("REGISTRY_NOT_CLEARED_FOR_ENDPOINT")
     require(not c.state_registry_required or c.state_registry_current, "STATE_REGISTRY_MISSING")
     require(not c.state_registry_required or not c.state_registry_listed, "STATE_REGISTRY_LISTED")
     require(not c.consent_required or c.consent_valid, "CONSENT_MISSING")

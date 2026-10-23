@@ -5,7 +5,6 @@ import json
 import logging
 import re
 import secrets
-import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
@@ -24,7 +23,6 @@ from app.administration import Dialer
 from app.coaching import knowledge, library
 from app.compliance.consent import ConsentChange
 from app.compliance.consent import record as record_consent
-from app.compliance.consent import replay as replay_consent
 from app.compliance.operating import DNCAuthorization, bind_operating_api
 from app.config import Settings
 from app.db import Database, Event, audit, doc, put, rows, update
@@ -32,7 +30,7 @@ from app.measurement import WorkEdit
 from app.providers.telnyx import verify_webhook
 from app.rep_workflows import MeetingEdit, OutreachEdit, TaskEdit
 from app.scheduling.models import ContactRole, OutcomeCode
-from app.security import PASSWORDS, admin, decode_session, dummy_hash, issue_session
+from app.security import PASSWORDS, admin, decode_session, issue_session
 from app.service import fail
 from app.telephony.callbacks import CallbackRoutingEdit
 
@@ -269,8 +267,6 @@ SECRET_FIELDS = {
     "openrouter_api_key",
     "chatgpt_access_token",
 }
-# Retired non-ZDR coaching settings stored by older releases: never echoed or reported.
-RETIRED_FIELDS = {"groq_api_key", "groq_model"}
 _BOUND_KEYS = {
     "minimum": "min",
     "maximum": "max",
@@ -366,25 +362,9 @@ def setting_bounds():
 def create_app(settings=None, *, clock=None, carrier=None):
     settings = settings or Settings()
     settings.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    if not settings.secret_key:
-        raise ValueError("A persistent OPENDIALER_SECRET_KEY is required; use the desktop or CLI bootstrap")
     clock = clock or (lambda: datetime.now(UTC))
-    from app.migrate import migrate_business_state, prepare_database
-
-    prepare_database(settings, clock)
-    db = Database(settings.database_url, encryption_key=settings.secret_key)
-    db.registry_lru_bytes = settings.runtime_limits.registry_lru_bytes
+    db = Database(settings.database_url)
     service = Dialer(db, settings, clock, carrier)
-    try:
-        migrate_business_state(service)
-        from app.compliance.suppressions import replay as replay_suppressions
-
-        replay_suppressions(service)
-        replay_consent(service)
-        service.replay_effects()
-    except Exception:
-        db.engine.dispose()
-        raise
 
     @asynccontextmanager
     async def lifespan(app):
@@ -512,24 +492,16 @@ def create_app(settings=None, *, clock=None, carrier=None):
             user = next(u for u in users if u.data["role"] == "owner")
             return issue_session(s, settings, user, clock())
 
-    login_failures = {}
-
     @app.post("/v1/auth/session")
-    def login(data: Login, request: Request):
-        key = hashlib.sha256(
-            (data.email.casefold() + ":" + (request.client.host if request.client else "unknown")).encode()
-        ).hexdigest()
-        failures = [at for at in login_failures.get(key, []) if time.monotonic() - at < 300]
-        if len(failures) >= 10:
-            fail(429, "Too many login attempts; retry later")
+    def login(data: Login):
         with db.transaction() as s:
             user = next((u for u in rows(s, "users") if u.data["email"] == data.email.casefold()), None)
-            fallback = dummy_hash()  # Requested for every login, known account or not.
-            verified = PASSWORDS.verify(data.password, user.data["password_hash"] if user else fallback)
-            if not verified or not user or user.data.get("disabled"):
-                login_failures[key] = [*failures, time.monotonic()]
+            if (
+                not user
+                or user.data.get("disabled")
+                or not PASSWORDS.verify(data.password, user.data["password_hash"])
+            ):
                 fail(401, "Email or password is invalid")
-            login_failures.pop(key, None)
             return issue_session(s, settings, user, clock())
 
     def logout_principal(credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)]):
@@ -828,7 +800,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
     async def telephony_token(p=Depends(principal)):
         def context():
             provider = service.carrier(p["tenant_id"])
-            conf = service.vault.read(p["tenant_id"])
+            conf = service.configs.read(p["tenant_id"])
             admin = p["role"] in {"owner", "admin"}
             with db.transaction(False) as s:
                 user = service.required(s, "users", p["user_id"], p)
@@ -902,8 +874,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
         from app.preparation.templates import PreparationPolicy
         from app.scheduling.models import EstimatePolicy
 
-        config = service.vault.read(p["tenant_id"])
-        own_profile = service.vault.read("plan-" + p["user_id"])
+        config = service.configs.read(p["tenant_id"])
+        own_profile = service.configs.read("plan-" + p["user_id"])
         config["chatgpt_access_token"] = own_profile.get("access_token", "")
         with db.transaction(False) as s:
             budget = service.scoped(s, "budgets", p)[0]
@@ -913,11 +885,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
             # Current campaign goal and weekly schedule for the setup checklist.
             optimization = service.optimization_config(s, p)
         return {
-            **{
-                k: v
-                for k, v in config.items()
-                if k not in SECRET_FIELDS | RETIRED_FIELDS and not k.startswith("_")
-            },
+            **{k: v for k, v in config.items() if k not in SECRET_FIELDS and not k.startswith("_")},
             "configured": {k: bool(config.get(k)) for k in SECRET_FIELDS},
             "version": config.get("version", 0),
             "budget": budget_values,
@@ -980,10 +948,10 @@ def create_app(settings=None, *, clock=None, carrier=None):
             db.authorize_stream(s, p)
             service._restore_operator(s, p)
             if "chatgpt_access_token" in values:
-                service.vault.write(
+                service.configs.write(
                     "plan-" + p["user_id"], {"access_token": values.pop("chatgpt_access_token")}
                 )
-            service.vault.write(
+            service.configs.write(
                 p["tenant_id"],
                 values,
                 advance_version=True,
@@ -1273,7 +1241,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/admin/models/{model_id}/activate")
     def activate(model_id: str, data: dict, p=Depends(administrator)):
-        from app.ml.training import predict_funnel, promotion_allowed, retired_reason
+        from app.ml.training import predict_funnel, promotion_allowed
 
         with db.transaction() as s:
             model = service.required(s, "model_versions", model_id, p)
@@ -1287,8 +1255,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
             ) or not predict_funnel(model.data, {}, service.settings.data_dir / "models"):
                 fail(
                     409,
-                    retired_reason(model.data)
-                    or "Model source, evaluated baseline or owned artifact changed; evaluate current settings",
+                    "Model source, evaluated baseline or owned artifact changed; evaluate current settings",
                 )
             for previous in service.scoped(s, "model_versions", p):
                 if previous.data.get("active"):
@@ -1364,7 +1331,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
                         body,
                         signature,
                         timestamp,
-                        service.vault.read(t.tenant_id).get("telnyx_public_key", ""),
+                        service.configs.read(t.tenant_id).get("telnyx_public_key", ""),
                         now=clock(),
                     )
                 ),
@@ -1427,19 +1394,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 next_attempt_at=clock().isoformat(),
             )
             lead.external_key = lead.data["campaign_id"] + ":" + endpoint.id
-            put(
-                session,
-                "lead_phone_links",
-                p["tenant_id"],
-                p["seller_id"],
-                {
-                    "lead_id": lead.id,
-                    "endpoint_id": endpoint.id,
-                    "previous_endpoint_id": old_endpoint,
-                    "evidence": str(data["evidence"])[:1000],
-                },
-                now=clock(),
-            )
             audit(
                 session,
                 p["tenant_id"],
@@ -1448,6 +1402,11 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 "lead.endpoint_corrected",
                 lead.id,
                 clock(),
+                {
+                    "endpoint_id": endpoint.id,
+                    "previous_endpoint_id": old_endpoint,
+                    "evidence": str(data["evidence"])[:1000],
+                },
             )
             return doc(lead)
 
@@ -1585,13 +1544,12 @@ def create_app(settings=None, *, clock=None, carrier=None):
                     409,
                     "Rollback requires a previously activated model with the current evaluated definition",
                 )
-            from app.ml.training import predict_funnel, retired_reason
+            from app.ml.training import predict_funnel
 
             if not predict_funnel(model.data, {}, service.settings.data_dir / "models"):
                 fail(
                     409,
-                    retired_reason(model.data)
-                    or "Rollback artifact is unavailable or failed verification; use the pooled baseline",
+                    "Rollback artifact is unavailable or failed verification; use the pooled baseline",
                 )
             for item in service.scoped(session, "model_versions", p):
                 update(item, active=item.id == model.id, trial_active=False)
@@ -1628,24 +1586,27 @@ def create_app(settings=None, *, clock=None, carrier=None):
             )
         with db.transaction() as session:
             endpoint = service.required(session, "phone_endpoints", data.get("endpoint_id"), p)
-            result = put(
-                session,
-                "rnd_queries",
-                p["tenant_id"],
-                p["seller_id"],
-                {
-                    "endpoint_id": endpoint.id,
-                    "reference_date": data["reference_date"],
-                    "query_date": clock().isoformat(),
-                    "result": data["result"],
-                    "subscription_reference": data["subscription_reference"],
-                    "provider_receipt": data.get("provider_receipt"),
-                },
-                now=clock(),
-            )
+            result = {
+                "endpoint_id": endpoint.id,
+                "reference_date": data["reference_date"],
+                "query_date": clock().isoformat(),
+                "result": data["result"],
+                "subscription_reference": data["subscription_reference"],
+                "provider_receipt": data.get("provider_receipt"),
+            }
             if data["result"] in {"yes", "no_data"}:
                 update(endpoint, reassignment_review_required=True)
-            return doc(result)
+            audit(
+                session,
+                p["tenant_id"],
+                p["seller_id"],
+                p["user_id"],
+                "rnd.result",
+                endpoint.id,
+                clock(),
+                result,
+            )
+            return result
 
     @app.post("/v1/inference/chatgpt/start")
     def chatgpt_start(request: Request, p=Depends(principal)):
@@ -1656,9 +1617,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
         local = settings.mode == "local"
         redirect = str(request.base_url).rstrip("/") + "/auth/callback" if local else HOSTED_PLAN_REDIRECT
         profile_key = "plan-" + p["user_id"]
-        profile = service.vault.read(profile_key)
+        profile = service.configs.read(profile_key)
         pending = PlanOAuth(service.host_id(), clock).begin(redirect, profile)
-        service.vault.write(profile_key, {"pending": pending})
+        service.configs.write(profile_key, {"pending": pending})
         return {
             "authorization_url": pending["authorization_url"],
             "expires_in": 600,
@@ -1678,12 +1639,12 @@ def create_app(settings=None, *, clock=None, carrier=None):
             fail(422, "Paste the full 127.0.0.1/auth/callback address your browser shows after signing in")
         query = {name: values[0] for name, values in parse_qs(address.query).items()}
         key = "plan-" + p["user_id"]
-        pending = service.vault.read(key).get("pending") or {}
+        pending = service.configs.read(key).get("pending") or {}
         if pending.get("used") or not secrets.compare_digest(
             query.get("state", ""), pending.get("state", "")
         ):
             fail(400, "This sign-in address does not match your pending ChatGPT authorization")
-        service.vault.write(key, {"pending": {**pending, "used": True}})
+        service.configs.write(key, {"pending": {**pending, "used": True}})
         try:
             result = await PlanOAuth(service.host_id(), clock).finish(
                 pending,
@@ -1695,7 +1656,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
             )
         except (OAuthError, Exception) as exc:
             fail(400, "Authorization was not completed: " + type(exc).__name__)
-        service.vault.write(key, {**result, "pending": {}})  # The vault skips None values.
+        service.configs.write(key, {**result, "pending": {}})  # The store skips None values.
         return {"connected": True}
 
     @app.get("/auth/callback")
@@ -1711,14 +1672,18 @@ def create_app(settings=None, *, clock=None, carrier=None):
         with db.transaction(False) as session:
             users = rows(session, "users")
         matched = next(
-            (u for u in users if service.vault.read("plan-" + u.id).get("pending", {}).get("state") == state),
+            (
+                u
+                for u in users
+                if service.configs.read("plan-" + u.id).get("pending", {}).get("state") == state
+            ),
             None,
         )
         if not matched:
             fail(400, "OAuth state does not match a pending local authorization")
         key = "plan-" + matched.id
-        pending = service.vault.read(key)["pending"]
-        service.vault.write(key, {"pending": {**pending, "used": True}})
+        pending = service.configs.read(key)["pending"]
+        service.configs.write(key, {"pending": {**pending, "used": True}})
         try:
             result = await PlanOAuth(service.host_id(), clock).finish(
                 pending,
@@ -1730,8 +1695,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
             )
         except (OAuthError, Exception) as exc:
             fail(400, "Authorization was not completed: " + type(exc).__name__)
-        service.vault.write(key, {**result, "pending": {}})  # The vault skips None values.
-        service.vault.write(matched.tenant_id, {"inference_mode": "chatgpt_plan"})
+        service.configs.write(key, {**result, "pending": {}})  # The store skips None values.
+        service.configs.write(matched.tenant_id, {"inference_mode": "chatgpt_plan"})
         return HTMLResponse(
             "<!doctype html><title>OpenDialer authorization</title><h1>ChatGPT is connected to your OpenDialer user.</h1><p>You may return to the desktop application.</p>"
         )
@@ -1753,12 +1718,12 @@ def create_app(settings=None, *, clock=None, carrier=None):
             "scopes", []
         ):
             fail(403, "Identity or plan permission mismatch")
-        service.vault.write("plan-" + p["user_id"], {**data, "ext_agent_host_id": service.host_id()})
+        service.configs.write("plan-" + p["user_id"], {**data, "ext_agent_host_id": service.host_id()})
         return {"imported": True, "client_id": data["client_id"], "personal_user_id": p["user_id"]}
 
     @app.get("/v1/inference/chatgpt/models")
     async def chatgpt_models(p=Depends(principal)):
-        profile = service.vault.read("plan-" + p["user_id"])
+        profile = service.configs.read("plan-" + p["user_id"])
         if not profile.get("access_token"):
             fail(409, "Sign in with your own eligible ChatGPT account first")
         response = await service.background_http.get(

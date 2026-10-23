@@ -4,7 +4,7 @@ import pytest
 from app.coaching.context import build_context, ground_guidance, merge_semantic_state
 from app.coaching.engine import CardRejected
 from conftest import NOW
-from test_remediation_coach import advice
+from helpers import advice
 
 
 def test_unfamiliar_short_turn_is_context_without_invented_topic_or_resolution():

@@ -16,7 +16,6 @@ import json
 import math
 
 FORMAT = "opendialer.funnel-trees.v1"
-RETIRED = "model_format_retired: retrain"
 STAGE_NAMES = ("human", "right_party_given_human", "conversion_given_right_party")
 MAX_MEMBERS = 16
 MAX_TREES = 2000

@@ -2,7 +2,6 @@
 
 import asyncio
 import hashlib
-import hmac
 import re
 from datetime import timedelta
 
@@ -55,10 +54,7 @@ class NumberOperations:
     def number_owners(self, s, phones):
         """Owner of each phone across sellers, read by lookup key without decrypting other inventory."""
         model = MODELS["number_inventory"]
-        keys = {
-            hmac.new(self.db.identity_key, phone.encode(), hashlib.sha256).hexdigest(): phone
-            for phone in phones
-        }
+        keys = {phone: phone for phone in phones}
         if not keys:
             return {}
         return {
@@ -404,17 +400,6 @@ class NumberOperations:
                     )
                     emit(s, p["tenant_id"], "number.updated", number, self.clock())
             update(row, **values)
-            if receipt is not None:
-                self.journal_effect_in(
-                    s,
-                    p,
-                    "purchase",
-                    row.external_key,
-                    "receipt",
-                    (row,),
-                    provider_id=receipt["id"],
-                    emergency=True,
-                )
             audit(
                 s,
                 p["tenant_id"],
@@ -607,9 +592,6 @@ class NumberOperations:
                     s, "command_outbox", p["tenant_id"], p["seller_id"], values, key=key, now=self.clock()
                 )
             update(number, configuration_status="pending", identity_configured=False, callback_tested=False)
-            if not reconcile:
-                for phase in ("intent", "submitted"):
-                    self.journal_effect_in(s, p, "number_configure", action.external_key, phase, [action])
             return {**doc(action), "reconcile": reconcile, "number_version": number.version}, None
 
     def _allow_configuration_retry(self, p, intent):
@@ -623,7 +605,7 @@ class NumberOperations:
                 or number.version != intent["number_version"]
                 or action.data.get("lease_owner") != intent["lease_owner"]
                 or dt(action.data.get("lease_until")) <= self.clock()
-                or self.vault.read(p["tenant_id"]).get("telnyx_connection_id") != intent["connection_id"]
+                or self.configs.read(p["tenant_id"]).get("telnyx_connection_id") != intent["connection_id"]
             ):
                 fail(409, "Configuration ownership changed during verification; reload")
             update(
@@ -631,7 +613,6 @@ class NumberOperations:
                 verified_retry_count=action.data.get("verified_retry_count", 0) + 1,
                 verified_retry_at=self.clock().isoformat(),
             )
-            self.journal_effect_in(s, p, "number_configure", action.external_key, "submitted", [action])
             return {**intent, "version": action.version}
 
     async def configure_owned_number(self, p, number_id, body=None):
@@ -648,7 +629,7 @@ class NumberOperations:
         retry = body.get("retry_after_verification", False)
         if retry and (type(body.get("expected_version")) is not int or body["expected_version"] < 1):
             fail(422, "Explicit retry requires the current number version")
-        connection = self.vault.read(p["tenant_id"]).get("telnyx_connection_id")
+        connection = self.configs.read(p["tenant_id"]).get("telnyx_connection_id")
         if not connection:
             fail(409, "Configure the authorized Telnyx voice connection first")
         intent, cached = await asyncio.to_thread(
@@ -757,7 +738,7 @@ class NumberOperations:
 
     def _finish_number_configuration(self, p, intent, confirmed, *, recovery=False, rejection=None):
         stale = False
-        connection = self.vault.read(p["tenant_id"]).get("telnyx_connection_id")
+        connection = self.configs.read(p["tenant_id"]).get("telnyx_connection_id")
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             self._configuration_actor(s, p)
@@ -794,9 +775,6 @@ class NumberOperations:
                 recovery_reason=None
                 if status in {"completed", "failed"}
                 else "Verify the original number, active route and disabled recording in the carrier account; this check never resubmits configuration.",
-            )
-            self.journal_effect_in(
-                s, p, "number_configure", action.external_key, "receipt", [action], emergency=True
             )
             if confirmed and not stale:
                 lifecycle = number.data["lifecycle"]

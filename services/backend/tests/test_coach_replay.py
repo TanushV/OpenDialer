@@ -1,6 +1,6 @@
 import pytest
 from app.coaching.replay import evaluate
-from test_remediation_coach import ordinary_advice
+from helpers import ordinary_advice
 
 
 @pytest.mark.asyncio

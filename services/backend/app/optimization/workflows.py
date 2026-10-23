@@ -1,5 +1,4 @@
 import hashlib
-import hmac
 import json
 import math
 from datetime import timedelta
@@ -700,10 +699,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
             if not page:
                 break
             ids = [row.id for row in page]
-            keys = [
-                hmac.new(self.db.identity_key, row.data["phone"].encode(), hashlib.sha256).hexdigest()
-                for row in page
-            ]
+            keys = [row.data["phone"] for row in page]
             bindings, denied = {}, set()
             for kind, identities in (("lead_number_bindings", ids), ("suppressions", keys)):
                 related = MODELS[kind]

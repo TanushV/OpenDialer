@@ -604,7 +604,7 @@ def register_optimization(app, service, principal, administrator):
     def start_trial(model_id: str, body: ModelTrial, p=Depends(administrator)):
         from datetime import timedelta
 
-        from app.ml.training import predict_funnel, retired_reason
+        from app.ml.training import predict_funnel
         from app.optimization.learning import TRIAL_CONTROL_FRACTION
 
         with service.db.transaction() as s:
@@ -633,8 +633,7 @@ def register_optimization(app, service, principal, administrator):
             ):
                 fail(
                     409,
-                    retired_reason(model.data)
-                    or "An owned verified candidate that beats the deployed pooled baseline is required",
+                    "An owned verified candidate that beats the deployed pooled baseline is required",
                 )
             campaign = service.scoped(s, "campaigns", p)[0]
             for previous in service.scoped(s, "model_versions", p):
@@ -897,7 +896,6 @@ def register_optimization(app, service, principal, administrator):
     @app.post("/v1/calls/{call_id}/coach/feedback")
     def feedback(call_id: str, body: Feedback, p=Depends(principal)):
         import hashlib
-        import hmac
         import json
 
         from app.coaching import sources
@@ -915,10 +913,8 @@ def register_optimization(app, service, principal, administrator):
                     fail(409, "client_upgrade_required: identified display/use acknowledgement required")
             if body.request_id:
                 receipt_key = "edit:coach_feedback:" + str(body.request_id)
-                digest = hmac.new(
-                    service.db.identity_key,
-                    json.dumps([call_id, p["user_id"], data], sort_keys=True).encode(),
-                    hashlib.sha256,
+                digest = hashlib.sha256(
+                    json.dumps([call_id, p["user_id"], data], sort_keys=True).encode()
                 ).hexdigest()
                 old = service._by_key(s, p, "outcomes", receipt_key)
                 if old:

@@ -87,7 +87,7 @@ def view(service, row, config, max_age):
 
 
 def claim(service, p, phone=None, identity=None, retry=None, *, refresh=None):
-    config = service.vault.read(p["tenant_id"])
+    config = service.configs.read(p["tenant_id"])
     with service.db.transaction() as s:
         service.db.authorize_stream(s, p)
         if not active_admin(service, s, p):
@@ -200,8 +200,6 @@ def claim(service, p, phone=None, identity=None, retry=None, *, refresh=None):
             service.clock(),
             {"request_key": key, "explicit_retry": retry is not None},
         )
-        for phase in ("intent", "submitted"):
-            service.journal_effect_in(s, p, "dnc_screen", key, phase, [row])
         return doc(row), None, config
 
 
@@ -244,7 +242,7 @@ def finish(service, p, intent, result, refusal=None):
             request_key=intent["request_key"],
             reserved=intent.get("estimate_usd", QUERY_ESTIMATE),
         )
-    config = service.vault.read(p["tenant_id"])
+    config = service.configs.read(p["tenant_id"])
     rejected = False
     with service.db.transaction() as s:
         service.db.authorize_stream(s, p)
@@ -290,7 +288,6 @@ def finish(service, p, intent, result, refusal=None):
                 else "Lookup result was lost or invalid; a previous charge may remain. Another query requires an explicit choice.",
             )
         saved = view(service, row, config, max_age)
-        service.journal_effect_in(s, p, "dnc_screen", intent["request_key"], "receipt", [row], emergency=True)
     if rejected:
         fail(409, "DNC_AUTHORITY_CHANGED_NO_CLEARANCE")
     return saved
@@ -557,7 +554,7 @@ async def execute(service, p, intent, config):
 def bind_screening_api(app, service, administrator):
     @app.get("/v1/admin/dnc/screens")
     def screens(p=Depends(administrator)):
-        config = service.vault.read(p["tenant_id"])
+        config = service.configs.read(p["tenant_id"])
         with service.db.transaction(False) as s:
             model = MODELS["registry_snapshots"]
             base = select(model).where(

@@ -3,7 +3,6 @@
 import asyncio
 import contextlib
 import hashlib
-import hmac
 import json
 from contextlib import asynccontextmanager
 from datetime import timedelta
@@ -166,7 +165,7 @@ class Preparation:
             seller = self.required(s, "sellers", p["seller_id"], p)
             values = policy_values(seller.data.get("operating_policy", {}))
             playbook = self.approved_playbook(s, p)
-            config = self.vault.read(p["tenant_id"])
+            config = self.configs.read(p["tenant_id"])
             settings = {
                 "script_template": values.get("script_template"),
                 "preparation": PreparationPolicy(**values.get("preparation", {})).model_dump(),
@@ -327,9 +326,6 @@ class Preparation:
             or row.data["lead_id"] != lead.id
         ):
             row = None
-        if not pointer:
-            # Compatibility reader until the legacy workspace migration is verified.
-            row = next(iter(self.context_rows(s, p, "script_versions", lead.id, limit=1)), None)
         return row
 
     def selected_script(self, s, p, lead, *, variant_id=None):
@@ -418,10 +414,7 @@ class Preparation:
         while wanted and len(eligible) < wanted and inspected < SCAN_LIMIT:
             leads = list(s.scalars(query.offset(inspected).limit(min(page, SCAN_LIMIT - inspected))))
             inspected += len(leads)
-            keys = {
-                hmac.new(self.db.identity_key, lead.data["phone"].encode(), hashlib.sha256).hexdigest()
-                for lead in leads
-            }
+            keys = {lead.data["phone"] for lead in leads}
             suppressed = {
                 row.data["phone"]
                 for row in s.scalars(
@@ -535,8 +528,7 @@ class Preparation:
                 fact = facts.get(identity)
                 stale |= bool(
                     not fact
-                    or fact.ctx_key
-                    != context_key("research_facts", lead.data.get("domain"), self.db.identity_key)
+                    or fact.ctx_key != context_key("research_facts", lead.data.get("domain"))
                     or fact.ctx_status != "supported"
                     or fact.version != script.get("evidence_versions", {}).get(identity)
                 )

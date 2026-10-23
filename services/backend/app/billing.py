@@ -111,7 +111,7 @@ def view(row):
 
 
 def proof_key(service, provider, identity):
-    return "billing:" + receipt_key(provider, identity, service.db.identity_key)
+    return "billing:" + receipt_key(provider, identity)
 
 
 def fingerprint(payload):
@@ -126,7 +126,7 @@ def prior_proof(service, s, p, provider, identity, digest):
 
 
 def store_proof(service, s, p, provider, identity, digest, target, action, source, result, records=()):
-    proof = put(
+    put(
         s,
         "audit_events",
         p["tenant_id"],
@@ -145,17 +145,6 @@ def store_proof(service, s, p, provider, identity, digest, target, action, sourc
         },
         key=proof_key(service, provider, identity),
         now=service.clock(),
-    )
-    service.journal_effect_in(
-        s,
-        p,
-        "billing." + action,
-        proof.external_key,
-        "receipt",
-        (proof, *records),
-        provider_id=identity,
-        source={"digest": digest},
-        emergency=True,
     )
 
 
@@ -349,8 +338,7 @@ def import_records(service, p, data):
                     .where(
                         or_(
                             model.external_key == "cdr:" + record.provider_record_id,
-                            model.op_provider_id
-                            == receipt_key("telnyx", record.provider_record_id, service.db.identity_key),
+                            model.op_provider_id == receipt_key("telnyx", record.provider_record_id),
                         )
                     )
                     .limit(2)

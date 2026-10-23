@@ -5,7 +5,6 @@ own source units instead of being summed from individual call attempts.
 """
 
 import hashlib
-import hmac
 import json
 import math
 import re
@@ -401,8 +400,7 @@ def dirty_source_units(changed, session):
             if table in {"conversion_events", "feature_snapshots"} and value.get("lead_id"):
                 units.add((*scope, "lead-calls", value["lead_id"]))
             if table == "suppressions" and value.get("phone"):
-                database = session.info["database"]
-                key = hmac.new(database.identity_key, value["phone"].encode(), hashlib.sha256).hexdigest()
+                key = value["phone"]
                 endpoints = MODELS["phone_endpoints"]
                 endpoint = session.scalar(
                     select(endpoints.id).where(
@@ -692,7 +690,7 @@ def _unit_snapshot(service, session, p, payload):
         studies[epoch] = campaign.data.get("optimization_trial") or {}
         phone = row.get("phone")
         if phone:
-            key = hmac.new(service.db.identity_key, phone.encode(), hashlib.sha256).hexdigest()
+            key = phone
             denial = service._by_key(session, p, "suppressions", key)
             suppressed = bool(denial and denial.data.get("active", True))
     elif kind == "call" and row and not callback_source:
@@ -967,11 +965,7 @@ def _groups(snapshot, namespace):
 
 
 def _group_key(service, group):
-    digest = hmac.new(
-        service.db.identity_key,
-        json.dumps(group, sort_keys=True, separators=(",", ":")).encode(),
-        hashlib.sha256,
-    ).hexdigest()
+    digest = hashlib.sha256(json.dumps(group, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return f"v{group['definition_version']}:{group['namespace']}:{digest}"
 
 

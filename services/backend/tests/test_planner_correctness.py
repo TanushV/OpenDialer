@@ -6,7 +6,7 @@ from datetime import timedelta
 import pytest
 from app.db import update
 from app.optimization.numbering import capacity_forecast
-from test_remediation_privacy import principal
+from helpers import principal
 from test_time_capacity import NOW, lead, number, window
 
 
@@ -53,7 +53,7 @@ def test_wrapup_cadence_makes_a_lead_due_without_any_forecast(workspace, app, cl
     import app.optimization.workflows as workflows
     from app.compliance.policy import authorize
     from conftest import start
-    from test_optimization_workflows import finish
+    from helpers import finish
 
     def forbidden(*args, **kwargs):
         raise AssertionError("Cadence must not depend on a forecast")

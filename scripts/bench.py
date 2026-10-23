@@ -19,14 +19,13 @@ from uuid import uuid4
 
 sys.path[:0] = [str(Path(__file__).resolve().parents[1] / "services" / "backend")]
 
+from app.config import Settings  # noqa: E402
+from app.main import create_app  # noqa: E402
+from app.providers.simulated import SimulatedCarrier  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import event, func, insert, select  # noqa: E402
-
-from app.config import Settings  # noqa: E402
-from app.main import create_app  # noqa: E402
-from app.providers.simulated import SimulatedCarrier  # noqa: E402
 
 TARGETS_MS = {"next_lead": 100, "webhook_receipt": 30, "event_to_state": 100, "wrap_up": 100, "workspace": 150}
 
@@ -43,12 +42,11 @@ def settings(directory):
     return Settings(
         database_url=f"sqlite:///{directory}/bench.db",
         mode="local",
-        local_token="bench-local-token",
+        local_token="bench-local-token",  # noqa: S106 - disposable bench authority
         simulation=True,
         data_dir=directory,
         worker_enabled=False,
-        bootstrap_token="bench-bootstrap-token",
-        secret_key="bench-secret-" + "b" * 48,
+        bootstrap_token="bench-bootstrap-token",  # noqa: S106 - disposable bench authority
     )
 
 
@@ -87,7 +85,7 @@ def history(service, p, campaign, attempts, now):
                     "transcript_version": 0,
                 },
             )
-            sync_columns(row, getattr(service.db, "identity_key", None))
+            sync_columns(row)
             page.append({k: v for k, v in vars(row).items() if not k.startswith("_")})
         with service.db.transaction() as s:
             s.execute(insert(model), page)

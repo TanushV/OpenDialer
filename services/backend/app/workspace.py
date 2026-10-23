@@ -1,12 +1,8 @@
 """Bounded workspace previews and resumable encrypted history; no new search store."""
 
-import hashlib
-import hmac
-
 from sqlalchemy import func, literal_column, or_, select
 
 from app.db import MODELS, ActiveClaim, Event, Job, after_key, doc
-from app.ml.training import retired_reason
 from app.operational_schema import PAGE_TABLES
 from app.service import fail
 
@@ -156,8 +152,6 @@ class WorkspaceReads:
                     value.update(self.number_readiness_in(s, p, row))
                 if section == "registries":
                     value = {k: v for k, v in value.items() if k in REGISTRY_FIELDS}
-                if section == "models" and (reason := retired_reason(value)):
-                    value["serving_block"] = reason
                 selected.append(value)
                 if len(selected) >= limit:
                     break
@@ -178,11 +172,7 @@ class WorkspaceReads:
             }
 
     def _mark_suppressed(self, s, p, leads):
-        keys = {
-            hmac.new(self.db.identity_key, lead["phone"].encode(), hashlib.sha256).hexdigest()
-            for lead in leads
-            if lead.get("phone")
-        }
+        keys = {lead["phone"] for lead in leads if lead.get("phone")}
         model = MODELS["suppressions"]
         blocked = (
             {

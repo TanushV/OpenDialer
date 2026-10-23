@@ -153,12 +153,11 @@ def fixture_settings(database_url, data_dir):
         data_dir=data_dir,
         worker_enabled=False,
         bootstrap_token="test-bootstrap-secret",
-        secret_key="test-secret-" + "a" * 48,
     )
 
 
 def _initialize_store(database_url, data_dir):
-    """The complete fresh-store startup: migrations, business-state cutover and journal replays."""
+    """The complete fresh-store startup: schema creation and planner statistics."""
     started = create_app(
         fixture_settings(database_url, data_dir), clock=lambda: NOW, carrier=SimulatedCarrier()
     )

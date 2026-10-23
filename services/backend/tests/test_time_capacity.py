@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from app.db import get, put, update
 from app.optimization.numbering import capacity_forecast
-from test_remediation_privacy import principal
+from helpers import principal
 
 NOW = datetime(2026, 10, 19, 9, tzinfo=UTC)
 

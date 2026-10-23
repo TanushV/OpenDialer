@@ -360,12 +360,12 @@ def paraphrased(text, segments):
     return True
 
 
-def persistent_document(kind, data, *, legacy=False):
-    """The explicit boundary for existing stores and content-free backup/restore."""
+def persistent_document(kind, data):
+    """The boundary that keeps raw speech and quotes out of every persisted document."""
     data = copy.deepcopy(data)
     if kind == "usage_ledger" and "usage" in data:
         data["usage"] = usage_metadata(data["usage"])
-    if kind in {"transcript_segments", "transcript_revisions"}:
+    if kind == "transcript_segments":
         return {
             k: v
             for k, v in data.items()
@@ -452,44 +452,11 @@ def persistent_document(kind, data, *, legacy=False):
             data.pop(key, None)
         return data
     if kind == "conversation_states":
-        if legacy and data.get("privacy_contract") != 1:
-            return {
-                k: v for k, v in data.items() if k in {"call_id", "version", "stage", "trigger", "updated_at"}
-            } | {"privacy_contract": 1}
         return {
             k: v
             for k, v in data.items()
             if k not in {"recent_dialogue", "last_remote", "asked_questions", "previous_guidance", "facts"}
         }
-    if kind == "notes" and legacy and data.get("privacy_contract") != 1:
-        data["notes"] = {
-            "call_id": data.get("call_id"),
-            "transcript_version": data.get("notes", {}).get("transcript_version", 0),
-            "summary": "Earlier machine notes are unavailable under the short-retention policy.",
-            "outcome": data.get("notes", {}).get("outcome", "unconfirmed"),
-            "problems": [],
-            "objections": [],
-            "commitments": [],
-            "unknowns": [],
-            "review_required": True,
-        }
-        data.update(privacy_contract=1, suggested_update=None, semantic_trackers=[])
-    if kind == "scorecards" and legacy and data.get("privacy_contract") != 1:
-        data["items"] = [
-            {**item, "explanation": "Original evidence expired; review required."}
-            for item in data.get("items", [])
-        ]
-        data.update(privacy_contract=1, raw_evidence_status="expired")
-    if kind == "commitments" and legacy and data.get("privacy_contract") != 1 and data.get("call_id"):
-        data = {
-            k: v for k, v in data.items() if k not in {"quote", "text", "verbatim_time_expression", "action"}
-        }
-        data.update(
-            action="Review the prior call commitment", privacy_contract=1, needs_time_confirmation=True
-        )
-    if kind == "snippets" and legacy and data.get("call_id") and data.get("privacy_contract") != 1:
-        data = {k: v for k, v in data.items() if k not in {"quote", "text", "transcript", "recording_url"}}
-        data.update(raw_evidence_status="expired", approved=False)
     return data
 
 
@@ -811,187 +778,3 @@ class SpeechPrivacy:
             self._receive_transcript, p, call_id, segment, received_at, True
         )
         return result
-
-    def purge_legacy_raw_content(self, *, resume=False):
-        """Authenticate every row, committing at most 500 sanitations with its cursor.
-
-        Ingress/jobs may have no seller yet, so the existing global cutover record owns
-        this store-wide cursor. Startup completes it before any request can be served.
-        """
-        from sqlalchemy import select
-
-        from app.db import MODELS, Event, Job, put
-
-        marker_model = MODELS["audit_events"]
-        marker_query = select(marker_model).where(
-            marker_model.tenant_id == "", marker_model.external_key == "raw-retention-v2"
-        )
-        kinds = [*sorted(MODELS), "events", "jobs"]
-        with self.db.transaction() as s:
-            marker = s.scalar(marker_query)
-            if marker and resume and marker.data.get("completed_at"):
-                return {"sanitized_records": marker.data["sanitized_records"]}
-            if not marker:
-                marker = put(s, "audit_events", "", "", {}, key="raw-retention-v2", now=self.clock())
-            if not resume or not marker.data:
-                marker.data = {
-                    "action": "raw_retention_cutover",
-                    "schema_version": 2,
-                    "phase": 0,
-                    "last_id": None,
-                    "sanitized_records": 0,
-                }
-        while True:
-            with self.db.transaction() as s:
-                marker = s.scalar(marker_query.with_for_update())
-                state = dict(marker.data)
-                phase = state["phase"]
-                if phase == len(kinds):
-                    break
-                kind = kinds[phase]
-                model = Event if kind == "events" else Job if kind == "jobs" else MODELS[kind]
-                key = model.sequence if kind == "events" else model.id
-                query = select(model).order_by(key).limit(500)
-                if state["last_id"] is not None:
-                    query = query.where(key > state["last_id"])
-                page = list(s.scalars(query))
-                for row in page:
-                    original = row.payload if kind in {"events", "jobs"} else row.data
-                    clean = (
-                        bus_metadata(original)
-                        if kind == "events"
-                        else job_metadata(original)
-                        if kind == "jobs"
-                        else persistent_document(kind, original, legacy=True)
-                    )
-                    if clean != original:
-                        if kind in {"events", "jobs"}:
-                            row.payload = clean
-                        else:
-                            row.data = clean  # Preserve IDs and externally visible record versions.
-                        state["sanitized_records"] += 1
-                state["last_id"] = (page[-1].sequence if kind == "events" else page[-1].id) if page else None
-                if len(page) < 500:
-                    state.update(phase=phase + 1, last_id=None)
-                marker.data = state
-        self.vault.sanitize_legacy_authorization()
-        if self.db.sqlite:
-            with self.db.engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
-                connection.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
-        with self.db.transaction() as s:
-            marker = s.scalar(marker_query)
-            marker.data = {**marker.data, "completed_at": self.clock().isoformat()}
-            result = {"sanitized_records": marker.data["sanitized_records"]}
-        return result
-
-    def privacy_cutover(self):
-        return self.purge_legacy_raw_content(resume=True)
-
-    def migrate_conversation_states(self):
-        """Resumable payload migration; original record IDs and visible versions survive."""
-        from sqlalchemy import select
-
-        from app.coaching.context import lineage_metadata, migrate_note_state, upgrade_state
-        from app.db import MODELS, get
-        from app.postcall.rubrics import effective
-
-        with self.db.transaction(False) as s:
-            scopes = [(r.tenant_id, r.id) for r in s.scalars(select(MODELS["sellers"]))]
-        for tenant, seller_id in scopes:
-            p = {"tenant_id": tenant, "seller_id": seller_id}
-            while True:
-                with self.db.transaction() as s:
-                    seller = get(s, "sellers", seller_id, tenant)
-                    marker = seller.data.get("completion_contracts", {}).get("conversation", {})
-                    if marker.get("completed_at"):
-                        break
-                    table = marker.get("last_table", "conversation_states")
-                    model = MODELS[table]
-                    batch = list(
-                        s.scalars(
-                            select(model)
-                            .where(
-                                model.tenant_id == tenant,
-                                model.seller_id == seller_id,
-                                model.id > marker.get("last_id", ""),
-                            )
-                            .order_by(model.id)
-                            .limit(500)
-                        )
-                    )
-                    for row in batch:
-                        call = get(s, "call_attempts", row.data.get("call_id"), tenant)
-                        if not call or call.seller_id != seller_id:
-                            continue
-                        memory = (
-                            row
-                            if table == "conversation_states"
-                            else self._by_key(s, p, "conversation_states", call.id)
-                        )
-                        note = row if table == "notes" else self._by_key(s, p, "notes", call.id)
-                        legacy = (
-                            note
-                            and "derived_state_revision" not in note.data
-                            and note.data.get("privacy_contract") == 1
-                        )
-                        if memory and memory.data.get("schema_version") == 2 and not legacy:
-                            continue
-                        state = upgrade_state(
-                            memory.data if memory else {}, call_id=call.id, rubric=effective(call.data)
-                        )
-                        if legacy:
-                            revisions = (
-                                {
-                                    r.data["segment_id"]: r.data["revision"]
-                                    for r in self.transcript_metadata(s, p, call.id)
-                                }
-                                if call.data.get("transcript_version") is not None
-                                and note.data.get("notes", {}).get("transcript_version")
-                                == call.data.get("transcript_version")
-                                else {}
-                            )
-                            card = self._by_key(s, p, "scorecards", call.id)
-                            state = migrate_note_state(
-                                state,
-                                note.data,
-                                at=self.clock(),
-                                revisions=revisions,
-                                card=card.data if card else None,
-                            )
-                            # Strip the duplicate machine narrative. Human text, record
-                            # identity and original review metadata remain untouched.
-                            note.data = {
-                                k: v
-                                for k, v in note.data.items()
-                                if k not in {"observations", "semantic_trackers"}
-                            } | {
-                                "notes": {
-                                    k: v
-                                    for k, v in note.data.get("notes", {}).items()
-                                    if k in {"call_id", "transcript_version", "outcome", "grounding"}
-                                },
-                                "suggested_update": bool(note.data.get("suggested_update")),
-                                "derived_state_revision": state["version"],
-                            }
-                        state["_lineage_updates"] = [lineage_metadata(i) for i in state["observations"]]
-                        version = memory.version if memory else None
-                        memory = self._store_conversation(s, p, call, state, memory)
-                        if version is not None:
-                            memory.version = version
-                    contracts = dict(seller.data.get("completion_contracts", {}))
-                    contracts["conversation"] = {
-                        "schema_version": 2,
-                        "phase": "conversation",
-                        "last_table": "notes"
-                        if table == "conversation_states" and len(batch) < 500
-                        else table,
-                        "last_id": ""
-                        if table == "conversation_states" and len(batch) < 500
-                        else batch[-1].id
-                        if batch
-                        else marker.get("last_id", ""),
-                        "completed_at": self.clock().isoformat()
-                        if table == "notes" and len(batch) < 500
-                        else None,
-                    }
-                    seller.data = {**seller.data, "completion_contracts": contracts}

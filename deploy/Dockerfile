@@ -4,8 +4,6 @@ WORKDIR /opt/opendialer
 COPY pyproject.toml uv.lock ./
 COPY services/backend services/backend
 RUN uv sync --frozen --no-dev --no-editable
-COPY services/backend/migrations migrations
-COPY services/backend/alembic.ini alembic.ini
 FROM python:3.12-slim
 RUN groupadd --gid 10001 dialer && useradd --uid 10001 --gid 10001 --create-home dialer
 RUN mkdir -p /var/lib/opendialer && chown dialer:dialer /var/lib/opendialer

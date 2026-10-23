@@ -7,7 +7,7 @@ import httpx
 import pytest
 from app.providers.inference import InferenceError
 from app.providers.openrouter import OpenRouterCoach
-from test_remediation_coach import advice, ordinary_advice
+from helpers import advice, ordinary_advice
 
 
 def frames(*, provider="Cerebras", finish="stop", done=True, error=False):
@@ -132,7 +132,7 @@ async def test_terminal_accounting_frame_does_not_reopen_content_or_overwrite_an
 
 
 def primary_then_explanation(delay=0.08, *, complete_primary=True):
-    from test_helper_progress import frame
+    from helpers import frame
 
     primary = {
         k: v
@@ -196,7 +196,7 @@ async def test_no_complete_primary_before_the_first_useful_ceiling_times_out():
 
 @pytest.mark.asyncio
 async def test_stream_comments_cannot_extend_the_full_response_deadline():
-    from test_helper_progress import frame
+    from helpers import frame
 
     class Stream(httpx.AsyncByteStream):
         async def __aiter__(self):

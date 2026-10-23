@@ -1,7 +1,6 @@
-"""Indexed non-content metadata for selecting work without decrypting its history."""
+"""Indexed columns copied from each document so work is selected without scanning history."""
 
 import hashlib
-import hmac
 import json
 from datetime import UTC, datetime, timedelta
 
@@ -15,7 +14,6 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
-    inspect,
     text,
 )
 
@@ -119,7 +117,6 @@ HOT_TABLES = {
     "conversion_events",
     "feature_snapshots",
     "experiment_assignments",
-    "scheduling_plans",
     "usage_ledger",
 }
 
@@ -139,11 +136,11 @@ CONTEXT_FIELDS = {
 }
 
 
-def context_key(kind, value, secret):
+def context_key(kind, value):
     if value is None:
         return None
     if CONTEXT_FIELDS[kind][0] == "domain":
-        return hmac.new(secret, value.lower().rstrip(".").encode(), hashlib.sha256).hexdigest()
+        return value.lower().rstrip(".")[:100]
     return value
 
 
@@ -151,7 +148,6 @@ def context_columns(kind):
     _, status, expiry = CONTEXT_FIELDS[kind]
     return {
         "ctx_key": Column(String(100), nullable=True),
-        "ctx_index_version": Column(Integer, nullable=True),
         **({"ctx_status": Column(String(40), nullable=True)} if status else {}),
         **({"ctx_expires_at": Column(DateTime(timezone=True), nullable=True)} if expiry else {}),
     }
@@ -201,7 +197,6 @@ def columns(kind):
         "op_priority": Column(Integer, nullable=True),
         "op_active": Column(Boolean, nullable=True),
         "op_amount": Column(Float, nullable=True),
-        "op_index_version": Column(Integer, nullable=True),
         **({"op_call_id": Column(String(100), nullable=True)} if kind == "usage_ledger" else {}),
         **(
             {"op_work_end_at": Column(DateTime(timezone=True), nullable=True)}
@@ -327,12 +322,10 @@ def indexes(name):
     )
 
 
-def receipt_key(provider, request_id, secret):
+def receipt_key(provider, request_id):
     if not provider or not request_id:
         return None
-    return hmac.new(
-        secret, json.dumps([provider, request_id], separators=(",", ":")).encode(), hashlib.sha256
-    ).hexdigest()
+    return hashlib.sha256(json.dumps([provider, request_id], separators=(",", ":")).encode()).hexdigest()
 
 
 def as_time(value):
@@ -361,7 +354,7 @@ def call_work_bounds(data):
     return (start, end) if start and end and end >= start else (None, None)
 
 
-def sync_columns(row, lookup_key=None):
+def sync_columns(row):
     if row.__tablename__ in METRIC_TABLES:
         from datetime import date
 
@@ -375,15 +368,13 @@ def sync_columns(row, lookup_key=None):
             day = row.data.get("bucket_day")
             row.bucket_day = date.fromisoformat(day) if day else None
             row.bucket_kind = row.data["bucket_kind"]
-            row.group_key = hmac.new(
-                lookup_key,
-                json.dumps(row.data["group"], sort_keys=True, separators=(",", ":")).encode(),
-                hashlib.sha256,
+            row.group_key = hashlib.sha256(
+                json.dumps(row.data["group"], sort_keys=True, separators=(",", ":")).encode()
             ).hexdigest()
         return
     if row.__tablename__ in CONTEXT_FIELDS:
         key, status, expiry = CONTEXT_FIELDS[row.__tablename__]
-        row.ctx_key = context_key(row.__tablename__, row.data.get(key), lookup_key)
+        row.ctx_key = context_key(row.__tablename__, row.data.get(key))
         if row.__tablename__ == "playbooks":
             row.ctx_key = "approved" if row.data.get("approved") else "unapproved"
         if row.__tablename__ == "model_versions":
@@ -406,7 +397,6 @@ def sync_columns(row, lookup_key=None):
             )
         if expiry:
             row.ctx_expires_at = as_time(row.data.get(expiry))
-        row.ctx_index_version = 2 if row.__tablename__ == "registry_snapshots" else 1
         return
     if row.__tablename__ == "work_intervals":
         row.op_owner_id = row.data["rep_id"]
@@ -438,7 +428,6 @@ def sync_columns(row, lookup_key=None):
         from decimal import Decimal
 
         row.op_amount = float(Decimal(str(data["cost_usd"])) - Decimal(str(data.get("credited_usd", 0))))
-    row.op_index_version = 1
     if row.__tablename__ == "call_attempts":
         from app.telephony.reducer import TERMINAL
 
@@ -466,7 +455,6 @@ def sync_columns(row, lookup_key=None):
         work_start, row.op_work_end_at = call_work_bounds(data)
         if work_start:
             row.op_at = min(row.op_at, work_start)
-        row.op_index_version = 5
     if row.__tablename__ == "followup_tasks":
         if data.get("status") == "snoozed":
             row.op_due_at = as_time(data.get("snoozed_until") or data.get("due_at"))
@@ -483,47 +471,10 @@ def sync_columns(row, lookup_key=None):
             if row.op_active
             else None
         )
-        row.op_index_version = 2
     if row.__tablename__ == "command_outbox":
         row.op_kind = data.get("kind")
-        row.op_index_version = 2
     if row.__tablename__ == "usage_ledger":
         row.op_call_id = data.get("call_id") or data.get("object_id")
         row.op_provider_id = receipt_key(
-            data.get("provider"), data.get("request_id") or data.get("provider_record_id"), lookup_key
+            data.get("provider"), data.get("request_id") or data.get("provider_record_id")
         )
-        row.op_index_version = 4
-
-
-def ensure_columns(connection, metadata):
-    """Additive DDL only; authenticated bounded backfill happens under the authority key."""
-    inspector = inspect(connection)
-    existing = set(inspector.get_table_names())
-    for name in sorted((HOT_TABLES | CONTEXT_FIELDS.keys() | {"work_intervals"}) & existing):
-        actual = {c["name"] for c in inspector.get_columns(name)}
-        definitions = (
-            {"op_at": Column(DateTime(timezone=True)), "op_due_at": Column(DateTime(timezone=True))}
-            if name == "work_intervals"
-            else columns(name)
-            if name in HOT_TABLES
-            else context_columns(name)
-        )
-        if name == "command_outbox":
-            definitions["op_kind"] = Column(String(40), nullable=True)
-        for column, definition in definitions.items():
-            if column not in actual:
-                sql_type = definition.type.compile(dialect=connection.dialect)
-                connection.execute(text(f'ALTER TABLE "{name}" ADD COLUMN "{column}" {sql_type}'))  # noqa: S608 fixed table/column allowlists
-        for index in metadata.tables[name].indexes:
-            index.create(connection, checkfirst=True)
-
-    for name in set(PAGE_TABLES.values()) & existing:
-        for index in metadata.tables[name].indexes:
-            index.create(connection, checkfirst=True)
-    if "jobs" in existing:
-        actual = {c["name"] for c in inspector.get_columns("jobs")}
-        for column in ("seller_id", "owner_id"):
-            if column not in actual:
-                connection.execute(text(f'ALTER TABLE "jobs" ADD COLUMN "{column}" VARCHAR(36)'))  # noqa: S608 fixed columns
-        for index in metadata.tables["jobs"].indexes:
-            index.create(connection, checkfirst=True)

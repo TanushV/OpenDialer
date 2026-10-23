@@ -27,7 +27,6 @@ with tempfile.TemporaryDirectory(prefix="opendialer-e2e-") as directory:
         worker_enabled=True,
         database_url=database_url,
         local_token="e2e-local-token",
-        secret_key="e2e-secret-" + "a" * 48,
         bootstrap_token="e2e-bootstrap-token",
     )
 

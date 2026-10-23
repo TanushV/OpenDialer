@@ -87,13 +87,8 @@ class ReservationPlanner:
         ids = [lead.id for lead in leads]
         endpoints = [lead.data["endpoint_id"] for lead in leads]
         # Only equality hashes, references and operational columns are indexed. Text stays encrypted.
-        import hashlib
-        import hmac
 
-        keys = [
-            hmac.new(self.db.identity_key, lead.data["phone"].encode(), hashlib.sha256).hexdigest()
-            for lead in leads
-        ]
+        keys = [lead.data["phone"] for lead in leads]
         specifications = {
             kind: []
             for kind in (
@@ -263,7 +258,7 @@ class ReservationPlanner:
                 if serving:
                     by_model.setdefault(serving.id, (serving, []))[1].append(lead.id)
             for serving, identifiers in by_model.values():
-                from app.ml.training import predict_funnel_batch, retired_reason
+                from app.ml.training import predict_funnel_batch
 
                 estimates = predict_funnel_batch(
                     serving.data, [features[i] for i in identifiers], self.settings.data_dir / "models"
@@ -275,7 +270,7 @@ class ReservationPlanner:
                         # Pooled estimates stay in force; the decision records why the model did not.
                         predictions[identifier]["model_fallback"] = {
                             "model_id": serving.id,
-                            "reason": retired_reason(serving.data) or "model_artifact_unavailable",
+                            "reason": "model_artifact_unavailable",
                         }
             candidates = rank_candidates(
                 [{**doc(lead), "propensity": conversion_score(predictions[lead.id])} for lead in leads], now
@@ -548,14 +543,6 @@ class ReservationPlanner:
                 now=now,
             )
             allocation = plan["allocation"]
-            allocation_record = put(
-                s,
-                "allocation_decisions",
-                p["tenant_id"],
-                p["seller_id"],
-                {"lead_id": lead.id, "rep_id": p["user_id"], **allocation, "created_at": now.isoformat()},
-                now=now,
-            )
             if allocation.get("reassignment_reason"):
                 audit(
                     s,
@@ -590,7 +577,6 @@ class ReservationPlanner:
             update(
                 reservation,
                 feature_snapshot_id=snapshot.id,
-                allocation_decision_id=allocation_record.id,
                 treatment_variant_id=choice["action"],
                 policy_decision_id=policy_decision.id,
             )

@@ -4,8 +4,7 @@ import pytest
 from app.coaching.context import build_context, ground_guidance, merge_semantic_state
 from app.db import get
 from conftest import NOW, start
-from test_remediation_coach import ordinary_advice
-from test_remediation_privacy import principal
+from helpers import ordinary_advice, principal
 
 
 def utterance(text):

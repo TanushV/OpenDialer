@@ -160,26 +160,6 @@ def test_model_and_provider_settings_are_secure_and_do_not_erase_other_provider_
     assert result.json()["coach_provider"] == "openrouter"
 
 
-def test_retired_non_zdr_groq_route_cannot_be_configured_or_echoed(workspace, app):
-    """Raw speech may only reach the pinned Cerebras ZDR route; the Groq adapter is deleted."""
-    import importlib.util
-
-    from app.coaching import contracts
-
-    assert importlib.util.find_spec("app.providers.groq") is None
-    assert not hasattr(contracts, "CARD_SCHEMA")
-    c, h = workspace["client"], workspace["headers"]
-    for body in ({"groq_api_key": "test-groq-secret"}, {"groq_model": "openai/gpt-oss-20b"}):
-        assert c.put("/v1/admin/settings", headers=h, json=body).status_code == 422
-    # A key stored by an older release stays write-only and is not reported as configured.
-    app.state.service.vault.write(workspace["tenant_id"], {"groq_api_key": "legacy-groq-secret"})
-    settings = c.get("/v1/admin/settings", headers=h)
-    assert settings.status_code == 200
-    assert "legacy-groq-secret" not in settings.text and "groq" not in settings.json()["configured"]
-    preflight = c.get("/v1/admin/preflight", headers=h)
-    assert "groq" not in preflight.text.lower()
-
-
 async def test_reused_adapter_does_not_attribute_the_previous_receipt_to_a_failed_attempt():
     attempts = []
 

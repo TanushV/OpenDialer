@@ -815,7 +815,7 @@ class LiveHelper:
         monotonic_deadline = min(request_started + allowed_ms / 1000, engine.monotonic() + remaining)
         if remaining <= 0:
             return {"action": "NO_ACTION", "status": "expired", "private": bool(question)}
-        # The vault read is file I/O and decryption: keep it off the event loop.
+        # The config read is file I/O: keep it off the event loop.
         provider, route = await asyncio.to_thread(self.configured_coach, p)
         if provider:
             # The first-useful ceiling bounds the first displayable content only; generation
@@ -1221,7 +1221,7 @@ class LiveHelper:
                     request["recent_dialogue"],
                     request_id=key,
                     at=self.clock(),
-                    secret=self.db.identity_key,
+                    hash_sources=True,
                     limits=self.settings.runtime_limits,
                     catalog=request.get("evidence_catalog", []),
                     call_at=dt(call.data.get("started_at")),

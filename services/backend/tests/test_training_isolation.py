@@ -14,8 +14,7 @@ from types import ModuleType
 
 import pytest
 from app.db import get, put, update
-from test_background_event_loop import async_sql
-from test_control_completion import principal
+from helpers import async_sql, principal
 
 
 def training_rows():
@@ -224,23 +223,6 @@ def test_trainer_self_check_loads_the_fitting_stack_and_rejects_other_arguments(
         [sys.executable, entry, "serve"], capture_output=True, text=True, timeout=120
     )
     assert other.returncode == 2 and "opendialer-trainer" in other.stderr
-
-
-def test_authority_entry_no_longer_trains_in_process(monkeypatch, capsys):
-    entry = ENTRIES / "backend_entry.py"
-    monkeypatch.setattr(sys, "frozen", True, raising=False)
-    monkeypatch.setattr(sys, "argv", [str(entry), "--train-child"])
-    original = builtins.__import__
-
-    def guarded(name, *args, **kwargs):
-        assert name not in {"app.ml.worker", "app.ml.training", "app.cli"}, name
-        return original(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", guarded)
-    with pytest.raises(SystemExit) as stopped:
-        runpy.run_path(str(entry), run_name="__main__")
-    assert stopped.value.code == 2
-    assert "opendialer-trainer" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(

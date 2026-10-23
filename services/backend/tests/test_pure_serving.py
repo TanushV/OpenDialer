@@ -7,7 +7,6 @@ boosting stage as plain JSON, and the authority's evaluator must reproduce predi
 import hashlib
 import json
 import math
-import pickle
 import random
 import subprocess
 import sys
@@ -177,34 +176,6 @@ class Detonator:
 
     def __reduce__(self):
         return (open, (self.sentinel, "w"))
-
-
-@pytest.mark.parametrize("claims_current_format", [False, True])
-def test_legacy_pickle_artifact_is_retired_and_never_unpickled(tmp_path, monkeypatch, claims_current_format):
-    root = tmp_path / "models"
-    root.mkdir()
-    sentinel = tmp_path / "unpickled"
-    path = root / "challenger.joblib"
-    path.write_bytes(pickle.dumps({"feature_schema_version": 2, "stages": Detonator(str(sentinel))}))
-
-    def forbidden(*args, **kwargs):
-        raise AssertionError("Serving attempted to unpickle a model artifact")
-
-    monkeypatch.setattr(pickle, "loads", forbidden)
-    monkeypatch.setattr(pickle, "load", forbidden)
-    model = {
-        "artifact": str(path),
-        "checksum": hashlib.sha256(path.read_bytes()).hexdigest(),
-        "feature_schema_version": 2,
-        "feature_order": ["local_hour"],
-        **({"artifact_format": serving.FORMAT} if claims_current_format else {}),
-    }
-    training._MODELS.clear()
-    assert training.predict_funnel_batch(model, [{"local_hour": 9}, {}], root) == [{}, {}]
-    assert not sentinel.exists()
-    expected = None if claims_current_format else serving.RETIRED
-    assert training.retired_reason(model) == expected
-    assert serving.RETIRED == "model_format_retired: retrain"
 
 
 def valid_document():

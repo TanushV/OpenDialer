@@ -1,7 +1,6 @@
 """Local commitments and rep-reported outcomes. No external scheduling effects."""
 
 import hashlib
-import hmac
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Literal
@@ -120,134 +119,6 @@ class OutreachEdit(DatedEdit):
 
 
 class RepWorkflows:
-    def migrate_followthrough(self):
-        """Resume legacy reconciliation in 500-row pages; aliases retain human text and IDs."""
-        with self.db.transaction(False) as s:
-            scopes = [(r.tenant_id, r.id) for r in s.scalars(select(MODELS["sellers"]))]
-        model = MODELS["followup_tasks"]
-        for tenant, seller_id in scopes:
-            p = {"tenant_id": tenant, "seller_id": seller_id}
-            while True:
-                with self.db.transaction() as s:
-                    seller = self.required(s, "sellers", seller_id, p)
-                    marker = seller.data.get("completion_contracts", {}).get("followthrough", {})
-                    if marker.get("completed_at"):
-                        break
-                    batch = list(
-                        s.scalars(
-                            select(model)
-                            .where(
-                                model.tenant_id == tenant,
-                                model.seller_id == seller_id,
-                                model.id > marker.get("last_id", ""),
-                            )
-                            .order_by(model.id)
-                            .limit(500)
-                        )
-                    )
-                    handled = set()
-                    for row in batch:
-                        if row.data.get("alias_of"):
-                            continue
-                        if "confirmation_state" not in row.data:
-                            update(
-                                row,
-                                confirmation_state=(
-                                    "needs_review"
-                                    if row.data.get("review_required")
-                                    else "suggested"
-                                    if row.data.get("status") == "needs_confirmation"
-                                    else "confirmed"
-                                ),
-                            )
-                        group = (row.data.get("lead_id"), row.data.get("call_id"), row.data.get("kind"))
-                        if not all(group) or group in handled:
-                            continue
-                        handled.add(group)
-                        related = self.lead_records(s, p, "followup_tasks", group[0], limit=501)
-                        if len(related) > 500:
-                            update(
-                                row,
-                                review_required=True,
-                                source_conflicts=["Legacy task group exceeds automatic reconciliation limit"],
-                            )
-                            continue
-                        candidates = [
-                            t for t in related if (t.data.get("call_id"), t.data.get("kind")) == group[1:]
-                        ]
-                        if len(candidates) < 2:
-                            continue
-                        sources = {
-                            (t.data.get("commitment_id"), tuple(sorted(t.data.get("evidence", []))))
-                            for t in candidates
-                        }
-                        # A manual wrap-up can share an explicit source-linked task. Different
-                        # nonempty source identities are separate promises, never fuzzy matches.
-                        linked = {v for v in sources if v != (None, ())}
-                        if len(linked) > 1:
-                            continue
-                        decisions = {
-                            (
-                                t.data.get("owner_id"),
-                                t.data.get("due_at"),
-                                json.dumps(t.data.get("time_window"), sort_keys=True),
-                                t.data.get("window_end"),
-                                t.data.get("status"),
-                            )
-                            for t in candidates
-                        }
-                        if (
-                            len(decisions) > 1
-                            or sum(bool(t.data.get("human_edited")) for t in candidates) > 1
-                        ):
-                            ids = sorted(t.id for t in candidates)
-                            for task in candidates:
-                                update(
-                                    task,
-                                    source_conflicts=[i for i in ids if i != task.id],
-                                    review_required=True,
-                                    confirmation_state="needs_review",
-                                )
-                            continue
-                        candidates.sort(
-                            key=lambda t: (
-                                t.created_at,
-                                not (t.external_key or "").startswith(("commitment:", "wrapup-callback:")),
-                                t.id,
-                            )
-                        )
-                        survivor, aliases = candidates[0], candidates[1:]
-                        update(
-                            survivor,
-                            alias_ids=sorted(
-                                set(survivor.data.get("alias_ids", [])) | {t.id for t in aliases}
-                            ),
-                            confirmation_state=survivor.data.get("confirmation_state", "confirmed"),
-                            human_edited=any(t.data.get("human_edited") for t in candidates),
-                            retained_notes=[
-                                *survivor.data.get("retained_notes", []),
-                                *[
-                                    {"task_id": t.id, "text": t.data["note"]}
-                                    for t in aliases
-                                    if t.data.get("note")
-                                ],
-                            ],
-                        )
-                        for alias in aliases:
-                            update(alias, status="aliased", alias_of=survivor.id)
-                            if alias.data.get("commitment_id"):
-                                commitment = self.required(s, "commitments", alias.data["commitment_id"], p)
-                                update(commitment, task_id=survivor.id)
-                    contracts = dict(seller.data.get("completion_contracts", {}))
-                    contracts["followthrough"] = {
-                        "schema_version": 1,
-                        "phase": "tasks",
-                        "last_table": "followup_tasks",
-                        "last_id": batch[-1].id if batch else marker.get("last_id", ""),
-                        "completed_at": self.clock().isoformat() if len(batch) < 500 else None,
-                    }
-                    seller.data = {**seller.data, "completion_contracts": contracts}
-
     def local_edit_in(self, s, p, kind, requested_id, row, data, owner_field):
         """Authorize before replay; the receipt is metadata, never a historical object view."""
         self.db.authorize_stream(s, p)
@@ -273,12 +144,10 @@ class RepWorkflows:
         if type(data["expected_version"]) is not int or data["expected_version"] < 1:
             fail(422, "expected_version must be a positive integer")
         key = f"edit:{kind}:{request_id}"
-        digest = hmac.new(
-            self.db.identity_key,
+        digest = hashlib.sha256(
             json.dumps(
                 [requested_id, p["user_id"], data], sort_keys=True, separators=(",", ":"), default=str
-            ).encode(),
-            hashlib.sha256,
+            ).encode()
         ).hexdigest()
         receipt = self._by_key(s, p, "outcomes", key)
         if receipt:

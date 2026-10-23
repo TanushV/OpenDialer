@@ -337,7 +337,3 @@ class WebhookIngress:
                     update(
                         receipt, status="review_required", error=job.error or "Processing attempts exhausted"
                     )
-                elif job.status == "completed":
-                    # Older releases could finish a job before its event matched a call.
-                    job.status = "queued" if job.attempts < job.max_attempts else "dead"
-                    job.available_at = self.clock()

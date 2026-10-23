@@ -1,3 +1,4 @@
+import hashlib
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
@@ -20,9 +21,7 @@ def context():
         timezone="America/Los_Angeles",
         timezone_confidence="confirmed",
         registry_required=True,
-        registry_checked_at=NOW - timedelta(days=1),
-        registry_covered=True,
-        registry_listed=False,
+        registry_decision={"decision": "clear", "endpoint": "+14155550101"},
         state_registry_required=False,
         state_registry_current=True,
         internal_suppressed=False,
@@ -59,10 +58,12 @@ def test_valid_context_is_authorized(context):
         ({"endpoint_valid": False}, "INVALID_ENDPOINT"),
         ({"ownership": "wrong_party"}, "WRONG_PARTY"),
         ({"internal_suppressed": True}, "INTERNAL_SUPPRESSION"),
-        ({"registry_checked_at": None}, "REGISTRY_MISSING"),
-        ({"registry_checked_at": NOW - timedelta(days=32)}, "REGISTRY_STALE"),
-        ({"registry_covered": False}, "REGISTRY_COVERAGE_MISSING"),
-        ({"registry_listed": True}, "REGISTRY_LISTED"),
+        ({"registry_decision": None}, "REGISTRY_NOT_CLEARED_FOR_ENDPOINT"),
+        ({"registry_decision": {"decision": "clear"}}, "REGISTRY_NOT_CLEARED_FOR_ENDPOINT"),
+        (
+            {"registry_decision": {"decision": "listed", "reason_codes": ["REGISTRY_LISTED"]}},
+            "REGISTRY_LISTED",
+        ),
         ({"state_registry_required": True, "state_registry_current": False}, "STATE_REGISTRY_MISSING"),
         ({"consent_required": True, "consent_valid": False}, "CONSENT_MISSING"),
         ({"consent_revoked": True}, "CONSENT_REVOKED"),
@@ -116,6 +117,7 @@ def test_exact_registry_bitmap_roundtrip_and_checksum():
     bitmap = RegistryBitmap.build(numbers)
     assert bitmap.contains("+14155550101")
     assert not bitmap.contains("+14155550109")
-    assert RegistryBitmap.load(bitmap.dump(), bitmap.checksum).contains("+12125550103")
+    checksum = hashlib.sha256(bitmap.dump()).hexdigest()
+    assert RegistryBitmap.load(bitmap.dump(), checksum).contains("+12125550103")
     with pytest.raises(RegistryError):
         RegistryBitmap.load(bitmap.dump(), "wrong-checksum")
