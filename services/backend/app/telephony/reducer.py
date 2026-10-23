@@ -5,8 +5,6 @@ ORDER = {
     v: i
     for i, v in enumerate(
         [
-            "QUEUED",
-            "RESERVED",
             "AUTHORIZED",
             "RECONCILING",
             # No carrier reference or event before the dial deadline; operator review owns it.
@@ -15,8 +13,6 @@ ORDER = {
             "RINGING",
             "ANSWERED_UNCLASSIFIED",
             "SCREENING",
-            "IVR",
-            "GATEKEEPER",
             "VOICEMAIL_GREETING",
             "VOICEMAIL_READY",
             "VM_PENDING",

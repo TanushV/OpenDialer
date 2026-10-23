@@ -1117,21 +1117,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
         quotes = await asyncio.to_thread(save_quotes)
         return {"numbers": quotes, "simulation": settings.simulation}
 
-    @app.post("/v1/admin/numbers/purchase")
-    async def purchase_numbers(data: dict, p=Depends(administrator)):
-        fail(
-            403,
-            "RECURRING_COMMITMENT_DISABLED: new numbers incur rental fees; reuse existing authorized inventory",
-        )
-
-    @app.get("/v1/admin/numbers/orders")
-    def number_orders(p=Depends(administrator)):
-        return service.number_orders(p)
-
-    @app.post("/v1/admin/numbers/orders/{intent_id}/reconcile")
-    async def reconcile_number_order(intent_id: str, data: dict, p=Depends(administrator)):
-        return await service.reconcile_number_order(p, intent_id, data)
-
     @app.post("/v1/admin/variants")
     def create_variant(data: dict, p=Depends(administrator)):
         opener = data.get("opener", "")
@@ -1472,12 +1457,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.post("/v1/admin/control/run")
     async def control_run(p=Depends(administrator)):
         return await service.dispatch_controls(p)
-
-    @app.get("/v1/calls/{call_id}/recording")
-    def recording(call_id: str, p=Depends(principal)):
-        with db.transaction(False) as s:
-            service.required(s, "call_attempts", call_id, p)
-        fail(410, "Call recordings are unavailable under the short-retention policy")
 
     @app.post("/v1/admin/trackers")
     def publish_tracker(data: dict, p=Depends(administrator)):

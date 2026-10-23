@@ -12,7 +12,7 @@ from app.service import dt, fail
 from app.telephony.recovery import safe_stop, within_command_window
 from app.telephony.reducer import HUMAN_EVENTS, TERMINAL, owns_effect
 
-KEYPAD_STATES = {"DIALING", "RINGING", "ANSWERED_UNCLASSIFIED", "HUMAN", "GATEKEEPER", "SCREENING", "IVR"}
+KEYPAD_STATES = {"DIALING", "RINGING", "ANSWERED_UNCLASSIFIED", "HUMAN", "SCREENING"}
 TRANSCRIPTION_ENGINE = "Soniox"
 
 

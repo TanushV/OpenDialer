@@ -244,12 +244,7 @@ def test_number_search_quotes_and_purchases_stay_blocked(workspace, carrier):
     )
     assert found["simulation"] is True
     post(workspace, "/v1/admin/numbers/search", {"region": "123"}, status=422)
-    refusal = post(
-        workspace, "/v1/admin/numbers/purchase", {"region": "415", "phone": quote["phone"]}, status=403
-    )
-    assert "RECURRING_COMMITMENT_DISABLED" in refusal["detail"]
     assert carrier.purchases == []
-    assert get(workspace, "/v1/admin/numbers/orders") == {"orders": []}
 
 
 def test_capacity_proposal_is_advisory_and_follows_the_declared_staffing(workspace, clock):
@@ -505,11 +500,6 @@ def test_telnyx_webhook_accepts_only_signed_events_and_redelivery_is_idempotent(
     assert deliver(body, sign(stamp, body), stamp).json()["receipt_id"] == receipt
 
 
-def test_call_recording_is_never_served_even_for_an_owned_call(workspace):
-    row = start(workspace)
-    response = workspace["client"].get(f"/v1/calls/{row['id']}/recording", headers=workspace["headers"])
-    assert response.status_code == 410 and "retention" in response.text
-    get(workspace, "/v1/calls/no-such-call/recording", status=404)
 
 
 HUMAN_LABELS = {"right_party": True, "not_interested": True, "no_answer": False, "busy": False}

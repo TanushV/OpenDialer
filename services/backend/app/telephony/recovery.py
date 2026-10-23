@@ -4,7 +4,6 @@ import asyncio
 import base64
 import json
 import logging
-from dataclasses import dataclass
 from datetime import timedelta
 
 from sqlalchemy import or_, select
@@ -21,93 +20,12 @@ DIAL_EVIDENCE_SECONDS = 120
 UNACKNOWLEDGED = {"DIALING", "RECONCILING", "ENDING"}
 
 
-@dataclass(frozen=True)
-class OperationPolicy:
-    handler: str
-    repeat: str
-    uncertain_action: str
-    proof: str
-
-
-OPERATION_POLICIES = {
-    "dial": OperationPolicy(
-        "reconcile_command",
-        "original_command_window",
-        "verify_original_call",
-        "matching_leg_or_terminal_receipt",
-    ),
-    "agent": OperationPolicy(
-        "reconcile_agent",
-        "original_command_window",
-        "verify_original_agent",
-        "matching_agent_or_terminal_receipt",
-    ),
-    **{
-        name: OperationPolicy(
-            "reconcile_command",
-            "original_command_window",
-            "verify_original_operation",
-            "matching_operation_event_or_typed_acknowledgement",
-        )
-        for name in (
-            "answer",
-            "bridge",
-            "transfer",
-            "transcription_start",
-            "playback_start",
-            "gather",
-            "speak",
-            "send_dtmf",
-        )
-    },
-    **{
-        name: OperationPolicy(
-            "reconcile_command", "safe_stop", "stop_verified_original_leg", "stopped_or_terminal_receipt"
-        )
-        for name in ("hangup", "transcription_stop", "playback_stop", "record_stop")
-    },
-    "number_configure": OperationPolicy(
-        "reconcile_number_configuration",
-        "verified_idempotent_configuration",
-        "read_original_number_route",
-        "exact_identity_connection_and_recording_state",
-    ),
-    "number_purchase": OperationPolicy(
-        "reconcile_number_order", "never", "read_original_order", "original_partial_or_terminal_items"
-    ),
-    "dnc_screen": OperationPolicy(
-        "compliance.screening.execute",
-        "explicit_charge_acknowledgement",
-        "review_original_lookup_liability",
-        "exact_endpoint_source_and_attempt_response",
-    ),
-    "inference": OperationPolicy(
-        "run_jobs",
-        "current_budget_and_live_sources",
-        "retain_original_uncertain_usage",
-        "matching_request_usage_receipt",
-    ),
-    "review": OperationPolicy(
-        "run_jobs",
-        "current_budget_and_live_sources",
-        "retain_original_uncertain_usage",
-        "matching_review_fingerprint_and_usage_receipt",
-    ),
-    "local_task": OperationPolicy(
-        "edit_task", "identical_request_digest", "read_committed_edit_receipt", "committed_task_and_version"
-    ),
-    "local_outcome": OperationPolicy(
-        "save_disposition",
-        "identical_request_digest",
-        "read_committed_edit_receipt",
-        "committed_outcome_and_version",
-    ),
-}
+# Stopping an existing leg is safe to repeat; starting another effect needs the dedupe window.
+STOP_OPERATIONS = {"hangup", "transcription_stop", "playback_stop", "record_stop"}
 
 
 def safe_stop(operation):
-    policy = OPERATION_POLICIES.get(operation)
-    return bool(policy and policy.repeat == "safe_stop")
+    return operation in STOP_OPERATIONS
 
 
 def within_command_window(sent, now):
