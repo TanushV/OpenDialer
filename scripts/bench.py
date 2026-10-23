@@ -27,7 +27,13 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat 
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import event, func, insert, select  # noqa: E402
 
-TARGETS_MS = {"next_lead": 100, "webhook_receipt": 30, "event_to_state": 100, "wrap_up": 100, "workspace": 150}
+TARGETS_MS = {
+    "next_lead": 100,
+    "webhook_receipt": 30,
+    "event_to_state": 100,
+    "wrap_up": 100,
+    "workspace": 150,
+}
 
 
 class Clock:
@@ -130,7 +136,9 @@ def run(leads, attempts, samples):
             }
             for i in range(offset, min(offset + 500, leads))
         ]
-        client.post("/v1/leads/import", headers=h, json={"campaign_id": campaign, "rows": rows}).raise_for_status()
+        client.post(
+            "/v1/leads/import", headers=h, json={"campaign_id": campaign, "rows": rows}
+        ).raise_for_status()
     p = {"tenant_id": creds["tenant_id"], "seller_id": creds["seller_id"], "user_id": creds["user_id"]}
     loaded = history(app.state.service, p, campaign, attempts, clock.now)
     private = Ed25519PrivateKey.generate()
@@ -154,19 +162,34 @@ def run(leads, attempts, samples):
         client.post(
             "/v1/rep/presence",
             headers=h,
-            json={"status": "ready", "audio_ready": True, "telephony_ready": True, "agent_call_control_id": "a"},
+            json={
+                "status": "ready",
+                "audio_ready": True,
+                "telephony_ready": True,
+                "agent_call_control_id": "a",
+            },
         ).raise_for_status()
         statements.clear()
         packet = timed("next_lead", "POST", "/v1/queue/next", headers=h, json={"campaign_id": campaign})
         sql_next.append(len(statements))
-        call = client.post(
-            "/v1/calls/start",
-            headers=h,
-            json={"reservation_id": packet["reservation_id"], "idempotency_key": f"bench-{i}"},
-        ).raise_for_status().json()
+        call = (
+            client.post(
+                "/v1/calls/start",
+                headers=h,
+                json={"reservation_id": packet["reservation_id"], "idempotency_key": f"bench-{i}"},
+            )
+            .raise_for_status()
+            .json()
+        )
         provider = next(reversed(carrier.calls.values()))["call_control_id"]
         body = json.dumps(
-            {"data": {"id": str(uuid4()), "event_type": "call.ringing", "payload": {"call_control_id": provider}}}
+            {
+                "data": {
+                    "id": str(uuid4()),
+                    "event_type": "call.ringing",
+                    "payload": {"call_control_id": provider},
+                }
+            }
         ).encode()
         stamp = str(int(clock.now.timestamp()))
         signature = base64.b64encode(private.sign(stamp.encode() + b"|" + body)).decode()
@@ -175,7 +198,11 @@ def run(leads, attempts, samples):
             "POST",
             "/webhooks/telnyx",
             content=body,
-            headers={"telnyx-signature-ed25519": signature, "telnyx-timestamp": stamp, "content-type": "application/json"},
+            headers={
+                "telnyx-signature-ed25519": signature,
+                "telnyx-timestamp": stamp,
+                "content-type": "application/json",
+            },
         )
         for kind in ("call.answered", "human.confirmed", "call.hangup"):
             timed(

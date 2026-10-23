@@ -1,6 +1,6 @@
 """Codebase size: lines per area plus Python AST nodes and TypeScript tokens.
 
-    .venv/bin/python scripts/size.py [--json]
+.venv/bin/python scripts/size.py [--json]
 """
 
 import ast

@@ -500,8 +500,6 @@ def test_telnyx_webhook_accepts_only_signed_events_and_redelivery_is_idempotent(
     assert deliver(body, sign(stamp, body), stamp).json()["receipt_id"] == receipt
 
 
-
-
 HUMAN_LABELS = {"right_party": True, "not_interested": True, "no_answer": False, "busy": False}
 
 

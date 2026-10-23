@@ -1439,7 +1439,11 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     await pulse
 
         limits = self.settings.runtime_limits
-        capacity = {"webhook": limits.live_active, "live_coach": limits.live_active, "postcall": limits.postcall_active}
+        capacity = {
+            "webhook": limits.live_active,
+            "live_coach": limits.live_active,
+            "postcall": limits.postcall_active,
+        }
         capacity.update(research=limits.company_units, scripts=limits.company_units, ml=2)
         processed = 0
 
@@ -1449,7 +1453,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             pool = self.job_admission["preparation" if lane in {"research", "scripts"} else lane]
             seen = set()
             for _ in range(20):
-                jobs = await asyncio.to_thread(self.jobs.claim_many, lane, worker_id, capacity[lane], 60, tenant_id)
+                jobs = await asyncio.to_thread(
+                    self.jobs.claim_many, lane, worker_id, capacity[lane], 60, tenant_id
+                )
                 if not jobs:
                     return True
 

@@ -574,7 +574,9 @@ def emit(s, tenant_id, kind, obj, now, payload=None):
                 **bus_metadata(payload or {}),
                 "_seller_id": getattr(obj, "seller_id", ""),
                 # Rep-scoped feeds show a row only to its rep or owner (calls, legs, tasks).
-                "_rep_id": (obj.data.get("rep_id") or obj.data.get("owner_id")) if hasattr(obj, "data") else None,
+                "_rep_id": (obj.data.get("rep_id") or obj.data.get("owner_id"))
+                if hasattr(obj, "data")
+                else None,
             },
         )
     )
