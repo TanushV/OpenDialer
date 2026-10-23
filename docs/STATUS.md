@@ -1,5 +1,7 @@
 # Execution log and continuation state
 
+**October 22, 2026: the active plan is [LEAN_PLAN.md](LEAN_PLAN.md); its Status section is the current checkpoint.** The entries below are the history of the remediation and E00-E15 execution.
+
 **Current checkpoint — E14 Windows accepted, Mac pending (on `main`):** 0.3.3 is the public latest. Its signed Windows in-place update from 0.2.1 passed on NSIS and MSI (run 39708283954). 0.3.0, 0.3.1 and 0.3.2 were each published as a controlled validation release, failed installed-update validation on Windows with a product defect, and were withdrawn. The installed Mac remains 0.2.1 until a person installs the update from its Settings. No funded request, call or purchase occurred. E13 software evidence below is unchanged except that one fix. Installed Mac remains 0.2.1; no funded request, call or purchase occurred.
 
 2026-10-21 E14 DELIVERY CHECKPOINT.
