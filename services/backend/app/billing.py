@@ -148,12 +148,6 @@ def store_proof(service, s, p, provider, identity, digest, target, action, sourc
     )
 
 
-def active_admin(service, s, p):
-    user = service.required(s, "users", p["user_id"], p)
-    if user.data.get("disabled") or user.data.get("role") not in {"owner", "admin"}:
-        fail(403, "An active administrator must check provider receipts")
-
-
 NOT_PLACED = {"carrier_not_submitted", "operator_confirmed_not_placed", "unsent_intent_cancelled"}
 
 
@@ -242,7 +236,6 @@ def reconcile_entry(service, p, identity, data):
     digest = fingerprint({"entry_id": identity, **data.model_dump(exclude={"expected_version"})})
     with service.db.transaction() as s:
         service.db.authorize_stream(s, p)
-        active_admin(service, s, p)
         row = service.required(s, "usage_ledger", identity, p)
         prior = prior_proof(service, s, p, data.provider, data.receipt_id, digest)
         if prior:
@@ -311,7 +304,6 @@ def import_records(service, p, data):
     matched = duplicates = duration = 0
     with service.db.transaction() as s:
         service.db.authorize_stream(s, p)
-        active_admin(service, s, p)
         for record in data.rows:
             call_id = record.callback_id or record.call_id
             call = service.required(

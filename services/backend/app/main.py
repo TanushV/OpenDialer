@@ -393,20 +393,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
             and int(request.headers.get("content-length", 0)) > 5_000_000
         ):
             return JSONResponse({"detail": "Request too large"}, status_code=413)
-        host = request.headers.get("host", "").split(":")[0]
-        if (
-            settings.mode == "local"
-            and request.url.path != "/webhooks/telnyx"
-            and not (
-                request.method == "GET"
-                and re.fullmatch(r"/webhooks/ingress-check/[0-9a-f]{32}", request.url.path)
-            )
-            and host not in {"127.0.0.1", "localhost", "testserver", "["}
-        ):
-            return JSONResponse({"detail": "Local authority host rejected"}, status_code=403)
-        origin = request.headers.get("origin")
-        if origin and origin not in settings.allowed_origins:
-            return JSONResponse({"detail": "Origin rejected"}, status_code=403)
         from app.priority import GATE
 
         if request.url.path == "/v1/admin/jobs/run":
