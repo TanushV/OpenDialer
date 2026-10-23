@@ -10,7 +10,7 @@ from sqlalchemy import case, func, select
 
 from app.accounting import RequestAccounting
 from app.coaching.workflows import LiveHelper
-from app.config import PROVIDER_DEFAULTS, inference_model
+from app.config import LIMITS, PROVIDER_DEFAULTS, inference_model
 from app.db import MODELS, audit, doc, emit, get, put, rows, uid, update
 from app.postcall.analysis import build_analysis
 from app.preparation.templates import SLOT_SCHEMA, approved_template, fill, render, template_version
@@ -102,7 +102,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 inference_model(conf, role),
                 self.host_id(),
                 self.clock,
-                http=getattr(self, "background_http", None),
+                http=getattr(self, "http", None),
             )
         token = conf.get("openai_api_key")
         if not token and mode != "litellm":
@@ -114,7 +114,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             token or "",
             inference_model(conf, role),
             base_url=conf.get("inference_base_url") or None,
-            http=getattr(self, "background_http", None),
+            http=getattr(self, "http", None),
             search_enabled=conf.get("research_search") == "openai_web_search",
         )
 
@@ -338,7 +338,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
 
         # Two workers consume a bounded iterator, rather than creating a task per lead.
         async with asyncio.TaskGroup() as group:
-            for _ in range(self.settings.runtime_limits.company_units):
+            for _ in range(LIMITS.company_units):
                 group.create_task(work())
         return result
 
@@ -738,17 +738,16 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 ]
                 extracted = [{"statement": text, "source_id": source_id, "quote": text}]
             else:
-                limits = self.settings.runtime_limits
-                # Each fetch uses its own short-lived pinned client, never the shared LLM pool.
-                fetcher = SafeFetcher(max_bytes=limits.research_bytes, allowed_domains={domain})
+                # Each fetch uses its own short-lived client with byte and redirect caps.
+                fetcher = SafeFetcher(max_bytes=LIMITS.research_bytes, allowed_domains={domain})
                 loop = asyncio.get_running_loop()
                 deadline = loop.time() + COMPANY_FETCH_SECONDS
-                fetch_attempts, remaining = 0, limits.research_bytes
+                fetch_attempts, remaining = 0, LIMITS.research_bytes
 
                 async def fetch_source(url):
                     """One bounded page; a failure is recorded as lost evidence, never hidden."""
                     nonlocal fetch_attempts, remaining
-                    fetcher.max_bytes = min(remaining, limits.research_bytes - fetcher.decoded_bytes_total)
+                    fetcher.max_bytes = min(remaining, LIMITS.research_bytes - fetcher.decoded_bytes_total)
                     fetch_attempts += 1
                     try:
                         async with asyncio.timeout_at(deadline):
@@ -769,14 +768,14 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
 
                 def exhausted():
                     return (
-                        fetch_attempts >= limits.research_pages
+                        fetch_attempts >= LIMITS.research_pages
                         or remaining <= 0
-                        or fetcher.decoded_bytes_total >= limits.research_bytes
+                        or fetcher.decoded_bytes_total >= LIMITS.research_bytes
                         or loop.time() >= deadline
                     )
 
                 home = await fetch_source("https://" + domain)
-                for url in discovery_links(home, limits.research_pages - 1) if home else []:
+                for url in discovery_links(home, LIMITS.research_pages - 1) if home else []:
                     if exhausted():
                         break
                     await fetch_source(url)
@@ -790,7 +789,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
 
                     seen = {v["url"].rstrip("/") for v in source_data} | {v["url"].rstrip("/") for v in lost}
                     for query in ("services and products", "company location and business activity")[
-                        : limits.research_searches
+                        : LIMITS.research_searches
                     ]:
                         if exhausted():
                             break
@@ -843,7 +842,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                                 continue
                             seen.add(url.rstrip("/"))
                             added = bool(await fetch_source(url)) or added
-                            if len(source_data) == limits.research_pages:
+                            if len(source_data) == LIMITS.research_pages:
                                 break
                         if added:
                             extracted, review = await self._extract_company_facts(
@@ -1076,7 +1075,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             return OpenRouterCoach(
                 conf["openrouter_api_key"],
                 conf.get("coach_model", PROVIDER_DEFAULTS.coach_model),
-                http=getattr(self, "coach_http", None),
+                http=getattr(self, "http", None),
             ), "openrouter"
         return None, "approved_static"
 
@@ -1432,14 +1431,13 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 with contextlib.suppress(asyncio.CancelledError):
                     await pulse
 
-        limits = self.settings.runtime_limits
         # Carrier events apply in arrival order (an answer before its hangup): one webhook at a time.
         capacity = {
             "webhook": 1,
-            "live_coach": limits.live_active,
-            "postcall": limits.postcall_active,
+            "live_coach": LIMITS.live_active,
+            "postcall": LIMITS.postcall_active,
         }
-        capacity.update(research=limits.company_units, scripts=limits.company_units, ml=2)
+        capacity.update(research=LIMITS.company_units, scripts=LIMITS.company_units, ml=2)
         processed = 0
 
         async def drain(lane):
@@ -1810,7 +1808,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             or [self.clock() + timedelta(seconds=30)]
         )
         deadline = time.monotonic() + min(
-            self.settings.runtime_limits.manual_full_ms / 1000,
+            LIMITS.manual_full_ms / 1000,
             max(0, (expiry - self.clock()).total_seconds()),
         )
         submitted = False
@@ -1869,7 +1867,6 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 request_id=owner,
                 at=self.clock(),
                 hash_sources=True,
-                limits=self.settings.runtime_limits,
                 catalog=request["evidence_catalog"],
                 call_at=dt(request["call_at"]),
                 timezone=request["prospect_timezone"],
@@ -2041,10 +2038,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             fields, targets, unavailable = [], [], False
             for group in ("observations", "rubric_items", "tracker_matches"):
                 for item in state[group]:
-                    if (
-                        item.get("review_status") != "pending"
-                        or len(fields) >= self.settings.runtime_limits.review_fields
-                    ):
+                    if item.get("review_status") != "pending" or len(fields) >= LIMITS.review_fields:
                         continue
                     refs = item.get("sources", [])
                     supported = [catalog.get((r["kind"], r["id"], r["version"])) for r in refs]

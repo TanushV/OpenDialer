@@ -362,16 +362,14 @@ class OptimizationWorkflows(ComparisonWorkflows):
 
     def inventory_capacity(self, s, p, *, health=None):
         """Current capacity is authoritative; health reads the last derived observation."""
-        claims = list(
-            s.scalars(
-                select(ActiveClaim).where(
-                    ActiveClaim.tenant_id == p["tenant_id"],
-                    ActiveClaim.seller_id == p["seller_id"],
-                    or_(ActiveClaim.call_id.is_not(None), ActiveClaim.expires_at > self.clock()),
-                )
+        found = s.execute(
+            select(ActiveClaim, ActiveClaim.expires_at <= self.clock()).where(
+                ActiveClaim.tenant_id == p["tenant_id"], ActiveClaim.seller_id == p["seller_id"]
             )
-        )
+        ).all()
+        claims = [claim for claim, lapsed in found if claim.call_id or not lapsed]
         s.info["active_claims"] = claims
+        s.info["expired_claims"] = [claim.id for claim, lapsed in found if not claim.call_id and lapsed]
         attempt = MODELS["call_attempts"]
         today = self.clock().replace(hour=0, minute=0, second=0, microsecond=0)
         used = dict(

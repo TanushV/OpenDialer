@@ -24,6 +24,7 @@ from app.coaching.context import (
 )
 from app.coaching.contracts import card_view
 from app.coaching.engine import CardRejected, finish_shielded
+from app.config import LIMITS
 from app.db import MODELS, doc, emit, get, put, uid, update
 from app.grounding import accept_review
 from app.privacy import RAW_TTL_SECONDS, persistent_document
@@ -109,7 +110,7 @@ class LiveHelper:
                 update(prior, **values)
             else:
                 put(s, "outcomes", p["tenant_id"], p["seller_id"], values, key=key, now=self.clock())
-        data = persistent_state(state, limits=self.settings.runtime_limits)
+        data = persistent_state(state)
         preserved = {
             k: v
             for k, v in (record.data if record else {}).items()
@@ -161,7 +162,7 @@ class LiveHelper:
         ]
         if not pending:
             return
-        due = self.clock() + timedelta(seconds=self.settings.runtime_limits.review_interval_seconds)
+        due = self.clock() + timedelta(seconds=LIMITS.review_interval_seconds)
         expiries = [
             dt(ref["raw_expires_at"])
             for item in pending
@@ -309,7 +310,7 @@ class LiveHelper:
         result = {"status": "unconfigured", "examples": request["approved_cards"]}
         if provider and not self.settings.simulation:
             deadline = engine.monotonic() + min(
-                self.settings.runtime_limits.manual_full_ms / 1000,
+                LIMITS.manual_full_ms / 1000,
                 (expires - self.clock()).total_seconds(),
             )
 
@@ -652,7 +653,7 @@ class LiveHelper:
 
             request = {
                 "state_version": version,
-                "state": persistent_state(state, limits=self.settings.runtime_limits),
+                "state": persistent_state(state),
                 "mode": mode,
                 "recent_dialogue": stable,
                 "automatic_tips_muted": bool(preferences.get("muted") and not urgent),
@@ -809,8 +810,7 @@ class LiveHelper:
             return {"action": "NO_ACTION", "status": "no_action", "private": bool(question)}
         request, fallback, expires, state_ms, retrieval_ms, comparison = prepared
         remaining = (expires - self.clock()).total_seconds()
-        limits = self.settings.runtime_limits
-        allowed_ms = limits.manual_full_ms if urgent else limits.automatic_deadline_ms
+        allowed_ms = LIMITS.manual_full_ms if urgent else LIMITS.automatic_deadline_ms
         # Every ceiling is clipped to the original raw-speech expiry.
         monotonic_deadline = min(request_started + allowed_ms / 1000, engine.monotonic() + remaining)
         if remaining <= 0:
@@ -820,9 +820,9 @@ class LiveHelper:
         if provider:
             # The first-useful ceiling bounds the first displayable content only; generation
             # and any review of a factual answer may run to the full ceiling.
-            first_useful = min(request_started + limits.manual_first_ms / 1000, monotonic_deadline)
+            first_useful = min(request_started + LIMITS.manual_first_ms / 1000, monotonic_deadline)
             provider.first_useful_ms = max(1, int((first_useful - engine.monotonic()) * 1000))
-            provider.connect_ms = limits.manual_connect_ms
+            provider.connect_ms = LIMITS.manual_connect_ms
         if (
             (comparison or {}).get("arm") == "control"
             and not (comparison or {}).get("strategy_id")
@@ -966,7 +966,7 @@ class LiveHelper:
             for item in state.data.get("automatic_admissions", [])
             if dt(item["at"]) > self.clock() - timedelta(seconds=60)
         ]
-        if len(admitted) < self.settings.runtime_limits.automatic_per_call_minute:
+        if len(admitted) < LIMITS.automatic_per_call_minute:
             return admitted
         version = call.data["transcript_version"]
         if state.data.get("rate_limited_version") != version:
@@ -982,7 +982,7 @@ class LiveHelper:
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
             if call.data["state"] not in TERMINAL | {"ENDING"}:
-                due = self.clock() + timedelta(milliseconds=self.settings.runtime_limits.prospect_debounce_ms)
+                due = self.clock() + timedelta(milliseconds=LIMITS.prospect_debounce_ms)
                 self._defer_help(s, p, call, due, "capacity:" + due.isoformat())
 
     async def _validated_help(
@@ -1222,7 +1222,6 @@ class LiveHelper:
                     request_id=key,
                     at=self.clock(),
                     hash_sources=True,
-                    limits=self.settings.runtime_limits,
                     catalog=request.get("evidence_catalog", []),
                     call_at=dt(call.data.get("started_at")),
                     timezone=lead.data.get("timezone"),

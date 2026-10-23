@@ -5,6 +5,7 @@ import re
 
 from app.coaching.contracts import ConversationStateV2, FieldAudit, ObservationDelta, StateDelta
 from app.coaching.engine import CardRejected, validate_card
+from app.config import LIMITS
 from app.grounding import require_review, review_request
 
 STATE_FIELDS = (
@@ -527,12 +528,9 @@ def state_view(state, *, lineage=None):
     return value
 
 
-def persistent_state(state, *, limits=None):
+def persistent_state(state):
     import json
 
-    from app.config import RuntimeLimits
-
-    limits = limits or RuntimeLimits()
     value = upgrade_state(state)
 
     def priority(item):
@@ -547,8 +545,8 @@ def persistent_state(state, *, limits=None):
     selected, counts, omitted = [], {}, 0
     for item in ranked:
         if (
-            len(selected) >= limits.observation_count
-            or counts.get(item["kind"], 0) >= limits.observation_per_kind
+            len(selected) >= LIMITS.observation_count
+            or counts.get(item["kind"], 0) >= LIMITS.observation_per_kind
         ):
             omitted += 1
         else:
@@ -557,11 +555,11 @@ def persistent_state(state, *, limits=None):
     chosen = {i["id"] for i in selected}
     value["observations"] = [i for i in value["observations"] if i["id"] in chosen]
     value["coverage"]["omitted_items"] = value["coverage"].get("omitted_items", 0) + omitted
-    while len(json.dumps(value, separators=(",", ":")).encode()) > limits.conversation_bytes and selected:
+    while len(json.dumps(value, separators=(",", ":")).encode()) > LIMITS.conversation_bytes and selected:
         removed = selected.pop()
         value["observations"] = [i for i in value["observations"] if i["id"] != removed["id"]]
         value["coverage"]["omitted_items"] += 1
-    if len(json.dumps(value, separators=(",", ":")).encode()) > limits.conversation_bytes:
+    if len(json.dumps(value, separators=(",", ":")).encode()) > LIMITS.conversation_bytes:
         raise CardRejected("Conversation metadata exceeds its byte budget")
     return ConversationStateV2.model_validate(value).model_dump()
 
@@ -630,7 +628,6 @@ def merge_semantic_state(
     request_id=None,
     at=None,
     hash_sources=False,
-    limits=None,
     catalog=None,
     call_at=None,
     timezone=None,
@@ -858,7 +855,7 @@ def merge_semantic_state(
     if changed:
         value["version"] += 1
         value["finalization"]["status"] = "pending"
-    value = persistent_state(value, limits=limits)
+    value = persistent_state(value)
     return {
         **state_view(value, lineage=history),
         "_lineage": history,

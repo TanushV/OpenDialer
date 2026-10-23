@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -29,43 +29,29 @@ def inference_model(config, role=None):
     return config.get(f"{role}_model") or config.get("model") or default
 
 
-class RuntimeLimits(BaseModel):
-    """One immutable set of engineering bounds; domain policies remain seller owned."""
+class LIMITS:
+    """Engineering bounds; domain policies remain seller owned."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    live_active: int = Field(8, ge=1, le=32)
-    live_pending: int = Field(32, ge=1, le=256)
-    live_per_rep: int = Field(2, ge=1, le=4)
-    prospect_debounce_ms: int = Field(300, ge=0, le=500)
-    automatic_per_call_minute: int = Field(30, ge=1, le=60)
-    background_http: int = Field(4, ge=1, le=16)
-    company_units: int = Field(2, ge=1, le=4)
-    script_generations: int = Field(2, ge=1, le=4)
-    postcall_active: int = Field(2, ge=1, le=8)
-    automatic_deadline_ms: int = Field(1500, ge=1, le=5000)
-    manual_connect_ms: int = Field(1000, ge=1, le=15000)
-    manual_first_ms: int = Field(3000, ge=1, le=15000)
-    manual_full_ms: int = Field(8000, ge=1, le=15000)
-    conversation_bytes: int = Field(65536, ge=1024, le=262144)
-    observation_count: int = Field(48, ge=1, le=96)
-    observation_per_kind: int = Field(12, ge=1, le=24)
-    review_fields: int = Field(20, ge=1, le=40)
-    review_interval_seconds: int = Field(30, ge=5, le=60)
-    research_pages: int = Field(3, ge=1, le=3)
-    research_bytes: int = Field(1048576, ge=1, le=1048576)
-    research_searches: int = Field(2, ge=0, le=2)
-    planning_grid_seconds: int = Field(30, ge=30, le=30)
-    planning_time_buckets: int = Field(10000, ge=1, le=10000)
-    planning_operations: int = Field(200000, ge=1, le=200000)
-    planning_nodes: int = Field(20000, ge=1, le=20000)
-    projection_batch: int = Field(100, ge=1, le=100)
-    rebuild_batch: int = Field(500, ge=1, le=500)
-
-    @model_validator(mode="after")
-    def ordered_deadlines(self):
-        if not self.manual_connect_ms <= self.manual_first_ms <= self.manual_full_ms:
-            raise ValueError("Manual deadlines must satisfy connect <= first useful <= full")
-        return self
+    live_active = 8
+    live_pending = 32
+    live_per_rep = 2
+    prospect_debounce_ms = 300
+    automatic_per_call_minute = 30
+    company_units = 2
+    script_generations = 2
+    postcall_active = 2
+    automatic_deadline_ms = 1500
+    manual_connect_ms = 1000
+    manual_first_ms = 3000
+    manual_full_ms = 8000
+    conversation_bytes = 65536
+    observation_count = 48
+    observation_per_kind = 12
+    review_fields = 20
+    review_interval_seconds = 30
+    research_pages = 3
+    research_bytes = 1048576
+    research_searches = 2
 
 
 class CapabilityStatus(BaseModel):
@@ -83,7 +69,6 @@ class CapabilityStatus(BaseModel):
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="OPENDIALER_", env_nested_delimiter="__", extra="ignore")
-    runtime_limits: RuntimeLimits = Field(default_factory=RuntimeLimits)
     mode: Literal["local", "connected"] = "local"
     database_url: str = "sqlite:///opendialer.db"
     data_dir: Path = Path("work/data")

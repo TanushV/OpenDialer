@@ -13,6 +13,8 @@ from collections import OrderedDict
 from datetime import datetime, timedelta
 from typing import NamedTuple
 
+from app.config import LIMITS
+
 RAW_TTL_SECONDS = 300
 
 
@@ -742,7 +744,7 @@ class SpeechPrivacy:
                     s,
                     p,
                     call,
-                    self.clock() + timedelta(milliseconds=self.settings.runtime_limits.prospect_debounce_ms),
+                    self.clock() + timedelta(milliseconds=LIMITS.prospect_debounce_ms),
                     "final",
                 )
         model = MODELS["transcript_segments"]

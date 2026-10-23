@@ -373,13 +373,6 @@ class ReservationPlanner:
                     # Claims run in parallel (shared); opt-outs and other authorization changes
                     # still order against them. Endpoint, lead and rep uniqueness are constraints.
                     self.db.authorize_stream(s, p, shared=True)
-                    s.execute(
-                        delete(ActiveClaim).where(
-                            ActiveClaim.tenant_id == p["tenant_id"],
-                            ActiveClaim.call_id.is_(None),
-                            ActiveClaim.expires_at <= self.clock(),
-                        )
-                    )
                     plan = self._selection(s, p, campaign_id)
                     return self._claim_in(s, p, campaign_id, plan)
             except SelectionChanged as changed:
@@ -396,6 +389,15 @@ class ReservationPlanner:
     def _claim_in(self, s, p, campaign_id, plan):
         now = self.clock()
         s.info["defer_flush"] = True
+        if s.info.get("expired_claims"):
+            # Lapsed reservations seen while ranking; deleted here so the new claim fits.
+            s.execute(
+                delete(ActiveClaim).where(
+                    ActiveClaim.id.in_(s.info["expired_claims"]),
+                    ActiveClaim.call_id.is_(None),
+                    ActiveClaim.expires_at <= now,
+                )
+            )
         lead = self.required(s, "leads", plan["selection"]["lead_id"], p)
         if not self.db.sqlite and plan["allocation"]["number_id"]:
             # PostgreSQL claims run concurrently: the planned number's capacity is serialized by
@@ -417,7 +419,6 @@ class ReservationPlanner:
             raise SelectionChanged(decision.reasons)
         campaign = self.required(s, "campaigns", campaign_id, p)
         config = self.optimization_config(s, p, campaign_id)
-        record = self.record_decision(s, p, lead, decision)
         self.comparison_assignment(s, p, campaign, lead, "number_allocation")
         coach_comparison = self.comparison_assignment(s, p, campaign, lead, "coaching", rep_id=p["user_id"])
         reservation = put(
@@ -432,7 +433,6 @@ class ReservationPlanner:
                 "number_id": number.id,
                 "expires_at": (now + timedelta(minutes=2)).isoformat(),
                 "status": "reserved",
-                "decision_id": record.id,
                 "policy_id": campaign.data["policy_id"],
                 "coaching_comparison": coach_comparison,
             },

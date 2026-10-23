@@ -6,6 +6,7 @@ from collections import OrderedDict
 import httpx
 
 from app.coaching.contracts import Guidance
+from app.config import LIMITS
 from app.providers.inference import InferenceError
 
 ADMISSION_SECONDS = 0.1
@@ -73,18 +74,15 @@ def validate_card(card, *, state_version, segment_ids, card_ids, manual=False):
 
 
 class CoachEngine:
-    def __init__(self, limits=None):
-        from app.config import RuntimeLimits
-
-        self.limits = limits or RuntimeLimits()
+    def __init__(self):
         self.active = {}
         self._manual = set()
         self._identities = {}
         self._pending = {}
         self._lock = threading.RLock()
         self._circuits = OrderedDict()
-        self.capacity = asyncio.Semaphore(self.limits.live_active)
-        self.max_pending = self.limits.live_pending
+        self.capacity = asyncio.Semaphore(LIMITS.live_active)
+        self.max_pending = LIMITS.live_pending
 
     def _circuit(self, key, failed=None):
         with self._lock:
@@ -202,8 +200,7 @@ class CoachEngine:
             if call_id in self._manual and not manual:
                 return {"action": "NO_ACTION", "status": "manual_pending"}
             if len(self._pending) >= self.max_pending or (
-                owner_key is not None
-                and list(self._pending.values()).count(owner_key) >= self.limits.live_per_rep
+                owner_key is not None and list(self._pending.values()).count(owner_key) >= LIMITS.live_per_rep
             ):
                 return {"action": "NO_ACTION", "status": "busy"}
             self.cancel(call_id)

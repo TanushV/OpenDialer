@@ -151,6 +151,21 @@ def test_presence_heartbeats_idle_pause_and_stale_work_intervals(workspace, cloc
     call(ws, "POST", "/v1/rep/heartbeat", json={"activity": "ready"}, status=409)
 
 
+def test_an_unstarted_reservation_lapses_and_frees_the_rep_and_lead(workspace, clock):
+    ws = workspace
+    ready_as(ws)
+    first = next_lead(ws)
+    assert "RESERVATION_EXISTS" in str(next_lead(ws, status=409))
+    clock.now += timedelta(minutes=3)
+    ready_as(ws)
+    again = next_lead(ws)
+    assert again["reservation_id"] != first["reservation_id"]
+    body = {"reservation_id": first["reservation_id"], "idempotency_key": "lapsed-key"}
+    call(ws, "POST", "/v1/calls/start", json=body, status=409)
+    body = {"reservation_id": again["reservation_id"], "idempotency_key": "fresh-key"}
+    assert call(ws, "POST", "/v1/calls/start", json=body)["lead_id"] == again["lead"]["id"]
+
+
 def test_due_callback_is_offered_first_and_opt_out_removes_a_lead(workspace, clock):
     ws = workspace
     started = start(ws)

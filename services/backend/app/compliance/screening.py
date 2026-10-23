@@ -516,7 +516,7 @@ async def execute(service, p, intent, config):
     try:
         async with asyncio.timeout(10):
             value = await PrepaidDNC(
-                config["dnc_api_key"], http=getattr(service, "background_http", None), clock=service.clock
+                config["dnc_api_key"], http=getattr(service, "http", None), clock=service.clock
             ).check(intent["phone"])
         at = dt(value["checked_at"])
         if (

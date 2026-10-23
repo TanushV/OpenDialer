@@ -175,7 +175,7 @@ def request(service, p, call_id, mode):
             "mode": mode,
             "call_id": call.id,
             "state_version": call.data.get("transcript_version", 0),
-            "state": persistent_state(state, limits=service.settings.runtime_limits),
+            "state": persistent_state(state),
             "recent_dialogue": dialogue,
             "automatic_tips_muted": True,
             "manual_help": False,

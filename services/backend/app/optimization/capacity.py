@@ -19,14 +19,12 @@ from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app import priority
-from app.config import RuntimeLimits
 from app.optimization.numbering import number_ready, timestamp, wilson
 from app.scheduling.models import OPTIMIZATION_DEFAULTS
 
-_LIMITS = RuntimeLimits()
-MAX_SLOTS = _LIMITS.planning_time_buckets
-MAX_SEARCH_NODES = _LIMITS.planning_nodes
-MAX_PLANNING_STEPS = _LIMITS.planning_operations
+MAX_SLOTS = 10000
+MAX_SEARCH_NODES = 20000
+MAX_PLANNING_STEPS = 200000
 # Lifecycles still completing their declared setup. Paused or investigating
 # numbers are held for evidence and are never assumed to become ready.
 SETUP_PENDING = {"purchased", "identity_configured", "callback_tested"}

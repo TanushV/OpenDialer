@@ -889,7 +889,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
             },
             "defaults": {
                 "providers": PROVIDER_DEFAULTS.model_dump(mode="json"),
-                "runtime": settings.runtime_limits.model_dump(mode="json"),
                 "operating": OperatingPolicy().model_dump(mode="json"),
                 "preparation": PreparationPolicy().model_dump(mode="json"),
                 "optimization": {
@@ -1617,7 +1616,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 code=query.get("code"),
                 client_id=query.get("client_id"),
                 error=query.get("error"),
-                http=service.background_http,
+                http=service.http,
             )
         except (OAuthError, Exception) as exc:
             fail(400, "Authorization was not completed: " + type(exc).__name__)
@@ -1656,7 +1655,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 code=code,
                 client_id=client_id,
                 error=error,
-                http=service.background_http,
+                http=service.http,
             )
         except (OAuthError, Exception) as exc:
             fail(400, "Authorization was not completed: " + type(exc).__name__)
@@ -1677,7 +1676,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
         ):
             fail(422, "A complete protected official registration is required")
         identity = await PlanOAuth(service.host_id(), clock).identity(
-            data["id_token"], data["client_id"], service.background_http
+            data["id_token"], data["client_id"], service.http
         )
         if identity["sub"] != data.get("subject") or "chatgpt.tokens.use.direct" not in data.get(
             "scopes", []
@@ -1691,7 +1690,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
         profile = service.configs.read("plan-" + p["user_id"])
         if not profile.get("access_token"):
             fail(409, "Sign in with your own eligible ChatGPT account first")
-        response = await service.background_http.get(
+        response = await service.http.get(
             "https://api.openai.com/v1/models",
             headers={"Authorization": "Bearer " + profile["access_token"]},
             timeout=10,

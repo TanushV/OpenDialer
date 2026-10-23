@@ -14,6 +14,7 @@ from sqlalchemy import delete, or_, select
 
 from app.compliance.phone import normalize_phone
 from app.compliance.policy import CallContext, authorize
+from app.config import LIMITS
 from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, rows, uid, update
 from app.jobs.queue import JobQueue
 from app.privacy import event_metadata
@@ -50,20 +51,19 @@ class Service(ReservationPlanner):
         self.raw = EphemeralBuffer(clock=clock)
         from app.coaching.engine import CoachEngine
 
-        self.coach = CoachEngine(settings.runtime_limits)
-        self.preparation_capacity = asyncio.Semaphore(settings.runtime_limits.company_units)
-        self.research_capacity = asyncio.Semaphore(settings.runtime_limits.company_units)
-        self.script_capacity = asyncio.Semaphore(settings.runtime_limits.script_generations)
+        self.coach = CoachEngine()
+        self.preparation_capacity = asyncio.Semaphore(LIMITS.company_units)
+        self.research_capacity = asyncio.Semaphore(LIMITS.company_units)
+        self.script_capacity = asyncio.Semaphore(LIMITS.script_generations)
         self.screening_capacity = asyncio.Semaphore(2)
         self.research_flights = {}
-        limits = settings.runtime_limits
         self.job_admission = {
             name: asyncio.Semaphore(capacity)
             for name, capacity in {
-                "webhook": limits.live_active,
-                "live_coach": limits.live_active,
-                "postcall": limits.postcall_active,
-                "preparation": limits.company_units,
+                "webhook": LIMITS.live_active,
+                "live_coach": LIMITS.live_active,
+                "postcall": LIMITS.postcall_active,
+                "preparation": LIMITS.company_units,
                 "ml": 2,
             }.items()
         }
@@ -123,7 +123,7 @@ class Service(ReservationPlanner):
             conf["telnyx_api_key"],
             conf["telnyx_connection_id"],
             webhook_url=conf.get("webhook_url", self.settings.webhook_public_url),
-            http=getattr(self, "control_http", None),
+            http=getattr(self, "http", None),
         )
 
     def setup(self, data, *, first=True):
