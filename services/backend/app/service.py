@@ -64,8 +64,7 @@ class Service(ReservationPlanner):
                 "live_coach": limits.live_active,
                 "postcall": limits.postcall_active,
                 "preparation": limits.company_units,
-                "ml": 1,
-                "training": 1,
+                "ml": 2,
             }.items()
         }
 

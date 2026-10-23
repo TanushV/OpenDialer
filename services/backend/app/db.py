@@ -1,4 +1,5 @@
 import hashlib
+import threading
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -293,10 +294,8 @@ class Database:
     def __init__(self, url):
         self.url = url
         self.sqlite = url.startswith("sqlite")
-        from app.priority import WriterAdmission
-
-        # One SQLite writer at a time; calling work is admitted ahead of background work.
-        self._sqlite_writer = WriterAdmission() if self.sqlite else None
+        # One SQLite writer at a time, admitted before SQLite's own busy handler.
+        self._sqlite_writer = threading.Lock() if self.sqlite else None
         # In-process runners subscribe to committed job changes (queue names).
         self.job_listeners = []
         self.engine = create_engine(

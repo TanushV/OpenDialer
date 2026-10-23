@@ -1438,108 +1438,37 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 with contextlib.suppress(asyncio.CancelledError):
                     await pulse
 
-        async def drain(lane, execution_class, seen):
-            """Returns (completed, exhausted): exhausted means a claim found nothing due."""
-            processed = 0
-            limits = self.settings.runtime_limits
-            capacity = (
-                limits.live_active
-                if lane in {"webhook", "live_coach"}
-                else limits.postcall_active
-                if lane == "postcall"
-                else limits.company_units
-                if lane in {"research", "scripts"}
-                else 1
-            )
-            pool = ("research", "scripts") if lane in {"research", "scripts"} else (lane,)
-            admission = self.job_admission[
-                "preparation" if len(pool) == 2 else "training" if execution_class == "training" else lane
-            ]
+        limits = self.settings.runtime_limits
+        capacity = {"webhook": limits.live_active, "live_coach": limits.live_active, "postcall": limits.postcall_active}
+        capacity.update(research=limits.company_units, scripts=limits.company_units, ml=2)
+        processed = 0
 
-            async def admitted_wave(size, lane=lane, capacity=capacity, pool=pool, admission=admission):
-                """Lease up to `size` jobs in one writer turn; each then runs in its own local slot.
+        async def drain(lane):
+            """Claim and run waves of due jobs until the lane is idle or the pass bound is reached."""
+            nonlocal processed
+            pool = self.job_admission["preparation" if lane in {"research", "scripts"} else lane]
+            seen = set()
+            for _ in range(20):
+                jobs = await asyncio.to_thread(self.jobs.claim_many, lane, worker_id, capacity[lane], 60, tenant_id)
+                if not jobs:
+                    return True
 
-                Local slots are taken while the jobs are still queued, never while leased.
-                """
-                await admission.acquire()
-                slots = 1
-                while slots < size and not admission.locked():
-                    await admission.acquire()
-                    slots += 1
-                try:
-                    jobs = await asyncio.to_thread(
-                        self.jobs.claim_many,
-                        lane,
-                        worker_id,
-                        slots,
-                        60,
-                        tenant_id,
-                        capacity=capacity,
-                        shared_queues=pool,
-                        execution_class=execution_class,
-                    )
-                except BaseException:
-                    for _ in range(slots):
-                        admission.release()
-                    raise
-                for _ in range(slots - len(jobs)):
-                    admission.release()
-                tasks = [asyncio.create_task(execute(lane, job)) for job in jobs]
-                for task in tasks:
-                    # A done callback also fires for a task cancelled before its first step.
-                    task.add_done_callback(lambda _task: admission.release())
-                return [job["id"] for job in jobs], tasks
+                async def run(job):
+                    async with pool:
+                        return await execute(lane, job)
 
-            # One probe, not a wave of claimers, finds an idle lane idle.
-            if not await asyncio.to_thread(
-                self.jobs.has_due, lane, tenant_id, execution_class=execution_class
-            ):
-                return processed, True
-            for offset in range(0, 20, capacity):
-                ids, active = await admitted_wave(min(capacity, 20 - offset))
-                try:
-                    claimed = list(zip(ids, await asyncio.gather(*active), strict=True))
-                    if not claimed:
-                        return processed, True
-                    processed += sum(outcome == DONE for _, outcome in claimed)
-                    # Completions, pages with progress and newly claimed jobs advance
-                    # the drain. A job re-claimed only to coalesce again ends the pass.
-                    advanced = any(outcome != IDLE or job_id not in seen for job_id, outcome in claimed)
-                    seen.update(job_id for job_id, _ in claimed)
-                    if not advanced:
-                        break
-                finally:
-                    for task in active:
-                        if not task.done():
-                            task.cancel()
-                    await asyncio.gather(*active, return_exceptions=True)
-            return processed, False
+                outcomes = await asyncio.gather(*(run(job) for job in jobs))
+                processed += outcomes.count(DONE)
+                if all(o == IDLE and j["id"] in seen for j, o in zip(jobs, outcomes, strict=True)):
+                    return False
+                seen.update(j["id"] for j in jobs)
+            return False
 
-        async def drains(specs):
-            # One runner, independently admitted live/I/O/CPU work. A slow fit or
-            # background lease cannot stop a different lane from making progress.
-            tasks = [asyncio.create_task(drain(lane, kind, seen[lane, kind])) for lane, kind in specs]
-            try:
-                return await asyncio.gather(*tasks)
-            finally:
-                for task in tasks:
-                    if not task.done():
-                        task.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
-
-        specs = [
-            (lane, kind)
-            for lane in queues or ["webhook", "live_coach", "postcall", "scripts", "research", "ml"]
-            for kind in (("maintenance", "training") if lane == "ml" else (None,))
-        ]
-        seen = {spec: set() for spec in specs}
-        results = await drains(specs)
-        processed = sum(done for done, _ in results)
-        if processed and len(specs) > 1:
-            # A sibling's commits can make work due after a lane found nothing; one
-            # bounded follow-up runs it in this call (the runtime is woken by commit).
-            again = [spec for spec, (_, exhausted) in zip(specs, results, strict=True) if exhausted]
-            processed += sum(done for done, _ in await drains(again))
+        lanes = list(queues or ["webhook", "live_coach", "postcall", "scripts", "research", "ml"])
+        idle = await asyncio.gather(*(drain(lane) for lane in lanes))
+        if processed and len(lanes) > 1:
+            # A sibling's commits can make work due after a lane found nothing; run it in this call.
+            await asyncio.gather(*(drain(lane) for lane, empty in zip(lanes, idle, strict=True) if empty))
         return {"processed": processed, "status": "failed" if errors else "passed", "errors": errors}
 
     def _training_source(self, s, p, payload, *, rows=True):

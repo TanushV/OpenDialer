@@ -1,7 +1,6 @@
-import hashlib
 from datetime import datetime, timedelta
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 
 from app.db import Job, insert_jobs, uid
 from app.privacy import job_metadata
@@ -136,157 +135,26 @@ class JobQueue:
             "available_at": aware(job["available_at"]).isoformat(),
         }
 
-    @staticmethod
-    def _execution_class(queue, execution_class):
-        if execution_class not in {None, "training", "maintenance"} or (
-            execution_class is not None and queue != "ml"
-        ):
-            raise ValueError("Invalid job execution class")
-        if execution_class is None:
-            return None
-        # Existing training identities already distinguish CPU work without
-        # decrypting payloads, changing durable keys or adding another queue.
-        training = Job.key.startswith("operational-train:", autoescape=True)
-        return training if execution_class == "training" else ~training
-
-    def _due(self, query, queue, tenant_id, key_prefix, match):
-        query = query.where(Job.queue == queue, Job.status == "queued", Job.available_at <= self.clock())
+    def claim_many(self, queue, worker, limit, lease_seconds=60, tenant_id=None):
+        """Lease up to `limit` due jobs of one queue in one write transaction."""
+        due = select(Job).where(Job.queue == queue, Job.status == "queued", Job.available_at <= self.clock())
         if tenant_id:
-            query = query.where(Job.tenant_id == tenant_id)
-        if key_prefix is not None:
-            query = query.where(Job.key.startswith(key_prefix, autoescape=True))
-        return query.where(match) if match is not None else query
-
-    def has_due(self, queue, tenant_id=None, *, execution_class=None):
-        """One read-only probe before a runner launches a wave of claimers."""
-        match = self._execution_class(queue, execution_class)
+            due = due.where(Job.tenant_id == tenant_id)
         with self.db.transaction(False) as s:
-            return s.scalar(self._due(select(Job.id), queue, tenant_id, None, match).limit(1)) is not None
-
-    def claim(
-        self,
-        queue,
-        worker,
-        lease_seconds=60,
-        tenant_id=None,
-        *,
-        capacity=None,
-        shared_queues=(),
-        key_prefix=None,
-        execution_class=None,
-    ):
-        claimed = self.claim_many(
-            queue,
-            worker,
-            1,
-            lease_seconds,
-            tenant_id,
-            capacity=capacity,
-            shared_queues=shared_queues,
-            key_prefix=key_prefix,
-            execution_class=execution_class,
-        )
-        return claimed[0] if claimed else None
-
-    def claim_many(
-        self,
-        queue,
-        worker,
-        limit,
-        lease_seconds=60,
-        tenant_id=None,
-        *,
-        capacity=None,
-        shared_queues=(),
-        key_prefix=None,
-        execution_class=None,
-    ):
-        """Lease up to `limit` due jobs in one write transaction: one writer turn per wave."""
-        match = self._execution_class(queue, execution_class)
-        pool = tuple(sorted(shared_queues or (queue,)))
-        if limit < 1 or (capacity is not None and (capacity < 1 or queue not in pool)):
-            raise ValueError("Invalid execution pool capacity")
-
-        def due(query):
-            return self._due(query, queue, tenant_id, key_prefix, match)
-
-        def running(s):
-            query = select(func.count()).select_from(Job).where(Job.queue.in_(pool), Job.status == "running")
-            return s.scalar(query.where(match) if match is not None else query)
-
-        # Read-only admission probe (ix_jobs_due): an idle or saturated pool never
-        # takes the writer. The write transaction below repeats both checks.
-        with self.db.transaction(False) as s:
-            if s.scalar(due(select(Job.id)).limit(1)) is None:
-                return []
-            if capacity is not None and running(s) >= capacity:
+            if s.scalar(due.with_only_columns(Job.id).limit(1)) is None:
                 return []
         with self.db.transaction() as s:
-            # This fence covers only admission to one execution pool, never the
-            # job's work or other writers. It also covers independent runners.
-            if capacity is not None:
-                if not self.db.sqlite:
-                    key = int.from_bytes(
-                        hashlib.sha256(
-                            ("jobs:capacity:" + ":".join(pool) + ":" + (execution_class or "all")).encode()
-                        ).digest()[:8],
-                        signed=True,
-                    )
-                    # Serialize only the tiny admission transaction. Treating a
-                    # simultaneous claim as an empty queue strands spare slots
-                    # behind the first long-running job in a capacity wave.
-                    s.execute(text("SELECT pg_advisory_xact_lock(:pool)"), {"pool": key})
-                limit = min(limit, capacity - running(s))
-                if limit < 1:
-                    return []
-            # The claim is conditional on the rows still being queued and due inside
-            # this transaction: SQLite admits one writer (BEGIN IMMEDIATE), and
-            # PostgreSQL re-checks the predicate under skipped-if-locked row locks.
-            query = (
-                due(select(Job))
-                .order_by(Job.priority.desc(), Job.available_at, Job.id)
-                .limit(max(100, limit) if queue == "live_coach" else limit)
-            )
+            query = due.order_by(Job.priority.desc(), Job.available_at, Job.id).limit(limit)
             if not self.db.sqlite:
                 query = query.with_for_update(skip_locked=True)
-            candidates = list(s.scalars(query))
-            if queue == "live_coach":
-                candidates = self._coalesce_queued(s, candidates)
-            claimed = candidates[:limit]
+            claimed = list(s.scalars(query))
             expires = self.clock() + timedelta(seconds=lease_seconds)
             for job in claimed:
-                job.status, job.lease_owner = "running", worker
+                job.status, job.lease_owner, job.lease_expires_at = "running", worker, expires
                 if "desired_generation" in job.payload:
                     job.payload = {**job.payload, "claimed_generation": job.payload["desired_generation"]}
-                job.lease_expires_at = expires
                 job.attempts += 1
             return [jobdoc(job) for job in claimed]
-
-    @staticmethod
-    def _coalesce_queued(s, candidates):
-        """Retire bounded legacy duplicates without charging execution attempts.
-
-        Current live producers already keep one job per call. This handles old
-        persisted keys; the selected job reads the latest current call context.
-        A running owner is never superseded or leased a second time.
-        """
-        running = {
-            (job.tenant_id, job.seller_id, job.payload.get("call_id"))
-            for job in s.scalars(select(Job).where(Job.queue == "live_coach", Job.status == "running"))
-        }
-        selected = {}
-        for job in candidates:
-            call_id = job.payload.get("call_id")
-            identity = (job.tenant_id, job.seller_id, call_id or job.id)
-            original = selected.get(identity)
-            if original:
-                job.status = "completed"
-                job.error = None
-                job.lease_owner = job.lease_expires_at = None
-                job.payload = {**job.payload, "superseded_by": original.id}
-            else:
-                selected[identity] = job
-        return [job for identity, job in selected.items() if identity not in running]
 
     def coalesce_live_in(self, s, queue, payload, key, *, tenant_id, priority, available_at):
         """One latest context/packet; changed inputs never steal the running owner's lease."""
@@ -360,20 +228,6 @@ class JobQueue:
             ):
                 raise LostJobLease("Job lease is not owned by this worker")
             if coalesced:
-                if job.queue != "ml" or job.payload.get("kind") not in {
-                    "home_refresh",
-                    "report_refresh",
-                    "forecast_refresh",
-                    "retry_plan_refresh",
-                    "health_refresh",
-                    "learning_refresh",
-                    "optimization_refresh",
-                    "metric_refresh",
-                    "metric_dependents",
-                    "metric_rebuild",
-                    "metric_cleanup",
-                }:
-                    raise ValueError("Only read-only workspace refresh can be coalesced")
                 job.attempts = max(0, job.attempts - 1)
             if job.payload.get("desired_generation", 0) > job.payload.get("claimed_generation", 0):
                 # A newer context arrived while the original owner was running.
