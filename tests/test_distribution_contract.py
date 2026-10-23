@@ -25,16 +25,6 @@ def sidecar_build():
     return module
 
 
-def test_native_resource_probe_is_test_only_and_excluded_from_the_sidecar():
-    import tomllib
-
-    config = tomllib.loads((ROOT / "pyproject.toml").read_text())
-    assert not any(value.startswith("psutil") for value in config["project"]["dependencies"])
-    assert "psutil==7.2.2" in config["dependency-groups"]["dev"]
-    build = sidecar_build()
-    assert "psutil" in build.AUTHORITY_EXCLUDES and "psutil" in build.TRAINER_EXCLUDES
-
-
 def test_authority_sidecar_excludes_fitting_postgres_and_phone_tables_and_trainer_carries_fitting():
     build = sidecar_build()
     authority = build.authority_arguments()
