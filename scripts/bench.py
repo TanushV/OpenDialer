@@ -5,14 +5,16 @@
 
 Local mode builds a fresh SQLite store, imports leads over HTTP, inserts call history directly
 (fixture loading only), then times each hot path. Hosted mode serves a connected authority on
-the disposable PostgreSQL over real HTTP with its background lanes running, and drives several
-reps, each starting one call journey per cadence.
+the disposable PostgreSQL over real HTTP, laid out like deploy/compose.yml (the API process runs the
+calling lanes, a second process runs research, scripts and ML), and drives several reps, each
+starting one call journey per cadence.
 """
 
 import argparse
 import base64
 import json
 import statistics
+import subprocess
 import sys
 import tempfile
 import time
@@ -268,12 +270,9 @@ def run_hosted(database_url, leads, reps, cadence, duration):
             "worker_enabled": True,
         }
     )
-    began, start = time.monotonic(), Clock().now  # Inside the leads' calling window, advancing in real time.
-    app = create_app(
-        settings_,
-        clock=lambda: start + timedelta(seconds=time.monotonic() - began),
-        carrier=SimulatedCarrier(),
-    )
+    settings_.worker_queues = list(API_QUEUES)
+    began, start = time.time(), Clock().now  # Inside the leads' calling window, advancing in real time.
+    app = create_app(settings_, clock=shifted_clock(start, began), carrier=SimulatedCarrier())
     app.state.db.reset()
     owner = app.state.service.setup(
         {
@@ -283,6 +282,8 @@ def run_hosted(database_url, leads, reps, cadence, duration):
             "password": "bench-only-password-123",
         }
     )
+    command = [sys.executable, __file__, "--hosted-worker", settings_.database_url, str(directory)]
+    worker = subprocess.Popen([*command, start.isoformat(), str(began)])  # noqa: S603 - reruns this bench
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=18765, log_level="warning"))
     threading.Thread(target=server.run, daemon=True).start()
     while not server.started:
@@ -394,6 +395,8 @@ def run_hosted(database_url, leads, reps, cadence, duration):
     for thread in threads:
         thread.join()
     server.should_exit = True
+    worker.terminate()
+    worker.wait()
     return {
         "mode": "hosted",
         "reps": reps,
@@ -410,7 +413,38 @@ def run_hosted(database_url, leads, reps, cadence, duration):
     }
 
 
+API_QUEUES = ("webhook", "live_coach", "postcall", "maintenance")  # deploy/compose.yml
+WORKER_QUEUES = ("research", "scripts", "ml")
+
+
+def shifted_clock(start, began):
+    return lambda: start + timedelta(seconds=time.time() - began)
+
+
+def run_hosted_worker(database_url, directory, start, began):
+    import asyncio
+
+    from app.runtime import authority_lifetime
+
+    settings_ = settings(Path(directory)).model_copy(
+        update={"mode": "connected", "database_url": database_url, "worker_enabled": True}
+    )
+    app = create_app(
+        settings_,
+        clock=shifted_clock(datetime.fromisoformat(start), float(began)),
+        carrier=SimulatedCarrier(),
+    )
+
+    async def work():
+        async with authority_lifetime(app.state.service, queues=WORKER_QUEUES):
+            await asyncio.Event().wait()
+
+    asyncio.run(work())
+
+
 def main(argv=None):
+    if argv is None and sys.argv[1:2] == ["--hosted-worker"]:
+        return run_hosted_worker(*sys.argv[2:6])
     parser = argparse.ArgumentParser()
     parser.add_argument("--leads", type=int, default=10000)
     parser.add_argument("--attempts", type=int, default=100000)

@@ -263,18 +263,20 @@ def plan_statistics(connection):
     endpoints). A real ANALYZE costs seconds per index on a large store while holding the
     writer. One local authority holds one tenant and normally one seller, so record exactly
     that: scope-column prefixes match every row of a large table; other columns keep SQLite's
-    default narrowing. See https://www.sqlite.org/optoverview.html#manctrl."""
+    default narrowing. Partial indexes hold a small live subset (open calls, due work), so they
+    estimate fewer rows and win ties, which otherwise follow index creation order.
+    See https://www.sqlite.org/optoverview.html#manctrl."""
     connection.exec_driver_sql("ANALYZE sqlite_schema")  # Creates the statistics tables.
     rows = []
     tables = connection.exec_driver_sql(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
     )
     for (table,) in list(tables):
-        for _, index, unique, *_ in list(connection.exec_driver_sql(f'PRAGMA index_list("{table}")')):
+        for _, index, unique, _, partial in list(connection.exec_driver_sql(f'PRAGMA index_list("{table}")')):
             columns = [row[2] for row in connection.exec_driver_sql(f'PRAGMA index_info("{index}")')]
             if not columns or None in columns:
                 continue  # Expression indexes keep SQLite's defaults.
-            stat, narrowing = [PLANNED_ROWS], 10
+            stat, narrowing = [PLANNED_ROWS], 1 if partial else 10
             for i in range(len(columns)):
                 if set(columns[: i + 1]) <= {"tenant_id", "seller_id"}:
                     stat.append(PLANNED_ROWS)
