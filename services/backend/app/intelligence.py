@@ -327,8 +327,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                         continue
                     failure = None
                     try:
-                        async with self.preparation_heartbeat(p, "leads", lead_id, owner):
-                            prepared = await self.prepare_one(p, lead_id, owner)
+                        prepared = await self.prepare_one(p, lead_id, owner)
                     except Exception as exc:
                         prepared, failure = False, type(exc).__name__
                     finally:
@@ -726,250 +725,245 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     update(row, lease_until=None, lease_owner=None)
 
         try:
-            async with self.preparation_heartbeat(p, "companies", company_id, owner):
-                if self.settings.simulation:
-                    source_id = uid()
-                    text = "This fictional company provides commercial repair services."
-                    source_data = [
-                        {
-                            "id": source_id,
-                            "url": "https://" + domain + "/services",
-                            "title": lead["company"] + " — simulated source",
-                            "text": text,
-                        }
-                    ]
-                    extracted = [{"statement": text, "source_id": source_id, "quote": text}]
-                else:
-                    limits = self.settings.runtime_limits
-                    # Each fetch uses its own short-lived pinned client, never the shared LLM pool.
-                    fetcher = SafeFetcher(max_bytes=limits.research_bytes, allowed_domains={domain})
-                    loop = asyncio.get_running_loop()
-                    deadline = loop.time() + COMPANY_FETCH_SECONDS
-                    fetch_attempts, remaining = 0, limits.research_bytes
+            if self.settings.simulation:
+                source_id = uid()
+                text = "This fictional company provides commercial repair services."
+                source_data = [
+                    {
+                        "id": source_id,
+                        "url": "https://" + domain + "/services",
+                        "title": lead["company"] + " — simulated source",
+                        "text": text,
+                    }
+                ]
+                extracted = [{"statement": text, "source_id": source_id, "quote": text}]
+            else:
+                limits = self.settings.runtime_limits
+                # Each fetch uses its own short-lived pinned client, never the shared LLM pool.
+                fetcher = SafeFetcher(max_bytes=limits.research_bytes, allowed_domains={domain})
+                loop = asyncio.get_running_loop()
+                deadline = loop.time() + COMPANY_FETCH_SECONDS
+                fetch_attempts, remaining = 0, limits.research_bytes
 
-                    async def fetch_source(url):
-                        """One bounded page; a failure is recorded as lost evidence, never hidden."""
-                        nonlocal fetch_attempts, remaining
-                        fetcher.max_bytes = min(
-                            remaining, limits.research_bytes - fetcher.decoded_bytes_total
-                        )
-                        fetch_attempts += 1
-                        try:
-                            async with asyncio.timeout_at(deadline):
-                                page = await fetcher.fetch(url)
-                        except TimeoutError:
-                            lost.append({"url": url, "error": "deadline"})
-                            return None
-                        except Exception as exc:
-                            lost.append({"url": url, "error": type(exc).__name__})
-                            return None
-                        size = page.get("decoded_bytes", len(page["text"].encode()))
-                        if size > remaining:
-                            lost.append({"url": url, "error": "byte_budget"})
-                            return None
-                        remaining -= size
-                        source_data.append({"id": uid(), **page})
-                        return page
+                async def fetch_source(url):
+                    """One bounded page; a failure is recorded as lost evidence, never hidden."""
+                    nonlocal fetch_attempts, remaining
+                    fetcher.max_bytes = min(remaining, limits.research_bytes - fetcher.decoded_bytes_total)
+                    fetch_attempts += 1
+                    try:
+                        async with asyncio.timeout_at(deadline):
+                            page = await fetcher.fetch(url)
+                    except TimeoutError:
+                        lost.append({"url": url, "error": "deadline"})
+                        return None
+                    except Exception as exc:
+                        lost.append({"url": url, "error": type(exc).__name__})
+                        return None
+                    size = page.get("decoded_bytes", len(page["text"].encode()))
+                    if size > remaining:
+                        lost.append({"url": url, "error": "byte_budget"})
+                        return None
+                    remaining -= size
+                    source_data.append({"id": uid(), **page})
+                    return page
 
-                    def exhausted():
-                        return (
-                            fetch_attempts >= limits.research_pages
-                            or remaining <= 0
-                            or fetcher.decoded_bytes_total >= limits.research_bytes
-                            or loop.time() >= deadline
-                        )
+                def exhausted():
+                    return (
+                        fetch_attempts >= limits.research_pages
+                        or remaining <= 0
+                        or fetcher.decoded_bytes_total >= limits.research_bytes
+                        or loop.time() >= deadline
+                    )
 
-                    home = await fetch_source("https://" + domain)
-                    for url in discovery_links(home, limits.research_pages - 1) if home else []:
+                home = await fetch_source("https://" + domain)
+                for url in discovery_links(home, limits.research_pages - 1) if home else []:
+                    if exhausted():
+                        break
+                    await fetch_source(url)
+                extracted, review = await self._extract_company_facts(
+                    p, company_id, domain, lead, provider, source_data
+                )
+                if not extracted and getattr(provider, "search_enabled", False):
+                    from urllib.parse import urldefrag
+
+                    from app.research.fetch import same_origin
+
+                    seen = {v["url"].rstrip("/") for v in source_data} | {v["url"].rstrip("/") for v in lost}
+                    for query in ("services and products", "company location and business activity")[
+                        : limits.research_searches
+                    ]:
                         if exhausted():
                             break
-                        await fetch_source(url)
-                    extracted, review = await self._extract_company_facts(
-                        p, company_id, domain, lead, provider, source_data
-                    )
-                    if not extracted and getattr(provider, "search_enabled", False):
-                        from urllib.parse import urldefrag
-
-                        from app.research.fetch import same_origin
-
-                        seen = {v["url"].rstrip("/") for v in source_data} | {
-                            v["url"].rstrip("/") for v in lost
-                        }
-                        for query in ("services and products", "company location and business activity")[
-                            : limits.research_searches
-                        ]:
-                            if exhausted():
-                                break
-                            key = "research-search:" + company_id + ":" + uid()
-                            if not await asyncio.to_thread(
-                                self.reserve_optional_budget,
-                                p,
-                                key,
-                                OPTIONAL_REQUEST_ESTIMATE_USD,
-                                object_id=company_id,
-                                work_kind="research_search",
-                            ):
-                                break
-                            try:
-                                result = await provider.search(lead.get("company", ""), domain, query)
-                            except BaseException as exc:
-                                await finish_shielded(
-                                    asyncio.to_thread(
-                                        self.usage,
-                                        p,
-                                        getattr(provider, "billing", "openai"),
-                                        "research_search",
-                                        InferenceResult({}, {}, None),
-                                        object_id=company_id,
-                                        request_key=key,
-                                        reserved=0,
-                                    )
-                                )
-                                if isinstance(exc, asyncio.CancelledError):
-                                    raise
-                                break  # An uncertain paid search is never retried automatically.
+                        key = "research-search:" + company_id + ":" + uid()
+                        if not await asyncio.to_thread(
+                            self.reserve_optional_budget,
+                            p,
+                            key,
+                            OPTIONAL_REQUEST_ESTIMATE_USD,
+                            object_id=company_id,
+                            work_kind="research_search",
+                        ):
+                            break
+                        try:
+                            result = await provider.search(lead.get("company", ""), domain, query)
+                        except BaseException as exc:
                             await finish_shielded(
                                 asyncio.to_thread(
                                     self.usage,
                                     p,
                                     getattr(provider, "billing", "openai"),
                                     "research_search",
-                                    result,
+                                    InferenceResult({}, {}, None),
                                     object_id=company_id,
                                     request_key=key,
                                     reserved=0,
                                 )
                             )
-                            added = False
-                            for raw_url in result.data.get("urls", [])[:10]:
-                                if exhausted():
-                                    break
-                                url = urldefrag(raw_url)[0]
-                                if url.rstrip("/") in seen or not same_origin("https://" + domain, url):
-                                    continue
-                                seen.add(url.rstrip("/"))
-                                added = bool(await fetch_source(url)) or added
-                                if len(source_data) == limits.research_pages:
-                                    break
-                            if added:
-                                extracted, review = await self._extract_company_facts(
-                                    p, company_id, domain, lead, provider, source_data
-                                )
-                                if extracted:
-                                    break
-                # Nothing fetched and something lost is a failed attempt, not a completed empty result.
-                unavailable = not source_data and bool(lost)
-
-                def publish():
-                    with self.db.transaction() as s:
-                        self.db.authorize_stream(s, p)
-                        company = self.required(s, "companies", company_id, p)
-                        if (
-                            company.data.get("lease_owner") != owner
-                            or not company.data.get("lease_until")
-                            or dt(company.data["lease_until"]) <= self.clock()
-                            or not self._coach_authority(s, p)
-                        ):
-                            return
-                        if unavailable:
-                            update(company, sources_lost=lost, failed_at=self.clock().isoformat())
-                            return
-                        for source in source_data:
-                            put(
-                                s,
-                                "research_sources",
-                                p["tenant_id"],
-                                p["seller_id"],
-                                {
-                                    "domain": domain,
-                                    "url": source["url"],
-                                    "title": source["title"],
-                                    "retrieved_at": self.clock().isoformat(),
-                                    "content_hash": hashlib.sha256(source["text"].encode()).hexdigest(),
-                                    "text": source["text"],
-                                    "synthetic": self.settings.simulation,
-                                },
-                                object_id=source["id"],
-                                now=self.clock(),
-                            )
-                        sources = {v["id"]: v for v in source_data}
-                        freshness = self.preparation_settings(s, p)["preparation"]
-                        model = MODELS["research_facts"]
-                        current = {
-                            row.data["statement"].casefold(): row.data["expires_at"]
-                            for row in self.context_rows(
-                                s,
+                            if isinstance(exc, asyncio.CancelledError):
+                                raise
+                            break  # An uncertain paid search is never retried automatically.
+                        await finish_shielded(
+                            asyncio.to_thread(
+                                self.usage,
                                 p,
-                                "research_facts",
-                                domain,
-                                model.ctx_status == "supported",
-                                model.ctx_expires_at > self.clock(),
-                                limit=64,
+                                getattr(provider, "billing", "openai"),
+                                "research_search",
+                                result,
+                                object_id=company_id,
+                                request_key=key,
+                                reserved=0,
                             )
-                        }
-                        expiries = []
-                        for fact in extracted:
-                            expires_at = (
-                                self.clock()
-                                + timedelta(
-                                    hours=(
-                                        freshness["stable_fact_days"] * 24
-                                        if fact.get("stability") == "stable"
-                                        else freshness["time_sensitive_fact_hours"]
-                                    )
-                                )
-                            ).isoformat()
-                            if not fact.get("conflicts") and fact["statement"].casefold() in current:
-                                # The current version stays; scripts pinned to it remain valid.
-                                expiries.append(current[fact["statement"].casefold()])
-                                continue
-                            source = sources[fact["source_id"]]
-                            fact_id = uid()
-                            put(
-                                s,
-                                "research_facts",
-                                p["tenant_id"],
-                                p["seller_id"],
-                                {
-                                    "fact_id": fact_id,
-                                    "domain": domain,
-                                    "entity_domain": domain,
-                                    "statement": fact["statement"],
-                                    "source_id": source["id"],
-                                    "source_url": source["url"],
-                                    "source_date": None,
-                                    "entity_match": "explicit_imported_company_domain",
-                                    "status": "needs_review" if fact.get("conflicts") else "supported",
-                                    "stability": fact.get("stability", "unknown"),
-                                    "conflicts": fact.get("conflicts", []),
-                                    "evidence_quote": fact["quote"],
-                                    "expires_at": expires_at,
-                                    "grounding": review.metadata() if review else {"status": "synthetic"},
-                                    "synthetic": self.settings.simulation,
-                                },
-                                object_id=fact_id,
-                                now=self.clock(),
-                            )
-                            if not fact.get("conflicts"):
-                                expiries.append(expires_at)
-                        empty = not expiries
-                        update(
-                            company,
-                            researched_at=self.clock().isoformat(),
-                            # Refresh when the earliest current fact expires, not only when all do.
-                            refresh_at=min(expiries, key=dt) if expiries else None,
-                            sources_lost=lost,
-                            empty_research_key=research_key if empty else None,
-                            empty_research_until=(
-                                self.clock() + timedelta(hours=freshness["time_sensitive_fact_hours"])
-                            ).isoformat()
-                            if empty
-                            else None,
                         )
+                        added = False
+                        for raw_url in result.data.get("urls", [])[:10]:
+                            if exhausted():
+                                break
+                            url = urldefrag(raw_url)[0]
+                            if url.rstrip("/") in seen or not same_origin("https://" + domain, url):
+                                continue
+                            seen.add(url.rstrip("/"))
+                            added = bool(await fetch_source(url)) or added
+                            if len(source_data) == limits.research_pages:
+                                break
+                        if added:
+                            extracted, review = await self._extract_company_facts(
+                                p, company_id, domain, lead, provider, source_data
+                            )
+                            if extracted:
+                                break
+            # Nothing fetched and something lost is a failed attempt, not a completed empty result.
+            unavailable = not source_data and bool(lost)
 
-                await asyncio.to_thread(publish)
-                if unavailable:
-                    raise RuntimeError("Company sources unavailable; generic preparation remains available")
+            def publish():
+                with self.db.transaction() as s:
+                    self.db.authorize_stream(s, p)
+                    company = self.required(s, "companies", company_id, p)
+                    if (
+                        company.data.get("lease_owner") != owner
+                        or not company.data.get("lease_until")
+                        or dt(company.data["lease_until"]) <= self.clock()
+                        or not self._coach_authority(s, p)
+                    ):
+                        return
+                    if unavailable:
+                        update(company, sources_lost=lost, failed_at=self.clock().isoformat())
+                        return
+                    for source in source_data:
+                        put(
+                            s,
+                            "research_sources",
+                            p["tenant_id"],
+                            p["seller_id"],
+                            {
+                                "domain": domain,
+                                "url": source["url"],
+                                "title": source["title"],
+                                "retrieved_at": self.clock().isoformat(),
+                                "content_hash": hashlib.sha256(source["text"].encode()).hexdigest(),
+                                "text": source["text"],
+                                "synthetic": self.settings.simulation,
+                            },
+                            object_id=source["id"],
+                            now=self.clock(),
+                        )
+                    sources = {v["id"]: v for v in source_data}
+                    freshness = self.preparation_settings(s, p)["preparation"]
+                    model = MODELS["research_facts"]
+                    current = {
+                        row.data["statement"].casefold(): row.data["expires_at"]
+                        for row in self.context_rows(
+                            s,
+                            p,
+                            "research_facts",
+                            domain,
+                            model.ctx_status == "supported",
+                            model.ctx_expires_at > self.clock(),
+                            limit=64,
+                        )
+                    }
+                    expiries = []
+                    for fact in extracted:
+                        expires_at = (
+                            self.clock()
+                            + timedelta(
+                                hours=(
+                                    freshness["stable_fact_days"] * 24
+                                    if fact.get("stability") == "stable"
+                                    else freshness["time_sensitive_fact_hours"]
+                                )
+                            )
+                        ).isoformat()
+                        if not fact.get("conflicts") and fact["statement"].casefold() in current:
+                            # The current version stays; scripts pinned to it remain valid.
+                            expiries.append(current[fact["statement"].casefold()])
+                            continue
+                        source = sources[fact["source_id"]]
+                        fact_id = uid()
+                        put(
+                            s,
+                            "research_facts",
+                            p["tenant_id"],
+                            p["seller_id"],
+                            {
+                                "fact_id": fact_id,
+                                "domain": domain,
+                                "entity_domain": domain,
+                                "statement": fact["statement"],
+                                "source_id": source["id"],
+                                "source_url": source["url"],
+                                "source_date": None,
+                                "entity_match": "explicit_imported_company_domain",
+                                "status": "needs_review" if fact.get("conflicts") else "supported",
+                                "stability": fact.get("stability", "unknown"),
+                                "conflicts": fact.get("conflicts", []),
+                                "evidence_quote": fact["quote"],
+                                "expires_at": expires_at,
+                                "grounding": review.metadata() if review else {"status": "synthetic"},
+                                "synthetic": self.settings.simulation,
+                            },
+                            object_id=fact_id,
+                            now=self.clock(),
+                        )
+                        if not fact.get("conflicts"):
+                            expiries.append(expires_at)
+                    empty = not expiries
+                    update(
+                        company,
+                        researched_at=self.clock().isoformat(),
+                        # Refresh when the earliest current fact expires, not only when all do.
+                        refresh_at=min(expiries, key=dt) if expiries else None,
+                        sources_lost=lost,
+                        empty_research_key=research_key if empty else None,
+                        empty_research_until=(
+                            self.clock() + timedelta(hours=freshness["time_sensitive_fact_hours"])
+                        ).isoformat()
+                        if empty
+                        else None,
+                    )
+
+            await asyncio.to_thread(publish)
+            if unavailable:
+                raise RuntimeError("Company sources unavailable; generic preparation remains available")
         finally:
             await finish_shielded(asyncio.to_thread(release))
 
