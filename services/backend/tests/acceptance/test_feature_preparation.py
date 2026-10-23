@@ -1,0 +1,246 @@
+"""Preparation and research over HTTP: batches, runway, seller templates, playbooks, variants and model routes."""
+
+import json
+from uuid import uuid4
+
+from journey import get, import_leads, post, run_jobs
+
+TEMPLATE = {
+    "topic": "roof repair estimates",
+    "opener": "Hi {name}, {rep} from {seller} here.",
+    "gatekeeper": "Who handles {topic} for {company}?",
+    "screening_intro": "{rep} from {seller}, calling about {topic}.",
+    "discovery_questions": ["How are you handling {topic} today?"],
+    "proof": "{proof}",
+    "closing_question": "Would a short call help?",
+    "final_voicemail_asset": None,
+}
+
+
+def leads(prefix, count):
+    return [
+        {
+            "name": f"{prefix}{i}",
+            "phone": f"+1415555{prefix.encode().hex()[:2]}{i:02d}",
+            "company": f"{prefix} Co {i}",
+            "domain": f"{prefix.lower()}{i}.example.test",
+            "timezone": "America/Los_Angeles",
+            "region": "415",
+        }
+        for i in range(count)
+    ]
+
+
+def save_policy(ws, **values):
+    current = get(ws, "/v1/admin/operating-policy")
+    body = {"request_id": str(uuid4()), "expected_version": current["version"], **values}
+    return ws["client"].put("/v1/admin/operating-policy", headers=ws["headers"], json=body)
+
+
+def assert_status(response, status):
+    assert response.status_code == status, (response.status_code, response.text)
+    return response.json()
+
+
+def test_research_batch_prepares_named_leads_and_reports_runway(workspace):
+    ids = [lead["id"] for lead in import_leads(workspace, leads("Batch", 5))["leads"]]
+    queued = post(workspace, "/v1/research/batches", {"lead_ids": ids})
+    assert queued["work_units"] == 1 and len(queued["jobs"]) == 1
+    run_jobs(workspace)
+    status = get(workspace, "/v1/preparation")
+    assert status["fallback"] == 5 and status["ready"] == 0 and status["failed"] == 0
+    assert status["prepared"] == status["runway_attempts"] == 5
+    assert status["queued"] == 0 and status["target"] == 20
+    assert status["inspected_leads"] == 8 and status["enabled"] is True
+    packet = get(workspace, f"/v1/leads/{ids[0]}/packet")
+    assert {"script", "research", "prospect_brief", "previous_calls", "tasks"} <= set(packet)
+    script = packet["script"]
+    assert script["lead_id"] == ids[0] and script["opener"] and script["gatekeeper"]
+    assert "Example Seller" in script["screening_intro"] and script["discovery_questions"]
+
+
+def test_advance_and_off_hours_windows_follow_the_saved_schedule(workspace):
+    response = assert_status(save_policy(workspace, preparation={"enabled": False}), 200)
+    assert response["preparation"]["enabled"] is False
+    assert get(workspace, "/v1/preparation")["enabled"] is False
+    response = assert_status(
+        save_policy(
+            workspace,
+            preparation={"enabled": True, "off_hours_start": 0, "off_hours_end": 1, "timezone": "UTC"},
+        ),
+        200,
+    )
+    assert response["preparation"]["off_hours_end"] == 1
+    assert get(workspace, "/v1/preparation")["within_schedule"] is False
+    assert_status(
+        save_policy(workspace, preparation={"off_hours_start": 0, "off_hours_end": 24, "timezone": "UTC"}),
+        200,
+    )
+    assert get(workspace, "/v1/preparation")["within_schedule"] is True
+    assert_status(save_policy(workspace, preparation={"timezone": "Mars/Olympus"}), 422)
+    assert_status(save_policy(workspace, preparation={"ahead_count": 0}), 422)
+
+
+def test_seller_templates_render_gatekeeper_and_iphone_screening(workspace):
+    before = get(workspace, "/v1/admin/operating-policy")
+    saved = assert_status(save_policy(workspace, script_template=TEMPLATE), 200)
+    assert saved["script_template"]["gatekeeper"] == TEMPLATE["gatekeeper"]
+    assert saved["script_template"]["screening_intro"] == TEMPLATE["screening_intro"]
+    assert saved["version"] == before["version"] + 1
+    assert saved["template_version"] != before["template_version"]
+    assert_status(
+        save_policy(workspace, script_template={**TEMPLATE, "screening_intro": "Calling about {topic}."}), 422
+    )
+    assert_status(save_policy(workspace, script_template={**TEMPLATE, "gatekeeper": "Hi {secret}"}), 422)
+    ids = [lead["id"] for lead in import_leads(workspace, leads("Screen", 1))["leads"]]
+    post(workspace, "/v1/research/batches", {"lead_ids": ids})
+    run_jobs(workspace)
+    script = get(workspace, f"/v1/leads/{ids[0]}/packet")["script"]
+    assert script["template_version"] == saved["template_version"]
+    assert script["opener"] == "Hi Screen0, Local operator from Example Seller here."
+    assert script["gatekeeper"] == "Who handles roof repair estimates for Screen Co 0?"
+    assert (
+        script["screening_intro"]
+        == "Local operator from Example Seller, calling about roof repair estimates."
+    )
+    assert script["discovery_questions"] == ["How are you handling roof repair estimates today?"]
+    assert script["closing_question"] == "Would a short call help?"
+    assert get(workspace, "/v1/preparation")["fallback"] == 1
+
+
+def playbook(ws, previous, **values):
+    body = {
+        "name": "Business introduction",
+        "opener": "Hi, this is {rep} from Example Seller about roof estimates.",
+        "screening_intro": "Example Seller calling about roof estimates.",
+        "product_description": "Roof repair estimates for local businesses.",
+        "claims": ["Free written estimates"],
+        "prohibited_claims": ["Guaranteed savings"],
+        "cards": [{"id": "budget", "text": "What would make an estimate useful?", "tags": ["budget"]}],
+        "approved": True,
+        "reason": "Reviewed business introduction",
+        **values,
+        "expected_previous_id": previous[0],
+        "expected_previous_version": previous[1],
+    }
+    return ws["client"].post("/v1/admin/playbooks", headers=ws["headers"], json=body)
+
+
+def test_playbooks_and_variants_require_reviewed_truthful_language(workspace):
+    seeded = get(workspace, "/v1/workspace")["active_playbook"]
+    assert seeded["approved"] is True
+    assert playbook(workspace, (None, 0)).status_code == 409
+    first = assert_status(playbook(workspace, (seeded["id"], seeded["version"])), 200)
+    assert first["version"] == seeded["version"] + 1 and first["previous_id"] == seeded["id"]
+    assert get(workspace, "/v1/workspace")["active_playbook"]["id"] == first["id"]
+    assert playbook(workspace, (seeded["id"], seeded["version"])).status_code == 409
+    second = assert_status(
+        playbook(
+            workspace, (first["id"], first["version"]), opener="Hi {rep}, Example Seller calls about roofs."
+        ),
+        200,
+    )
+    assert second["version"] == first["version"] + 1 and second["previous_id"] == first["id"]
+    active = get(workspace, "/v1/workspace")["active_playbook"]
+    assert active["id"] == second["id"] and active["opener"] == "Hi {rep}, Example Seller calls about roofs."
+    stranger = playbook(
+        workspace, (second["id"], second["version"]), screening_intro="A stranger calls about roofs."
+    )
+    assert stranger.status_code == 422
+    variant_body = {
+        "campaign_id": workspace["campaign_id"],
+        "name": "Written estimate",
+        "opener": "Hi {rep}, Example Seller here with written roof estimates.",
+        "review_reference": "Reviewed copy for the October test",
+    }
+    variant = assert_status(
+        workspace["client"].post("/v1/admin/variants", headers=workspace["headers"], json=variant_body), 200
+    )
+    assert variant["approved"] is True and variant["opener"] == variant_body["opener"]
+    for changed in (
+        {"opener": "We guarantee roof savings from Example Seller."},
+        {"opener": "Hello there with a roof offer."},
+        {"review_reference": None},
+    ):
+        body = {**variant_body, **changed}
+        assert (
+            workspace["client"]
+            .post("/v1/admin/variants", headers=workspace["headers"], json=body)
+            .status_code
+            == 422
+        )
+
+
+def test_chatgpt_plan_routes_refuse_what_cannot_be_verified_offline(workspace):
+    started = assert_status(
+        workspace["client"].post(
+            "/v1/inference/chatgpt/start", headers={**workspace["headers"], "Host": "127.0.0.1:8000"}
+        ),
+        200,
+    )
+    assert started["authorization_url"].startswith("https://") and started["expires_in"] == 600
+    assert started["completion"] == "loopback"
+    models = workspace["client"].get("/v1/inference/chatgpt/models", headers=workspace["headers"])
+    assert models.status_code == 409
+    address = "http://evil.example.test/auth/callback?code=x&state=y"
+    complete = workspace["client"].post(
+        "/v1/inference/chatgpt/complete", headers=workspace["headers"], json={"redirect_url": address}
+    )
+    assert complete.status_code == 422
+    wrong = "http://127.0.0.1:1455/auth/callback?code=x&state=not-the-pending-state"
+    complete = workspace["client"].post(
+        "/v1/inference/chatgpt/complete", headers=workspace["headers"], json={"redirect_url": wrong}
+    )
+    assert complete.status_code == 400
+    imported = workspace["client"].post("/v1/inference/chatgpt/import", headers=workspace["headers"], json={})
+    assert imported.status_code == 422
+    dynamic = {
+        "client_id": "dynamic_agent_client",
+        "access_token": "a",
+        "id_token": "b",
+        "subject": "s",
+        "scopes": [],
+    }
+    imported = workspace["client"].post(
+        "/v1/inference/chatgpt/import", headers=workspace["headers"], json=dynamic
+    )
+    assert imported.status_code == 422
+    token = {"chatgpt_access_token": "plan-token-not-real", "request_id": str(uuid4()), "expected_version": 0}
+    rejected = workspace["client"].put("/v1/admin/settings", headers=workspace["headers"], json=token)
+    assert rejected.status_code == 422 and "plan-token-not-real" not in rejected.text
+
+
+def test_compatible_endpoints_and_search_are_configured_without_echoing_keys(workspace):
+    settings = get(workspace, "/v1/admin/settings")
+    secret = "sk-acceptance-only-1234"
+    body = {
+        "request_id": str(uuid4()),
+        "expected_version": settings["version"],
+        "openai_api_key": secret,
+        "research_search": "openai_web_search",
+        "inference_mode": "litellm",
+        "inference_base_url": "http://127.0.0.1:8081/v1",
+    }
+    saved = assert_status(
+        workspace["client"].put("/v1/admin/settings", headers=workspace["headers"], json=body), 200
+    )
+    assert saved["configured"]["openai_api_key"] is True
+    assert saved["effective"]["research_search"] == "openai_web_search"
+    assert saved["effective"]["inference_mode"] == "litellm"
+    assert saved["inference_base_url"] == "http://127.0.0.1:8081/v1"
+    assert secret not in json.dumps(saved)
+    assert saved["version"] == settings["version"] + 1
+    for base_url in (
+        "https://user:pw@example.test/v1",
+        "http://remote.example.test/v1",
+        "ftp://example.test",
+    ):
+        body = {
+            "request_id": str(uuid4()),
+            "expected_version": saved["version"],
+            "inference_base_url": base_url,
+        }
+        assert (
+            workspace["client"].put("/v1/admin/settings", headers=workspace["headers"], json=body).status_code
+            == 422
+        )
