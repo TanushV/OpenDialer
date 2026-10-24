@@ -2,6 +2,9 @@
 
 Generated from commit `e373a9c` with Python's `ast` module (backend, tests, scripts) and a token count for TypeScript. It is a snapshot: regenerate sizes with `.venv/bin/python scripts/size.py`; line numbers drift as code changes. Read with [HANDOFF.md](HANDOFF.md).
 
+October 24 verification: all 131 route declarations still match current source. The inference fix and new tests
+postdate the size/function snapshot below; current sizes are in `evidence/lean/verification-20261024.json`.
+
 ## Size
 
 | Area | Files | Lines | AST nodes / tokens | Baseline lines (a950675) | Change |

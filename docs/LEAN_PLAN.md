@@ -236,3 +236,27 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
   approach "best" as soon as it reached ten outcomes, even with no conversions, which in adaptive studies would have
   sent 95% of leads to it; the reviewed default now keeps the lead unless a supported approach estimates better.
   Unread helper usage counts were removed. Backend line coverage 81% -> 84%.
+- Verification completed (October 24, 2026): [receipt](evidence/lean/verification-20261024.json), current
+  [handoff](HANDOFF.md). All 131 mapped routes match source. Added 21 provider-path cases; four failing
+  regressions preceded the fix for ChatGPT-plan streaming accepting non-object JSON (`538dcde`).
+  - SQLite: 597 full-suite + 3 added number-provider cases pass (600 distinct); PostgreSQL: 598 + 3 (601).
+    Backend line coverage 84.8%. Caddy route/method tests separately enabled: 2 pass.
+  - Browser: initial run 153 pass / 1 failure because a meeting review encountered a second valid context
+    conflict. Two injected conflicts reproduced the test assumption. `f9eacca` verifies preserved drafts and
+    explicit review/retry without weakening the app's 409 checks. Fresh full rerun: 154/154 pass in 6.3 minutes.
+  - Frontend typecheck/format/build/74 unit tests and Rust fmt/7 tests/clippy pass.
+  - Both frozen sidecars rebuilt: authority call/callback and restart pass; trainer fits a human stage from
+    600 synthetic rows and exports a checksum-valid model. Compose 0.4.0 bootstrap/import/background preparation,
+    call/callback and API/worker restart pass with no runtime error lines. A synthetic 0.3 marker is refused with
+    exit 2 and an unchanged logical PostgreSQL dump. Task-owned compose containers and volumes were removed.
+  - Local speed, 10k leads / 100k attempts / 40 samples per hash seed: next-lead p95 47.8-53.5 ms with 15 SQL
+    statements, webhook 8.3 ms, event-to-state 11.9-14.3 ms, wrap-up 15.2-22.5 ms, workspace 34.0-57.1 ms,
+    startup 61-78 ms. All local targets pass under both seeds.
+  - Hosted workload on an uncapped shared Mac (native API + separate background process, Docker PostgreSQL),
+    2,000 leads, 8 reps x one call/min for five minutes: 40 journeys, zero failures; p95 next lead 141.1 ms,
+    event-to-state 224.3 ms, wrap-up 198.2 ms. These measurements do not certify the dedicated 2-vCPU reference
+    or replace the earlier capped-host miss; dedicated hosting remains an external gate.
+  - Installed app/data untouched; no paid provider actions, publication or release build. New commits are local,
+    with no new GitHub CI run. The existing signed draft predates the inference fix. Live accounts, hardware,
+    clean-machine Mac/Windows installers, provider terms/legal approval and campaign lift remain unverified.
+    Backend/frontend size targets remain missed; coverage gaps remain listed in the current handoff.

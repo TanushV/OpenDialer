@@ -1,0 +1,325 @@
+{
+  "date": "2026-10-24",
+  "base_commit": "9ea90a8",
+  "code_commit": "538dcde",
+  "scope": "Disposable local SQLite and hosted PostgreSQL; simulated providers and mocked provider HTTP only.",
+  "defect": {
+    "file": "services/backend/app/providers/inference.py",
+    "problem": "ChatGPT-plan streaming accepted non-object JSON despite the object output contract.",
+    "regression_before": "4 failed for array, null, string and number",
+    "fix": "Validate the decoded object before returning InferenceResult."
+  },
+  "added_test_cases": 21,
+  "route_map": {
+    "actual_routes": 131,
+    "mapped_routes": 131,
+    "missing": [],
+    "extra": []
+  },
+  "checks": {
+    "baseline_sqlite": {
+      "passed": 579,
+      "skipped": 2,
+      "seconds": 238.16
+    },
+    "frontend": {
+      "typecheck": true,
+      "format": true,
+      "build": true,
+      "unit_tests": 74,
+      "unit_line_coverage_percent": 13.66,
+      "coverage_boundary": "Vitest only; browser coverage is not included."
+    },
+    "rust": {
+      "format": true,
+      "tests": 7,
+      "clippy": true
+    },
+    "provider_focus": {
+      "passed": 80
+    },
+    "research_fetch": {
+      "passed": 5
+    },
+    "number_provider_paths": {
+      "sqlite_passed": 3,
+      "postgres_passed": 3
+    },
+    "caddy_ingress": {
+      "passed": 2
+    },
+    "sqlite": {
+      "full_passed": 597,
+      "full_skipped": 2,
+      "full_seconds": 533.06,
+      "additional_number_cases": 3,
+      "total_distinct_passed": 600
+    },
+    "backend_coverage": {
+      "covered_lines": 13380,
+      "num_statements": 15778,
+      "percent_covered": 84.80162251235897,
+      "percent_covered_display": "85",
+      "missing_lines": 2398,
+      "excluded_lines": 0,
+      "percent_statements_covered": 84.80162251235897,
+      "percent_statements_covered_display": "85"
+    },
+    "frozen_authority": {
+      "rebuilt": true,
+      "imported": 20,
+      "prepared": 10,
+      "call_outcome": "callback_requested",
+      "callback_tasks": 1,
+      "outcome_after_restart": "callback_requested",
+      "callback_task_after_restart": true
+    },
+    "frozen_trainer_self_check": {
+      "trainer": "ok",
+      "libraries": {
+        "numpy": "2.5.4",
+        "scipy": "1.18.1",
+        "sklearn": "1.9.1"
+      }
+    },
+    "hosted_compose": {
+      "source": "538dcde",
+      "simulation": true,
+      "topology": "PostgreSQL 17, migrate, API and separate background worker; loopback HTTP, no production TLS",
+      "imported": 20,
+      "prepared_by_worker": 6,
+      "outcome": "callback_requested",
+      "callback_tasks": 1,
+      "outcome_after_restart": "callback_requested",
+      "callback_task_after_restart": true,
+      "runtime_error_lines": []
+    },
+    "frozen_trainer": {
+      "rebuilt": true,
+      "synthetic_rows": 600,
+      "fitted_stages": [
+        "human"
+      ],
+      "artifact_format": "opendialer.funnel-trees.v1",
+      "checksum_verified": true,
+      "held_out_validation_samples": 119,
+      "other_stages": "Insufficient labels; correctly pooled, not claimed as fitted.",
+      "live_outcome_evidence": false
+    },
+    "hosted_old_store": {
+      "synthetic_0_3_marker": true,
+      "migrate_exit": 2,
+      "plain_refusal": true,
+      "logical_dump_unchanged": true,
+      "dump_sha256": "1f3f54b18ed738f52b2865ab85f8a1266294388ae16439bf059525a2f8c449ee"
+    },
+    "postgres": {
+      "full_passed": 598,
+      "full_skipped": 1,
+      "full_seconds": 1229.0,
+      "additional_number_cases": 3,
+      "total_distinct_passed": 601,
+      "skip": "Caddy test subsequently enabled and passed separately."
+    },
+    "local_bench": {
+      "1": {
+        "leads": 10000,
+        "attempts": 100000,
+        "samples": 40,
+        "paths": {
+          "next_lead": {
+            "p50_ms": 16.9,
+            "p95_ms": 47.8,
+            "target_p95_ms": 100,
+            "pass": true,
+            "sql_statements_max": 15
+          },
+          "webhook_receipt": {
+            "p50_ms": 3.7,
+            "p95_ms": 8.3,
+            "target_p95_ms": 30,
+            "pass": true
+          },
+          "event_to_state": {
+            "p50_ms": 7.3,
+            "p95_ms": 11.9,
+            "target_p95_ms": 100,
+            "pass": true
+          },
+          "wrap_up": {
+            "p50_ms": 9.5,
+            "p95_ms": 15.2,
+            "target_p95_ms": 100,
+            "pass": true
+          },
+          "workspace": {
+            "p50_ms": 21.4,
+            "p95_ms": 34.0,
+            "target_p95_ms": 150,
+            "pass": true
+          }
+        },
+        "startup_ms": 78,
+        "store_bytes": 307851264
+      },
+      "2": {
+        "leads": 10000,
+        "attempts": 100000,
+        "samples": 40,
+        "paths": {
+          "next_lead": {
+            "p50_ms": 19.9,
+            "p95_ms": 53.5,
+            "target_p95_ms": 100,
+            "pass": true,
+            "sql_statements_max": 15
+          },
+          "webhook_receipt": {
+            "p50_ms": 4.3,
+            "p95_ms": 8.3,
+            "target_p95_ms": 30,
+            "pass": true
+          },
+          "event_to_state": {
+            "p50_ms": 8.3,
+            "p95_ms": 14.3,
+            "target_p95_ms": 100,
+            "pass": true
+          },
+          "wrap_up": {
+            "p50_ms": 10.6,
+            "p95_ms": 22.5,
+            "target_p95_ms": 100,
+            "pass": true
+          },
+          "workspace": {
+            "p50_ms": 26.4,
+            "p95_ms": 57.1,
+            "target_p95_ms": 150,
+            "pass": true
+          }
+        },
+        "startup_ms": 61,
+        "store_bytes": 307765248
+      }
+    },
+    "browser": {
+      "passed": 154,
+      "failed": 0,
+      "duration_minutes": 6.3,
+      "fresh_authorities": true,
+      "modes": [
+        "local SQLite",
+        "connected PostgreSQL"
+      ]
+    },
+    "final_lint": {
+      "ruff": true,
+      "python_format": true,
+      "prettier": true,
+      "typescript": true,
+      "git_diff_check": true
+    },
+    "hosted_workload": {
+      "mode": "hosted",
+      "reps": 8,
+      "cadence_seconds": 60.0,
+      "duration_seconds": 300.0,
+      "journeys": 40,
+      "failures": [],
+      "failure_count": 0,
+      "paths": {
+        "next_lead": {
+          "p50_ms": 78.4,
+          "p95_ms": 141.1
+        },
+        "event_to_state": {
+          "p50_ms": 52.2,
+          "p95_ms": 224.3
+        },
+        "wrap_up": {
+          "p50_ms": 70.9,
+          "p95_ms": 198.2
+        }
+      },
+      "leads": 2000,
+      "environment": "Uncapped native API and separate background process on shared Mac; PostgreSQL 17 in the existing disposable Docker container. Not a dedicated or capped 2-vCPU reference.",
+      "host_load_before": "1:50  up 12 days,  8:02, 3 users, load averages: 12.29 12.58 17.88",
+      "all_observed_p95_below_250ms": true,
+      "dedicated_host_certified": false
+    }
+  },
+  "external_gates": [
+    "Clean-machine macOS and Windows installer runtime",
+    "Live Telnyx outbound and inbound calls, WebRTC and hardware audio",
+    "Funded inference and DNC vendor accounts",
+    "Provider retention terms and legal approval",
+    "Dedicated-host latency and production TLS/backup operation",
+    "Campaign outcome lift"
+  ],
+  "release": "No publication, release workflow or installed-app update. Existing signed draft predates this fix.",
+  "remaining_coverage_gaps": [
+    "OAuth local callback route and account-switch/refresh rejection variants",
+    "Explicit number recovery-action reconciliation and signed callback confirmation",
+    "Restore reconciliation against the live carrier and completed ingress check",
+    "Metered replay and streaming help withdrawal",
+    "Research workflow search fallback",
+    "Parts of date parsing, accounting and recovery actions"
+  ],
+  "size_snapshot": [
+    "backend         files=87  lines=33,982  ast_nodes=233,390",
+    "backend_tests   files=40  lines=10,758  ast_nodes=74,450",
+    "repo_tests      files=4  lines=641  ast_nodes=3,859",
+    "frontend        files=51  lines=16,171  tokens=89,732",
+    "frontend_tests  files=48  lines=9,403  tokens=67,944",
+    "rust            files=2  lines=971",
+    "scripts         files=11  lines=1,392  ast_nodes=7,764",
+    "workflows       files=2  lines=186"
+  ],
+  "commands": {
+    "sqlite": ".venv/bin/python -m pytest services/backend/tests tests -q -n 6 -p no:cacheprovider",
+    "postgres": "OPENDIALER_TEST_POSTGRES_URL=<guarded local test URL> .venv/bin/python -m pytest services/backend/tests tests -q -n 6 -p no:cacheprovider",
+    "coverage": "uv run --frozen --with pytest-cov --with coverage python -m pytest services/backend/tests tests -q -n 6 -p no:cacheprovider --cov=services/backend/app --cov-report=json:<output>",
+    "additional_number_cases": ".venv/bin/python -m pytest services/backend/tests/test_number_provider_paths.py -q -p no:cacheprovider (both databases; SQLite coverage appended)",
+    "frontend": "npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop run format:check && npm --prefix apps/desktop run build && npm --prefix apps/desktop test",
+    "browser": "OPENDIALER_E2E_DATABASE_URL=<guarded browser URL> npm --prefix apps/desktop run test:e2e",
+    "rust": "cargo fmt --check && cargo test --locked -q && cargo clippy --locked -q --all-targets -- -D warnings",
+    "frozen": ".venv/bin/python scripts/build_sidecar.py; direct frozen authority with --simulation and disposable --data-dir; frozen trainer --self-check and synthetic training over stdin",
+    "caddy": "OPENDIALER_CADDY_IMAGE=caddy:2-alpine .venv/bin/python -m pytest tests/test_local_ingress_proxy.py -q -p no:cacheprovider",
+    "compose": "Isolated project opendialer-verification-20261024 with simulation overrides for migrate/API/worker; port 127.0.0.1:18991; bootstrap/import/batch/call/wrap-up/restart/old-store guard, then down -v",
+    "local_bench": "PYTHONHASHSEED=1 (then 2) .venv/bin/python scripts/bench.py --leads 10000 --attempts 100000 --samples 40 --out <output>",
+    "hosted_bench": ".venv/bin/python scripts/bench.py --hosted <guarded performance URL> --leads 2000 --reps 8 --cadence 60 --duration 300 --out <output>"
+  },
+  "test_commit": "f9eacca",
+  "browser_regression": {
+    "initial_full_run": {
+      "passed": 153,
+      "failed": 1
+    },
+    "failure": "Second legitimate 409 during meeting review after preparation_revision changed; draft retained. Test assumed one conflict only.",
+    "isolated_original_rerun": "2 passed",
+    "deterministic_reproduction": "Injecting two consecutive review conflicts failed the original PostgreSQL assertion.",
+    "change": "Exercise repeated conflicts; require preserved meeting choices and human note, explicit retry, successful receipt and cleared outreach hold. Application concurrency checks unchanged.",
+    "focused_after": "2 passed, local and PostgreSQL"
+  },
+  "status": "automated_verification_passed_external_gates_open",
+  "log_directory": "work/verification-20261024 (ignored, local only)",
+  "log_sha256": {
+    "regression-before.log": "fc97bd4b02d767bd95ebf482c451d18a87a8234b8fc72899cdbb205a16a54b74",
+    "postgres.log": "2998273cc178ebe898215e169ed3e335a85fc09a68c41c1b8d6d301d961563c3",
+    "sqlite-coverage.log": "fea075885c369f6efd3b614d1fa227fe24a96319e4b3f6ba79fbe1f056330ae5",
+    "number-sqlite.log": "015209c52ceddb2530f69476912fc3dce8beb09bf61b3c8972950ed028e0bae6",
+    "number-postgres.log": "8a091baafb46084d165d8f7a94554db3198a872ac9c305b75022e478792eb26a",
+    "browser.log": "4236392f2d34863ffacfaa919dccce99610990fa9912d753179e8de39ec0e7d6",
+    "browser-repeated-conflict-before.log": "9bcaf56f86eda0315b0a4797e5f7cd67f528b849a1e61d23cf4ef11dbdb88a23",
+    "browser-repeated-conflict-after.log": "7dba06c33b93911a0f4220a9ddaf1d9f445a7f9f4ff96313e1b91b6008846628",
+    "browser-final.log": "418a0e256eae1d8e65f22cf6324bbde993df40751711951a4fb39f5a4d38d851",
+    "compose-smoke-final.log": "fa2611687d215d3cbab4b6f8895626c50553043cc8b957826a5d243260ba1c45",
+    "compose-restart.log": "73eaa9002552c6cd1377a97e7f831c4f969fee29d89fe7d0c02f7cda88657095",
+    "old-store-refusal.log": "3007fec253a3e1d59159e73d7e0548fdfe72a4ddf9d67af6bf959da324453e71",
+    "sidecar-build.log": "0f53218dbc249bde0f05ae11449c2c8d23720e72bae590289d6be2316b094ced",
+    "frozen-smoke.log": "4e2325530fd7877e7caf04a70def537bd0f0c605a2a095ae9e314197bd6207a8",
+    "frozen-restart.log": "1c2eff331b423baa06e014a01afc3ea2e10146a3a01212dd6e86afd73cd2cda3",
+    "bench-hosted.log": "436ff27aaff48da023c4dee87f01da1a630be7b5b2c5f7395812188b581ab9e8"
+  }
+}

@@ -1,13 +1,13 @@
 # OpenDialer testing handoff (CURRENT)
 
-> **Status: CURRENT** handoff as of **October 23, 2026**, describing commit `e373a9c` on `main` plus the commit that adds
-> this file. It is the single handoff to read first. If a newer handoff exists, it will say so at its top and this
+> **Status: CURRENT** handoff as of **October 24, 2026**, verified through `f9eacca` on `main` plus the documentation update.
+> Product fix: `538dcde`; browser regression: `f9eacca`. It is the single handoff to read first. If a newer handoff exists, it will say so at its top and this
 > one will be marked superseded. The companion code map is [HANDOFF_AST.md](HANDOFF_AST.md) (sizes, all HTTP
 > routes, every backend module's classes and functions, generated from the AST).
 
-You are taking over **testing** of OpenDialer 0.4.0. The code is feature-complete for the approved plan, every suite
-is green, and a signed draft release exists. Your job is to find what the existing tests do not prove, add tests,
-and fix defects they reveal, then prepare and support live testing. Read this file, then `AGENTS.md`, then the
+You are taking over **testing** of OpenDialer 0.4.0. The automated suites pass after the October 24 verification, and an older signed draft release exists.
+Live-provider and clean-machine installer gates remain open. Continue finding what the tests do not prove,
+adding tests before fixes, and supporting approved live testing. Read this file, then `AGENTS.md`, then the
 Status section of `docs/LEAN_PLAN.md`.
 
 ## 1. What OpenDialer is
@@ -28,17 +28,38 @@ rundowns), OpenAI / OpenAI-compatible endpoint / a rep's ChatGPT plan (research 
 | Item | State |
 |---|---|
 | Version | 0.4.0 everywhere the distribution contract checks (`tests/test_distribution_contract.py`) |
-| `main` | `e373a9c` (+ this handoff), clean, pushed. CI green on every job (lint, backend SQLite, backend PostgreSQL, frontend, e2e, desktop shell) |
-| Backend + repo tests | 579 passed on SQLite, 580 on PostgreSQL (a few skips need a Caddy image or a guarded store) |
+| Verified source | `538dcde` fixes non-object ChatGPT-plan responses; `f9eacca` tests repeated prospect-review conflicts. Local checks pass. These new commits have not been pushed or checked by GitHub CI. |
+| Backend + repo tests | 600 distinct cases passed on SQLite (597 full-suite + 3 added number-provider cases), 601 on PostgreSQL (598 + 3). The optional Caddy test was separately enabled and passed; the guarded-PostgreSQL check is inapplicable in the SQLite run. |
 | HTTP acceptance journeys | 103 in `services/backend/tests/acceptance/` |
-| Browser journeys | 154 Playwright journeys, local (SQLite) and connected (PostgreSQL) modes, all passing locally and in CI |
+| Browser journeys | 154/154 passed in a fresh full local/connected run (6.3 minutes). The first run exposed a test assumption about repeated review conflicts; see below. |
 | Frontend unit / Rust | 74 Vitest tests; Rust fmt, 7 tests, clippy pass |
-| Backend line coverage | 84.3% (gaps listed in section 9) |
-| Draft release | **v0.4.0, signed, UNPUBLISHED**, built from `a05a196` by [run 40066009752](https://github.com/TanushV/OpenDialer/actions/runs/40066009752): Mac archive + DMG (aarch64), Windows NSIS + MSI (x64), updater signatures, `latest.json`, `SHA256SUMS.txt`. `main`'s app code is identical to `a05a196` (later commits are docs only). v0.3.3 is still the latest published release |
-| Packaging | Both sidecars freeze; frozen authority ran 200 simulated calls; frozen trainer trained a model; the Mac bundle seals, verifies and starts both sidecars under the hardened runtime |
-| Local speed | 10k leads / 100k attempts: next lead p95 50-80 ms with 15 SQL statements, wrap-up ~25-33 ms, workspace ~70 ms, startup < 0.1 s. All local targets met |
-| Hosted speed | 2-vCPU reference shape, 8 reps x 1 call/min: no failures; next-lead p95 0.8-1.2 s **misses** the 250 ms target; measured on an oversubscribed Mac, so it needs a dedicated host |
-| Hosted compose smoke | Passed at `a9a129c` (`docs/evidence/lean/hosted-smoke.json`). **Not rerun since 0.4.0**; rerun it |
+| Backend line coverage | 84.8% (13,380 / 15,778 statements); this is not full branch coverage. Gaps remain in section 9. |
+| Draft release (October 23 snapshot) | **v0.4.0, signed, UNPUBLISHED**, built from `a05a196` by [run 40066009752](https://github.com/TanushV/OpenDialer/actions/runs/40066009752): Mac archive + DMG (aarch64), Windows NSIS + MSI (x64), updater signatures, `latest.json`, `SHA256SUMS.txt`. The draft predates the `538dcde` inference fix; it was not rebuilt or published during verification. v0.3.3 was latest published at the previous handoff; remote release state was not rechecked. |
+| Packaging | Both sidecars rebuilt on October 24. Direct frozen-authority smoke passed import, preparation, call, callback and restart persistence. Frozen trainer fitted the human stage from 600 synthetic rows and exported a checksum-valid model. Clean-machine installers and a signed bundle containing the new fix remain unverified. |
+| Local speed | Fresh 10k leads / 100k attempts, 40 samples under each of two hash seeds: next lead p95 47.8-53.5 ms with 15 SQL statements, wrap-up 15.2-22.5 ms, workspace 34.0-57.1 ms, startup 61-78 ms. All local targets met. |
+| Hosted speed | October 24 uncapped shared Mac, separate API/background processes, 8 reps x 1 call/min for 5 minutes: 40 journeys, zero failures; p95 next lead 141.1 ms, event-to-state 224.3 ms, wrap-up 198.2 ms. All observed p95 values are below 250 ms. This does not certify the dedicated 2-vCPU reference: earlier capped shared-host runs missed it at 0.8-1.2 s next-lead p95. |
+| Hosted compose smoke | Rebuilt 0.4.0 source passes bootstrap, 20-lead import, separate-worker preparation, call/callback, API/worker restart persistence and zero runtime error lines. A synthetic 0.3 marker is refused with exit 2 and an unchanged logical database dump. See the October 24 evidence. |
+
+### October 24 verification details
+
+Receipt: [verification-20261024.json](evidence/lean/verification-20261024.json). Full local logs and the original
+browser failure trace are in ignored `work/verification-20261024/`.
+
+- **Product defect fixed (`538dcde`):** streamed ChatGPT-plan results accepted arrays, null, strings and numbers
+  despite callers requiring an object. Four regression cases failed before the fix and now pass.
+- **21 added cases:** malformed streamed output, owned-number success/rejection/lost-response reconciliation,
+  paginated inventory failure, plan-token refresh and revoked scope, and research redirect/content/size limits.
+  Provider HTTP is mocked; these are software contracts, not recorded live-provider receipts.
+- **Browser test corrected (`f9eacca`):** the initial full run had 153 passes and one failure after a second valid
+  review conflict. The trace showed `preparation_revision` changing, while the app retained the draft and returned
+  409. Two injected conflicts reproduced the test failure. The test now explicitly reviews and retries each conflict,
+  verifies preserved choices and notes, and requires a successful save. App concurrency checks were not weakened.
+  Both focused modes and the fresh full 154-test run pass.
+- Frontend typecheck, formatting, production build and 74 unit tests pass; Rust fmt, 7 tests and clippy pass.
+  Vitest alone covers 13.66% of frontend lines; browser coverage is not included in that number.
+- The disposable Caddy route/method test passes. Task-owned compose containers and volumes were removed.
+  Installed app/data, live accounts and release publication were untouched.
+- The AST map remains a dated snapshot; all 131 route declarations were checked against current source and match.
 
 ## 3. Rules you must follow
 
@@ -118,7 +139,8 @@ OPENDIALER_TEST_POSTGRES_URL=postgresql+psycopg://opendialer:remediation-disposa
   .venv/bin/python -m pytest services/backend/tests tests -q -n 6 -p no:cacheprovider
 ```
 
-About 2-3 minutes on SQLite and 4-13 minutes on PostgreSQL depending on machine load.
+October 24 timings: original SQLite suite 4 minutes; expanded SQLite coverage run 8m53s; PostgreSQL
+20m29s while other verification work shared the host. Run browser and performance checks separately from heavy suites.
 
 ### 5.3 Coverage (tooling is not in the lock on purpose)
 
@@ -138,7 +160,7 @@ cd apps/desktop && OPENDIALER_E2E_DATABASE_URL=postgresql+psycopg://opendialer:r
 ```
 
 Playwright starts three servers itself: `scripts/e2e_server.py local` (8765), `... connected` (8766, resets the
-browser database) and the Vite dev server (1420). Workers = 1; the whole run takes 7-11 minutes.
+browser database) and the Vite dev server (1420). Workers = 1; the October 24 fresh full run took 6.3 minutes (the earlier loaded run took 12.2 minutes).
 
 ### 5.5 Rust shell
 
@@ -189,7 +211,10 @@ only back-to-back runs, and run each comparison in both orders.
 Follow `deploy/runbooks/deploy.md` with a disposable env file (bootstrap token, PostgreSQL password,
 `OPENDIALER_SIMULATION=true` for a smoke), bind the API to loopback, then bootstrap, import leads, let the worker
 prepare them, place and wrap up a call, restart the API and worker, and confirm the data survives and logs have no
-errors. The last result is `docs/evidence/lean/hosted-smoke.json` (at `a9a129c`).
+errors. The latest result is in `docs/evidence/lean/verification-20261024.json` (product source `538dcde`).
+`hosted-smoke.json` retains the earlier `a9a129c` receipt. For simulation, use a compose override setting
+`OPENDIALER_SIMULATION: "true"` on migrate, api and worker-background; an env-file value alone does not override
+the literal false in compose. Bind only a disposable loopback port and remove only the task-owned project afterward.
 
 ## 6. Where things are
 
@@ -270,18 +295,20 @@ The kept feature list is in `docs/LEAN_PLAN.md` ("Features that stay"). Main cov
 1. **Install the draft on a clean test machine** (not the owner's main machine): Mac DMG and Windows MSI/NSIS. First
    launch, local and simulated workspaces, a full simulated call, quit and relaunch (data persists), a 0.3 data folder
    left in place (0.4.0 must start fresh and leave it untouched), auto-update metadata. Not done yet.
-2. **Rerun the hosted compose smoke on 0.4.0** (section 5.9), including the plain refusal of a 0.3 database.
-3. **Untested code** (no test executes it; most are real-provider paths):
-   - Telnyx number inventory listing (`providers/telnyx.py:list_numbers`) and number configuration/claim/callback
-     checks (`number_operations.py`: `_claim_number_check`, `confirm_callback_in`, `carrier_rejection`,
-     `_allow_configuration_retry`, `reconcile_number_configuration`). Contract-test them with recorded Telnyx
-     responses through a mock transport.
-   - ChatGPT-plan OAuth exchange/refresh/complete (`providers/oauth.py`) and `GET /auth/callback`.
+2. **Hosted compose smoke completed on October 24**, including restart persistence and plain refusal of a synthetic
+   0.3 marker without database changes. Production TLS, a dedicated host and real backups still need separate evidence.
+3. **Remaining coverage gaps** (the new tests close some of the original gaps, not all provider paths):
+   - Explicit number-recovery actions, verified configuration resubmission and signed callback confirmation
+     (`_claim_number_check`, `confirm_callback_in`, `_allow_configuration_retry`, `reconcile_number_configuration`).
+     Inventory pagination and basic configure/same-intent reconciliation/rejection now have mocked HTTP tests.
+   - ChatGPT-plan account-switch and refresh identity rejection variants, and the backend `GET /auth/callback`.
+     Exchange, successful refresh/inference and scope revocation have mocked coverage; real account eligibility is unproven.
    - Restore reconciliation of live calls against the carrier (`administration.py:reconcile_restore` → `finish`) and the
      webhook ingress check completion (`administration.py:_ingress_finish`).
    - Metered replay against a real coach (`optimization/api.py` `MeteredReplay`), streamed private-help publication
      with a real provider (`coaching/workflows.py` `publish`), and help withdrawal (`_withdraw_help`).
-   - The research web-search fallback (`intelligence.py`, `provider.search`) and research redirect/size limits.
+   - The research workflow web-search fallback (`intelligence.py`, `provider.search`). Redirect/domain/content/size
+     limits now have explicit mock-transport tests.
    - The lane runner (`runtime.py`) is exercised only by the browser suite and compose smoke.
    - Low-coverage modules: `postcall/dates.py` (62%), `accounting.py` (69%), `telephony/recovery_actions.py` (65%).
 4. **Hosted latency on a dedicated host**: `bench.py --hosted` against a real 2-4 vCPU server; target next-lead p95
