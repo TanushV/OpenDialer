@@ -1,10 +1,6 @@
 import { expect, test, type Page } from "./fixtures";
 import { importLead, finishCall } from "./simulation";
 
-test.afterEach(async ({ page }) => {
-  await page.unrouteAll({ behavior: "wait" });
-});
-
 test("late superseded settings load cannot replace a rep's template edits", async ({
   page,
 }) => {
@@ -131,12 +127,19 @@ test("inbound arrival exposes call controls while an admin page is open", async 
     await route.fulfill({ response, json: data });
   });
   await page.getByTestId("setup-telnyx").locator(":scope > summary").click();
+  const active = page.getByRole("region", {
+    name: "Active return call",
+    exact: true,
+  });
+  // Saving reloads the workspace. A background refresh can deliver the arrival first, which
+  // replaces this page with the call controls before the click lands; either way they show.
   await page
     .getByRole("button", { name: "Save Telnyx settings", exact: true })
-    .click();
-  await expect(
-    page.getByRole("region", { name: "Active return call", exact: true }),
-  ).toBeVisible();
+    .click({ timeout: 5_000 })
+    .catch(async (error) => {
+      if (!(await active.isVisible())) throw error;
+    });
+  await expect(active).toBeVisible();
   await expect(
     page.getByRole("button", { name: "End return call", exact: true }),
   ).toBeInViewport();

@@ -1,10 +1,6 @@
 import { expect, test } from "./fixtures";
 import { isolatedSimulationWorkspace } from "./simulation";
 
-test.afterEach(async ({ page }) => {
-  await page.unrouteAll({ behavior: "wait" });
-});
-
 test("a late duplicate callback routing read cannot erase a typed destination", async ({
   page,
 }) => {

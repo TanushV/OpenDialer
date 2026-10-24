@@ -30,10 +30,6 @@ async function enter(page: Page, connected: boolean) {
   await expect(page.getByText("SIMULATION", { exact: true })).toBeVisible();
 }
 
-test.afterEach(async ({ page }) => {
-  await page.unrouteAll({ behavior: "wait" });
-});
-
 for (const connected of [false, true]) {
   test.describe(
     connected ? "PostgreSQL connected screening" : "Local screening",

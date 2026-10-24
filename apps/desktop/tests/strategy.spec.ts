@@ -1,12 +1,6 @@
 import { expect, test } from "./fixtures";
 import { importLead } from "./simulation";
 
-// The workspace fixture route stays active for the whole journey; wait for an
-// in-flight handler before the context closes (its response is otherwise disposed).
-test.afterEach(async ({ page }) => {
-  await page.unrouteAll({ behavior: "wait" });
-});
-
 for (const connected of [false, true]) {
   test(`sparse support and reviewed model evidence ${connected ? "postgres" : "local"}`, async ({
     page,

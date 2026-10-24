@@ -1,10 +1,6 @@
 import { expect, test } from "./fixtures";
 import { importLead, prepareSimulationCall, chooseOutcome } from "./simulation";
 
-test.afterEach(async ({ page }) => {
-  await page.unrouteAll({ behavior: "wait" });
-});
-
 for (const connected of [false, true]) {
   test(`correct a confirmed meeting without losing the rep note, then review outreach ${connected ? "postgres" : "local"}`, async ({
     page,

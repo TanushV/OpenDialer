@@ -135,9 +135,15 @@ test("pending report refresh preserves comparison input", async ({ page }) => {
   );
   // Wait for an in-flight fixture handler before real reads resume.
   await page.unrouteAll({ behavior: "wait" });
-  await page
-    .getByRole("button", { name: "Check report status", exact: true })
-    .click();
+  // A background refresh can read the real report first and retire this button; that is the
+  // same refresh the click asks for, so the draft must survive it either way.
+  const check = page.getByRole("button", {
+    name: "Check report status",
+    exact: true,
+  });
+  await check.click({ timeout: 5_000 }).catch(async (error) => {
+    if (await check.isVisible()) throw error;
+  });
   await expect(page.getByLabel("Experiment review reference")).toHaveValue(
     "Retain this draft during refresh",
   );

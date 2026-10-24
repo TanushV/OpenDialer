@@ -46,6 +46,10 @@ test("work time is visible, supported by a heartbeat and correctable after pause
   await page
     .getByRole("button", { name: "Pause dialing", exact: true })
     .click();
+  // Pausing closes the interval (a new version); review it only after that lands.
+  await expect(
+    page.getByRole("button", { name: "Go ready", exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Operations", exact: true }).click();
   await page.getByText("Working time & corrections", { exact: true }).click();

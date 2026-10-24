@@ -444,10 +444,7 @@ test("declared staffing and setup time survive reload and explain the capacity p
   await openAdvanced(page);
   await page.getByRole("button", { name: "Remove staffed period 1" }).click();
   await page.getByLabel("New number setup delay (hours)").fill("0");
-  await page.getByRole("button", { name: "Save planning assumptions" }).click();
-  await expect(
-    page.getByText("Planning assumptions saved").first(),
-  ).toBeVisible();
+  await clearStaffing(page);
 });
 
 test("named staffing survives reload and explains callbacks without an available owner", async ({
@@ -479,6 +476,9 @@ test("named staffing survives reload and explains callbacks without an available
   );
   await page.getByRole("button", { name: "Save planning assumptions" }).click();
   const body = (await saved).postDataJSON();
+  expect(body.staffed_windows).toHaveLength(1);
+  expect(body.staffed_windows[0].start_at).toBe("2026-10-19T09:00:00.000Z");
+  expect(body.staffed_windows[0].end_at).toBe("2026-10-19T12:00:00.000Z");
   expect(body.staffed_windows[0].rep_ids).toEqual([owner]);
   expect(body.staffed_windows[0].reps).toBe(1);
   await expect(
@@ -544,11 +544,22 @@ test("named staffing survives reload and explains callbacks without an available
   ).toBeVisible();
   await openAdvanced(page);
   await page.getByRole("button", { name: "Remove staffed period 1" }).click();
-  await page.getByRole("button", { name: "Save planning assumptions" }).click();
-  await expect(
-    page.getByText("Planning assumptions saved").first(),
-  ).toBeVisible();
+  await clearStaffing(page);
 });
+
+/** Saves with no dated periods and waits for the server, so later tests in the shared
+ * workspace do not inherit one (an earlier "saved" message is still on screen). */
+async function clearStaffing(page: import("@playwright/test").Page) {
+  const saved = page.waitForResponse(
+    (r) =>
+      r.url().endsWith("/v1/admin/optimization") &&
+      r.request().method() === "PUT",
+  );
+  await page.getByRole("button", { name: "Save planning assumptions" }).click();
+  const response = await saved;
+  expect(response.ok()).toBeTruthy();
+  expect(response.request().postDataJSON().staffed_windows).toEqual([]);
+}
 
 /** Dated periods and planning assumptions live in Settings → Advanced. */
 async function openAdvanced(page: import("@playwright/test").Page) {

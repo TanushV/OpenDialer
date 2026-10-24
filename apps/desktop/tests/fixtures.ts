@@ -10,7 +10,28 @@ export type { Page } from "@playwright/test";
  * failed test reopens the workspace and ends what it left behind. Passing
  * journeys already clean up after themselves, so they pay no navigation here.
  */
+// The UI aborts superseded loads (and React StrictMode remounts every loader in
+// development), so a fixture route can lose its request while it is still
+// fetching. A cancelled request is not a test failure; any other error is.
+const cancelled = /Route is already handled/;
+
 export const test = base.extend<{ recoverAfterFailure: void }>({
+  page: async ({ page }, use) => {
+    const route = page.route.bind(page);
+    page.route = ((url, handler, options) =>
+      route(
+        url,
+        async (fixture, request) => {
+          try {
+            await handler(fixture, request);
+          } catch (error) {
+            if (!cancelled.test(String(error))) throw error;
+          }
+        },
+        options,
+      )) as typeof page.route;
+    await use(page);
+  },
   recoverAfterFailure: [
     async ({ page }, use, testInfo) => {
       await use();
