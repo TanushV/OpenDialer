@@ -223,7 +223,8 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
   - Open items: the backend (-14%) and frontend (-2%) size targets were missed. Live testing remains: Telnyx calls
     and audio, funded Cerebras, DNC vendor access, provider retention terms, hosted latency on a dedicated host and
     campaign lift. Publishing 0.4.0 to existing installs starts them on a fresh workspace.
-  - Draft release: the signed release workflow built v0.4.0 from 4565d15 (run 40014499449): Mac archive and DMG,
+  - Draft release: the signed release workflow built v0.4.0 from a05a196 (run 40066009752, replacing the
+    earlier draft from 4565d15, which predated the strategy-policy fix): Mac archive and DMG,
     Windows NSIS and MSI, updater signatures, `latest.json` (version 0.4.0) and checksums. Not published; v0.3.3
     stays the latest release, so installed updaters do not see it.
 - Coverage restored (October 23, 2026): a coverage run found kept features whose tests the lean cleanup had deleted.

@@ -1,6 +1,6 @@
 # OpenDialer lean build validation
 
-**Status: 0.4.0 lean build on `main` (October 23, 2026). A signed draft release is built ([run 40014499449](https://github.com/TanushV/OpenDialer/actions/runs/40014499449)) and not published.** It does not read 0.2/0.3 workspaces: the desktop opens a fresh one in `local-2/` and leaves the old folders untouched; a server refuses a 0.2/0.3 database. Plan and step receipts: [LEAN_PLAN.md](LEAN_PLAN.md).
+**Status: 0.4.0 lean build on `main` (October 23, 2026). A signed draft release is built from `a05a196` ([run 40066009752](https://github.com/TanushV/OpenDialer/actions/runs/40066009752)) and not published.** It does not read 0.2/0.3 workspaces: the desktop opens a fresh one in `local-2/` and leaves the old folders untouched; a server refuses a 0.2/0.3 database. Plan and step receipts: [LEAN_PLAN.md](LEAN_PLAN.md).
 
 | Gate | Result |
 | --- | --- |
