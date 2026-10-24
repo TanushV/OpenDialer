@@ -120,7 +120,7 @@ for (const connected of [false, true]) {
     let meetingAttempts = 0;
     await page.route("**/v1/leads/*/meeting", async (route) => {
       meetingAttempts++;
-      if (meetingAttempts === 1)
+      if (meetingAttempts <= 2)
         await route.fulfill({
           status: 409,
           json: {
@@ -148,9 +148,41 @@ for (const connected of [false, true]) {
     await expect(modal.getByLabel("Next outreach action")).toHaveValue(
       "resume",
     );
-    await modal
-      .getByRole("button", { name: "Save meeting outcome", exact: true })
-      .click();
+    // A post-call continuity refresh can cause another legitimate conflict after
+    // the first review. Re-read the preserved draft before explicitly retrying.
+    let meetingSaved = false;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const receipt = page.waitForResponse(
+        (r) =>
+          r.url().endsWith(`/v1/leads/${packet.lead.id}/meeting`) &&
+          r.request().method() === "POST",
+      );
+      const packetReloaded = page.waitForResponse((r) =>
+        r.url().endsWith(`/v1/leads/${packet.lead.id}/packet`),
+      );
+      await modal
+        .getByRole("button", { name: "Save meeting outcome", exact: true })
+        .click();
+      const response = await receipt;
+      await (await packetReloaded).finished();
+      if (response.status() === 200) {
+        meetingSaved = true;
+        break;
+      }
+      expect(response.status()).toBe(409);
+      expect((await response.json()).detail).toBe(
+        "Prospect context changed; refresh before saving your review",
+      );
+      await expect(modal.getByLabel("Meeting status")).toHaveValue("cancelled");
+      await expect(modal.getByLabel("Next outreach action")).toHaveValue(
+        "resume",
+      );
+      await expect(
+        modal.getByText(/Keep my original human note through the correction/),
+      ).toBeVisible();
+    }
+    expect(meetingAttempts).toBeGreaterThanOrEqual(3);
+    expect(meetingSaved).toBe(true);
     await expect(modal.getByText(/^Outreach paused:/)).toHaveCount(0);
     await expect(
       modal.getByText(/Keep my original human note through the correction/),
