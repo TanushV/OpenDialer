@@ -68,3 +68,78 @@ async def test_oauth_checks_state_issued_client_signature_nonce_scope_and_identi
             await oauth.finish(
                 pending, state=pending["state"], code="code", client_id="oaiapp_test", http=http
             )
+
+
+@pytest.mark.asyncio
+async def test_registered_client_refreshes_and_saves_before_inference():
+    import json
+
+    from app.providers.oauth import RegisteredPlanClient
+
+    profile = {
+        "client_id": "test-client",
+        "subject": "test-subject",
+        "access_token": "old-access",
+        "refresh_token": "old-refresh",
+        "scopes": ["chatgpt.tokens.use.direct"],
+        "expires_at": NOW.timestamp() - 1,
+    }
+    saved, seen = [], []
+
+    def handler(request):
+        seen.append(request)
+        if request.url.path.endswith("/oauth/token"):
+            assert parse_qs(request.content.decode())["refresh_token"] == ["old-refresh"]
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "new-access",
+                    "refresh_token": "new-refresh",
+                    "expires_in": 120,
+                },
+            )
+        assert saved[0]["access_token"] == "new-access"
+        assert request.headers["authorization"] == "Bearer new-access"
+        events = [
+            {"type": "response.output_text.delta", "delta": '{"answer":"ok"}'},
+            {"type": "response.completed", "response": {"id": "receipt", "usage": {"input_tokens": 7}}},
+        ]
+        return httpx.Response(200, text="".join("data: " + json.dumps(e) + "\n\n" for e in events))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = RegisteredPlanClient(
+            lambda: profile, saved.append, "test-model", "test-host", lambda: NOW, http=http
+        )
+        result = await client.complete("Return JSON", {}, {"type": "object"})
+    assert result.data == {"answer": "ok"} and result.request_id == "receipt"
+    assert result.usage == {"input_tokens": 7}
+    assert saved[0]["expires_at"] == NOW.timestamp() + 120
+    assert saved[0]["refresh_token"] == "new-refresh"
+    assert len(seen) == 2
+
+
+@pytest.mark.asyncio
+async def test_revoked_plan_scope_stops_before_inference_or_saving():
+    from app.providers.oauth import RegisteredPlanClient
+
+    saved, seen = [], []
+    profile = {
+        "client_id": "test-client",
+        "subject": "test-subject",
+        "access_token": "old-access",
+        "refresh_token": "old-refresh",
+        "scopes": ["chatgpt.tokens.use.direct"],
+        "expires_at": NOW.timestamp() - 1,
+    }
+
+    def handler(request):
+        seen.append(request.url.path)
+        return httpx.Response(200, json={"access_token": "new-access", "scope": "openid"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = RegisteredPlanClient(
+            lambda: profile, saved.append, "test-model", "test-host", lambda: NOW, http=http
+        )
+        with pytest.raises(OAuthError, match="revoked"):
+            await client.complete("Return JSON", {}, {"type": "object"})
+    assert seen == ["/api/accounts/oauth/token"] and not saved

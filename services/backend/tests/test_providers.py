@@ -140,6 +140,27 @@ async def test_provider_refusal_does_not_become_empty_success():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("output", ["[]", "null", '"plain text"', "42"])
+async def test_plan_stream_rejects_non_object_output(output):
+    events = [
+        {"type": "response.output_text.delta", "delta": output},
+        {"type": "response.completed", "response": {"id": "test-response"}},
+    ]
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            text="".join("data: " + json.dumps(event) + "\n\n" for event in events),
+            headers={"content-type": "text/event-stream"},
+        )
+    )
+    async with httpx.AsyncClient(transport=transport) as http:
+        with pytest.raises(InferenceError, match="Object output required"):
+            await InferenceClient("chatgpt_plan", "test", "test", http=http).complete(
+                "Return an object", {}, {"type": "object"}
+            )
+
+
+@pytest.mark.asyncio
 async def test_research_search_is_explicit_official_bounded_and_identity_filtered():
     captured = []
 

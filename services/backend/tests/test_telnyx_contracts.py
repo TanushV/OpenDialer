@@ -472,3 +472,54 @@ def test_agent_leg_client_state_cannot_name_another_tenant_call(workspace, app, 
     result = speech(workspace, app, "agent-test-id", "Forged speech.", "forged-speech", client_state=forged)
     assert result["status"] in {"unmatched", "processed"}
     assert sides(app, workspace, call) == {}
+
+
+@pytest.mark.asyncio
+async def test_inventory_reads_every_page_before_returning_numbers():
+    seen = []
+
+    def handler(request):
+        page = int(request.url.params["page[number]"])
+        seen.append(page)
+        assert request.url.params["page[size]"] == "250"
+        return httpx.Response(
+            200,
+            json={
+                "data": [{"id": f"number-{page}", "phone_number": f"+1415555010{page}"}],
+                "meta": {"page_number": page, "total_pages": 2},
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        result = await TelnyxCarrier("test", "app", http=http).list_numbers()
+    assert seen == [1, 2]
+    assert [item["id"] for item in result] == ["number-1", "number-2"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "second",
+    [
+        {"data": [], "meta": {"page_number": 2, "total_pages": 3}},
+        {"data": [], "meta": {"page_number": 1, "total_pages": 2}},
+        {"data": [], "meta": {"page_number": 2, "total_pages": "2"}},
+        {"data": [], "meta": {"page_number": 2, "total_pages": 101}},
+        {"data": [], "errors": [{"code": "test"}], "meta": {"page_number": 2, "total_pages": 2}},
+        {"data": []},
+    ],
+)
+async def test_incomplete_inventory_never_returns_a_partial_success(second):
+    def handler(request):
+        if request.url.params["page[number]"] == "1":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [{"id": "number-1"}],
+                    "meta": {"page_number": 1, "total_pages": 2},
+                },
+            )
+        return httpx.Response(200, json=second)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        with pytest.raises(ValueError, match="inventory"):
+            await TelnyxCarrier("test", "app", http=http).list_numbers()

@@ -154,7 +154,10 @@ class InferenceClient:
                                 request_id = event.get("response", {}).get("id")
                         if not completed:
                             raise InferenceError("Stream interrupted before response.completed")
-                        return InferenceResult(json.loads(output), usage, request_id)
+                        result = json.loads(output)
+                        if not isinstance(result, dict):
+                            raise InferenceError("Object output required")
+                        return InferenceResult(result, usage, request_id)
                     payload = json.loads(await r.aread())
                     if self.mode == "litellm":
                         message = payload["choices"][0]["message"]
