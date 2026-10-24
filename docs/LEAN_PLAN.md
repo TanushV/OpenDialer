@@ -179,7 +179,7 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
   release workflow keeps the signed build; harness scripts and Windows acceptance/staging workflows deleted;
   README, runbooks, security policy and architecture notes rewritten for the lean build.
 - Step 8 (October 23, 2026):
-  - Suites: backend + repo tests 557 passed on SQLite and 558 passed on PostgreSQL (each with its own skips);
+  - Suites: backend + repo tests 579 passed on SQLite and 580 passed on PostgreSQL (each with its own skips);
     frontend typecheck, format, build and 74 unit tests pass; Rust fmt, tests and clippy pass; GitHub CI green.
   - Hosted compose smoke (`docs/evidence/lean/hosted-smoke.json`): migrate job, API, background worker and
     PostgreSQL complete bootstrap, import, worker preparation, a rep call through wrap-up with a callback task, and
@@ -226,3 +226,12 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
   - Draft release: the signed release workflow built v0.4.0 from 4565d15 (run 40014499449): Mac archive and DMG,
     Windows NSIS and MSI, updater signatures, `latest.json` (version 0.4.0) and checksums. Not published; v0.3.3
     stays the latest release, so installed updaters do not see it.
+- Coverage restored (October 23, 2026): a coverage run found kept features whose tests the lean cleanup had deleted.
+  New tests now cover the scheduled prepaid DNC refresh (budget stop, opt-outs never queried, one job per window),
+  conversation associations (restored unit tests), coaching strategy choice (reviewed example, logged 50/50
+  assignments, matured rewards), official-site research (domain and www only, two ranked pages, quote-checked
+  facts, unreadable sources fail), helper usage metrics in the optimization report, and the desktop launch handshake
+  (stdin token, launcher loss, one authority per folder). They caught one defect: the strategy policy named an
+  approach "best" as soon as it reached ten outcomes, even with no conversions, which in adaptive studies would have
+  sent 95% of leads to it; the reviewed default now keeps the lead unless a supported approach estimates better.
+  Unread helper usage counts were removed. Backend line coverage 81% -> 84%.

@@ -4,8 +4,8 @@
 
 | Gate | Result |
 | --- | --- |
-| Feature acceptance | `services/backend/tests/acceptance/` drives every kept feature over HTTP (99 journeys) and passes on SQLite and PostgreSQL. |
-| Backend suites | 557 passed on SQLite and 558 on PostgreSQL (acceptance, unit and repo tests). GitHub CI green. |
+| Feature acceptance | `services/backend/tests/acceptance/` drives every kept feature over HTTP (103 journeys) and passes on SQLite and PostgreSQL. |
+| Backend suites | 579 passed on SQLite and 580 on PostgreSQL (acceptance, unit and repo tests). GitHub CI green. |
 | Browser | Playwright journeys in local (SQLite) and connected (PostgreSQL) modes pass; on a heavily loaded Mac a few connected steps need the 10 s expectation / 60 s test timeouts now configured. |
 | Desktop shell | Rust fmt, tests and clippy pass; the shell only launches the local service and runs the SSH webhook forward. |
 | Packaging | Sidecars freeze; the frozen authority runs 200 simulated calls; the frozen trainer trains the challenger; the 0.4.0 Mac bundle seals, verifies and starts both sidecars under the hardened runtime and passes archive verification (the updater signature is applied by the release workflow). |
