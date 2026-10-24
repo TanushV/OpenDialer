@@ -1,0 +1,96 @@
+{
+  "date": "2026-10-24",
+  "verified_checkout": "a4d199aecde82037cef015841b64e572c7a2fc55",
+  "platform": "macOS 26.5.1 (25F80), arm64",
+  "toolchain": {
+    "node": "24.14.0",
+    "uv": "0.10.12"
+  },
+  "mac_package": {
+    "command": "uv run python scripts/package_macos.py --build",
+    "passed": true,
+    "updater_signing": "Disposable test key; production updater key unavailable locally; configured production public key unchanged. Private test key deleted after packaging.",
+    "apple_signing": "Ad-hoc hardened runtime; not notarized.",
+    "checks": [
+      "Release compilation",
+      "Scoped sidecar entitlements",
+      "Deep strict bundle signature verification",
+      "Extracted archive identity/version/sidecar hashes",
+      "Authority --help under hardened runtime",
+      "Trainer numpy/scipy/sklearn self-check under hardened runtime",
+      "Version-bound updater signature with test key",
+      "DMG creation and checksum verification"
+    ],
+    "extracted_archive_smoke": {
+      "imported": 20,
+      "prepared": 6,
+      "simulated_call_outcome": "callback_requested",
+      "callback_tasks": 1,
+      "restart_persistence": true,
+      "trainer_self_check": true
+    },
+    "installed_app_or_data_accessed": false,
+    "app_gui_launched": false
+  },
+  "local_ci": {
+    "ruff_check": true,
+    "ruff_format": true,
+    "distribution_contract_tests": 13,
+    "frontend_typecheck": true,
+    "frontend_format": true,
+    "frontend_build": true,
+    "frontend_unit_tests": 74,
+    "rust_format": true,
+    "rust_tests": 7,
+    "rust_clippy": true,
+    "sqlite": {
+      "passed": 600,
+      "skipped": 2,
+      "seconds": 619.69
+    },
+    "browser": {
+      "passed": 154,
+      "evidence": "browser-final.log",
+      "note": "Earlier full run in this verification session; product and browser source unchanged since that run."
+    },
+    "postgres": {
+      "passed": 601,
+      "skipped": 1,
+      "seconds": 824.53
+    }
+  },
+  "artifacts": {
+    "OpenDialer.app.tar.gz": {
+      "bytes": 70715019,
+      "sha256": "ba796586ad8a374ab418b684e5ad106316fb03331dd864c10198b81651a58a98",
+      "release_ready": false
+    },
+    "OpenDialer.app.tar.gz.sig": {
+      "bytes": 428,
+      "sha256": "c582d5b9497f3f210523eadc61f1da8e36edce2b2b9b331365edf1491a09d0f3",
+      "release_ready": false
+    },
+    "OpenDialer_0.4.0_aarch64.dmg": {
+      "bytes": 73326768,
+      "sha256": "eb56738802ea2bd37e0444548cd27a968ced57c70f069369fef5499b1c1a29a5",
+      "release_ready": false
+    }
+  },
+  "log_sha256": {
+    "mac-package.log": "2ba38f0b54856003b0f0d5c04ff909dc93145adbda7fefa780c47a61eea3448c",
+    "mac-package-local-key.log": "706c128538f4f0c1baa19be735ecaf46ace7f33b26b107de979b793ddada8d2e",
+    "mac-archive-smoke.log": "4e15a1b5d4c875b9057c607373905a62a77059270df918eeaeb6bb2282939811",
+    "frontend-final.log": "2071cd37f7a7a371ebbfefe84c5b4a8b9cdfda5e12d43e51aab3440da3e3f665",
+    "distribution-final.log": "d2189d8335dda68cf114773ae086311713fd24e124e0dfd7df92cbb65d14612d",
+    "sqlite-final.log": "26d041d381d89bec4c469035a5f1cb2b3f0c1c4d4572438ae200a1c18aec76f8",
+    "browser-final.log": "418a0e256eae1d8e65f22cf6324bbde993df40751711951a4fb39f5a4d38d851",
+    "postgres-final.log": "4b57e524acd11965cae92e2ef0d598534e30b79c6fec36daa5e32b2e852b8c44"
+  },
+  "limitations": [
+    "Production-key signing and notarization not performed locally",
+    "Windows build/runtime not executed on this Mac",
+    "Clean-machine install, native GUI and hardware audio remain unverified",
+    "No release publication; existing draft predates product fix",
+    "Live provider and dedicated hosted performance gates remain open"
+  ]
+}

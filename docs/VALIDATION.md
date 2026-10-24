@@ -2,12 +2,13 @@
 
 **Current verification: October 24, 2026, product fix `538dcde`, browser regression `f9eacca`.**
 [Current handoff](HANDOFF.md) and [verification receipt](evidence/lean/verification-20261024.json) contain the
-commands, counts, regression evidence and remaining gaps. New commits are local; no new GitHub CI or release run
-was triggered. Installed app and data were not accessed or modified.
+commands, counts, regression evidence and remaining gaps. The [Mac/local CI receipt](evidence/lean/mac-local-ci-20261024.json)
+records the pre-push verification requested by the owner. Installed app and data were not accessed or modified.
+GitHub results are tracked in [Actions](https://github.com/TanushV/OpenDialer/actions/workflows/ci.yml).
 
 | Check | October 24 result |
 | --- | --- |
-| Backend | 600 distinct cases on SQLite (597 full-suite + 3 focused additions); 601 on PostgreSQL (598 + 3). Backend line coverage 84.8%. Optional Caddy ingress tests separately enabled: 2 pass. |
+| Backend | Fresh full suites: 600 passed / 2 skipped on SQLite; 601 passed / 1 skipped on PostgreSQL. Backend line coverage 84.8%. Optional Caddy ingress tests separately enabled: 2 pass. |
 | Browser | Final fresh full run: 154/154 pass (6.3 minutes). Initial run: 153 pass, one repeated-conflict test assumption failed. Deterministic reproduction and an explicit review/retry test fix preserve the app's conflict checks. |
 | Frontend / Rust | Typecheck, format, production build, 74 Vitest tests; Rust format, 7 tests and clippy all pass. |
 | Product fix | ChatGPT-plan streaming rejects non-object JSON. Arrays, null, strings and numbers all failed the new regression tests before the fix and pass afterward. |
@@ -15,6 +16,7 @@ was triggered. Installed app and data were not accessed or modified.
 | Hosted deployment | Fresh 0.4.0 compose build: bootstrap, 20-lead import, separate-worker preparation, call/callback and restart persistence pass, with no runtime error lines. A synthetic 0.3 marker is refused without changing the logical PostgreSQL dump. |
 | Hosted workload | Eight reps x one call/min for five minutes, 2,000 leads: 40/40 journeys, zero failures. p95 next lead 141.1 ms, event-to-state 224.3 ms, wrap-up 198.2 ms. Uncapped shared Mac with separate API/background processes and Docker PostgreSQL; not certification of the dedicated 2-vCPU reference. |
 | Frozen sidecars | Both rebuilt. Authority passes a simulated call/callback and restart; trainer fits a human stage from 600 synthetic rows and exports a checksum-valid artifact. This does not verify the installer or hardware audio. |
+| Mac packaging | Current app builds and passes deep strict signature and extracted archive verification; both sidecars run under the hardened runtime. Extracted authority passes simulated call/callback and restart; trainer imports pass. DMG creation/checksum pass. Updater signature uses a disposable test key, not the production key; no notarization or installation. |
 | Remaining gates | Live Telnyx/inference/DNC accounts, hardware audio, clean-machine Mac/Windows installers, provider terms/legal approval, production hosting and dedicated-host latency, campaign lift. Backend and frontend size targets remain missed. |
 
 The older signed draft predates the inference fix and was not rebuilt or published. Mocked providers and synthetic

@@ -260,3 +260,14 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
     with no new GitHub CI run. The existing signed draft predates the inference fix. Live accounts, hardware,
     clean-machine Mac/Windows installers, provider terms/legal approval and campaign lift remain unverified.
     Backend/frontend size targets remain missed; coverage gaps remain listed in the current handoff.
+
+- Owner-requested pre-push verification (October 24, 2026): [Mac/local CI receipt](evidence/lean/mac-local-ci-20261024.json).
+  Fresh full suites pass: SQLite 600 passed / 2 skipped (619.69 s), PostgreSQL 601 / 1 (824.53 s);
+  lint/format, frontend typecheck/format/build/74 unit tests, Rust fmt/7 tests/clippy and 13 distribution checks pass.
+  The earlier 154/154 browser run covers unchanged source.
+  Current Mac app built on arm64 macOS 26.5.1, with deep strict signature and extracted archive verification.
+  Both sidecars pass hardened-runtime checks; extracted authority completes a simulated call/callback and restart,
+  trainer imports pass, and DMG creation/checksum pass. Updater signing used a disposable test key, deleted after
+  packaging; production updater configuration is unchanged. Artifacts are not release-ready: no production key,
+  notarization, clean-machine install or native GUI/hardware validation. Installed app/data were untouched.
+  Source and these receipts are prepared for the owner's requested GitHub push; remote results are tracked in Actions.
