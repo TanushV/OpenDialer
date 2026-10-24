@@ -252,19 +252,10 @@ LATENCY_FIELDS = (
 LATENCY_BOUNDS = tuple(range(101)) + tuple(sorted({math.ceil(100 * 1.1**i) for i in range(1, 93)}))
 
 
-def help_values(event, feedback, *, now):
+def help_values(event, feedback):
     feedback = feedback or {}
     exposure = event.get("strategy_exposure", {})
-    generated = event.get("action", "SHOW_CARD") == "SHOW_CARD"
-    at = timestamp(exposure.get("displayed_at"))
-    displayed = bool(generated and at and at <= now)
-    used = exposure.get("used_by_rep") if displayed else None
     values = {
-        "generated_guidance": int(generated),
-        "displayed_guidance": int(displayed),
-        "rep_use_yes": int(generated and used is True),
-        "rep_use_no": int(generated and used is False),
-        "rep_use_unknown": int(generated and used is None),
         "reviewed_cards": int(
             any(feedback.get(k) is not None for k in ("useful", "grounded", "timely", "distracting"))
         ),
@@ -712,7 +703,7 @@ def _calculate_unit(snapshot, now):
     elif kind == "usage" and row:
         values = usage_values(row)
     elif kind == "help" and row:
-        values = help_values(row, snapshot["feedback"], now=now)
+        values = help_values(row, snapshot["feedback"])
     else:
         values = {}
     if kind == "call" and row:

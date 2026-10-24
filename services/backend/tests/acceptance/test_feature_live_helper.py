@@ -165,6 +165,42 @@ def test_feedback_records_display_and_rep_judgement_with_version_checks(workspac
     assert after["version"] == 2 and after["used_by_rep"] is True and after["useful"] is True
 
 
+def settled_report(ws):
+    for _ in range(30):
+        report = get(ws, "/v1/optimization")
+        if report["projection"]["status"] == "ready":
+            return report
+        run_jobs(ws)
+    raise AssertionError(report["projection"])
+
+
+def test_reviewed_tips_reach_the_coaching_report_with_their_timing(workspace, clock):
+    ws = workspace
+    first = start(ws, key="metrics-call-1")["id"]
+    answered_by_human(ws, first)
+    chunk(ws, first, "s1", "We have no budget for this right now.")
+    tip = helper_tip(ws, clock, first)
+    path = f"/v1/calls/{first}/coach/feedback"
+    shown = {"coach_event_id": tip["id"], "request_id": str(uuid4()), "displayed": True, "render_ms": 40}
+    post(ws, path, shown)
+    judged = {"useful": True, "grounded": True, "timely": False}
+    post(ws, path, {"coach_event_id": tip["id"], "request_id": str(uuid4()), "expected_version": 0, **judged})
+    call(ws, "POST", f"/v1/calls/{first}/hangup")
+    wrap_up(ws, first, outcome="not_interested", contact_role="right_party")
+    second = start(ws, key="metrics-call-2")["id"]
+    answered_by_human(ws, second)
+    chunk(ws, second, "s1", "We have no budget for next quarter.")
+    assert helper_tip(ws, clock, second) is not None, "Generated but never displayed or reviewed"
+    coaching = settled_report(ws)["coaching"]
+    assert coaching["reviewed_cards"] == 1
+    assert coaching["useful_fraction"] == 1 and coaching["grounded_fraction"] == 1
+    assert coaching["timely_fraction"] == 0 and coaching["distracting_fraction"] is None
+    # The rep's render timing comes from the one displayed tip; server timing from both.
+    assert coaching["latency_support"]["render_ms"] == 1 and coaching["p95_render_ms"] == 40
+    assert coaching["latency_support"]["inference_ms"] == 2
+    assert coaching["latency_support"]["stt_ms"] == 0 and coaching["p95_stt_ms"] is None
+
+
 def test_raw_speech_expires_at_five_minutes_while_notes_comments_and_outcome_remain(workspace, clock):
     ws = workspace
     call_id = start(ws)["id"]

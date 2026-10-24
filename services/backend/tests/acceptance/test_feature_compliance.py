@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 from conftest import save_operating_policy
-from journey import get, import_leads, post, reserve
+from journey import get, import_leads, post, reserve, run_jobs
 
 PT, ET, CT = (
     "+14155550101",
@@ -345,3 +345,89 @@ def test_seller_approval_and_preflight_gate_the_queue_and_report_the_blocker(wor
     capabilities = {item["id"]: item for item in get(workspace, "/v1/admin/preflight")["capabilities"]}
     assert capabilities["telephony"]["state"] == "software_verified"
     assert capabilities["national_dnc"]["state"] == "software_verified"
+
+
+def test_scheduled_prepaid_refresh_runs_once_per_window_within_its_budgets(
+    workspace, app, monkeypatch, clock
+):
+    import httpx
+
+    ws, service = workspace, app.state.service
+    lookups = []
+
+    def provider(request):
+        phone = request.url.params["phone"]
+        lookups.append((phone, request.headers["x-api-key"]))
+        listed = len(lookups) == 1
+        return httpx.Response(
+            200,
+            json={
+                "success": True,
+                "phone": phone,
+                "is_dnc": listed,
+                "status": "DNC" if listed else "NOT DNC",
+                "credits_remaining": 1000 - len(lookups),
+                "timestamp": clock.now.isoformat().replace("+00:00", "Z"),
+            },
+        )
+
+    monkeypatch.setattr(service, "http", httpx.AsyncClient(transport=httpx.MockTransport(provider)))
+
+    def tick():
+        ws["client"].portal.call(service.maintenance_tick)
+
+    # Area code 650 has no national snapshot in the seeded workspace, so its numbers need a check;
+    # seeded 415/212/512 numbers already have a current national result and are skipped.
+    authorization = {
+        "reference": "Seller registry access 2026-10",
+        "npas": ["650"],
+        "expires_at": (clock.now + timedelta(days=30)).isoformat(),
+        "source_access_verified": True,
+        "source_refreshed_at": clock.now.isoformat(),
+    }
+    settings(ws, dnc_api_key="synthetic-dnc-key", dnc_seller_authorization=authorization)
+    eligible = ["+16505550201", "+16505550202", "+16505550204"]
+    opted_out = "+16505550203"
+    rows = [
+        {
+            "name": f"Refresh {i}",
+            "phone": phone,
+            "company": "Refresh Co",
+            "region": "650",
+            "timezone": "America/Los_Angeles",
+            "timezone_confidence": "confirmed",
+        }
+        for i, phone in enumerate([*eligible, opted_out])
+    ]
+    import_leads(ws, rows)
+    post(ws, "/v1/suppressions", {"phone": opted_out, "reason": "opt_out"})
+    tick()
+    run_jobs(ws)
+    assert get(ws, "/v1/admin/dnc/screens")["refresh"] is None, "Off by default: no job, no spend"
+    assert lookups == []
+    # Two queries fit the run budget (1667 micro-USD each); the third does not.
+    refresh = {
+        "enabled": True,
+        "interval_hours": 24,
+        "batch_size": 50,
+        "max_run_usd": "0.0034",
+        "max_day_usd": "0.01",
+    }
+    path = "/v1/admin/operating-policy"
+    saved = save_operating_policy(ws["client"], path, headers=ws["headers"], json={"dnc_refresh": refresh})
+    assert saved.status_code == 200, saved.text
+    tick()
+    tick()  # The same window schedules one job.
+    run_jobs(ws, rounds=3)
+    screens = get(ws, "/v1/admin/dnc/screens")
+    progress = screens["refresh"]
+    assert progress["reason"] == "DNC_REFRESH_BUDGET_EXHAUSTED" and progress["complete"] is True
+    assert progress["submitted"] == 2 and len(lookups) == 2
+    assert all(key == "synthetic-dnc-key" for _, key in lookups)
+    assert {phone for phone, _ in lookups} < {phone[2:] for phone in eligible}, "Never an opt-out"
+    completed = [s for s in screens["screens"] if s["status"] == "completed"]
+    assert sorted(s["listed"] for s in completed) == [False, True]
+    assert all(s["checked_at"] and s["expires_at"] for s in completed)
+    tick()
+    run_jobs(ws)
+    assert len(lookups) == 2, "The window's job has finished; nothing is charged again"

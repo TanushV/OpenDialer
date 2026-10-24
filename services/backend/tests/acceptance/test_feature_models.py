@@ -5,7 +5,7 @@ from copy import deepcopy
 from datetime import timedelta
 from uuid import uuid4
 
-from journey import answered_by_human, call, get, post, run_jobs, start, wrap_up
+from journey import answered_by_human, call, event, get, post, run_jobs, start, wrap_up
 
 UTTERANCE = "We need it to keep working with no connection in the field."
 OFFLINE_QUOTE = "no connection"
@@ -430,6 +430,117 @@ def test_coaching_point_becomes_a_library_snippet_and_recent_coaching_history(
     withdrawn = {"expected_version": snippet["version"], "approved": False}
     call(ws, "PATCH", f"/v1/admin/snippets/{snippet['id']}", json=withdrawn)
     assert get(ws, "/v1/coaching")["examples"] == []
+
+
+def test_a_reviewed_example_becomes_a_coaching_strategy_with_logged_assignments(
+    workspace, app, monkeypatch, clock
+):
+    ws = workspace
+    cid = finish_call(ws, app, monkeypatch, {"finalize": finalize_coaching})
+    clock.now += timedelta(seconds=31)
+    run_jobs(ws)
+    point = get(ws, f"/v1/calls/{cid}/analysis")["call_memory"]["coaching_points"][0]
+    version = get(ws, f"/v1/calls/{cid}")["transcript_version"]
+    example = call(
+        ws,
+        "POST",
+        "/v1/admin/snippets",
+        json={
+            "call_id": cid,
+            "coaching_point_id": point["id"],
+            "expected_transcript_version": version,
+            "review_reference": "SIM-REVIEW-STRATEGY",
+        },
+    )
+    strategies = get(ws, "/v1/optimization/strategies")["strategies"]
+    assert [s["id"] for s in strategies] == ["control", example["id"]]
+    assert strategies[1]["text"] == COACHING
+    # Calls are placed as simulated; only the helper turn below leaves simulation.
+    monkeypatch.setattr(app.state.service.settings, "simulation", True)
+    rows = [
+        {
+            "name": f"Strategy {i}",
+            "phone": f"+1415555{3100 + i}",
+            "company": f"Strategy Co {i}",
+            "timezone": "America/Los_Angeles",
+            "timezone_confidence": "confirmed",
+            "region": "415",
+        }
+        for i in range(16)
+    ]
+    post(ws, "/v1/leads/import", {"campaign_id": ws["campaign_id"], "rows": rows})
+    body = {
+        "family": "coaching",
+        "review_reference": "Reviewed coaching comparison",
+        "duration_days": 1,
+        "request_id": str(uuid4()),
+        "strategy_ids": ["control", example["id"]],
+        "candidate_probability": 0.5,
+    }
+    unknown = ws["client"].post(
+        "/v1/admin/optimization/comparisons",
+        headers=ws["headers"],
+        json={**body, "request_id": str(uuid4()), "strategy_ids": ["control", "unreviewed"]},
+    )
+    assert unknown.status_code == 422, "Only seller-reviewed examples can be approaches"
+    study = post(ws, "/v1/admin/optimization/comparisons", body)
+    assert post(ws, "/v1/admin/optimization/comparisons", body)["id"] == study["id"], "Idempotent"
+    contexts = []
+    live = {"live": lambda request: contexts.append(request["strategy_context"]) or asker_answer(request)}
+    chosen = []
+    for i in range(16):
+        placed = start(ws, key=f"strategy-call-{i}")["id"]
+        assignment = get(ws, f"/v1/calls/{placed}")["coaching_comparison"]
+        assert assignment["comparison_id"] == study["id"]
+        assert assignment["strategy_probabilities"] == {"control": 0.5, example["id"]: 0.5}
+        assert assignment["propensity"] == 0.5
+        assert assignment["arm"] == ("control" if assignment["strategy_id"] == "control" else "candidate")
+        chosen.append(assignment["strategy_id"])
+        if assignment["strategy_id"] == example["id"] and not contexts:
+            answered_by_human(ws, placed)
+            chunk(ws, placed, "s1", "We have no budget for this right now.")
+            install_fake_models(app, monkeypatch, live)
+            assert helper_tip(ws, clock, placed)["say_or_ask"]
+            monkeypatch.setattr(app.state.service.settings, "simulation", True)
+            call(ws, "POST", f"/v1/calls/{placed}/hangup")
+            wrap_up(ws, placed, outcome="not_interested", contact_role="right_party")
+        else:
+            event(ws, placed, "call.hangup")
+            wrap_up(ws, placed, outcome="no_answer")
+        clock.now += timedelta(seconds=30)
+    assert set(chosen) == {"control", example["id"]}, "A fair draw reaches both approaches"
+    [context] = contexts
+    assert context["strategy_id"] == example["id"] and context["approach"] == COACHING
+    assert context["reason"] == "reviewed_finite_strategy"
+    report = settled(ws, "/v1/optimization")
+    comparison = next(c for c in report["comparisons"] if c["id"] == study["id"])
+    assert comparison["allocation_policy"] == "two_arm"
+    assert comparison["inference_unit"] == "lead; stable assignment within rep strata"
+    assert comparison["strategy_exposure"]["generated"] == 1
+    assert comparison["strategy_exposure"]["displayed"] == 0
+    snapshot = comparison["strategy_policy_snapshot"]
+    assert set(snapshot["probabilities"]) == {"control", example["id"]}
+    assert snapshot["observations"] == {"control": 0, example["id"]: 0}, "No outcome window has closed"
+    assert comparison["sufficient_evidence"] is False
+    # Once each assignment's outcome window closes, it counts once for the approach it was given.
+    clock.now += timedelta(days=15)
+    login = {"email": "operator@example.test", "password": "a-test-only-password-123"}
+    token = call(ws, "POST", "/v1/auth/session", json=login)["access_token"]
+    ws = {**ws, "headers": {"Authorization": f"Bearer {token}"}}
+    later = settled(ws, "/v1/optimization")
+    comparison = next(c for c in later["comparisons"] if c["id"] == study["id"])
+    counted = {action: chosen.count(action) for action in ("control", example["id"])}
+    assert comparison["strategy_policy_snapshot"]["observations"] == counted
+    assert comparison["strategy_policy_snapshot"]["best"] == "control", "Sparse rewards keep the default"
+
+
+def settled(ws, path):
+    for _ in range(30):
+        body = get(ws, path)
+        if body["projection"]["status"] == "ready":
+            return body
+        run_jobs(ws)
+    raise AssertionError(body["projection"])
 
 
 def test_rep_confirms_a_reviewed_approach_and_it_becomes_a_reviewed_opportunity(

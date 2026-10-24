@@ -244,3 +244,121 @@ def test_compatible_endpoints_and_search_are_configured_without_echoing_keys(wor
             workspace["client"].put("/v1/admin/settings", headers=workspace["headers"], json=body).status_code
             == 422
         )
+
+
+SITE = {
+    "https://acme.example.test/": (301, "", {"location": "https://www.acme.example.test/"}),
+    "https://www.acme.example.test/": (
+        200,
+        "<title>Acme Repair</title><script>steal()</script>"
+        '<a href="/services">Our services</a> <a href="/about-us">About the company</a>'
+        ' <a href="/careers">Careers</a> <a href="https://other.example.test/services">Partner</a>'
+        ' <a href="#top">Top</a> <a href="/about-us#team">Team</a>',
+        {"content-type": "text/html; charset=utf-8"},
+    ),
+    "https://www.acme.example.test/services": (
+        200,
+        "<title>Services</title><p>We repair commercial refrigeration units across the Bay Area.</p>",
+        {"content-type": "text/html"},
+    ),
+    "https://www.acme.example.test/about-us": (
+        200,
+        "<title>About</title><p>Acme Repair was founded in 1998 in Oakland.</p>",
+        {"content-type": "text/html"},
+    ),
+    "https://brochure.example.test/": (200, "%PDF-1.7", {"content-type": "application/pdf"}),
+}
+
+
+class ResearchModel:
+    """Research extraction and its grounding review, answered from the fetched sources."""
+
+    billing, search_enabled = "openai", False
+
+    async def complete(self, instructions, payload, schema):
+        from app.providers.inference import InferenceResult
+
+        usage = {"cost": 0.001}
+        if "facts" in schema.get("properties", {}):
+            by_url = {source["url"]: source["id"] for source in payload["sources"]}
+            services, about = by_url.get(f"{BASE}services"), by_url.get(f"{BASE}about-us")
+            facts = [
+                fact(
+                    "Repairs commercial refrigeration units", services, "We repair commercial refrigeration"
+                ),
+                fact("Founded in 1998", about, "founded in 1998"),
+                fact("Employs 500 technicians", services, "500 technicians"),  # Not in the source.
+                fact("Serves Sacramento", "unknown-source", "Sacramento"),
+            ]
+            return InferenceResult({"facts": facts, "unknowns": []}, usage, str(uuid4()))
+        if "fields" in payload and "fingerprint" in payload:
+            verdicts = [
+                {"field": f["field"], "verdict": "SUPPORTED", "evidence": f["evidence"]}
+                for f in payload["fields"]
+            ]
+            return InferenceResult(
+                {"fingerprint": payload["fingerprint"], "verdicts": verdicts}, usage, str(uuid4())
+            )
+        return InferenceResult({}, usage, str(uuid4()))  # Script writing falls back to the template.
+
+
+BASE = "https://www.acme.example.test/"
+
+
+def fact(statement, source_id, quote):
+    return {
+        "statement": statement,
+        "source_id": source_id,
+        "quote": quote,
+        "stability": "stable",
+        "conflicts": [],
+    }
+
+
+def test_official_site_research_follows_a_small_official_set_and_keeps_only_quoted_facts(
+    workspace, app, monkeypatch
+):
+    import app.research.fetch as fetch
+    import httpx
+
+    requested = []
+
+    def handler(request):
+        url = str(request.url.copy_with(path=request.url.path or "/"))
+        requested.append(url)
+        status, body, headers = SITE.get(url, (404, "", {}))
+        return httpx.Response(status, text=body, headers=headers)
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(
+        fetch.httpx, "AsyncClient", lambda **kwargs: real(transport=httpx.MockTransport(handler), **kwargs)
+    )
+    service = app.state.service
+    model = ResearchModel()
+    monkeypatch.setattr(service, "inference", lambda *args, **kwargs: model)
+    monkeypatch.setattr(service.settings, "simulation", False)
+    rows = [
+        {**leads("Acme", 1)[0], "company": "Acme Repair", "domain": "acme.example.test"},
+        {**leads("Brochure", 1)[0], "domain": "brochure.example.test"},
+    ]
+    acme, brochure = [lead["id"] for lead in import_leads(workspace, rows)["leads"]]
+    post(workspace, "/v1/research/batches", {"lead_ids": [acme, brochure]})
+    run_jobs(workspace)
+    # The imported domain and its www name only; two ranked pages; no careers, partner or repeats.
+    site = [url for url in requested if "acme.example.test" in url]
+    assert site[:2] == ["https://acme.example.test/", BASE]
+    assert sorted(site[2:]) == [f"{BASE}about-us", f"{BASE}services"]
+    assert not any("careers" in url or "other.example.test" in url for url in requested)
+    assert [url for url in requested if "brochure" in url] == ["https://brochure.example.test/"]
+    research = get(workspace, f"/v1/leads/{acme}/packet")["research"]
+    facts = {f["statement"]: f for f in research["facts"]}
+    assert set(facts) == {"Repairs commercial refrigeration units", "Founded in 1998"}
+    assert facts["Founded in 1998"]["source_url"] == f"{BASE}about-us"
+    assert all(f["entity_match"] == "explicit_imported_company_domain" for f in facts.values())
+    assert all(f["status"] == "supported" and not f["synthetic"] for f in facts.values())
+    sources = {s["url"]: s for s in research["sources"]}
+    assert set(sources) == {f"{BASE}services", f"{BASE}about-us"}
+    assert "Bay Area" in sources[f"{BASE}services"]["text"]
+    # A source that cannot be read is a failed attempt, not an empty success.
+    assert get(workspace, f"/v1/leads/{brochure}/packet")["research"]["facts"] == []
+    assert get(workspace, "/v1/preparation")["failed"] >= 1
