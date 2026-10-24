@@ -372,9 +372,11 @@ def distribution_from_counts(actions, counts, *, exploration=0.1, control=False,
         prior = (values["all_success"] + 1) / (values["all_n"] + 5)
         estimates[action] = (values["weighted_success"] + 10 * prior) / (values["weight"] + 10)
         observations[action] = values["n"]
-    # Sparse data retains the reviewed default; exploration collects support for other approved actions.
-    supported = [a for a in actions if observations[a] >= 10]
-    best = max(supported, key=lambda a: estimates[a]) if supported else actions[0]
+    # Sparse data retains the reviewed default; another approved action takes the lead only with its
+    # own support and a better estimate (reaching ten outcomes first is not winning). Exploration
+    # collects support for the others.
+    supported = [a for a in actions[1:] if observations[a] >= 10]
+    best = max([actions[0], *supported], key=lambda a: estimates[a])
     probabilities = {a: exploration / len(actions) + (1 - exploration if a == best else 0) for a in actions}
     return {
         "best": best,
