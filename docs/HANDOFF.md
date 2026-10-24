@@ -1,7 +1,7 @@
 # OpenDialer testing handoff (CURRENT)
 
-> **Status: CURRENT** handoff as of **October 24, 2026**, verified through `f9eacca` on `main` plus the documentation update.
-> Product fix: `538dcde`; browser regression: `f9eacca`. It is the single handoff to read first. If a newer handoff exists, it will say so at its top and this
+> **Status: CURRENT** handoff as of **October 24, 2026**, verified through `f9eacca` on `main`, then extended with script
+> learning (see section 2 and `docs/SCRIPT_LEARNING.md`). Product fix: `538dcde`; browser regression: `f9eacca`. It is the single handoff to read first. If a newer handoff exists, it will say so at its top and this
 > one will be marked superseded. The companion code map is [HANDOFF_AST.md](HANDOFF_AST.md) (sizes, all HTTP
 > routes, every backend module's classes and functions, generated from the AST).
 
@@ -29,9 +29,9 @@ rundowns), OpenAI / OpenAI-compatible endpoint / a rep's ChatGPT plan (research 
 |---|---|
 | Version | 0.4.0 everywhere the distribution contract checks (`tests/test_distribution_contract.py`) |
 | Verified source | `538dcde` fixes non-object ChatGPT-plan responses; `f9eacca` tests repeated prospect-review conflicts. Local checks pass. The owner requested a push after Mac verification; see the [local CI and Mac receipt](evidence/lean/mac-local-ci-20261024.json). GitHub results are tracked in [Actions](https://github.com/TanushV/OpenDialer/actions/workflows/ci.yml). |
-| Backend + repo tests | Fresh full suites: 600 passed / 2 skipped on SQLite, 601 passed / 1 skipped on PostgreSQL. The optional Caddy test was separately enabled and passed; the guarded-PostgreSQL check is inapplicable in the SQLite run. |
+| Backend + repo tests | Fresh full suites with script learning: 624 passed / 2 skipped on SQLite, 625 passed / 1 skipped on PostgreSQL (before it: 600 / 601). The optional Caddy test was separately enabled and passed; the guarded-PostgreSQL check is inapplicable in the SQLite run. |
 | HTTP acceptance journeys | 103 in `services/backend/tests/acceptance/` |
-| Browser journeys | 154/154 passed in a fresh full local/connected run (6.3 minutes). The first run exposed a test assumption about repeated review conflicts; see below. |
+| Browser journeys | 155/155 passed in a full local/connected run with script learning (11.4 minutes on a loaded Mac; before it, 154/154 in 6.3 minutes). The first run exposed a test assumption about repeated review conflicts; see below. |
 | Frontend unit / Rust | 74 Vitest tests; Rust fmt, 7 tests, clippy pass |
 | Backend line coverage | 84.8% (13,380 / 15,778 statements); this is not full branch coverage. Gaps remain in section 9. |
 | Draft release (October 23 snapshot) | **v0.4.0, signed, UNPUBLISHED**, built from `a05a196` by [run 40066009752](https://github.com/TanushV/OpenDialer/actions/runs/40066009752): Mac archive + DMG (aarch64), Windows NSIS + MSI (x64), updater signatures, `latest.json`, `SHA256SUMS.txt`. The draft predates the `538dcde` inference fix; it was not rebuilt or published during verification. v0.3.3 was latest published at the previous handoff; remote release state was not rechecked. |
@@ -59,7 +59,12 @@ browser failure trace are in ignored `work/verification-20261024/`.
   Vitest alone covers 13.66% of frontend lines; browser coverage is not included in that number.
 - The disposable Caddy route/method test passes. Task-owned compose containers and volumes were removed.
   Installed app/data, live accounts and release publication were untouched.
-- The AST map remains a dated snapshot; all 131 route declarations were checked against current source and match.
+- The AST map was regenerated after script learning: 139 route declarations (9 script routes added, `/v1/admin/variants`
+  removed).
+- Script learning (October 24, after the verification above) learns how prospects react to each section of a
+  campaign's base script, keeps a Markdown memory per campaign, and tests changes before adopting them. The 0.4.0
+  draft release predates it. Its tests: `test_feature_script_learning.py` (9 journeys), `test_script_learning.py`
+  (15), `script-memory.spec.ts`.
 
 ## 3. Rules you must follow
 
@@ -257,6 +262,7 @@ The kept feature list is in `docs/LEAN_PLAN.md` ("Features that stay"). Main cov
 | Preparation and research | `test_feature_preparation.py` | `test_script_grounding.py`, `remediation.spec.ts`, `knowledge.spec.ts` |
 | Statistical ML, training, experiments, learning | `test_feature_learning.py`, `test_feature_models.py` | `test_adaptive_model.py`, `test_training_isolation.py`, `test_pure_serving.py`, `test_conversation_associations.py`, `optimization.spec.ts`, `conversation-learning.spec.ts` |
 | Numbers, health, capacity, staffing | `test_feature_operations.py` | `test_capacity_conservation.py`, `test_time_capacity.py`, `test_optimization_numbers.py`, `numbers.spec.ts` |
+| Script learning: section reactions, effects on close, Markdown memory, tested script changes | `test_feature_script_learning.py` | `test_script_learning.py`, `script-memory.spec.ts`; plan `docs/SCRIPT_LEARNING.md` |
 | Metrics, reports, work time | `test_feature_learning.py`, `test_feature_live_helper.py` | `report-projections.spec.ts`, `worktime.spec.ts`, `test_sqlite_plans.py` |
 | Costs and billing | `test_feature_operations.py` | `billing-resolution.spec.ts` |
 | Admin: settings, keys, users, backup/restore, ingress, tunnel, offline viewing | `test_feature_operations.py`, `test_feature_workspace.py` | `restore.spec.ts`, Rust tunnel tests in `lib.rs`, `cache-boundary.test.ts` |

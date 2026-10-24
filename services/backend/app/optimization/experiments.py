@@ -177,7 +177,8 @@ def exposure_values(event, observations, *, now):
 def comparison_from_counts(study, values, grouped, *, now):
     """One inference policy over unique-lead, stratum, exposure and quality totals."""
     goal, window_days = study["goal"], study["window_days"]
-    result = trial_from_counts(values, goal=goal, window_days=window_days)
+    effect = study.get("minimum_effect", 0.05)
+    result = trial_from_counts(values, goal=goal, window_days=window_days, minimum_effect=effect)
     assigned = sum(result["arms"][a]["leads"] for a in ("control", "candidate"))
     result.update(
         **study,
@@ -190,7 +191,7 @@ def comparison_from_counts(study, values, grouped, *, now):
     result.pop("population", None)
     field = "cluster" if study["family"] == "number_allocation" else "rep_id"
     strata = [
-        {"id": key, **trial_from_counts(counts, goal=goal, window_days=window_days)}
+        {"id": key, **trial_from_counts(counts, goal=goal, window_days=window_days, minimum_effect=effect)}
         for key, counts in sorted(grouped.items(), key=lambda item: str(item[0]))
     ]
     if field == "cluster":
@@ -448,11 +449,11 @@ class ComparisonWorkflows:
                 if persist
                 else values
             )
-        if family == "coaching" and not rep_id:
+        if family in {"coaching", "script"} and not rep_id:
             return None
         stratum = lead.data.get("region") or "general" if family == "number_allocation" else rep_id
         rep_count = 0
-        if family == "coaching":
+        if family in {"coaching", "script"}:
             model = MODELS["experiment_assignments"]
             rep_count = s.scalar(
                 select(func.count())

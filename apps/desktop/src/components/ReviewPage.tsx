@@ -341,6 +341,7 @@ export function ReviewPage() {
               : `Rep-side talk ratio ${Math.round(Number(analysis.metrics.rep_talk_ratio) * 100)}%.`}{" "}
             {String(analysis.metrics.question_count)} rep questions.
           </p>
+          <ScriptTrace trace={analysis.script_trace} />
         </section>
         <div>
           <section className="card padded">
@@ -534,3 +535,37 @@ export function ReviewPage() {
   );
 }
 import { ConversionForm } from "./ConversionForm";
+
+function seconds(ms: number | null | undefined) {
+  return ms === null || ms === undefined ? "—" : `${Math.round(ms / 1000)}s`;
+}
+
+/** Which script sections were delivered, how the prospect reacted, and the call's shape (post-call). */
+function ScriptTrace({ trace }: { trace?: Analysis["script_trace"] }) {
+  if (!trace?.sections.length)
+    return (
+      <p className="muted small">
+        No script section was recognized in this call.
+      </p>
+    );
+  const shape = trace.shape;
+  return (
+    <div aria-label="Script sections delivered">
+      <h3>Script sections delivered</h3>
+      <ol>
+        {trace.sections.map((s) => (
+          <li key={s.key}>
+            {label(s.key.split(":")[0])}
+            {s.key.includes(":") ? ` ${Number(s.key.split(":")[1]) + 1}` : ""} ·
+            prospect {s.reaction} · {seconds(s.portion_ms)}
+          </li>
+        ))}
+      </ol>
+      <p className="fine">
+        {shape.timing === "measured"
+          ? `Call shape (after the call only): rep talk ${shape.rep_talk_ratio === null ? "—" : `${Math.round(shape.rep_talk_ratio * 100)}%`}, longest monologue ${seconds(shape.longest_monologue_ms)}, first question at ${seconds(shape.time_to_first_question_ms)}, ${shape.discovery_questions_asked} discovery question(s).`
+          : "Transcription timing was unavailable, so talk timing is unknown."}
+      </p>
+    </div>
+  );
+}

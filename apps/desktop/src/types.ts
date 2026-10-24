@@ -627,6 +627,27 @@ export interface Analysis {
   };
   transcript: Segment[];
   metrics: Record<string, unknown>;
+  script_trace?: {
+    sections: {
+      key: string;
+      reaction: string;
+      portion_ms: number | null;
+      prospect_words: number;
+    }[];
+    opening: {
+      key: string;
+      reaction: string;
+      first_response_ms: number | null;
+    } | null;
+    shape: {
+      timing: string;
+      rep_talk_ratio: number | null;
+      longest_monologue_ms: number | null;
+      time_to_first_question_ms: number | null;
+      discovery_questions_asked: number;
+      duration_ms: number | null;
+    };
+  } | null;
   reviews: {
     id?: string;
     reason: string;

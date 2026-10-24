@@ -11,7 +11,7 @@ Run the backend and the UI from source (see Develop), open the UI and choose **T
 ## Rep quickstart
 
 1. Choose the workspace, campaign and audio device. Go ready only when telephony is connected. Get next lead shows the prepared script, caller ID, the prospect's local time, earlier promises and why this person is due.
-2. Read the script. The helper above it follows stable turns and may stay quiet; F1 asks for private help. Mute, pin or dismiss tips and mark them useful, wrong or late.
+2. Read the script. It comes from the campaign's base script; Intelligence → Script memory shows how prospects react to each part of it and the tests that may improve it. The helper above it follows stable turns and may stay quiet; F1 asks for private help. Mute, pin or dismiss tips and mark them useful, wrong or late.
 3. Use Opt out the moment it is asked for (or the prospect presses 9). Voicemail is offered only on the final permitted attempt.
 4. Hang up, select the outcome and who you spoke with, add a note and confirm any callback time. Record meetings you booked in your own calendar; a booking holds outreach.
 5. In Follow-ups, confirm, reschedule, snooze, assign, complete or cancel tasks. Pause when unavailable.

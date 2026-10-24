@@ -186,6 +186,7 @@ def training_rows(calls, snapshots, events, *, now, goal, window_days, include_u
                 "call_id": call["id"],
                 "lead_id": call["lead_id"],
                 "endpoint_id": call.get("endpoint_id", call["lead_id"]),
+                "script_trace": call.get("script_trace"),
                 "rep_id": call.get("rep_id", "unknown"),
                 "number_id": call.get("number_id", "unknown"),
                 "campaign_id": call.get("campaign_id"),

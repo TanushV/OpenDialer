@@ -124,7 +124,6 @@ class ReservationPlanner:
                 "lead_number_bindings": [MODELS["lead_number_bindings"].external_key.in_(ids)],
                 "consent_evidence": [MODELS["consent_evidence"].ctx_key.in_(endpoints)],
                 "experiment_assignments": [MODELS["experiment_assignments"].op_lead_id.in_(ids)],
-                "treatment_variants": [],
                 "number_leases": [MODELS["number_leases"].op_active.is_(True)],
             }
         )
@@ -421,6 +420,7 @@ class ReservationPlanner:
         config = self.optimization_config(s, p, campaign_id)
         self.comparison_assignment(s, p, campaign, lead, "number_allocation")
         coach_comparison = self.comparison_assignment(s, p, campaign, lead, "coaching", rep_id=p["user_id"])
+        script_comparison = self.comparison_assignment(s, p, campaign, lead, "script", rep_id=p["user_id"])
         reservation = put(
             s,
             "reservations",
@@ -435,6 +435,7 @@ class ReservationPlanner:
                 "status": "reserved",
                 "policy_id": campaign.data["policy_id"],
                 "coaching_comparison": coach_comparison,
+                "script_comparison": script_comparison,
             },
             now=now,
         )
@@ -463,11 +464,7 @@ class ReservationPlanner:
                 key=lead.id,
                 now=now,
             )
-        actions = [
-            v.id
-            for v in self.scoped(s, "treatment_variants", p)
-            if v.data.get("approved") and v.data["campaign_id"] == campaign_id
-        ] or ["approved-default"]
+        actions = ["approved-default"]  # Script wording is tested by script comparisons instead.
         # No treatment may be randomized without a registered comparison (REMEDIATION 9.4);
         # none exists, so the reviewed default is chosen with certainty and logged as such.
         choice = {

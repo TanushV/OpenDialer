@@ -101,7 +101,6 @@ TABLES = [
     "research_facts",
     "playbooks",
     "script_versions",
-    "treatment_variants",
     "coach_events",
     "conversation_states",
     "notes",
@@ -126,6 +125,7 @@ TABLES = [
     "coaching_feedback",
     "work_intervals",
     "report_projections",
+    "script_memories",
 ]
 DERIVED_TABLES = frozenset({"report_projections"})
 MODELS = {}

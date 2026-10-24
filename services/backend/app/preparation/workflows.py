@@ -118,6 +118,17 @@ class Preparation:
     def preparation_settings(self, s, p):
         return self.preparation_context(s, p)[0]
 
+    def script_base(self, s, p, campaign):
+        """The campaign's base script: its adopted version, else the seller's template (version 0)."""
+        stored = campaign.data.get("script") or {}
+        if stored.get("template"):
+            return {k: stored.get(k) for k in ("version", "template", "adopted_at", "source")}
+        template = self.preparation_settings(s, p)["script_template"]
+        return {"version": 0, "template": template, "adopted_at": None, "source": "seller_template"}
+
+    def lead_script_base(self, s, p, lead):
+        return self.script_base(s, p, self.required(s, "campaigns", lead.data["campaign_id"], p))
+
     def preparation_key(self, s, p, lead):
         # Operational writes must not invalidate their own cache. Explicit
         # continuity changes do. Shared context is loaded once per transaction.
@@ -136,6 +147,7 @@ class Preparation:
                         "preparation_revision",
                     )
                 },
+                self.lead_script_base(s, p, lead)["version"],
             ]
         )
 
@@ -260,13 +272,14 @@ class Preparation:
             row = None
         return row
 
-    def selected_script(self, s, p, lead, *, variant_id=None):
+    def selected_script(self, s, p, lead, *, assignment=None):
         state = self.preparation_state(s, p, lead)
         row = self.script_row(s, p, lead)
         script = dict(row.data) if row else self.fallback_script(s, p, lead)
         # Validate the script's actual evidence, independently of the latest-facts page.
         facts = self.script_evidence(s, p, lead, script)
-        current = self.preparation_settings(s, p)["script_template"]
+        base = self.lead_script_base(s, p, lead)
+        current = base["template"]
         stale = script.get("template_version", "legacy-playbook") != template_version(current)
         if row and not script.get("fallback"):
             stale = stale or script.get("grounding", {}).get("status") not in {
@@ -287,6 +300,15 @@ class Preparation:
                 "Prepared context changed or expired; generic script retained"
             ]
             state["status"] = "stale"
+        proposal, arm = None, None
+        if assignment and assignment.get("family") == "script":
+            # An arm counts only while its test runs; the candidate arm renders the proposal.
+            testing = self.testing_proposal(s, p, lead.data["campaign_id"], assignment["comparison_id"])
+            if testing:
+                arm = assignment.get("arm")
+                proposal = testing if arm == "candidate" else None
+        if proposal and script.get("template"):
+            script["template"] = proposal["template"]
         if script.get("template"):
             script.update(
                 render(
@@ -297,19 +319,9 @@ class Preparation:
                     slots=script.get("filled_slots"),
                 )
             )
-        if variant_id and not current:
-            variant = s.get(MODELS["treatment_variants"], variant_id)
-            if (
-                variant
-                and variant.tenant_id == p["tenant_id"]
-                and variant.seller_id == p["seller_id"]
-                and variant.data.get("approved")
-            ):
-                rep = self.required(s, "users", p["user_id"], p)
-                script.update(
-                    opener=variant.data["opener"].replace("{rep}", rep.data["name"]),
-                    treatment_variant_id=variant.id,
-                )
+        script.update(
+            base_version=base["version"], script_arm=arm, proposal_id=proposal["id"] if proposal else None
+        )
         if script.get("final_voicemail_asset"):
             campaign = self.required(s, "campaigns", lead.data["campaign_id"], p)
             policy = self.required(s, "policy_versions", campaign.data["policy_id"], p).data

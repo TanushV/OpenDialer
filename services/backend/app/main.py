@@ -1102,42 +1102,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
         quotes = await asyncio.to_thread(save_quotes)
         return {"numbers": quotes, "simulation": settings.simulation}
 
-    @app.post("/v1/admin/variants")
-    def create_variant(data: dict, p=Depends(administrator)):
-        opener = data.get("opener", "")
-        with db.transaction() as s:
-            service.required(s, "campaigns", data.get("campaign_id", ""), p)
-            seller = service.required(s, "sellers", p["seller_id"], p)
-            # The administrator's reviewed publication is the approval; no client flag adds trust.
-            if (
-                not data.get("review_reference")
-                or not isinstance(opener, str)
-                or not 10 <= len(opener) <= 500
-                or seller.data["name"].casefold() not in opener.casefold()
-                or any(
-                    term in opener.casefold()
-                    for term in ["guarantee", "we spoke before", "double your revenue"]
-                )
-            ):
-                fail(422, "Reviewed truthful language with the approved business identity is required")
-            variant = put(
-                s,
-                "treatment_variants",
-                p["tenant_id"],
-                p["seller_id"],
-                {
-                    "campaign_id": data["campaign_id"],
-                    "name": str(data.get("name", "Variant"))[:100],
-                    "opener": opener,
-                    "approved": True,
-                    "review_reference": str(data["review_reference"])[:1000],
-                    "reviewed_by": p["user_id"],
-                },
-                now=clock(),
-            )
-            audit(s, p["tenant_id"], p["seller_id"], p["user_id"], "variant.approved", variant.id, clock())
-            return doc(variant)
-
     @app.post("/v1/admin/recovery")
     async def recovery(p=Depends(administrator)):
         return await service.recover(p)
@@ -1749,6 +1713,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
             return doc(model)
 
     from app.optimization.api import register_optimization
+    from app.optimization.script_lab import register_script_lab
 
     register_optimization(app, service, principal, administrator)
+    register_script_lab(app, service, principal, administrator)
     return app

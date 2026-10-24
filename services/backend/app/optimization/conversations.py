@@ -160,15 +160,14 @@ def _comparison(rows, key, *, min_support, multiplicity):
     return result
 
 
-def conversation_associations(rows, *, as_of, min_support=10, vocabulary=None):
-    if not 10 <= min_support <= 1000:
-        raise ValueError("At least ten independent contacts are required")
-    vocabulary = vocabulary or {"version": 1, "aliases": []}
-    aliases = aliases_for(vocabulary)
-    names = {(a["field"], normalized(a["target"])): a["target"] for a in vocabulary.get("aliases", [])}
-    eligible, seen = [], set()
+def first_eligible(rows, keys_of, *, as_of):
+    """One first eligible conversation per lead or shared endpoint, with a closed, embargoed label.
+
+    `keys_of(row, at, available)` returns the row's (feature, value) keys; rows without keys
+    are not eligible and do not claim their lead.
+    """
+    eligible, seen, parent = [], set(), {}
     ordered = sorted(rows, key=lambda r: (r.get("at", ""), r.get("call_id", "")))[-20000:]
-    parent = {}
 
     def root(key):
         parent.setdefault(key, key)
@@ -193,6 +192,73 @@ def conversation_associations(rows, *, as_of, min_support=10, vocabulary=None):
         group = root(("lead", lead))
         if not lead or group in seen:
             continue
+        keys = keys_of(row, at, available)
+        if keys:
+            seen.add(group)
+            eligible.append({**row, "keys": keys, "available": available, "timestamp": at})
+    return eligible, ordered
+
+
+def association_patterns(eligible, *, min_support, reviewed_at=None):
+    """Discovery then a later, label-embargoed validation period, per (feature, value) key."""
+    times = sorted({row["timestamp"] for row in eligible})
+    cutoff = times[len(times) // 2] if len(times) > 1 else None
+    if cutoff and reviewed_at:
+        cutoff = max(cutoff, reviewed_at)
+    discovery = [r for r in eligible if cutoff and r["timestamp"] < cutoff and r["available"] < cutoff]
+    validation = [r for r in eligible if cutoff and r["timestamp"] >= cutoff]
+    counts = Counter(key for row in eligible for key in row["keys"])
+    discovered = Counter(key for row in discovery for key in row["keys"])
+    candidates = sorted((k for k, n in counts.items() if n >= min_support), key=lambda k: (-counts[k], k))[
+        :200
+    ]
+    multiplicity = max(1, sum(n >= min_support for n in discovered.values()))
+    found = []
+    for key in candidates:
+        group = [r for r in eligible if key in r["keys"]]
+        conversions = sum(r["conversion"] for r in group)
+        low, high = wilson(conversions, len(group))
+        found.append(
+            {
+                "key": key,
+                "discovered": discovered[key],
+                "samples": len(group),
+                "conversions": conversions,
+                "conversion_rate": conversions / len(group),
+                "conversion_low": low,
+                "conversion_high": high,
+                "discovery": _comparison(discovery, key, min_support=min_support, multiplicity=multiplicity),
+                "validation": _comparison(
+                    validation, key, min_support=min_support, multiplicity=multiplicity
+                ),
+            }
+        )
+    return {
+        "patterns": found,
+        "discovery_samples": len(discovery),
+        "validation_samples": len(validation),
+        "validation_starts_at": cutoff.isoformat() if cutoff else None,
+    }
+
+
+def supported(item, min_support, *, direction=1):
+    """Both periods agree in direction with intervals clear of zero, after discovery support."""
+    periods = (item["discovery"], item["validation"])
+    if item["discovered"] < min_support:
+        return False
+    if direction > 0:
+        return all(p["difference_low"] is not None and p["difference_low"] > 0 for p in periods)
+    return all(p["difference_high"] is not None and p["difference_high"] < 0 for p in periods)
+
+
+def conversation_associations(rows, *, as_of, min_support=10, vocabulary=None):
+    if not 10 <= min_support <= 1000:
+        raise ValueError("At least ten independent contacts are required")
+    vocabulary = vocabulary or {"version": 1, "aliases": []}
+    aliases = aliases_for(vocabulary)
+    names = {(a["field"], normalized(a["target"])): a["target"] for a in vocabulary.get("aliases", [])}
+
+    def keys_of(row, at, available):
         keys = set()
         for item in active_observations(row.get("observations", [])[:12], as_of, require_review=False):
             observed = timestamp(item.get("observed_at")) or at
@@ -207,53 +273,29 @@ def conversation_associations(rows, *, as_of, min_support=10, vocabulary=None):
                 pair.append(canonical)
             if pair[0]:
                 keys.add(tuple(pair))
-        if keys:
-            seen.add(group)
-            eligible.append({**row, "keys": keys, "available": available, "timestamp": at})
-    times = sorted({row["timestamp"] for row in eligible})
-    cutoff = times[len(times) // 2] if len(times) > 1 else None
-    reviewed_at = timestamp(vocabulary.get("reviewed_at"))
-    if cutoff and reviewed_at:
-        cutoff = max(cutoff, reviewed_at)
-    discovery = [r for r in eligible if cutoff and r["timestamp"] < cutoff and r["available"] < cutoff]
-    validation = [r for r in eligible if cutoff and r["timestamp"] >= cutoff]
-    counts = Counter(key for row in eligible for key in row["keys"])
-    discovered = Counter(key for row in discovery for key in row["keys"])
-    candidates = sorted((k for k, n in counts.items() if n >= min_support), key=lambda k: (-counts[k], k))[
-        :200
-    ]
-    multiplicity = max(1, sum(n >= min_support for n in discovered.values()))
+        return keys
+
+    eligible, ordered = first_eligible(rows, keys_of, as_of=as_of)
+    found = association_patterns(
+        eligible, min_support=min_support, reviewed_at=timestamp(vocabulary.get("reviewed_at"))
+    )
     patterns = []
-    for key in candidates:
-        group = [r for r in eligible if key in r["keys"]]
-        conversions = sum(r["conversion"] for r in group)
-        low, high = wilson(conversions, len(group))
-        early = _comparison(discovery, key, min_support=min_support, multiplicity=multiplicity)
-        late = _comparison(validation, key, min_support=min_support, multiplicity=multiplicity)
-        supported = (
-            bool(key[1])
-            and discovered[key] >= min_support
-            and all(
-                period["difference_low"] is not None and period["difference_low"] > 0
-                for period in (early, late)
-            )
-        )
+    for item in found["patterns"]:
+        key = item["key"]
+        ok = bool(key[1]) and supported(item, min_support)
         patterns.append(
             {
                 "concept_key": key[0],
                 "concept": names[("concept", key[0])],
                 "approach_key": key[1],
                 "approach": names[("approach", key[1])] or None,
-                "samples": len(group),
-                "conversions": conversions,
-                "conversion_rate": conversions / len(group),
-                "conversion_low": low,
-                "conversion_high": high,
-                "discovery": early,
-                "validation": late,
-                "status": "supported_correlation" if supported else "descriptive_only",
+                **{k: item[k] for k in ("samples", "conversions", "conversion_rate", "conversion_low")},
+                "conversion_high": item["conversion_high"],
+                "discovery": item["discovery"],
+                "validation": item["validation"],
+                "status": "supported_correlation" if ok else "descriptive_only",
                 "reason": "Supported in a later comparable period; unmeasured confounding remains."
-                if supported
+                if ok
                 else "Needs sufficient comparable groups and a later, label-embargoed comparison.",
                 "automatic_policy_change": False,
             }
@@ -269,9 +311,9 @@ def conversation_associations(rows, *, as_of, min_support=10, vocabulary=None):
         "samples": len(eligible),
         "input_rows": len(ordered),
         "truncated": len(rows) > len(ordered),
-        "discovery_samples": len(discovery),
-        "validation_samples": len(validation),
-        "validation_starts_at": cutoff.isoformat() if cutoff else None,
+        "discovery_samples": found["discovery_samples"],
+        "validation_samples": found["validation_samples"],
+        "validation_starts_at": found["validation_starts_at"],
         "min_support": min_support,
         "candidate_limit": 200,
         "multiple_comparison": "bonferroni_simultaneous_intervals",

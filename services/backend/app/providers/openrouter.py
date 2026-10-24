@@ -349,6 +349,8 @@ class OpenRouterCoach:
             "Update compact state_delta with changed paraphrases, exact transient quotes and source IDs. "
             "Preserve uncertainty and negation. Use existing memory IDs in replaces for corrections/resolutions. "
             "Maintain rundown, open questions and coaching observations even with null guidance. "
+            "script_learning lists how prospects in this campaign reacted to parts of the base script; they are "
+            "correlations, not facts or causes. Use them only to choose which script part or question to try next. "
             "strategy_context may supply a reviewed response approach. Use it when relevant, never as exact wording, "
             "a factual source or permission to neglect a requested callback. Control keeps ordinary contextual help. "
             "Assignment or display does not prove that the rep used the approach or that it caused an outcome. "

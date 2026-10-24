@@ -1,6 +1,7 @@
 # Working agreement
 
 Testing handoff (current): `docs/HANDOFF.md`, with the code map in `docs/HANDOFF_AST.md`.
+Active feature plan: `docs/SCRIPT_LEARNING.md` (script learning and the Markdown script memory).
 
 The active plan is `docs/LEAN_PLAN.md` (approved October 22, 2026). Read it in full on every continuation or context compaction, including its Status section, which is the current checkpoint. It keeps every end feature and removes hardening, legacy upgrade code, dead code, duplicate mechanisms and acceptance harnesses. `docs/REMEDIATION_PLAN.md`, `docs/EXECUTION_SPEC.md`, `docs/EXECUTION_TASKS.json` and `docs/STATUS.md` are history: consult them for what a feature does, not for mechanisms or order. Preserve both modes: standalone local (SQLite) and the shared hosted server (PostgreSQL).
 

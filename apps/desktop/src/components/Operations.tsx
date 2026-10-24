@@ -23,6 +23,7 @@ import { FollowupTasks } from "./FollowupTasks";
 import { ProspectBrief } from "./ProspectBrief";
 import { PreparationRunway } from "./Preparation";
 import { ConversationLearning } from "./ConversationLearning";
+import { ScriptMemory } from "./ScriptMemory";
 import { OptimizationPanel } from "./OptimizationPanel";
 
 interface PreparationPreview {
@@ -1678,6 +1679,7 @@ export function IntelligencePage() {
           </p>
         </div>
       </div>
+      <ScriptMemory />
       <ConversationLearning />
       <OptimizationPanel />
       <div className="two-column">

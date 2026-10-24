@@ -16,6 +16,7 @@ from app.db import DERIVED_TABLES, MODELS, audit, doc, emit, put, rows, uid, upd
 from app.intelligence import Application
 from app.measurement import Measurement
 from app.number_operations import NumberOperations
+from app.optimization.script_lab import ScriptLab
 from app.optimization.workflows import OptimizationWorkflows
 from app.rep_workflows import RepWorkflows
 from app.reporting import ReportProjections
@@ -155,6 +156,7 @@ class Dialer(
     RepWorkflows,
     NumberOperations,
     WebhookIngress,
+    ScriptLab,
     OptimizationWorkflows,
     TelephonyWorkflows,
     Application,

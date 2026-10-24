@@ -41,23 +41,21 @@ export interface ControlledComparison {
 }
 
 type Kind = "model_pilot" | "approach" | "coaching" | "number_allocation";
-type ExperimentKind = Kind | "variant";
+type ExperimentKind = Kind;
 const KINDS: [ExperimentKind, string][] = [
   ["model_pilot", "Reviewed model pilot"],
   ["approach", "Response approach comparison"],
   ["coaching", "Live help availability (coaching)"],
   ["number_allocation", "Regional number allocation"],
-  ["variant", "Approved script variant"],
 ];
 const START: Record<ExperimentKind, string> = {
   model_pilot: "Start bounded model pilot",
   approach: "Start reviewed strategy comparison",
   coaching: "Start coaching comparison",
   number_allocation: "Start number comparison",
-  variant: "Publish approved variant",
 };
 
-/** One experiment surface: model pilots, approach, help and number comparisons, variants. */
+/** One experiment surface: model pilots, approach, help and number comparisons. Script wording is tested from Script memory. */
 export function Experiments({ state }: { state: ReportState }) {
   const { api, run, refresh, notice, snapshot: w } = useWorkspace();
   const bounds = useDefinitions();
@@ -74,7 +72,6 @@ export function Experiments({ state }: { state: ReportState }) {
   const [modelId, setModelId] = useState("");
   const [reason, setReason] = useState("");
   const [cohortReport, setCohortReport] = useState("");
-  const [variant, setVariant] = useState({ name: "", opener: "" });
   const [approaches, setApproaches] = useState<
     { id: string; source_version: number; text: string }[]
   >([]);
@@ -127,19 +124,15 @@ export function Experiments({ state }: { state: ReportState }) {
         ? "Publish a source-linked coaching example from call review before starting an approach trial."
         : kind === "approach" && !approachId
           ? "Choose a reviewed teaching example."
-          : kind === "variant" && (!variant.name || !variant.opener)
-            ? "Name the variant and write its introduction."
-            : !reviewed
-              ? "Enter a review reference of at least 3 characters."
-              : kind === "model_pilot" &&
-                  selected?.feature_schema_version === 2 &&
-                  !selected.reviewable
-                ? "This candidate's predictive evidence is not reviewable, so it cannot start a pilot."
-                : kind === "approach" &&
-                    policy === "adaptive" &&
-                    !supportedStudy
-                  ? "Adaptive allocation requires a supported completed comparison for this approach."
-                  : "";
+          : !reviewed
+            ? "Enter a review reference of at least 3 characters."
+            : kind === "model_pilot" &&
+                selected?.feature_schema_version === 2 &&
+                !selected.reviewable
+              ? "This candidate's predictive evidence is not reviewable, so it cannot start a pilot."
+              : kind === "approach" && policy === "adaptive" && !supportedStudy
+                ? "Adaptive allocation requires a supported completed comparison for this approach."
+                : "";
   async function start() {
     if (kind === "model_pilot") {
       await api("/v1/admin/models/" + modelId + "/start-trial", "POST", {
@@ -148,15 +141,6 @@ export function Experiments({ state }: { state: ReportState }) {
         duration_days: duration,
       });
       notice("Reviewed bounded model pilot started");
-    } else if (kind === "variant") {
-      await api("/v1/admin/variants", "POST", {
-        campaign_id: w.campaign.id,
-        name: variant.name,
-        opener: variant.opener,
-        review_reference: reference,
-      });
-      setVariant({ name: "", opener: "" });
-      notice("Approved treatment published.");
     } else if (kind === "approach") {
       const body = {
         family: "coaching",
@@ -222,17 +206,15 @@ export function Experiments({ state }: { state: ReportState }) {
             onChange={(e) => setReference(e.target.value)}
           />
         </label>
-        {kind !== "variant" && (
-          <label>
-            Experiment duration (days)
-            <input
-              type="number"
-              {...limits(durationBound)}
-              value={Number.isFinite(duration) ? duration : ""}
-              onChange={(e) => setDays(Number(e.target.value))}
-            />
-          </label>
-        )}
+        <label>
+          Experiment duration (days)
+          <input
+            type="number"
+            {...limits(durationBound)}
+            value={Number.isFinite(duration) ? duration : ""}
+            onChange={(e) => setDays(Number(e.target.value))}
+          />
+        </label>
         {kind === "model_pilot" && (
           <label>
             Pilot maximum leads
@@ -324,33 +306,10 @@ export function Experiments({ state }: { state: ReportState }) {
             : "Regional numbers use fixed region clusters and preserve existing caller-ID bindings."}
         </p>
       )}
-      {kind === "variant" && (
-        <>
-          <label>
-            Variant name
-            <input
-              value={variant.name}
-              onChange={(e) => setVariant({ ...variant, name: e.target.value })}
-            />
-          </label>
-          <label>
-            Variant introduction
-            <textarea
-              rows={3}
-              value={variant.opener}
-              onChange={(e) =>
-                setVariant({ ...variant, opener: e.target.value })
-              }
-              placeholder={`Hi, this is {rep} from ${w.seller.name}.`}
-            />
-          </label>
-          <p className="fine">
-            Variants keep your business identity. Nonurgent choices use the
-            exploration share with exact logged probabilities; caller IDs stay
-            stable.
-          </p>
-        </>
-      )}
+      <p className="fine">
+        Script wording is tested from Script memory: a proposed change runs
+        against the base script and replaces it only if it wins.
+      </p>
       <button
         className="secondary"
         disabled={!!blocked}

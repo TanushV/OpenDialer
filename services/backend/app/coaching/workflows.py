@@ -719,6 +719,7 @@ class LiveHelper:
             request["strategy_context"] = self.strategy_context(
                 s, p, campaign, lead, call.data.get("coaching_comparison")
             )
+            request["script_learning"] = self.script_learning_context(s, p, campaign, call)
             request["recent_exposures"] = self.strategy_exposures_in(s, p, state_record)
             request["context_sources"]["strategy"] = {
                 "campaign_id": campaign.id,

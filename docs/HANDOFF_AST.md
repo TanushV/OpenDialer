@@ -1,24 +1,21 @@
 # OpenDialer code map (AST snapshot)
 
-Generated from commit `e373a9c` with Python's `ast` module (backend, tests, scripts) and a token count for TypeScript. It is a snapshot: regenerate sizes with `.venv/bin/python scripts/size.py`; line numbers drift as code changes. Read with [HANDOFF.md](HANDOFF.md).
-
-October 24 verification: all 131 route declarations still match current source. The inference fix and new tests
-postdate the size/function snapshot below; current sizes are in `evidence/lean/verification-20261024.json`.
+Generated from commit `891a763` with Python's `ast` module (backend, tests, scripts) and a token count for TypeScript. It is a snapshot: regenerate sizes with `.venv/bin/python scripts/size.py`; line numbers drift as code changes. Read with [HANDOFF.md](HANDOFF.md).
 
 ## Size
 
 | Area | Files | Lines | AST nodes / tokens | Baseline lines (a950675) | Change |
 |---|---:|---:|---:|---:|---:|
-| backend | 87 | 33,979 | 233,370 nodes | 39,459 | -14% lines, -14% nodes |
-| backend_tests | 38 | 10,479 | 72,596 nodes | 52,034 | -80% lines |
+| backend | 89 | 35,297 | 243,067 nodes | 39,459 | -11% lines, -10% nodes |
+| backend_tests | 42 | 11,399 | 79,393 nodes | 52,034 | -78% lines |
 | repo_tests | 4 | 641 | 3,859 nodes | 3,027 | -79% lines |
-| frontend | 51 | 16,171 | 89,732 tokens | 16,487 | -2% lines, +0% tokens |
-| frontend_tests | 48 | 9,371 | 67,680 tokens | 9,569 | -2% lines |
+| frontend | 52 | 16,751 | 90,862 tokens | 16,487 | +2% lines, +1% tokens |
+| frontend_tests | 49 | 9,463 | 68,494 tokens | 9,569 | -1% lines |
 | rust | 2 | 971 | - | 2,463 | -61% lines |
 | scripts | 11 | 1,392 | 7,764 nodes | 5,211 | -73% lines |
 | workflows | 2 | 186 | - | 680 | -73% lines |
 
-All Python together: 317,589 AST nodes (baseline about 687k). Targets in LEAN_PLAN.md: backend about -30% (missed, -14%), frontend about -20% (missed, -2%).
+All Python together: 334,083 AST nodes (baseline about 687k). Targets in LEAN_PLAN.md: backend about -30% (missed, -14%), frontend about -20% (missed, -2%).
 
 ## HTTP routes
 
@@ -26,9 +23,9 @@ Every route the authority serves, from the route decorators. Access: `principal`
 
 | Method | Path | Access | Handler |
 |---|---|---|---|
-| GET | `/auth/callback` | open | `app/main.py:1627` chatgpt_callback |
+| GET | `/auth/callback` | open | `app/main.py:1591` chatgpt_callback |
 | GET | `/health` | open | `app/main.py:446` health |
-| POST | `/v1/admin/backup` | administrator | `app/main.py:1168` backup |
+| POST | `/v1/admin/backup` | administrator | `app/main.py:1132` backup |
 | GET | `/v1/admin/billing/ledger` | administrator | `app/billing.py:427` ledger |
 | POST | `/v1/admin/billing/ledger/{identity}/reconcile` | administrator | `app/billing.py:455` reconcile |
 | POST | `/v1/admin/billing/reconcile` | administrator | `app/billing.py:459` carrier_records |
@@ -36,19 +33,19 @@ Every route the authority serves, from the route decorators. Access: `principal`
 | GET | `/v1/admin/callback-routing` | administrator | `app/main.py:836` callback_routing |
 | PUT | `/v1/admin/callback-routing` | administrator | `app/main.py:840` write_callback_routing |
 | POST | `/v1/admin/coaching/replay` | administrator | `app/optimization/api.py:1007` replay |
-| POST | `/v1/admin/consent` | administrator | `app/main.py:1427` consent |
-| POST | `/v1/admin/control/run` | administrator | `app/main.py:1443` control_run |
+| POST | `/v1/admin/consent` | administrator | `app/main.py:1391` consent |
+| POST | `/v1/admin/control/run` | administrator | `app/main.py:1407` control_run |
 | POST | `/v1/admin/dnc/screen` | administrator | `app/compliance/screening.py:608` screen |
 | GET | `/v1/admin/dnc/screens` | administrator | `app/compliance/screening.py:556` screens |
 | POST | `/v1/admin/dnc/screens/{identity}/retry` | administrator | `app/compliance/screening.py:622` retry |
 | POST | `/v1/admin/ingress-check` | administrator | `app/main.py:828` ingress_check |
-| POST | `/v1/admin/jobs/run` | administrator | `app/main.py:1164` run_jobs |
-| POST | `/v1/admin/models/train` | administrator | `app/main.py:1480` train_model |
-| POST | `/v1/admin/models/{model_id}/activate` | administrator | `app/main.py:1213` activate |
-| POST | `/v1/admin/models/{model_id}/rollback` | administrator | `app/main.py:1486` rollback_model |
+| POST | `/v1/admin/jobs/run` | administrator | `app/main.py:1128` run_jobs |
+| POST | `/v1/admin/models/train` | administrator | `app/main.py:1444` train_model |
+| POST | `/v1/admin/models/{model_id}/activate` | administrator | `app/main.py:1177` activate |
+| POST | `/v1/admin/models/{model_id}/rollback` | administrator | `app/main.py:1450` rollback_model |
 | POST | `/v1/admin/models/{model_id}/start-trial` | administrator | `app/optimization/api.py:604` start_trial |
 | POST | `/v1/admin/models/{model_id}/stop-trial` | administrator | `app/optimization/api.py:676` stop_trial |
-| POST | `/v1/admin/models/{model_id}/trial` | administrator | `app/main.py:1712` save_trial |
+| POST | `/v1/admin/models/{model_id}/trial` | administrator | `app/main.py:1676` save_trial |
 | POST | `/v1/admin/numbers` | administrator | `app/main.py:967` number |
 | POST | `/v1/admin/numbers/proposal` | administrator | `app/main.py:1049` number_proposal |
 | POST | `/v1/admin/numbers/search` | administrator | `app/main.py:1061` search_numbers |
@@ -68,30 +65,36 @@ Every route the authority serves, from the route decorators. Access: `principal`
 | POST | `/v1/admin/optimization/refresh` | administrator | `app/optimization/api.py:596` refresh |
 | POST | `/v1/admin/optimization/train` | administrator | `app/optimization/api.py:600` train |
 | POST | `/v1/admin/optimization/trial` | administrator | `app/optimization/api.py:986` evaluate_trial |
-| POST | `/v1/admin/playbooks` | administrator | `app/main.py:1384` publish_playbook |
+| POST | `/v1/admin/playbooks` | administrator | `app/main.py:1348` publish_playbook |
 | POST | `/v1/admin/policies/{policy_id}/publish` | administrator | `app/main.py:807` publish |
 | GET | `/v1/admin/preflight` | administrator | `app/main.py:824` preflight |
-| GET | `/v1/admin/recovery` | administrator | `app/main.py:1146` recovery_items |
-| POST | `/v1/admin/recovery` | administrator | `app/main.py:1142` recovery |
-| POST | `/v1/admin/recovery/agents/{identity}` | administrator | `app/main.py:1154` recover_agent |
-| POST | `/v1/admin/recovery/commands/{identity}` | administrator | `app/main.py:1150` recovery_action |
-| POST | `/v1/admin/recovery/jobs/{identity}/retry` | administrator | `app/main.py:1160` retry_job |
-| POST | `/v1/admin/registry/import` | administrator | `app/main.py:1322` registry_import |
-| POST | `/v1/admin/restore` | administrator | `app/main.py:1172` restore |
-| POST | `/v1/admin/restore/reconcile` | administrator | `app/main.py:1708` reconcile_restore |
-| POST | `/v1/admin/rnd/results` | administrator | `app/main.py:1541` import_rnd |
+| GET | `/v1/admin/recovery` | administrator | `app/main.py:1110` recovery_items |
+| POST | `/v1/admin/recovery` | administrator | `app/main.py:1106` recovery |
+| POST | `/v1/admin/recovery/agents/{identity}` | administrator | `app/main.py:1118` recover_agent |
+| POST | `/v1/admin/recovery/commands/{identity}` | administrator | `app/main.py:1114` recovery_action |
+| POST | `/v1/admin/recovery/jobs/{identity}/retry` | administrator | `app/main.py:1124` retry_job |
+| POST | `/v1/admin/registry/import` | administrator | `app/main.py:1286` registry_import |
+| POST | `/v1/admin/restore` | administrator | `app/main.py:1136` restore |
+| POST | `/v1/admin/restore/reconcile` | administrator | `app/main.py:1672` reconcile_restore |
+| POST | `/v1/admin/rnd/results` | administrator | `app/main.py:1505` import_rnd |
 | GET | `/v1/admin/rubrics` | administrator | `app/postcall/rubrics.py:302` get_config |
 | PUT | `/v1/admin/rubrics` | administrator | `app/postcall/rubrics.py:307` save_config |
-| POST | `/v1/admin/seller/approve` | administrator | `app/main.py:1404` approve_seller |
+| PUT | `/v1/admin/script/memory` | administrator | `app/optimization/script_lab.py:638` edit_memory |
+| POST | `/v1/admin/script/proposals` | administrator | `app/optimization/script_lab.py:667` propose |
+| POST | `/v1/admin/script/proposals/{proposal_id}/approve` | administrator | `app/optimization/script_lab.py:698` approve |
+| POST | `/v1/admin/script/proposals/{proposal_id}/reject` | administrator | `app/optimization/script_lab.py:714` reject |
+| POST | `/v1/admin/script/proposals/{proposal_id}/start` | administrator | `app/optimization/script_lab.py:684` start |
+| POST | `/v1/admin/script/rollback` | administrator | `app/optimization/script_lab.py:729` rollback |
+| PUT | `/v1/admin/script/settings` | administrator | `app/optimization/script_lab.py:649` edit_settings |
+| POST | `/v1/admin/seller/approve` | administrator | `app/main.py:1368` approve_seller |
 | GET | `/v1/admin/settings` | administrator | `app/main.py:855` read_settings |
 | PUT | `/v1/admin/settings` | administrator | `app/main.py:904` write_settings |
-| POST | `/v1/admin/snippets` | administrator | `app/main.py:1533` publish_snippet |
-| PATCH | `/v1/admin/snippets/{example_id}` | administrator | `app/main.py:1537` withdraw_snippet |
+| POST | `/v1/admin/snippets` | administrator | `app/main.py:1497` publish_snippet |
+| PATCH | `/v1/admin/snippets/{example_id}` | administrator | `app/main.py:1501` withdraw_snippet |
 | POST | `/v1/admin/suppressions/release-hold` | administrator | `app/main.py:603` release_hold |
-| POST | `/v1/admin/trackers` | administrator | `app/main.py:1447` publish_tracker |
-| POST | `/v1/admin/users` | administrator | `app/main.py:1176` create_user |
-| POST | `/v1/admin/variants` | administrator | `app/main.py:1106` create_variant |
-| POST | `/v1/admin/workspaces` | administrator | `app/main.py:1207` create_workspace |
+| POST | `/v1/admin/trackers` | administrator | `app/main.py:1411` publish_tracker |
+| POST | `/v1/admin/users` | administrator | `app/main.py:1140` create_user |
+| POST | `/v1/admin/workspaces` | administrator | `app/main.py:1171` create_workspace |
 | POST | `/v1/auth/logout` | principal | `app/main.py:501` logout |
 | GET | `/v1/auth/quiescence` | principal | `app/main.py:515` quiescence |
 | POST | `/v1/auth/session` | open | `app/main.py:482` login |
@@ -106,36 +109,38 @@ Every route the authority serves, from the route decorators. Access: `principal`
 | POST | `/v1/calls/{call_id}/coach/feedback` | principal | `app/optimization/api.py:897` feedback |
 | POST | `/v1/calls/{call_id}/comments` | principal | `app/main.py:682` comment |
 | POST | `/v1/calls/{call_id}/disposition` | principal | `app/main.py:591` disposition |
-| POST | `/v1/calls/{call_id}/dtmf` | principal | `app/main.py:1396` dtmf |
-| GET | `/v1/calls/{call_id}/dtmf/{request_id}` | principal | `app/main.py:1400` keypad_status |
+| POST | `/v1/calls/{call_id}/dtmf` | principal | `app/main.py:1360` dtmf |
+| GET | `/v1/calls/{call_id}/dtmf/{request_id}` | principal | `app/main.py:1364` keypad_status |
 | POST | `/v1/calls/{call_id}/hangup` | principal | `app/main.py:587` hangup |
 | PATCH | `/v1/calls/{call_id}/notes` | principal | `app/main.py:676` edit_notes |
 | POST | `/v1/calls/{call_id}/observations/{observation_id}/review` | principal | `app/optimization/api.py:265` review_observation |
 | PUT | `/v1/calls/{call_id}/rubric` | principal | `app/postcall/rubrics.py:329` change_purpose |
 | POST | `/v1/calls/{call_id}/transcript` | principal | `app/main.py:625` transcript |
-| POST | `/v1/calls/{call_id}/voicemail` | principal | `app/main.py:1238` voicemail |
+| POST | `/v1/calls/{call_id}/voicemail` | principal | `app/main.py:1202` voicemail |
 | GET | `/v1/coaching` | principal | `app/main.py:664` coaching |
 | PUT | `/v1/coaching/goals` | principal | `app/main.py:668` coaching_goals |
 | POST | `/v1/coaching/practice` | principal | `app/main.py:658` practice |
 | GET | `/v1/definitions` | principal | `app/main.py:850` read_definitions |
 | GET | `/v1/events` | principal | `app/main.py:697` events |
-| POST | `/v1/inference/chatgpt/complete` | principal | `app/main.py:1594` chatgpt_complete |
-| POST | `/v1/inference/chatgpt/import` | principal | `app/main.py:1669` import_chatgpt_profile |
-| GET | `/v1/inference/chatgpt/models` | principal | `app/main.py:1689` chatgpt_models |
-| POST | `/v1/inference/chatgpt/start` | principal | `app/main.py:1576` chatgpt_start |
+| POST | `/v1/inference/chatgpt/complete` | principal | `app/main.py:1558` chatgpt_complete |
+| POST | `/v1/inference/chatgpt/import` | principal | `app/main.py:1633` import_chatgpt_profile |
+| GET | `/v1/inference/chatgpt/models` | principal | `app/main.py:1653` chatgpt_models |
+| POST | `/v1/inference/chatgpt/start` | principal | `app/main.py:1540` chatgpt_start |
 | POST | `/v1/leads/import` | administrator | `app/main.py:609` import_leads |
 | GET | `/v1/leads/{lead_id}/conversions` | principal | `app/optimization/api.py:698` list_conversions |
 | POST | `/v1/leads/{lead_id}/conversions` | principal | `app/optimization/api.py:714` conversion |
 | POST | `/v1/leads/{lead_id}/conversions/{event_id}/retract` | principal | `app/optimization/api.py:758` retract_conversion |
-| PATCH | `/v1/leads/{lead_id}/endpoint` | administrator | `app/main.py:1328` correct_endpoint |
+| PATCH | `/v1/leads/{lead_id}/endpoint` | administrator | `app/main.py:1292` correct_endpoint |
 | POST | `/v1/leads/{lead_id}/meeting` | principal | `app/main.py:595` report_meeting |
-| PATCH | `/v1/leads/{lead_id}/outreach` | principal | `app/main.py:1392` review_outreach |
+| PATCH | `/v1/leads/{lead_id}/outreach` | principal | `app/main.py:1356` review_outreach |
 | GET | `/v1/leads/{lead_id}/packet` | principal | `app/main.py:613` packet |
 | WEBSOCKET | `/v1/live` | open | `app/main.py:743` live |
 | POST | `/v1/local/session` | open | `app/main.py:472` local_session |
 | GET | `/v1/metrics` | principal | `app/main.py:530` metrics |
 | GET | `/v1/optimization` | principal | `app/optimization/api.py:344` report |
 | GET | `/v1/optimization/conversations` | principal | `app/optimization/api.py:204` conversation_report |
+| GET | `/v1/optimization/script` | principal | `app/optimization/script_lab.py:626` script_lab |
+| GET | `/v1/optimization/script/memory.md` | principal | `app/optimization/script_lab.py:630` script_memory |
 | GET | `/v1/optimization/strategies` | principal | `app/optimization/api.py:449` strategies |
 | GET | `/v1/preparation` | principal | `app/main.py:617` preparation |
 | POST | `/v1/queue/next` | principal | `app/main.py:554` next_lead |
@@ -149,16 +154,16 @@ Every route the authority serves, from the route decorators. Access: `principal`
 | POST | `/v1/simulation/event` | principal | `app/main.py:780` simulation_event |
 | POST | `/v1/simulation/seed` | administrator | `app/main.py:534` seed |
 | POST | `/v1/suppressions` | principal | `app/main.py:599` suppress |
-| PATCH | `/v1/tasks/{task_id}` | principal | `app/main.py:1388` task_status |
-| POST | `/v1/telephony/agent` | principal | `app/main.py:1431` agent_leg |
-| GET | `/v1/telephony/agent/{provider_id:path}` | principal | `app/main.py:1435` agent_status |
+| PATCH | `/v1/tasks/{task_id}` | principal | `app/main.py:1352` task_status |
+| POST | `/v1/telephony/agent` | principal | `app/main.py:1395` agent_leg |
+| GET | `/v1/telephony/agent/{provider_id:path}` | principal | `app/main.py:1399` agent_status |
 | POST | `/v1/telephony/token` | principal | `app/main.py:786` telephony_token |
 | GET | `/v1/workspace` | principal | `app/main.py:520` workspace |
 | GET | `/v1/workspace/{section}` | principal | `app/main.py:524` workspace_page |
 | GET | `/webhooks/ingress-check/{nonce}` | open | `app/main.py:832` ingress_challenge |
-| POST | `/webhooks/telnyx` | open | `app/main.py:1288` webhook |
+| POST | `/webhooks/telnyx` | open | `app/main.py:1252` webhook |
 
-131 routes.
+139 routes.
 
 ## Backend modules (`services/backend/app`)
 
@@ -174,10 +179,10 @@ One budget liability per provider attempt, settled by an attributable receipt.
 
 - class `RequestAccounting` :11 — _request_hold:12, reserve_optional_budget:22, reserve_budget_in:28, usage:79, settle_estimate_in:178, release_refused_budget:199, release_unsubmitted_budget:214
 
-### `administration.py` (993 lines, 7,062 nodes)
+### `administration.py` (995 lines, 7,066 nodes)
 
-- `capability_statuses()` :32
-- class `Dialer`(WorkspaceReads, ReportProjections, RecoveryActions, CommandRecovery, InboundCallbacks, Measurement, RepWorkflows, NumberOperations, WebhookIngress, OptimizationWorkflows, TelephonyWorkflows, Application) :148 — preflight:162, database_integrity:280, _preflight_queue:287, _ingress_start:343, ingress_challenge:415, _ingress_finish:434, _ingress_failed:490, check_ingress:496, publish:517, add_number:554, edit_number:587, proposal:686, backup:757, restore:801, _restore_operator:902, reconcile_restore:907
+- `capability_statuses()` :33
+- class `Dialer`(WorkspaceReads, ReportProjections, RecoveryActions, CommandRecovery, InboundCallbacks, Measurement, RepWorkflows, NumberOperations, WebhookIngress, ScriptLab, OptimizationWorkflows, TelephonyWorkflows, Application) :149 — preflight:164, database_integrity:282, _preflight_queue:289, _ingress_start:345, ingress_challenge:417, _ingress_finish:436, _ingress_failed:492, check_ingress:498, publish:519, add_number:556, edit_number:589, proposal:688, backup:759, restore:803, _restore_operator:904, reconcile_restore:909
 
 ### `billing.py` (460 lines, 3,094 nodes)
 
@@ -329,11 +334,11 @@ Small content-free dependency receipts for current guidance.
 - `lead_context()` :37
 - `current()` :41
 
-### `coaching/workflows.py` (1328 lines, 8,977 nodes)
+### `coaching/workflows.py` (1329 lines, 8,996 nodes)
 
 Proactive/private help using one bounded context and one accountable inference.
 
-- class `LiveHelper` :38 — _conversation_lineage:39, _live_lineage:48, _store_conversation:88, _queue_conversation_review:156, _defer_help:193, _coach_authority:211, practice:223, _practice_authorized:384, _practice_knowledge_current:394, _finish_practice:402, coach_content:425, visible_help:430, _reserve_coach:464, _settle_coach:478, _help_allowed:495, _help_context:504, cancel_help:767, coach_turn:770, _coach_turn:806, _admit_help:935, _automatic_admissions_in:963, _defer_busy_help:981, _validated_help:988, _review_help:1071, _withdraw_help:1138, _publish_help:1148
+- class `LiveHelper` :38 — _conversation_lineage:39, _live_lineage:48, _store_conversation:88, _queue_conversation_review:156, _defer_help:193, _coach_authority:211, practice:223, _practice_authorized:384, _practice_knowledge_current:394, _finish_practice:402, coach_content:425, visible_help:430, _reserve_coach:464, _settle_coach:478, _help_allowed:495, _help_context:504, cancel_help:768, coach_turn:771, _coach_turn:807, _admit_help:936, _automatic_admissions_in:964, _defer_busy_help:982, _validated_help:989, _review_help:1072, _withdraw_help:1139, _publish_help:1149
 
 ### `compliance/__init__.py` (0 lines, 1 nodes)
 
@@ -477,9 +482,9 @@ A complete, source-bound publication review; model review is not factual proof.
 - `require_review()` :112
 - `review_generated()` :117
 
-### `intelligence.py` (2254 lines, 15,197 nodes)
+### `intelligence.py` (2282 lines, 15,394 nodes)
 
-- class `Application`(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Service) :81 — inference:82, approved_playbook:121, fallback_script:134, packet:171, queue_research:299, prepare:314, prepare_one:345, research_current:596, research_company:613, _research_company:632, _extract_company_facts:969, configured_coach:1071, conversation_view_in:1082, note_view_in:1103, _materialize_views_in:1116, analysis:1182, edit_notes:1270, run_jobs:1301, _training_source:1473, _training_snapshot:1519, _training_publish:1523, train_model_job:1548, periodic_optimization:1573, maintenance_tick:1584, tracker_matches:1640, _conversation_signature:1667, enqueue_finalize:1683, _carry_finalization:1693, _begin_finalization:1707, _conversation_current_in:1736, _conversation_request_current:1786, _conversation_context:1791, _conversation_infer:1797, _merge_finalization:1839, _finish_finalization:1888, _publish_unavailable_rundown:1929, analyze_postcall:1976, _state_review_snapshot:2021, _publish_state_review:2132, review_conversation:2207, host_id:2246
+- class `Application`(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Service) :81 — inference:82, approved_playbook:121, fallback_script:134, packet:171, queue_research:299, prepare:314, prepare_one:345, research_current:600, research_company:617, _research_company:636, _extract_company_facts:973, configured_coach:1075, conversation_view_in:1086, note_view_in:1107, _materialize_views_in:1120, analysis:1196, edit_notes:1291, run_jobs:1322, _training_source:1501, _training_snapshot:1547, _training_publish:1551, train_model_job:1576, periodic_optimization:1601, maintenance_tick:1612, tracker_matches:1668, _conversation_signature:1695, enqueue_finalize:1711, _carry_finalization:1721, _begin_finalization:1735, _conversation_current_in:1764, _conversation_request_current:1814, _conversation_context:1819, _conversation_infer:1825, _merge_finalization:1867, _finish_finalization:1916, _publish_unavailable_rundown:1957, analyze_postcall:2004, _state_review_snapshot:2049, _publish_state_review:2160, review_conversation:2235, host_id:2274
 
 ### `jobs/__init__.py` (0 lines, 1 nodes)
 
@@ -492,7 +497,7 @@ A complete, source-bound publication review; model review is not factual proof.
 - `jobdoc()` :26
 - class `JobQueue` :41 — __init__:42, require_owned_in:45, enqueue:58, enqueue_in:70, claim_many:138, coalesce_live_in:159, complete:202, fail:205, coalesce_refresh:208, _finish:219, heartbeat:269, next_due:282, recover_expired:289, get:310
 
-### `main.py` (1754 lines, 11,429 nodes)
+### `main.py` (1720 lines, 11,191 nodes)
 
 - class `Strict`(BaseModel) :38
 - class `RecoveryEdit`(Strict) :42 — attested:49
@@ -527,7 +532,7 @@ A complete, source-bound publication review; model review is not factual proof.
 - `_bound()` :296
 - `field_bounds()` :311
 - `setting_bounds()` :326
-- `create_app()` :362 (registers 100 route handlers)
+- `create_app()` :362 (registers 99 route handlers)
 
 ### `measurement.py` (372 lines, 2,827 nodes)
 
@@ -679,7 +684,7 @@ One bounded forecast over immutable inputs; never permission to place a call.
 - `retry_capacity()` :1041
 - `time_forecast()` :1140
 
-### `optimization/conversations.py` (315 lines, 2,714 nodes)
+### `optimization/conversations.py` (357 lines, 2,931 nodes)
 
 Bounded, descriptive learning from reviewed conversation observations.
 
@@ -689,11 +694,14 @@ Bounded, descriptive learning from reviewed conversation observations.
 - `active_observations()` :101
 - `_mix()` :112
 - `_comparison()` :121
-- `conversation_associations()` :163
-- `invalidate_report()` :284
-- `guidance_context()` :296
+- `first_eligible()` :163
+- `association_patterns()` :202
+- `supported()` :244
+- `conversation_associations()` :254
+- `invalidate_report()` :326
+- `guidance_context()` :338
 
-### `optimization/experiments.py` (495 lines, 3,315 nodes)
+### `optimization/experiments.py` (496 lines, 3,335 nodes)
 
 Stable optional experiments; assignments precede treatment and never change permissions.
 
@@ -705,7 +713,7 @@ Stable optional experiments; assignments precede treatment and never change perm
 - `reward_values()` :151
 - `exposure_values()` :155
 - `comparison_from_counts()` :177
-- class `ComparisonWorkflows` :274 — strategy_exposures_in:275, strategy_catalog:308, strategy_context:319, comparison_assignment:371
+- class `ComparisonWorkflows` :275 — strategy_exposures_in:276, strategy_catalog:309, strategy_context:320, comparison_assignment:372
 
 ### `optimization/goals.py` (83 lines, 667 nodes)
 
@@ -715,28 +723,28 @@ One goal reconciliation calculation for previews and committed changes.
 - `goal_state()` :25
 - `goal_plan()` :44
 
-### `optimization/learning.py` (673 lines, 5,295 nodes)
+### `optimization/learning.py` (674 lines, 5,302 nodes)
 
 - `hashed_draw()` :27
 - `outcome_at()` :32
 - `conversion_at()` :48
 - `freeze_features()` :76
 - `training_rows()` :118
-- `funnel_predictions()` :232
-- `prior_means()` :240
-- `conversion_score()` :248
-- `retry_statistics()` :259
-- `reward_counts()` :331
-- `distribution_from_counts()` :355
-- `drift_stratum()` :412
-- `drift_values()` :426
-- `drift_from_counts()` :450
-- `trial_values()` :534
-- `trial_from_counts()` :560
-- `stable_control()` :617
-- `cohort_fraction()` :621
-- `cohort_arm()` :630
-- `choose_cohort_candidate()` :635
+- `funnel_predictions()` :233
+- `prior_means()` :241
+- `conversion_score()` :249
+- `retry_statistics()` :260
+- `reward_counts()` :332
+- `distribution_from_counts()` :356
+- `drift_stratum()` :413
+- `drift_values()` :427
+- `drift_from_counts()` :451
+- `trial_values()` :535
+- `trial_from_counts()` :561
+- `stable_control()` :618
+- `cohort_fraction()` :622
+- `cohort_arm()` :631
+- `choose_cohort_candidate()` :636
 
 ### `optimization/numbering.py` (452 lines, 2,892 nodes)
 
@@ -789,12 +797,49 @@ Report totals computed directly from source records.
 - `read_trial_metrics()` :1247
 - `read_metrics()` :1295
 
-### `optimization/workflows.py` (1343 lines, 9,853 nodes)
+### `optimization/script_lab.py` (742 lines, 5,141 nodes)
+
+The campaign's script lab: base script versions, the Markdown memory, proposals and script tests.
+
+- class `Strict`(BaseModel) :45
+- class `ProposalBody`(Strict) :49
+- class `TestBody`(Strict) :62
+- class `SettingsBody`(Strict) :68
+- class `NotesBody`(Strict) :73
+- class `DecisionBody`(Strict) :78
+- class `RollbackBody`(Strict) :82
+- class `ScriptLab` :87 — script_settings:90, script_history:93, adopt_script_in:99, script_texts:123, testing_proposal:138, _running_test:154, _save_proposals:164, _proposal:167, _replace_proposal:175, _candidate:181, add_proposal_in:191, start_script_test_in:221, _stop_study:274, settle_script_tests:283, _memory_rows:359, latest_memory:370, _tests_view:374, write_memory_in:396, publish_script_learning:456, script_memory_digest_in:464, script_learning_context:470, _proposal_request:486, propose_from_memory:520, _accept_generated:567, script_lab_view:592
+- `register_script_lab()` :619 (registers 9 route handlers)
+
+### `optimization/script_learning.py` (499 lines, 4,033 nodes)
+
+How prospects react to each part of a campaign's script, and what that says about closing.
+
+- `tokens()` :39
+- `variant()` :43
+- `section_texts()` :48
+- `section_label()` :63
+- `match_section()` :69
+- `_number()` :82
+- `script_trace()` :86
+- `_bucket()` :192
+- `trace_features()` :199
+- `feature_label()` :234
+- `script_report()` :254
+- `weakest_section()` :347
+- `candidate_template()` :359
+- `memory_digest()` :399
+- `_pct()` :417
+- `_finding()` :421
+- `learned_markdown()` :434
+- `compose_memory()` :495
+
+### `optimization/workflows.py` (1349 lines, 9,903 nodes)
 
 - class `TrainingRows`(list) :27
 - `dataset_checksum()` :33
 - `next_attempts()` :49
-- class `OptimizationWorkflows`(ComparisonWorkflows) :100 — selected_campaign:101, ensure_experiment_cohort:114, model_source_current:165, serving_model:184, reconcile_goal_status:267, schedule_optimization:282, optimization_config:321, health_policy_in:334, inventory_evidence:354, inventory_capacity:363, predicted_work_seconds:427, obligation_ends:434, selection_profile:463, operational_dataset:479, forecast_input:616, forecast:794, build_forecast:798, report_details:896, saved_forecast:969, optimization_report:992, save_operational_dataset:1032, train_operational:1101, refresh_observed_health:1151, refresh_learning:1212, refresh_optimization:1263
+- class `OptimizationWorkflows`(ComparisonWorkflows) :100 — selected_campaign:101, ensure_experiment_cohort:114, model_source_current:165, serving_model:184, reconcile_goal_status:267, schedule_optimization:282, optimization_config:321, health_policy_in:334, inventory_evidence:354, inventory_capacity:363, predicted_work_seconds:427, obligation_ends:434, selection_profile:463, operational_dataset:479, forecast_input:616, forecast:794, build_forecast:798, report_details:896, saved_forecast:969, optimization_report:992, save_operational_dataset:1032, train_operational:1101, refresh_observed_health:1151, refresh_learning:1212, refresh_optimization:1266
 
 ### `postcall/__init__.py` (0 lines, 1 nodes)
 
@@ -879,7 +924,7 @@ Seller-owned script structure with small, evidence-backed model-filled slots.
 - `approved_template()` :125
 - `fill()` :137
 
-### `preparation/workflows.py` (598 lines, 4,430 nodes)
+### `preparation/workflows.py` (610 lines, 4,572 nodes)
 
 Advance preparation using the existing queue and bounded, versioned lead packets.
 
@@ -889,7 +934,7 @@ Advance preparation using the existing queue and bounded, versioned lead packets
 - `needs_preparation()` :38
 - `failure_state()` :42
 - `preparation_runway()` :60
-- class `Preparation` :93 — preparation_context:94, preparation_settings:118, preparation_key:121, claim_preparation:142, release_preparation:168, publish_script_in:185, preparation_state:224, script_evidence:232, script_row:252, selected_script:263, preparation_candidates:322, pending_preparation:371, preparation_status_in:387, preparation_status:516, preparation_plan:520, prepare_ahead:533, queue_preparation_in:565
+- class `Preparation` :93 — preparation_context:94, preparation_settings:118, script_base:121, lead_script_base:129, preparation_key:132, claim_preparation:154, release_preparation:180, publish_script_in:197, preparation_state:236, script_evidence:244, script_row:264, selected_script:275, preparation_candidates:334, pending_preparation:383, preparation_status_in:399, preparation_status:528, preparation_plan:532, prepare_ahead:545, queue_preparation_in:577
 
 ### `priority.py` (56 lines, 216 nodes)
 
@@ -899,7 +944,7 @@ Calling work runs ahead of background work inside one authority process.
 - `yield_to_calling_work()` :44
 - `settle_heap()` :50
 
-### `privacy.py` (782 lines, 4,423 nodes)
+### `privacy.py` (797 lines, 4,517 nodes)
 
 Small process-local raw-content cache. Persistent records contain only metadata.
 
@@ -910,8 +955,9 @@ Small process-local raw-content cache. Persistent records contain only metadata.
 - `bus_metadata()` :271
 - `job_metadata()` :289
 - `paraphrased()` :351
-- `persistent_document()` :365
-- class `SpeechPrivacy` :465 — raw_key:466, speech_revoked:469, transcript_metadata:487, transcript_rows:503, raw_status:529, _accept_transcript:545, _transcript_in:706, _publish_transcripts:762, _receive_transcript:767, transcript:776
+- `script_section_of()` :365
+- `persistent_document()` :375
+- class `SpeechPrivacy` :478 — raw_key:479, speech_revoked:482, transcript_metadata:500, transcript_rows:516, raw_status:542, _accept_transcript:558, _transcript_in:721, _publish_transcripts:777, _receive_transcript:782, transcript:791
 
 ### `providers/__init__.py` (0 lines, 1 nodes)
 
@@ -924,7 +970,7 @@ Documented prepaid lookup. A query result never replaces seller registry authori
 - class `DNCError`(ValueError) :16 — __init__:17
 - class `PrepaidDNC` :22 — __init__:23, check:27
 
-### `providers/inference.py` (188 lines, 1,222 nodes)
+### `providers/inference.py` (191 lines, 1,242 nodes)
 
 - class `InferenceError`(RuntimeError) :7
 - class `InferenceResult` :12
@@ -936,7 +982,7 @@ Documented prepaid lookup. A query result never replaces seller registry authori
 - class `PlanOAuth` :15 — __init__:19, begin:23, identity:67, finish:92, refresh:145
 - class `RegisteredPlanClient` :180 — __init__:184, complete:189
 
-### `providers/openrouter.py` (388 lines, 2,259 nodes)
+### `providers/openrouter.py` (390 lines, 2,259 nodes)
 
 A dedicated, bounded Cerebras route; no provider or model fallback.
 
@@ -948,7 +994,7 @@ A dedicated, bounded Cerebras route; no provider or model fallback.
 - `completed_fields()` :95
 - `primary_candidate()` :128
 - `truncated_turn()` :140
-- class `OpenRouterCoach` :154 — __init__:155, _send:163, _complete:260, suggest:334, review:381
+- class `OpenRouterCoach` :154 — __init__:155, _send:163, _complete:260, suggest:334, review:383
 
 ### `providers/simulated.py` (75 lines, 411 nodes)
 
@@ -1046,13 +1092,13 @@ Shared observed labels and inexpensive sparse estimates; no ML runtime imports.
 - `queue_decision()` :10
 - `rank_candidates()` :22
 
-### `scheduling/queue.py` (560 lines, 3,744 nodes)
+### `scheduling/queue.py` (557 lines, 3,726 nodes)
 
 Bounded queue reads, batched ranking, and a short authoritative resource claim.
 
 - `decision_state()` :34
 - class `SelectionChanged`(Exception) :42
-- class `ReservationPlanner` :46 — _hold_in_flight:47, _number_holds:62, _release_in_flight:78, _queue_context:86, _queue_presence:134, _selection:145, _selection_page:170, reserve:364, _claim_in:389
+- class `ReservationPlanner` :46 — _hold_in_flight:47, _number_holds:62, _release_in_flight:78, _queue_context:86, _queue_presence:133, _selection:144, _selection_page:169, reserve:363, _claim_in:388
 
 ### `security.py` (165 lines, 972 nodes)
 
@@ -1063,11 +1109,11 @@ Bounded queue reads, batched ranking, and a short authoritative resource claim.
 - `decode_session()` :120
 - `admin()` :163
 
-### `service.py` (1197 lines, 8,404 nodes)
+### `service.py` (1198 lines, 8,413 nodes)
 
 - `dt()` :31
 - `fail()` :35
-- class `Service`(ReservationPlanner) :39 — __init__:40, required:71, scoped:83, _by_key:86, context_rows:96, carrier:116, setup:129, seed:234, suppressed:360, import_leads:377, leads:467, budget_ok:474, context:512, record_decision:606, final_voicemail_possible:622, agent_leg_in:632, release_unused_reservation_in:652, presence:667, _expirable:685, _expired_claims:690, _expire_claims:694, agent_ready_in:707, _prepare_call:719, _call_snapshot:837, start_call:841, _claim_dial:848, _dial_failed:920, _dial_completed:947, dispatch_call:970, bind_dial_receipt:989, finish_call:1023, _claim_hangup:1049, _hangup_completed:1108, hangup:1132, suppress:1148, event:1153
+- class `Service`(ReservationPlanner) :39 — __init__:40, required:71, scoped:83, _by_key:86, context_rows:96, carrier:116, setup:129, seed:234, suppressed:360, import_leads:377, leads:467, budget_ok:474, context:512, record_decision:606, final_voicemail_possible:622, agent_leg_in:632, release_unused_reservation_in:652, presence:667, _expirable:685, _expired_claims:690, _expire_claims:694, agent_ready_in:707, _prepare_call:719, _call_snapshot:838, start_call:842, _claim_dial:849, _dial_failed:921, _dial_completed:948, dispatch_call:971, bind_dial_receipt:990, finish_call:1024, _claim_hangup:1050, _hangup_completed:1109, hangup:1133, suppress:1149, event:1154
 
 ### `telephony/__init__.py` (0 lines, 1 nodes)
 
@@ -1136,6 +1182,7 @@ Bounded workspace previews and resumable encrypted history; no new search store.
 - `acceptance/test_feature_operations.py` — 15 test functions
 - `acceptance/test_feature_postcall.py` — 8 test functions
 - `acceptance/test_feature_preparation.py` — 7 test functions
+- `acceptance/test_feature_script_learning.py` — 9 test functions
 - `acceptance/test_feature_smoke.py` — 1 test functions
 - `acceptance/test_feature_workspace.py` — 10 test functions
 - `test_adaptive_model.py` — 2 test functions
@@ -1147,19 +1194,22 @@ Bounded workspace previews and resumable encrypted history; no new search store.
 - `test_conversation_timing.py` — 8 test functions
 - `test_desktop_launch.py` — 3 test functions
 - `test_grounding_review.py` — 11 test functions
-- `test_oauth.py` — 2 test functions
+- `test_number_provider_paths.py` — 1 test functions
+- `test_oauth.py` — 4 test functions
 - `test_openrouter_coach.py` — 12 test functions
 - `test_optimization_numbers.py` — 18 test functions
 - `test_planner_correctness.py` — 15 test functions
 - `test_policy.py` — 5 test functions
-- `test_providers.py` — 7 test functions
+- `test_providers.py` — 8 test functions
 - `test_pure_serving.py` — 6 test functions
 - `test_remediation_semantics.py` — 3 test functions
+- `test_research_fetch.py` — 2 test functions
 - `test_script_grounding.py` — 7 test functions
+- `test_script_learning.py` — 9 test functions
 - `test_sqlite_plans.py` — 1 test functions
 - `test_store_format.py` — 1 test functions
 - `test_strategy_policy.py` — 4 test functions
-- `test_telnyx_contracts.py` — 22 test functions
+- `test_telnyx_contracts.py` — 24 test functions
 - `test_time_capacity.py` — 25 test functions
 - `test_training_isolation.py` — 19 test functions
 - `test_unified_planning.py` — 40 test functions
@@ -1211,6 +1261,7 @@ Bounded workspace previews and resumable encrypted history; no new search store.
 - `request.test.ts` — unit (Vitest)
 - `restore.spec.ts` — browser (Playwright)
 - `rubrics.spec.ts` — browser (Playwright)
+- `script-memory.spec.ts` — browser (Playwright)
 - `simulation.ts` — helper
 - `state.test.ts` — unit (Vitest)
 - `strategy.spec.ts` — browser (Playwright)
@@ -1247,18 +1298,19 @@ Per file: lines, then exported names.
 - `components/Keypad.tsx` (233 lines): Keypad
 - `components/LiveCoach.tsx` (407 lines): LiveCoach
 - `components/OperatingPolicySettings.tsx` (615 lines): OperatingPolicySettings
-- `components/Operations.tsx` (1710 lines): LeadsPage, NumbersPage, IntelligencePage, Empty
+- `components/Operations.tsx` (1712 lines): LeadsPage, NumbersPage, IntelligencePage, Empty
 - `components/OptimizationPanel.tsx` (619 lines): HealthPolicy, OptimizationSettings, OptimizationReport, useOptimizationReport, ReportState, OptimizationPanel, LearningAdvanced
 - `components/Preparation.tsx` (338 lines): PreparationRunway, PreparationSettings
 - `components/ProductKnowledge.tsx` (166 lines): ProductKnowledge
 - `components/ProspectBrief.tsx` (415 lines): ProspectBrief
 - `components/RecoveryPanel.tsx` (276 lines): RecoveryPanel
-- `components/ReviewPage.tsx` (536 lines): ReviewPage
+- `components/ReviewPage.tsx` (571 lines): ReviewPage
 - `components/Rubrics.tsx` (333 lines): RubricSettings, CallPurpose
 - `components/ScoreReview.tsx` (220 lines): ScoreReview
+- `components/ScriptMemory.tsx` (563 lines): Markdown, ScriptMemory
 - `components/SettingsPage.tsx` (2149 lines): SettingsPage
 - `components/Staffing.tsx` (321 lines): StaffedWindow, SimpleStaffing, ZonePicker, WeeklySchedule, DatedStaffing
-- `components/TrialControls.tsx` (688 lines): ControlledComparison, Experiments
+- `components/TrialControls.tsx` (647 lines): ControlledComparison, Experiments
 - `components/WorkTime.tsx` (223 lines): WorkTime, CallingHealth
 - `components/WrapUp.tsx` (259 lines): WrapUp, CallbackReviewNotice
 - `context.tsx` (62 lines): WorkspaceContext, Context, useWorkspace, label, date, percent, isAdmin
@@ -1276,7 +1328,7 @@ Per file: lines, then exported names.
 - `state/worktime.ts` (31 lines): heartbeatActivity
 - `state/zones.ts` (80 lines): deviceZone, chooseZone, zoneCaption, zonedInput, zonedInstant, localTime
 - `telephony/client.ts` (306 lines): pausesPresence, Telephony
-- `types.ts` (659 lines): Session, Runtime, Lead, FollowupTask, NumberRecord, Segment, Coach, Call, Script, Fact, Packet, Reservation, CapabilityStatus, Readiness, Policy, Playbook, HistoryPage, Workspace, EstimatePolicy, EvidenceItem, Analysis, isTerminal, isActiveCall
+- `types.ts` (680 lines): Session, Runtime, Lead, FollowupTask, NumberRecord, Segment, Coach, Call, Script, Fact, Packet, Reservation, CapabilityStatus, Readiness, Policy, Playbook, HistoryPage, Workspace, EstimatePolicy, EvidenceItem, Analysis, isTerminal, isActiveCall
 
 ## Desktop shell (`apps/desktop/src-tauri/src`)
 

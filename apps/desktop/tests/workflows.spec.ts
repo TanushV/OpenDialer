@@ -153,23 +153,21 @@ test("advanced administration exposes evidence-controlled workflows", async ({
   await expect(page.getByLabel("Business identity evidence")).toBeVisible();
 });
 
-test("approved variants are an experiment and purchases are never offered", async ({
+test("script wording is tested from the script memory and purchases are never offered", async ({
   page,
 }) => {
   await enterSimulation(page);
-  // Script variants are one experiment type in the single Advanced experiment view.
+  // The Advanced experiment view no longer publishes opener variants; script memory tests them.
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByText("Advanced", { exact: true }).click();
-  await page.getByLabel("Experiment type").selectOption("variant");
-  await page.getByLabel("Variant name").fill("Purpose first");
-  await page
-    .getByLabel("Variant introduction")
-    .fill("Hi, this is {rep} from Example Seller. May I explain why I called?");
-  await page
-    .getByLabel("Experiment review reference")
-    .fill("Synthetic review only");
-  await page.getByRole("button", { name: "Publish approved variant" }).click();
-  await expect(page.getByText("Approved treatment published.")).toBeVisible();
+  await expect(
+    page
+      .getByLabel("Experiment type")
+      .locator("option", { hasText: /variant/i }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText(/Script wording is tested from Script memory/),
+  ).toBeVisible();
   // Purchases are disabled by policy, so no quote or rental tool is shown.
   await page.getByRole("button", { name: "Numbers", exact: true }).click();
   await expect(page.getByLabel("Procurement area code")).toHaveCount(0);

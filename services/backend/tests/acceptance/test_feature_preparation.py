@@ -126,7 +126,7 @@ def playbook(ws, previous, **values):
     return ws["client"].post("/v1/admin/playbooks", headers=ws["headers"], json=body)
 
 
-def test_playbooks_and_variants_require_reviewed_truthful_language(workspace):
+def test_playbooks_and_script_changes_require_reviewed_truthful_language(workspace):
     seeded = get(workspace, "/v1/workspace")["active_playbook"]
     assert seeded["approved"] is True
     assert playbook(workspace, (None, 0)).status_code == 409
@@ -147,28 +147,23 @@ def test_playbooks_and_variants_require_reviewed_truthful_language(workspace):
         workspace, (second["id"], second["version"]), screening_intro="A stranger calls about roofs."
     )
     assert stranger.status_code == 422
-    variant_body = {
-        "campaign_id": workspace["campaign_id"],
-        "name": "Written estimate",
-        "opener": "Hi {rep}, Example Seller here with written roof estimates.",
+    # Script wording changes are proposals with the same truthful-language rules (script learning).
+    assert_status(save_policy(workspace, script_template=TEMPLATE), 200)
+    proposal = {
+        "section": "opener",
+        "text": "Hi {name}, {rep} from {seller} with written roof estimates.",
         "review_reference": "Reviewed copy for the October test",
     }
-    variant = assert_status(
-        workspace["client"].post("/v1/admin/variants", headers=workspace["headers"], json=variant_body), 200
-    )
-    assert variant["approved"] is True and variant["opener"] == variant_body["opener"]
+    path = "/v1/admin/script/proposals"
+    made = assert_status(workspace["client"].post(path, headers=workspace["headers"], json=proposal), 200)
+    assert made["status"] == "suggested" and made["template"]["opener"] == proposal["text"]
     for changed in (
-        {"opener": "We guarantee roof savings from Example Seller."},
-        {"opener": "Hello there with a roof offer."},
-        {"review_reference": None},
+        {"text": "We guarantee roof savings from {seller}, {rep} speaking."},
+        {"text": "Hello there with a roof offer."},
+        {"review_reference": "x"},
     ):
-        body = {**variant_body, **changed}
-        assert (
-            workspace["client"]
-            .post("/v1/admin/variants", headers=workspace["headers"], json=body)
-            .status_code
-            == 422
-        )
+        response = workspace["client"].post(path, headers=workspace["headers"], json={**proposal, **changed})
+        assert response.status_code == 422
 
 
 def test_chatgpt_plan_routes_refuse_what_cannot_be_verified_offline(workspace):

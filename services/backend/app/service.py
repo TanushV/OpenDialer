@@ -765,8 +765,9 @@ class Service(ReservationPlanner):
                     "feature_snapshot_id": reservation.data.get("feature_snapshot_id"),
                     "decision_id": reservation.data.get("policy_decision_id"),
                     "coaching_comparison": reservation.data.get("coaching_comparison"),
+                    "script_comparison": reservation.data.get("script_comparison"),
                     "script_snapshot": self.selected_script(
-                        s, p, lead, variant_id=reservation.data.get("treatment_variant_id")
+                        s, p, lead, assignment=reservation.data.get("script_comparison")
                     )[0],
                     "state": "AUTHORIZED",
                     "started_at": now.isoformat(),

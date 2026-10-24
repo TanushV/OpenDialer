@@ -362,6 +362,16 @@ def paraphrased(text, segments):
     return True
 
 
+def script_section_of(segment, script):
+    """Which section of the call's script a rep line delivered, decided while its text exists."""
+    if segment.get("side") != "rep" or not segment.get("is_final") or not script:
+        return {}
+    from app.optimization.script_learning import match_section
+
+    key, score = match_section(segment.get("text", ""), script)
+    return {"script_section": key, "section_score": score}
+
+
 def persistent_document(kind, data):
     """The boundary that keeps raw speech and quotes out of every persisted document."""
     data = copy.deepcopy(data)
@@ -393,6 +403,9 @@ def persistent_document(kind, data):
                 "interpretation_revision",
                 "interpreted_at",
                 "question_count",
+                "word_count",
+                "script_section",
+                "section_score",
             }
         }
     if kind == "coach_events":
@@ -617,6 +630,8 @@ class SpeechPrivacy:
                     "effects_complete": False,
                     "transcript_version": call.data.get("transcript_version", 0) + 1,
                     "question_count": segment.get("text", "").count("?"),
+                    "word_count": len(segment.get("text", "").split()),
+                    **script_section_of(segment, call.data.get("script_snapshot") or {}),
                     "interpretation_revision": None,
                 },
             )

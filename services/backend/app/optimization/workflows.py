@@ -1232,6 +1232,9 @@ class OptimizationWorkflows(ComparisonWorkflows):
             "goal": dataset["goal"],
             "window_days": dataset["window_days"],
         }
+        self.publish_script_learning(
+            p, campaign_id, [r for r in dataset["rows"] if r.get("campaign_id") == campaign_id]
+        )
         with self.db.transaction() as s:
             # Campaign row first, then job rows: every campaign publisher takes them in this order.
             campaign = self.required(s, "campaigns", campaign_id, p, lock=True)
@@ -1336,6 +1339,9 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 )
             emit(s, p["tenant_id"], "optimization.updated", campaign, self.clock())
         self.rebuild_optimization_report(p, lease=lease, totals=totals)
+        from app.optimization.projections import read_comparison_metrics
+
+        self.settle_script_tests(p, read_comparison_metrics(self, p, totals))
         return {
             "status": "ready",
             "rows": profile["samples"],
