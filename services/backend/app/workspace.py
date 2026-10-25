@@ -280,8 +280,19 @@ class WorkspaceReads:
                     ActiveClaim.tenant_id == p["tenant_id"],
                     ActiveClaim.seller_id == p["seller_id"],
                     ActiveClaim.rep_id == p["user_id"],
+                    or_(ActiveClaim.call_id.is_not(None), ActiveClaim.expires_at > self.clock()),
                 )
             )
+            reservation = None
+            if claim and not claim.call_id:
+                reserved = self.required(s, "reservations", claim.reservation_id, p)
+                if reserved.data["status"] == "reserved":
+                    reservation = {
+                        "reservation_id": reserved.id,
+                        "expires_at": reserved.data["expires_at"],
+                        "lead": doc(self.required(s, "leads", claim.lead_id, p)),
+                        "number": doc(self.required(s, "number_inventory", claim.number_id, p)),
+                    }
             for section, extra in (
                 ("calls", [doc(r) for r in owed]),
                 ("tasks", [doc(r) for r in owed_tasks]),
@@ -310,6 +321,7 @@ class WorkspaceReads:
                     "presence": user.data.get("presence", {}),
                 },
                 "quiescence": self.quiescence_in(s, p),
+                "reservation": reservation,
                 "event_cursor": event_cursor,
                 **{section: value["items"] for section, value in pages.items()},
                 "active_playbook": doc(book) if (book := self.approved_playbook(s, p)) else None,

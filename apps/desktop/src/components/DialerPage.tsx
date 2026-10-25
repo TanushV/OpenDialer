@@ -43,13 +43,27 @@ export function DialerPage({ visible = true }: { visible?: boolean }) {
     subscribe,
     liveStatus,
   } = useWorkspace();
-  const [reservation, setReservation] = useState<Reservation | null>(null);
+  const [reservation, setReservation] = useState<Reservation | null>(
+    w.reservation ?? null,
+  );
   const [packet, setPacket] = useState<Packet | null>(null);
   const [call, setCall] = useState<Call | null>(null);
   const [callbackReview, setCallbackReview] =
     useState<Call["callback_review"]>(null);
   const currentCall = useRef(call);
   currentCall.current = call;
+  useEffect(() => {
+    const restored = w.reservation;
+    if (!restored) return;
+    let cancelled = false;
+    void run(async () => {
+      const value = await api<Packet>(`/v1/leads/${restored.lead.id}/packet`);
+      if (!cancelled) setPacket(value);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const callReadGeneration = useRef(0);
   const hangupGeneration = useRef(0);
   useSpeechExpiry(call, setCall);

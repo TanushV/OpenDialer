@@ -24,7 +24,12 @@ test("Space starts one scheduler-selected call and ignores editing and repeat pr
   await page.keyboard.press("Space");
   expect(starts).toBe(0);
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
-  await page.locator("h1").click();
+  await expect(
+    page
+      .getByRole("button", { name: "Next call Space", exact: true })
+      .or(page.getByRole("button", { name: "Start call", exact: true })),
+  ).toBeEnabled();
+  await page.getByTestId("prepared-script").locator(".card-eyebrow").click();
   await page.keyboard.down("Space");
   await page.keyboard.down("Space");
   await page.keyboard.up("Space");
@@ -41,6 +46,37 @@ test("Space starts one scheduler-selected call and ignores editing and repeat pr
     path: testInfo.outputPath("calling-screen.png"),
     fullPage: true,
   });
+  await finishCall(page);
+});
+
+test("reload restores the reserved lead and Space starts that reservation once", async ({
+  page,
+}) => {
+  await enter(page);
+  await prepareSimulationCall(page, "Reserved shortcut", "+14155550777");
+  await page
+    .getByRole("button", { name: "Get next lead", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Start call", exact: true }),
+  ).toBeEnabled();
+  const lead = await page.getByTestId("lead-name").innerText();
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: "Start call", exact: true }),
+  ).toBeEnabled();
+  await expect(page.getByTestId("lead-name")).toHaveText(lead);
+  let starts = 0;
+  page.on("request", (request) => {
+    if (request.url().endsWith("/v1/calls/start")) starts++;
+  });
+  await page.getByTestId("prepared-script").locator(".card-eyebrow").click();
+  await page.keyboard.press("Space");
+  await expect(
+    page.getByRole("button", { name: "Hang up", exact: true }),
+  ).toBeVisible();
+  expect(starts).toBe(1);
+  await expect(page.getByTestId("lead-name")).toHaveText(lead);
   await finishCall(page);
 });
 

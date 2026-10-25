@@ -48,6 +48,25 @@ def next_lead(ws, headers=None, status=200):
     return call(ws, "POST", "/v1/queue/next", json=body, status=status, headers=headers or {})
 
 
+def test_workspace_restores_only_the_reps_current_reservation(workspace, clock):
+    ready_as(workspace)
+    selected = next_lead(workspace)
+    restored = get(workspace, "/v1/workspace")["reservation"]
+    assert restored["reservation_id"] == selected["reservation_id"]
+    assert restored["lead"]["id"] == selected["lead"]["id"]
+    assert restored["number"]["id"] == selected["number"]["id"]
+    _, other = add_user(workspace, "reservation-reader@example.test")
+    assert call(workspace, "GET", "/v1/workspace", headers=other)["reservation"] is None
+    pause(workspace)
+    assert get(workspace, "/v1/workspace")["reservation"] is None
+    ready_as(workspace)
+    next_lead(workspace)
+    clock.now += timedelta(minutes=3)
+    assert get(workspace, "/v1/workspace")["reservation"] is None
+    start(workspace)
+    assert get(workspace, "/v1/workspace")["reservation"] is None
+
+
 def start_as(ws, headers=None, key="call-key-001"):
     packet = next_lead(ws, headers)
     body = {"reservation_id": packet["reservation_id"], "idempotency_key": key}

@@ -415,6 +415,7 @@ export interface Workspace {
   /** Latest live-event sequence reflected by this snapshot. */
   event_cursor?: number;
   quiescence?: { can_disconnect: boolean; reasons: string[] };
+  reservation?: Reservation | null;
   active_playbook?: Playbook | null;
   pages?: Record<string, Omit<HistoryPage<never>, "items">>;
   mode: string;
