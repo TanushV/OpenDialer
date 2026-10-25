@@ -185,7 +185,8 @@ def test_external_reputation_flags_numbers_until_cleared_and_review_shows_it(wor
     review = get(workspace, f"/v1/admin/numbers/{numbers(workspace)['+14155550100']['id']}/review")
     assert review["health"]["status"] == "investigating" and review["number"]["outbound_ready"] is False
     assert {"workload", "policy", "callback_candidates"} <= set(review)
-    assert review["workload"]["current_limit"] == numbers(workspace)["+14155550100"]["daily_limit"]
+    assert review["workload"]["current_limit"] == 0
+    assert review["workload"]["approved_daily_limit"] == numbers(workspace)["+14155550100"]["daily_limit"]
     assert "NUMBER_UNHEALTHY" in refused(workspace)
     future = reputation("clear", now + timedelta(hours=1))
     call(
@@ -202,6 +203,8 @@ def test_external_reputation_flags_numbers_until_cleared_and_review_shows_it(wor
     for phone in ("+14155550100", "+12125550100"):
         import_reputation(phone, reputation("clear", now - timedelta(minutes=30)))
     assert get(workspace, "/v1/admin/numbers/summary")["inventory"]["ready"] == ready_before
+    restored = get(workspace, f"/v1/admin/numbers/{numbers(workspace)['+14155550100']['id']}/review")
+    assert restored["workload"]["current_limit"] == restored["workload"]["approved_daily_limit"] == 100
 
 
 def test_reassignment_moves_an_existing_lead_identity_to_a_verified_number(workspace):
