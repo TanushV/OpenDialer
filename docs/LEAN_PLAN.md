@@ -271,3 +271,9 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
   packaging; production updater configuration is unchanged. Artifacts are not release-ready: no production key,
   notarization, clean-machine install or native GUI/hardware validation. Installed app/data were untouched.
   Source and these receipts are prepared for the owner's requested GitHub push; remote results are tracked in Actions.
+
+- Script-learning review corrections (October 24, source `74658b4`): frozen test control/candidate templates,
+  stale-base promotion refusal, and memory-aware preparation freshness. Four regressions failed before the fix.
+  Full suites pass: SQLite 628 / 2 skipped, PostgreSQL 629 / 1 skipped; browser 155, frontend 74, Rust 7;
+  lint/format/typecheck/build/clippy and fresh Mac package/archive/restart checks pass. See
+  [receipt](evidence/lean/script-learning-fixes-20261024.json). Installed app/data untouched; disposable signing only; no paid/live actions or publication.

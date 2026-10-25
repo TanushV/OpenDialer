@@ -1,13 +1,13 @@
 # OpenDialer code map (AST snapshot)
 
-Generated from commit `4ee74ca` with Python's `ast` module (backend, tests, scripts) and a token count for TypeScript. It is a snapshot: regenerate sizes with `.venv/bin/python scripts/size.py`; line numbers drift as code changes. Read with [HANDOFF.md](HANDOFF.md).
+Generated from commit `74658b4` with Python's `ast` module (backend, tests, scripts) and a token count for TypeScript. It is a snapshot: regenerate sizes with `.venv/bin/python scripts/size.py`; line numbers drift as code changes. Read with [HANDOFF.md](HANDOFF.md).
 
 ## Size
 
 | Area | Files | Lines | AST nodes / tokens | Baseline lines (a950675) | Change |
 |---|---:|---:|---:|---:|---:|
-| backend | 89 | 35,297 | 243,067 nodes | 39,459 | -11% lines, -10% nodes |
-| backend_tests | 42 | 11,399 | 79,393 nodes | 52,034 | -78% lines |
+| backend | 89 | 35,312 | 243,190 nodes | 39,459 | -11% lines, -10% nodes |
+| backend_tests | 42 | 11,488 | 80,043 nodes | 52,034 | -78% lines |
 | repo_tests | 4 | 641 | 3,859 nodes | 3,027 | -79% lines |
 | frontend | 52 | 16,751 | 90,862 tokens | 16,487 | +2% lines, +1% tokens |
 | frontend_tests | 49 | 9,463 | 68,494 tokens | 9,569 | -1% lines |
@@ -15,7 +15,7 @@ Generated from commit `4ee74ca` with Python's `ast` module (backend, tests, scri
 | scripts | 11 | 1,392 | 7,764 nodes | 5,211 | -73% lines |
 | workflows | 2 | 186 | - | 680 | -73% lines |
 
-All Python together: 334,083 AST nodes (baseline about 687k). Targets in LEAN_PLAN.md: backend about -30% (missed, -14%), frontend about -20% (missed, -2%).
+All Python together: 334,856 AST nodes (baseline about 687k). Targets in LEAN_PLAN.md: backend about -30% (missed, -10% nodes), frontend about -20% (missed, +1% tokens).
 
 ## HTTP routes
 
@@ -79,13 +79,13 @@ Every route the authority serves, from the route decorators. Access: `principal`
 | POST | `/v1/admin/rnd/results` | administrator | `app/main.py:1505` import_rnd |
 | GET | `/v1/admin/rubrics` | administrator | `app/postcall/rubrics.py:302` get_config |
 | PUT | `/v1/admin/rubrics` | administrator | `app/postcall/rubrics.py:307` save_config |
-| PUT | `/v1/admin/script/memory` | administrator | `app/optimization/script_lab.py:638` edit_memory |
-| POST | `/v1/admin/script/proposals` | administrator | `app/optimization/script_lab.py:667` propose |
-| POST | `/v1/admin/script/proposals/{proposal_id}/approve` | administrator | `app/optimization/script_lab.py:698` approve |
-| POST | `/v1/admin/script/proposals/{proposal_id}/reject` | administrator | `app/optimization/script_lab.py:714` reject |
-| POST | `/v1/admin/script/proposals/{proposal_id}/start` | administrator | `app/optimization/script_lab.py:684` start |
-| POST | `/v1/admin/script/rollback` | administrator | `app/optimization/script_lab.py:729` rollback |
-| PUT | `/v1/admin/script/settings` | administrator | `app/optimization/script_lab.py:649` edit_settings |
+| PUT | `/v1/admin/script/memory` | administrator | `app/optimization/script_lab.py:651` edit_memory |
+| POST | `/v1/admin/script/proposals` | administrator | `app/optimization/script_lab.py:680` propose |
+| POST | `/v1/admin/script/proposals/{proposal_id}/approve` | administrator | `app/optimization/script_lab.py:711` approve |
+| POST | `/v1/admin/script/proposals/{proposal_id}/reject` | administrator | `app/optimization/script_lab.py:729` reject |
+| POST | `/v1/admin/script/proposals/{proposal_id}/start` | administrator | `app/optimization/script_lab.py:697` start |
+| POST | `/v1/admin/script/rollback` | administrator | `app/optimization/script_lab.py:744` rollback |
+| PUT | `/v1/admin/script/settings` | administrator | `app/optimization/script_lab.py:662` edit_settings |
 | POST | `/v1/admin/seller/approve` | administrator | `app/main.py:1368` approve_seller |
 | GET | `/v1/admin/settings` | administrator | `app/main.py:855` read_settings |
 | PUT | `/v1/admin/settings` | administrator | `app/main.py:904` write_settings |
@@ -139,8 +139,8 @@ Every route the authority serves, from the route decorators. Access: `principal`
 | GET | `/v1/metrics` | principal | `app/main.py:530` metrics |
 | GET | `/v1/optimization` | principal | `app/optimization/api.py:344` report |
 | GET | `/v1/optimization/conversations` | principal | `app/optimization/api.py:204` conversation_report |
-| GET | `/v1/optimization/script` | principal | `app/optimization/script_lab.py:626` script_lab |
-| GET | `/v1/optimization/script/memory.md` | principal | `app/optimization/script_lab.py:630` script_memory |
+| GET | `/v1/optimization/script` | principal | `app/optimization/script_lab.py:639` script_lab |
+| GET | `/v1/optimization/script/memory.md` | principal | `app/optimization/script_lab.py:643` script_memory |
 | GET | `/v1/optimization/strategies` | principal | `app/optimization/api.py:449` strategies |
 | GET | `/v1/preparation` | principal | `app/main.py:617` preparation |
 | POST | `/v1/queue/next` | principal | `app/main.py:554` next_lead |
@@ -797,7 +797,7 @@ Report totals computed directly from source records.
 - `read_trial_metrics()` :1247
 - `read_metrics()` :1295
 
-### `optimization/script_lab.py` (742 lines, 5,141 nodes)
+### `optimization/script_lab.py` (757 lines, 5,248 nodes)
 
 The campaign's script lab: base script versions, the Markdown memory, proposals and script tests.
 
@@ -808,8 +808,8 @@ The campaign's script lab: base script versions, the Markdown memory, proposals 
 - class `NotesBody`(Strict) :73
 - class `DecisionBody`(Strict) :78
 - class `RollbackBody`(Strict) :82
-- class `ScriptLab` :87 — script_settings:90, script_history:93, adopt_script_in:99, script_texts:123, testing_proposal:138, _running_test:154, _save_proposals:164, _proposal:167, _replace_proposal:175, _candidate:181, add_proposal_in:191, start_script_test_in:221, _stop_study:274, settle_script_tests:283, _memory_rows:359, latest_memory:370, _tests_view:374, write_memory_in:396, publish_script_learning:456, script_memory_digest_in:464, script_learning_context:470, _proposal_request:486, propose_from_memory:520, _accept_generated:567, script_lab_view:592
-- `register_script_lab()` :619 (registers 9 route handlers)
+- class `ScriptLab` :87 — script_settings:90, script_history:93, adopt_script_in:99, script_texts:123, testing_proposal:138, _running_test:154, _save_proposals:164, _proposal:167, _replace_proposal:175, _candidate:181, add_proposal_in:191, start_script_test_in:221, _stop_study:279, settle_script_tests:288, _memory_rows:366, latest_memory:377, _tests_view:381, write_memory_in:403, publish_script_learning:469, script_memory_digest_in:477, script_learning_context:483, _proposal_request:499, propose_from_memory:533, _accept_generated:580, script_lab_view:605
+- `register_script_lab()` :632 (registers 9 route handlers)
 
 ### `optimization/script_learning.py` (499 lines, 4,033 nodes)
 
@@ -924,7 +924,7 @@ Seller-owned script structure with small, evidence-backed model-filled slots.
 - `approved_template()` :125
 - `fill()` :137
 
-### `preparation/workflows.py` (610 lines, 4,572 nodes)
+### `preparation/workflows.py` (610 lines, 4,588 nodes)
 
 Advance preparation using the existing queue and bounded, versioned lead packets.
 
@@ -934,7 +934,7 @@ Advance preparation using the existing queue and bounded, versioned lead packets
 - `needs_preparation()` :38
 - `failure_state()` :42
 - `preparation_runway()` :60
-- class `Preparation` :93 — preparation_context:94, preparation_settings:118, script_base:121, lead_script_base:129, preparation_key:132, claim_preparation:154, release_preparation:180, publish_script_in:197, preparation_state:236, script_evidence:244, script_row:264, selected_script:275, preparation_candidates:334, pending_preparation:383, preparation_status_in:399, preparation_status:528, preparation_plan:532, prepare_ahead:545, queue_preparation_in:577
+- class `Preparation` :93 — preparation_context:94, preparation_settings:118, script_base:121, lead_script_base:129, preparation_key:132, claim_preparation:155, release_preparation:181, publish_script_in:198, preparation_state:237, script_evidence:245, script_row:265, selected_script:276, preparation_candidates:334, pending_preparation:383, preparation_status_in:399, preparation_status:528, preparation_plan:532, prepare_ahead:545, queue_preparation_in:577
 
 ### `priority.py` (56 lines, 216 nodes)
 
@@ -1182,7 +1182,7 @@ Bounded workspace previews and resumable encrypted history; no new search store.
 - `acceptance/test_feature_operations.py` — 15 test functions
 - `acceptance/test_feature_postcall.py` — 8 test functions
 - `acceptance/test_feature_preparation.py` — 7 test functions
-- `acceptance/test_feature_script_learning.py` — 9 test functions
+- `acceptance/test_feature_script_learning.py` — 12 test functions (13 cases)
 - `acceptance/test_feature_smoke.py` — 1 test functions
 - `acceptance/test_feature_workspace.py` — 10 test functions
 - `test_adaptive_model.py` — 2 test functions

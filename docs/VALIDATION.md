@@ -1,6 +1,16 @@
 # OpenDialer lean build validation
 
-**Current verification: October 24, 2026, product fix `538dcde`, browser regression `f9eacca`.**
+**Current verification: October 24, 2026, script-learning corrections `74658b4`.**
+[Current handoff](HANDOFF.md) and [receipt](evidence/lean/script-learning-fixes-20261024.json) record the results:
+628 SQLite / 629 PostgreSQL tests, 155 browser cases, 74 frontend tests and 7 Rust tests pass,
+as do lint/format/typecheck/build/clippy, fresh sidecars and Mac package/archive/restart verification.
+Four failing regressions preceded fixes for mutable trial controls, stale-winner promotion and cached scripts
+ignoring changed memory. The browser suite passed a fresh rerun after two interaction failures under concurrent
+backend/build load. Installed app/data were untouched; updater signing used a deleted disposable key.
+Production signing, notarization, clean-machine installation, hardware audio and live providers remain unverified.
+Performance, coverage and compose results below are earlier snapshots, not reruns of these corrections.
+
+**Earlier October 24 verification snapshot, product fix `538dcde`, browser regression `f9eacca`.**
 [Current handoff](HANDOFF.md) and [verification receipt](evidence/lean/verification-20261024.json) contain the
 commands, counts, regression evidence and remaining gaps. The [Mac/local CI receipt](evidence/lean/mac-local-ci-20261024.json)
 records the pre-push verification requested by the owner. Installed app and data were not accessed or modified.

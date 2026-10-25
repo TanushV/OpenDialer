@@ -1,9 +1,8 @@
 # OpenDialer testing handoff (CURRENT)
 
-> **Status: CURRENT** handoff as of **October 24, 2026**, verified through `f9eacca` on `main`, then extended with script
-> learning (see section 2 and `docs/SCRIPT_LEARNING.md`). Product fix: `538dcde`; browser regression: `f9eacca`. It is the single handoff to read first. If a newer handoff exists, it will say so at its top and this
-> one will be marked superseded. The companion code map is [HANDOFF_AST.md](HANDOFF_AST.md) (sizes, all HTTP
-> routes, every backend module's classes and functions, generated from the AST).
+> **Status: CURRENT** as of **October 24, 2026**, source verified through `74658b4` on `main`.
+> Includes script learning and the review fixes described below. This is the single current handoff.
+> Read with [HANDOFF_AST.md](HANDOFF_AST.md) and [SCRIPT_LEARNING.md](SCRIPT_LEARNING.md).
 
 You are taking over **testing** of OpenDialer 0.4.0. The automated suites pass after the October 24 verification, and an older signed draft release exists.
 Live-provider and clean-machine installer gates remain open. Continue finding what the tests do not prove,
@@ -28,10 +27,10 @@ rundowns), OpenAI / OpenAI-compatible endpoint / a rep's ChatGPT plan (research 
 | Item | State |
 |---|---|
 | Version | 0.4.0 everywhere the distribution contract checks (`tests/test_distribution_contract.py`) |
-| Verified source | `538dcde` fixes non-object ChatGPT-plan responses; `f9eacca` tests repeated prospect-review conflicts. Local checks pass. The owner requested a push after Mac verification; see the [local CI and Mac receipt](evidence/lean/mac-local-ci-20261024.json). GitHub results are tracked in [Actions](https://github.com/TanushV/OpenDialer/actions/workflows/ci.yml). |
-| Backend + repo tests | Fresh full suites with script learning: 624 passed / 2 skipped on SQLite, 625 passed / 1 skipped on PostgreSQL (before it: 600 / 601). The optional Caddy test was separately enabled and passed; the guarded-PostgreSQL check is inapplicable in the SQLite run. |
-| HTTP acceptance journeys | 103 in `services/backend/tests/acceptance/` |
-| Browser journeys | 155/155 passed in a full local/connected run with script learning (11.4 minutes on a loaded Mac; before it, 154/154 in 6.3 minutes). The first run exposed a test assumption about repeated review conflicts; see below. |
+| Verified source | `74658b4` fixes script-test control drift, stale-winner promotion and prepared-script memory caching. Fresh local CI and Mac verification: [receipt](evidence/lean/script-learning-fixes-20261024.json). Remote results are tracked in [Actions](https://github.com/TanushV/OpenDialer/actions/workflows/ci.yml). |
+| Backend + repo tests | Fresh full suites: 628 passed / 2 skipped on SQLite; 629 passed / 1 skipped on PostgreSQL. The optional Caddy image test is skipped in this run; the guarded-PostgreSQL check is inapplicable to SQLite. |
+| HTTP acceptance journeys | 113 test functions in `services/backend/tests/acceptance/`; parameterized cases run in both database suites. |
+| Browser journeys | Fresh full rerun: 155/155 pass in local/connected modes. An earlier run under concurrent backend/build load was stopped after two interaction failures; traces retained. No assertion or timeout changes. |
 | Frontend unit / Rust | 74 Vitest tests; Rust fmt, 7 tests, clippy pass |
 | Backend line coverage | 84.8% (13,380 / 15,778 statements); this is not full branch coverage. Gaps remain in section 9. |
 | Draft release (October 23 snapshot) | **v0.4.0, signed, UNPUBLISHED**, built from `a05a196` by [run 40066009752](https://github.com/TanushV/OpenDialer/actions/runs/40066009752): Mac archive + DMG (aarch64), Windows NSIS + MSI (x64), updater signatures, `latest.json`, `SHA256SUMS.txt`. The draft predates the `538dcde` inference fix; it was not rebuilt or published during verification. v0.3.3 was latest published at the previous handoff; remote release state was not rechecked. |
@@ -63,8 +62,25 @@ browser failure trace are in ignored `work/verification-20261024/`.
   removed).
 - Script learning (October 24, after the verification above) learns how prospects react to each section of a
   campaign's base script, keeps a Markdown memory per campaign, and tests changes before adopting them. The 0.4.0
-  draft release predates it. Its tests: `test_feature_script_learning.py` (9 journeys), `test_script_learning.py`
+  draft release predates it. Its tests: `test_feature_script_learning.py` (12 journeys / 13 cases), `test_script_learning.py`
   (15), `script-memory.spec.ts`.
+
+### Script-learning review fixes (October 24)
+
+Source `74658b4`; [verification receipt](evidence/lean/script-learning-fixes-20261024.json); local logs in ignored `work/update-review-20261024/`.
+Four regression cases failed before the fixes and pass afterward on both databases:
+
+- Both script-test arms render the templates saved at test start. Editing the seller template cannot silently
+  change the control arm. A changed base withdraws the old test or prevents manual approval of its old winner.
+- The bounded script-writing memory feeds the existing preparation source key. Changed notes or supported
+  findings invalidate prepared scripts and supersede in-flight results. A timestamp-only refresh keeps the cache.
+- Fresh full backend suites, frontend checks/74 unit tests, Rust fmt/7 tests/clippy, both sidecar builds and
+  155 browser cases pass. The added cache-stability assertion also passes separately on SQLite and PostgreSQL.
+- The current Mac build passes bundle/archive verification, hardened-runtime sidecar checks, DMG checksum,
+  extracted-authority simulation and restart persistence, and extracted-trainer imports. Updater signing used
+  a disposable test key that was deleted. Installed app/data and production updater configuration are untouched.
+- Benchmarks, coverage and compose receipts elsewhere in this handoff predate these script-learning fixes;
+  they were not rerun for this correction. Live-provider, dedicated-host and clean-machine gates remain open.
 
 ## 3. Rules you must follow
 

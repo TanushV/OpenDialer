@@ -1,0 +1,123 @@
+{
+  "date": "2026-10-24",
+  "source_commit": "74658b4e903b65ee72aa7edc70fc1542a4aa381a",
+  "fixes": [
+    "Freeze control and candidate templates at script-test start",
+    "Withdraw or refuse promotion when the base template has changed",
+    "Include bounded memory content in preparation freshness and publication checks"
+  ],
+  "regressions": {
+    "failed_before_fix": 4,
+    "passed_after_fix": 4,
+    "cache_stability_additional_assertion": "Passed on SQLite and PostgreSQL"
+  },
+  "local_ci": {
+    "sqlite": {
+      "passed": 628,
+      "skipped": 2,
+      "seconds": 555.28
+    },
+    "postgres": {
+      "passed": 629,
+      "skipped": 1,
+      "seconds": 1011.49
+    },
+    "ruff_check_and_format": true,
+    "frontend_typecheck_format_build": true,
+    "frontend_unit_tests": 74,
+    "rust_fmt_tests_clippy": true,
+    "rust_tests": 7,
+    "sidecar_builds": [
+      "authority",
+      "trainer"
+    ],
+    "browser": {
+      "passed": 155,
+      "modes": [
+        "local SQLite",
+        "hosted PostgreSQL"
+      ],
+      "initial_attempt": "Stopped after 44 passes, 2 interaction failures and 1 interrupted test under concurrent backend/build load. Traces preserved; final full rerun passed with unchanged assertions and timeouts."
+    }
+  },
+  "mac_package": {
+    "build_archive_signatures_dmg_checksum": true,
+    "extracted_authority": {
+      "imported": 20,
+      "prepared": 5,
+      "simulated_outcome": "callback_requested",
+      "callback_tasks": 1,
+      "restart_persistence": true
+    },
+    "extracted_trainer_self_check": true,
+    "signing": "Ad-hoc Apple signing and a disposable updater key, deleted after packaging. Production updater configuration unchanged.",
+    "app_gui_launched": false,
+    "installed_app_or_data_touched": false
+  },
+  "limitations": [
+    "No production-key signing, notarization, clean-machine install or native hardware audio verification",
+    "Windows runtime not tested on this Mac",
+    "No live or paid provider actions; no release publication",
+    "Dedicated hosted latency and campaign lift remain external gates"
+  ],
+  "sizes": {
+    "backend": {
+      "files": 89,
+      "lines": 35312,
+      "ast_nodes": 243190
+    },
+    "backend_tests": {
+      "files": 42,
+      "lines": 11488,
+      "ast_nodes": 80043
+    },
+    "repo_tests": {
+      "files": 4,
+      "lines": 641,
+      "ast_nodes": 3859
+    },
+    "frontend": {
+      "files": 52,
+      "lines": 16751,
+      "tokens": 90862
+    },
+    "frontend_tests": {
+      "files": 49,
+      "lines": 9463,
+      "tokens": 68494
+    },
+    "rust": {
+      "files": 2,
+      "lines": 971
+    },
+    "scripts": {
+      "files": 11,
+      "lines": 1392,
+      "ast_nodes": 7764
+    },
+    "workflows": {
+      "files": 2,
+      "lines": 186
+    }
+  },
+  "log_sha256": {
+    "cache-stability-postgres.log": "77ddda018799429e25df8ff0a9a7fa5a8f731bc77c221c67988fe22115147aa2",
+    "full-postgres.log": "e7bec73aef72ee0536f895802721ce104adf1b3c6150c6909db20c5799f4d8ef",
+    "browser.log": "3f1286079a00fc06487ded9358ce05744918b49192bc621092be49cc37eab63e",
+    "fix-focused.log": "b130f077ee728fd63f8de15b4dfea9ba20d97c519f2b7fa834f050b2b5b78a42",
+    "cache-stability-sqlite.log": "321f1bee7a2801daa719263d200a49bfb70658e5362ba19eea739770981e6c19",
+    "sqlite.log": "7ebfb07c0e832aa7e3e937558b0d22d95178a005786fa5c3d453e99383e2df74",
+    "edges-sqlite.log": "7acb57088bb8bac9f028ce2bfcf7205880c0298a50cac5ed2c4d470d8ca0540c",
+    "promotion-before.log": "5ee4d226a19c5fa0fa40e11527ca37afcf77bac55c3479056ab225579458a155",
+    "typecheck.log": "061d05077c0911aced31f3afdffe58b0fc7603e5c11386c94f7a12e72ae92495",
+    "full-browser.log": "ad0abbcdba6665581443ad757bb4de8ab48158c1a9734659310761fdd4401d15",
+    "sidecars.log": "8747ee4f0eb25605fdbb36435f03fd374c5d91d0f6b0cf1cfc3ca48a98614a45",
+    "full-sqlite.log": "e55ffc71aef7010c5f39becb6395bca9728db2dc8055c1584c308491a12c2ea7",
+    "browser-final.log": "b900686307644a05e77cc3460221cdd5393011674bce191325910e077b50c9ba",
+    "postgres.log": "9fe511ca8f673d88f70aea24ef5773e62534e6a85c5ebc496ef981af9c3e5e75",
+    "mac-package.log": "f9bf584af67d942f281439ae0e91f17666ac9b6ea614f87fda6f47c44939f512",
+    "regression-before.log": "a1d60c67287ad93fb0378c5b6d988ff954406a136e67dd929259d5c99e0e7c67",
+    "edges-postgres.log": "8d298c2aa6d77554aa0dd59323a0c5df41e9fd09d20b33086217246442a38f39",
+    "mac-smoke.log": "b2a037d609f50f230669d86d4b50e835b211df75acb549623532b4191dc01aa9"
+  }
+}
