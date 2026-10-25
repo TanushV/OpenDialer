@@ -92,4 +92,4 @@ class Settings(BaseSettings):
     max_call_seconds: int = 7200
     session_seconds: int = 28800
     max_import_rows: int = 10000
-    version: str = "0.4.0"
+    version: str = "0.5.0"

@@ -2,19 +2,23 @@
 
 A desktop calling workspace for small internal sales teams, with two authority modes: a private local backend on this computer (SQLite) and a shared server for a team (PostgreSQL). It covers lead import and correction, compliant next-lead selection, Telnyx calling with a live Cerebras helper, post-call rundowns and coaching, follow-up tasks, script preparation, statistical estimates and controlled experiments, number capacity planning, costs and work time.
 
-This is the lean build, 0.4.0 ([plan](docs/LEAN_PLAN.md)): internal use, no hardening layers. It does not read 0.2/0.3 workspaces: the desktop starts a fresh one in its own data folders and leaves old data untouched, and a server refuses an old database. What is proven and what is not is in [validation](docs/VALIDATION.md). Simulated providers prove software behavior only; live carrier calls, funded inference quality, the DNC vendor account, hardware audio and campaign lift need their own evidence.
+This is the lean build, 0.5.0 ([plan](docs/LEAN_PLAN.md)): internal use, no hardening layers. It does not read 0.2/0.3 workspaces: the desktop starts a fresh one in its own data folders and leaves old data untouched, and a server refuses an old database. What is proven and what is not is in [validation](docs/VALIDATION.md). Simulated providers prove software behavior only; live carrier calls, funded inference quality, the DNC vendor account, hardware audio and campaign lift need their own evidence.
 
 ## Try it
 
-Run the backend and the UI from source (see Develop), open the UI and choose **Try a simulated workspace**. Sample people and provider responses are fictional; nothing is called, bought or sent to an inference provider. Try: Go ready → Get next lead → Start call → Simulate human answer → add a turn → Hang up → Save outcome → Review.
+Run the backend and the UI from source (see Develop), open the UI and choose **Try a simulated workspace**. This entry and the simulated call controls are development-only and are not offered in release builds. Sample people and provider responses are fictional; nothing is called, bought or sent to an inference provider. Try: Go ready → Get next lead → Start call → Simulate human answer → add a turn → Hang up → Save outcome → Review.
 
 ## Rep quickstart
 
-1. Choose the workspace, campaign and audio device. Go ready only when telephony is connected. Get next lead shows the prepared script, caller ID, the prospect's local time, earlier promises and why this person is due.
-2. Read the script. It comes from the campaign's base script; Intelligence → Script memory shows how prospects react to each part of it and the tests that may improve it. The helper above it follows stable turns and may stay quiet; F1 asks for private help. Mute, pin or dismiss tips and mark them useful, wrong or late.
+1. Choose the workspace, campaign and audio device, then Go ready. Press **Space** or **Next call** to call the scheduler's next eligible lead. Get next lead previews the person and script first. The scheduler decides when another attempt is worthwhile, within campaign limits; there is no unconditional double dial.
+2. Read the plain-text script. In **Intelligence**, upload or paste Markdown, preview its sections and save it. Headings can describe openings, questions, offers, objections and alternate wording. Script memory & variations holds the learning history and controlled tests. The helper above it follows stable turns and may stay quiet; F1 asks for private help. Mute, pin or dismiss tips and mark them useful, wrong or late.
 3. Use Opt out the moment it is asked for (or the prospect presses 9). Voicemail is offered only on the final permitted attempt.
-4. Hang up, select the outcome and who you spoke with, add a note and confirm any callback time. Record meetings you booked in your own calendar; a booking holds outreach.
+4. Confirmed carrier results and supported, reviewed AI outcomes save automatically; expand **Correct outcome** to amend them. Unknown results, bookings and callback times still need confirmation. Optionally enable the next scheduled call five seconds after voicemail ends; Cancel and Pause after call take precedence. A detected mailbox is not proof a message was delivered.
 5. In Follow-ups, confirm, reschedule, snooze, assign, complete or cancel tasks. Pause when unavailable.
+
+Practice starts from reviewed coaching opportunities and supported negative statistical findings. Number workload adapts to observed delivery within its reviewed daily maximum; staffing and current obligations constrain the capacity planner.
+
+Research and post-call updates require named application tool calls. The live helper keeps its streaming display. AI-saved dispositions are labeled and excluded from observed training labels until human confirmation.
 
 Raw speech, quotes and helper text expire within five minutes. There is no call recording.
 
