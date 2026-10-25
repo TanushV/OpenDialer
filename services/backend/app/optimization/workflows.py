@@ -8,7 +8,13 @@ from sqlalchemy import func, or_, select
 from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, update
 from app.optimization.experiments import ComparisonWorkflows
 from app.optimization.learning import training_rows
-from app.optimization.numbering import HealthPolicy, capacity_forecast, number_health, timestamp
+from app.optimization.numbering import (
+    HealthPolicy,
+    adaptive_daily_limit,
+    capacity_forecast,
+    number_health,
+    timestamp,
+)
 from app.scheduling.models import (
     OPTIMIZATION_DEFAULTS,
     EstimatePolicy,
@@ -422,6 +428,10 @@ class OptimizationWorkflows(ComparisonWorkflows):
                     "busy_until": max(finishes).isoformat() if finishes else None,
                 }
             )
+        for value in result:
+            value["approved_daily_limit"] = value["daily_limit"]
+            value["daily_limit"] = adaptive_daily_limit(value, value["health"])
+            value["capacity_mode"] = "adaptive"
         return result
 
     def predicted_work_seconds(self, s, p, config, campaign=None):

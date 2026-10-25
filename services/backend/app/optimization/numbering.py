@@ -450,3 +450,15 @@ def capacity_forecast(
         retry_observations=retry_observations,
         schedule_row_limit=schedule_row_limit,
     )
+
+
+def adaptive_daily_limit(number, health):
+    """Adapt observed delivery workload without exceeding the reviewed daily cap."""
+    maximum = max(0, int(number.get("daily_limit", 0)))
+    if number.get("outbound_ready") is False or health.get("recommended_action") == "hold_outbound":
+        return 0
+    if health.get("recommended_action") == "review_workload":
+        rate = health.get("delivery_success_rate")
+        if isinstance(rate, (int, float)) and health.get("delivery_samples", 0):
+            return int(maximum * max(0, min(1, rate)))
+    return maximum

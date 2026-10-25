@@ -127,7 +127,8 @@ class NumberOperations:
                 "callback_candidates": [doc(t) for t in candidates if t.data.get("callback_evidence")],
                 "callback_candidates_limit": 20,
                 "workload": {
-                    "current_limit": number.data["daily_limit"],
+                    "current_limit": view["daily_limit"],
+                    "approved_daily_limit": number.data["daily_limit"],
                     "maximum_reviewed_limit": ceiling,
                     # The staffed, approved ceiling bounds every suggestion. Healthy or sparse
                     # (unknown) evidence may use it; deterioration or errors never raise a limit.
