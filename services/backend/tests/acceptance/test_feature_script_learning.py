@@ -4,6 +4,7 @@ import json
 from datetime import timedelta
 from uuid import uuid4
 
+import pytest
 from journey import answered_by_human, call, get, hang_up, import_leads, post, run_jobs, start, wrap_up
 
 TEMPLATE = {
@@ -438,3 +439,91 @@ def test_the_memory_proposes_a_change_for_the_weakest_section_and_starts_its_tes
     assert "never" in instructions.casefold()
     # One test at a time: another refresh does not open a second proposal.
     assert len(refresh_learning(ws)["proposals"]) == 1
+
+
+def test_changed_memory_reaches_reprepared_existing_lead(workspace, app, monkeypatch, clock):
+    ws = workspace
+    use_template(ws)
+
+    class ValidScriptModel(ScriptModel):
+        async def complete(self, instructions, payload, schema):
+            from app.providers.inference import InferenceResult
+
+            self.requests.append((instructions, payload, schema))
+            return InferenceResult(
+                {
+                    "lead_id": payload["lead_id"],
+                    "slots": {k: {"text": "", "fact_ids": []} for k in ("relevance", "proof")},
+                },
+                {},
+                None,
+            )
+
+    model = ValidScriptModel()
+    monkeypatch.setattr(app.state.service, "inference", lambda *a, **k: model)
+    lead = import_leads(ws, leads("Cache", 1, area="512"))["leads"][0]["id"]
+    post(ws, "/v1/research/batches", {"lead_ids": [lead]})
+    run_jobs(ws)
+    assert len(model.requests) == 1
+    post_put(
+        ws,
+        "/v1/admin/script/memory",
+        {"expected_version": 0, "team_notes": "Use the operational time saving angle."},
+    )
+    post(ws, "/v1/research/batches", {"lead_ids": [lead]})
+    run_jobs(ws)
+    assert len(model.requests) == 2, (
+        "Explicit reprepare reused the old script despite changed campaign memory"
+    )
+    assert model.requests[-1][1]["script_memory"]["team_notes"] == "Use the operational time saving angle."
+    clock.now += timedelta(minutes=1)
+    refresh_learning(ws)  # Only the report timestamp changes, not the writer's memory content.
+    post(ws, "/v1/research/batches", {"lead_ids": [lead]})
+    run_jobs(ws)
+    assert len(model.requests) == 2, "Unchanged memory must keep the prepared-script cache"
+
+
+def test_control_script_is_frozen_for_running_trial(workspace):
+    ws = workspace
+    use_template(ws)
+    propose(ws, section="opener", text=OPENER, start_test=True)
+    changed = "Would you prefer a detailed demonstration tomorrow?"
+    use_template(ws, closing_question=changed)
+    seen = []
+    for i in range(2):
+        placed = start(ws, key=f"base-edit-{i}")
+        script = get(ws, f"/v1/calls/{placed['id']}")["script_snapshot"]
+        seen.append((script["script_arm"], script["closing_question"]))
+        finish(ws, placed["id"], "not_interested")
+    assert {"candidate", "control"} == {a for a, _ in seen}
+    assert all(text == TEMPLATE["closing_question"] for _, text in seen), seen
+
+
+@pytest.mark.parametrize("promotion", ["automatic", "approval"])
+def test_changed_base_cannot_be_overwritten_by_an_old_winner(workspace, clock, promotion):
+    ws = workspace
+    use_template(ws)
+    post_put(ws, "/v1/admin/script/settings", {"auto_propose": False, "promotion": promotion})
+    import_leads(ws, leads("Trial", 30, area="212"))
+    proposal = propose(
+        ws, section="opener", text=OPENER, start_test=True, duration_days=1, minimum_effect=0.5
+    )
+    run_test(ws, clock, candidate_converts=True)
+    clock.now += timedelta(days=16)
+    ws = relogin(ws)
+    if promotion == "approval":
+        refresh_learning(ws)
+    changed = "Would you prefer a detailed demonstration tomorrow?"
+    use_template(ws, closing_question=changed)
+    if promotion == "approval":
+        call(
+            ws,
+            "POST",
+            f"/v1/admin/script/proposals/{proposal['id']}/approve",
+            json={"reason": "Reviewed the old test"},
+            status=409,
+        )
+    lab = refresh_learning(ws)
+    assert lab["base"]["version"] == 0
+    assert lab["base"]["template"]["closing_question"] == changed
+    assert next(p for p in lab["proposals"] if p["id"] == proposal["id"])["status"] != "promoted"

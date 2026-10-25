@@ -148,6 +148,7 @@ class Preparation:
                     )
                 },
                 self.lead_script_base(s, p, lead)["version"],
+                self.required(s, "campaigns", lead.data["campaign_id"], p).data.get("script_memory_key"),
             ]
         )
 
@@ -307,8 +308,7 @@ class Preparation:
             if testing:
                 arm = assignment.get("arm")
                 proposal = testing if arm == "candidate" else None
-        if proposal and script.get("template"):
-            script["template"] = proposal["template"]
+                script["template"] = testing["template" if proposal else "control_template"]
         if script.get("template"):
             script.update(
                 render(

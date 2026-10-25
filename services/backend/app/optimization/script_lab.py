@@ -256,7 +256,12 @@ class ScriptLab:
             "reviewed_by": p["user_id"],
         }
         update(campaign, controlled_comparisons=[*campaign.data.get("controlled_comparisons", []), study])
-        proposal.update(status="testing", comparison_id=study["id"], base_version=base["version"])
+        proposal.update(
+            status="testing",
+            comparison_id=study["id"],
+            base_version=base["version"],
+            control_template=base["template"],
+        )
         self._replace_proposal(campaign, proposal)
         audit(
             s,
@@ -322,7 +327,9 @@ class ScriptLab:
                     >= result["required_per_arm"]
                 )
                 worse = result["difference_interval"]["high"] < 0
-                if result["sufficient_evidence"]:
+                if self.script_base(s, p, campaign)["template"] != proposal["control_template"]:
+                    status = "withdrawn"
+                elif result["sufficient_evidence"]:
                     status = "won"
                     if settings["promotion"] == "automatic":
                         self.adopt_script_in(
@@ -398,6 +405,12 @@ class ScriptLab:
         latest = self.latest_memory(s, p, campaign)
         notes = latest.data["team_notes"] if notes is None and latest else notes or ""
         report = campaign.data.get("script_report") or {"samples": 0, "patterns": [], "sections": []}
+        memory_input = learning.memory_digest(report, notes)
+        memory_input.pop("as_of", None)
+        update(
+            campaign,
+            script_memory_key=hashlib.sha256(json.dumps(memory_input, sort_keys=True).encode()).hexdigest(),
+        )
         history = self.script_history(s, p, campaign)
         base = self.script_base(s, p, campaign)
         tests = self._tests_view(campaign)
@@ -701,6 +714,8 @@ def register_script_lab(app, service, principal, administrator):
             proposal = service._proposal(campaign, proposal_id)
             if proposal["status"] != "won":
                 fail(409, "Only a change that won its test can be approved")
+            if service.script_base(s, p, campaign)["template"] != proposal["control_template"]:
+                fail(409, "The base script changed; test a new proposal against the current base")
             service.adopt_script_in(
                 s, p, campaign, proposal["template"], "proposal:" + proposal_id, proposal.get("evidence")
             )

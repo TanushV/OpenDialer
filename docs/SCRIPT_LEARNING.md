@@ -79,7 +79,7 @@ green on SQLite and PostgreSQL.
 | Learning refresh, test settlement | `optimization/workflows.py` (`refresh_learning`, `refresh_optimization`) |
 | Script writing and live help inputs | `intelligence.py` (`script_memory` in slot filling), `coaching/workflows.py` (`script_learning`), `providers/openrouter.py` |
 | UI | `apps/desktop/src/components/ScriptMemory.tsx` (Intelligence page), script trace on call review (`ReviewPage.tsx`) |
-| Tests | `tests/acceptance/test_feature_script_learning.py` (9 journeys), `tests/test_script_learning.py` (15), `apps/desktop/tests/script-memory.spec.ts` |
+| Tests | `tests/acceptance/test_feature_script_learning.py` (12 journeys / 13 cases), `tests/test_script_learning.py` (15), `apps/desktop/tests/script-memory.spec.ts` |
 
 Routes: `GET /v1/optimization/script`, `GET /v1/optimization/script/memory.md`, `PUT /v1/admin/script/memory`,
 `PUT /v1/admin/script/settings`, `POST /v1/admin/script/proposals`, `POST /v1/admin/script/proposals/{id}/start`,
@@ -92,3 +92,15 @@ detectable effect (0.05-0.5) that sets the planned leads per arm; the decision s
 interval to clear zero and no rep stratum where the candidate loses. Live gates are unchanged: real reactions need
 Telnyx transcription with timestamps and reviewed interpretations from a funded model.
 
+
+
+### Review corrections (October 24)
+
+Script tests now save the full control template when they start and render both arms from frozen templates.
+If the current base changes, settlement withdraws the old test and manual approval refuses its old winner;
+new seller edits cannot be overwritten by evidence collected against a different base.
+
+The campaign stores a fingerprint of the bounded script-writing memory (excluding its refresh timestamp).
+Preparation uses it in the existing source key, so changed notes or supported findings invalidate old scripts,
+including results still being generated. Refreshing the same memory content keeps the cache. Four regression
+cases cover memory reuse, frozen controls, automatic promotion and manual approval after base edits.
