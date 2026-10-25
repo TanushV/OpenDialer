@@ -204,3 +204,15 @@ def test_the_weakest_section_needs_enough_deliveries_and_must_be_editable():
     }
     assert weakest_section(report)["key"] == "opener"
     assert weakest_section({"sections": []}) is None
+
+
+def test_uploaded_opening_variation_changes_the_visible_section():
+    from app.optimization.script_learning import candidate_template
+    from app.preparation.templates import import_markdown
+
+    base = import_markdown(
+        "## Opener\nHi {name}, {rep} from {seller}.\n\n## Objection: busy\nWhen is a better time?"
+    )
+    changed = candidate_template(base, "opener", "Hello {name}, this is {rep} with {seller}.")
+    assert changed["sections"][0]["text"] == changed["opener"]
+    assert changed["sections"][1] == base["sections"][1]

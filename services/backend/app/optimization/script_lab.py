@@ -70,6 +70,12 @@ class SettingsBody(Strict):
     promotion: Literal["automatic", "approval"]
 
 
+class ImportBody(Strict):
+    markdown: str = Field(min_length=1, max_length=40000)
+    expected_version: int = Field(ge=0)
+    preview: bool = True
+
+
 class NotesBody(Strict):
     expected_version: int = Field(ge=0)
     team_notes: str = Field(max_length=20000)
@@ -126,6 +132,8 @@ class ScriptLab:
         templates += [r["template"] for r in campaign.data.get("script_proposals", [])]
         texts = {}
         for template in templates:
+            for section in template.get("sections", []):
+                texts.setdefault(learning.variant(section["text"]), section["text"])
             for field in learning.SECTIONS:
                 value = template.get(field)
                 for text in value if isinstance(value, list) else [value]:
@@ -638,6 +646,22 @@ def register_script_lab(app, service, principal, administrator):
     @app.get("/v1/optimization/script")
     def script_lab(p=Depends(principal)):
         return service.script_lab_view(p)
+
+    @app.post("/v1/admin/script/import")
+    def import_script(body: ImportBody, p=Depends(administrator)):
+        from app.preparation.templates import import_markdown
+
+        try:
+            template = import_markdown(body.markdown)
+        except ValueError as exc:
+            fail(422, str(exc))
+        with service.db.transaction() as s:
+            campaign = selected(s, p)
+            if service.script_base(s, p, campaign)["version"] != body.expected_version:
+                fail(409, "The script changed; reload before replacing it")
+            if body.preview:
+                return {"template": template}
+            return service.adopt_script_in(s, p, campaign, template, "markdown_upload")
 
     @app.get("/v1/optimization/script/memory.md")
     def script_memory(p=Depends(principal)):

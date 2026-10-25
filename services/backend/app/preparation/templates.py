@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 from string import Formatter
 from zoneinfo import ZoneInfo
 
@@ -11,6 +12,12 @@ from app.research.validation import ValidationFailure
 
 FIELDS = ("opener", "gatekeeper", "screening_intro", "discovery_questions", "proof", "closing_question")
 SLOTS = {"name", "rep", "seller", "company", "topic", "relevance", "proof"}
+
+
+class ScriptSection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field(min_length=1, max_length=120)
+    text: str = Field(min_length=1, max_length=4000)
 
 
 class ScriptTemplate(BaseModel):
@@ -30,6 +37,7 @@ class ScriptTemplate(BaseModel):
     topic: str = Field(default="your current process", min_length=1, max_length=150)
     proof: str = Field(default="{proof}", max_length=600)
     closing_question: str = Field(default="Would a further conversation be useful?", max_length=400)
+    sections: list[ScriptSection] = Field(default_factory=list, max_length=40)
     final_voicemail_asset: str | None = Field(default=None, min_length=1, max_length=2000)
 
     @model_validator(mode="after")
@@ -44,6 +52,10 @@ class ScriptTemplate(BaseModel):
                         raise ValueError(
                             "Use only named script placeholders, without formatting or property access"
                         )
+        for section in self.sections:
+            for _, key, spec, conversion in Formatter().parse(section.text):
+                if key is not None and (key not in SLOTS or spec or conversion):
+                    raise ValueError("Use only named script placeholders")
         if "{seller}" not in self.screening_intro:
             raise ValueError("The screening introduction must retain {seller}")
         return self
@@ -112,6 +124,10 @@ def render(template, *, lead, seller, rep, slots=None):
         **(slots or {}),
     }
     return {
+        "sections": [
+            {"title": section["title"], "text": section["text"].format_map(values).strip()}
+            for section in template.get("sections", [])
+        ],
         "final_voicemail_asset": template.get("final_voicemail_asset"),
         **{
             field: [text.format_map(values).strip() for text in template[field]]
@@ -189,3 +205,41 @@ SLOT_SCHEMA = {
         },
     },
 }
+
+
+def import_markdown(markdown):
+    """Preserve seller wording; headings delimit sections, not model-generated copy."""
+    sections, title, lines = [], "Script", []
+
+    def flush():
+        text = "\n".join(lines).strip()
+        if text:
+            sections.append({"title": title, "text": text})
+        lines.clear()
+
+    for line in markdown.splitlines():
+        heading = re.match(r"^#{1,6}\s+(.+?)\s*#*\s*$", line)
+        if heading:
+            flush()
+            title = heading[1]
+        else:
+            lines.append(line)
+    flush()
+    if not sections:
+        raise ValueError("Add script text below the headings")
+    template = ScriptTemplate().model_dump()
+    template["sections"] = sections
+    # Keep the standard fields available to preparation and controlled script tests.
+    aliases = {
+        "opener": "opener",
+        "opening": "opener",
+        "gatekeeper": "gatekeeper",
+        "screening": "screening_intro",
+        "next step": "closing_question",
+        "closing": "closing_question",
+    }
+    for section in sections:
+        field = aliases.get(section["title"].casefold())
+        if field:
+            template[field] = section["text"]
+    return ScriptTemplate.model_validate(template).model_dump()

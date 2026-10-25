@@ -57,6 +57,10 @@ def section_texts(script):
                 result.append((f"{field}:{i}", text, source))
         elif isinstance(value, str) and value.strip():
             result.append((field, value, raw if isinstance(raw, str) else value))
+    for i, section in enumerate(script.get("sections", [])):
+        raw_sections = template.get("sections", [])
+        raw = raw_sections[i]["text"] if i < len(raw_sections) else section["text"]
+        result.append((f"sections:{i}", section["text"], raw))
     return result
 
 
@@ -391,6 +395,9 @@ def candidate_template(base, section, text, *, index=None, source="team"):
         template["discovery_questions"] = questions
     else:
         template[section] = text
+    for uploaded in template.get("sections", []):
+        if uploaded["text"] == base.get(section):
+            uploaded["text"] = text
     if template == base:
         raise ValueError("The proposal does not change the base script")
     return ScriptTemplate(**template).model_dump()

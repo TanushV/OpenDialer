@@ -8,6 +8,7 @@ class ValidationFailure(ValueError):
 
 
 VISIBLE_FIELDS = (
+    "sections",
     "opener",
     "screening_intro",
     "gatekeeper",
