@@ -547,6 +547,52 @@ test("named staffing survives reload and explains callbacks without an available
   await clearStaffing(page);
 });
 
+test("planning edits made during a pending save survive and cannot overlap saves", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  const sample = page.getByRole("button", {
+    name: "Try a simulated workspace",
+  });
+  if (await sample.isVisible()) await sample.click();
+  await openAdvanced(page);
+  await expect(page.getByLabel("Staffed start 1")).toHaveCount(0);
+  let release!: () => void;
+  let received!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const pending = new Promise<void>((resolve) => {
+    received = resolve;
+  });
+  let writes = 0;
+  await page.route("**/v1/admin/optimization", async (route) => {
+    if (route.request().method() !== "PUT" || ++writes !== 1)
+      return route.continue();
+    const response = await route.fetch();
+    received();
+    await gate;
+    await route.fulfill({ response });
+  });
+  const save = page.getByRole("button", { name: "Save planning assumptions" });
+  await page.getByRole("button", { name: "Add staffed period" }).click();
+  await save.click();
+  await pending;
+  try {
+    await page.getByRole("button", { name: "Remove staffed period 1" }).click();
+    await expect(save).toBeDisabled();
+  } finally {
+    release();
+  }
+  await expect(save).toBeEnabled();
+  await expect(page.getByLabel("Staffed start 1")).toHaveCount(0);
+  await clearStaffing(page);
+  await page.reload();
+  await openAdvanced(page);
+  await expect(page.getByLabel("Staffed start 1")).toHaveCount(0);
+});
+
 /** Saves with no dated periods and waits for the server, so later tests in the shared
  * workspace do not inherit one (an earlier "saved" message is still on screen). */
 async function clearStaffing(page: import("@playwright/test").Page) {

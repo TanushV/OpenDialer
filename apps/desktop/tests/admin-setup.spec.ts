@@ -261,9 +261,23 @@ test("the weekly schedule and dated periods share one picked IANA zone", async (
   expect(body).not.toHaveProperty("conversion_goal");
   // Restore the shared fixture schedule.
   await page.getByRole("button", { name: "Remove staffed period 1" }).click();
+  const cleared = page.waitForResponse(
+    (r) =>
+      r.request().method() === "PUT" &&
+      r.url().endsWith("/v1/admin/optimization"),
+  );
   await page.getByRole("button", { name: "Save planning assumptions" }).click();
+  const clearedResponse = await cleared;
+  expect(clearedResponse.ok()).toBeTruthy();
+  expect(clearedResponse.request().postDataJSON().staffed_windows).toEqual([]);
   await zone.selectOption("UTC");
+  const restored = page.waitForResponse(
+    (r) =>
+      r.request().method() === "PUT" &&
+      r.url().endsWith("/v1/admin/optimization"),
+  );
   await page.getByRole("button", { name: "Save rep schedule" }).click();
+  expect((await restored).ok()).toBeTruthy();
   await expect(page.getByText("Rep schedule saved").first()).toBeVisible();
 });
 

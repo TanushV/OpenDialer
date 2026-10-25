@@ -401,11 +401,14 @@ function PlanningAssumptions({
   const h = bounds?.health_policy;
   const [draft, setDraft] = useState<Assumptions>(() => pick(settings));
   const dirty = useRef(false);
+  const editRevision = useRef(0);
+  const [saving, setSaving] = useState(false);
   useEffect(() => {
     if (!dirty.current) setDraft(pick(settings));
   }, [settings]);
   const change = <K extends AdvancedKey>(key: K, value: Assumptions[K]) => {
     dirty.current = true;
+    editRevision.current++;
     setDraft((old) => ({ ...old, [key]: value }));
   };
   const number = (key: AdvancedKey, title: string, step?: string) => (
@@ -532,20 +535,28 @@ function PlanningAssumptions({
       )}
       <button
         className="secondary"
+        disabled={saving}
         onClick={() =>
           void run(async () => {
-            const original = pick(settings);
-            const changed = Object.fromEntries(
-              ADVANCED_KEYS.filter(
-                (key) =>
-                  JSON.stringify(draft[key]) !== JSON.stringify(original[key]),
-              ).map((key) => [key, draft[key]]),
-            );
-            await api("/v1/admin/optimization", "PUT", changed);
-            dirty.current = false;
-            await onSaved();
-            await refresh();
-            notice("Planning assumptions saved");
+            const revision = editRevision.current;
+            setSaving(true);
+            try {
+              const original = pick(settings);
+              const changed = Object.fromEntries(
+                ADVANCED_KEYS.filter(
+                  (key) =>
+                    JSON.stringify(draft[key]) !==
+                    JSON.stringify(original[key]),
+                ).map((key) => [key, draft[key]]),
+              );
+              await api("/v1/admin/optimization", "PUT", changed);
+              if (editRevision.current === revision) dirty.current = false;
+              await onSaved();
+              await refresh();
+              notice("Planning assumptions saved");
+            } finally {
+              setSaving(false);
+            }
           })
         }
       >
