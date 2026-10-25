@@ -232,9 +232,11 @@ test("live events deliver cached guidance and conversion recording without call 
     .fill("The budget is not approved.");
   await page.getByRole("button", { name: "Add prospect turn" }).click();
   await expect(
-    page.getByText("What outcome would make the investment worthwhile?", {
-      exact: false,
-    }),
+    page
+      .getByTestId("live-coaching-strip")
+      .getByText("What outcome would make the investment worthwhile?", {
+        exact: false,
+      }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Private help", exact: true }).click();
   await expect(

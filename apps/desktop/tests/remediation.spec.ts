@@ -106,8 +106,21 @@ test("batch script preparation exposes gatekeeper and screening sections", async
   await page.getByRole("button", { name: "Queue preparation" }).click();
   await expect(page.getByText(/Preparation queued/)).toBeVisible();
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
-  await expect(page.getByText(/Gatekeeper/i).first()).toBeVisible();
-  await expect(page.getByText(/iPhone screening/i).first()).toBeVisible();
+  const ready = page.getByRole("button", { name: "Go ready", exact: true });
+  if (await ready.isVisible()) await ready.click();
+  await page
+    .getByRole("button", { name: "Get next lead", exact: true })
+    .click();
+  const script = page.getByTestId("prepared-script");
+  await expect(
+    script.getByRole("heading", { name: "Gatekeeper", exact: true }),
+  ).toBeVisible();
+  await expect(
+    script.getByRole("heading", { name: "Screening", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Pause dialing", exact: true })
+    .click();
 });
 
 test("seller can save a fixed script and an overnight preparation window", async ({

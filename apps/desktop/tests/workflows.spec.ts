@@ -30,6 +30,7 @@ test("local setup, readiness, calling, evidence, human notes and opt-out", async
       "name,phone,company,timezone,region\nWorkflow Call,+12125550931,Workflow Example,America/New_York,212",
     );
   await page.getByRole("button", { name: "Import leads", exact: true }).click();
+  await page.getByLabel("Search leads").fill("Workflow Call");
   await expect(page.getByText("Workflow Call", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
   await expect(
@@ -87,6 +88,7 @@ test("admin inventory, lead import, policy, preparation and real readiness bound
       "name,phone,company,timezone\nTaylor Example,+12125550177,Example Co,America/New_York",
     );
   await page.getByRole("button", { name: "Import leads" }).click();
+  await page.getByLabel("Search leads").fill("Taylor Example");
   await expect(page.getByText("Taylor Example", { exact: true })).toBeVisible();
   await page
     .getByRole("button", { name: "Prepare displayed lead packets" })
