@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import select
 
-from app.db import MODELS, audit, doc, emit, get, put, update
+from app.db import MODELS, audit, doc, emit, get, put, uid, update
 from app.optimization.goals import review_token
 from app.postcall.commitments import ACTIVE as ACTIVE_TASKS
 from app.service import dt, fail
@@ -880,7 +880,50 @@ class RepWorkflows:
                 "packet_version": lead.data.get("preparation_revision", 0),
             }
 
-    def save_disposition(self, p, call_id, data):
+    def auto_disposition(self, p, call_id):
+        """Execute the bounded save-outcome tool without overwriting any human edit."""
+        from fastapi import HTTPException
+
+        from app.postcall.analysis import suggested_outcome
+
+        with self.db.transaction(False) as s:
+            call = self.required(s, "call_attempts", call_id, p)
+            if (
+                call.data["state"] not in TERMINAL
+                or call.data.get("edit_version", 0)
+                or call.data.get("outcome")
+            ):
+                return
+            outcome = call.data.get("carrier_outcome")
+            source, role = "carrier", "unknown"
+            if not outcome:
+                memory = self._by_key(s, p, "conversation_states", call.id)
+                suggestion = suggested_outcome(memory.data if memory else {})
+                if not suggestion or suggestion["code"] not in {
+                    "gatekeeper",
+                    "not_interested",
+                    "right_party",
+                    "screening",
+                    "ivr",
+                }:
+                    return
+                outcome, role, source = suggestion["code"], suggestion["contact_role"], "ai_reviewed"
+            body = {
+                "outcome": outcome,
+                "contact_role": role,
+                "request_id": uid(),
+                "expected_version": call.version,
+                "expected_edit_version": 0,
+                "callback_note": "",
+                "callback_at": None,
+            }
+        try:
+            self.save_disposition(p, call_id, body, source=source)
+        except HTTPException as exc:
+            if exc.status_code != 409:
+                raise
+
+    def save_disposition(self, p, call_id, data, *, source="rep_reported"):
         outcome = data["outcome"]
         due = zoned_time(data.get("callback_at"))
         with self.db.transaction() as s:
@@ -899,7 +942,9 @@ class RepWorkflows:
                 "callback_note": data.get("callback_note", ""),
                 "contact_role": data.get("contact_role", "unknown"),
             }
-            duplicate = call.data.get("disposition_input") == canonical
+            duplicate = (
+                call.data.get("disposition_input") == canonical and call.data.get("outcome_source") == source
+            )
             task = callback_review = tasks = None
             edit_version = call.data.get("edit_version", 0)
             if not identity[2]:
@@ -916,6 +961,8 @@ class RepWorkflows:
                         )
                 else:
                     self.check_edit_version(call, data)  # Older clients: whole-row version.
+            if source != "rep_reported" and (edit_version or call.data.get("outcome")):
+                fail(409, "A human or previous tool already saved this outcome")
             previous_outcome = call.data.get("outcome")
             correcting_confirmed = call.data["state"] == "FINALIZED"
             correcting_meeting = (
@@ -993,7 +1040,7 @@ class RepWorkflows:
                     disposition_input=canonical,
                     edit_version=edit_version + 1,
                     outcome_available_at=self.clock().isoformat(),
-                    outcome_source="rep_reported",
+                    outcome_source=source,
                     contact_role=canonical["contact_role"],
                     outcome_history=[
                         *call.data.get("outcome_history", []),
@@ -1040,7 +1087,7 @@ class RepWorkflows:
                         note=canonical["callback_note"],
                         tasks=tasks,
                     )
-                else:
+                elif source == "rep_reported":
                     # The rep's outcome says no callback: close this call's untouched callbacks,
                     # the wrap-up one and model-inferred ones alike. Human edits are kept.
                     wrapup = self._callback_by_key(s, p, lead, callback_key, tasks)
@@ -1108,7 +1155,7 @@ class RepWorkflows:
                     "outcome": outcome,
                     "at": self.clock().isoformat(),
                     "window_status": "pending",
-                    "source": "rep_reported",
+                    "source": source,
                     "contact_role": canonical["contact_role"],
                 }
                 if record:

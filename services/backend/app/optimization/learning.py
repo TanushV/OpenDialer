@@ -35,7 +35,7 @@ def outcome_at(call, now):
     known = []
     for version in versions:
         available = timestamp(version.get("outcome_available_at"))
-        if not version.get("outcome") or version.get("outcome_source") == "llm_provisional":
+        if not version.get("outcome") or version.get("outcome_source") in {"llm_provisional", "ai_reviewed"}:
             continue
         # An unknown availability time is excluded, never assumed known at the cutoff.
         if not available or available > now:

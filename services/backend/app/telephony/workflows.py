@@ -112,6 +112,28 @@ class TelephonyWorkflows:
                 campaign = self.required(s, "campaigns", lead.data["campaign_id"], p)
                 policy = self.required(s, "policy_versions", campaign.data["policy_id"], p).data
                 number = self.required(s, "number_inventory", call.data["number_id"], p)
+                if event_type == "call.hangup" and not call.data.get("human_answered_at"):
+                    outcome = {"no_answer": "no_answer", "timeout": "no_answer", "user_busy": "busy"}.get(
+                        payload.get("hangup_cause")
+                    )
+                    if call.data.get("answered_at"):
+                        outcome = None
+                    if call.data.get("machine_detected"):
+                        outcome = "voicemail"
+                    if outcome:
+                        update(call, carrier_outcome=outcome)
+                if event_type in {
+                    "call.machine.detection.ended:machine",
+                    "call.machine.premium.detection.ended:machine",
+                }:
+                    update(call, machine_detected=True)
+                if event_type in HUMAN_EVENTS | {"human.confirmed"}:
+                    update(
+                        call,
+                        human_answered_at=self.clock().isoformat(),
+                        machine_detected=False,
+                        carrier_outcome=None,
+                    )
                 if event_type == "call.answered" and call.data["state"] not in TERMINAL | {"ENDING"}:
                     decision = authorize(
                         self.context(s, p, lead, number, permission="transcription", active=True)
@@ -235,6 +257,12 @@ class TelephonyWorkflows:
                         recording_url=None,
                         recording_review_required=True,
                     )
+                if (
+                    event_type == "call.hangup"
+                    and call.data["state"] in TERMINAL
+                    and call.data.get("carrier_outcome")
+                ):
+                    self.enqueue_finalize(s, p, call, "carrier_hangup")
                 receipt = self._by_key(s, p, "provider_events", event_id)
                 update(receipt, effects_complete=not bool(optout_phone))
             if optout_phone:

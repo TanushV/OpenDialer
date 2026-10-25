@@ -181,8 +181,9 @@ class RegisteredPlanClient:
     # Usage ledger provider: requests are included in the user's own ChatGPT plan.
     billing = "chatgpt_plan"
 
-    def __init__(self, load, save, model, host_id, clock, *, http=None):
+    def __init__(self, load, save, model, host_id, clock, *, http=None, tool_name=None):
         self.load, self.save, self.model = load, save, model
+        self.tool_name = tool_name
         self.oauth = PlanOAuth(host_id, clock)
         self.http = http
 
@@ -203,5 +204,5 @@ class RegisteredPlanClient:
             + __import__("json").dumps(schema)
         )
         return await InferenceClient(
-            "chatgpt_plan", profile["access_token"], self.model, http=self.http
+            "chatgpt_plan", profile["access_token"], self.model, http=self.http, tool_name=self.tool_name
         ).complete(prompt, context, schema)

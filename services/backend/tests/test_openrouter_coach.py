@@ -42,12 +42,27 @@ async def test_independent_live_review_pins_same_route_and_records_its_own_recei
         "data_collection": "deny",
         "zdr": True,
     }
-    assert body["stream"] is False and "tools" not in body
-    assert body["response_format"]["json_schema"]["schema"]["required"] == ["fingerprint", "verdicts"]
+    assert body["stream"] is False and body["parallel_tool_calls"] is False
+    assert body["tools"][0]["function"]["parameters"]["required"] == ["fingerprint", "verdicts"]
     assert adapter.last_request_id == "review-123" and adapter.last_usage["cost"] == 0.0001
 
 
 def completion(provider="Cerebras", content=None, **overrides):
+    if content and "fingerprint" in content and "choices" not in overrides:
+        overrides["choices"] = [
+            {
+                "finish_reason": "tool_calls",
+                "message": {
+                    "tool_calls": [
+                        {
+                            "type": "function",
+                            "id": "review-action",
+                            "function": {"name": "submit_postcall_review", "arguments": json.dumps(content)},
+                        }
+                    ]
+                },
+            }
+        ]
     return {
         "id": "gen-123",
         "model": "openai/gpt-oss-120b",
@@ -231,7 +246,11 @@ async def test_wire_schemas_are_cerebras_strict_while_pydantic_keeps_the_bounds(
 
     def handler(request):
         body = json.loads(request.content)
-        sent.append(body["response_format"]["json_schema"]["schema"])
+        sent.append(
+            body["tools"][0]["function"]["parameters"]
+            if "tools" in body
+            else body["response_format"]["json_schema"]["schema"]
+        )
         review = json.loads(body["messages"][1]["content"])
         if "fingerprint" not in review:
             return httpx.Response(200, json=completion(content=TURN))

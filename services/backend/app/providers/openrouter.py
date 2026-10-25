@@ -260,6 +260,39 @@ class OpenRouterCoach:
     async def _complete(self, request, instructions, schema, deadline_ms, *, stream=False, salvage=False):
         self.last_usage, self.last_request_id, self.last_provider = {}, None, None
         started = time.perf_counter()
+        tool_name = (
+            "submit_postcall_review"
+            if schema is REVIEW_WIRE_SCHEMA
+            else "submit_postcall_analysis"
+            if request.get("mode") == "finalize"
+            else None
+        )
+        if tool_name:
+            stream, salvage = False, False
+        protocol = (
+            {
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": tool_name,
+                            "description": "Submit evidence for validated application updates",
+                            "parameters": schema,
+                            "strict": True,
+                        },
+                    }
+                ],
+                "tool_choice": {"type": "function", "function": {"name": tool_name}},
+                "parallel_tool_calls": False,
+            }
+            if tool_name
+            else {
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {"name": "conversation_output", "strict": True, "schema": schema},
+                }
+            }
+        )
 
         async def send(http, first_answer):
             payload = await self._send(
@@ -291,10 +324,7 @@ class OpenRouterCoach:
                         },
                         {"role": "user", "content": json.dumps(request)},
                     ],
-                    "response_format": {
-                        "type": "json_schema",
-                        "json_schema": {"name": "conversation_output", "strict": True, "schema": schema},
-                    },
+                    **protocol,
                 },
                 timeout=httpx.Timeout(deadline_ms / 1000, connect=min(self.connect_ms, deadline_ms) / 1000),
             )
@@ -310,6 +340,22 @@ class OpenRouterCoach:
                 choice = payload["choices"][0]
                 if choice["message"].get("refusal"):
                     raise InferenceError("Coach refused")
+                if tool_name:
+                    calls = choice["message"].get("tool_calls", [])
+                    if choice.get("finish_reason") != "tool_calls" or len(calls) != 1:
+                        raise InferenceError("Exactly one completed application action required")
+                    action = calls[0]
+                    if (
+                        action.get("type") != "function"
+                        or not action.get("id")
+                        or action["function"]["name"] != tool_name
+                    ):
+                        raise InferenceError("Unoffered application action")
+                    result = json.loads(action["function"]["arguments"], object_pairs_hook=unique_fields)
+                    if not isinstance(result, dict):
+                        raise InferenceError("Object arguments required")
+                    self.last_tool_call_id = action["id"]
+                    return result
                 if choice.get("finish_reason") == "length" and salvage:
                     return truncated_turn(choice["message"]["content"])
                 if choice.get("finish_reason") != "stop":

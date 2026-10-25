@@ -103,6 +103,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 self.host_id(),
                 self.clock,
                 http=getattr(self, "http", None),
+                tool_name="submit_" + role,
             )
         token = conf.get("openai_api_key")
         if not token and mode != "litellm":
@@ -116,6 +117,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             base_url=conf.get("inference_base_url") or None,
             http=getattr(self, "http", None),
             search_enabled=conf.get("research_search") == "openai_web_search",
+            tool_name="submit_" + role,
         )
 
     def approved_playbook(self, s, p):
@@ -2006,6 +2008,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
 
         Selective review of the merged items is the separately queued conversation_review.
         """
+        await asyncio.to_thread(self.auto_disposition, p, call_id)
         provider, route = await asyncio.to_thread(self.configured_coach, p)
         if not provider:
             await asyncio.to_thread(self._publish_unavailable_rundown, p, call_id)
@@ -2270,6 +2273,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             await finish_shielded(
                 asyncio.to_thread(self._publish_state_review, p, call_id, request, owner, receipt)
             )
+            await asyncio.to_thread(self.auto_disposition, p, call_id)
 
     def host_id(self):
         path = self.settings.data_dir / "host-id"
