@@ -667,7 +667,7 @@ export function DialerPage({ visible = true }: { visible?: boolean }) {
           onSaved={wrapUpSaved}
         />
       )}
-      {call?.state === "FINALIZED" && (
+      {visible && call?.state === "FINALIZED" && (
         <details className="card padded">
           <summary>
             Saved: {label(call.outcome || "Outcome")} ·{" "}

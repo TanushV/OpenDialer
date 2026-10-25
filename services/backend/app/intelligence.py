@@ -1075,6 +1075,8 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
         return extracted, review
 
     def configured_coach(self, p):
+        if self.settings.simulation:
+            return None, "approved_static"
         conf = self.configs.read(p["tenant_id"])
         provider = conf.get("coach_provider", PROVIDER_DEFAULTS.coach_provider)
         if provider == "openrouter" and conf.get("openrouter_api_key"):

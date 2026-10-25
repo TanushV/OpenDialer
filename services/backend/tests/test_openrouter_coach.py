@@ -352,3 +352,16 @@ async def test_settlement_uses_the_always_returned_usage_cost():
         adapter = OpenRouterCoach("fixture", http=http)
         await adapter.suggest({"state_version": 1})
     assert usage_metadata(adapter.last_usage)["cost"] == 0.0003
+
+
+def test_simulated_workspace_never_constructs_a_paid_coach(workspace, app):
+    client, headers = workspace["client"], workspace["headers"]
+    response = client.put(
+        "/v1/admin/settings", headers=headers, json={"openrouter_api_key": "test-only-never-use"}
+    )
+    assert response.status_code == 200
+    service = app.state.service
+    assert service.settings.simulation
+    provider, route = service.configured_coach({"tenant_id": workspace["tenant_id"]})
+    assert provider is None
+    assert route == "approved_static"
