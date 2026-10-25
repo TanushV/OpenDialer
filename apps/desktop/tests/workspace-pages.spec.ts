@@ -16,6 +16,14 @@ async function enter(page: import("@playwright/test").Page) {
   ).toBeVisible();
 }
 
+test("app updates explain the 0.4.0 fresh workspace", async ({ page }) => {
+  await enter(page);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "App updates", exact: true }).click();
+  await expect(page.getByText(/0.4.0 starts a fresh workspace/)).toBeVisible();
+  await expect(page.getByText(/old data stays untouched/)).toBeVisible();
+});
+
 test("home metrics show pending and stale evidence without invented zeros", async ({
   page,
 }) => {

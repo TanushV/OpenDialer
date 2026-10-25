@@ -2049,12 +2049,13 @@ function UpdateSettings() {
   const update = useRef<Update | null>(null);
   return (
     <section className="card padded update-card">
-      <span className="eyebrow">SAME APP. SAME DATA.</span>
-      <h2>Updates without starting over</h2>
+      <span className="eyebrow">SIGNED APP UPDATES</span>
+      <h2>Review and install updates</h2>
       <p className="muted">
         OpenDialer verifies signed update artifacts before replacing the
-        installed app. Your workspace database and provider settings stay in the
-        application's data directory.
+        installed app. Version 0.4.0 starts a fresh workspace when updating from
+        0.2 or 0.3; old data stays untouched in its previous folder and is not
+        migrated. Review the release notes before installing.
       </p>
       <div className="update-version">
         <span className="brand-symbol">
