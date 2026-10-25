@@ -48,7 +48,7 @@ if not archive or not exe:
     raise SystemExit("Both Mac and Windows signed artifacts are required for this release")
 manifest = {
     "version": version,
-    "notes": f"OpenDialer {version}: proactive Cerebras help above your prepared script, one conversation state for live help, rundown and the next call, local callbacks and tasks, advance preparation, bounded scheduling from existing numbers, national and internal do-not-call screening, and a smaller, faster authority. Your workspace is preserved; update in place.",
+    "notes": f"OpenDialer {version}: proactive Cerebras help above your prepared script, one conversation state for live help, rundown and the next call, local callbacks and tasks, advance preparation, bounded scheduling from existing numbers, national and internal do-not-call screening, and a smaller, faster authority. Version 0.4.0 starts a fresh workspace; old data stays untouched in its previous folder and is not migrated. Update through the signed updater.",
     "pub_date": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
     "platforms": platforms,
 }

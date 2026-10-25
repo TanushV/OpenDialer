@@ -4,6 +4,33 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_update_manifest_discloses_fresh_workspace(tmp_path):
+    import subprocess
+    import sys
+
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    for name in ("OpenDialer.app.tar.gz", "OpenDialer_0.4.0_aarch64.dmg", "OpenDialer_0.4.0_x64-setup.exe"):
+        (artifacts / name).write_bytes(b"test artifact")
+        (artifacts / (name + ".sig")).write_text("test signature")
+    output = tmp_path / "output"
+    subprocess.run(  # noqa: S603 - fixed repository script and disposable test paths
+        [
+            sys.executable,
+            str(ROOT / "scripts/release_manifest.py"),
+            "--artifacts",
+            str(artifacts),
+            "--output",
+            str(output),
+        ],
+        check=True,
+    )
+    notes = json.loads((output / "latest.json").read_text())["notes"]
+    assert "fresh workspace" in notes
+    assert "old data stays untouched" in notes
+    assert "Your workspace is preserved; update in place" not in notes
+
+
 def test_signed_installer_updates_do_not_ship_unused_zip_extraction():
     """Windows consumes signed EXE/MSI; reject the unnecessary vulnerable archive path."""
     import tomllib
