@@ -91,3 +91,17 @@ def test_answered_but_unclassified_call_is_not_saved_as_no_answer(workspace):
     event(workspace, placed["id"], "call.hangup", hangup_cause="timeout")
     run_jobs(workspace, rounds=2)
     assert not get(workspace, f"/v1/calls/{placed['id']}").get("outcome")
+
+
+def test_confirmed_mailbox_is_saved_after_rep_hangup_receipt(workspace):
+    from journey import post
+
+    placed = start(workspace)
+    event(workspace, placed["id"], "call.answered")
+    event(workspace, placed["id"], "call.machine.detection.ended:machine")
+    post(workspace, f"/v1/calls/{placed['id']}/hangup")
+    run_jobs(workspace, rounds=2)
+    result = get(workspace, f"/v1/calls/{placed['id']}")
+    assert result["state"] == "FINALIZED"
+    assert result["outcome"] == "voicemail"
+    assert result["outcome_source"] == "carrier"

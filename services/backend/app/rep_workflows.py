@@ -895,6 +895,8 @@ class RepWorkflows:
             ):
                 return
             outcome = call.data.get("carrier_outcome")
+            if call.data.get("machine_detected") and not call.data.get("human_answered_at"):
+                outcome = "voicemail"
             source, role = "carrier", "unknown"
             if not outcome:
                 memory = self._by_key(s, p, "conversation_states", call.id)
