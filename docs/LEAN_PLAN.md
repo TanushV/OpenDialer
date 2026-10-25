@@ -277,3 +277,25 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
   Full suites pass: SQLite 628 / 2 skipped, PostgreSQL 629 / 1 skipped; browser 155, frontend 74, Rust 7;
   lint/format/typecheck/build/clippy and fresh Mac package/archive/restart checks pass. See
   [receipt](evidence/lean/script-learning-fixes-20261024.json). Installed app/data untouched; disposable signing only; no paid/live actions or publication.
+
+- Owner-requested calling simplification (October 24, in progress): readable uploaded Markdown scripts,
+  Space to call the scheduler's next eligible lead, optional cancellable advance after ended voicemail,
+  automatic evidence-backed outcomes with human corrections, focused practice and simpler Intelligence.
+  Double dialing means a second attempt selected by the existing scheduler, never an unconditional retry
+  or simultaneous prospect calls. AI research and post-call actions use named function tools; live helper
+  presentation retains streaming. Capacity adapts within reviewed number ceilings. Release publication was requested. The latest supplied working agreement prohibits changing the installed
+  application or its data, so this continuation verifies packages without installing them. Work and verification
+  are ongoing.
+
+- Calling simplification locally verified (October 24, 0.5.0, source `7f3eb5e`):
+  [receipt](evidence/lean/calling-ux-050-20261024.json). SQLite 652 / 2 skips, PostgreSQL 653 / 1;
+  frontend format/typecheck/build and 75 tests; Rust fmt/7 tests/clippy pass. All 164 browser cases have
+  passing evidence: final full run 161, followed by three successful targeted reruns (one load timeout,
+  two import/search sequencing corrections). Regression-first fixes also preserve pending planning edits
+  and restore only the current rep's unexpired reservation after reload. No timeout increases.
+  Both frozen sidecars and the Mac bundle/archive/DMG pass verification; extracted authority imports 20,
+  prepares 6 and retains a simulated callback across restart; trainer self-check passes. Disposable updater
+  signing key deleted; production key unchanged. Docker was unavailable, so fresh hosted Compose/Caddy
+  checks remain unverified and the original disposable test container could not be restarted. The temporary
+  native PostgreSQL is stopped and original container data is intact. Installed app/data were not changed
+  under the latest supplied working agreement. Exact-SHA CI and signed downloads are tracked in GitHub.

@@ -1,13 +1,40 @@
 # OpenDialer testing handoff (CURRENT)
 
-> **Status: CURRENT** as of **October 24, 2026**, source verified through `74658b4` on `main`.
+> **Status: CURRENT — 0.5.0 locally verified**, October 24, 2026.
+> Source `7f3eb5e`; runtime source `1530958`. Current remote CI and downloads are tracked in GitHub.
 > Includes script learning and the review fixes described below. This is the single current handoff.
 > Read with [HANDOFF_AST.md](HANDOFF_AST.md) and [SCRIPT_LEARNING.md](SCRIPT_LEARNING.md).
 
-You are taking over **testing** of OpenDialer 0.4.0. The automated suites pass after the October 24 verification, and an older signed draft release exists.
+OpenDialer 0.5.0 simplifies calling, scripts and learning. The current local verification is recorded below; older results are explicitly historical.
 Live-provider and clean-machine installer gates remain open. Continue finding what the tests do not prove,
 adding tests before fixes, and supporting approved live testing. Read this file, then `AGENTS.md`, then the
 Status section of `docs/LEAN_PLAN.md`.
+
+## Current 0.5.0 changes
+
+- Calling: Space / Next call requests the scheduler's next eligible lead; second attempts remain scheduler-selected. Optional automatic advance after ended voicemail has a five-second cancel window and respects Pause after call. Reloading restores only the current rep's unexpired reservation and loads its script before enabling the call.
+- Scripts: upload Markdown/text in Intelligence, preview headings as sections, then adopt with version checks. Plain script wording is displayed during calls; learned variations retain version history.
+- Intelligence: script first, expandable memory/variations, statistical learning and product facts. Practice prioritizes reviewed improvement patterns and supported script findings.
+- Post-call: known carrier outcomes and supported independently reviewed AI outcomes save automatically; humans can correct them. Ambiguous outcomes, bookings and callback times require review. AI labels do not become observed training labels without human confirmation.
+- Actions: research and post-call models submit named function calls. Application validation executes updates; free-form text cannot trigger those actions. Live helper presentation remains streamed.
+- Numbers: effective workload adapts to delivery health within the reviewed ceiling. Existing allocation and staffing planning remain authoritative; no automatic purchase was added. Planning saves are serialized and preserve edits made during a pending save.
+- Release builds hide simulation entry and controls. The development/test mode remains available for software checks.
+
+## Current 0.5.0 verification
+
+[Verification receipt](evidence/lean/calling-ux-050-20261024.json). Logs and failure traces are retained in ignored `work/ux-0.5.0/`.
+
+| Check | Result |
+|---|---|
+| Backend and repo tests | Fresh full suites: SQLite 652 passed / 2 skipped; PostgreSQL 653 / 1. Native disposable PostgreSQL 18.3; CI uses 17. |
+| Browser | 164 cases covered: 161 passed in the final full run, then all three failed cases passed in the targeted rerun. One was a connected brief timeout under load; two now await import completion and explicitly submit history search. No timeout increases. |
+| Frontend and Rust | Typecheck, formatting, production build, 75 frontend tests; Rust fmt, 7 tests and clippy pass. Production assets omit simulation entry and call controls. |
+| Mac package | Both sidecars rebuilt; bundle and extracted archive seals, DMG checksum, hardened-runtime sidecar checks pass. Extracted authority imports 20, prepares 6, completes a simulated callback and preserves it through restart; trainer self-check passes. Disposable updater key only, deleted afterward. |
+| Regression fixes | Pending planning edits survive an earlier save; a reload restores only the current rep's unexpired reservation; hidden correction forms do not duplicate Review controls; simulated workspaces cannot select a paid coach. Mailbox and answered-call outcome boundaries are covered. |
+| CI and downloads | [CI](https://github.com/TanushV/OpenDialer/actions/workflows/ci.yml), [signed release workflow](https://github.com/TanushV/OpenDialer/actions/workflows/release.yml), [releases](https://github.com/TanushV/OpenDialer/releases). Check the exact SHA and release assets there. |
+| Remaining gates | Fresh 0.5 hosted Compose smoke blocked by unavailable Docker. Native GUI/clean-machine install, real accounts/carrier/audio, dedicated hosting and outcome lift remain unverified. Installed app/data were not changed under the latest working agreement. |
+
+The temporary native test PostgreSQL instance is stopped. The original disposable Docker container and its data remain intact but stopped: restoration failed because Docker was unavailable. Start `opendialer-remediation-postgres` when that service is healthy; do not reset unrelated workloads.
 
 ## 1. What OpenDialer is
 
@@ -22,7 +49,7 @@ Providers: Telnyx (calls, WebRTC agent leg, numbers, signed webhooks), Cerebras 
 rundowns), OpenAI / OpenAI-compatible endpoint / a rep's ChatGPT plan (research and scripts), donotcalldnc.com
 (prepaid DNC lookups). **Simulation mode** replaces all of them with simulated providers and a fixed clock.
 
-## 2. State at handoff
+## 2. Verification history before 0.5.0
 
 | Item | State |
 |---|---|
@@ -39,7 +66,7 @@ rundowns), OpenAI / OpenAI-compatible endpoint / a rep's ChatGPT plan (research 
 | Hosted speed | October 24 uncapped shared Mac, separate API/background processes, 8 reps x 1 call/min for 5 minutes: 40 journeys, zero failures; p95 next lead 141.1 ms, event-to-state 224.3 ms, wrap-up 198.2 ms. All observed p95 values are below 250 ms. This does not certify the dedicated 2-vCPU reference: earlier capped shared-host runs missed it at 0.8-1.2 s next-lead p95. |
 | Hosted compose smoke | Rebuilt 0.4.0 source passes bootstrap, 20-lead import, separate-worker preparation, call/callback, API/worker restart persistence and zero runtime error lines. A synthetic 0.3 marker is refused with exit 2 and an unchanged logical database dump. See the October 24 evidence. |
 
-### October 24 verification details
+### Earlier October 24 verification details
 
 Receipt: [verification-20261024.json](evidence/lean/verification-20261024.json). Full local logs and the original
 browser failure trace are in ignored `work/verification-20261024/`.
@@ -102,7 +129,7 @@ These come from the owner and `AGENTS.md`. Breaking them causes real damage.
    simulated or mocked test passed. Live gates stay explicit (section 10).
 8. **No paid or outward actions without the owner's explicit OK**: live calls, provider API calls with real keys,
    DNC lookups, inference spend, messages, publishing.
-9. Fresh stores only: 0.4.0 does not read 0.2/0.3 data (by decision). The desktop keeps 0.4.0 data in `local-2/` and
+9. Fresh stores only: 0.4/0.5 do not read 0.2/0.3 data (by decision). The desktop keeps their data in `local-2/` and
    `simulation-2/`; a server refuses a 0.2/0.3 database with a plain message.
 
 ## 4. Setup
@@ -136,7 +163,7 @@ docker exec opendialer-remediation-postgres psql -U opendialer -d opendialer_rem
   -c "CREATE DATABASE opendialer_completion_e2e" -c "CREATE DATABASE opendialer_completion_performance"
 ```
 
-On the owner's Mac this container already exists and is running. If a browser or bench run fails with "This
+On the owner's Mac this container already exists; check whether it is running before starting tests. If a browser or bench run fails with "This
 database was created by OpenDialer 0.2 or 0.3", the disposable database holds an old schema: drop and recreate that
 one database (it is disposable).
 
@@ -314,12 +341,11 @@ The kept feature list is in `docs/LEAN_PLAN.md` ("Features that stay"). Main cov
 
 ## 9. Known gaps: where to test next (priority order)
 
-1. **Install the draft on a clean test machine** (not the owner's main machine): Mac DMG and Windows MSI/NSIS. First
+1. **Install the current signed release on a clean test machine** (not the owner's main machine): Mac DMG and Windows MSI/NSIS. First
    launch, local and simulated workspaces, a full simulated call, quit and relaunch (data persists), a 0.3 data folder
-   left in place (0.4.0 must start fresh and leave it untouched), auto-update metadata. Not done yet.
-2. **Hosted compose smoke completed on October 24**, including restart persistence and plain refusal of a synthetic
-   0.3 marker without database changes. Production TLS, a dedicated host and real backups still need separate evidence.
-3. **Remaining coverage gaps** (the new tests close some of the original gaps, not all provider paths):
+   left in place (0.4/0.5 must start fresh and leave it untouched), auto-update metadata. Not done yet.
+2. **Rerun hosted Compose on 0.5.0 when Docker is available.** The completed October 24 Compose smoke was on 0.4.0, including restart persistence and plain refusal of a synthetic 0.3 marker. Production TLS, a dedicated host and real backups still need separate evidence.
+3. **Remaining coverage gaps** (percentages are historical 0.4 measurements; coverage was not remeasured for 0.5):
    - Explicit number-recovery actions, verified configuration resubmission and signed callback confirmation
      (`_claim_number_check`, `confirm_callback_in`, `_allow_configuration_retry`, `reconcile_number_configuration`).
      Inventory pagination and basic configure/same-intent reconciliation/rejection now have mocked HTTP tests.
@@ -381,7 +407,7 @@ Full log: `git log --oneline a950675..HEAD`. Highlights:
 ## 13. Documents: current and history
 
 Current: this file, [HANDOFF_AST.md](HANDOFF_AST.md), `AGENTS.md`, [LEAN_PLAN.md](LEAN_PLAN.md) (plan and Status),
-[VALIDATION.md](VALIDATION.md) (top section), [RELEASE_NOTES.md](RELEASE_NOTES.md) (0.4.0 section), `README.md`,
+[VALIDATION.md](VALIDATION.md) (top section), [RELEASE_NOTES.md](RELEASE_NOTES.md) (0.5.0), `README.md`,
 `deploy/runbooks/*`, `docs/evidence/lean/*`.
 
 History (feature descriptions only; mechanisms and numbers there are out of date): `REMEDIATION_PLAN.md`,

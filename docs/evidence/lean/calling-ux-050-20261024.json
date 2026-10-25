@@ -1,0 +1,126 @@
+{
+  "date": "2026-10-24",
+  "version": "0.5.0",
+  "source_commit": "7f3eb5e9c848b5ee17605640fe1ad125a3cfce9e",
+  "runtime_source_commit": "1530958",
+  "local_ci": {
+    "sqlite": {
+      "passed": 652,
+      "skipped": 2,
+      "seconds": 873.1
+    },
+    "postgres": {
+      "passed": 653,
+      "skipped": 1,
+      "seconds": 669.1,
+      "version": "18.3 native disposable instance; GitHub CI uses PostgreSQL 17"
+    },
+    "lint_format_typecheck_production_build": true,
+    "frontend_unit_tests": 75,
+    "rust_fmt_tests_clippy": true,
+    "rust_tests": 7,
+    "browser": {
+      "total_cases": 164,
+      "full_run_passed": 161,
+      "full_run_failed": 3,
+      "final_targeted_rerun_passed": 3,
+      "remaining_failures": 0,
+      "explanation": "One connected prospect-brief timeout passed unchanged on rerun. Two import journeys now wait for import completion and submit the explicit history search before checking leads beyond the first page. Earlier full runs found planning-save and reservation-restoration defects; deterministic regressions failed before their fixes."
+    }
+  },
+  "mac_package": {
+    "architecture": "arm64",
+    "build_bundle_archive_seal_dmg_checksum": true,
+    "authority_imported": 20,
+    "authority_prepared": 6,
+    "simulated_outcome": "callback_requested",
+    "callback_tasks": 1,
+    "restart_preserved_call_and_callback": true,
+    "trainer_self_check": {
+      "trainer": "ok",
+      "libraries": {
+        "numpy": "2.5.4",
+        "scipy": "1.18.1",
+        "sklearn": "1.9.1"
+      }
+    },
+    "signing": "Ad-hoc Apple signing and a disposable updater key removed after packaging. Production updater key is unchanged. Local artifacts are not production updates.",
+    "locally_built_gui_launched": false,
+    "installed_app_or_data_modified": false
+  },
+  "hosted_compose": {
+    "fresh_0_5_run": false,
+    "reason": "Docker daemon unavailable at the existing Colima socket; VM SSH also reset. Shared VM was not restarted. Prior 0.4 compose evidence does not verify 0.5."
+  },
+  "test_database_cleanup": {
+    "native_postgres_stopped": true,
+    "original_container_restored": false,
+    "reason": "Docker unavailable; original opendialer-remediation-postgres container and its data remain intact, stopped."
+  },
+  "limitations": [
+    "Live Telnyx calls, hardware audio and funded inference were not verified.",
+    "No clean-machine Mac/Windows install, Apple notarization or Windows publisher-signing claim.",
+    "Installed application was not updated under the latest supplied working agreement.",
+    "No current backend coverage or performance benchmark rerun; older measurements remain historical.",
+    "Dedicated-host latency and campaign lift remain separate gates."
+  ],
+  "sizes": {
+    "backend": {
+      "files": 89,
+      "lines": 35631,
+      "ast_nodes": 245296
+    },
+    "backend_tests": {
+      "files": 46,
+      "lines": 11859,
+      "ast_nodes": 82220
+    },
+    "repo_tests": {
+      "files": 4,
+      "lines": 668,
+      "ast_nodes": 3992
+    },
+    "frontend": {
+      "files": 55,
+      "lines": 17217,
+      "tokens": 93183
+    },
+    "frontend_tests": {
+      "files": 51,
+      "lines": 9860,
+      "tokens": 71506
+    },
+    "rust": {
+      "files": 2,
+      "lines": 971
+    },
+    "scripts": {
+      "files": 11,
+      "lines": 1392,
+      "ast_nodes": 7764
+    },
+    "workflows": {
+      "files": 2,
+      "lines": 186
+    }
+  },
+  "log_sha256": {
+    "sqlite-release-final.log": "87f18a8362910af3a21e557d10aaa137c565ecd7afbd77670d37ef326b32bafa",
+    "postgres-release-final.log": "195c63889c9c4806e0e5d6ef5dc66872fce19591c00870b3abc4ddef2f6b8bda",
+    "ruff-check.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "ruff-format.log": "fd01fabb05879ed27bbbdffdeb49178b92cfb42fd301063c0e3d033ce5083431",
+    "frontend-format.log": "48a27b8013464e3f21fd5a8be14116f7b2b6ea22380d0538544ecb3aa8e56bd9",
+    "frontend-build.log": "f73284f44b7c3a1677d8f25f0f7bbcaba7a6e8278ca132939ba5675a19ef0938",
+    "frontend-unit.log": "c318442bc9ac0e35694e7339c6f56d605ab0ed7bf13811f41a09155bd7896aad",
+    "browser-release-final.log": "65003b05a7c5c57397b83a230462d220aed1845d2135bfbf71717c21008977e0",
+    "browser-release-retries-final.log": "dba80ad5d9aae7d9d9dc6b16fada1b89ec380d78bebd79bb958a539d9ff1a3f3",
+    "simple-calling-final-green.log": "62294fecdef81cbf05dfe24d8e455d6a8669e00a05e600058c64cf997a828b15",
+    "planning-save-red.log": "0da699b95198eb548e49809c2986a8a05efa1e5ab1396346a081879391a624cb",
+    "reservation-restore-red.log": "f90442859c1b6242540db5bc7758c56809a3c21f49adab0c5f1629184d7abd96",
+    "reservation-browser-red.log": "e683c131aee2542ff269e91cf9c1249676881e6f32b192458b063f77001ca872",
+    "sidecars.log": "e3f4896f30fe9dba46fd9be07f43539b1e29c68aa9bb447380931b938658f1e8",
+    "mac-package.log": "8e070439af5d6f24d96217b344e7ba3f1169798601538943c5d452e8811340d7",
+    "mac-smoke.log": "4e15a1b5d4c875b9057c607373905a62a77059270df918eeaeb6bb2282939811",
+    "rust-clippy.log": "546d811e40c5876de8a4cc83f5e2c7ef4ad53fa7e9ae7f7ea9afa81674558251"
+  }
+}
