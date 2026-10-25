@@ -43,7 +43,10 @@ test("at 1024x720 the helper, script opener, hangup and pause-after stay visible
   const { call } = await startCall(page, "Small window rep", "+14155550601");
   const visible = [
     page.getByTestId("live-coaching-strip"),
-    page.getByTestId("prepared-script").locator("blockquote"),
+    page
+      .getByTestId("prepared-script")
+      .locator(".script-reader > section p")
+      .first(),
     page.getByRole("button", { name: "Hang up", exact: true }),
     page.getByRole("button", { name: /opt.out/i }),
     page.getByRole("checkbox", { name: "Pause after call" }),

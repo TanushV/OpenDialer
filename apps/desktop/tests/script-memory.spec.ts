@@ -29,6 +29,7 @@ test("the script memory keeps team notes and tests a proposed change against the
     .click();
   await expect(page.getByText("Script and preparation saved")).toBeVisible();
   await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page.getByText("Script memory & variations", { exact: true }).click();
   const panel = page.getByRole("region", { name: "Script memory" });
   await expect(panel.getByText(/^Base script v\d+/)).toBeVisible();
   await panel.getByLabel("Team notes").fill("Lead with the time saved.");

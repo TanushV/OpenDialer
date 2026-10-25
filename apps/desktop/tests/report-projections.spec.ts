@@ -28,6 +28,7 @@ test("an unfinished report shows pending evidence without invented totals", asyn
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
   await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page.getByText("Stats & statistical learning", { exact: true }).click();
   await expect(
     page.getByText("Preparing the first report in the background.", {
       exact: true,
@@ -107,6 +108,7 @@ async function openIntelligence(page: import("@playwright/test").Page) {
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
   await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page.getByText("Stats & statistical learning", { exact: true }).click();
 }
 
 test("stale totals disclose their definition and failed refresh without losing settings", async ({

@@ -153,6 +153,7 @@ export interface Call {
     task_ids: string[];
   } | null;
   canonical_task_id?: string | null;
+  outcome_source?: string;
   suggested_outcome?: {
     code: string;
     contact_role: "right_party" | "gatekeeper" | "wrong_party" | "unknown";
@@ -204,6 +205,7 @@ export interface Call {
   } | null;
 }
 export interface Script {
+  sections?: { title: string; text: string }[];
   final_voicemail_asset?: string | null;
   opener: string;
   gatekeeper?: string;

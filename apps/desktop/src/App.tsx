@@ -659,25 +659,29 @@ export function App() {
                   </span>
                   <ChevronRight />
                 </button>
-                <div className="welcome-divider">
-                  <span>JUST EXPLORING?</span>
-                </div>
-                <button
-                  className="primary wide"
-                  disabled={working}
-                  onClick={() => void beginLocal(true)}
-                >
-                  {working ? (
-                    <LoaderCircle className="spin" size={18} />
-                  ) : (
-                    <Activity size={18} />
-                  )}
-                  Try a simulated workspace
-                  <ArrowRight size={17} />
-                </button>
-                <p className="fine">
-                  Fictional leads and simulated calls. No API keys required.
-                </p>
+                {import.meta.env.DEV && (
+                  <>
+                    <div className="welcome-divider">
+                      <span>JUST EXPLORING?</span>
+                    </div>
+                    <button
+                      className="primary wide"
+                      disabled={working}
+                      onClick={() => void beginLocal(true)}
+                    >
+                      {working ? (
+                        <LoaderCircle className="spin" size={18} />
+                      ) : (
+                        <Activity size={18} />
+                      )}
+                      Try a simulated workspace
+                      <ArrowRight size={17} />
+                    </button>
+                    <p className="fine">
+                      Fictional leads and simulated calls. No API keys required.
+                    </p>
+                  </>
+                )}
               </>
             ) : welcomeMode === "connected" ? (
               <form
@@ -913,7 +917,7 @@ export function App() {
               </div>
             )}
             <div hidden={view !== "Dialer"}>
-              <DialerPage />
+              <DialerPage visible={view === "Dialer"} />
             </div>
             {view === "Dialer" ? null : view === "Leads" ? (
               <LeadsPage />

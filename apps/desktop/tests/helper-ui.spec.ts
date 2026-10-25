@@ -116,7 +116,10 @@ test("fixed helper remains visible, private controls work and no raw content is 
     .click();
   await page.getByRole("button", { name: "Start call", exact: true }).click();
   await page.evaluate(() => window.scrollTo(0, 0));
-  const opener = page.getByTestId("prepared-script").locator("blockquote");
+  const opener = page
+    .getByTestId("prepared-script")
+    .locator(".script-reader > section p")
+    .first();
   await expect(opener).toBeInViewport({ ratio: 1 });
   const openerBox = await opener.boundingBox();
   const hangupBox = await page

@@ -163,6 +163,7 @@ test("optimization goals, forecast, learning state and provider settings persist
     .click();
   await expect(page.getByText("Campaign goal saved").first()).toBeVisible();
   await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page.getByText("Stats & statistical learning", { exact: true }).click();
   await page
     .getByRole("button", { name: "Refresh learning and capacity" })
     .click();

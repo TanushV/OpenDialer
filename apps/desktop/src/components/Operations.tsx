@@ -23,6 +23,7 @@ import { FollowupTasks } from "./FollowupTasks";
 import { ProspectBrief } from "./ProspectBrief";
 import { PreparationRunway } from "./Preparation";
 import { ConversationLearning } from "./ConversationLearning";
+import { ScriptUpload } from "./ScriptUpload";
 import { ScriptMemory } from "./ScriptMemory";
 import { OptimizationPanel } from "./OptimizationPanel";
 
@@ -652,6 +653,10 @@ export function NumbersPage() {
           <span className="eyebrow">A CONSISTENT CALLING IDENTITY</span>
           <h1>Numbers &amp; callbacks</h1>
           <p>
+            Calling capacity adapts to staffing and observed delivery, up to
+            each number’s reviewed daily maximum.
+          </p>
+          <p>
             Use owned numbers, keep familiar identities, and stay reachable.
           </p>
         </div>
@@ -1223,6 +1228,7 @@ interface NumberEvidence {
   };
   workload: {
     current_limit: number;
+    approved_daily_limit: number;
     maximum_reviewed_limit: number;
     recommended_limit: number;
     reason: string;
@@ -1556,7 +1562,9 @@ function NumberRow({
                 </div>
                 <p className="fine">
                   Available staffed capacity and approved ceiling permit at most{" "}
-                  {view.workload.maximum_reviewed_limit} attempts per day.{" "}
+                  {view.workload.maximum_reviewed_limit} attempts per day.
+                  Current adaptive limit: {view.workload.current_limit};
+                  reviewed maximum: {view.workload.approved_daily_limit}.{" "}
                   Suggested limit for explicit review:{" "}
                   {view.workload.recommended_limit}. Sparse evidence is unknown;
                   it does not require a fixed number of warmup calls.
@@ -1669,36 +1677,28 @@ export function IntelligencePage() {
     <>
       <div className="page-heading">
         <div>
-          <span className="eyebrow">LEARN WITHOUT LOSING THE THREAD</span>
-          <h1>
-            Intelligence with evidence<span className="soft-dot">.</span>
-          </h1>
-          <p>
-            Approved language, measured outcomes and the follow-through that
-            keeps promises.
-          </p>
+          <h1>Script & learning</h1>
+          <p>Your words, what works, and what to improve.</p>
         </div>
       </div>
-      <ScriptMemory />
-      <ConversationLearning />
-      <OptimizationPanel />
-      <div className="two-column">
+      <ScriptUpload />
+      <details className="card padded">
+        <summary>Script memory & variations</summary>
+        <ScriptMemory />
+      </details>
+      <details className="card padded">
+        <summary>Stats & statistical learning</summary>
+        <ConversationLearning />
+        <OptimizationPanel />
+      </details>
+      <details className="card padded">
+        <summary>Product facts</summary>
         <ProductKnowledge />
-        <section className="card padded">
-          <span className="eyebrow">FOLLOW-THROUGH</span>
-          <h2>Promises worth keeping</h2>
-          <FollowupTasks />
-          <div className="section-rule" />
-          <span className="eyebrow">COVERAGE BEFORE PROPENSITY</span>
-          <p className="muted small">
-            Requested callbacks come first, then requested contacts and coverage
-            obligations. Low predicted pickup cannot hide a lead. Delayed
-            outcome windows stay pending until mature. Observed associations are
-            correlations; emotion, honesty and personality inference are
-            excluded.
-          </p>
-        </section>
-      </div>
+      </details>
+      <section className="card padded">
+        <h2>Follow-ups</h2>
+        <FollowupTasks />
+      </section>
     </>
   );
 }

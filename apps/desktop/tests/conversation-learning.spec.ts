@@ -15,6 +15,7 @@ test("conversation learning is honest about sparse evidence and saves reviewed a
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
   await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page.getByText("Stats & statistical learning", { exact: true }).click();
   const panel = page.getByRole("region", {
     name: "Conversation learning",
     exact: true,
@@ -37,6 +38,7 @@ test("conversation learning is honest about sparse evidence and saves reviewed a
   );
   await page.reload();
   await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page.getByText("Stats & statistical learning", { exact: true }).click();
   await expect(panel).toContainText(
     "Purchasing signoff → Procurement approval",
   );

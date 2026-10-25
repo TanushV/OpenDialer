@@ -273,7 +273,10 @@ for (const connected of [false, true]) {
       try {
         await page.evaluate(() => window.scrollTo(0, 0));
         await expect(
-          page.getByTestId("prepared-script").locator("blockquote"),
+          page
+            .getByTestId("prepared-script")
+            .locator(".script-reader > section p")
+            .first(),
         ).toBeInViewport({ ratio: 1 });
         await expect(page.getByTestId("live-coaching-strip")).toBeInViewport();
         await expect(

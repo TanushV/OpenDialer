@@ -2016,3 +2016,44 @@ details.transcript-card {
   border-radius: 999px;
   background: #eef2ea;
 }
+
+/* Calling copy is reading material, not a display headline. */
+.script-reader {
+  font-size: 16px;
+  line-height: 1.65;
+  max-width: 72ch;
+}
+.script-reader > section {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+}
+.script-reader h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 8px;
+  color: var(--muted, #667085);
+}
+.script-reader p {
+  margin: 0 0 10px;
+  white-space: pre-wrap;
+}
+.script-reader blockquote {
+  font: inherit;
+}
+.script-card {
+  padding: 24px;
+}
+.call-dock kbd {
+  font: inherit;
+  font-size: 11px;
+  opacity: 0.75;
+  border: 1px solid currentColor;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}

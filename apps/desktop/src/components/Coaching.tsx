@@ -32,6 +32,9 @@ export function Coaching({
 }) {
   const { api, run, session, notice } = useWorkspace();
   const [overview, setOverview] = useState<Overview | null>(null);
+  const [patterns, setPatterns] = useState<
+    { label: string; samples: number }[]
+  >([]);
   const [goal, setGoal] = useState("");
   const [scenario, setScenario] = useState("");
   const [status, setStatus] = useState("");
@@ -49,9 +52,23 @@ export function Coaching({
   }, [hasScenario]);
   useEffect(() => {
     let active = true;
-    void api<Overview>("/v1/coaching")
-      .then((data) => {
-        if (active) setOverview(data);
+    void Promise.all([
+      api<Overview>("/v1/coaching"),
+      api<{
+        report: {
+          patterns: { label: string; samples: number; status: string }[];
+        };
+      }>("/v1/optimization/script"),
+    ])
+      .then(([data, learning]) => {
+        if (active) {
+          setOverview(data);
+          setPatterns(
+            (learning.report.patterns || [])
+              .filter((p) => p.status === "supported_negative")
+              .slice(0, 3),
+          );
+        }
       })
       .catch(() => {
         if (active)
@@ -138,71 +155,124 @@ export function Coaching({
       {status && <p role="status">{status}</p>}
       {overview && (
         <>
-          <h3>Your practice goals</h3>
-          {overview.goals.map((item) => (
-            <div key={item.id}>
-              <span>{item.text}</span>{" "}
-              {item.status === "completed" ? (
-                <span className="pill subtle">Completed</span>
-              ) : (
+          <h3>Patterns to improve</h3>
+          {patterns.map((pattern) => (
+            <article key={pattern.label}>
+              <h4>{pattern.label}</h4>
+              <p className="fine">
+                Statistical learning · {pattern.samples} samples · correlation,
+                not cause
+              </p>
+              <button
+                onClick={() => {
+                  setScenario(
+                    `Practice improving ${pattern.label}. This pattern is associated with worse outcomes, not proven causal. Give one concrete exercise and an improved example.`,
+                  );
+                  setAnswer(null);
+                }}
+              >
+                Practice this finding
+              </button>
+            </article>
+          ))}
+          {!overview.improvement_groups?.length && (
+            <p className="muted">
+              No reviewed patterns yet. As calls are reviewed, practice
+              opportunities appear here.
+            </p>
+          )}
+          {overview.improvement_groups?.map((group) => (
+            <article key={group.id}>
+              <h4>{group.concept}</h4>
+              <p>
+                {group.approach ||
+                  "Review the examples and try a shorter, clearer response."}
+              </p>
+              <p className="fine">
+                {group.count} reviewed opportunities · an observed pattern, not
+                proof of cause
+              </p>
+              <button
+                onClick={() => {
+                  setScenario(
+                    `Help me improve this observed pattern: ${group.concept}. ${group.approach || ""} Give one concrete exercise and an improved example, using approved product facts only.`,
+                  );
+                  setAnswer(null);
+                }}
+              >
+                Practice this pattern
+              </button>
+            </article>
+          ))}
+          <details>
+            <summary>Your practice goals</summary>
+            {overview.goals.map((item) => (
+              <div key={item.id}>
+                <span>{item.text}</span>{" "}
+                {item.status === "completed" ? (
+                  <span className="pill subtle">Completed</span>
+                ) : (
+                  <button
+                    className="text-button"
+                    onClick={() =>
+                      void run(() =>
+                        save(
+                          overview.goals.map((g) =>
+                            g.id === item.id
+                              ? { ...g, status: "completed" }
+                              : g,
+                          ),
+                        ),
+                      )
+                    }
+                  >
+                    Complete goal
+                  </button>
+                )}
                 <button
                   className="text-button"
+                  aria-label={`Remove goal ${item.text}`}
                   onClick={() =>
                     void run(() =>
-                      save(
-                        overview.goals.map((g) =>
-                          g.id === item.id ? { ...g, status: "completed" } : g,
-                        ),
-                      ),
+                      save(overview.goals.filter((g) => g.id !== item.id)),
                     )
                   }
                 >
-                  Complete goal
+                  Remove
                 </button>
-              )}
-              <button
-                className="text-button"
-                aria-label={`Remove goal ${item.text}`}
-                onClick={() =>
-                  void run(() =>
-                    save(overview.goals.filter((g) => g.id !== item.id)),
-                  )
-                }
-              >
-                Remove
-              </button>
-            </div>
-          ))}
-          <label>
-            Practice goal
-            <input
-              aria-label="Practice goal"
-              value={goal}
-              maxLength={300}
-              onChange={(e) => setGoal(e.target.value)}
-            />
-          </label>
-          <button
-            disabled={!goal.trim() || overview.goals.length >= 3}
-            onClick={() =>
-              void run(() =>
-                save([
-                  ...overview.goals,
-                  {
-                    id: crypto.randomUUID(),
-                    text: goal.trim(),
-                    status: "active",
-                  },
-                ]),
-              )
-            }
-          >
-            Save practice goal
-          </button>
-          <p className="fine">
-            Up to three goals. Completion is your assessment; it does not imply
-            conversion lift.
-          </p>
+              </div>
+            ))}
+            <label>
+              Practice goal
+              <input
+                aria-label="Practice goal"
+                value={goal}
+                maxLength={300}
+                onChange={(e) => setGoal(e.target.value)}
+              />
+            </label>
+            <button
+              disabled={!goal.trim() || overview.goals.length >= 3}
+              onClick={() =>
+                void run(() =>
+                  save([
+                    ...overview.goals,
+                    {
+                      id: crypto.randomUUID(),
+                      text: goal.trim(),
+                      status: "active",
+                    },
+                  ]),
+                )
+              }
+            >
+              Save practice goal
+            </button>
+            <p className="fine">
+              Up to three goals. Completion is your assessment; it does not
+              imply conversion lift.
+            </p>
+          </details>
           <details>
             <summary>Recent coaching opportunities</summary>
             <p>

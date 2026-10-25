@@ -8,11 +8,16 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useWorkspace } from "../context";
+import { canAdvanceWithSpace } from "../state/call-shortcuts";
 import { Keypad } from "./Keypad";
 import { isActiveCall, type Call, type Reservation } from "../types";
 import type { Telephony } from "../telephony/client";
 
 type Props = {
+  visible: boolean;
+  pauseAfter: boolean;
+  onPauseAfterChange: (value: boolean) => void;
+  onAdvance: () => Promise<void>;
   call: Call | null;
   reservation: Reservation | null;
   controller: Telephony;
@@ -31,6 +36,10 @@ type Props = {
   onHangup: (pauseAfter: boolean) => Promise<void>;
 };
 export function CallControls({
+  visible,
+  pauseAfter,
+  onPauseAfterChange,
+  onAdvance,
   call,
   reservation,
   controller,
@@ -49,17 +58,55 @@ export function CallControls({
   const { run } = useWorkspace();
   const [mute, setMute] = useState(false);
   const [keypad, setKeypad] = useState(false);
-  const [pauseAfter, setPauseAfter] = useState(false);
   const active = isActiveCall(call);
   useEffect(() => {
     setMute(false);
     setKeypad(false);
   }, [call?.id]);
+  const advancing = useRef(false);
+  async function advance() {
+    if (advancing.current) return;
+    advancing.current = true;
+    try {
+      await onAdvance();
+    } finally {
+      advancing.current = false;
+    }
+  }
+  const shortcut = useRef({
+    visible,
+    ready,
+    blocked,
+    active,
+    busy: dialing || finding,
+    wrapUpPending,
+    advance,
+  });
+  shortcut.current = {
+    visible,
+    ready,
+    blocked,
+    active,
+    busy: dialing || finding,
+    wrapUpPending,
+    advance,
+  };
   // F2/F4 read the latest call state; the listener is registered once.
   const keys = useRef({ active, controller, onHangup, pauseAfter });
   keys.current = { active, controller, onHangup, pauseAfter };
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
+      const target = event.target;
+      const interactive =
+        target instanceof Element &&
+        !!target.closest(
+          "input, textarea, select, button, a, [contenteditable], [role=dialog]",
+        );
+      if (canAdvanceWithSpace(event, shortcut.current, interactive)) {
+        event.preventDefault();
+        void run(shortcut.current.advance);
+        return;
+      }
       const current = keys.current;
       if (!current.active) return;
       if (event.key === "F2") {
@@ -98,6 +145,19 @@ export function CallControls({
           </div>
         </div>
         <div className="dock-controls">
+          {!active && !(reservation && !call) && (
+            <button
+              className="primary dial-button"
+              title="Next scheduled call · Space"
+              disabled={
+                !ready || blocked || wrapUpPending || finding || dialing
+              }
+              onClick={() => void run(advance)}
+            >
+              <Phone size={17} /> Next call <kbd>Space</kbd>
+            </button>
+          )}
+
           <button
             className="dock-tool"
             disabled={!active}
@@ -150,7 +210,7 @@ export function CallControls({
             </button>
           ) : (
             <button
-              className="primary dial-button"
+              className="secondary"
               disabled={!ready || blocked || wrapUpPending || finding}
               onClick={() => void run(onNext)}
             >
@@ -167,7 +227,7 @@ export function CallControls({
           <input
             type="checkbox"
             checked={pauseAfter}
-            onChange={(e) => setPauseAfter(e.target.checked)}
+            onChange={(e) => onPauseAfterChange(e.target.checked)}
           />{" "}
           Pause after call
         </label>

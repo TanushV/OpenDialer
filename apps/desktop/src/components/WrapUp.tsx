@@ -122,8 +122,16 @@ export function WrapUp({
   return (
     <section className="wrap-up card" aria-label="Wrap-up">
       <div>
-        <span className="eyebrow">LEAVE A CLEAR NEXT STEP</span>
-        <h3>How did the conversation go?</h3>
+        <h3>
+          {call.state === "FINALIZED"
+            ? "Correct the saved outcome"
+            : "Confirm what happened"}
+        </h3>
+        <p className="muted small">
+          {call.state === "FINALIZED"
+            ? "Your correction takes precedence over automatic analysis."
+            : "Choose an outcome when the available evidence cannot confirm it automatically."}
+        </p>
       </div>
       {call.suggested_outcome && (
         <div>

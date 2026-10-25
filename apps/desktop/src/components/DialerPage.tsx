@@ -1,4 +1,5 @@
 import { useSpeechExpiry } from "../state/useSpeechExpiry";
+import { ScriptReader } from "./ScriptReader";
 import { LiveCoach } from "./LiveCoach";
 import { CallingHealth } from "./WorkTime";
 import { ProspectBrief } from "./ProspectBrief";
@@ -31,7 +32,7 @@ import { isActiveCall, isTerminal } from "../types";
 const owesWrapUp = (call: Call | null) =>
   !!call && isTerminal(call) && call.state !== "FINALIZED";
 
-export function DialerPage() {
+export function DialerPage({ visible = true }: { visible?: boolean }) {
   const {
     snapshot: w,
     session,
@@ -53,6 +54,13 @@ export function DialerPage() {
   const hangupGeneration = useRef(0);
   useSpeechExpiry(call, setCall);
   const [dialing, setDialing] = useState(false);
+  const [autoNext, setAutoNext] = useState(false);
+  const [pauseAfter, setPauseAfter] = useState(false);
+  const pausedAfterCall = useRef<string | null>(null);
+  const [autoPending, setAutoPending] = useState(false);
+  const advancedVoicemail = useRef<string | null>(null);
+  const advancingCall = useRef(false);
+  const advanceRef = useRef<() => Promise<void>>(async () => {});
   const [finding, setFinding] = useState(false);
   const [readying, setReadying] = useState(false);
   const readyingNow = useRef(false);
@@ -325,24 +333,35 @@ export function DialerPage() {
     setCallbackReview(null);
     setPacket(await api(`/v1/leads/${next.lead.id}/packet`));
     setCall(null);
+    return next;
   }
-  async function startCall() {
+  async function startCall(selected = reservation) {
     if (inbound || telephony.current.hasIncoming)
       throw new Error(
         "Complete the incoming call before starting an outbound call.",
       );
-    if (!reservation || dialing || pendingOptouts) return;
+    if (!selected || dialing || pendingOptouts) return;
     setDialing(true);
     try {
       setCall(
         await api("/v1/calls/start", "POST", {
-          reservation_id: reservation.reservation_id,
-          idempotency_key: reservation.reservation_id,
+          reservation_id: selected.reservation_id,
+          idempotency_key: selected.reservation_id,
         }),
       );
       await refresh();
     } finally {
       setDialing(false);
+    }
+  }
+  async function advanceCall() {
+    if (advancingCall.current) return;
+    advancingCall.current = true;
+    try {
+      const next = reservation && !call ? reservation : await getNext();
+      await startCall(next);
+    } finally {
+      advancingCall.current = false;
     }
   }
   async function hangup(pauseAfter = false) {
@@ -365,7 +384,10 @@ export function DialerPage() {
       throw e;
     }
     if (!current()) return;
-    if (pauseAfter) await pause(true);
+    if (pauseAfter) {
+      pausedAfterCall.current = id;
+      await pause(true);
+    }
     await refresh();
   }
   async function optOut() {
@@ -425,6 +447,63 @@ export function DialerPage() {
     await reloadCall(call.id);
     await refresh();
   }
+  useEffect(() => {
+    if (
+      pauseAfter &&
+      ready &&
+      call &&
+      isTerminal(call) &&
+      pausedAfterCall.current !== call.id
+    ) {
+      pausedAfterCall.current = call.id;
+      void run(() => pause(true));
+    }
+  }, [pauseAfter, ready, call?.id, call?.state, run]);
+  advanceRef.current = advanceCall;
+  useEffect(() => {
+    if (
+      !autoNext ||
+      pauseAfter ||
+      !visible ||
+      !ready ||
+      pendingOptouts ||
+      !journalReady ||
+      inbound ||
+      incomingAudio ||
+      dialing ||
+      finding ||
+      call?.state !== "FINALIZED" ||
+      call.outcome !== "voicemail" ||
+      advancedVoicemail.current === call.id
+    )
+      return;
+    setAutoPending(true);
+    const id = call.id;
+    const timer = setTimeout(() => {
+      advancedVoicemail.current = id;
+      setAutoPending(false);
+      void run(() => advanceRef.current());
+    }, 5000);
+    return () => {
+      clearTimeout(timer);
+      setAutoPending(false);
+    };
+  }, [
+    autoNext,
+    pauseAfter,
+    visible,
+    ready,
+    pendingOptouts,
+    journalReady,
+    inbound,
+    incomingAudio,
+    dialing,
+    finding,
+    call?.id,
+    call?.state,
+    call?.outcome,
+    run,
+  ]);
   const idle = !packet && !call;
   // Next work shows between calls: not mid-call, owed a wrap-up or about to dial.
   const betweenCalls = !active && !wrapUpPending && !(reservation && !call);
@@ -457,7 +536,7 @@ export function DialerPage() {
           }}
         />
       )}
-      {!idle && (
+      {!idle && (!call || active) && (
         <LiveCoach
           deliveryTiming={{
             receivedAt: responseReceived.current,
@@ -588,6 +667,25 @@ export function DialerPage() {
           onSaved={wrapUpSaved}
         />
       )}
+      {call?.state === "FINALIZED" && (
+        <details className="card padded">
+          <summary>
+            Saved: {label(call.outcome || "Outcome")} ·{" "}
+            {call.outcome_source === "ai_reviewed"
+              ? "AI reviewed"
+              : call.outcome_source === "carrier"
+                ? "Carrier result"
+                : "Your outcome"}{" "}
+            · Correct outcome
+          </summary>
+          <WrapUp
+            key={call.id}
+            call={call}
+            timezone={packet?.lead.timezone}
+            onSaved={wrapUpSaved}
+          />
+        </details>
+      )}
       {callbackReview && (
         <CallbackReviewNotice
           review={callbackReview}
@@ -683,7 +781,11 @@ export function DialerPage() {
                 disabled={
                   !ready || active || pendingOptouts || !journalReady || finding
                 }
-                onClick={() => void run(getNext)}
+                onClick={() =>
+                  void run(async () => {
+                    await getNext();
+                  })
+                }
               >
                 View next lead
                 <ArrowRight size={16} />
@@ -709,66 +811,17 @@ export function DialerPage() {
                 : "Approved playbook"}
             </span>
           </div>
-          <div className="script-opening">
-            <span className="section-number">01</span>
-            <div>
-              <span className="eyebrow">OPEN WITH A LITTLE CONTEXT</span>
-              <blockquote>
-                {packet?.script.opener ||
-                  w.active_playbook?.opener.replace("{rep}", w.user.name) ||
-                  "Start with your name, business, and a truthful reason for calling."}
-              </blockquote>
-            </div>
-          </div>
-          <div className="section-rule" />
-          <div className="script-discovery">
-            <span className="section-number">02</span>
-            <div>
-              <span className="eyebrow">MAKE SPACE FOR THEIR STORY</span>
-              {(
-                packet?.script.discovery_questions || [
-                  "What would make this conversation useful for you?",
-                  "How are you handling this today?",
-                ]
-              ).map((question, i) => (
-                <p className="question" key={i}>
-                  <span>{i + 1}</span>
-                  {question}
-                </p>
-              ))}
-            </div>
-          </div>
-          <div className="screening-intro">
-            <span>
-              <ShieldCheck size={14} /> iPhone screening
-            </span>
-            <p>
-              {packet?.script.screening_intro ||
-                w.active_playbook?.screening_intro.replace(
+          <ScriptReader
+            script={
+              packet?.script || {
+                opener: w.active_playbook?.opener.replace("{rep}", w.user.name),
+                screening_intro: w.active_playbook?.screening_intro.replace(
                   "{rep}",
                   w.user.name,
-                )}
-            </p>
-          </div>
-          <div className="screening-intro">
-            <span>Gatekeeper</span>
-            <p>
-              {packet?.script.gatekeeper ||
-                "Who is the right person to speak with about this?"}
-            </p>
-          </div>
-          {packet?.script.proof && (
-            <div className="screening-intro">
-              <span>Supported proof</span>
-              <p>{packet.script.proof}</p>
-            </div>
-          )}
-          {packet?.script.closing_question && (
-            <div className="screening-intro">
-              <span>Next step</span>
-              <p>{packet.script.closing_question}</p>
-            </div>
-          )}
+                ),
+              }
+            }
+          />
           <div className="script-footer">
             <Layers3 size={13} />
             <span>
@@ -812,7 +865,7 @@ export function DialerPage() {
           </small>
         </details>
       )}
-      {w.simulation && active && (
+      {import.meta.env.DEV && w.simulation && active && (
         <div className="simulation-tools">
           <div className="simulation-buttons">
             <button
@@ -930,7 +983,33 @@ export function DialerPage() {
             attempt; hang up when ready.
           </p>
         ))}
+      <label className="check-row">
+        <input
+          type="checkbox"
+          checked={autoNext}
+          disabled={pauseAfter}
+          onChange={(e) => setAutoNext(e.target.checked)}
+        />
+        Next scheduled call automatically after voicemail ends
+      </label>
+      {autoPending && (
+        <p role="status">
+          Next scheduled call in five seconds.{" "}
+          <button
+            onClick={() => {
+              advancedVoicemail.current = call!.id;
+              setAutoNext(false);
+            }}
+          >
+            Cancel
+          </button>
+        </p>
+      )}
       <CallControls
+        visible={visible}
+        pauseAfter={pauseAfter}
+        onPauseAfterChange={setPauseAfter}
+        onAdvance={advanceCall}
         call={call}
         reservation={reservation}
         controller={telephony.current}
@@ -951,7 +1030,9 @@ export function DialerPage() {
           )
         }
         onStart={startCall}
-        onNext={getNext}
+        onNext={async () => {
+          await getNext();
+        }}
         onOptOut={optOut}
         onHangup={hangup}
       />

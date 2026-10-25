@@ -16,6 +16,7 @@ test("personal practice goals survive reload and practice requires no call", asy
 }) => {
   await enter(page);
   const panel = page.getByRole("region", { name: "Coaching and practice" });
+  await panel.getByText("Your practice goals", { exact: true }).click();
   await panel
     .getByRole("textbox", { name: "Practice goal" })
     .fill("Clarify ownership before pitching");
@@ -27,6 +28,7 @@ test("personal practice goals survive reload and practice requires no call", asy
   ).toBeVisible();
   await page.reload();
   await page.getByRole("button", { name: "Review", exact: true }).click();
+  await panel.getByText("Your practice goals", { exact: true }).click();
   await expect(
     panel.getByText("Clarify ownership before pitching", { exact: true }),
   ).toBeVisible();
