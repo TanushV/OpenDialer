@@ -1,0 +1,131 @@
+{
+  "date": "2026-10-26",
+  "status": "locally_verified",
+  "scope": "Setup and whole-app journey audit; explicitly approved number procurement",
+  "backend_commit": "ff05149",
+  "backend": {
+    "sqlite_full": {
+      "passed": 677,
+      "skipped": 2,
+      "seconds": 921.31,
+      "log": "work/setup-audit/sqlite-full.log",
+      "note": "Collected before two additional purchase cases and three voice-setting cases"
+    },
+    "postgres_full": {
+      "passed": 680,
+      "skipped": 1,
+      "seconds": 2488.14,
+      "log": "work/setup-audit/postgres-full.log",
+      "note": "Collected before final voice-setting correction"
+    },
+    "final_provider_cases": {
+      "distinct_passed_per_database": 77,
+      "logs": [
+        "work/setup-audit/provider-final-sqlite.log",
+        "work/setup-audit/provider-final-postgres.log",
+        "work/setup-audit/voice-purchase-sqlite.log",
+        "work/setup-audit/voice-purchase-postgres.log"
+      ],
+      "note": "Each broad provider run passed 76 cases; one purchase mock still returned inventory data for the new voice endpoint. Corrected the mock to the documented voice shape, then that case passed on SQLite and PostgreSQL."
+    },
+    "distinct_cases_with_passing_evidence": {
+      "sqlite": 682,
+      "postgres": 683
+    },
+    "skips": "Disposable Caddy image not supplied; SQLite also skips its PostgreSQL-specific case."
+  },
+  "frontend": {
+    "unit_tests": 77,
+    "typecheck": "passed",
+    "format": "passed",
+    "production_build": "passed",
+    "logs": [
+      "work/setup-audit/frontend-unit-final.log",
+      "work/setup-audit/format-complete.log",
+      "work/setup-audit/build-complete.log"
+    ]
+  },
+  "rust": {
+    "tests": 7,
+    "format": "passed",
+    "clippy": "passed"
+  },
+  "regression_first": [
+    "optional provider fields could not be cleared",
+    "ChatGPT setup hidden under Advanced",
+    "Telnyx key not included in the connection Save action",
+    "script load failure left the editor disabled",
+    "inventory totals failure looked like endless loading",
+    "conflicting number-limit save discarded the draft",
+    "real Telnyx voice recording evidence read from the wrong response",
+    "a late initial number settings read overwrote a typed limit",
+    "a lost purchase HTTP response failed to reload the durable order status"
+  ],
+  "procurement": {
+    "approval": "Exact current quote plus explicit recurring-rental checkbox",
+    "limits": [
+      "owned and pending number count",
+      "initial cost per number",
+      "monthly commitment for app-ordered rentals"
+    ],
+    "uncertainty": "Persist original intent; reconcile without a second purchase submission",
+    "not_automatic": [
+      "carrier purchase",
+      "callback evidence",
+      "warmup or limited-use approval"
+    ],
+    "existing_obligations": "Existing carrier rentals, taxes and usage are outside the app-order rental cap; pausing does not cancel rent."
+  },
+  "boundaries": {
+    "installed_app_modified": false,
+    "installed_data_modified": false,
+    "live_calls": false,
+    "live_purchases": false,
+    "funded_inference": false,
+    "new_release_or_installers": false,
+    "hosted_compose": "Not rerun; native disposable PostgreSQL and connected browser journeys are the database evidence.",
+    "external_gates": [
+      "real Telnyx account and provisioning",
+      "hardware audio and carrier callbacks",
+      "funded inference and ChatGPT account eligibility",
+      "provider retention and legal approvals",
+      "dedicated-host performance and outcome lift"
+    ]
+  },
+  "logs": "Ignored work/setup-audit/ retains logs, browser traces and screenshots.",
+  "runtime_source": "3ebd4c7",
+  "browser": {
+    "distinct_journeys_with_passing_evidence": 171,
+    "full_run": {
+      "passed": 161,
+      "failed": 9,
+      "minutes": 50.6,
+      "log": "work/setup-audit/browser-full.log"
+    },
+    "focused_rerun": {
+      "passed": 9,
+      "failed": 1,
+      "log": "work/setup-audit/browser-final-reruns.log"
+    },
+    "final_purchase_rerun": {
+      "passed": 2,
+      "log": "work/setup-audit/purchase-complete.log"
+    },
+    "notes": [
+      "Five full-run failures were obsolete navigation/copy or fixed-version test assumptions; updated without weakening saves or purchase safeguards.",
+      "Three full-run deadline failures passed on focused rerun without timeout increases.",
+      "The purchase form lost typed limits to a late initial read; final code ignores superseded loads and preserves drafts.",
+      "A separate lost-HTTP-response regression failed before the UI fix; saved order status now reloads after any submission response.",
+      "One focused purchase case timed out opening the workspace. Its next isolated run exposed a fixture ordering error: it sometimes held the newest response instead of the stale one. The fixture now indexes requests before fetching; both purchase variants passed together."
+    ]
+  },
+  "visual_checks": {
+    "final_inspected": [
+      "Settings checklist",
+      "AI setup with ChatGPT selected",
+      "Numbers with quote approval expanded"
+    ],
+    "screenshots": "work/setup-audit/",
+    "note": "Source preview uses a disposable simulation workspace; no purchase approval was clicked."
+  }
+}

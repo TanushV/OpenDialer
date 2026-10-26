@@ -1,21 +1,21 @@
 # OpenDialer code map (AST snapshot)
 
-Generated from the 0.5.1 working tree (October 25, 2026) with Python's `ast` module (backend, tests, scripts) and a token count for TypeScript. It is a snapshot: regenerate sizes with `.venv/bin/python scripts/size.py`; line numbers drift as code changes. Read with [HANDOFF.md](HANDOFF.md).
+Generated from the setup audit working tree (October 26, 2026).
 
 ## Size
 
 | Area | Files | Lines | AST nodes / tokens | Baseline lines (a950675) | Change |
 |---|---:|---:|---:|---:|---:|
-| backend | 89 | 35,523 | 244,590 nodes | 39,459 | -10% lines, -10% nodes |
-| backend_tests | 47 | 11,847 | 81,959 nodes | 52,034 | -77% lines |
+| backend | 89 | 35,751 | 246,226 nodes | 39,459 | -9% lines, -9% nodes |
+| backend_tests | 48 | 12,107 | 83,449 nodes | 52,034 | -77% lines |
 | repo_tests | 4 | 668 | 3,992 nodes | 3,027 | -78% lines |
-| frontend | 55 | 17,067 | 92,329 tokens | 16,487 | +4% lines, +3% tokens |
-| frontend_tests | 51 | 9,898 | 71,815 tokens | 9,569 | +3% lines |
+| frontend | 56 | 17,539 | 95,225 tokens | 16,487 | +6% lines, +6% tokens |
+| frontend_tests | 52 | 10,157 | 73,782 tokens | 9,569 | +6% lines |
 | rust | 2 | 971 | — | 2,463 | -61% lines |
 | scripts | 11 | 1,392 | 7,764 nodes | 5,211 | -73% lines |
 | workflows | 2 | 186 | — | 680 | -73% lines |
 
-All Python together: 338,305 AST nodes (baseline about 687k). Targets in LEAN_PLAN.md: backend about -30% (missed, -9% nodes), frontend about -20% (missed, +4% tokens).
+All Python together: 341,431 AST nodes (baseline about 687k). Targets in LEAN_PLAN.md: backend about -30% (missed, -9% nodes), frontend about -20% (missed, +6% tokens).
 
 ## HTTP routes
 
@@ -23,40 +23,43 @@ Every route the authority serves, from the route decorators. Access: `principal`
 
 | Method | Path | Access | Handler |
 |---|---|---|---|
-| GET | `/auth/callback` | open | `app/main.py:1536` chatgpt_callback |
-| GET | `/health` | open | `app/main.py:441` health |
-| POST | `/v1/admin/backup` | administrator | `app/main.py:1127` backup |
+| GET | `/auth/callback` | open | `app/main.py:1559` chatgpt_callback |
+| GET | `/health` | open | `app/main.py:449` health |
+| POST | `/v1/admin/backup` | administrator | `app/main.py:1150` backup |
 | GET | `/v1/admin/billing/ledger` | administrator | `app/billing.py:427` ledger |
 | POST | `/v1/admin/billing/ledger/{identity}/reconcile` | administrator | `app/billing.py:455` reconcile |
 | POST | `/v1/admin/billing/reconcile` | administrator | `app/billing.py:459` carrier_records |
-| PUT | `/v1/admin/budget` | administrator | `app/main.py:954` budget |
-| GET | `/v1/admin/callback-routing` | administrator | `app/main.py:831` callback_routing |
-| PUT | `/v1/admin/callback-routing` | administrator | `app/main.py:835` write_callback_routing |
+| PUT | `/v1/admin/budget` | administrator | `app/main.py:962` budget |
+| GET | `/v1/admin/callback-routing` | administrator | `app/main.py:839` callback_routing |
+| PUT | `/v1/admin/callback-routing` | administrator | `app/main.py:843` write_callback_routing |
 | POST | `/v1/admin/coaching/replay` | administrator | `app/optimization/api.py:1007` replay |
-| POST | `/v1/admin/consent` | administrator | `app/main.py:1336` consent |
-| POST | `/v1/admin/control/run` | administrator | `app/main.py:1352` control_run |
+| POST | `/v1/admin/consent` | administrator | `app/main.py:1359` consent |
+| POST | `/v1/admin/control/run` | administrator | `app/main.py:1375` control_run |
 | POST | `/v1/admin/dnc/screen` | administrator | `app/compliance/screening.py:608` screen |
 | GET | `/v1/admin/dnc/screens` | administrator | `app/compliance/screening.py:556` screens |
 | POST | `/v1/admin/dnc/screens/{identity}/retry` | administrator | `app/compliance/screening.py:622` retry |
-| POST | `/v1/admin/ingress-check` | administrator | `app/main.py:823` ingress_check |
-| POST | `/v1/admin/jobs/run` | administrator | `app/main.py:1123` run_jobs |
-| POST | `/v1/admin/models/train` | administrator | `app/main.py:1389` train_model |
-| POST | `/v1/admin/models/{model_id}/activate` | administrator | `app/main.py:1172` activate |
-| POST | `/v1/admin/models/{model_id}/rollback` | administrator | `app/main.py:1395` rollback_model |
+| POST | `/v1/admin/ingress-check` | administrator | `app/main.py:831` ingress_check |
+| POST | `/v1/admin/jobs/run` | administrator | `app/main.py:1146` run_jobs |
+| POST | `/v1/admin/models/train` | administrator | `app/main.py:1412` train_model |
+| POST | `/v1/admin/models/{model_id}/activate` | administrator | `app/main.py:1195` activate |
+| POST | `/v1/admin/models/{model_id}/rollback` | administrator | `app/main.py:1418` rollback_model |
 | POST | `/v1/admin/models/{model_id}/start-trial` | administrator | `app/optimization/api.py:604` start_trial |
 | POST | `/v1/admin/models/{model_id}/stop-trial` | administrator | `app/optimization/api.py:676` stop_trial |
-| POST | `/v1/admin/models/{model_id}/trial` | administrator | `app/main.py:1621` save_trial |
-| POST | `/v1/admin/numbers` | administrator | `app/main.py:962` number |
-| POST | `/v1/admin/numbers/proposal` | administrator | `app/main.py:1044` number_proposal |
-| POST | `/v1/admin/numbers/search` | administrator | `app/main.py:1056` search_numbers |
-| GET | `/v1/admin/numbers/summary` | administrator | `app/main.py:966` numbers_summary |
-| POST | `/v1/admin/numbers/sync` | administrator | `app/main.py:1048` sync_numbers |
-| PATCH | `/v1/admin/numbers/{number_id}` | administrator | `app/main.py:1022` edit_number |
-| POST | `/v1/admin/numbers/{number_id}/configure` | administrator | `app/main.py:1052` configure_number |
+| POST | `/v1/admin/models/{model_id}/trial` | administrator | `app/main.py:1644` save_trial |
+| POST | `/v1/admin/numbers` | administrator | `app/main.py:970` number |
+| GET | `/v1/admin/numbers/orders` | administrator | `app/main.py:1109` number_orders |
+| POST | `/v1/admin/numbers/orders/{order_id}/reconcile` | administrator | `app/main.py:1120` reconcile_number_order |
+| POST | `/v1/admin/numbers/proposal` | administrator | `app/main.py:1052` number_proposal |
+| POST | `/v1/admin/numbers/purchase` | administrator | `app/main.py:1114` purchase_number |
+| POST | `/v1/admin/numbers/search` | administrator | `app/main.py:1064` search_numbers |
+| GET | `/v1/admin/numbers/summary` | administrator | `app/main.py:974` numbers_summary |
+| POST | `/v1/admin/numbers/sync` | administrator | `app/main.py:1056` sync_numbers |
+| PATCH | `/v1/admin/numbers/{number_id}` | administrator | `app/main.py:1030` edit_number |
+| POST | `/v1/admin/numbers/{number_id}/configure` | administrator | `app/main.py:1060` configure_number |
 | GET | `/v1/admin/numbers/{number_id}/review` | administrator | `app/optimization/api.py:793` number_evidence |
 | POST | `/v1/admin/numbers/{number_id}/review` | administrator | `app/optimization/api.py:797` review_number |
-| GET | `/v1/admin/operating-policy` | administrator | `app/compliance/operating.py:560` get_policy |
-| PUT | `/v1/admin/operating-policy` | administrator | `app/compliance/operating.py:596` put_policy |
+| GET | `/v1/admin/operating-policy` | administrator | `app/compliance/operating.py:561` get_policy |
+| PUT | `/v1/admin/operating-policy` | administrator | `app/compliance/operating.py:597` put_policy |
 | PUT | `/v1/admin/optimization` | administrator | `app/optimization/api.py:493` configure |
 | POST | `/v1/admin/optimization/comparisons` | administrator | `app/optimization/api.py:348` start_comparison |
 | POST | `/v1/admin/optimization/comparisons/{comparison_id}/stop` | administrator | `app/optimization/api.py:454` stop_comparison |
@@ -65,18 +68,18 @@ Every route the authority serves, from the route decorators. Access: `principal`
 | POST | `/v1/admin/optimization/refresh` | administrator | `app/optimization/api.py:596` refresh |
 | POST | `/v1/admin/optimization/train` | administrator | `app/optimization/api.py:600` train |
 | POST | `/v1/admin/optimization/trial` | administrator | `app/optimization/api.py:986` evaluate_trial |
-| POST | `/v1/admin/playbooks` | administrator | `app/main.py:1293` publish_playbook |
-| POST | `/v1/admin/policies/{policy_id}/publish` | administrator | `app/main.py:802` publish |
-| GET | `/v1/admin/preflight` | administrator | `app/main.py:819` preflight |
-| GET | `/v1/admin/recovery` | administrator | `app/main.py:1105` recovery_items |
-| POST | `/v1/admin/recovery` | administrator | `app/main.py:1101` recovery |
-| POST | `/v1/admin/recovery/agents/{identity}` | administrator | `app/main.py:1113` recover_agent |
-| POST | `/v1/admin/recovery/commands/{identity}` | administrator | `app/main.py:1109` recovery_action |
-| POST | `/v1/admin/recovery/jobs/{identity}/retry` | administrator | `app/main.py:1119` retry_job |
-| POST | `/v1/admin/registry/import` | administrator | `app/main.py:1231` registry_import |
-| POST | `/v1/admin/restore` | administrator | `app/main.py:1131` restore |
-| POST | `/v1/admin/restore/reconcile` | administrator | `app/main.py:1617` reconcile_restore |
-| POST | `/v1/admin/rnd/results` | administrator | `app/main.py:1450` import_rnd |
+| POST | `/v1/admin/playbooks` | administrator | `app/main.py:1316` publish_playbook |
+| POST | `/v1/admin/policies/{policy_id}/publish` | administrator | `app/main.py:810` publish |
+| GET | `/v1/admin/preflight` | administrator | `app/main.py:827` preflight |
+| GET | `/v1/admin/recovery` | administrator | `app/main.py:1128` recovery_items |
+| POST | `/v1/admin/recovery` | administrator | `app/main.py:1124` recovery |
+| POST | `/v1/admin/recovery/agents/{identity}` | administrator | `app/main.py:1136` recover_agent |
+| POST | `/v1/admin/recovery/commands/{identity}` | administrator | `app/main.py:1132` recovery_action |
+| POST | `/v1/admin/recovery/jobs/{identity}/retry` | administrator | `app/main.py:1142` retry_job |
+| POST | `/v1/admin/registry/import` | administrator | `app/main.py:1254` registry_import |
+| POST | `/v1/admin/restore` | administrator | `app/main.py:1154` restore |
+| POST | `/v1/admin/restore/reconcile` | administrator | `app/main.py:1640` reconcile_restore |
+| POST | `/v1/admin/rnd/results` | administrator | `app/main.py:1473` import_rnd |
 | GET | `/v1/admin/rubrics` | administrator | `app/postcall/rubrics.py:302` get_config |
 | PUT | `/v1/admin/rubrics` | administrator | `app/postcall/rubrics.py:307` save_config |
 | POST | `/v1/admin/script/import` | administrator | `app/optimization/script_lab.py:651` import_script |
@@ -87,83 +90,83 @@ Every route the authority serves, from the route decorators. Access: `principal`
 | POST | `/v1/admin/script/proposals/{proposal_id}/start` | administrator | `app/optimization/script_lab.py:721` start |
 | POST | `/v1/admin/script/rollback` | administrator | `app/optimization/script_lab.py:768` rollback |
 | PUT | `/v1/admin/script/settings` | administrator | `app/optimization/script_lab.py:686` edit_settings |
-| POST | `/v1/admin/seller/approve` | administrator | `app/main.py:1313` approve_seller |
-| GET | `/v1/admin/settings` | administrator | `app/main.py:850` read_settings |
-| PUT | `/v1/admin/settings` | administrator | `app/main.py:899` write_settings |
-| POST | `/v1/admin/snippets` | administrator | `app/main.py:1442` publish_snippet |
-| PATCH | `/v1/admin/snippets/{example_id}` | administrator | `app/main.py:1446` withdraw_snippet |
-| POST | `/v1/admin/suppressions/release-hold` | administrator | `app/main.py:598` release_hold |
-| POST | `/v1/admin/trackers` | administrator | `app/main.py:1356` publish_tracker |
-| POST | `/v1/admin/users` | administrator | `app/main.py:1135` create_user |
-| POST | `/v1/admin/workspaces` | administrator | `app/main.py:1166` create_workspace |
-| POST | `/v1/auth/logout` | principal | `app/main.py:496` logout |
-| GET | `/v1/auth/quiescence` | principal | `app/main.py:510` quiescence |
-| POST | `/v1/auth/session` | open | `app/main.py:477` login |
-| POST | `/v1/callbacks/{task_id}/hangup` | principal | `app/main.py:839` end_callback |
-| POST | `/v1/calls/start` | principal | `app/main.py:553` start_call |
-| GET | `/v1/calls/{call_id}` | principal | `app/main.py:557` get_call |
-| GET | `/v1/calls/{call_id}/analysis` | principal | `app/main.py:667` analysis |
-| PATCH | `/v1/calls/{call_id}/coach` | principal | `app/main.py:627` coach_preferences |
-| POST | `/v1/calls/{call_id}/coach` | principal | `app/main.py:639` coach |
-| POST | `/v1/calls/{call_id}/coach/cancel` | principal | `app/main.py:649` cancel_coach |
+| POST | `/v1/admin/seller/approve` | administrator | `app/main.py:1336` approve_seller |
+| GET | `/v1/admin/settings` | administrator | `app/main.py:858` read_settings |
+| PUT | `/v1/admin/settings` | administrator | `app/main.py:907` write_settings |
+| POST | `/v1/admin/snippets` | administrator | `app/main.py:1465` publish_snippet |
+| PATCH | `/v1/admin/snippets/{example_id}` | administrator | `app/main.py:1469` withdraw_snippet |
+| POST | `/v1/admin/suppressions/release-hold` | administrator | `app/main.py:606` release_hold |
+| POST | `/v1/admin/trackers` | administrator | `app/main.py:1379` publish_tracker |
+| POST | `/v1/admin/users` | administrator | `app/main.py:1158` create_user |
+| POST | `/v1/admin/workspaces` | administrator | `app/main.py:1189` create_workspace |
+| POST | `/v1/auth/logout` | principal | `app/main.py:504` logout |
+| GET | `/v1/auth/quiescence` | principal | `app/main.py:518` quiescence |
+| POST | `/v1/auth/session` | open | `app/main.py:485` login |
+| POST | `/v1/callbacks/{task_id}/hangup` | principal | `app/main.py:847` end_callback |
+| POST | `/v1/calls/start` | principal | `app/main.py:561` start_call |
+| GET | `/v1/calls/{call_id}` | principal | `app/main.py:565` get_call |
+| GET | `/v1/calls/{call_id}/analysis` | principal | `app/main.py:675` analysis |
+| PATCH | `/v1/calls/{call_id}/coach` | principal | `app/main.py:635` coach_preferences |
+| POST | `/v1/calls/{call_id}/coach` | principal | `app/main.py:647` coach |
+| POST | `/v1/calls/{call_id}/coach/cancel` | principal | `app/main.py:657` cancel_coach |
 | GET | `/v1/calls/{call_id}/coach/feedback` | principal | `app/optimization/api.py:880` read_feedback |
 | POST | `/v1/calls/{call_id}/coach/feedback` | principal | `app/optimization/api.py:897` feedback |
-| POST | `/v1/calls/{call_id}/comments` | principal | `app/main.py:677` comment |
-| POST | `/v1/calls/{call_id}/disposition` | principal | `app/main.py:586` disposition |
-| POST | `/v1/calls/{call_id}/dtmf` | principal | `app/main.py:1305` dtmf |
-| GET | `/v1/calls/{call_id}/dtmf/{request_id}` | principal | `app/main.py:1309` keypad_status |
-| POST | `/v1/calls/{call_id}/hangup` | principal | `app/main.py:582` hangup |
-| PATCH | `/v1/calls/{call_id}/notes` | principal | `app/main.py:671` edit_notes |
+| POST | `/v1/calls/{call_id}/comments` | principal | `app/main.py:685` comment |
+| POST | `/v1/calls/{call_id}/disposition` | principal | `app/main.py:594` disposition |
+| POST | `/v1/calls/{call_id}/dtmf` | principal | `app/main.py:1328` dtmf |
+| GET | `/v1/calls/{call_id}/dtmf/{request_id}` | principal | `app/main.py:1332` keypad_status |
+| POST | `/v1/calls/{call_id}/hangup` | principal | `app/main.py:590` hangup |
+| PATCH | `/v1/calls/{call_id}/notes` | principal | `app/main.py:679` edit_notes |
 | POST | `/v1/calls/{call_id}/observations/{observation_id}/review` | principal | `app/optimization/api.py:265` review_observation |
 | PUT | `/v1/calls/{call_id}/rubric` | principal | `app/postcall/rubrics.py:329` change_purpose |
-| POST | `/v1/calls/{call_id}/transcript` | principal | `app/main.py:620` transcript |
-| GET | `/v1/coaching` | principal | `app/main.py:659` coaching |
-| PUT | `/v1/coaching/goals` | principal | `app/main.py:663` coaching_goals |
-| POST | `/v1/coaching/practice` | principal | `app/main.py:653` practice |
-| GET | `/v1/definitions` | principal | `app/main.py:845` read_definitions |
-| GET | `/v1/events` | principal | `app/main.py:692` events |
-| POST | `/v1/inference/chatgpt/complete` | principal | `app/main.py:1503` chatgpt_complete |
-| POST | `/v1/inference/chatgpt/import` | principal | `app/main.py:1578` import_chatgpt_profile |
-| GET | `/v1/inference/chatgpt/models` | principal | `app/main.py:1598` chatgpt_models |
-| POST | `/v1/inference/chatgpt/start` | principal | `app/main.py:1485` chatgpt_start |
-| POST | `/v1/leads/import` | administrator | `app/main.py:604` import_leads |
+| POST | `/v1/calls/{call_id}/transcript` | principal | `app/main.py:628` transcript |
+| GET | `/v1/coaching` | principal | `app/main.py:667` coaching |
+| PUT | `/v1/coaching/goals` | principal | `app/main.py:671` coaching_goals |
+| POST | `/v1/coaching/practice` | principal | `app/main.py:661` practice |
+| GET | `/v1/definitions` | principal | `app/main.py:853` read_definitions |
+| GET | `/v1/events` | principal | `app/main.py:700` events |
+| POST | `/v1/inference/chatgpt/complete` | principal | `app/main.py:1526` chatgpt_complete |
+| POST | `/v1/inference/chatgpt/import` | principal | `app/main.py:1601` import_chatgpt_profile |
+| GET | `/v1/inference/chatgpt/models` | principal | `app/main.py:1621` chatgpt_models |
+| POST | `/v1/inference/chatgpt/start` | principal | `app/main.py:1508` chatgpt_start |
+| POST | `/v1/leads/import` | administrator | `app/main.py:612` import_leads |
 | GET | `/v1/leads/{lead_id}/conversions` | principal | `app/optimization/api.py:698` list_conversions |
 | POST | `/v1/leads/{lead_id}/conversions` | principal | `app/optimization/api.py:714` conversion |
 | POST | `/v1/leads/{lead_id}/conversions/{event_id}/retract` | principal | `app/optimization/api.py:758` retract_conversion |
-| PATCH | `/v1/leads/{lead_id}/endpoint` | administrator | `app/main.py:1237` correct_endpoint |
-| POST | `/v1/leads/{lead_id}/meeting` | principal | `app/main.py:590` report_meeting |
-| PATCH | `/v1/leads/{lead_id}/outreach` | principal | `app/main.py:1301` review_outreach |
-| GET | `/v1/leads/{lead_id}/packet` | principal | `app/main.py:608` packet |
-| WEBSOCKET | `/v1/live` | open | `app/main.py:738` live |
-| POST | `/v1/local/session` | open | `app/main.py:467` local_session |
-| GET | `/v1/metrics` | principal | `app/main.py:525` metrics |
+| PATCH | `/v1/leads/{lead_id}/endpoint` | administrator | `app/main.py:1260` correct_endpoint |
+| POST | `/v1/leads/{lead_id}/meeting` | principal | `app/main.py:598` report_meeting |
+| PATCH | `/v1/leads/{lead_id}/outreach` | principal | `app/main.py:1324` review_outreach |
+| GET | `/v1/leads/{lead_id}/packet` | principal | `app/main.py:616` packet |
+| WEBSOCKET | `/v1/live` | open | `app/main.py:746` live |
+| POST | `/v1/local/session` | open | `app/main.py:475` local_session |
+| GET | `/v1/metrics` | principal | `app/main.py:533` metrics |
 | GET | `/v1/optimization` | principal | `app/optimization/api.py:344` report |
 | GET | `/v1/optimization/conversations` | principal | `app/optimization/api.py:204` conversation_report |
 | GET | `/v1/optimization/script` | principal | `app/optimization/script_lab.py:647` script_lab |
 | GET | `/v1/optimization/script/memory.md` | principal | `app/optimization/script_lab.py:667` script_memory |
 | GET | `/v1/optimization/strategies` | principal | `app/optimization/api.py:449` strategies |
-| GET | `/v1/preparation` | principal | `app/main.py:612` preparation |
-| POST | `/v1/queue/next` | principal | `app/main.py:549` next_lead |
-| POST | `/v1/rep/heartbeat` | principal | `app/main.py:537` heartbeat |
-| POST | `/v1/rep/presence` | principal | `app/main.py:533` presence |
-| GET | `/v1/rep/work` | principal | `app/main.py:541` work_intervals |
-| PATCH | `/v1/rep/work/{interval_id}` | principal | `app/main.py:545` edit_work |
-| POST | `/v1/research/batches` | administrator | `app/main.py:616` research |
+| GET | `/v1/preparation` | principal | `app/main.py:620` preparation |
+| POST | `/v1/queue/next` | principal | `app/main.py:557` next_lead |
+| POST | `/v1/rep/heartbeat` | principal | `app/main.py:545` heartbeat |
+| POST | `/v1/rep/presence` | principal | `app/main.py:541` presence |
+| GET | `/v1/rep/work` | principal | `app/main.py:549` work_intervals |
+| PATCH | `/v1/rep/work/{interval_id}` | principal | `app/main.py:553` edit_work |
+| POST | `/v1/research/batches` | administrator | `app/main.py:624` research |
 | POST | `/v1/scorecards/{scorecard_id}/review` | principal | `app/postcall/review.py:87` save_review |
-| POST | `/v1/setup` | open | `app/main.py:453` setup |
-| POST | `/v1/simulation/event` | principal | `app/main.py:775` simulation_event |
-| POST | `/v1/simulation/seed` | administrator | `app/main.py:529` seed |
-| POST | `/v1/suppressions` | principal | `app/main.py:594` suppress |
-| PATCH | `/v1/tasks/{task_id}` | principal | `app/main.py:1297` task_status |
-| POST | `/v1/telephony/agent` | principal | `app/main.py:1340` agent_leg |
-| GET | `/v1/telephony/agent/{provider_id:path}` | principal | `app/main.py:1344` agent_status |
-| POST | `/v1/telephony/token` | principal | `app/main.py:781` telephony_token |
-| GET | `/v1/workspace` | principal | `app/main.py:515` workspace |
-| GET | `/v1/workspace/{section}` | principal | `app/main.py:519` workspace_page |
-| GET | `/webhooks/ingress-check/{nonce}` | open | `app/main.py:827` ingress_challenge |
-| POST | `/webhooks/telnyx` | open | `app/main.py:1197` webhook |
+| POST | `/v1/setup` | open | `app/main.py:461` setup |
+| POST | `/v1/simulation/event` | principal | `app/main.py:783` simulation_event |
+| POST | `/v1/simulation/seed` | administrator | `app/main.py:537` seed |
+| POST | `/v1/suppressions` | principal | `app/main.py:602` suppress |
+| PATCH | `/v1/tasks/{task_id}` | principal | `app/main.py:1320` task_status |
+| POST | `/v1/telephony/agent` | principal | `app/main.py:1363` agent_leg |
+| GET | `/v1/telephony/agent/{provider_id:path}` | principal | `app/main.py:1367` agent_status |
+| POST | `/v1/telephony/token` | principal | `app/main.py:789` telephony_token |
+| GET | `/v1/workspace` | principal | `app/main.py:523` workspace |
+| GET | `/v1/workspace/{section}` | principal | `app/main.py:527` workspace_page |
+| GET | `/webhooks/ingress-check/{nonce}` | open | `app/main.py:835` ingress_challenge |
+| POST | `/webhooks/telnyx` | open | `app/main.py:1220` webhook |
 
-139 route declarations.
+142 route declarations.
 
 ## Backend modules (`services/backend/app`)
 
@@ -352,7 +355,7 @@ Scoped consent evidence; a revocation immediately stops the permissions it names
 - `revoke_effects()` :65
 - `record()` :116
 
-### `compliance/operating.py` (659 lines, 3,994 nodes)
+### `compliance/operating.py` (660 lines, 3,996 nodes)
 
 No-recurring-spend policy and seller-authorized, cached prepaid screening.
 
@@ -362,20 +365,20 @@ No-recurring-spend policy and seller-authorized, cached prepaid screening.
 - class `OperatingEdit`(OperatingPolicy) :78
 - class `ScreeningRequest`(BaseModel) :83
 - class `DNCAuthorization`(BaseModel) :88 — reference_not_blank:98, valid_area_codes:105, zoned_timestamp:112
-- `cost_register()` :238
-- `authority_stamp()` :250
-- `source_expiry()` :256
-- `screening_capability()` :274
-- `screening_snapshot()` :402
-- `screening_key()` :439
-- `screening_page()` :443
-- `prepaid_snapshot()` :491
-- `authorized_screen()` :504
-- `cached_screen()` :509
-- `screening_max_age()` :538
-- `screening_expiry()` :543
-- `usable_screen()` :553
-- `bind_operating_api()` :558
+- `cost_register()` :239
+- `authority_stamp()` :251
+- `source_expiry()` :257
+- `screening_capability()` :275
+- `screening_snapshot()` :403
+- `screening_key()` :440
+- `screening_page()` :444
+- `prepaid_snapshot()` :492
+- `authorized_screen()` :505
+- `cached_screen()` :510
+- `screening_max_age()` :539
+- `screening_expiry()` :544
+- `usable_screen()` :554
+- `bind_operating_api()` :559
 
 ### `compliance/phone.py` (27 lines, 132 nodes)
 
@@ -495,7 +498,7 @@ A complete, source-bound publication review; model review is not factual proof.
 - `jobdoc()` :26
 - class `JobQueue` :41 — __init__:42, require_owned_in:45, enqueue:58, enqueue_in:70, claim_many:138, coalesce_live_in:159, complete:202, fail:205, coalesce_refresh:208, _finish:219, heartbeat:269, next_due:282, recover_expired:289, get:310
 
-### `main.py` (1,665 lines, 10,911 nodes)
+### `main.py` (1,688 lines, 11,109 nodes)
 
 - class `Strict`(BaseModel) :38
 - class `RecoveryEdit`(Strict) :42 — attested:49
@@ -523,13 +526,14 @@ A complete, source-bound publication review; model review is not factual proof.
 - class `SimulationEvent`(Strict) :187
 - class `Budget`(Strict) :194
 - class `NumberInput`(Strict) :200
-- class `PolicyUpdate`(Strict) :208
-- class `ProviderSettings`(Strict) :231
-- `write_conflict()` :280
-- `_bound()` :291
-- `field_bounds()` :306
-- `setting_bounds()` :321
-- `create_app()` :357
+- class `NumberPurchase`(Strict) :208
+- class `PolicyUpdate`(Strict) :213
+- class `ProviderSettings`(Strict) :236
+- `write_conflict()` :288
+- `_bound()` :299
+- `field_bounds()` :314
+- `setting_bounds()` :329
+- `create_app()` :365
 
 ### `measurement.py` (372 lines, 2,827 nodes)
 
@@ -604,13 +608,13 @@ One temporary CPU child; no authority, secrets, network clients or extra service
 - `train_isolated()` :157
 - `main()` :205
 
-### `number_operations.py` (652 lines, 4,697 nodes)
+### `number_operations.py` (799 lines, 5,826 nodes)
 
 Reconcile owned inventory and one durable configuration intent per number/route.
 
-- class `ExternalReputation`(BaseModel) :17 — ordered:26
-- `carrier_rejection()` :32
-- class `NumberOperations` :52 — number_owners:53, number_readiness_in:68, number_review_view:99, number_workload_ceiling:143, confirm_callback_in:152, reassign_number:181, _configuration_actor:245, sync_numbers:250, _merge_inventory:255, _claim_number_configuration:361, _allow_configuration_retry:431, configure_owned_number:452, _configuration_receipt:503, _claim_number_check:525, reconcile_number_configuration:560, _finish_number_configuration:573
+- class `ExternalReputation`(BaseModel) :18 — ordered:27
+- `carrier_rejection()` :33
+- class `NumberOperations` :53 — purchase_orders_in:54, _claim_purchase:68, _purchase_receipt:117, purchase_number:125, reconcile_number_order:178, number_owners:200, number_readiness_in:215, number_review_view:246, number_workload_ceiling:290, confirm_callback_in:299, reassign_number:328, _configuration_actor:392, sync_numbers:397, _merge_inventory:402, _claim_number_configuration:508, _allow_configuration_retry:578, configure_owned_number:599, _configuration_receipt:650, _claim_number_check:672, reconcile_number_configuration:707, _finish_number_configuration:720
 
 ### `operational_schema.py` (405 lines, 2,114 nodes)
 
@@ -997,17 +1001,17 @@ A dedicated, bounded Cerebras route; no provider or model fallback.
 - `truncated_turn()` :140
 - class `OpenRouterCoach` :154 — __init__:155, _send:163, _complete:260, suggest:380, review:429
 
-### `providers/simulated.py` (75 lines, 411 nodes)
+### `providers/simulated.py` (93 lines, 510 nodes)
 
 - class `UncertainCarrierResult`(TimeoutError) :4
 - class `CarrierNotSubmitted`(RuntimeError) :8
-- class `SimulatedCarrier` :12 — __init__:15, dial:25, reconcile:35, hangup:41, playback:48, action:52, token:56, list_numbers:59, configure_number:62, get_number:66, search_numbers:69
+- class `SimulatedCarrier` :12 — __init__:15, dial:25, reconcile:35, hangup:41, playback:48, action:52, token:56, list_numbers:59, configure_number:62, get_number:66, search_numbers:69, purchase_number:77, find_number_order:89
 
-### `providers/telnyx.py` (226 lines, 1,314 nodes)
+### `providers/telnyx.py` (265 lines, 1,522 nodes)
 
 - class `CarrierConfigurationError`(ValueError) :12
 - `verify_webhook()` :16
-- class `TelnyxCarrier` :28 — __init__:31, request:36, dial:58, token:85, hangup:96, action:99, playback:108, reconcile:111, list_numbers:129, search_numbers:158, configure_number:172, get_number:187, verify_incoming_only_credential:192
+- class `TelnyxCarrier` :28 — __init__:31, request:36, dial:58, token:85, hangup:96, action:99, playback:108, reconcile:111, list_numbers:129, search_numbers:160, purchase_number:174, find_number_order:186, configure_number:202, get_number:217, number_recording:224, verify_incoming_only_credential:231
 
 ### `rep_workflows.py` (1,220 lines, 7,889 nodes)
 
@@ -1186,6 +1190,7 @@ Bounded workspace previews and resumable encrypted history; no new search store.
 - `services/backend/tests/acceptance/test_feature_script_learning.py` — 12 test functions
 - `services/backend/tests/acceptance/test_feature_smoke.py` — 1 test functions
 - `services/backend/tests/acceptance/test_feature_workspace.py` — 10 test functions
+- `services/backend/tests/acceptance/test_number_purchase.py` — 8 test functions
 - `services/backend/tests/acceptance/test_simple_script.py` — 2 test functions
 - `services/backend/tests/test_action_tools.py` — 5 test functions
 - `services/backend/tests/test_adaptive_capacity.py` — 1 test functions
@@ -1213,7 +1218,7 @@ Bounded workspace previews and resumable encrypted history; no new search store.
 - `services/backend/tests/test_sqlite_plans.py` — 1 test functions
 - `services/backend/tests/test_store_format.py` — 1 test functions
 - `services/backend/tests/test_strategy_policy.py` — 4 test functions
-- `services/backend/tests/test_telnyx_contracts.py` — 24 test functions
+- `services/backend/tests/test_telnyx_contracts.py` — 25 test functions
 - `services/backend/tests/test_time_capacity.py` — 25 test functions
 - `services/backend/tests/test_training_isolation.py` — 19 test functions
 - `services/backend/tests/test_unified_planning.py` — 40 test functions
@@ -1225,7 +1230,7 @@ Bounded workspace previews and resumable encrypted history; no new search store.
 ## Frontend (`apps/desktop/src`)
 
 - `App.tsx` (942 lines): Brand, App
-- `api/client.ts` (238 lines): ApiError, localEdit, canUseOfflineCache, native, ProviderCredential, assertNoPendingOptouts, TunnelConfig, TunnelStatus, tunnelStatus, saveTunnel, localRuntime, waitForRuntime, REQUEST_TIMEOUT_MS, LONG_REQUEST_MS, RequestOptions, request, SavedSession, saveSession, loadSession, clearSession, openSource, validateServer, readCache, writeCache
+- `api/client.ts` (250 lines): ApiError, localEdit, canUseOfflineCache, native, ProviderCredential, assertNoPendingOptouts, TunnelConfig, TunnelStatus, tunnelStatus, saveTunnel, localRuntime, waitForRuntime, REQUEST_TIMEOUT_MS, LONG_REQUEST_MS, RequestOptions, request, SavedSession, saveSession, loadSession, clearSession, openSource, validateServer, readCache, writeCache
 - `api/live.ts` (182 lines): LiveEvent, liveUrl, LiveConnection
 - `components/AdminWorkflows.tsx` (111 lines): AccessAndRecovery
 - `components/AdvancedIntelligence.tsx` (126 lines): Trackers
@@ -1236,16 +1241,17 @@ Bounded workspace previews and resumable encrypted history; no new search store.
 - `components/ConversationLearning.tsx` (195 lines): ConversationLearning
 - `components/ConversationObservations.tsx` (77 lines): ConversationObservations
 - `components/ConversionForm.tsx` (133 lines): ConversionForm
-- `components/CredentialField.tsx` (58 lines): CredentialField
+- `components/CredentialField.tsx` (65 lines): CredentialField
 - `components/DialerPage.tsx` (1018 lines): DialerPage
 - `components/DncScreeningPanel.tsx` (199 lines): DncScreeningPanel
-- `components/FollowupTasks.tsx` (345 lines): FollowupTasks, DueTasks
+- `components/FollowupTasks.tsx` (347 lines): FollowupTasks, DueTasks
 - `components/HistoryMore.tsx` (36 lines): HistoryMore
 - `components/InboundCall.tsx` (91 lines): InboundCall
 - `components/Keypad.tsx` (233 lines): Keypad
 - `components/LiveCoach.tsx` (407 lines): LiveCoach
+- `components/NumberPurchasing.tsx` (312 lines): NumberPurchasing
 - `components/OperatingPolicySettings.tsx` (615 lines): OperatingPolicySettings
-- `components/Operations.tsx` (1712 lines): LeadsPage, NumbersPage, IntelligencePage, Empty
+- `components/Operations.tsx` (1720 lines): LeadsPage, NumbersPage, IntelligencePage, Empty
 - `components/OptimizationPanel.tsx` (630 lines): HealthPolicy, OptimizationSettings, OptimizationReport, useOptimizationReport, ReportState, OptimizationPanel, LearningAdvanced
 - `components/Preparation.tsx` (313 lines): PreparationRunway, PreparationSettings
 - `components/ProductKnowledge.tsx` (166 lines): ProductKnowledge
@@ -1256,8 +1262,8 @@ Bounded workspace previews and resumable encrypted history; no new search store.
 - `components/ScoreReview.tsx` (220 lines): ScoreReview
 - `components/ScriptMemory.tsx` (563 lines): Markdown, ScriptMemory
 - `components/ScriptReader.tsx` (41 lines): ScriptReader
-- `components/ScriptUpload.tsx` (141 lines): ScriptUpload
-- `components/SettingsPage.tsx` (2090 lines): SettingsPage
+- `components/ScriptUpload.tsx` (158 lines): ScriptUpload
+- `components/SettingsPage.tsx` (2204 lines): SettingsPage
 - `components/Staffing.tsx` (321 lines): StaffedWindow, SimpleStaffing, ZonePicker, WeeklySchedule, DatedStaffing
 - `components/TrialControls.tsx` (647 lines): ControlledComparison, Experiments
 - `components/WorkTime.tsx` (223 lines): WorkTime, CallingHealth

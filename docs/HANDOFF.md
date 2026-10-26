@@ -1,7 +1,7 @@
 # OpenDialer testing handoff (CURRENT)
 
-> **Status: CURRENT — 0.5.1 locally verified**, October 25, 2026.
-> Previous release: `096c55f` / 0.5.0, CI 40164184233 passed all jobs including 164 browser cases.
+> **Status: CURRENT — unreleased setup/journey fixes locally verified on 0.5.1**, October 26, 2026.
+> Historical 0.5.0 release: `096c55f`, CI 40164184233 passed all jobs including 164 browser cases.
 > Includes script learning and the review fixes described below. This is the single current handoff.
 > Read with [HANDOFF_AST.md](HANDOFF_AST.md) and [SCRIPT_LEARNING.md](SCRIPT_LEARNING.md).
 
@@ -10,13 +10,22 @@ Live-provider and clean-machine installer gates remain open. Continue finding wh
 adding tests before fixes, and supporting approved live testing. Read this file, then `AGENTS.md`, then the
 Status section of `docs/LEAN_PLAN.md`.
 
-## Current 0.5.1 changes
+## October 26 setup and journey audit (locally verified, unreleased)
+
+The owner's new request replaces the blanket new-rental ban with exact-quote approval.
+Numbers now supports maximum owned count, maximum initial cost per number and a monthly cap on app-ordered rentals. Zero limits block purchases. Search is read-only; approval rechecks the price and creates one durable intent. Repeating or reconciling an uncertain order never resubmits it. Routing, identity and real callback checks still gate outbound use. Existing carrier rentals, taxes and usage remain separate from the app-order rental cap.
+
+Setup puts ChatGPT beside OpenRouter, saves the Telnyx key and connection in one action, allows clearing optional fields, refreshes provider versions across tabs, and provides retries for script and inventory reads. SSH ingress lives beside Telnyx. The installed app and real provider accounts are untouched during this audit. Current evidence: [receipt](evidence/lean/setup-journeys-20261026.json), runtime source `3ebd4c7`. Full suites: SQLite 677 / 2 skips, PostgreSQL 680 / 1; later targeted additions/corrections bring distinct passing cases to 682 / 683. All 171 browser journeys have passing evidence (161 full-run passes, then focused reruns); 77 frontend and seven Rust tests, formatting/typecheck/build/Clippy pass. The receipt preserves failed runs and corrections. Logs and visual checks are under ignored `work/setup-audit/`. The 0.5.1 results below are historical for this new source.
+
+Telnyx number readiness now reads recording evidence from the documented voice endpoint. Number ordering also preserves drafts across version conflicts and stale reads, and reloads its durable order status after a lost HTTP response. Live provisioning, audio, funded inference, account eligibility and clean-machine installation remain unverified.
+
+## Previous 0.5.1 changes
 
 - Prerecorded voicemail drop controls and endpoint removed. Previously queued outbound playback/gather commands cannot send a message. In-flight cleanup remains available.
 - New campaigns default to 08:00–21:00 prospect-local time. Existing published hours are preserved until an explicit Settings edit. The owner requested updating this Mac’s campaign hours and signed app installation.
 - Regression tests cover opening/closing boundaries in Eastern/Pacific time in winter and summer, removed drop routes, and stale queued drops.
 
-## Current 0.5.1 verification
+## Previous 0.5.1 verification
 
 [Receipt](evidence/lean/voicemail-hours-051-20261025.json), runtime source `0976008`.
 SQLite 670 passed / 2 skips; PostgreSQL 671 / 1; frontend 75 tests, format/typecheck/build; Rust 7 tests, fmt and Clippy passed.

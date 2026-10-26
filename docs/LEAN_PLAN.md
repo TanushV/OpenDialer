@@ -305,3 +305,13 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 - 0.5.1 locally verified (October 25): [receipt](evidence/lean/voicemail-hours-051-20261025.json). SQLite 670 / 2 skips, PostgreSQL 671 / 1, frontend 75, Rust 7; all 164 browser cases have passing evidence (163 full-run passes plus the corrected rubric test on rerun). The rubric test now checks a successful save receipt and preserves drafts through an injected version conflict. Mac sidecars/package/archive/DMG, simulated call/callback restart and trainer checks pass. Existing Mac campaign hours explicitly saved as 08:00–21:00; signed release/install follow in GitHub and the updater. Native test PostgreSQL stopped. No live calls or paid actions.
 
 - October 26 setup and whole-app journey audit (in progress): the owner requests simpler, working setup and in-app number procurement with permission. This supersedes the earlier blanket rental ban for explicitly approved, priced number orders only. Add count and rental-spend limits, persistent order receipts and read-only reconciliation; preserve manual carrier identity/callback checks before outbound readiness. Other subscriptions remain blocked. No live purchases, release publication or installed-app changes are part of this audit. Regression-first fixes cover clearing provider fields, visible ChatGPT setup, and lost purchase responses. New feature code is justified by this restored end feature rather than hardening machinery.
+
+- October 26 setup/journey fixes locally verified (runtime source `3ebd4c7`): [receipt](evidence/lean/setup-journeys-20261026.json).
+  Explicit quote approval, number-count and rental limits, persistent order reconciliation, and documented Telnyx
+  voice-setting read-back are implemented. Setup exposes ChatGPT alongside live coaching, saves Telnyx credentials
+  together, clears optional fields correctly, preserves edits and offers retries for failed loads. Late reads and lost
+  purchase HTTP responses have regression coverage. Full SQLite 677 / 2 skips and PostgreSQL 680 / 1; final targeted
+  provider cases bring distinct passing evidence to 682 / 683. All 171 browser journeys have passing evidence across
+  the full run and focused reruns; 77 frontend and seven Rust tests, format/typecheck/build/Clippy pass. No timeout
+  increases. Source grows for the owner-restored procurement feature; prior size targets remain missed. No live
+  provider spending, new release artifacts, installed-app or installed-data changes. GitHub checks are tracked in Actions.
