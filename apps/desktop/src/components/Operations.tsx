@@ -1,3 +1,4 @@
+import { NumberPurchasing } from "./NumberPurchasing";
 import { ProductKnowledge } from "./ProductKnowledge";
 import {
   ArrowRight,
@@ -717,6 +718,13 @@ export function NumbersPage() {
           use. Inbound identities remain retained.
         </p>
       </section>
+      <NumberPurchasing
+        onChanged={async () => {
+          await refresh();
+          await history.load();
+          await plan.load();
+        }}
+      />
       <section className="card table-card">
         <div className="table-toolbar">
           <h3>Your number inventory</h3>
@@ -776,8 +784,8 @@ export function NumbersPage() {
           <h2>Start small. Stay reachable.</h2>
           <p className="muted">
             Owned inventory moves through identity setup, a real inbound
-            callback test, and limited legitimate use. Evidence is required
-            before each promotion. New rentals are blocked by your cost policy.
+            callback test, and limited legitimate use. New rentals require an
+            exact quote and your approval.
           </p>
           <div className="lifecycle">
             Purchased
@@ -1145,8 +1153,8 @@ function CapacityPlan({
               forecast.expansion_review.next_review_at
                 ? `Review again after ${date(forecast.expansion_review.next_review_at)}. `
                 : ""}
-              New rentals remain blocked; this advice does not purchase
-              capacity.
+              Review available numbers and their costs under Add numbers with
+              approval. This plan does not place an order.
             </p>
           </div>
         )}
@@ -1203,9 +1211,9 @@ function CapacityPlan({
           {forecast.monthly_rental_estimate_usd == null
             ? "Not established"
             : `$${forecast.monthly_rental_estimate_usd.toFixed(2)}`}
-          . New rentals are blocked under the no-subscription policy, so the
-          minimum addition is a proposal only and nothing is purchased. Existing
-          rental obligations remain.
+          . This plan does not purchase numbers. Review an exact quote under Add
+          numbers with approval before accepting any rental. Existing rental
+          obligations remain.
         </p>
       </section>
     </>

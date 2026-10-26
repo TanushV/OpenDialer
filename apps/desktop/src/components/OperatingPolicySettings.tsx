@@ -66,7 +66,7 @@ function reference(name: string, cost: Cost) {
     case "dnc":
       return `${money(c.prepaid_minimum_usd)} / ${(c.credits ?? 0).toLocaleString("en-US")} queries; no recurring charge. Seller access is separate.`;
     case "number_rental":
-      return `From ${money(c.from_monthly_usd)}/month. Existing rental obligations remain; new recurring commitments blocked.`;
+      return `From ${money(c.from_monthly_usd)}/month. Existing rental obligations remain; new rentals require explicit approval in Numbers.`;
     default:
       return cost.rate_fields.length
         ? cost.rate_fields
@@ -137,11 +137,11 @@ export function OperatingPolicySettings() {
   return (
     <section className="card padded operating-policy">
       <span className="eyebrow">PRIVACY & USAGE COSTS</span>
-      <h2>No subscriptions</h2>
+      <h2>Spending permissions</h2>
       <p>
-        Use existing numbers and pay for permitted usage. New number rentals and
-        Telnyx's reputation subscription are blocked. Existing carrier rentals
-        remain payable.
+        Number rentals require saved limits and approval of each quote in
+        Numbers. Telnyx's reputation subscription remains blocked. Existing
+        carrier rentals remain payable.
       </p>
       <p>
         <strong>Raw calls and transcripts: five minutes at most.</strong> Call

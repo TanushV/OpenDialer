@@ -37,7 +37,7 @@ async function enter(page: Page, connected: boolean) {
   }
   await expect(page.getByText("SIMULATION", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByText("Advanced", { exact: true }).click();
+  await page.getByTestId("setup-helper").locator(":scope > summary").click();
   await page
     .getByLabel("Preparation and analysis route")
     .selectOption("chatgpt_plan");

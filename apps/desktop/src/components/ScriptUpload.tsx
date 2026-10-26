@@ -11,8 +11,15 @@ export function ScriptUpload() {
   const [preview, setPreview] = useState<Partial<Script> | null>(null);
   const [editing, setEditing] = useState(false);
   const [editingVersion, setEditingVersion] = useState<number | null>(null);
-  const load = async () =>
-    setBase((await api<{ base: Base }>("/v1/optimization/script")).base);
+  const [loadError, setLoadError] = useState("");
+  const load = async () => {
+    try {
+      setBase((await api<{ base: Base }>("/v1/optimization/script")).base);
+      setLoadError("");
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : String(error));
+    }
+  };
   useEffect(() => {
     void run(load);
     return subscribe((events) => {
@@ -47,6 +54,15 @@ export function ScriptUpload() {
         Use headings for the opening, questions, offers and objections. Each
         becomes a section you can read while calling.
       </p>
+      {loadError && (
+        <p role="alert">
+          Your script could not be loaded: {loadError}{" "}
+          <button className="secondary" onClick={() => void run(load)}>
+            Retry loading script
+          </button>
+        </p>
+      )}
+      {!base && !loadError && <p role="status">Loading your script…</p>}
       {editing && base?.version !== editingVersion && (
         <p role="status">
           The script changed while you were editing. Reopen the editor to review
@@ -128,6 +144,7 @@ export function ScriptUpload() {
         </>
       )}
       {!editing &&
+        base &&
         (base?.template ? (
           <ScriptReader script={base.template} />
         ) : (

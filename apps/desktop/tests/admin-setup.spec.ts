@@ -2,6 +2,119 @@ import { expect, test, type Page } from "./fixtures";
 
 const AUTHORITY = "http://127.0.0.1:8765";
 
+test("setup inventory failures have a working retry", async ({ page }) => {
+  let failed = true;
+  await page.route("**/v1/admin/numbers/summary", (route) =>
+    failed
+      ? route.fulfill({
+          status: 503,
+          json: { detail: "Inventory temporarily unavailable" },
+        })
+      : route.continue(),
+  );
+  await enter(page);
+  await openSettings(page);
+  await page.getByTestId("setup-numbers").locator(":scope > summary").click();
+  const retry = page.getByRole("button", { name: "Retry number totals" });
+  await expect(retry).toBeVisible();
+  failed = false;
+  await retry.click();
+  await expect(page.getByTestId("setup-numbers")).toContainText("2 owned");
+});
+
+test("saving Telnyx saves the pasted key and connection together", async ({
+  page,
+}) => {
+  await enter(page);
+  await openSettings(page);
+  await page.getByTestId("setup-telnyx").locator(":scope > summary").click();
+  await page
+    .getByLabel("Telnyx API key", { exact: true })
+    .fill("synthetic-onboarding-key");
+  const connection = `synthetic-connection-${Date.now()}`;
+  await page.getByLabel("Call Control connection ID").fill(connection);
+  const saved = page.waitForResponse(
+    (r) =>
+      r.url().endsWith("/v1/admin/settings") && r.request().method() === "PUT",
+  );
+  await page
+    .getByRole("button", { name: "Save Telnyx settings", exact: true })
+    .click();
+  const response = await saved;
+  expect(response.ok()).toBeTruthy();
+  expect(response.request().postDataJSON()).toMatchObject({
+    telnyx_api_key: "synthetic-onboarding-key",
+    telnyx_connection_id: connection,
+  });
+  await expect(page.getByLabel("Telnyx API key", { exact: true })).toHaveValue(
+    "",
+  );
+});
+
+test("a failed script load offers retry instead of a permanently disabled editor", async ({
+  page,
+}) => {
+  let failed = true;
+  await page.route("**/v1/optimization/script", (route) =>
+    failed
+      ? route.fulfill({
+          status: 503,
+          json: { detail: "Temporarily unavailable" },
+        })
+      : route.continue(),
+  );
+  await enter(page);
+  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  const retry = page.getByRole("button", { name: "Retry loading script" });
+  await expect(retry).toBeVisible();
+  failed = false;
+  await retry.click();
+  await expect(
+    page.getByRole("button", { name: "Upload or paste script" }),
+  ).toBeEnabled();
+});
+
+test("provider edits can clear saved optional values", async ({ page }) => {
+  await enter(page);
+  await openSettings(page);
+  await page.getByTestId("setup-telnyx").locator(":scope > summary").click();
+  const reference = page.getByLabel("Public HTTPS webhook URL");
+  await reference.fill("https://example.test/webhooks/telnyx");
+  const save = async () => {
+    const response = page.waitForResponse(
+      (r) =>
+        r.url().endsWith("/v1/admin/settings") &&
+        r.request().method() === "PUT",
+    );
+    await page.getByRole("button", { name: "Save Telnyx settings" }).click();
+    expect((await response).ok()).toBeTruthy();
+  };
+  await save();
+  await reference.fill("");
+  await save();
+  await page.reload();
+  await openSettings(page);
+  await page.getByTestId("setup-telnyx").locator(":scope > summary").click();
+  await expect(reference).toHaveValue("");
+});
+
+test("ChatGPT setup is discoverable without opening advanced settings", async ({
+  page,
+}) => {
+  await enter(page);
+  await openSettings(page);
+  await page.getByTestId("setup-helper").locator(":scope > summary").click();
+  await page
+    .getByLabel("Preparation and analysis route")
+    .selectOption("chatgpt_plan");
+  await expect(
+    page.getByRole("button", { name: "Continue with ChatGPT" }),
+  ).toBeVisible();
+  await expect(page.getByLabel("OpenAI API key", { exact: true })).toHaveCount(
+    0,
+  );
+});
+
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: "ignoreErrors" });
 });
@@ -428,7 +541,7 @@ test("numbers show whole-inventory counts and one capacity view without a planni
     page.getByRole("region", { name: "Capacity before procurement" }),
   ).toHaveCount(1);
   await expect(
-    page.getByText(/minimum addition is a proposal only/),
+    page.getByText(/This plan does not purchase numbers/),
   ).toBeVisible();
 });
 

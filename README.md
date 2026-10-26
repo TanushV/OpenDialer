@@ -12,7 +12,7 @@ Run the backend and the UI from source (see Develop), open the UI and choose **T
 
 1. Choose the workspace, campaign and audio device, then Go ready. Press **Space** or **Next call** to call the scheduler's next eligible lead. Get next lead previews the person and script first. The scheduler decides when another attempt is worthwhile, within campaign limits; there is no unconditional double dial.
 2. Read the plain-text script. In **Intelligence**, upload or paste Markdown, preview its sections and save it. Headings can describe openings, questions, offers, objections and alternate wording. Script memory & variations holds the learning history and controlled tests. The helper above it follows stable turns and may stay quiet; F1 asks for private help. Mute, pin or dismiss tips and mark them useful, wrong or late.
-3. Use Opt out the moment it is asked for (or the prospect presses 9). Voicemail is offered only on the final permitted attempt.
+3. Use Opt out the moment it is asked for (or the prospect presses 9). Voicemail detection remains available; prerecorded voicemail drop is removed.
 4. Confirmed carrier results and supported, reviewed AI outcomes save automatically; expand **Correct outcome** to amend them. Unknown results, bookings and callback times still need confirmation. Optionally enable the next scheduled call five seconds after voicemail ends; Cancel and Pause after call take precedence. Voicemail drop is not available; a detected mailbox is not proof a message was delivered. New workspaces allow calls from 8 a.m. until 9 p.m. in the prospect’s timezone; existing campaign hours are editable in Settings.
 5. In Follow-ups, confirm, reschedule, snooze, assign, complete or cancel tasks. Pause when unavailable.
 
@@ -24,9 +24,17 @@ Raw speech, quotes and helper text expire within five minutes. There is no call 
 
 ## Local workspace
 
-Choose **Set up on this computer**. The bundled authority listens only on a random loopback port with a per-launch token. Import a CSV with `name,phone,company,domain,timezone,region,segment,jurisdiction`. In Settings, enter provider keys (stored on this computer as plain JSON), approve the business identity, publish a campaign policy, import registry data and set budgets. In Numbers, sync your existing Telnyx numbers; buying numbers is blocked by policy. Run preflight before going ready. Signed Telnyx events need an HTTPS webhook route; see [deploy](deploy/runbooks/deploy.md) for the SSH forwarding recipe.
+Choose **Start a local workspace**. The bundled authority listens only on a random loopback port with a per-launch token. Import a CSV with `name,phone,company,domain,timezone,region,segment,jurisdiction`. In Settings, enter provider keys (stored on this computer as plain JSON), approve the business identity, publish a campaign policy, import registry data and set budgets. In Numbers, sync existing Telnyx numbers or set count/cost limits, find a current quote and approve a rental. Allocation uses ready inventory automatically; purchasing does not skip routing or callback setup. Run preflight before going ready. Signed Telnyx events need an HTTPS webhook route; see [deploy](deploy/runbooks/deploy.md) for the SSH forwarding recipe.
 
-Research and script writing can use OpenAI, an OpenAI-compatible endpoint or a rep's own ChatGPT plan. Live help and rundowns use Cerebras through OpenRouter. See [providers](deploy/runbooks/providers.md).
+The setup path is **Settings → Setup**:
+
+1. **Calling (Telnyx):** paste the Telnyx API v2 key, Call Control connection ID, webhook public key and public HTTPS webhook URL. Add the agent credential and carrier approval details. **Save Telnyx settings** saves the key and connection fields together. Local calling needs a reachable webhook forward; check the saved ingress.
+2. **AI assistance:** add an OpenRouter key for the Cerebras live helper and rundowns. For research/script writing, select **Official eligible ChatGPT plan usage → Continue with ChatGPT**; that route does not need an OpenAI API key. An OpenAI key or compatible endpoint is an alternative, not an additional requirement.
+3. Complete business identity, campaign hours, authorized DNC coverage and budgets. A DNC API key is needed only for the configured prepaid lookup route; importing authorized registry data is a separate supported path.
+4. In **Numbers**, sync owned numbers, or open **Add numbers with approval**, save count and spending limits, search an area code, review a quote and explicitly approve its recurring rental. Zero limits block new purchases. Complete routing and a genuine inbound callback test, then approve limited legitimate use. Buying or syncing does not start warmup.
+5. Upload your Markdown script in **Intelligence**, import leads, run preflight and check your audio before going ready. Allocation and next-lead selection use the eligible pool automatically; capacity planning does not place orders.
+
+Keys are saved to the authority, not sent through chat. See [provider onboarding](deploy/runbooks/providers.md) for account configuration, callback limitations and live verification.
 
 ## Team server
 

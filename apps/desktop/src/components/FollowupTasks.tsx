@@ -292,7 +292,9 @@ export function FollowupTasks() {
         </p>
       )}
       <HistoryMore history={history} label="Load more follow-ups" />
-      <HistoryMore history={owners} label="Load more task owners" />
+      {owners.cursor && (
+        <HistoryMore history={owners} label="Load more task owners" />
+      )}
     </>
   );
 }

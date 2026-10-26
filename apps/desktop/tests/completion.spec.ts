@@ -42,7 +42,14 @@ test("setup shows capability evidence and saves a write-only provider key", asyn
     if (r.method() === "PUT" && r.url().endsWith("/admin/settings"))
       requests.push(r.postData() || "");
   });
+  const settingsRead = page.waitForResponse(
+    (r) =>
+      r.url().endsWith("/v1/admin/settings") &&
+      r.request().method() === "GET" &&
+      r.ok(),
+  );
   await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const settingsVersion = (await (await settingsRead).json()).version;
   await page
     .getByRole("button", { name: "Run preflight", exact: true })
     .click();
@@ -63,7 +70,7 @@ test("setup shows capability evidence and saves a write-only provider key", asyn
   expect(requests).toHaveLength(1);
   expect(JSON.parse(requests[0])).toMatchObject({
     openrouter_api_key: "sk-or-test-only",
-    expected_version: 0,
+    expected_version: settingsVersion,
   });
 });
 

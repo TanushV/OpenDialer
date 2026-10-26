@@ -13,6 +13,8 @@ export class ApiError extends Error {
 }
 /** Coded refusals the rep or administrator can act on directly. */
 const ACTIONABLE: Record<string, string> = {
+  TELNYX_NOT_CONFIGURED:
+    "Connect Telnyx in Settings → Setup → Calling before using numbers or calls.",
   REP_AUDIO_NOT_READY:
     "Check audio before calling. Reconnect your headset or microphone, then start the call.",
   TELEPHONY_CREDENTIAL_MISCONFIGURED:
@@ -20,7 +22,17 @@ const ACTIONABLE: Record<string, string> = {
 };
 type Detail = { code: string; message?: string; reasons?: string[] };
 function refusal(detail: unknown, status: number) {
-  if (typeof detail === "string") return new ApiError(detail, status);
+  if (typeof detail === "string")
+    return new ApiError(ACTIONABLE[detail] ?? detail, status);
+  if (Array.isArray(detail)) {
+    const fields = detail
+      .filter((item) => item && typeof item.msg === "string")
+      .map(
+        (item) =>
+          `${Array.isArray(item.loc) ? item.loc.slice(1).join(" ").replaceAll("_", " ") : "Field"}: ${item.msg}`,
+      );
+    if (fields.length) return new ApiError(fields.join("; "), status);
+  }
   if (detail && typeof detail === "object" && !Array.isArray(detail)) {
     const { code, message, reasons } = detail as Detail;
     return new ApiError(

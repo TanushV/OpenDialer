@@ -358,9 +358,14 @@ test("incomplete allocation remains readable with unknown costs and bottlenecks"
   ).toBeEnabled();
 });
 
-test("number capacity distinguishes bottlenecks and offers no rental quotes", async ({
+test("number capacity distinguishes bottlenecks without searching or ordering rentals", async ({
   page,
 }) => {
+  const rentalRequests: string[] = [];
+  page.on("request", (r) => {
+    if (r.method() === "POST" && /\/numbers\/(search|purchase)$/.test(r.url()))
+      rentalRequests.push(r.url());
+  });
   await page.goto("/");
   await expect(page.getByText("Opening your workspace…")).toBeHidden();
   if (
@@ -391,8 +396,9 @@ test("number capacity distinguishes bottlenecks and offers no rental quotes", as
   await expect(page.getByLabel("Procurement area code")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /purchase/i })).toHaveCount(0);
   await expect(
-    proposal.getByText(/minimum addition is a proposal only/),
+    proposal.getByText(/This plan does not purchase numbers/),
   ).toBeVisible();
+  expect(rentalRequests).toEqual([]);
 });
 
 test("declared staffing and setup time survive reload and explain the capacity plan", async ({

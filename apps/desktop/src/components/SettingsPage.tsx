@@ -125,6 +125,10 @@ function AdminSettings({
   const settings = useAdminSettings();
   const [preflight, setPreflight] = useState<Readiness | null>(null);
   const [section, setSection] = useState("Setup");
+  useEffect(() => {
+    void settings.load().catch(() => {});
+  }, [section, settings.load]);
+  useEffect(() => setPreflight(null), [settings.data?.version]);
   return (
     <>
       <div className="page-heading">
@@ -132,7 +136,8 @@ function AdminSettings({
           <span className="eyebrow">A WORKSPACE YOU CAN TRUST</span>
           <h1>Settings &amp; readiness</h1>
           <p>
-            Work through setup once, then keep a recoverable, versioned record.
+            Connect calling and AI, add your script and leads, then check
+            readiness.
           </p>
         </div>
         <button
@@ -179,7 +184,7 @@ function AdminSettings({
         <OperationsSettings onDisconnect={onDisconnect} />
       )}
       {section === "App updates" && <UpdateSettings />}
-      <AdvancedView settings={settings} />
+      <AdvancedView />
     </>
   );
 }
@@ -297,17 +302,27 @@ function SetupChecklist({
     total: number;
     ready: number;
   } | null>(null);
+  const [numbersError, setNumbersError] = useState("");
+  const [numberRetry, setNumberRetry] = useState(0);
+  const numberVersion = w.numbers.map((n) => `${n.id}:${n.version}`).join(",");
   useEffect(() => {
     let live = true;
     void api<{ inventory: { total: number; ready: number } }>(
       "/v1/admin/numbers/summary",
     )
-      .then((value) => live && setNumbers(value.inventory))
-      .catch(() => {});
+      .then((value) => {
+        if (live) {
+          setNumbers(value.inventory);
+          setNumbersError("");
+        }
+      })
+      .catch((error) => {
+        if (live) setNumbersError(message(error));
+      });
     return () => {
       live = false;
     };
-  }, [api, w.numbers]);
+  }, [api, numberVersion, numberRetry]);
   const data = settings.data;
   if (!data)
     return (
@@ -386,7 +401,7 @@ function SetupChecklist({
       <Step
         id="helper"
         index={3}
-        title="Live helper (OpenRouter)"
+        title="AI assistance"
         state={checked("live_helper", !!configured.openrouter_api_key)}
         summary={remedy(
           "live_helper",
@@ -405,8 +420,9 @@ function SetupChecklist({
           refused or unsupported endpoint disables help instead of switching
           models.
           {data.effective.coach_provider === "static" &&
-            " Approved static guidance is selected under Advanced."}
+            " Approved static guidance is selected under Live coaching model below."}
         </p>
+        <AdvancedProviders settings={settings} />
       </Step>
       <Step
         id="dnc"
@@ -436,7 +452,7 @@ function SetupChecklist({
       <Step
         id="numbers"
         index={5}
-        title="Existing numbers"
+        title="Phone numbers"
         state={
           !numbers
             ? "unconfigured"
@@ -448,13 +464,28 @@ function SetupChecklist({
         }
         summary={
           numbers
-            ? `${numbers.total} owned · ${numbers.ready} ready. New rentals are blocked; reuse owned numbers.`
-            : "Inventory totals are loading."
+            ? `${numbers.total} owned · ${numbers.ready} ready. Sync owned numbers or review a purchase.`
+            : numbersError
+              ? "Number totals could not be loaded. Open this step to retry."
+              : "Inventory totals are loading."
         }
       >
+        {numbersError && (
+          <p role="alert">
+            {numbersError}{" "}
+            <button
+              className="secondary"
+              onClick={() => setNumberRetry((n) => n + 1)}
+            >
+              Retry number totals
+            </button>
+          </p>
+        )}
         <p>
-          Sync numbers you already own at Telnyx, then complete identity and
-          callback evidence for each. OpenDialer never rents new numbers.
+          Sync existing Telnyx numbers or approve a quoted rental in Numbers.
+          Set a maximum number count and spending limits first. Allocation is
+          automatic after routing, a real callback test and approval for limited
+          use.
         </p>
         <button className="secondary" onClick={() => onNavigate("Numbers")}>
           Open Numbers
@@ -596,6 +627,7 @@ function CredentialButton({
       title={title}
       version={data?.version}
       configured={data?.configured[field]}
+      onConflict={settings.load}
       onSaved={(result) => {
         if (data)
           settings.setData({
@@ -641,11 +673,16 @@ function useProviderDraft(settings: AdminSettingsState, keys: string[]) {
     );
     edit.current = null;
   }, [data?.version]);
-  const save = async (done: string) => {
+  const save = async (done: string, extra: Record<string, string> = {}) => {
     if (!data) return;
-    const values = Object.fromEntries(
-      Object.entries(draft).filter(([, v]) => v !== ""),
-    );
+    const values = {
+      ...Object.fromEntries(
+        Object.entries(draft).filter(
+          ([key, value]) => value !== server.current[key],
+        ),
+      ),
+      ...extra,
+    };
     const body = JSON.stringify({ values, version: data.version });
     if (edit.current?.body !== body)
       edit.current = { body, request_id: crypto.randomUUID() };
@@ -658,9 +695,14 @@ function useProviderDraft(settings: AdminSettingsState, keys: string[]) {
           expected_version: data.version,
         }),
       );
+      server.current = { ...draft };
       edit.current = null;
       notice(done);
       await refresh();
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409)
+        await settings.load();
+      throw error;
     } finally {
       setBusy(false);
     }
@@ -683,6 +725,7 @@ function useProviderDraft(settings: AdminSettingsState, keys: string[]) {
 
 function TelnyxStep({ settings }: { settings: AdminSettingsState }) {
   const { api, run } = useWorkspace();
+  const [key, setKey] = useState("");
   const form = useProviderDraft(settings, [
     "telnyx_connection_id",
     "telnyx_public_key",
@@ -694,15 +737,41 @@ function TelnyxStep({ settings }: { settings: AdminSettingsState }) {
   const [ingress, setIngress] = useState<Record<string, unknown> | null>(null);
   return (
     <>
-      <p className="muted small">
-        Account credentials stay with this authority. Desktop clients receive
-        scoped telephony tokens only.
+      <p>
+        Start with your Telnyx API key. Then connect the Voice API application
+        and the browser calling credential.
       </p>
-      <CredentialButton
-        field="telnyx_api_key"
-        title="Telnyx API key"
-        settings={settings}
-      />
+      <button
+        className="secondary"
+        onClick={() => void run(() => openSource("https://portal.telnyx.com/"))}
+      >
+        Open Telnyx portal
+      </button>
+      <p className="fine">
+        In Telnyx: Account settings → API Keys → Create API Key. The connection
+        ID comes from your Voice API application; the public key verifies
+        incoming events.
+      </p>
+      <label>
+        Telnyx API key
+        <input
+          type="password"
+          autoComplete="off"
+          value={key}
+          disabled={form.busy}
+          placeholder={
+            settings.data?.configured.telnyx_api_key
+              ? "Saved; enter only to replace"
+              : "Paste your API v2 key"
+          }
+          onChange={(e) => setKey(e.target.value)}
+        />
+      </label>
+      <p className="fine">
+        {settings.data?.configured.telnyx_api_key
+          ? "API key saved"
+          : "Your key and connection details save together below."}
+      </p>
       {form.field("telnyx_connection_id", "Call Control connection ID")}
       {form.field("telnyx_public_key", "Ed25519 webhook public key")}
       {form.field(
@@ -710,6 +779,12 @@ function TelnyxStep({ settings }: { settings: AdminSettingsState }) {
         "Public HTTPS webhook URL",
         "https://your-endpoint/webhooks/telnyx",
       )}
+      <p className="fine">
+        Use the same public HTTPS webhook address in Telnyx. For calling from
+        this Mac, configure the forwarding host below and run Check saved
+        ingress.
+      </p>
+      <LocalWebhookForward />
       <details>
         <summary>Agent credential and carrier approval</summary>
         {form.field(
@@ -727,7 +802,13 @@ function TelnyxStep({ settings }: { settings: AdminSettingsState }) {
           className="primary"
           disabled={!settings.data || form.busy}
           onClick={() =>
-            void run(() => form.save("Telnyx settings saved securely."))
+            void run(async () => {
+              await form.save(
+                "Telnyx settings saved.",
+                key.trim() ? { telnyx_api_key: key.trim() } : {},
+              );
+              setKey("");
+            })
           }
         >
           Save Telnyx settings
@@ -1680,8 +1761,8 @@ function WorkspaceConnection({ onDisconnect }: { onDisconnect: () => void }) {
   );
 }
 
-/** One collapsed view for model, experiment, routing and diagnostic detail. */
-function AdvancedView({ settings }: { settings: AdminSettingsState }) {
+/** Optional learning and tracker controls stay out of the setup checklist. */
+function AdvancedView() {
   const [open, setOpen] = useState(false);
   return (
     <details
@@ -1690,13 +1771,11 @@ function AdvancedView({ settings }: { settings: AdminSettingsState }) {
     >
       <summary>Advanced</summary>
       <p className="fine">
-        Optional model routes, planning assumptions, experiments, trackers and
-        diagnostics. The authority's defaults apply until you change them;
+        Learning experiments and trackers. Defaults apply until you change them;
         changes are versioned and audited.
       </p>
       {open && (
         <>
-          <AdvancedProviders settings={settings} />
           <LearningAdvanced />
           <Trackers />
         </>
@@ -1706,7 +1785,7 @@ function AdvancedView({ settings }: { settings: AdminSettingsState }) {
 }
 
 function AdvancedProviders({ settings }: { settings: AdminSettingsState }) {
-  const { snapshot: w, api, run, notice } = useWorkspace();
+  const { api, run, notice } = useWorkspace();
   const form = useProviderDraft(settings, [
     "coach_provider",
     "coach_model",
@@ -1718,42 +1797,47 @@ function AdvancedProviders({ settings }: { settings: AdminSettingsState }) {
     "scorecard_review_model",
   ]);
   const { draft, setDraft } = form;
-  const [tunnel, setTunnel] = useState<TunnelStatus | null>(null);
-  const [busy, setBusy] = useState(false);
-  // A hosted authority cannot receive the browser's loopback redirect: the user pastes it.
   const [planPaste, setPlanPaste] = useState(false);
   const [planAddress, setPlanAddress] = useState("");
   useEffect(() => {
-    if (native() && w.mode === "local")
-      void tunnelStatus()
-        .then(setTunnel)
-        .catch(() => {});
-  }, [w.mode]);
+    const returned = () => {
+      void settings.load().catch(() => {});
+    };
+    window.addEventListener("focus", returned);
+    return () => window.removeEventListener("focus", returned);
+  }, [settings.load]);
   return (
     <section className="card padded" aria-label="Optional model routes">
-      <h2>Optional model routes</h2>
-      <label>
-        Live coach provider
-        <select
-          value={draft.coach_provider || ""}
-          onChange={(e) =>
-            setDraft({ ...draft, coach_provider: e.target.value })
-          }
-        >
-          <option value="openrouter">OpenRouter · Cerebras</option>
-          <option value="static">Approved static guidance</option>
-        </select>
-      </label>
-      {draft.coach_provider === "openrouter" && (
-        <>
-          {form.field("coach_model", "Cerebras coach model")}
-          <p className="fine">
-            Cerebras only · other-provider fallbacks disabled · strict
-            structured responses. Endpoint support and live timing must pass
-            your account checks.
-          </p>
-        </>
-      )}
+      <h3>Research &amp; script writing</h3>
+      <p className="fine">
+        Use your ChatGPT sign-in for preparation. Live coaching uses the
+        OpenRouter key above.
+      </p>
+      <details>
+        <summary>Live coaching model</summary>
+        <label>
+          Live coach provider
+          <select
+            value={draft.coach_provider || ""}
+            onChange={(e) =>
+              setDraft({ ...draft, coach_provider: e.target.value })
+            }
+          >
+            <option value="openrouter">OpenRouter · Cerebras</option>
+            <option value="static">Approved static guidance</option>
+          </select>
+        </label>
+        {draft.coach_provider === "openrouter" && (
+          <>
+            {form.field("coach_model", "Cerebras coach model")}
+            <p className="fine">
+              Cerebras only · other-provider fallbacks disabled · strict
+              structured responses. Endpoint support and live timing must pass
+              your account checks.
+            </p>
+          </>
+        )}
+      </details>
       <label>
         Preparation and analysis route
         <select
@@ -1771,15 +1855,17 @@ function AdvancedProviders({ settings }: { settings: AdminSettingsState }) {
           </option>
         </select>
       </label>
-      <CredentialButton
-        field="openai_api_key"
-        title={
-          draft.inference_mode === "litellm"
-            ? "LiteLLM API key"
-            : "OpenAI API key"
-        }
-        settings={settings}
-      />
+      {draft.inference_mode !== "chatgpt_plan" && (
+        <CredentialButton
+          field="openai_api_key"
+          title={
+            draft.inference_mode === "litellm"
+              ? "LiteLLM API key"
+              : "OpenAI API key"
+          }
+          settings={settings}
+        />
+      )}
       {draft.inference_mode === "litellm" &&
         form.field(
           "inference_base_url",
@@ -1788,6 +1874,11 @@ function AdvancedProviders({ settings }: { settings: AdminSettingsState }) {
         )}
       {draft.inference_mode === "chatgpt_plan" && (
         <>
+          <p role="status">
+            {settings.data?.configured.chatgpt_access_token
+              ? "ChatGPT connected"
+              : "ChatGPT not connected yet"}
+          </p>
           <p className="fine">
             Research and script writing use your own ChatGPT plan. Each user
             signs in for the work they queue; the live helper stays on Cerebras.
@@ -1796,6 +1887,7 @@ function AdvancedProviders({ settings }: { settings: AdminSettingsState }) {
             className="secondary"
             onClick={() =>
               void run(async () => {
+                await form.save("ChatGPT route saved.");
                 const flow = await api<{
                   authorization_url: string;
                   completion: "loopback" | "paste";
@@ -1809,6 +1901,7 @@ function AdvancedProviders({ settings }: { settings: AdminSettingsState }) {
                 );
               })
             }
+            disabled={form.busy}
           >
             Continue with ChatGPT
           </button>
@@ -1832,6 +1925,7 @@ function AdvancedProviders({ settings }: { settings: AdminSettingsState }) {
                     });
                     setPlanAddress("");
                     setPlanPaste(false);
+                    await settings.load();
                     notice("ChatGPT is connected to your OpenDialer user.");
                   })
                 }
@@ -1842,27 +1936,30 @@ function AdvancedProviders({ settings }: { settings: AdminSettingsState }) {
           )}
         </>
       )}
-      {form.field("model", "Default evaluated model")}
-      <label>
-        Optional research search
-        <select
-          aria-label="Optional research search"
-          value={draft.research_search || "disabled"}
-          onChange={(e) =>
-            setDraft({ ...draft, research_search: e.target.value })
-          }
-        >
-          <option value="disabled">Disabled</option>
-          <option value="openai_web_search">Metered OpenAI web search</option>
-        </select>
-      </label>
-      <p className="fine">
-        At most two metered searches per company, within the preparation budget,
-        when official pages lack useful context. Saving this choice makes no
-        paid request.
-      </p>
-      {form.field("script_write_model", "Script-writing model")}
-      {form.field("scorecard_review_model", "Optional stronger review model")}
+      <details>
+        <summary>Models and optional paid search</summary>
+        {form.field("model", "Default evaluated model")}
+        <label>
+          Optional research search
+          <select
+            aria-label="Optional research search"
+            value={draft.research_search || "disabled"}
+            onChange={(e) =>
+              setDraft({ ...draft, research_search: e.target.value })
+            }
+          >
+            <option value="disabled">Disabled</option>
+            <option value="openai_web_search">Metered OpenAI web search</option>
+          </select>
+        </label>
+        <p className="fine">
+          At most two metered searches per company, within the preparation
+          budget, when official pages lack useful context. Saving this choice
+          makes no paid request.
+        </p>
+        {form.field("script_write_model", "Script-writing model")}
+        {form.field("scorecard_review_model", "Optional stronger review model")}
+      </details>
       <div className="settings-save">
         <LockKeyhole size={16} />
         <span>
@@ -1890,6 +1987,23 @@ function AdvancedProviders({ settings }: { settings: AdminSettingsState }) {
           Reload provider settings
         </button>
       </div>
+    </section>
+  );
+}
+
+function LocalWebhookForward() {
+  const { snapshot: w, run } = useWorkspace();
+  const [tunnel, setTunnel] = useState<TunnelStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (native() && w.mode === "local")
+      void tunnelStatus()
+        .then(setTunnel)
+        .catch(() => {});
+  }, [w.mode]);
+  return (
+    <>
+      {" "}
       {tunnel && (
         <details>
           <summary>Existing SSH forwarding host</summary>
@@ -1975,7 +2089,7 @@ function AdvancedProviders({ settings }: { settings: AdminSettingsState }) {
           {w.simulation && <p>Forwarding is unavailable in simulation.</p>}
         </details>
       )}
-    </section>
+    </>
   );
 }
 

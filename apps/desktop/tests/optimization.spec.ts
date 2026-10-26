@@ -202,15 +202,15 @@ test("optimization goals, forecast, learning state and provider settings persist
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByTestId("setup-campaign").locator(":scope > summary").click();
   await expect(page.getByLabel("Conversion goal")).toHaveValue("sale_won");
-  await page.getByText("Advanced", { exact: true }).click();
+  await page.getByTestId("setup-helper").locator(":scope > summary").click();
+  await page.getByText("Live coaching model", { exact: true }).click();
   await page.getByLabel("Live coach provider").selectOption("openrouter");
   await expect(
     page
       .getByRole("region", { name: "Optional model routes" })
       .getByText(/Cerebras only/),
   ).toBeVisible();
-  // The key itself is entered once, from the live-helper setup step.
-  await page.getByTestId("setup-helper").locator(":scope > summary").click();
+  // The key and route now share the same setup step.
   await expect(page.getByLabel("OpenRouter API key")).toBeVisible();
 });
 

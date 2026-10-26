@@ -70,6 +70,24 @@ describe("actionable authority refusals", () => {
     );
   }
 
+  it("explains a missing carrier setup instead of exposing its internal code", async () => {
+    const error = await refuse(503, "TELNYX_NOT_CONFIGURED");
+    expect(error?.message).toBe(
+      "Connect Telnyx in Settings → Setup → Calling before using numbers or calls.",
+    );
+  });
+
+  it("names invalid setup fields when the authority returns validation errors", async () => {
+    const error = await refuse(422, [
+      {
+        loc: ["body", "maximum_owned_numbers"],
+        msg: "Input should be greater than or equal to 0",
+      },
+    ]);
+    expect(error?.message).toContain("maximum owned numbers");
+    expect(error?.message).toContain("greater than or equal to 0");
+  });
+
   it("tells the rep to check audio when the authority refuses to start", async () => {
     const error = await refuse(409, {
       code: "REP_AUDIO_NOT_READY",

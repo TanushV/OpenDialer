@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ProviderCredential } from "../api/client";
+import { ApiError } from "../api/client";
 import { useWorkspace } from "../context";
 
 /** A write-only provider key: entered once, saved to the authority, never shown again. */
@@ -9,6 +10,7 @@ export function CredentialField({
   version,
   configured,
   onSaved,
+  onConflict,
 }: {
   field: ProviderCredential;
   title: string;
@@ -18,6 +20,7 @@ export function CredentialField({
     version: number;
     configured: Record<string, boolean>;
   }) => void;
+  onConflict?: () => Promise<void>;
 }) {
   const { run, configureCredential } = useWorkspace();
   const [value, setValue] = useState("");
@@ -44,6 +47,10 @@ export function CredentialField({
             try {
               onSaved(await configureCredential(field, version, value.trim()));
               setValue("");
+            } catch (error) {
+              if (error instanceof ApiError && error.status === 409)
+                await onConflict?.();
+              throw error;
             } finally {
               setBusy(false);
             }
