@@ -38,7 +38,8 @@ def test_voicemail_drop_endpoint_removed(workspace, carrier, detach):
 
 @pytest.mark.parametrize("action", ["playback_start", "gather"])
 def test_saved_drop_commands_cannot_play_after_update(workspace, app, carrier, action):
-    from app.db import get as row, update
+    from app.db import get as row
+    from app.db import update
 
     started = start(workspace)
     service = app.state.service

@@ -1,6 +1,6 @@
 # OpenDialer testing handoff (CURRENT)
 
-> **Status: CURRENT — 0.5.1 verification in progress**, October 25, 2026.
+> **Status: CURRENT — 0.5.1 locally verified**, October 25, 2026.
 > Previous release: `096c55f` / 0.5.0, CI 40164184233 passed all jobs including 164 browser cases.
 > Includes script learning and the review fixes described below. This is the single current handoff.
 > Read with [HANDOFF_AST.md](HANDOFF_AST.md) and [SCRIPT_LEARNING.md](SCRIPT_LEARNING.md).
@@ -15,6 +15,14 @@ Status section of `docs/LEAN_PLAN.md`.
 - Prerecorded voicemail drop controls and endpoint removed. Previously queued outbound playback/gather commands cannot send a message. In-flight cleanup remains available.
 - New campaigns default to 08:00–21:00 prospect-local time. Existing published hours are preserved until an explicit Settings edit. The owner requested updating this Mac’s campaign hours and signed app installation.
 - Regression tests cover opening/closing boundaries in Eastern/Pacific time in winter and summer, removed drop routes, and stale queued drops.
+
+## Current 0.5.1 verification
+
+[Receipt](evidence/lean/voicemail-hours-051-20261025.json), runtime source `0976008`.
+SQLite 670 passed / 2 skips; PostgreSQL 671 / 1; frontend 75 tests, format/typecheck/build; Rust 7 tests, fmt and Clippy passed.
+Browser: 163 passed in the full run, followed by both rubric tests passing after correcting a false-positive save assertion and handling explicit version conflicts. All 164 cases have passing local evidence; no application timeout or concurrency guard was weakened.
+Frozen backend/trainer, Mac bundle/archive/DMG, extracted simulated call/callback and restart, and trainer self-check passed. Local updater signing used a disposable key, deleted afterward. Optional Caddy tests remain skipped. Temporary native PostgreSQL is stopped.
+The existing Mac workspace’s hours were explicitly published as 08:00–21:00 through Settings. Production-signed downloads, exact-SHA CI and installed-app verification follow through GitHub Actions and the signed updater; live provider gates remain open.
 
 ## Retained 0.5.0 changes
 

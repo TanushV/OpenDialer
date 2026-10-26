@@ -7,15 +7,15 @@ Generated from the 0.5.1 working tree (October 25, 2026) with Python's `ast` mod
 | Area | Files | Lines | AST nodes / tokens | Baseline lines (a950675) | Change |
 |---|---:|---:|---:|---:|---:|
 | backend | 89 | 35,523 | 244,590 nodes | 39,459 | -10% lines, -10% nodes |
-| backend_tests | 47 | 11,846 | 81,958 nodes | 52,034 | -77% lines |
+| backend_tests | 47 | 11,847 | 81,959 nodes | 52,034 | -77% lines |
 | repo_tests | 4 | 668 | 3,992 nodes | 3,027 | -78% lines |
 | frontend | 55 | 17,067 | 92,329 tokens | 16,487 | +4% lines, +3% tokens |
-| frontend_tests | 51 | 9,860 | 71,507 tokens | 9,569 | +3% lines |
+| frontend_tests | 51 | 9,898 | 71,815 tokens | 9,569 | +3% lines |
 | rust | 2 | 971 | — | 2,463 | -61% lines |
 | scripts | 11 | 1,392 | 7,764 nodes | 5,211 | -73% lines |
 | workflows | 2 | 186 | — | 680 | -73% lines |
 
-All Python together: 338,304 AST nodes (baseline about 687k). Targets in LEAN_PLAN.md: backend about -30% (missed, -9% nodes), frontend about -20% (missed, +4% tokens).
+All Python together: 338,305 AST nodes (baseline about 687k). Targets in LEAN_PLAN.md: backend about -30% (missed, -9% nodes), frontend about -20% (missed, +4% tokens).
 
 ## HTTP routes
 

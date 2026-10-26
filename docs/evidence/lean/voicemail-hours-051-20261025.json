@@ -1,0 +1,62 @@
+{
+  "version": "0.5.1",
+  "date": "2026-10-25",
+  "runtime_source": "0976008",
+  "scope": [
+    "Remove voicemail drop UI and endpoint",
+    "Block queued outbound playback and gather",
+    "Default new campaigns to 08:00 inclusive through 21:00 exclusive in prospect timezone"
+  ],
+  "regression_before_change": {
+    "failed": 11,
+    "passed": 8
+  },
+  "new_cases_passed": 21,
+  "sqlite": {
+    "passed": 670,
+    "skipped": 2
+  },
+  "postgres": {
+    "passed": 671,
+    "skipped": 1,
+    "version": "18.3 native disposable"
+  },
+  "frontend": {
+    "unit_passed": 75,
+    "typecheck": "pass",
+    "production_build": "pass",
+    "format": "pass"
+  },
+  "rust": {
+    "tests_passed": 7,
+    "fmt": "pass",
+    "clippy": "pass"
+  },
+  "browser": {
+    "distinct_cases_with_passing_evidence": 164,
+    "full_run_passed": 163,
+    "full_run_failed": 1,
+    "targeted_rerun_passed": 2,
+    "correction": "Rubric test now verifies save receipts and preserved drafts through an explicit version conflict; removed false-positive assertion on option text."
+  },
+  "mac": {
+    "sidecars": "pass",
+    "bundle_archive_and_dmg": "pass",
+    "extracted_authority_and_restart": "pass",
+    "trainer_self_check": "pass",
+    "local_updater_signing": "disposable key deleted; production key unchanged"
+  },
+  "installed_workspace_hours": {
+    "start": 8,
+    "end": 21,
+    "timezone": "prospect",
+    "saved_via": "Settings calling-window publication",
+    "workspace_mode": "existing simulation"
+  },
+  "boundaries": [
+    "No live carrier calls or paid provider actions",
+    "Optional Caddy check skipped",
+    "Production release and installation receipts tracked separately in GitHub and ignored work/update-051"
+  ],
+  "test_database": "Temporary native PostgreSQL stopped after browser checks"
+}

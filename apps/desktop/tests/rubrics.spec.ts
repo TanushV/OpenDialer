@@ -174,6 +174,7 @@ test("campaign scoring anchors persist and a rep can correct the call purpose", 
     .getByLabel("Reason for purpose correction", { exact: true })
     .fill("This conversation continued an earlier evaluation.");
   let failSave = true;
+  let conflictSave = true;
   await page.route("**/v1/calls/*/rubric", async (route) => {
     if (failSave) {
       failSave = false;
@@ -181,6 +182,12 @@ test("campaign scoring anchors persist and a rep can correct the call purpose", 
       await route.fulfill({
         status: 503,
         json: { detail: "Purpose save unavailable" },
+      });
+    } else if (conflictSave) {
+      conflictSave = false;
+      await route.fulfill({
+        status: 409,
+        json: { detail: "Call changed; refresh before changing its purpose" },
       });
     } else await route.continue();
   });
@@ -190,12 +197,37 @@ test("campaign scoring anchors persist and a rep can correct the call purpose", 
   await expect(
     page.getByRole("button", { name: "Update call purpose", exact: true }),
   ).toBeEnabled();
-  await page
-    .getByRole("button", { name: "Update call purpose", exact: true })
-    .click();
-  await expect(
-    page.getByRole("region", { name: "Call purpose", exact: true }),
-  ).toContainText("Follow up");
+  // A failed refresh may leave an old version. Preserve the draft, review the
+  // refreshed context and explicitly retry; option text is not a save receipt.
+  let purposeSaved = false;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const receipt = page.waitForResponse(
+      (r) => r.url().endsWith("/rubric") && r.request().method() === "PUT",
+    );
+    const refreshed = page.waitForResponse((r) =>
+      r.url().endsWith("/analysis"),
+    );
+    await page
+      .getByRole("button", { name: "Update call purpose", exact: true })
+      .click();
+    const response = await receipt;
+    await (await refreshed).finished();
+    if (response.status() === 200) {
+      purposeSaved = true;
+      break;
+    }
+    expect(response.status()).toBe(409);
+    await expect(
+      page.getByLabel("Actual call purpose", { exact: true }),
+    ).toHaveValue("follow_up");
+    await expect(
+      page.getByLabel("Reason for purpose correction", { exact: true }),
+    ).toHaveValue("This conversation continued an earlier evaluation.");
+    await expect(
+      page.getByRole("button", { name: "Update call purpose", exact: true }),
+    ).toBeEnabled();
+  }
+  expect(purposeSaved).toBe(true);
   await page
     .getByRole("button", { name: "All conversations", exact: true })
     .click();
