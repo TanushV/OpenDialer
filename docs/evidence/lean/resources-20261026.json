@@ -1,0 +1,59 @@
+{
+  "date": "2026-10-26",
+  "source_commit": "2168f05f563b279bd54aab72f85f8355c08df0e8",
+  "host": {
+    "cpu": "Apple M5",
+    "physical_cores": 10,
+    "ram_bytes": 34359738368,
+    "macos": "26.5.1"
+  },
+  "command": "/usr/bin/time -l .venv/bin/python scripts/bench.py --samples 5",
+  "measurement": {
+    "maximum_resident_set_bytes": 218906624,
+    "peak_memory_footprint_bytes": 209322656,
+    "user_seconds": 53.35,
+    "system_seconds": 20.43,
+    "elapsed_seconds": 115.36
+  },
+  "benchmark": {
+    "leads": 10000,
+    "attempts": 100000,
+    "samples": 5,
+    "paths": {
+      "next_lead": {
+        "p50_ms": 23.6,
+        "p95_ms": 81.9,
+        "target_p95_ms": 100,
+        "pass": true,
+        "sql_statements_max": 15
+      },
+      "webhook_receipt": {
+        "p50_ms": 6.7,
+        "p95_ms": 10.6,
+        "target_p95_ms": 30,
+        "pass": true
+      },
+      "event_to_state": {
+        "p50_ms": 10.7,
+        "p95_ms": 13.5,
+        "target_p95_ms": 100,
+        "pass": true
+      },
+      "wrap_up": {
+        "p50_ms": 15.3,
+        "p95_ms": 21.4,
+        "target_p95_ms": 100,
+        "pass": true
+      },
+      "workspace": {
+        "p50_ms": 25.8,
+        "p95_ms": 60.9,
+        "target_p95_ms": 150,
+        "pass": true
+      }
+    },
+    "startup_ms": 67,
+    "store_bytes": 306163712
+  },
+  "scope": "Source backend and fixture creation only. Disposable SQLite and simulated providers. Excludes desktop UI, live audio and concurrent ML training. Shared host; not minimum hardware certification."
+}
