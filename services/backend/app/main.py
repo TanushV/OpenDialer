@@ -180,11 +180,6 @@ class Disposition(Strict):
     callback_note: str = Field(default="", max_length=1000)
 
 
-class Voicemail(Strict):
-    asset_id: str
-    detach: bool = False
-
-
 class ResearchBatch(Strict):
     lead_ids: list[str] = Field(max_length=10000)
 
@@ -1197,56 +1192,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
             update(model, **{**candidate, "active": True, "trial_active": False, "ever_activated": True})
             audit(s, p["tenant_id"], p["seller_id"], p["user_id"], "model.activated", model.id, clock())
             return doc(model)
-
-    @app.post("/v1/calls/{call_id}/voicemail")
-    async def voicemail(call_id: str, data: Voicemail, p=Depends(principal)):
-        def prepare():
-            with db.transaction() as s:
-                service.db.authorize_stream(s, p)
-                call = service.required(s, "call_attempts", call_id, p)
-                if p["role"] == "rep" and call.data["rep_id"] != p["user_id"]:
-                    fail(403, "Call belongs to another rep")
-                if call.data["state"] != "VOICEMAIL_READY":
-                    fail(409, "MAILBOX_NOT_READY")
-                reasons = service.voicemail_reasons(s, p, call, data.asset_id, data.detach)
-                if reasons:
-                    fail(403, {"code": "VOICEMAIL_DENIED", "reasons": reasons})
-                update(
-                    call,
-                    state="VM_PENDING",
-                    detach_requested=data.detach,
-                    voicemail_asset=data.asset_id,
-                    voicemail_deadline=(clock() + timedelta(seconds=120)).isoformat(),
-                )
-                result = doc(call)
-                service.control_intent(
-                    s,
-                    p,
-                    call_id,
-                    "gather",
-                    {
-                        "minimum_digits": 1,
-                        "maximum_digits": 1,
-                        "valid_digits": "9",
-                        "timeout_millis": 60000,
-                        "initial_timeout_millis": 60000,
-                        "gather_id": call_id,
-                    },
-                    suffix="voicemail-optout",
-                )
-                service.control_intent(
-                    s,
-                    p,
-                    call_id,
-                    "playback_start",
-                    {"media_name": data.asset_id, "target_legs": "self"},
-                    suffix="voicemail:" + data.asset_id,
-                )
-            return result
-
-        result = await asyncio.to_thread(prepare)
-        await service.dispatch_controls(p)
-        return result
 
     @app.post("/webhooks/telnyx")
     async def webhook(request: Request):

@@ -1,7 +1,7 @@
 # OpenDialer testing handoff (CURRENT)
 
-> **Status: CURRENT — 0.5.0 locally verified**, October 24, 2026.
-> Source `7f3eb5e`; runtime source `1530958`. Current remote CI and downloads are tracked in GitHub.
+> **Status: CURRENT — 0.5.1 verification in progress**, October 25, 2026.
+> Previous release: `096c55f` / 0.5.0, CI 40164184233 passed all jobs including 164 browser cases.
 > Includes script learning and the review fixes described below. This is the single current handoff.
 > Read with [HANDOFF_AST.md](HANDOFF_AST.md) and [SCRIPT_LEARNING.md](SCRIPT_LEARNING.md).
 
@@ -10,7 +10,13 @@ Live-provider and clean-machine installer gates remain open. Continue finding wh
 adding tests before fixes, and supporting approved live testing. Read this file, then `AGENTS.md`, then the
 Status section of `docs/LEAN_PLAN.md`.
 
-## Current 0.5.0 changes
+## Current 0.5.1 changes
+
+- Prerecorded voicemail drop controls and endpoint removed. Previously queued outbound playback/gather commands cannot send a message. In-flight cleanup remains available.
+- New campaigns default to 08:00–21:00 prospect-local time. Existing published hours are preserved until an explicit Settings edit. The owner requested updating this Mac’s campaign hours and signed app installation.
+- Regression tests cover opening/closing boundaries in Eastern/Pacific time in winter and summer, removed drop routes, and stale queued drops.
+
+## Retained 0.5.0 changes
 
 - Calling: Space / Next call requests the scheduler's next eligible lead; second attempts remain scheduler-selected. Optional automatic advance after ended voicemail has a five-second cancel window and respects Pause after call. Reloading restores only the current rep's unexpired reservation and loads its script before enabling the call.
 - Scripts: upload Markdown/text in Intelligence, preview headings as sections, then adopt with version checks. Plain script wording is displayed during calls; learned variations retain version history.
@@ -20,7 +26,7 @@ Status section of `docs/LEAN_PLAN.md`.
 - Numbers: effective workload adapts to delivery health within the reviewed ceiling. Existing allocation and staffing planning remain authoritative; no automatic purchase was added. Planning saves are serialized and preserve edits made during a pending save.
 - Release builds hide simulation entry and controls. The development/test mode remains available for software checks.
 
-## Current 0.5.0 verification
+## Previous 0.5.0 verification
 
 [Verification receipt](evidence/lean/calling-ux-050-20261024.json). Logs and failure traces are retained in ignored `work/ux-0.5.0/`.
 
@@ -371,7 +377,7 @@ None of these is proven. Do them only with the owner's explicit approval and the
 
 | Gate | Needs | Evidence to collect |
 |---|---|---|
-| Live Telnyx calling | Telnyx API key, connection ID, public key, owned numbers, HTTPS webhook route (SSH forward or server) | Real outbound call bridged to the rep's WebRTC leg; signed webhook receipts; hangup; keypad; opt-out by DTMF 9; final-attempt voicemail detached |
+| Live Telnyx calling | Telnyx API key, connection ID, public key, owned numbers, HTTPS webhook route (SSH forward or server) | Real outbound call bridged to the rep's WebRTC leg; signed webhook receipts; hangup; keypad; opt-out by DTMF 9; mailbox detection and hangup |
 | Inbound return calls | Same, plus callback routing destination | Rep, teammate, business fallback and spoken-message routes on real calls |
 | Hardware audio | Mic/speaker on Mac and Windows | Audio quality, device switching, mute |
 | Live helper quality and latency | Funded OpenRouter key (Cerebras route, zero data retention) | Tip relevance and grounding on real conversations; latency against the targets |

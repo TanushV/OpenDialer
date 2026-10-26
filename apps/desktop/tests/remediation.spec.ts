@@ -138,7 +138,7 @@ test("seller can save a fixed script and an overnight preparation window", async
   await page.getByLabel("Prepared-ahead target", { exact: true }).fill("6");
   await expect(
     page.getByLabel("Final-attempt voicemail reference", { exact: true }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await page
     .getByLabel("Workspace preparation cap", { exact: true })
     .fill("30");

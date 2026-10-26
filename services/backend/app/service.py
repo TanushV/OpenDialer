@@ -24,9 +24,6 @@ from app.scheduling.queue import ReservationPlanner
 from app.security import PASSWORDS, ConfigStore, issue_session
 from app.telephony.reducer import TERMINAL, owns_effect, reduce_state
 
-# Telnyx detection modes that report `beep_detected` (greeting_end reports only `ended`).
-AMD_MODES = {"detect_beep", "detect_words", "premium"}
-
 
 def dt(value):
     return datetime.fromisoformat(value) if value else None
@@ -184,8 +181,8 @@ class Service(ReservationPlanner):
                     "registry_required": True,
                     "state_registry_required": False,
                     "permissions": ["live"],
-                    "local_start_hour": 9,
-                    "local_end_hour": 20,
+                    "local_start_hour": 8,
+                    "local_end_hour": 21,
                     "max_attempts": 4,
                     "min_retry_seconds": 3600,
                     "allowed_country_codes": ["1"],
@@ -597,8 +594,8 @@ class Service(ReservationPlanner):
             budget_available=self.budget_ok(s, p),
             route_allowed=lead.data["phone"].startswith("+1")
             and "1" in config.get("allowed_country_codes", []),
-            local_start_hour=config.get("local_start_hour", 9),
-            local_end_hour=config.get("local_end_hour", 20),
+            local_start_hour=config.get("local_start_hour", 8),
+            local_end_hour=config.get("local_end_hour", 21),
             permission=permission,
             permitted_permissions=set(config.get("permissions", [])),
         )
@@ -617,16 +614,6 @@ class Service(ReservationPlanner):
                 "campaign_id": lead.data["campaign_id"],
             },
             now=self.clock(),
-        )
-
-    def final_voicemail_possible(self, s, p, lead, number, policy):
-        """Policy and permission allow a message; the caller supplies the final-attempt fact."""
-        return bool(
-            policy.get("voicemail_enabled")
-            and policy.get("voicemail_optout_supported")
-            and policy.get("approved_assets")
-            and policy.get("answering_machine_detection", "detect_beep") in AMD_MODES
-            and authorize(self.context(s, p, lead, number, permission="prerecorded", active=True)).allowed
         )
 
     def agent_leg_in(self, s, p, *, provider_id=None, leg_id=None, rep_id=None, active=False):
@@ -881,12 +868,6 @@ class Service(ReservationPlanner):
             ordinal = lead.data.get("attempt_count", 0) + 1
             allowance = max(lead.data.get("attempt_allowance", 0), policy.data.get("max_attempts", 4))
             payload = command.data["payload"]
-            if ordinal >= allowance and self.final_voicemail_possible(s, p, lead, number, policy.data):
-                # Only this dial may leave a message, so only it pays for beep detection.
-                # Bridging still happens on answer; detection runs beside the live conversation.
-                mode = policy.data.get("answering_machine_detection", "detect_beep")
-                payload = {**payload, "answering_machine_detection": mode}
-                update(command, payload=payload)
             update(
                 command,
                 status="sending",

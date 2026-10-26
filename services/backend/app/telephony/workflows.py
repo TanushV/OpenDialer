@@ -319,31 +319,6 @@ class TelephonyWorkflows:
             if lease.data.get("call_id") == call.id and lease.data.get("active"):
                 update(lease, active=False)
 
-    def voicemail_reasons(self, s, p, call, asset, detach=False):
-        lead = self.required(s, "leads", call.data["lead_id"], p)
-        number = self.required(s, "number_inventory", call.data["number_id"], p)
-        campaign = self.required(s, "campaigns", lead.data["campaign_id"], p)
-        policy = self.required(s, "policy_versions", campaign.data["policy_id"], p).data
-        reasons = []
-        # Freeze the original allowance. A policy/list edit cannot manufacture a final attempt.
-        ordinal = call.data.get("attempt_ordinal")
-        allowance = call.data.get("attempt_allowance")
-        if not ordinal or not allowance or ordinal < max(allowance, policy.get("max_attempts", 4)):
-            reasons.append("FINAL_ATTEMPT_REQUIRED")
-        if not authorize(self.context(s, p, lead, number, permission="prerecorded", active=True)).allowed:
-            reasons.append("PRERECORDED_PERMISSION_NOT_APPROVED")
-        if (
-            not policy.get("voicemail_enabled")
-            or not policy.get("voicemail_optout_supported")
-            or asset not in policy.get("approved_assets", [])
-        ):
-            reasons.append("PRERECORDED_PERMISSION_OR_ASSET_NOT_APPROVED")
-        if detach and (
-            not policy.get("detached_topology_verified") or not policy.get("late_human_recovery_destination")
-        ):
-            reasons.append("DETACHED_TOPOLOGY_AND_HUMAN_RECOVERY_NOT_VERIFIED")
-        return reasons
-
     def _control_work(self, p):
         self.inbound_watchdog(p)
         with self.db.transaction(False) as s:
@@ -424,20 +399,11 @@ class TelephonyWorkflows:
             ):
                 update(current, status="cancelled", reason="CALL_NO_LONGER_ACTIVE")
                 return None
-            if not inbound and command["action"] == "playback_start":
-                reasons = self.voicemail_reasons(
-                    s,
-                    p,
-                    call,
-                    command["payload"].get("media_name"),
-                    call.data.get("detach_requested", False),
-                )
-                if call.data["state"] != "VM_PENDING":
-                    reasons.append("MAILBOX_NOT_READY")
-                if reasons:
-                    update(current, status="cancelled", reasons=reasons)
+            if not inbound and command["action"] in {"playback_start", "gather"}:
+                update(current, status="cancelled", reasons=["VOICEMAIL_DROP_REMOVED"])
+                if call.data.get("voicemail_asset"):
                     update(call, voicemail_result="blocked_before_playback")
-                    return None
+                return None
             if command["action"] in {"transcription_start", "record_start"}:
                 privacy = self.required(s, "sellers", p["seller_id"], p).data.get("operating_policy", {})
                 if command["action"] == "record_start" or (

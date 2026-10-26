@@ -81,7 +81,6 @@ export function DialerPage({ visible = true }: { visible?: boolean }) {
   const [transcript, setTranscript] = useState("");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [audioStatus, setAudioStatus] = useState("");
-  const [vmAsset, setVMAsset] = useState("");
   const eventReceived = useRef<number | null>(null);
   const responseReceived = useRef<number | null>(null);
   const audio = useRef<HTMLAudioElement>(null);
@@ -113,13 +112,6 @@ export function DialerPage({ visible = true }: { visible?: boolean }) {
     w.numbers.find(
       (n) => n.id === (call?.number_id ?? packet?.bound_number_id),
     );
-  // The backend makes the final decision; this only hides an unusable control.
-  const finalAttempt =
-    !!call?.attempt_ordinal &&
-    !!call.attempt_allowance &&
-    call.attempt_ordinal >=
-      Math.max(call.attempt_allowance, w.policy.max_attempts ?? 4);
-
   useEffect(() => {
     const controller = telephony.current;
     return () => {
@@ -935,68 +927,11 @@ export function DialerPage({ visible = true }: { visible?: boolean }) {
           </div>
         </div>
       )}
-      {call?.state === "VOICEMAIL_READY" &&
-        (w.policy.voicemail_enabled && finalAttempt ? (
-          <section className="card padded" aria-label="Voicemail">
-            <h3>Mailbox ready · final permitted attempt</h3>
-            <label>
-              Approved voicemail
-              <select
-                value={vmAsset}
-                onChange={(e) => setVMAsset(e.target.value)}
-              >
-                <option value="">Choose a reviewed message</option>
-                {w.policy.approved_assets?.map((a) => (
-                  <option key={a} value={a}>
-                    {a}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              className="secondary"
-              disabled={!vmAsset}
-              onClick={() =>
-                void run(async () => {
-                  setCall(
-                    await api(`/v1/calls/${call.id}/voicemail`, "POST", {
-                      asset_id: vmAsset,
-                      detach: false,
-                    }),
-                  );
-                })
-              }
-            >
-              Start monitored voicemail
-            </button>
-            {w.policy.detached_topology_verified && (
-              <details>
-                <summary>Other voicemail options</summary>
-                <button
-                  className="secondary"
-                  disabled={!vmAsset}
-                  onClick={() =>
-                    void run(async () => {
-                      setCall(
-                        await api(`/v1/calls/${call.id}/voicemail`, "POST", {
-                          asset_id: vmAsset,
-                          detach: true,
-                        }),
-                      );
-                    })
-                  }
-                >
-                  Start verified detached workflow
-                </button>
-              </details>
-            )}
-          </section>
-        ) : (
-          <p className="fine" role="status">
-            Mailbox reached. A message is left only on the final permitted
-            attempt; hang up when ready.
-          </p>
-        ))}
+      {call?.state === "VOICEMAIL_READY" && (
+        <p className="fine" role="status">
+          Mailbox reached. Hang up when ready.
+        </p>
+      )}
       <label className="check-row">
         <input
           type="checkbox"

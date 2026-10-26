@@ -35,8 +35,8 @@ class CallContext:
     min_retry_seconds: int = 3600
     budget_available: bool = False
     route_allowed: bool = False
-    local_start_hour: int = 9
-    local_end_hour: int = 20
+    local_start_hour: int = 8
+    local_end_hour: int = 21
     permission: str = "live"
     permitted_permissions: set[str] | None = None
 

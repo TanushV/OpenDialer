@@ -11,15 +11,6 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from journey import answered_by_human, call, event, get, hang_up, post, run_jobs, start, wrap_up
 
 REP_PASSWORD = "rep-test-password-123"
-VOICEMAIL = {
-    "max_attempts": 1,
-    "permissions": ["live", "transcription", "prerecorded"],
-    "voicemail_enabled": True,
-    "voicemail_optout_supported": True,
-    "approved_assets": ["vm-1"],
-    "detached_topology_verified": True,
-    "late_human_recovery_destination": "sip:recovery@example.test",
-}
 
 
 def bearer(token):
@@ -249,40 +240,6 @@ def test_keypad_digits_reach_the_carrier_once_per_request(workspace, carrier):
     get(ws, f"/v1/calls/{started['id']}/dtmf/unknown-key", 404)
     post(ws, f"/v1/calls/{started['id']}/dtmf", {"digits": "2", "idempotency_key": "keypad-1"}, status=409)
     post(ws, f"/v1/calls/{started['id']}/dtmf", {"digits": "abc", "idempotency_key": "keypad-2"}, status=422)
-
-
-def test_final_attempt_voicemail_is_monitored_detached_and_opt_out_suppresses(workspace, carrier, clock):
-    ws = workspace
-    publish(ws, **VOICEMAIL)
-    started = start(ws)
-    assert mailbox(ws, started["id"])["state"] == "VOICEMAIL_READY"
-    queued = post(ws, f"/v1/calls/{started['id']}/voicemail", {"asset_id": "vm-1", "detach": True})
-    assert queued["state"] == "VM_PENDING"
-    assert carrier.playbacks[-1]["media_name"] == "vm-1"
-    assert any(a["action"] == "gather" for a in carrier.actions)
-    event(ws, started["id"], "call.playback.started")
-    call(ws, "POST", "/v1/admin/control/run")
-    assert get(ws, f"/v1/calls/{started['id']}")["detached"] is True
-    assert any(h["provider_id"] == "agent-test-id" for h in carrier.hangups)
-    ready_as(ws)
-    assert next_lead(ws)["reservation_id"]
-    pause(ws)
-    event(ws, started["id"], "call.dtmf.received", digit="9")
-    ended = get(ws, f"/v1/calls/{started['id']}")
-    assert (ended["state"], ended["end_reason"]) == ("ENDING", "voicemail_optout")
-    assert lead_row(ws, started["lead_id"])["suppressed"] is True
-    clock.now += timedelta(hours=2)
-    assert started["lead_id"] not in [offer(ws) for _ in range(3)]
-
-
-def test_voicemail_before_the_final_attempt_is_refused(workspace):
-    ws = workspace
-    publish(ws, **{**VOICEMAIL, "max_attempts": 4})
-    started = start(ws)
-    post(ws, f"/v1/calls/{started['id']}/voicemail", {"asset_id": "vm-1"}, status=409)
-    mailbox(ws, started["id"])
-    refused = post(ws, f"/v1/calls/{started['id']}/voicemail", {"asset_id": "vm-1"}, status=403)
-    assert "FINAL_ATTEMPT_REQUIRED" in str(refused)
 
 
 def test_wrapup_callback_task_is_rescheduled_snoozed_reassigned_and_completed(workspace, clock):
@@ -680,25 +637,3 @@ def test_return_call_nobody_answers_is_ended_by_the_watchdog_at_its_deadline(wor
     assert task["recovery_reason"] == "No terminal routing receipt before deadline"
     assert "in-1" in [h["provider_id"] for h in carrier.hangups]
     assert transfers(carrier) == ["sip:rep-line-1@sip.telnyx.com"]
-
-
-def test_gather_opt_out_during_voicemail_suppresses_and_other_digits_rearm_the_gather(
-    workspace, carrier, clock
-):
-    ws = workspace
-    publish(ws, **VOICEMAIL)
-    started = start(ws)
-    mailbox(ws, started["id"])
-    post(ws, f"/v1/calls/{started['id']}/voicemail", {"asset_id": "vm-1", "detach": True})
-    event(ws, started["id"], "call.playback.started")
-    event(ws, started["id"], "call.gather.ended", digits="1")
-    call(ws, "POST", "/v1/admin/control/run")
-    assert get(ws, f"/v1/calls/{started['id']}")["state"] == "VM_PLAYING"
-    assert lead_row(ws, started["lead_id"])["suppressed"] is False
-    assert sum(a["action"] == "gather" for a in carrier.actions) == 2
-    event(ws, started["id"], "call.gather.ended", digits="9")
-    ended = get(ws, f"/v1/calls/{started['id']}")
-    assert (ended["state"], ended["end_reason"]) == ("ENDING", "voicemail_optout")
-    assert lead_row(ws, started["lead_id"])["suppressed"] is True
-    clock.now += timedelta(hours=2)
-    assert started["lead_id"] not in [offer(ws) for _ in range(3)]

@@ -119,7 +119,7 @@ export function PreparationRunway() {
 }
 
 export function PreparationSettings() {
-  const { api, run, notice, snapshot: workspace } = useWorkspace();
+  const { api, run, notice } = useWorkspace();
   const bounds = useDefinitions();
   const b = bounds?.preparation;
   const [config, setConfig] = useState<Configuration | null>(null);
@@ -282,31 +282,6 @@ export function PreparationSettings() {
           />{" "}
           Prepare ahead automatically
         </label>
-        <label>
-          Final-attempt voicemail reference
-          <select
-            aria-label="Final-attempt voicemail reference"
-            value={template.final_voicemail_asset || ""}
-            onChange={(event) =>
-              setTemplate({
-                ...template,
-                final_voicemail_asset: event.target.value || null,
-              })
-            }
-          >
-            <option value="">No reference</option>
-            {workspace.policy.approved_assets?.map((asset) => (
-              <option key={asset} value={asset}>
-                {asset}
-              </option>
-            ))}
-          </select>
-        </label>
-        <p className="fine">
-          Choose an already reviewed message. This reference grants no playback
-          permission; voicemail still requires the final permitted attempt and
-          the current call's authorization.
-        </p>
         <div className="two-column">
           {number("ahead_count", "Prepared-ahead target")}
           {number("workspace_ahead_cap", "Workspace preparation cap")}

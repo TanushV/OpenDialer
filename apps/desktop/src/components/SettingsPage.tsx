@@ -1027,8 +1027,7 @@ function CallingWindow({
       </div>
       <p className="fine">
         Hours are the prospect's local time. National screening and internal
-        opt-outs are always required; voicemail stays limited to the final
-        permitted attempt.
+        opt-outs are always required.
       </p>
       <label className="check-label">
         <input
@@ -1238,7 +1237,7 @@ function CallingPolicySettings() {
         Require applicable state registry data
       </label>
       <h3>Separate treatment permissions</h3>
-      {["live", "transcription", "prerecorded"].map((permission) => (
+      {["live", "transcription"].map((permission) => (
         <label className="check-label" key={permission}>
           <input
             type="checkbox"
@@ -1254,65 +1253,6 @@ function CallingPolicySettings() {
           {label(permission)}
         </label>
       ))}
-      <h3>Approved voicemail assets</h3>
-      <label className="check-label">
-        <input
-          type="checkbox"
-          checked={policy.voicemail_enabled}
-          onChange={(e) => change({ voicemail_enabled: e.target.checked })}
-        />
-        Enable permissioned voicemail
-      </label>
-      <label className="check-label">
-        <input
-          type="checkbox"
-          checked={policy.voicemail_optout_supported}
-          onChange={(e) =>
-            change({ voicemail_optout_supported: e.target.checked })
-          }
-        />
-        Reviewed message explains the digit 9 opt-out
-      </label>
-      <label>
-        Approved Telnyx media names
-        <input
-          value={policy.approved_assets.join(", ")}
-          onChange={(e) =>
-            change({
-              approved_assets: e.target.value
-                .split(",")
-                .map((s) => s.trim())
-                .filter(Boolean),
-            })
-          }
-        />
-      </label>
-      <label className="check-label">
-        <input
-          type="checkbox"
-          checked={policy.detached_topology_verified}
-          onChange={(e) =>
-            change({ detached_topology_verified: e.target.checked })
-          }
-        />
-        Detached topology verified on the actual account
-      </label>
-      <label>
-        Topology test reference
-        <input
-          value={policy.topology_test_reference}
-          onChange={(e) => change({ topology_test_reference: e.target.value })}
-        />
-      </label>
-      <label>
-        Late human recovery destination
-        <input
-          value={policy.late_human_recovery_destination}
-          onChange={(e) =>
-            change({ late_human_recovery_destination: e.target.value })
-          }
-        />
-      </label>
       <label>
         Publication reason
         <input

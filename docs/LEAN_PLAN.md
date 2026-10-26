@@ -24,7 +24,7 @@ Every item below must work at the end, in both modes where it applies.
 2. Leads: CSV import, list and search, endpoint correction, outreach hold, conversions (record, retract).
 3. Calling: ready/pause with idle auto-pause and heartbeats; next lead (due callbacks first, coverage, statistical
    ranking, number selection); Telnyx agent and prospect legs bridged on answer; hangup; mute; keypad/DTMF; opt-out by
-   button or DTMF 9; final-attempt voicemail, monitored and detached; inbound callbacks (owner, teammate, business
+   button or DTMF 9; voicemail detection and outcomes; inbound callbacks (owner, teammate, business
    fallback, spoken message, callback task); stuck-call recovery (reconcile, stop, cancel unsent, confirm not placed,
    retry a failed job).
 4. Compliance: internal opt-out list first; national DNC from imported snapshots and prepaid lookups (manual and the
@@ -299,3 +299,5 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
   checks remain unverified and the original disposable test container could not be restarted. The temporary
   native PostgreSQL is stopped and original container data is intact. Installed app/data were not changed
   under the latest supplied working agreement. Exact-SHA CI and signed downloads are tracked in GitHub.
+
+- October 25 owner request (0.5.1, in progress): remove voicemail drop from UI/API and block queued outbound drop commands; keep mailbox outcomes and next-call controls. New-workspace calling hours are 08:00 inclusive to 21:00 exclusive in the prospect timezone. Existing published policies are preserved; the owner requested setting these hours on this Mac. The owner explicitly authorizes GitHub publication and updating the installed Mac through the signed updater for this change, overriding the earlier install freeze for this task.

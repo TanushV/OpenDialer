@@ -268,11 +268,11 @@ def test_revoked_transcription_permission_stops_both_streams(workspace, app, car
     assert stops == {call["provider_id"], "agent-test-id"}
 
 
-def test_final_permitted_attempt_requests_beep_detection_without_delaying_bridge(workspace, app, carrier):
+def test_old_voicemail_policy_cannot_enable_drop_specific_beep_detection(workspace, app, carrier):
     voicemail_policy(app, workspace, 1)
     start(workspace)
     dial = carrier.dials[-1]
-    assert dial["answering_machine_detection"] == "detect_beep"
+    assert "answering_machine_detection" not in dial
     assert dial["bridge_on_answer"] is True and dial["link_to"] == "agent-test-id"
 
 

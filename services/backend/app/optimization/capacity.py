@@ -236,8 +236,8 @@ def work_items(leads, now, end, policy, handling_seconds=OPTIMIZATION_DEFAULTS["
                     timestamp(lead.get("screening", {}).get("expires_at")) or end,
                 ),
                 (
-                    policy.get("local_start_hour", 9),
-                    policy.get("local_end_hour", 20),
+                    policy.get("local_start_hour", 8),
+                    policy.get("local_end_hour", 21),
                     tuple(policy.get("calling_weekdays", range(7))),
                     tuple(sorted(policy.get("closed_dates", []))),
                 ),
@@ -280,10 +280,10 @@ def normalize_availability(windows, now, end, rep_minutes, policy):
         while day <= end.astimezone(zone).date() and remaining > 0:
             if day.weekday() in policy.get("staffing_weekdays", policy.get("calling_weekdays", range(7))):
                 start = datetime.combine(day, time(), zone) + timedelta(
-                    hours=policy.get("staffing_start_hour", policy.get("local_start_hour", 9))
+                    hours=policy.get("staffing_start_hour", policy.get("local_start_hour", 8))
                 )
                 finish = datetime.combine(day, time(), zone) + timedelta(
-                    hours=policy.get("staffing_end_hour", policy.get("local_end_hour", 20))
+                    hours=policy.get("staffing_end_hour", policy.get("local_end_hour", 21))
                 )
                 start, finish = max(now, start.astimezone(UTC)), min(end, finish.astimezone(UTC))
                 count = policy.get("staffing_reps", 1)
@@ -1303,8 +1303,8 @@ def time_forecast(
         "objective": "Count-first: callbacks, requested contacts, coverage-due, other leads; conversions break ties",
         "retry_demand": "Contingent retries are separate; actual outcomes create the next eligible attempt",
         "staffing_timezone": policy.get("staffing_timezone", "UTC"),
-        "staffing_start_hour": policy.get("staffing_start_hour", policy.get("local_start_hour", 9)),
-        "staffing_end_hour": policy.get("staffing_end_hour", policy.get("local_end_hour", 20)),
+        "staffing_start_hour": policy.get("staffing_start_hour", policy.get("local_start_hour", 8)),
+        "staffing_end_hour": policy.get("staffing_end_hour", policy.get("local_end_hour", 21)),
         "future_readiness": "Conditional pending schedule requires the declared setup to succeed; paused or investigating numbers are not assumed ready",
         "rep_ownership": "Named callback owner required; pooled headcount cannot establish ownership",
         "account_channel_limit": policy.get("account_channel_limit"),
