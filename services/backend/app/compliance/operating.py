@@ -133,7 +133,8 @@ COSTS = {
     },
     "number_rental": {
         "recurring": True,
-        "new_commitments_allowed": False,
+        "new_commitments_allowed": True,
+        "approval_required": "exact_number_quote",
         "from_monthly_usd": 1,
         "existing_obligations": "Remain payable to the carrier; no automatic release",
     },

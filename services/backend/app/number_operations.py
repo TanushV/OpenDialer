@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 from datetime import timedelta
+from decimal import Decimal
 
 import httpx
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
@@ -50,6 +51,152 @@ def carrier_rejection(exc):
 
 
 class NumberOperations:
+    def purchase_orders_in(self, s, p):
+        model = MODELS["command_outbox"]
+        return list(
+            s.scalars(
+                select(model)
+                .where(
+                    model.tenant_id == p["tenant_id"],
+                    model.seller_id == p["seller_id"],
+                    model.op_kind == "number_purchase",
+                )
+                .order_by(model.created_at.desc())
+            )
+        )
+
+    def _claim_purchase(self, p, quote_id):
+        with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
+            self._configuration_actor(s, p)
+            quote = self.required(s, "command_outbox", quote_id, p)
+            if quote.data.get("kind") == "number_purchase":
+                return doc(quote), False
+            if quote.data.get("kind") != "number_quote" or dt(quote.data["expires_at"]) <= self.clock():
+                fail(409, "Quote expired; search again and review the current price")
+            config = self.configs.read(p["tenant_id"])
+            if not self.settings.simulation and not all(
+                config.get(k) for k in ("telnyx_api_key", "telnyx_connection_id")
+            ):
+                fail(409, "Connect Telnyx before ordering numbers")
+            numbers = self.scoped(s, "number_inventory", p)
+            phones = {n.data["phone"] for n in numbers}
+            orders = [r for r in self.purchase_orders_in(s, p) if r.data.get("status") != "failed"]
+            reserved = {r.data["phone"] for r in orders}
+            if quote.data["phone"] in phones | reserved or self.number_owners(s, [quote.data["phone"]]):
+                fail(409, "This number is already owned or has an order awaiting reconciliation")
+            if len(phones | reserved) + 1 > config.get("maximum_owned_numbers", 0):
+                fail(409, "Maximum owned numbers reached; review your number limit")
+            if quote.data["initial_commitment_usd"] > config.get("number_initial_limit_usd", 0):
+                fail(409, "This order exceeds the approved initial cost per number")
+            # This cap covers rentals added through this app, including uncertain orders.
+            monthly = sum(Decimal(str(r.data["monthly_cost_usd"])) for r in orders) + Decimal(
+                str(quote.data["monthly_cost_usd"])
+            )
+            if monthly > Decimal(str(config.get("number_monthly_limit_usd", 0))):
+                fail(409, "This order exceeds the monthly limit for app-ordered rentals")
+            update(
+                quote,
+                kind="number_purchase",
+                status="sending",
+                approved_by=p["user_id"],
+                approved_at=self.clock().isoformat(),
+            )
+            audit(
+                s,
+                p["tenant_id"],
+                p["seller_id"],
+                p["user_id"],
+                "number.purchase_approved",
+                quote.id,
+                self.clock(),
+                {"phone": quote.data["phone"], "monthly_cost_usd": str(monthly)},
+            )
+            return doc(quote), True
+
+    def _purchase_receipt(self, p, order_id, status, **values):
+        with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
+            row = self.required(s, "command_outbox", order_id, p)
+            update(row, status=status, **values)
+            emit(s, p["tenant_id"], "number.updated", row, self.clock())
+            return doc(row)
+
+    async def purchase_number(self, p, quote_id):
+        order, send = await asyncio.to_thread(self._claim_purchase, p, quote_id)
+        if not send:
+            return order
+        carrier = self.carrier(p["tenant_id"])
+        # Recheck availability and price before the single charge-bearing submission.
+        try:
+            candidates = await carrier.search_numbers(order["region"])
+            current = next((n for n in candidates if n.get("phone_number") == order["phone"]), {})
+            cost = current.get("cost_information", {})
+            same = (
+                cost.get("currency") == "USD"
+                and Decimal(str(cost.get("monthly_cost"))) == Decimal(str(order["monthly_cost_usd"]))
+                and Decimal(str(cost.get("upfront_cost"))) + Decimal(str(cost.get("monthly_cost")))
+                == Decimal(str(order["initial_commitment_usd"]))
+            )
+            if not same:
+                raise ValueError("Availability or price changed; search again before approving")
+        except Exception:
+            return await asyncio.to_thread(
+                self._purchase_receipt,
+                p,
+                order["id"],
+                "failed",
+                error="Could not confirm the quoted price; search again",
+            )
+        try:
+            receipt = await carrier.purchase_number(order["phone"], order["id"])
+            if not isinstance(receipt, dict) or not receipt.get("id"):
+                raise ValueError("Missing provider order reference")
+        except Exception as exc:
+            rejected = carrier_rejection(exc)
+            return await asyncio.to_thread(
+                self._purchase_receipt,
+                p,
+                order["id"],
+                "failed" if rejected else "uncertain",
+                error=rejected or "Receipt unavailable. Check order status; do not place another order.",
+            )
+        result = await asyncio.to_thread(
+            self._purchase_receipt,
+            p,
+            order["id"],
+            "ordered",
+            provider_order_id=receipt["id"],
+            provider_status=receipt.get("status"),
+        )
+        try:
+            await self.sync_numbers(p)
+        except Exception:
+            result["inventory_pending"] = True
+        return result
+
+    async def reconcile_number_order(self, p, order_id):
+        with self.db.transaction(False) as s:
+            self._configuration_actor(s, p)
+            row = self.required(s, "command_outbox", order_id, p)
+            if row.data.get("kind") != "number_purchase":
+                fail(409, "Not an approved number order")
+            original = doc(row)
+        receipt = await self.carrier(p["tenant_id"]).find_number_order(order_id)
+        if not receipt or not receipt.get("id"):
+            return original  # An absent result is not proof that a submission failed.
+        result = await asyncio.to_thread(
+            self._purchase_receipt,
+            p,
+            order_id,
+            "ordered",
+            provider_order_id=receipt["id"],
+            provider_status=receipt.get("status"),
+            error=None,
+        )
+        await self.sync_numbers(p)
+        return result
+
     def number_owners(self, s, phones):
         """Owner of each phone across sellers, read by lookup key without decrypting other inventory."""
         model = MODELS["number_inventory"]

@@ -17,7 +17,7 @@ class SimulatedCarrier:
         self.dials = []
         self.playbacks = []
         self.hangups = []
-        self.purchases = []  # Stays empty: no adapter orders numbers (existing numbers only).
+        self.purchases = []
         self.calls = {}
         self.numbers = {}
         self.timeout_after_accept = False
@@ -73,3 +73,21 @@ class SimulatedCarrier:
                 "cost_information": {"currency": "USD", "upfront_cost": "0.00", "monthly_cost": "1.00"},
             }
         ]
+
+    async def purchase_number(self, phone, reference):
+        order = {"id": "sim-order-" + reference, "customer_reference": reference, "status": "success"}
+        self.purchases.append(order)
+        number_id = "sim-number-" + reference
+        self.numbers[number_id] = {
+            "id": number_id,
+            "phone_number": phone,
+            "status": "active",
+            "call_recording_enabled": False,
+        }
+        return order
+
+    async def find_number_order(self, reference):
+        return next(
+            (r for r in self.purchases if isinstance(r, dict) and r.get("customer_reference") == reference),
+            None,
+        )

@@ -153,6 +153,8 @@ class TelnyxCarrier:
             if page >= pages:
                 break
             page += 1
+        for number in found:
+            number["call_recording_enabled"] = await self.number_recording(number["id"])
         return found
 
     async def search_numbers(self, region):
@@ -168,6 +170,34 @@ class TelnyxCarrier:
         )
         response = await self.request("GET", "/available_phone_numbers?" + query)
         return response.get("data", [])
+
+    async def purchase_number(self, phone, reference):
+        response = await self.request(
+            "POST",
+            "/number_orders",
+            {
+                "phone_numbers": [{"phone_number": phone}],
+                "connection_id": self.connection_id,
+                "customer_reference": reference,
+            },
+        )
+        return response.get("data", {})
+
+    async def find_number_order(self, reference):
+        from urllib.parse import urlencode
+
+        response = await self.request(
+            "GET",
+            "/number_orders?"
+            + urlencode(
+                {
+                    "filter[customer_reference]": reference,
+                    "page[size]": 100,
+                }
+            ),
+        )
+        matches = [r for r in response.get("data", []) if r.get("customer_reference") == reference]
+        return matches[0] if len(matches) == 1 else None
 
     async def configure_number(self, number_id, connection_id):
         from urllib.parse import quote
@@ -187,7 +217,16 @@ class TelnyxCarrier:
     async def get_number(self, number_id):
         from urllib.parse import quote
 
-        return await self.request("GET", f"/phone_numbers/{quote(number_id, safe='')}")
+        response = await self.request("GET", f"/phone_numbers/{quote(number_id, safe='')}")
+        response["data"]["call_recording_enabled"] = await self.number_recording(number_id)
+        return response
+
+    async def number_recording(self, number_id):
+        from urllib.parse import quote
+
+        response = await self.request("GET", f"/phone_numbers/{quote(number_id, safe='')}/voice")
+        recording = (response.get("data") or {}).get("call_recording") or {}
+        return recording.get("inbound_call_recording_enabled")
 
     async def verify_incoming_only_credential(self, credential_id, *, sip_username=None):
         """The browser credential must be incoming-only and reachable by this account's agent dial."""

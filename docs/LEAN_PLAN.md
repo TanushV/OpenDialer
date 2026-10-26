@@ -44,7 +44,7 @@ Every item below must work at the end, in both modes where it applies.
    holdouts, coaching strategies; conversation learning (observations, vocabulary, associations, observation review);
    goal change preview and reconciliation; optimization report.
 10. Numbers: inventory sync, configure, add, pause/resume, observed health (including case-mix), external reputation
-    import, reassignment, number review, search and quotes (purchase stays blocked by policy), capacity planner
+    import, reassignment, number review, search, quotes and explicitly approved purchases (October 26 owner revision), capacity planner
     (existing-only and minimum-addition proposals, exact small search, greedy for large, lower bound, retry scenarios),
     staffing (simple and named availability).
 11. Metrics and work time: home metrics, report views, rep work intervals, corrections, rep-hour metric.
@@ -67,8 +67,8 @@ Every item below must work at the end, in both modes where it applies.
   purge. Backup and restore stay, as plain data export and merge without journal reconciliation.
 - Dead code: never-read tables (scorecard_items, transcript_revisions, batch_requests, registry_subscriptions,
   lead_phone_links, allocation_decisions, scheduling_plans, memberships, tenants if unused), never-produced call
-  states, recording branches (the route always returns 410), number-order reconciliation (purchases are blocked, so no
-  order can exist), retired job kinds, no-op branches, unused settings.
+  states, recording branches (the route always returns 410), the old number-order machinery (replaced by the
+  October 26 explicitly approved quote flow), retired job kinds, no-op branches, unused settings.
 - Duplicate or over-built mechanisms, rewritten smaller with the same results: the incremental metric engine
   (projections, report revisions, rebuild namespaces) becomes direct queries over real columns; the per-operation
   recovery matrix becomes one reconcile-or-stop path; the inbound attempt ledger and watchdog become one routing chain;
@@ -303,3 +303,5 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 - October 25 owner request (0.5.1, in progress): remove voicemail drop from UI/API and block queued outbound drop commands; keep mailbox outcomes and next-call controls. New-workspace calling hours are 08:00 inclusive to 21:00 exclusive in the prospect timezone. Existing published policies are preserved; the owner requested setting these hours on this Mac. The owner explicitly authorizes GitHub publication and updating the installed Mac through the signed updater for this change, overriding the earlier install freeze for this task.
 
 - 0.5.1 locally verified (October 25): [receipt](evidence/lean/voicemail-hours-051-20261025.json). SQLite 670 / 2 skips, PostgreSQL 671 / 1, frontend 75, Rust 7; all 164 browser cases have passing evidence (163 full-run passes plus the corrected rubric test on rerun). The rubric test now checks a successful save receipt and preserves drafts through an injected version conflict. Mac sidecars/package/archive/DMG, simulated call/callback restart and trainer checks pass. Existing Mac campaign hours explicitly saved as 08:00–21:00; signed release/install follow in GitHub and the updater. Native test PostgreSQL stopped. No live calls or paid actions.
+
+- October 26 setup and whole-app journey audit (in progress): the owner requests simpler, working setup and in-app number procurement with permission. This supersedes the earlier blanket rental ban for explicitly approved, priced number orders only. Add count and rental-spend limits, persistent order receipts and read-only reconciliation; preserve manual carrier identity/callback checks before outbound readiness. Other subscriptions remain blocked. No live purchases, release publication or installed-app changes are part of this audit. Regression-first fixes cover clearing provider fields, visible ChatGPT setup, and lost purchase responses. New feature code is justified by this restored end feature rather than hardening machinery.

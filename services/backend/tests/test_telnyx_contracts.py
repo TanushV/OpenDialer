@@ -479,6 +479,10 @@ async def test_inventory_reads_every_page_before_returning_numbers():
     seen = []
 
     def handler(request):
+        if request.url.path.endswith("/voice"):
+            return httpx.Response(
+                200, json={"data": {"call_recording": {"inbound_call_recording_enabled": False}}}
+            )
         page = int(request.url.params["page[number]"])
         seen.append(page)
         assert request.url.params["page[size]"] == "250"
@@ -493,6 +497,7 @@ async def test_inventory_reads_every_page_before_returning_numbers():
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
         result = await TelnyxCarrier("test", "app", http=http).list_numbers()
     assert seen == [1, 2]
+    assert all(item["call_recording_enabled"] is False for item in result)
     assert [item["id"] for item in result] == ["number-1", "number-2"]
 
 
@@ -523,3 +528,18 @@ async def test_incomplete_inventory_never_returns_a_partial_success(second):
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
         with pytest.raises(ValueError, match="inventory"):
             await TelnyxCarrier("test", "app", http=http).list_numbers()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled", [True, False, None])
+async def test_number_recording_comes_from_voice_settings(enabled):
+    def handler(request):
+        if request.url.path.endswith("/voice"):
+            return httpx.Response(
+                200, json={"data": {"call_recording": {"inbound_call_recording_enabled": enabled}}}
+            )
+        return httpx.Response(200, json={"data": {"id": "number-1", "call_recording_enabled": False}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        result = await TelnyxCarrier("test", "app", http=http).get_number("number-1")
+    assert result["data"]["call_recording_enabled"] is enabled

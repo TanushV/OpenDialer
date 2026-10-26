@@ -205,6 +205,11 @@ class NumberInput(Strict):
     capacity: int = Field(default=1, ge=1, le=20)
 
 
+class NumberPurchase(Strict):
+    quote_id: UUID
+    approve_recurring: bool = Field(strict=True)
+
+
 class PolicyUpdate(Strict):
     # The path names the version being edited; it must still be current (see publish).
     expected_version: int | None = Field(default=None, ge=1)
@@ -229,6 +234,9 @@ class PolicyUpdate(Strict):
 
 
 class ProviderSettings(Strict):
+    maximum_owned_numbers: int | None = Field(default=None, ge=0, le=1000)
+    number_initial_limit_usd: float | None = Field(default=None, ge=0, le=10000, allow_inf_nan=False)
+    number_monthly_limit_usd: float | None = Field(default=None, ge=0, le=10000, allow_inf_nan=False)
     request_id: UUID | None = None
     expected_version: int | None = Field(default=None, ge=0)
     dnc_api_key: str | None = None
@@ -1083,7 +1091,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
                         "expires_at": (clock() + timedelta(minutes=5)).isoformat(),
                         "currency": "USD",
                     }
-                    put(
+                    row = put(
                         s,
                         "command_outbox",
                         p["tenant_id"],
@@ -1091,11 +1099,26 @@ def create_app(settings=None, *, clock=None, carrier=None):
                         {"kind": "number_quote", "status": "quoted", **value},
                         now=clock(),
                     )
-                    quotes.append(value)
+                    quotes.append({"id": row.id, **value})
             return quotes
 
         quotes = await asyncio.to_thread(save_quotes)
         return {"numbers": quotes, "simulation": settings.simulation}
+
+    @app.get("/v1/admin/numbers/orders")
+    def number_orders(p=Depends(administrator)):
+        with db.transaction(False) as s:
+            return [doc(r) for r in service.purchase_orders_in(s, p)]
+
+    @app.post("/v1/admin/numbers/purchase")
+    async def purchase_number(data: NumberPurchase, p=Depends(administrator)):
+        if not data.approve_recurring:
+            fail(422, "Approve the displayed number and its recurring rental before ordering")
+        return await service.purchase_number(p, str(data.quote_id))
+
+    @app.post("/v1/admin/numbers/orders/{order_id}/reconcile")
+    async def reconcile_number_order(order_id: str, p=Depends(administrator)):
+        return await service.reconcile_number_order(p, order_id)
 
     @app.post("/v1/admin/recovery")
     async def recovery(p=Depends(administrator)):

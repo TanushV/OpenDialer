@@ -15,7 +15,6 @@ def test_number_configuration_confirms_reconciles_or_reports_rejection(workspace
         "phone_number": "+14155550999",
         "connection_id": None,
         "status": "active",
-        "call_recording_enabled": False,
     }
     seen = []
 
@@ -23,6 +22,10 @@ def test_number_configuration_confirms_reconciles_or_reports_rejection(workspace
         seen.append((request.method, request.url.path))
         if request.url.path == "/v2/phone_numbers":
             return httpx.Response(200, json={"data": [number], "meta": {"page_number": 1, "total_pages": 1}})
+        if request.method == "GET" and request.url.path.endswith("/voice"):
+            return httpx.Response(
+                200, json={"data": {"call_recording": {"inbound_call_recording_enabled": False}}}
+            )
         if request.method == "PATCH":
             if result == "rejected":
                 return httpx.Response(422, json={"errors": [{"title": "Invalid route"}]})

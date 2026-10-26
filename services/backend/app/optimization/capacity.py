@@ -1390,12 +1390,12 @@ def time_forecast(
         "purchased": False,
         "approval_required": True,
         "purchase_allowed": False,
-        "purchase_blocker": "New rentals are recurring commitments",
+        "purchase_blocker": "Review a current carrier quote and approve its recurring rental in Numbers",
         "estimate_requires_provider_quote": True,
         "monthly_rental_estimate_usd": sum(c["quote_usd"] for c in pending_add)
         if proposal_known and all(c.get("quote_usd") is not None for c in pending_add)
         else None,
-        "estimate_note": "Account quote required; unknown price is not zero. New recurring commitments remain blocked.",
+        "estimate_note": "Account quote required; unknown price is not zero. Each rental requires explicit approval.",
         "cold_start": not any(n.get("health", {}).get("samples", 0) for n in inventory),
         "expected_conversion_lift": None,
     }
