@@ -32,16 +32,19 @@ Local calling needs a reachable HTTPS webhook route; the guide includes that ste
 
 ## Hardware
 
-| Use | CPU recommendation | RAM recommendation |
+| Platform | Minimum status | Comfortable starting point |
 | --- | --- | --- |
-| One desktop user | Apple Silicon, or a modern Intel/AMD CPU with 4 cores | 8 GB; 16 GB for heavy multitasking |
-| Small shared server | Start with 4 vCPU and measure your team's workload | Start with 8 GB |
+| Mac | Apple Silicon, macOS 14+. An 8 GB M1 has not yet been performance-tested. | **8 GB RAM** for focused use; more for demanding multitasking. |
+| Windows | x64 PC. Windows 11's 2-core / 4 GB OS floor is **not a verified app minimum**. | **8 GB RAM** provisionally; no demonstrated 4-core requirement for calling. |
+| Team server | No certified minimum or rep capacity yet. | Benchmark your team workload before choosing CPU/RAM. |
 
-These are **planning recommendations, not certified minimums**. No dedicated GPU is needed:
-AI requests go to remote providers; statistical training runs on the CPU.
-Allow 2 GB free space initially, plus growing workspace data and backups. Use a microphone/headset,
-stable internet and a display with at least 1024 × 720 usable pixels.
-[Platform details and measured resource usage](docs/REQUIREMENTS.md).
+Comfortable figures are provisional. **16 GB is not an established OpenDialer requirement.**
+The expanded component test measured about 182 MiB at fresh idle and an 865 MiB peak with training;
+that excludes the native shell and does not certify low-RAM hardware. Latency targets were not all met on the loaded test Mac.
+No dedicated GPU is needed: AI inference is remote, and statistical training uses the CPU.
+Allow 2 GB free disk initially plus data/backups, a microphone/headset, stable internet and
+at least 1024 × 720 usable display pixels.
+[Measured usage, test method and remaining hardware checks](docs/REQUIREMENTS.md).
 
 ## What it does
 

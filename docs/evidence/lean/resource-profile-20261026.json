@@ -1,0 +1,405 @@
+{
+  "date": "2026-10-26",
+  "source_commit": "833a471b2dc917cb179d76c0a0ce32fd703bdeb0",
+  "host": {
+    "cpu": "Apple M5",
+    "physical_cores": 10,
+    "ram_bytes": 34359738368,
+    "os": "macOS 26.5.1",
+    "pressure_before": "kern.memorystatus_vm_pressure_level: 2\nvm.swapusage: total = 40960.00M  used = 39632.75M  free = 1327.25M  (encrypted)\n",
+    "pressure_after": "kern.memorystatus_vm_pressure_level: 2\nvm.swapusage: total = 40960.00M  used = 40063.31M  free = 896.69M  (encrypted)\n"
+  },
+  "method": {
+    "sampling": "Approximately 1 second; proc_pid_rusage v2 physical footprint; root descendants plus task-owned WebKit XPC processes. Automation driver, static HTTP server and fixture generator excluded.",
+    "cpu": "Raw rusage CPU times are Mach ticks; converted with measured mach_timebase_info 125/3 to nanoseconds, then CPU-time delta / elapsed delta. 100 percent is one core. New/exited processes can lose sub-sample CPU time.",
+    "calibration": {
+      "numer": 125,
+      "denom": 3,
+      "process_time_seconds": 0.9260619999999999,
+      "rusage_ticks_delta": 22228121,
+      "converted_seconds": 0.9261717083333334
+    },
+    "frontend": "Production Vite build in Playwright WebKit 2370 (27.2), headless, 1440x940. Browser-mode saved session against the local frozen SQLite authority. Not the native Tauri shell or system WKWebView.",
+    "media": "Two local RTCPeerConnections exchanging synthetic oscillator audio, muted output, no carrier, microphone or hardware audio. Continues through calls, training and recovery.",
+    "data": "10,000 imported synthetic leads plus seed leads; 100,000 historical attempts loaded offline. Live background lanes enabled. 40 accelerated simulated call journeys.",
+    "training": "600 and 20,000 rows, eight segment categories, three funnel labels; not maximum feature complexity. Trainer numerical threads limited to one.",
+    "repeat_status": "One completed profile. Initial exploratory profile stopped after the probe attempted a nonexistent top-level Practice navigation button; excluded. Not a repeated hardware certification.",
+    "cpu_pressure_note": "CPU and swap belong to a shared machine with existing pressure. No app-attributed swap or low-RAM capacity conclusion."
+  },
+  "phases": {
+    "prepare": {
+      "sample_count": 7,
+      "sample_span_seconds": 6.0,
+      "groups": {
+        "backend": {
+          "median_footprint_mib": 79.5,
+          "peak_footprint_mib": 156.0,
+          "mean_cpu_one_core_percent": 33.1,
+          "p95_cpu_one_core_percent": 51.5
+        },
+        "webkit": {
+          "median_footprint_mib": 55.9,
+          "peak_footprint_mib": 55.9,
+          "mean_cpu_one_core_percent": null,
+          "p95_cpu_one_core_percent": null
+        },
+        "total": {
+          "median_footprint_mib": 79.5,
+          "peak_footprint_mib": 211.9,
+          "mean_cpu_one_core_percent": 33.1,
+          "p95_cpu_one_core_percent": 51.5
+        }
+      }
+    },
+    "fresh_workspace_idle": {
+      "sample_count": 58,
+      "sample_span_seconds": 59.3,
+      "groups": {
+        "backend": {
+          "median_footprint_mib": 96.1,
+          "peak_footprint_mib": 100.7,
+          "mean_cpu_one_core_percent": 5.3,
+          "p95_cpu_one_core_percent": 6.9
+        },
+        "webkit": {
+          "median_footprint_mib": 86.3,
+          "peak_footprint_mib": 151.1,
+          "mean_cpu_one_core_percent": 0.5,
+          "p95_cpu_one_core_percent": 2.2
+        },
+        "total": {
+          "median_footprint_mib": 182.2,
+          "peak_footprint_mib": 246.2,
+          "mean_cpu_one_core_percent": 5.8,
+          "p95_cpu_one_core_percent": 8.3
+        }
+      }
+    },
+    "import": {
+      "sample_count": 94,
+      "sample_span_seconds": 93.7,
+      "groups": {
+        "backend": {
+          "median_footprint_mib": 159.6,
+          "peak_footprint_mib": 214.2,
+          "mean_cpu_one_core_percent": 80.1,
+          "p95_cpu_one_core_percent": 94.0
+        },
+        "total": {
+          "median_footprint_mib": 159.6,
+          "peak_footprint_mib": 214.2,
+          "mean_cpu_one_core_percent": 80.1,
+          "p95_cpu_one_core_percent": 94.0
+        }
+      }
+    },
+    "startup": {
+      "sample_count": 9,
+      "sample_span_seconds": 8.1,
+      "groups": {
+        "backend": {
+          "median_footprint_mib": 69.8,
+          "peak_footprint_mib": 93.5,
+          "mean_cpu_one_core_percent": 28.9,
+          "p95_cpu_one_core_percent": 75.0
+        },
+        "webkit": {
+          "median_footprint_mib": 61.2,
+          "peak_footprint_mib": 119.8,
+          "mean_cpu_one_core_percent": 22.3,
+          "p95_cpu_one_core_percent": 26.6
+        },
+        "total": {
+          "median_footprint_mib": 69.8,
+          "peak_footprint_mib": 213.3,
+          "mean_cpu_one_core_percent": 34.5,
+          "p95_cpu_one_core_percent": 75.0
+        }
+      }
+    },
+    "loaded_workspace_background": {
+      "sample_count": 59,
+      "sample_span_seconds": 59.2,
+      "groups": {
+        "backend": {
+          "median_footprint_mib": 311.0,
+          "peak_footprint_mib": 463.2,
+          "mean_cpu_one_core_percent": 21.7,
+          "p95_cpu_one_core_percent": 93.0
+        },
+        "webkit": {
+          "median_footprint_mib": 85.5,
+          "peak_footprint_mib": 145.4,
+          "mean_cpu_one_core_percent": 0.3,
+          "p95_cpu_one_core_percent": 1.4
+        },
+        "total": {
+          "median_footprint_mib": 395.9,
+          "peak_footprint_mib": 548.8,
+          "mean_cpu_one_core_percent": 22.1,
+          "p95_cpu_one_core_percent": 93.1
+        }
+      }
+    },
+    "navigation": {
+      "sample_count": 42,
+      "sample_span_seconds": 44.7,
+      "groups": {
+        "backend": {
+          "median_footprint_mib": 356.7,
+          "peak_footprint_mib": 471.2,
+          "mean_cpu_one_core_percent": 39.3,
+          "p95_cpu_one_core_percent": 96.9
+        },
+        "webkit": {
+          "median_footprint_mib": 179.0,
+          "peak_footprint_mib": 195.8,
+          "mean_cpu_one_core_percent": 10.2,
+          "p95_cpu_one_core_percent": 16.5
+        },
+        "total": {
+          "median_footprint_mib": 544.7,
+          "peak_footprint_mib": 654.8,
+          "mean_cpu_one_core_percent": 49.5,
+          "p95_cpu_one_core_percent": 107.7
+        }
+      }
+    },
+    "audio_loopback": {
+      "sample_count": 59,
+      "sample_span_seconds": 58.4,
+      "groups": {
+        "backend": {
+          "median_footprint_mib": 343.2,
+          "peak_footprint_mib": 354.7,
+          "mean_cpu_one_core_percent": 5.1,
+          "p95_cpu_one_core_percent": 7.7
+        },
+        "webkit": {
+          "median_footprint_mib": 142.8,
+          "peak_footprint_mib": 183.7,
+          "mean_cpu_one_core_percent": 12.6,
+          "p95_cpu_one_core_percent": 18.5
+        },
+        "total": {
+          "median_footprint_mib": 486.2,
+          "peak_footprint_mib": 538.4,
+          "mean_cpu_one_core_percent": 17.7,
+          "p95_cpu_one_core_percent": 25.1
+        }
+      }
+    },
+    "calls": {
+      "sample_count": 48,
+      "sample_span_seconds": 47.3,
+      "groups": {
+        "backend": {
+          "median_footprint_mib": 405.0,
+          "peak_footprint_mib": 475.8,
+          "mean_cpu_one_core_percent": 86.7,
+          "p95_cpu_one_core_percent": 106.4
+        },
+        "webkit": {
+          "median_footprint_mib": 155.6,
+          "peak_footprint_mib": 224.8,
+          "mean_cpu_one_core_percent": 18.8,
+          "p95_cpu_one_core_percent": 27.4
+        },
+        "total": {
+          "median_footprint_mib": 574.1,
+          "peak_footprint_mib": 654.9,
+          "mean_cpu_one_core_percent": 105.5,
+          "p95_cpu_one_core_percent": 126.7
+        }
+      }
+    },
+    "training-600": {
+      "sample_count": 61,
+      "sample_span_seconds": 61.5,
+      "groups": {
+        "backend": {
+          "median_footprint_mib": 457.8,
+          "peak_footprint_mib": 483.2,
+          "mean_cpu_one_core_percent": 65.2,
+          "p95_cpu_one_core_percent": 93.5
+        },
+        "webkit": {
+          "median_footprint_mib": 186.0,
+          "peak_footprint_mib": 235.1,
+          "mean_cpu_one_core_percent": 13.9,
+          "p95_cpu_one_core_percent": 18.5
+        },
+        "trainer": {
+          "median_footprint_mib": 67.1,
+          "peak_footprint_mib": 99.7,
+          "mean_cpu_one_core_percent": 5.1,
+          "p95_cpu_one_core_percent": 17.1
+        },
+        "total": {
+          "median_footprint_mib": 715.2,
+          "peak_footprint_mib": 763.9,
+          "mean_cpu_one_core_percent": 84.2,
+          "p95_cpu_one_core_percent": 124.0
+        }
+      }
+    },
+    "training-20000": {
+      "sample_count": 57,
+      "sample_span_seconds": 57.6,
+      "groups": {
+        "backend": {
+          "median_footprint_mib": 462.0,
+          "peak_footprint_mib": 482.8,
+          "mean_cpu_one_core_percent": 29.5,
+          "p95_cpu_one_core_percent": 89.3
+        },
+        "webkit": {
+          "median_footprint_mib": 172.1,
+          "peak_footprint_mib": 223.8,
+          "mean_cpu_one_core_percent": 12.8,
+          "p95_cpu_one_core_percent": 22.7
+        },
+        "trainer": {
+          "median_footprint_mib": 118.4,
+          "peak_footprint_mib": 174.6,
+          "mean_cpu_one_core_percent": 22.9,
+          "p95_cpu_one_core_percent": 92.9
+        },
+        "total": {
+          "median_footprint_mib": 738.4,
+          "peak_footprint_mib": 865.4,
+          "mean_cpu_one_core_percent": 65.2,
+          "p95_cpu_one_core_percent": 119.4
+        }
+      }
+    },
+    "recovery_idle": {
+      "sample_count": 60,
+      "sample_span_seconds": 59.3,
+      "groups": {
+        "backend": {
+          "median_footprint_mib": 472.3,
+          "peak_footprint_mib": 473.2,
+          "mean_cpu_one_core_percent": 4.4,
+          "p95_cpu_one_core_percent": 7.6
+        },
+        "webkit": {
+          "median_footprint_mib": 172.1,
+          "peak_footprint_mib": 173.2,
+          "mean_cpu_one_core_percent": 11.7,
+          "p95_cpu_one_core_percent": 15.3
+        },
+        "total": {
+          "median_footprint_mib": 644.4,
+          "peak_footprint_mib": 646.0,
+          "mean_cpu_one_core_percent": 16.0,
+          "p95_cpu_one_core_percent": 22.4
+        }
+      }
+    }
+  },
+  "hot_paths": {
+    "next_lead": {
+      "samples": 40,
+      "p50_ms": 63.3,
+      "p95_ms": 534.0
+    },
+    "event_to_state": {
+      "samples": 120,
+      "p50_ms": 23.7,
+      "p95_ms": 84.6
+    },
+    "wrap_up": {
+      "samples": 40,
+      "p50_ms": 41.0,
+      "p95_ms": 149.1
+    },
+    "workspace": {
+      "samples": 40,
+      "p50_ms": 98.2,
+      "p95_ms": 265.6
+    }
+  },
+  "hot_path_targets_ms": {
+    "next_lead": 100,
+    "event_to_state": 100,
+    "wrap_up": 100,
+    "workspace": 150
+  },
+  "hot_path_pass": {
+    "next_lead": false,
+    "event_to_state": true,
+    "wrap_up": false,
+    "workspace": false
+  },
+  "backend_restart_to_health_seconds": 5.607708583120257,
+  "training": [
+    {
+      "rows": 600,
+      "elapsed_seconds": 62.6,
+      "workspace_samples": 45,
+      "workspace_p95_ms": 1013.4,
+      "funnel_status": {
+        "human": "fitted",
+        "right_party_given_human": "insufficient_independent_matured_data",
+        "conversion_given_right_party": "insufficient_independent_matured_data"
+      },
+      "artifact_sha256": "adaa839b89ae1e496c6c91f05b0b9125097a36ae0c0fd9d5e7d0068e91e6a2f4",
+      "checksum_verified": true
+    },
+    {
+      "rows": 20000,
+      "elapsed_seconds": 57.91,
+      "workspace_samples": 48,
+      "workspace_p95_ms": 713.5,
+      "funnel_status": {
+        "human": "fitted",
+        "right_party_given_human": "fitted",
+        "conversion_given_right_party": "fitted"
+      },
+      "artifact_sha256": "7abcfd87954d4a4c90a421790977bcb1b2486c18d3ef823ae8e69033beb0755b",
+      "checksum_verified": true
+    }
+  ],
+  "ui": {
+    "page_errors": [],
+    "navigation_steps": 42
+  },
+  "media": {
+    "connection_states": [
+      "connected",
+      "connected"
+    ],
+    "audio_context": "running",
+    "received_streams": [
+      {
+        "packetsReceived": 14451,
+        "packetsLost": 0,
+        "bytesReceived": 1157242,
+        "concealmentEvents": 27,
+        "concealedSamples": 72376,
+        "totalSamplesReceived": 13716480,
+        "totalSamplesDuration": 285.83999999988504
+      },
+      {
+        "packetsReceived": 14451,
+        "packetsLost": 0,
+        "bytesReceived": 1157242,
+        "concealmentEvents": 27,
+        "concealedSamples": 80442,
+        "totalSamplesReceived": 13716480,
+        "totalSamplesDuration": 285.84999999988503
+      }
+    ]
+  },
+  "limitations": [
+    "No validated minimum or comfortable hardware configuration",
+    "Native shell and Windows runtime not measured",
+    "No live carrier or funded inference",
+    "Existing host pressure and substantial swap",
+    "No long-session soak",
+    "Process footprint is not total system RAM or an allocation cap"
+  ],
+  "probe_sha256": "78cdef3700708b9e58b078cb3b3c4ba02c62c434da1ca65ad21206cf36f01f57",
+  "ui_probe_sha256": "1d4329a7a8c13e46eddda18a67768f3c7622702a46365b4170d9c10dfffa80ea"
+}
