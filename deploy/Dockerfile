@@ -1,3 +1,7 @@
+FROM node:24-bookworm-slim AS codex
+WORKDIR /build
+COPY apps/desktop/package.json apps/desktop/package-lock.json ./
+RUN npm ci --ignore-scripts && cp node_modules/@openai/codex-*/vendor/*/bin/codex /opendialer-codex && cp node_modules/@openai/codex-*/vendor/*/bin/codex-code-mode-host /codex-code-mode-host
 FROM python:3.12-slim AS build
 COPY --from=ghcr.io/astral-sh/uv:0.10.12 /uv /usr/local/bin/uv
 WORKDIR /opt/opendialer
@@ -9,6 +13,8 @@ RUN groupadd --gid 10001 dialer && useradd --uid 10001 --gid 10001 --create-home
 RUN mkdir -p /var/lib/opendialer && chown dialer:dialer /var/lib/opendialer
 WORKDIR /opt/opendialer
 COPY --from=build /opt/opendialer /opt/opendialer
+COPY --from=codex /opendialer-codex /usr/local/bin/opendialer-codex
+COPY --from=codex /codex-code-mode-host /usr/local/bin/codex-code-mode-host
 ENV PATH="/opt/opendialer/.venv/bin:$PATH" PYTHONPATH=/opt/opendialer/services/backend OPENDIALER_DATA_DIR=/var/lib/opendialer OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 PYTHONUNBUFFERED=1
 USER dialer
 EXPOSE 8765

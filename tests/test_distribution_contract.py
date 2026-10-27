@@ -78,11 +78,18 @@ def test_authority_sidecar_excludes_fitting_postgres_and_phone_tables_and_traine
 
 def test_desktop_bundles_the_trainer_beside_the_authority():
     config = json.loads((ROOT / "apps/desktop/src-tauri/tauri.conf.json").read_text())
-    assert config["bundle"]["externalBin"] == ["binaries/opendialer-backend", "binaries/opendialer-trainer"]
+    assert config["bundle"]["externalBin"] == [
+        "binaries/opendialer-backend",
+        "binaries/opendialer-trainer",
+        "binaries/opendialer-codex",
+        "binaries/codex-code-mode-host",
+    ]
     stop = (ROOT / "apps/desktop/src-tauri/windows/stop-backend.ps1").read_text()
     assert "opendialer-trainer.exe" in stop
+    assert "opendialer-codex.exe" in stop
     native = (ROOT / "apps/desktop/src-tauri/src/lib.rs").read_text()
     assert "opendialer-trainer.exe" in native
+    assert "opendialer-codex.exe" in native
     assert "scripts/build_sidecar.py" in (ROOT / ".github/workflows/release.yml").read_text()
 
 

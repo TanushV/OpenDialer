@@ -315,3 +315,17 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
   the full run and focused reruns; 77 frontend and seven Rust tests, format/typecheck/build/Clippy pass. No timeout
   increases. Source grows for the owner-restored procurement feature; prior size targets remain missed. No live
   provider spending, new release artifacts, installed-app or installed-data changes. GitHub checks are tracked in Actions.
+
+- October 26 Codex login import (owner requested, locally verified): add a personal auth.json import,
+  status and disconnect in Settings. Managed Codex app-server authentication refreshes and persists credentials;
+  a per-user process lock serializes API/worker use, and disposable runtime homes retain no conversation files.
+  Named submission tools feed existing validators. The pinned 0.164.0 native runtime is bundled for desktop
+  and server builds. This end feature justifies source growth under the owner's explicit new request.
+  Initial HTTP/provider and packaging tests failed before implementation; a browser regression exposed a late
+  status response overwriting successful import, fixed with request generations. Current tests include a real
+  native runtime talking only to a local fake model endpoint. No real credentials, paid inference, release
+  publication or installed application/data changes. Final scoped SQLite/PostgreSQL checks, 20 browser journeys,
+  77 frontend tests, seven Rust tests and native/runtime signing tests pass. The Mac bundle passes deep strict
+  ad-hoc signature verification, disposable authority setup/restart and bundled code-mode submission.
+  See [verification receipt](evidence/lean/codex-login-20261026.json) for full-run fixture failures and corrected
+  runs. Live OAuth/account eligibility and Windows/Docker execution remain open. Exact-commit CI is tracked in GitHub Actions.

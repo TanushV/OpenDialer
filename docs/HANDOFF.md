@@ -1,6 +1,6 @@
 # OpenDialer testing handoff (CURRENT)
 
-> **Status: CURRENT — unreleased setup/journey fixes locally verified on 0.5.1**, October 26, 2026.
+> **Status: CURRENT — unreleased setup and Codex login import locally verified on 0.5.1**, October 26, 2026.
 > Historical 0.5.0 release: `096c55f`, CI 40164184233 passed all jobs including 164 browser cases.
 > Includes script learning and the review fixes described below. This is the single current handoff.
 > Read with [HANDOFF_AST.md](HANDOFF_AST.md) and [SCRIPT_LEARNING.md](SCRIPT_LEARNING.md).
@@ -11,6 +11,15 @@ adding tests before fixes, and supporting approved live testing. Read this file,
 Status section of `docs/LEAN_PLAN.md`.
 
 ## October 26 setup and journey audit (locally verified, unreleased)
+
+Current work also adds **Codex login import** (unreleased): [setup steps](GETTING_STARTED.md#connect-your-codex-login).
+`providers/codex.py` owns the three personal GET/POST-import/DELETE `/v1/inference/codex` routes, isolated managed
+refresh and named submission-tool inference. The runtime is pinned to 0.164.0; `test_codex_login.py` covers the
+personal file/protocol paths, and opt-in `test_codex_native.py` exercises the actual binary against a local fake
+model endpoint. The desktop-shell CI job enables that test. Live OpenAI refresh/model access is still unverified.
+Verification: [Codex import receipt](evidence/lean/codex-login-20261026.json). The Mac bundle, frozen authority
+setup/restart and both native tool transports pass with disposable data; no installed app update or release.
+The older AST map is a snapshot and does not include this module or its routes.
 
 The owner's new request replaces the blanket new-rental ban with exact-quote approval.
 Numbers now supports maximum owned count, maximum initial cost per number and a monthly cap on app-ordered rentals. Zero limits block purchases. Search is read-only; approval rechecks the price and creates one durable intent. Repeating or reconciling an uncertain order never resubmits it. Routing, identity and real callback checks still gate outbound use. Existing carrier rentals, taxes and usage remain separate from the app-order rental cap.

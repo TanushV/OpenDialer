@@ -22,6 +22,8 @@ processor eligibility and the other Windows requirements still apply. The [base 
 has 8 GB RAM. Neither manufacturer's specification is an OpenDialer performance test.
 
 No dedicated GPU is needed: language-model inference is remote and statistical ML is CPU-based.
+Current source also bundles Codex for optional ChatGPT login import. The earlier measurements below exclude
+that subprocess; its inference-time memory and CPU have not yet been profiled with a live account.
 The trainer limits numerical-library threads to one. Two cores on different CPU generations are not interchangeable,
 so a GHz/core count alone cannot establish responsiveness.
 

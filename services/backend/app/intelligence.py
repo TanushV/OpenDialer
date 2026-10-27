@@ -88,6 +88,15 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
         ):
             return None
         mode = conf.get("inference_mode", PROVIDER_DEFAULTS.inference_mode)
+        if mode == "codex":
+            from app.providers.codex import CodexClient, profile_home
+
+            if not user_id:
+                return None
+            home = profile_home(self.settings.data_dir, user_id)
+            if not (home / "auth.json").is_file():
+                return None
+            return CodexClient(home, inference_model(conf, role), "submit_" + role)
         if mode == "chatgpt_plan":
             from app.providers.oauth import RegisteredPlanClient
 

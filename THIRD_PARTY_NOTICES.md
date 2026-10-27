@@ -2,6 +2,12 @@
 
 This inventory includes locked application, build and test dependencies. Not every listed package is shipped in every platform binary. No external neural model weights are bundled. Platform SDK components retain their own licenses.
 
+Current source additionally bundles the native runtime from **OpenAI Codex 0.164.0**, distributed through
+`@openai/codex` and its platform package, under **Apache-2.0**. Copyright OpenAI.
+Source and license: [openai/codex](https://github.com/openai/codex),
+[LICENSE](https://github.com/openai/codex/blob/main/LICENSE).
+The package versions and integrity hashes are pinned in `apps/desktop/package-lock.json`.
+
 | Ecosystem | Package | Version | License | Text IDs |
 |---|---|---|---|---|
 | Cargo | adler2 | 2.0.1 | 0BSD OR MIT OR Apache-2.0 | 23f18e03dc49df91, 861399f8c21c042b, 8ada45cd9f843acf |

@@ -15,6 +15,7 @@ import {
 } from "./OptimizationPanel";
 import { WeeklySchedule, type SimpleStaffing } from "./Staffing";
 import { CredentialField } from "./CredentialField";
+import { CodexLogin } from "./CodexLogin";
 import type { Update } from "@tauri-apps/plugin-updater";
 import {
   ArrowDownToLine,
@@ -82,6 +83,7 @@ export function SettingsPage({
           </div>
         </div>
         <WorkTime />
+        <CodexLogin />
         <WorkspaceConnection onDisconnect={onDisconnect} />
         <UpdateSettings />
       </>
@@ -1847,6 +1849,7 @@ function AdvancedProviders({ settings }: { settings: AdminSettingsState }) {
           }
         >
           <option value="api">OpenAI Responses API</option>
+          <option value="codex">ChatGPT via Codex · import login</option>
           <option value="litellm">
             Explicit OpenAI-compatible LiteLLM endpoint
           </option>
@@ -1855,7 +1858,7 @@ function AdvancedProviders({ settings }: { settings: AdminSettingsState }) {
           </option>
         </select>
       </label>
-      {draft.inference_mode !== "chatgpt_plan" && (
+      {!["chatgpt_plan", "codex"].includes(draft.inference_mode || "") && (
         <CredentialButton
           field="openai_api_key"
           title={
@@ -1872,6 +1875,13 @@ function AdvancedProviders({ settings }: { settings: AdminSettingsState }) {
           "Inference base URL",
           "http://127.0.0.1:4000/v1",
         )}
+      {draft.inference_mode === "codex" && (
+        <CodexLogin
+          onImported={async () => {
+            await form.save("Codex route saved.");
+          }}
+        />
+      )}
       {draft.inference_mode === "chatgpt_plan" && (
         <>
           <p role="status">

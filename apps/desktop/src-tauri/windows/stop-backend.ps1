@@ -1,7 +1,7 @@
 param([string]$InstallDirectory)
 $ErrorActionPreference = 'Stop'
 # The local authority and its CPU training child; both are replaced by an update.
-$Sidecars = @('opendialer-backend.exe', 'opendialer-trainer.exe')
+$Sidecars = @('opendialer-backend.exe', 'opendialer-trainer.exe', 'opendialer-codex.exe', 'codex-code-mode-host.exe')
 
 function Select-InstalledBackend {
     param([Parameter(Mandatory=$true)][string]$InstallDirectory, [object[]]$Processes)
@@ -19,7 +19,7 @@ if ($MyInvocation.InvocationName -ne '.') {
     $root = [IO.Path]::GetFullPath($InstallDirectory)
     $installed = @($Sidecars | ForEach-Object { Join-Path $root $_ } | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf })
     if ($installed.Count -eq 0) { exit 0 }
-    $processes = @(Get-CimInstance Win32_Process -Filter "Name='opendialer-backend.exe' OR Name='opendialer-trainer.exe'")
+    $processes = @(Get-CimInstance Win32_Process -Filter "Name='opendialer-backend.exe' OR Name='opendialer-trainer.exe' OR Name='opendialer-codex.exe' OR Name='codex-code-mode-host.exe'")
     foreach ($item in @(Select-InstalledBackend -InstallDirectory $InstallDirectory -Processes $processes)) {
         Stop-Process -Id $item.ProcessId -Force -ErrorAction SilentlyContinue
     }

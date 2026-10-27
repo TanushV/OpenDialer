@@ -24,7 +24,11 @@ def packager():
 def signed_bundle(directory, version="0.3.0", identifier="com.opendialer.desktop", sidecars=None):
     app = directory / "OpenDialer.app"
     (app / "Contents/MacOS").mkdir(parents=True)
-    sidecars = ("opendialer-backend", "opendialer-trainer") if sidecars is None else sidecars
+    sidecars = (
+        ("opendialer-backend", "opendialer-trainer", "opendialer-codex", "codex-code-mode-host")
+        if sidecars is None
+        else sidecars
+    )
     for name in ("OpenDialer", *sidecars):
         executable = app / "Contents/MacOS" / name
         shutil.copyfile("/usr/bin/true", executable)
@@ -91,7 +95,7 @@ def test_archive_bytes_that_break_the_signature_or_differ_from_the_sealed_sideca
     clean, clean_sealed = signed_bundle(tmp_path / "clean")
     different = tmp_path / "different-sidecar"
     different.write_bytes(b"not the sealed sidecar")
-    for name in ("opendialer-backend", "opendialer-trainer"):
+    for name in ("opendialer-backend", "opendialer-trainer", "opendialer-codex", "codex-code-mode-host"):
         with pytest.raises(SystemExit, match=name):
             module.verify_archive(
                 archive_of(clean, tmp_path / f"{name}.tar.gz"),
@@ -116,9 +120,22 @@ def test_archive_without_the_trainer_is_refused(tmp_path):
 
 def test_packager_seals_every_sidecar_with_the_scoped_entitlement():
     module = packager()
-    assert module.SIDECARS == ("opendialer-backend", "opendialer-trainer")
+    assert module.SIDECARS == (
+        "opendialer-backend",
+        "opendialer-trainer",
+        "opendialer-codex",
+        "codex-code-mode-host",
+    )
     source = (ROOT / "scripts/package_macos.py").read_text()
     assert "BackendEntitlements.plist" in source and "--self-check" in source
+    assert "CodexHostEntitlements.plist" in source
+    host = plistlib.loads((ROOT / "apps/desktop/src-tauri/CodexHostEntitlements.plist").read_bytes())
+    assert host == {
+        "com.apple.security.cs.allow-jit": True,
+        "com.apple.security.cs.allow-unsigned-executable-memory": True,
+    }
+    main = plistlib.loads((ROOT / "apps/desktop/src-tauri/Entitlements.plist").read_bytes())
+    assert not main.get("com.apple.security.cs.allow-jit")
 
 
 def test_archive_entries_outside_the_bundle_are_refused(tmp_path):

@@ -249,7 +249,7 @@ class ProviderSettings(Strict):
     webhook_url: str | None = None
     traffic_approval_reference: str | None = None
     openai_api_key: str | None = None
-    inference_mode: Literal["api", "litellm", "chatgpt_plan"] | None = None
+    inference_mode: Literal["api", "litellm", "chatgpt_plan", "codex"] | None = None
     inference_base_url: str | None = None
     model: str | None = None
     research_extract_model: str | None = None
@@ -433,6 +433,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
     from app.billing import bind_api as bind_billing_api
 
     bind_billing_api(app, service, administrator)
+    from app.providers.codex import bind_api as bind_codex_api
+
+    bind_codex_api(app, service, principal)
     from app.postcall.review import bind_api as bind_review_api
     from app.postcall.rubrics import bind_api as bind_rubrics_api
 

@@ -92,7 +92,7 @@ class RequestAccounting:
             cost = None
         # A request included in the user's own ChatGPT plan has no marginal charge; the plan's
         # subscription is the owner's existing cost, so this is a labeled estimate, not a bill.
-        plan = provider == "chatgpt_plan"
+        plan = provider in {"chatgpt_plan", "codex"}
         if plan:
             cost = 0.0
         if (

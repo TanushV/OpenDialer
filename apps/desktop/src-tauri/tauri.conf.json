@@ -29,7 +29,9 @@
     "targets": "all",
     "externalBin": [
       "binaries/opendialer-backend",
-      "binaries/opendialer-trainer"
+      "binaries/opendialer-trainer",
+      "binaries/opendialer-codex",
+      "binaries/codex-code-mode-host"
     ],
     "createUpdaterArtifacts": true,
     "icon": [

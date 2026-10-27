@@ -1,0 +1,102 @@
+{
+  "date": "2026-10-26",
+  "feature": "Personal Codex login import and managed refresh",
+  "source_base": "75718e7e916f5533782a4c49065c3143d06ada22",
+  "release": "0.5.1 source, unreleased",
+  "codex_runtime": "0.164.0",
+  "host": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+  "tests": {
+    "sqlite_full": {
+      "passed": 684,
+      "failed": 2,
+      "skipped": 2,
+      "seconds": 531.7,
+      "failures": "Packaging fixtures still expected two components; corrected focused suite passes."
+    },
+    "postgres_full": {
+      "passed": 684,
+      "failed": 3,
+      "skipped": 2,
+      "seconds": 445.88,
+      "failures": "Distribution/package fixtures were loaded before the code-mode helper was added; corrected focused suite passes."
+    },
+    "final_personal_login_sqlite": {
+      "passed": 5,
+      "includes": [
+        "personal import and refreshed-file persistence",
+        "rejected replacement preserves old login",
+        "malformed credential errors are redacted",
+        "inference factory is per-user",
+        "subprocess tool-only acceptance and usage receipts",
+        "refresh persistence on failed inference",
+        "separate API/worker process serialization"
+      ]
+    },
+    "final_postgres_provider_and_packaging": {
+      "passed": 25,
+      "seconds": 7.51
+    },
+    "native_runtime_and_mac_packager": {
+      "passed": 8,
+      "seconds": 25.36,
+      "transport": "actual pinned native binary and helper, ad-hoc hardened-runtime signatures, local fake Responses HTTP server only",
+      "modes": [
+        "direct dynamic tool",
+        "code-mode dynamic tool"
+      ]
+    },
+    "browser": {
+      "passed": 20,
+      "scope": [
+        "admin setup journeys",
+        "local and PostgreSQL-hosted Codex import/disconnect",
+        "invalid file retry",
+        "late status response regression",
+        "existing ChatGPT authorization routes"
+      ]
+    },
+    "frontend": {
+      "unit_passed": 77,
+      "typecheck": "pass",
+      "format": "pass",
+      "production_build": "pass"
+    },
+    "rust": {
+      "tests_passed": 7,
+      "fmt": "pass",
+      "clippy": "pass"
+    },
+    "python_lint_and_format": "pass",
+    "mac": {
+      "build": "pass, four native components",
+      "signature": "deep strict ad-hoc verification passed",
+      "frozen_authority": "disposable setup, settings route, rejected invalid import and restart passed",
+      "bundled_codex": "named result and usage receipt passed through code-mode helper against local fake model endpoint",
+      "installed_app_modified": false
+    }
+  },
+  "regressions_before_fixes": [
+    "missing import implementation",
+    "missing bundle component",
+    "late status response replaced successful import",
+    "code-mode helper disabled/missing from portable runtime",
+    "FastAPI malformed-root validation echoed synthetic credentials"
+  ],
+  "intermediate_build_notes": [
+    "An initial Tauri build reached updater signing without a private key; final local build explicitly disabled updater artifacts.",
+    "One local codesign invocation returned an internal signing error; retry and final complete-bundle signing/verification passed."
+  ],
+  "not_verified": [
+    "real OpenAI OAuth refresh or model/account eligibility",
+    "funded inference or live provider outcomes",
+    "Windows execution/clean-machine installation",
+    "fresh hosted Docker image execution",
+    "minimum hardware with Codex workload"
+  ],
+  "unchanged": [
+    "installed application and its data",
+    "real credentials",
+    "published downloads and updater release"
+  ],
+  "ci": "Check the GitHub Actions run for the commit containing this receipt."
+}

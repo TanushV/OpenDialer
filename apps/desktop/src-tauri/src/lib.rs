@@ -730,7 +730,12 @@ fn wait_for_backend_release(limit: Duration) {
         return;
     };
     let deadline = std::time::Instant::now() + limit;
-    for name in ["opendialer-backend.exe", "opendialer-trainer.exe"] {
+    for name in [
+        "opendialer-backend.exe",
+        "opendialer-trainer.exe",
+        "opendialer-codex.exe",
+        "codex-code-mode-host.exe",
+    ] {
         let path = directory.join(name);
         while path.is_file() && std::time::Instant::now() < deadline {
             match std::fs::OpenOptions::new()

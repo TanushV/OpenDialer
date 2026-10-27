@@ -217,6 +217,22 @@ def main(argv=None):
         freeze("opendialer-backend", authority_arguments(), triple, suffix)
     if args.only != "authority":
         freeze("opendialer-trainer", trainer_arguments(), triple, suffix)
+    bundle_codex(triple, suffix)
+
+
+def bundle_codex(triple, suffix):
+    """Copy the npm-lockfile-pinned native runtime; no Node dependency on the user's PC."""
+    candidates = list(
+        (root / "apps/desktop/node_modules/@openai").glob(f"codex-*/vendor/{triple}/bin/codex{suffix}")
+    )
+    if len(candidates) != 1:
+        raise SystemExit("Run npm ci in apps/desktop to install the pinned Codex runtime for this platform")
+    destination = root / "apps/desktop/src-tauri/binaries" / f"opendialer-codex-{triple}{suffix}"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(candidates[0], destination)
+    helper = candidates[0].with_name("codex-code-mode-host" + suffix)
+    shutil.copy2(helper, destination.with_name(f"codex-code-mode-host-{triple}{suffix}"))
+    return destination
 
 
 if __name__ == "__main__":

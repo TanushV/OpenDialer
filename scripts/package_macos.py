@@ -15,8 +15,8 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 IDENTIFIER = "com.opendialer.desktop"
 BUNDLE = "OpenDialer.app"
-# The local authority and its separate CPU trainer; both are frozen Python sidecars.
-SIDECARS = ("opendialer-backend", "opendialer-trainer")
+# Python authority/trainer and the pinned Codex runtime with its code-mode helper.
+SIDECARS = ("opendialer-backend", "opendialer-trainer", "opendialer-codex", "codex-code-mode-host")
 
 
 def run(command, **kwargs):
@@ -87,6 +87,11 @@ def main():
         raise SystemExit("Freeze both sidecars and build the complete app before packaging")
     stamp = "--timestamp=none" if identity == "-" else "--timestamp"
     for sidecar in sidecars.values():
+        entitlement = (
+            "CodexHostEntitlements.plist"
+            if sidecar.name == "codex-code-mode-host"
+            else "BackendEntitlements.plist"
+        )
         run(
             [
                 "/usr/bin/codesign",
@@ -97,7 +102,7 @@ def main():
                 "runtime",
                 stamp,
                 "--entitlements",
-                str(root / "apps/desktop/src-tauri/BackendEntitlements.plist"),
+                str(root / "apps/desktop/src-tauri" / entitlement),
                 str(sidecar),
             ]
         )

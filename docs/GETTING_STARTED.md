@@ -1,7 +1,7 @@
 # Set up your first workspace
 
 [Install the app](INSTALL.md) first. These instructions describe current `main`.
-The simplified setup and approved number-order flow are **not yet in the published 0.5.1 installer**.
+The simplified setup, approved number-order flow and Codex login import are **not yet in the published 0.5.1 installer**.
 
 ## Choose a workspace
 
@@ -18,13 +18,43 @@ Open **Settings → Setup** and complete the checklist in order.
 
 
 1. **Calling (Telnyx):** paste the Telnyx API v2 key, Call Control connection ID, webhook public key and public HTTPS webhook URL. Add the agent credential and carrier approval details. **Save Telnyx settings** saves the key and connection fields together. Local calling needs a reachable webhook forward; check the saved ingress.
-2. **AI assistance:** add an OpenRouter key for the Cerebras live helper and rundowns. For research/script writing, select **Official eligible ChatGPT plan usage → Continue with ChatGPT**; that route does not need an OpenAI API key. An OpenAI key or compatible endpoint is an alternative, not an additional requirement.
+2. **AI assistance:** add an OpenRouter key for the Cerebras live helper and rundowns. For research/script writing with your Codex ChatGPT login, select **ChatGPT via Codex · import login**, then import the file as described below. An OpenAI key, compatible endpoint or the separate eligible ChatGPT authorization route is an alternative, not an additional requirement.
 3. Complete business identity, campaign hours, authorized DNC coverage and budgets. A DNC API key is needed only for the configured prepaid lookup route; importing authorized registry data is a separate supported path.
 4. In **Numbers**, sync owned numbers, or open **Add numbers with approval**, save count and spending limits, search an area code, review a quote and explicitly approve its recurring rental. Zero limits block new purchases. Complete routing and a genuine inbound callback test, then approve limited legitimate use. Buying or syncing does not start warmup.
 5. Upload your Markdown script in **Intelligence**, import leads, run preflight and check your audio before going ready. Allocation and next-lead selection use the eligible pool automatically; capacity planning does not place orders.
 
 Keys are saved to the authority, not sent through chat. See [provider onboarding](../deploy/runbooks/providers.md) for account configuration, callback limitations and live verification.
 
+
+## Connect your Codex login
+
+1. On a trusted computer with [Codex installed](https://learn.chatgpt.com/docs/auth), run:
+
+   ```sh
+   codex -c cli_auth_credentials_store='"file"' login
+   ```
+
+   Choose ChatGPT and complete sign-in. The file-store flag makes a transferable file instead of using the OS keychain.
+2. Find **`auth.json`** in your home folder's **`.codex`** directory: `~/.codex/auth.json` on Mac/Linux,
+   or `%USERPROFILE%\.codex\auth.json` on Windows. A custom `CODEX_HOME` changes this location.
+   On a Mac file picker, press **Command–Shift–G** to enter the folder; on Windows paste it into the address bar.
+3. In OpenDialer, open **Settings → Setup → AI assistance**, choose **ChatGPT via Codex · import login**,
+   and select the file. A successful import displays the account and saves this route. Reps on a team server
+   have **Your Codex login** directly in Settings; the admin selects the workspace's inference route.
+
+OpenDialer keeps a separate per-user copy on its authority computer and bundles the Codex runtime.
+Your friend does not need to install Codex separately to use this build. On a hosted workspace, the file goes
+to the team server, so only import into a server you trust. Keep the file private and remove temporary transfer copies.
+
+The official runtime refreshes expiring sessions during use and OpenDialer retains the refreshed credentials
+across restarts. A revoked login, expired refresh token or account restriction still requires a fresh sign-in/import;
+this is not a permanent token. Prefer a dedicated login for this installation rather than concurrently using copies
+of the same refresh token on several machines. **Disconnect Codex** deletes OpenDialer's copy without logging out
+your other Codex installation or revoking the account globally.
+
+This route uses your plan's limits for preparation and analysis. It does not enable paid API search, change
+live coaching, or bypass the separate post-call privacy gate. AI results must use named submission tools and pass
+the existing application validation. A successful login check does not prove model access or output quality.
 
 ## Make a call
 

@@ -18,7 +18,7 @@ Intel Mac, Windows ARM and Linux desktop installers are not published.
 This is an internal-use preview: updater signatures are configured, but Apple notarization and Windows publisher signing are not. See [installation help](docs/INSTALL.md).
 
 **Release status:** the published download is **0.5.1**. `main` also contains newer setup fixes and
-explicitly approved number purchasing; those changes are **not yet in that download**.
+explicitly approved number purchasing and Codex login import; those changes are **not yet in that download**.
 
 ## Get started
 
@@ -30,6 +30,10 @@ explicitly approved number purchasing; those changes are **not yet in that downl
 [The setup guide](docs/GETTING_STARTED.md) explains the keys, phone numbers, callbacks and first call.
 Local calling needs a reachable HTTPS webhook route; the guide includes that step.
 
+**Using your ChatGPT plan?** In current source, choose **Settings → Setup → AI assistance →
+ChatGPT via Codex · import login**, then select your Codex `auth.json` file. The bundled runtime
+refreshes the login automatically while in use. [Get the file and connect](docs/GETTING_STARTED.md#connect-your-codex-login).
+
 ## Hardware
 
 | Platform | Minimum status | Comfortable starting point |
@@ -40,7 +44,7 @@ Local calling needs a reachable HTTPS webhook route; the guide includes that ste
 
 Comfortable figures are provisional. **16 GB is not an established OpenDialer requirement.**
 The expanded component test measured about 182 MiB at fresh idle and an 865 MiB peak with training;
-that excludes the native shell and does not certify low-RAM hardware. Latency targets were not all met on the loaded test Mac.
+that excludes the native shell and optional Codex runtime and does not certify low-RAM hardware. Latency targets were not all met on the loaded test Mac.
 No dedicated GPU is needed: AI inference is remote, and statistical training uses the CPU.
 Allow 2 GB free disk initially plus data/backups, a microphone/headset, stable internet and
 at least 1024 × 720 usable display pixels.
