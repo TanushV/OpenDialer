@@ -605,3 +605,55 @@ test("disabled actions say why and settings failures stay recoverable", async ({
     page.getByText("Enter the authorized area codes.", { exact: true }),
   ).toBeVisible();
 });
+
+test("managed setup import shows connection and hides tunnel fields", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      "opendialer.session",
+      JSON.stringify({ connection: "local", simulation: false }),
+    ),
+  );
+  let configured = false;
+  await page.route("**/v1/managed-connection", (route) =>
+    route.fulfill({
+      json: {
+        configured,
+        connected: configured,
+        state: configured ? "connected" : "direct",
+        label: "Test caller",
+        numbers: 0,
+      },
+    }),
+  );
+  await page.route("**/v1/admin/managed-connection", async (route) => {
+    expect(route.request().postDataJSON().label).toBe("Test caller");
+    configured = true;
+    await route.fulfill({
+      json: {
+        configured: true,
+        connected: true,
+        state: "connected",
+        label: "Test caller",
+        numbers: 0,
+      },
+    });
+  });
+  await enter(page);
+  await openSettings(page);
+  await page.getByTestId("setup-telnyx").locator(":scope > summary").click();
+  await page.getByLabel("Import calling setup (.json)").setInputFiles({
+    name: "caller.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({ label: "Test caller" })),
+  });
+  await expect(
+    page.getByRole("status").filter({ hasText: "Test caller" }),
+  ).toContainText("Connected");
+  await expect(page.getByLabel("Public HTTPS webhook URL")).toHaveCount(0);
+  await expect(page.getByLabel("Call Control connection ID")).toHaveCount(0);
+  await expect(
+    page.getByLabel("Telnyx API key", { exact: true }),
+  ).toBeVisible();
+});

@@ -2,18 +2,30 @@
 
 Date: October 28, 2026; revised October 29, 2026. Source inspected: `0973b33`.
 
-Status: **Implementation in progress, not ready for callers** (October 29). The owner authorized implementation and selected a new project in the existing Agite Free organization. The shared receiver is deployed and synthetic isolation checks pass; desktop setup, direct audio and carrier qualification remain unfinished. See [verification receipt](evidence/lean/managed-webhook-20261029.json).
+Status: **Source integration and provider setup implemented; live calling qualification remains** (October 29).
+Published installers and installed application/data are unchanged. See [integration receipt](evidence/lean/managed-integration-20261029.json).
 
 ### Current implementation checkpoint
 
-- Created `OpenDialer` (`wfucwxgeexzwhinrylyn`, us-west-1) in Agite, without modifying the existing AGITE project or upgrading its plan.
-- Deployed the signed control receiver at `https://wfucwxgeexzwhinrylyn.supabase.co/functions/v1/telnyx-webhook`; only disposable routes were registered for testing. They are removed after verification.
-- Tested two independent SQLite stores using real Supabase Auth, private Realtime, RPC fetch/ack and persisted SDK token refresh. Cross-workspace and second-consumer refusals passed. This is synthetic delivery proof, not a carrier call or Windows proof.
-- Added the backend receiver prototype, original receipt time, stale inbound-call protection, fixed two-second scheduling primitives and a documented-format Soniox WebSocket adapter. The receiver/audio prototype is **not wired into app startup or settings yet**. Existing callers still use their prior transport and coaching defaults.
-- Local checks: 6 receiver contracts; 105 affected SQLite cases plus 3 STT contracts; 108 affected PostgreSQL cases; lint/format. Full CI, packaging and actual audio are not yet qualified.
-- The previously staged Telnyx key returns 401. A current key is required privately for account/route read-back and the direct Soniox feasibility gate. No API secrets were printed or committed; no paid calls, number orders, release or installed-app modifications were performed.
-- Next: complete the direct-audio feasibility slice, then runtime/readiness/recovery, number assignment/provisioning, import UI and qualification as below. Retention/gap cleanup is not deployed yet. Do not redirect real carrier traffic to the receiver before those steps are ready.
-
+- `OpenDialer` (`wfucwxgeexzwhinrylyn`, us-west-1) remains Free in Agite. The existing AGITE project is untouched.
+- One signed webhook receives sanitized controls. The existing OpenDialer Voice API and incoming-only agent
+  application now both point to it; their settings were read back. Updated Telnyx credentials validate.
+- A real Mac delivery identity/profile is provisioned through the Auth admin API and saved privately outside Git.
+  Import supplies carrier IDs and private refresh storage; startup reconnects automatically. No cloud login/tunnel
+  steps are shown to callers. The available private profile includes the Telnyx key; no OpenRouter key was present
+  in the staging file, so its existing Settings field remains the user's entry point.
+- Local readiness/number ownership gate new calls and queued effects; stop controls remain usable. Supabase acks
+  follow local durable receipt; the existing ordered worker applies events. Expired callbacks become review tasks.
+- WebRTC tracks feed bounded PCM16 streams directly to Telnyx/Soniox. No additional microphone capture, audio file,
+  transcript relay or duplicate carrier-STT command. Automatic coaching uses fixed two-second windows.
+- Incoming signed DID proof assigns numbers to the registered workspace; another workspace's assignment is refused.
+  Purchases still require explicit quote approval. This account currently has **zero numbers**.
+- Retention runs hourly: unacknowledged controls expire after 24 hours with a gap; acknowledged bodies are cleared,
+  dedupe records/call maps kept seven days. Reconnect after local reconciliation explicitly clears a recorded gap.
+- Provider socket authentication succeeded with **zero audio sent**. This is not recognition quality, PSTN or hardware
+  proof. Live call/audio, account eligibility, Windows, signed release and real free-tier usage remain unqualified.
+- Scope is the minimal usable source path. Richer diagnostics/import previews from the original proposal are not
+  required to use it. No number purchases, paid calls/inference, publication or installed-app/data modifications.
 
 ## 1. Decision and intended result
 

@@ -1,0 +1,76 @@
+{
+  "date": "2026-10-29",
+  "source_base": "d1c6cd5",
+  "scope": "Managed-local source integration and free provider setup; no install or release",
+  "provider": {
+    "telnyx_api_key": "HTTP 200; not stored in evidence",
+    "voice_application": "3080620541653026355",
+    "agent_connection": "3081030574756856981",
+    "both_webhook_urls_verified": true,
+    "agent_incoming_only": true,
+    "owned_numbers": 0,
+    "soniox_websocket_auth": "connected; zero audio bytes sent",
+    "openrouter_key_in_staging": false
+  },
+  "supabase": {
+    "project": "wfucwxgeexzwhinrylyn",
+    "plan": "Free",
+    "webhook": "https://wfucwxgeexzwhinrylyn.supabase.co/functions/v1/telnyx-webhook",
+    "real_profile_import_connected": true,
+    "refresh_rotated_and_persisted": true,
+    "private_session_mode": "0600",
+    "hourly_retention": "active",
+    "retention_and_access_assertions": "passed with rollback",
+    "signed_synthetic_event_http": 200,
+    "duplicate_http": 200,
+    "invalid_signature_http": 401,
+    "local_durable_receipt": true,
+    "remote_ack_payload_cleared": true,
+    "three_http_checks_and_delivery_total_ms": 1581,
+    "latency_note": "Serial test sequence, not per-event latency or production SLA",
+    "synthetic_route_and_event_cleanup": true,
+    "production_routes_remaining": 2,
+    "fresh_profile_store_binding_released_after_disposable_test": true,
+    "advisories": "Service-only tables intentionally have no client policies; default leaked-password protection warning remains, generated profile passwords used"
+  },
+  "checks": {
+    "full_sqlite": {
+      "passed": 705,
+      "skipped": 4,
+      "seconds": 86.39
+    },
+    "full_postgres": {
+      "passed": 707,
+      "skipped": 3,
+      "seconds": 132.85
+    },
+    "final_scoped_sqlite": 23,
+    "final_scoped_postgres": 23,
+    "frontend_unit": 81,
+    "browser": {
+      "passed": 176,
+      "minutes": 5.2
+    },
+    "edge_contracts": 9,
+    "native_codex_and_package_tests": 8,
+    "format_typecheck_build": "passed",
+    "frozen_authority": "24 MiB; import connected and restart reconnected with real Supabase; final source rebuilt",
+    "rust": "fmt, 7 tests, clippy passed"
+  },
+  "defects_fixed": [
+    "Restored SDK storage did not initialize refresh or Realtime authentication; explicit initialization and session auth now precede subscription.",
+    "Relay delivery must enqueue through the existing ordered worker rather than race it with inline event application.",
+    "Direct two-track STT was omitted from estimated call cost.",
+    "Profile replacement must refuse an active inbound conversation as well as outbound calls and unresolved effects."
+  ],
+  "boundaries": {
+    "installed_app_and_data": "untouched",
+    "released_downloads": "unchanged 0.5.1",
+    "paid_calls_audio_or_inference": "not performed",
+    "hardware_audio": "not tested; browser synthetic tracks only",
+    "windows": "not tested",
+    "phone_number_purchase": "not performed",
+    "production_egress_capacity_latency": "not measured",
+    "CI": "tracked separately on GitHub after push"
+  }
+}

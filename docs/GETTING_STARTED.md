@@ -8,16 +8,47 @@ The simplified setup, approved number-order flow and Codex login import are **no
 - **Working alone:** choose **Start a local workspace**. Your data and provider settings stay on this computer. No separate Python or database installation is needed.
 - **Joining a team:** choose **Connect to a server**, enter the HTTPS address from your admin and sign in. Your admin handles providers and the shared database.
 
-Local calling needs a public HTTPS route for Telnyx webhooks. Use an existing SSH host with the
-[forwarding instructions](../deploy/runbooks/deploy.md#local-authority-with-an-existing-ssh-host), or have an admin deploy an always-on team server.
+For the managed-local development build, use the shared setup below. Existing direct-local builds still use
+[webhook forwarding](../deploy/runbooks/deploy.md#local-authority-with-an-existing-ssh-host); hosted mode is unchanged.
 A sleeping or offline laptop cannot handle callbacks; configure and test the carrier fallback.
+
+## Local calling with the shared webhook
+
+This is implemented in current source, **not in the published installer**.
+
+1. In a local workspace, open **Settings → Setup → Calling → Import calling setup (.json)**.
+   Choose the private file prepared for this computer. It imports the Telnyx application, verification key,
+   browser credential, SIP username and shared webhook URL. Included provider keys are saved too.
+2. Wait for **Connected**. Login refresh and reconnect happen automatically. There is no tunnel token,
+   SIP password to enter, Supabase dashboard login or terminal command for callers.
+3. Save a Telnyx key if omitted. Add your OpenRouter key in **AI assistance** and import your own Codex
+   login there if using the ChatGPT route. DNC coverage and business/campaign settings remain separate.
+4. In **Numbers**, sync numbers already assigned to your calling application, or explicitly approve a priced
+   purchase within your limits. Configure the number, complete identity evidence, and call it from another phone
+   to verify callback delivery. A signed incoming event assigns that number to this workspace at the relay;
+   normal callback evidence and outbound-readiness checks still apply. Nothing buys or warms up numbers automatically.
+5. Import leads, upload your Markdown script in **Intelligence**, run preflight, check your headset and go ready.
+
+Each independent computer needs its own setup file and Telnyx application/agent credential. All use the **same
+webhook URL**. Do not copy one live workspace profile to two computers: the receiver permits one store/consumer.
+Keep the file private. Restoring or moving an existing store needs its connection/session files too, or an operator
+must explicitly release the old binding after confirming that computer has stopped.
+
+Keep the app open and computer awake. New calls pause if delivery or transcription fails; hangup remains usable.
+Resolve outstanding calls in Recovery, then use **Reconnect** in Calling. Reconnect after a delivery gap acknowledges
+that old events may be missing; it does not recreate lost conversations. Pending controls expire after 24 hours,
+with a visible gap, and acknowledged payloads are immediately removed (dedupe IDs remain seven days).
+
+Live speech uses continuous Telnyx Soniox streams, one per speaker. The automatic helper groups stable text into
+fixed two-second windows. Supabase carries control events only, not audio, transcripts, leads, scripts or history.
+Carrier/STT/AI usage remains billable; the shared service uses the existing Free Supabase plan without an uptime SLA.
 
 ## Connect services and prepare to call
 
 Open **Settings → Setup** and complete the checklist in order.
 
 
-1. **Calling (Telnyx):** paste the Telnyx API v2 key, Call Control connection ID, webhook public key and public HTTPS webhook URL. Add the agent credential and carrier approval details. **Save Telnyx settings** saves the key and connection fields together. Local calling needs a reachable webhook forward; check the saved ingress.
+1. **Calling (Telnyx):** use the setup-file import above when provided. For direct/hosted configuration, paste the Telnyx API v2 key, Call Control connection ID, webhook public key and public HTTPS webhook URL. Add the agent credential and carrier approval details. **Save Telnyx settings** saves the key and connection fields together. Local calling needs a reachable webhook forward; check the saved ingress.
 2. **AI assistance:** add an OpenRouter key for the Cerebras live helper and rundowns. For research/script writing with your Codex ChatGPT login, select **ChatGPT via Codex · import login**, then import the file as described below. An OpenAI key, compatible endpoint or the separate eligible ChatGPT authorization route is an alternative, not an additional requirement.
 3. Complete business identity, campaign hours, authorized DNC coverage and budgets. A DNC API key is needed only for the configured prepaid lookup route; importing authorized registry data is a separate supported path.
 4. In **Numbers**, sync owned numbers, or open **Add numbers with approval**, save count and spending limits, search an area code, review a quote and explicitly approve its recurring rental. Zero limits block new purchases. Complete routing and a genuine inbound callback test, then approve limited legitimate use. Buying or syncing does not start warmup.

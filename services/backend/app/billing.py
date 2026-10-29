@@ -171,7 +171,7 @@ def call_estimate(service, s, p, call, fallback):
     legs = 2 if call.data.get("agent_provider_id") else 1
     minutes = max(1, math.ceil((ended - submitted).total_seconds() / 60))
     total = legs * minutes * account_rate(service, s, p, "voice", "api_per_minute_usd")
-    if call.data.get("transcription_layout") == "leg_inbound":
+    if call.data.get("transcription_layout") in {"leg_inbound", "direct_tracks"}:
         connected = math.ceil((call.data.get("connected_seconds") or 0) / 60)
         total += 2 * connected * account_rate(service, s, p, "stt", "soniox_per_minute_usd")
     return total, "call_duration_register_rates"

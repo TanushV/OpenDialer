@@ -59,7 +59,7 @@ class Segments:
         return result
 
 
-async def transcribe(key, frames):
+async def transcribe(key, frames, *, on_ready=None):
     """Caller owns the authorization/lifetime. Bounded frames are PCM16 mono at 16 kHz.
 
     The audio iterator must stop when its call ends. A clean stop allows two seconds for
@@ -73,6 +73,8 @@ async def transcribe(key, frames):
         max_size=65536,
         max_queue=4,
     ) as socket:
+        if on_ready:
+            await on_ready()
         finished_at = None
 
         async def upload():

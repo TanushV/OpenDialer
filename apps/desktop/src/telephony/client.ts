@@ -248,6 +248,17 @@ export class Telephony {
   get activeIdentity() {
     return providerId(this.selected()) || null;
   }
+  audioStreams(id: string) {
+    const call = this.selected(id);
+    if (
+      !call ||
+      call.state !== "active" ||
+      !call.localStream ||
+      !call.remoteStream
+    )
+      return null;
+    return { rep: call.localStream, remote: call.remoteStream };
+  }
   mute(id?: string) {
     this.selected(id)?.toggleAudioMute();
   }
@@ -256,6 +267,7 @@ export class Telephony {
     if (this.client) this.client.micId = id;
     for (const call of [this.agent, this.returnCall])
       if (call) await call.setAudioInDevice(id);
+    this.onStatus(this.status);
   }
   async output(id: string) {
     this.outputId = id;

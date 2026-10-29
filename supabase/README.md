@@ -1,51 +1,65 @@
-# OpenDialer webhook receiver
+# Shared webhook service
 
-**Development checkpoint — not yet a usable desktop setup.**
-
-The Free `OpenDialer` project in the existing Agite organization is deployed at:
+One webhook for independent local OpenDialer workspaces:
 
 `https://wfucwxgeexzwhinrylyn.supabase.co/functions/v1/telnyx-webhook`
 
-It receives signed Telnyx control events for registered applications. Audio and transcript
-text are not stored or broadcast. Each workspace uses its own authenticated, private
-notification channel and fetches only its pending controls. Acknowledgement happens after
-local durable receipt. The operator must register routes; an unregistered application gets 404.
+The `OpenDialer` project is on Free in the Agite organization. The existing AGITE project is unchanged.
+This service receives signed Telnyx controls, wakes the correct local app and retains pending controls for catch-up.
+Audio and transcript text never pass through it. The desktop feature is in source; published 0.5.1 is unchanged.
 
-## Verified
+## Caller setup
 
-- Ed25519 signature/timestamp rejection, deduplication and collision handling.
-- Two independent local SQLite stores receiving their own synthetic events through this URL.
-- Private Realtime delivery, persisted SDK session refresh, exclusive consumer lease,
-  row-level isolation and remote acknowledgement after local receipt.
-- Original receipt timestamps and expired callback windows; a delayed callback becomes a
-  review task rather than answering an old call.
+Import the private per-computer JSON profile in **Settings → Setup → Calling**. It supplies public carrier settings,
+a scoped delivery login and optionally provider keys. Sessions refresh automatically. Callers do not need tunnels,
+a public PC address, SIP passwords or Supabase dashboard accounts. See [the user setup guide](../docs/GETTING_STARTED.md#local-calling-with-the-shared-webhook).
 
-The two service-only tables intentionally have no authenticated-client RLS policies. Clients
-have no direct table privileges; the restricted RPC mediates fetch/ack. Supabase reports
-these as informational notices, not permission failures. Keep those tables closed.
+## Operator provisioning
 
-## Deployment
+1. Create a dedicated Voice API application and incoming-only browser credential for each independent workspace.
+   Record the application/credential connection IDs, account ID, Ed25519 public key, telephony credential ID and SIP
+   username. Route both applications to the common webhook. Do not assign one application to two workspaces.
+2. Generate a UUID workspace ID and a cryptographically random 36-byte URL-safe invitation. Store its SHA-256 hex
+   hash in `relay_invitations` using an administrator connection, with label, public `settings` and `routes`.
+   `settings` contains `telnyx_connection_id`, `telnyx_public_key`, `telephony_credential_id`, `sip_username`.
+   `routes` is an array of `{connection_id, account_id, public_key}`. Never store provider API keys in this table.
+3. Privately POST `{"token":"<invitation>"}` to `/functions/v1/managed-setup`. Save the response directly as a private
+   JSON file. The function uses Supabase's Auth admin API and trusted invitation metadata; recipients cannot choose
+   their own carrier routes. Retries reuse the same identity. Invitations expire after one hour and are cleaned up.
+4. Optionally add `telnyx_api_key` and `openrouter_api_key` to that private file. Transfer it privately to its caller.
+   The Auth identity is provisioned behind the scenes; no email verification or dashboard login is needed.
+5. Assigned numbers appear after a signed inbound callback to a registered application. A DID already assigned to
+   another workspace is refused. Route/number moves require deliberate operator reassignment with both callers idle.
 
-Use Supabase CLI 2.122.0 or the connected Supabase tools. Apply the migration, then deploy
-`telnyx-webhook` with platform JWT verification disabled: the function authenticates the
-exact request body itself using Telnyx Ed25519 signatures. Other operations remain authenticated.
-The function uses its server-provided service-role environment variable. Never put that
-key in the desktop or recipient profiles.
+To revoke access, disable the workspace and revoke its Auth sessions. To move a workspace, first stop the old
+computer and reconcile calls, then restore its local data plus private managed connection/session files. Releasing
+`store_id` and lease fields is an operator action, never an automatic workaround for an ownership conflict.
 
-Run the receiver contracts with Node 24:
+## Deploy and verify
+
+Apply migrations in order. Deploy `telnyx-webhook` and `managed-setup` with platform JWT verification disabled:
+they authenticate with Telnyx signatures and operator-issued invitations respectively. Both use the server-provided
+service-role environment variable; never export it into a caller profile. Set the publishable key in the setup
+function to the target project's public key when deploying another project.
 
 ```sh
-node --test supabase/functions/telnyx-webhook/receiver.test.mjs
+node --test supabase/functions/*/*.test.mjs
 ```
 
-`tests/isolation.sql` is a rollback-only assertion script for the two disposable signed-event
-fixtures described in the verification receipt. It is not a production user-provisioning script.
-Test Auth identities, routes and credentials are removed after the live service check.
+`tests/isolation.sql` describes the earlier disposable two-user fixture. `tests/setup-retention.sql` runs rollback-only
+assertions against the provisioned Mac workspace. Neither creates production Auth users through SQL.
 
-## Remaining before use
+New calls require a fresh private-channel probe, drained local controls and an exclusive 45-second lease. Probes
+and idle catch-up use RPC every 20 seconds, not Edge Function polling. After an unclean restart another consumer
+may wait for the old lease to expire. Pending payloads expire after 24 hours with a gap marker; acknowledgement
+immediately clears payloads, and dedupe/call mapping records expire after seven days. Hourly Cron performs cleanup.
+The service-only tables have no client RLS policies or grants intentionally. The generic leaked-password advisory
+remains at the Free project's default; profile passwords are generated random credentials, not human passwords.
 
-Follow [the feature plan](../docs/MANAGED_WEBHOOK_PLAN.md). Direct audio capture and its
-loopback bridge, real Soniox access, app startup/readiness integration, number assignments,
-recipient profile provisioning/import UI, retention and gap reconciliation, packaging and
-carrier/audio qualification are still open. The installed app is unchanged. Do not point a
-real Telnyx application here until its recipient and local integration are ready.
+## Evidence boundary
+
+Real Supabase delivery, isolated accounts, credential refresh and imported connection settings are tested.
+Authenticated Telnyx/Soniox socket access was checked without sending audio. Browser audio checks use synthetic
+tracks. A purchased/owned number, real PSTN call, microphone/WebRTC hardware, Windows packaging, paid inference,
+actual provider charges and measured production usage remain separate live checks. Do not promise free-tier uptime
+or offline laptop call handling. See [the current evidence](../docs/evidence/lean/managed-integration-20261029.json).

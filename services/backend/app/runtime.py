@@ -112,9 +112,13 @@ async def authority_lifetime(service, *, queues, enabled=True):
             try:
                 if enabled:
                     await runtime.start()
+                    if getattr(service, "managed", None):
+                        await service.managed.start()
                 yield
             finally:
                 # Finish/cancel workers before their owned transports are closed.
+                if getattr(service, "managed", None):
+                    await service.managed.close()
                 await runtime.close()
     finally:
         service.raw.clear()

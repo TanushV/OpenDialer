@@ -257,6 +257,20 @@ class Dialer(
             ingress=conf.get("ingress_evidence"),
             inference=inference,
         )
+        if self.managed.enabled(p["tenant_id"]):
+            connected = self.managed.status()["connected"]
+            if not connected:
+                blockers.append("MANAGED_CONNECTION_UNAVAILABLE")
+            for capability in capabilities:
+                if capability["id"] == "local_ingress":
+                    capability.update(
+                        state="software_verified" if connected else "degraded",
+                        blocks="none" if connected else "voice",
+                        reason_codes=[
+                            "MANAGED_CONNECTION_READY" if connected else "MANAGED_CONNECTION_UNAVAILABLE"
+                        ],
+                        remedy="Keep OpenDialer open. Reconnect in Settings if disconnected.",
+                    )
         cache = {"capabilities": capabilities, "capabilities_as_of": self.clock().isoformat()}
         with self.ingress_lock:
             self.capability_cache[(p["tenant_id"], p["seller_id"])] = cache
@@ -496,6 +510,13 @@ class Dialer(
                 update(row, status="failed", reason="route_check_incomplete")
 
     async def check_ingress(self, p, data):
+        if self.managed.enabled(p["tenant_id"]):
+            status = self.managed.status()
+            return {
+                **status,
+                "routing": "software_verified" if status["connected"] else "unavailable",
+                "carrier_call_verified": False,
+            }
         from app.research.fetch import SafeFetcher
 
         item = await asyncio.to_thread(self._ingress_start, p, data)

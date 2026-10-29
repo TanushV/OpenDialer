@@ -278,6 +278,9 @@ class TelephonyWorkflows:
         Soniox omits `transcription_track`, so a single `both` stream cannot tell the rep from the
         prospect. The rep's agent leg outlives the call, so its stream names the call in client state.
         """
+        if call.data.get("transcription_source") == "direct":
+            update(call, transcription_layout="direct_tracks")
+            return
         stream = {"transcription_engine": TRANSCRIPTION_ENGINE, "transcription_tracks": "inbound"}
         self.control_intent(s, p, call.id, "transcription_start", stream)
         agent = call.data.get("agent_provider_id")
@@ -360,6 +363,13 @@ class TelephonyWorkflows:
             s.refresh(current, with_for_update=True)
             command = doc(current)
             if current.data["status"] != "pending":
+                return None
+            if (
+                self.managed.enabled(p["tenant_id"])
+                and not self.managed.status()["connected"]
+                and command["action"]
+                in {"answer", "bridge", "transfer", "transcription_start", "record_start"}
+            ):
                 return None
             sent = dt(current.data.get("sent_at"))
             if sent and not within_command_window(sent, self.clock()) and not safe_stop(command["action"]):

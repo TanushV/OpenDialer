@@ -1,6 +1,6 @@
 # OpenDialer testing handoff (CURRENT)
 
-> **Status: CURRENT — unreleased setup and Codex login import locally verified on 0.5.1**, October 26, 2026.
+> **Status: CURRENT — managed-local webhook integration verified in source, unreleased**, October 29, 2026.
 > Historical 0.5.0 release: `096c55f`, CI 40164184233 passed all jobs including 164 browser cases.
 > Includes script learning and the review fixes described below. This is the single current handoff.
 > Read with [HANDOFF_AST.md](HANDOFF_AST.md) and [SCRIPT_LEARNING.md](SCRIPT_LEARNING.md).
@@ -9,6 +9,20 @@ OpenDialer 0.5.0 simplifies calling, scripts and learning. The current local ver
 Live-provider and clean-machine installer gates remain open. Continue finding what the tests do not prove,
 adding tests before fixes, and supporting approved live testing. Read this file, then `AGENTS.md`, then the
 Status section of `docs/LEAN_PLAN.md`.
+
+## October 29 shared webhook integration
+
+Current [plan checkpoint](MANAGED_WEBHOOK_PLAN.md), [verification receipt](evidence/lean/managed-integration-20261029.json)
+and [caller setup](GETTING_STARTED.md#local-calling-with-the-shared-webhook). Supabase control relay, per-PC profile
+import/refresh/reconnect, direct two-track Soniox transport and two-second coaching are wired into the app.
+The Mac profile and provider key remain outside Git. Both existing OpenDialer Telnyx applications point to the
+common Supabase endpoint. No numbers are owned yet; no paid carrier/AI actions were performed.
+
+Full source suites passed: SQLite 705, PostgreSQL 707; later focused regressions 23 on each. Browser 176,
+frontend unit 81, relay/setup contracts 9; packaged authority import/restart and real Auth refresh verified.
+A restored session originally authenticated REST but not Realtime or refresh; explicit SDK initialization fixes it.
+This does not prove PSTN calls, hardware audio, funded inference, Windows or production free-tier capacity.
+The installed app/data and published installers remain unchanged. The AST document is an older snapshot.
 
 ## October 26 setup and journey audit (locally verified, unreleased)
 

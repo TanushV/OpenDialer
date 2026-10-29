@@ -1,3 +1,4 @@
+import { captureSpeech } from "../telephony/speech";
 import { useSpeechExpiry } from "../state/useSpeechExpiry";
 import { ScriptReader } from "./ScriptReader";
 import { LiveCoach } from "./LiveCoach";
@@ -35,6 +36,7 @@ const owesWrapUp = (call: Call | null) =>
 export function DialerPage({ visible = true }: { visible?: boolean }) {
   const {
     snapshot: w,
+    runtime,
     session,
     api,
     refresh,
@@ -85,6 +87,75 @@ export function DialerPage({ visible = true }: { visible?: boolean }) {
   const responseReceived = useRef<number | null>(null);
   const audio = useRef<HTMLAudioElement>(null);
   const telephony = useRef(new Telephony());
+  const speechActive = !!call && isActiveCall(call) && call.state !== "ENDING";
+  useEffect(() => {
+    if (
+      !runtime ||
+      !call ||
+      call.transcription_source !== "direct" ||
+      call.transcription_layout !== "direct_tracks" ||
+      call.transcription_disabled ||
+      !speechActive ||
+      !call.agent_provider_id
+    )
+      return;
+    let capture: ReturnType<typeof captureSpeech> | undefined;
+    let signature = "";
+    const began = Date.now();
+    const check = () => {
+      const streams = telephony.current.audioStreams(call.agent_provider_id!);
+      const tracks = streams && [
+        ...streams.rep.getAudioTracks(),
+        ...streams.remote.getAudioTracks(),
+      ];
+      const next = tracks?.map((t) => t.id).join(":") || "";
+      if (
+        !streams ||
+        tracks?.length !== 2 ||
+        tracks.some((t) => t.readyState === "ended")
+      ) {
+        if (capture || Date.now() - began > 15000) report();
+        return;
+      }
+      if (next === signature) return;
+      signature = next;
+      if (capture) capture.update(streams);
+      else
+        capture = captureSpeech(
+          runtime.url,
+          session.access_token,
+          call.id,
+          streams,
+          report,
+        );
+    };
+    let failed = false;
+    const report = () => {
+      if (failed) return;
+      failed = true;
+      capture?.stop();
+      clearInterval(timer);
+      notice(
+        "Live transcription unavailable. Finish this call, then reconnect in Settings.",
+      );
+      void api(`/v1/calls/${call.id}/audio-gap`, "POST", {}).catch(() => {});
+    };
+    const timer = setInterval(check, 500);
+    check();
+    return () => {
+      clearInterval(timer);
+      capture?.stop();
+    };
+  }, [
+    call?.id,
+    call?.transcription_source,
+    call?.transcription_layout,
+    call?.transcription_disabled,
+    speechActive,
+    call?.agent_provider_id,
+    runtime?.url,
+    session.access_token,
+  ]);
   const journal = useRef(new OptOutJournal(localStorage, session.tenant_id));
   const [journalReady, setJournalReady] = useState(false);
   const [pendingOptouts, setPendingOptouts] = useState(

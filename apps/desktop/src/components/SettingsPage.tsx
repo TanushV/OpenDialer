@@ -1,3 +1,4 @@
+import { ManagedConnection, type ConnectionStatus } from "./ManagedConnection";
 import { countLabel, useHistory } from "../state/useHistory";
 import { HistoryMore } from "./HistoryMore";
 import { BillingReconciliation } from "./BillingReconciliation";
@@ -726,7 +727,19 @@ function useProviderDraft(settings: AdminSettingsState, keys: string[]) {
 }
 
 function TelnyxStep({ settings }: { settings: AdminSettingsState }) {
-  const { api, run } = useWorkspace();
+  const { api, run, runtime } = useWorkspace();
+  const [managed, setManaged] = useState<ConnectionStatus | null>(null);
+  const configured = managed?.configured;
+  const managedChanged = useCallback(
+    (value: ConnectionStatus) => {
+      setManaged((previous) => {
+        if (JSON.stringify(previous) === JSON.stringify(value)) return previous;
+        return value;
+      });
+      if (value.configured) void settings.load();
+    },
+    [settings.load],
+  );
   const [key, setKey] = useState("");
   const form = useProviderDraft(settings, [
     "telnyx_connection_id",
@@ -739,10 +752,15 @@ function TelnyxStep({ settings }: { settings: AdminSettingsState }) {
   const [ingress, setIngress] = useState<Record<string, unknown> | null>(null);
   return (
     <>
-      <p>
-        Start with your Telnyx API key. Then connect the Voice API application
-        and the browser calling credential.
-      </p>
+      {runtime?.local_token && !runtime.simulation && (
+        <ManagedConnection changed={managedChanged} />
+      )}
+      {!configured && (
+        <p>
+          Start with your Telnyx API key. Then connect the Voice API application
+          and the browser calling credential.
+        </p>
+      )}
       <button
         className="secondary"
         onClick={() => void run(() => openSource("https://portal.telnyx.com/"))}
@@ -774,31 +792,42 @@ function TelnyxStep({ settings }: { settings: AdminSettingsState }) {
           ? "API key saved"
           : "Your key and connection details save together below."}
       </p>
-      {form.field("telnyx_connection_id", "Call Control connection ID")}
-      {form.field("telnyx_public_key", "Ed25519 webhook public key")}
-      {form.field(
-        "webhook_url",
-        "Public HTTPS webhook URL",
-        "https://your-endpoint/webhooks/telnyx",
+      {!configured && (
+        <>
+          {form.field("telnyx_connection_id", "Call Control connection ID")}
+          {form.field("telnyx_public_key", "Ed25519 webhook public key")}
+          {form.field(
+            "webhook_url",
+            "Public HTTPS webhook URL",
+            "https://your-endpoint/webhooks/telnyx",
+          )}
+          <p className="fine">
+            Use the same public HTTPS webhook address in Telnyx. For calling
+            from this Mac, configure the forwarding host below and run Check
+            saved ingress.
+          </p>
+          <LocalWebhookForward />
+        </>
       )}
-      <p className="fine">
-        Use the same public HTTPS webhook address in Telnyx. For calling from
-        this Mac, configure the forwarding host below and run Check saved
-        ingress.
-      </p>
-      <LocalWebhookForward />
-      <details>
-        <summary>Agent credential and carrier approval</summary>
-        {form.field(
-          "telephony_credential_id",
-          "Scoped telephony credential ID",
-        )}
-        {form.field("sip_username", "Agent SIP username")}
-        {form.field(
+      {!configured && (
+        <details>
+          <summary>Agent credential and carrier approval</summary>
+          {form.field(
+            "telephony_credential_id",
+            "Scoped telephony credential ID",
+          )}
+          {form.field("sip_username", "Agent SIP username")}
+          {form.field(
+            "traffic_approval_reference",
+            "Carrier traffic approval reference",
+          )}
+        </details>
+      )}
+      {configured &&
+        form.field(
           "traffic_approval_reference",
           "Carrier traffic approval reference",
         )}
-      </details>
       <div className="button-row">
         <button
           className="primary"
@@ -830,14 +859,16 @@ function TelnyxStep({ settings }: { settings: AdminSettingsState }) {
             })
           }
         >
-          Check saved ingress
+          {configured ? "Check connection" : "Check saved ingress"}
         </button>
       </div>
-      <p className="fine">
-        Signed carrier callbacks need a public HTTPS route to this authority's
-        webhook endpoint; keep administrative routes private. The ingress check
-        verifies routing and signature handling without a carrier call.
-      </p>
+      {!configured && (
+        <p className="fine">
+          Signed carrier callbacks need a public HTTPS route to this authority's
+          webhook endpoint; keep administrative routes private. The ingress
+          check verifies routing and signature handling without a carrier call.
+        </p>
+      )}
       {ingress && (
         <pre className="small" aria-label="Ingress check result">
           {JSON.stringify(ingress, null, 2)}

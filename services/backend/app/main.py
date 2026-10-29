@@ -436,6 +436,12 @@ def create_app(settings=None, *, clock=None, carrier=None):
     from app.providers.codex import bind_api as bind_codex_api
 
     bind_codex_api(app, service, principal)
+    from app.managed_webhooks import bind_api as bind_managed_api
+
+    bind_managed_api(app, service, principal, administrator)
+    from app.live_transcription import bind_api as bind_audio_api
+
+    bind_audio_api(app, service, principal)
     from app.postcall.review import bind_api as bind_review_api
     from app.postcall.rubrics import bind_api as bind_rubrics_api
 

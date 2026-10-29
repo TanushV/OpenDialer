@@ -74,3 +74,50 @@ async def test_stream_closes_and_flushes_without_logging_or_saving_audio(monkeyp
     output = [value async for value in telnyx_stt.transcribe("not-a-real-key", frames())]
     assert output == [{"transcript": "final words", "is_final": True}]
     assert sent[0] == b"\0\0" * 800 and json.loads(sent[-1]) == {"type": "CloseStream"}
+
+
+def test_live_socket_requires_a_current_local_call(workspace, app):
+    from starlette.websockets import WebSocketDisconnect
+
+    with pytest.raises(WebSocketDisconnect):
+        with workspace["client"].websocket_connect("/v1/calls/absent/audio/rep") as ws:
+            ws.send_json({"token": workspace["access_token"]})
+            ws.receive_json()
+
+
+def test_managed_socket_delivers_speech_to_existing_pipeline(workspace, app, monkeypatch):
+    from time import monotonic
+
+    from app.db import get, update
+    from app.providers import telnyx_stt
+    from conftest import start
+
+    service = app.state.service
+    service.managed.config = {"tenant_id": workspace["tenant_id"], "workspace_id": "test"}
+    service.managed.last_probe = monotonic()
+    service.managed.caught_up = True
+    service.managed.numbers = {"+14155550100"}
+    service.configs.write(workspace["tenant_id"], {"telnyx_api_key": "not-a-real-key"})
+    made = start(workspace)
+    with service.db.transaction() as s:
+        call = get(s, "call_attempts", made["id"], workspace["tenant_id"])
+        update(call, state="HUMAN", transcription_layout="direct_tracks")
+
+    async def fake(key, frames, *, on_ready=None):
+        await on_ready()
+        async for frame in frames:
+            assert len(frame) == 1600
+            yield {"transcript": "We have no budget this quarter", "is_final": True}
+
+    monkeypatch.setattr(telnyx_stt, "transcribe", fake)
+    with workspace["client"].websocket_connect(f"/v1/calls/{made['id']}/audio/remote") as ws:
+        ws.send_json({"token": workspace["access_token"]})
+        assert ws.receive_json()["status"] == "ready"
+        ws.send_bytes(b"\0\0" * 800)
+        assert ws.receive_json()["status"] == "transcribed"
+        ws.send_json({"stop": True})
+    detail = workspace["client"].get(f"/v1/calls/{made['id']}", headers=workspace["headers"]).json()
+    assert any(
+        row["text"] == "We have no budget this quarter" and row["side"] == "remote"
+        for row in detail["transcript"]
+    )

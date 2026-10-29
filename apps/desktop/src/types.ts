@@ -137,6 +137,10 @@ export interface Coach {
   evidence_segment_ids: string[];
 }
 export interface Call {
+  transcription_source?: string;
+  transcription_layout?: string;
+  transcription_disabled?: boolean;
+  agent_provider_id?: string;
   /** Rep-visible edit counter used for wrap-up conflicts (row version moves on bookkeeping). */
   edit_version?: number;
   disposition_input?: {

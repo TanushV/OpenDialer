@@ -1,9 +1,10 @@
 import { createContext, useContext } from "react";
-import type { Session, Workspace } from "./types";
+import type { Session, Workspace, Runtime } from "./types";
 import type { LiveEvent } from "./api/live";
 import type { ProviderCredential, RequestOptions } from "./api/client";
 export interface WorkspaceContext {
   snapshot: Workspace;
+  runtime?: Runtime | null;
   session: Session;
   api: <T>(
     path: string,

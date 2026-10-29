@@ -18,7 +18,7 @@ Intel Mac, Windows ARM and Linux desktop installers are not published.
 This is an internal-use preview: updater signatures are configured, but Apple notarization and Windows publisher signing are not. See [installation help](docs/INSTALL.md).
 
 **Release status:** the published download is **0.5.1**. `main` also contains newer setup fixes and
-explicitly approved number purchasing and Codex login import; those changes are **not yet in that download**.
+explicitly approved number purchasing, Codex login import and shared webhook setup; those changes are **not yet in that download**.
 
 ## Get started
 
@@ -28,7 +28,7 @@ explicitly approved number purchasing and Codex login import; those changes are 
 4. Run preflight, check your audio and go ready. Press **Space** or **Next call** to call the scheduler's next eligible lead.
 
 [The setup guide](docs/GETTING_STARTED.md) explains the keys, phone numbers, callbacks and first call.
-Local calling needs a reachable HTTPS webhook route; the guide includes that step.
+**Shared webhook setup (current source):** import your per-computer setup file in Settings → Setup → Calling. It supplies the common Supabase webhook and carrier IDs, with no tunnel or terminal command. Audio goes directly to Telnyx; business data stays local. This feature is not in the 0.5.1 download. [Setup details](docs/GETTING_STARTED.md#local-calling-with-the-shared-webhook).
 
 **Using your ChatGPT plan?** In current source, choose **Settings → Setup → AI assistance →
 ChatGPT via Codex · import login**, then select your Codex `auth.json` file. The bundled runtime

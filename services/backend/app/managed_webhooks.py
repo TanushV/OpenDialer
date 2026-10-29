@@ -8,9 +8,13 @@ from pathlib import Path
 from time import monotonic
 from uuid import UUID, uuid4
 
+from fastapi import Depends
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy import select
 
+from app.db import MODELS
 from app.service import dt, fail
+from app.telephony.reducer import TERMINAL
 
 
 class ConnectionProfile(BaseModel):
@@ -21,6 +25,8 @@ class ConnectionProfile(BaseModel):
     publishable_key: str = Field(min_length=10, max_length=512)
     workspace_id: UUID
     email: str = Field(min_length=3, max_length=254)
+    telnyx_api_key: str = Field(default="", max_length=512, repr=False)
+    openrouter_api_key: str = Field(default="", max_length=512, repr=False)
     password: str = Field(min_length=12, max_length=512, repr=False)
 
     @field_validator("url")
@@ -97,28 +103,68 @@ class ManagedConnection:
         self.wake = asyncio.Event()
         self.joined = asyncio.Event()
         self.probe = ""
+        self.numbers = set()
+        self.edit_lock = asyncio.Lock()
+        self.speech_failed = False
+        self.configuring = False
 
     def status(self):
         return {
             "configured": bool(self.config),
             "label": self.config.get("label", ""),
-            "connected": bool(self.caught_up and self.last_probe and monotonic() - self.last_probe < 35),
+            "connected": bool(
+                not self.speech_failed
+                and self.caught_up
+                and self.last_probe
+                and monotonic() - self.last_probe < 35
+            ),
             "state": self.state,
             "url": self.config.get("url", ""),
+            "numbers": len(self.numbers),
+            "speech_failed": self.speech_failed,
         }
 
+    def enabled(self, tenant_id):
+        return self.service.settings.mode == "local" and self.config.get("tenant_id") == tenant_id
+
+    def require_number(self, tenant_id, phone):
+        if self.enabled(tenant_id):
+            self.require_ready(tenant_id)
+            if phone not in self.numbers:
+                fail(409, "This number is not assigned to this workspace")
+
+    def local_caught_up(self):
+        with self.service.db.transaction(False) as session:
+            inbox = MODELS["webhook_inbox"]
+            return not session.scalar(
+                select(inbox.id)
+                .where(
+                    inbox.tenant_id == self.config["tenant_id"],
+                    inbox.op_status.in_(["received", "processing", "retry"]),
+                )
+                .limit(1)
+            )
+
     def require_ready(self, tenant_id):
-        if self.config.get("tenant_id") == tenant_id and not self.status()["connected"]:
+        if self.configuring:
+            fail(409, "Calling setup is being changed; new calls are paused")
+        if self.enabled(tenant_id) and not self.status()["connected"]:
             fail(409, "Call events reconnecting; new calls paused. Hangup remains available.")
 
     async def make_client(self, config, storage=None):
         from supabase import AsyncClientOptions, acreate_client
 
-        return await acreate_client(
+        client = await acreate_client(
             config["url"],
             config["publishable_key"],
             AsyncClientOptions(storage=storage or self.storage, postgrest_client_timeout=10),
         )
+        # Restoring storage alone sets HTTP auth, but does not initialize refresh or Realtime.
+        await client.auth.initialize_from_storage()
+        session = await client.auth.get_session()
+        if session:
+            await client.realtime.set_auth(session.access_token)
+        return client
 
     async def close(self):
         self.last_probe = 0
@@ -137,7 +183,7 @@ class ManagedConnection:
         if self.service.settings.mode != "local":
             fail(409, "Managed delivery is for local workspaces")
         await self.close()
-        values = profile.model_dump(mode="json", exclude={"password"})
+        values = profile.model_dump(mode="json", exclude={"password", "telnyx_api_key", "openrouter_api_key"})
         staged = SessionStorage(self.storage.path.with_suffix("." + str(uuid4()) + ".staged"))
         candidate = await self.make_client(values, staged)
         try:
@@ -148,18 +194,20 @@ class ManagedConnection:
                 fail(403, "Profile does not match its workspace")
             row = (
                 await candidate.table("relay_workspaces")
-                .select("id")
+                .select("id,settings")
                 .eq("id", str(profile.workspace_id))
                 .execute()
             )
             if not row.data:
                 fail(403, "Workspace disabled or not provisioned")
+            await asyncio.to_thread(require_idle, self.service, {"tenant_id": tenant_id})
         except Exception:
             await candidate.auth.close()
             await candidate.postgrest.aclose()
             staged.path.unlink(missing_ok=True)
             await self.start()
             fail(400, "Connection failed; check the profile and network")
+        settings = row.data[0].get("settings", {})
         same = self.config.get("workspace_id") == values["workspace_id"]
         self.config = {
             **values,
@@ -171,6 +219,17 @@ class ManagedConnection:
         self.storage = staged
         write_private(self.path, self.config)
         self.client = candidate
+        configured = {
+            k: v
+            for k, v in settings.items()
+            if k in {"telnyx_connection_id", "telnyx_public_key", "telephony_credential_id", "sip_username"}
+        }
+        configured.update(
+            {k: getattr(profile, k) for k in ("telnyx_api_key", "openrouter_api_key") if getattr(profile, k)}
+        )
+        configured["webhook_url"] = profile.url + "/functions/v1/telnyx-webhook"
+        self.service.configs.write(tenant_id, configured, advance_version=True)
+        self.speech_failed = False
         await self.start()
         return self.status()
 
@@ -231,7 +290,19 @@ class ManagedConnection:
                     if batch["topic"] != first["topic"]:
                         raise RuntimeError("Subscription changed")
                     acknowledgements = await deliver(self.service, self.config["tenant_id"], batch["events"])
-                    self.caught_up = not acknowledgements
+                    self.numbers = set(batch.get("numbers", []))
+                    if not acknowledgements and not batch.get("gap_since"):
+                        for _ in range(20):
+                            if await asyncio.to_thread(self.local_caught_up):
+                                break
+                            await asyncio.sleep(0.1)
+                    self.caught_up = (
+                        not acknowledgements
+                        and not batch.get("gap_since")
+                        and await asyncio.to_thread(self.local_caught_up)
+                    )
+                    if batch.get("gap_since"):
+                        self.state = "delivery_gap"
                     if acknowledgements:
                         continue
                     try:
@@ -247,3 +318,66 @@ class ManagedConnection:
                 if self.client:
                     await self.client.remove_all_channels()
                 await asyncio.sleep(5)
+
+
+def require_idle(service, p):
+    with service.db.transaction(False) as session:
+        calls = MODELS["call_attempts"]
+        if session.scalar(
+            select(calls.id)
+            .where(calls.tenant_id == p["tenant_id"], calls.op_status.not_in(TERMINAL))
+            .limit(1)
+        ):
+            fail(409, "Finish or reconcile the current call before changing setup")
+        tasks = MODELS["followup_tasks"]
+        if session.scalar(
+            select(tasks.id)
+            .where(
+                tasks.tenant_id == p["tenant_id"],
+                tasks.data["inbound_state"]
+                .as_string()
+                .in_(["answering", "ringing", "connected", "notifying", "ending"]),
+            )
+            .limit(1)
+        ):
+            fail(409, "Finish the incoming call before changing setup")
+        commands = MODELS["command_outbox"]
+        if session.scalar(
+            select(commands.id)
+            .where(
+                commands.tenant_id == p["tenant_id"],
+                commands.op_status.in_(["pending", "sending", "reconciling", "review_required"]),
+            )
+            .limit(1)
+        ):
+            fail(409, "Resolve pending calling operations before changing setup")
+
+
+def bind_api(app, service, principal, administrator):
+    @app.get("/v1/managed-connection")
+    def status(p=Depends(principal)):
+        return (
+            service.managed.status()
+            if service.managed.enabled(p["tenant_id"])
+            else {"configured": False, "connected": False, "state": "direct"}
+        )
+
+    @app.post("/v1/admin/managed-connection")
+    async def connect(profile: ConnectionProfile, p=Depends(administrator)):
+        async with service.managed.edit_lock:
+            service.managed.configuring = True
+            try:
+                await asyncio.to_thread(require_idle, service, p)
+                return await service.managed.connect(p["tenant_id"], profile)
+            finally:
+                service.managed.configuring = False
+
+    @app.post("/v1/admin/managed-connection/retry")
+    async def retry(p=Depends(administrator)):
+        await asyncio.to_thread(require_idle, service, p)
+        if service.managed.client:
+            await service.managed.client.rpc("relay_clear_gap", {}).execute()
+        service.managed.speech_failed = False
+        await service.managed.close()
+        await service.managed.start()
+        return service.managed.status()

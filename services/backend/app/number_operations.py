@@ -397,6 +397,15 @@ class NumberOperations:
     async def sync_numbers(self, p):
         # Provider pagination must complete before any missing-inventory decisions.
         inventory = await self.carrier(p["tenant_id"]).list_numbers()
+        if self.managed.enabled(p["tenant_id"]):
+            self.managed.require_ready(p["tenant_id"])
+            connection = self.configs.read(p["tenant_id"]).get("telnyx_connection_id")
+            inventory = [
+                n
+                for n in inventory
+                if n.get("phone_number") in self.managed.numbers
+                or str(n.get("connection_id") or "") == connection
+            ]
         return await asyncio.to_thread(self._merge_inventory, p, inventory)
 
     def _merge_inventory(self, p, inventory):
@@ -510,6 +519,11 @@ class NumberOperations:
             self.db.authorize_stream(s, p)
             self._configuration_actor(s, p)
             number = self.required(s, "number_inventory", number_id, p)
+            self.managed.require_ready(p["tenant_id"])
+            if self.managed.enabled(p["tenant_id"]) and connection != self.configs.read(p["tenant_id"]).get(
+                "telnyx_connection_id"
+            ):
+                fail(409, "Use this workspace’s assigned calling application")
             if expected_version is not None and number.version != expected_version:
                 fail(409, "Number changed; reload before configuring it")
             if not number.data.get("provider_id"):

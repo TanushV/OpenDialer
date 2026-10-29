@@ -535,6 +535,7 @@ export function App() {
       snapshot && session
         ? {
             snapshot,
+            runtime,
             session,
             api,
             refresh,
@@ -549,6 +550,7 @@ export function App() {
         : null,
     [
       snapshot,
+      runtime,
       session,
       api,
       refresh,

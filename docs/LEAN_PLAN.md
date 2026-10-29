@@ -349,3 +349,18 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
   Staged Telnyx key returns 401; replacement requested privately. No installed-app/data changes, real calls,
   number purchases or release. See [receipt](evidence/lean/managed-webhook-20261029.json) and the current
   checkpoint in [MANAGED_WEBHOOK_PLAN.md](MANAGED_WEBHOOK_PLAN.md).
+
+- October 29 managed-local integration completed in source (unreleased): updated Telnyx key validates; the existing
+  Voice API and incoming-only agent applications now use the shared Supabase URL. A private per-PC setup profile
+  imports carrier configuration, uses SDK refresh and reconnects at startup. Auth restoration needed explicit SDK
+  initialization for refresh/private Realtime; a failing regression and frozen restart check preceded that fix.
+  WebRTC call tracks feed direct Soniox PCM streams; carrier webhook transcription is not duplicated. Speech and
+  controls enter existing local pipelines, with fixed two-second coaching windows, ownership/readiness gates,
+  bounded capture, setup protection during active outbound/inbound calls and explicit gap recovery. Signed inbound
+  DID proof assigns numbers; existing purchasing/identity/callback approvals remain. Hourly remote retention is live.
+  Full checks: SQLite 705/4 skips, PostgreSQL 707/3 skips; later scoped regressions 23/23 on each engine. Frontend
+  81 unit tests, 176 browser journeys, typecheck/build/format and 9 relay/setup contracts pass. Real profile import,
+  persisted refresh and frozen authority import/restart were verified with disposable data. Authenticated Soniox
+  access sent zero audio bytes. The account has no phone numbers; paid calls/STT/AI, hardware audio, Windows,
+  production load/egress and signed releases remain live gates. Installed app/data unchanged. See
+  [integration receipt](evidence/lean/managed-integration-20261029.json) and [setup guide](GETTING_STARTED.md#local-calling-with-the-shared-webhook).

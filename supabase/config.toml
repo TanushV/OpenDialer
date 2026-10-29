@@ -1,3 +1,6 @@
 project_id = "opendialer"
 [functions.telnyx-webhook]
 verify_jwt = false
+
+[functions.managed-setup]
+verify_jwt = false
