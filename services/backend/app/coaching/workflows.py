@@ -191,6 +191,9 @@ class LiveHelper:
         )
 
     def _defer_help(self, s, p, call, due, marker):
+        fixed_window = marker == "final" and call.data.get("transcription_source") == "direct"
+        if fixed_window:
+            due = self.clock() + timedelta(seconds=2)
         self.jobs.coalesce_live_in(
             s,
             "live_coach",
@@ -206,6 +209,7 @@ class LiveHelper:
             tenant_id=p["tenant_id"],
             priority=100,
             available_at=due,
+            fixed_window=fixed_window,
         )
 
     def _coach_authority(self, s, p, call=None):
@@ -967,6 +971,11 @@ class LiveHelper:
             for item in state.data.get("automatic_admissions", [])
             if dt(item["at"]) > self.clock() - timedelta(seconds=60)
         ]
+        if call.data.get("transcription_source") == "direct" and admitted:
+            next_at = max(dt(item["at"]) for item in admitted) + timedelta(seconds=2)
+            if self.clock() < next_at:
+                self._defer_help(s, p, call, next_at, "cadence")
+                return None
         if len(admitted) < LIMITS.automatic_per_call_minute:
             return admitted
         version = call.data["transcript_version"]

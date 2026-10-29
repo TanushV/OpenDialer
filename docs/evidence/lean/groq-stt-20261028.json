@@ -1,0 +1,453 @@
+{
+  "date": "2026-10-28",
+  "scope": "Groq HTTP transcription microbenchmark; no Telnyx carrier or OpenRouter inference tested",
+  "method": {
+    "requests": 30,
+    "repeats_per_model_per_sample": 3,
+    "model_order": "alternated by repeat",
+    "concurrency": 1,
+    "persistent_http_client": true,
+    "language": "en",
+    "temperature": 0,
+    "response_format": "verbose_json",
+    "timing": "HTTP request start through complete response; excludes audio acquisition and app coaching",
+    "audio": "macOS Samantha synthetic speech, versions cut at 2/5/10 seconds, complete 8 kHz resample; public whisper.cpp JFK sample",
+    "limitations": [
+      "Synthetic single voice and famous public speech do not establish noisy call accuracy",
+      "No live microphone, PSTN codec, two-speaker overlap, regional or load test",
+      "Three repeats per case are insufficient for reliable tail latency",
+      "Estimated charges use published list rates and minimum duration, not account billing readback"
+    ]
+  },
+  "reference": "Hello, this is Morgan from Northstar Systems. Is Priya available? We help small businesses follow up with customers. I am not interested, and please do not call this number again. Understood. I will remove your number from our list. The appointment was Tuesday at two thirty, not Thursday at three. The quoted price was fifteen hundred dollars, not fifty thousand.",
+  "samples": [
+    {
+      "name": "jfk.wav",
+      "sha256": "59dfb9a4acb36fe2a2affc14bacbee2920ff435cb13cc314a08c13f66ba7860e"
+    },
+    {
+      "name": "synthetic-10s.wav",
+      "sha256": "d64f7da686eb38b383e41b98975b057cefd86471b95e1683255b2fb715a4b284"
+    },
+    {
+      "name": "synthetic-2s.wav",
+      "sha256": "e821d8113ead5e4818e45993d8d7edde4002ad5cf4b0ca14f0385039f70fdb38"
+    },
+    {
+      "name": "synthetic-5s.wav",
+      "sha256": "2cb32868a4cad190ec3f62847a91003deaa198c6ec8128964f854763408a77cd"
+    },
+    {
+      "name": "synthetic-8k.wav",
+      "sha256": "0aecee67dd36ce0ffb3d4e1716e878928196f38cf74478572812b8e6517c1f76"
+    },
+    {
+      "name": "synthetic.wav",
+      "sha256": "51de59bc4971b9da2666d79f27fbd3073d84dab09c4f988092c8f7228db7c714"
+    }
+  ],
+  "results": [
+    {
+      "model": "whisper-large-v3-turbo",
+      "sample": "synthetic-2s.wav",
+      "repeat": 0,
+      "audio_seconds": 2.0,
+      "http_status": 200,
+      "wall_seconds": 0.3912,
+      "text": " Hello, this is Morgan from North Star.",
+      "provider_duration": 2
+    },
+    {
+      "model": "whisper-large-v3",
+      "sample": "synthetic-2s.wav",
+      "repeat": 0,
+      "audio_seconds": 2.0,
+      "http_status": 200,
+      "wall_seconds": 0.2763,
+      "text": " Hello, this is Morgan from Northstar.",
+      "provider_duration": 2
+    },
+    {
+      "model": "whisper-large-v3-turbo",
+      "sample": "synthetic-5s.wav",
+      "repeat": 0,
+      "audio_seconds": 5.0,
+      "http_status": 200,
+      "wall_seconds": 0.2669,
+      "text": " Hello, this is Morgan from Northstar Systems. Is PRIA available? We help small",
+      "provider_duration": 5
+    },
+    {
+      "model": "whisper-large-v3",
+      "sample": "synthetic-5s.wav",
+      "repeat": 0,
+      "audio_seconds": 5.0,
+      "http_status": 200,
+      "wall_seconds": 0.2805,
+      "text": " Hello, this is Morgan from Northstar Systems. Is Priya available? We help small",
+      "provider_duration": 5
+    },
+    {
+      "model": "whisper-large-v3-turbo",
+      "sample": "synthetic-10s.wav",
+      "repeat": 0,
+      "audio_seconds": 10.0,
+      "http_status": 200,
+      "wall_seconds": 0.2912,
+      "text": " Hello, this is Morgan from Northstar Systems. Is Pria available? We help small businesses follow up with customers. I am not interested, and please do not call this",
+      "provider_duration": 10
+    },
+    {
+      "model": "whisper-large-v3",
+      "sample": "synthetic-10s.wav",
+      "repeat": 0,
+      "audio_seconds": 10.0,
+      "http_status": 200,
+      "wall_seconds": 0.3446,
+      "text": " Hello, this is Morgan from Northstar Systems. Is Priya available? We help small businesses follow up with customers. I am not interested, and please do not call this",
+      "provider_duration": 10
+    },
+    {
+      "model": "whisper-large-v3-turbo",
+      "sample": "synthetic-8k.wav",
+      "repeat": 0,
+      "audio_seconds": 21.556,
+      "http_status": 200,
+      "wall_seconds": 0.2992,
+      "text": " Hello, this is Morgan from Northstar Systems. Is Pria available? We help small businesses follow up with customers. I am not interested. And please do not call this number again. Understood. I will remove your number from our list. The appointment was Tuesday at 2.30, not Thursday at 3. The quoted price was $1,500, not $50,000.",
+      "provider_duration": 21.556000768
+    },
+    {
+      "model": "whisper-large-v3",
+      "sample": "synthetic-8k.wav",
+      "repeat": 0,
+      "audio_seconds": 21.556,
+      "http_status": 200,
+      "wall_seconds": 0.4196,
+      "text": " Hello, this is Morgan from Northstar Systems. Is Priya available? We help small businesses follow up with customers. I am not interested, and please do not call this number again. Understood. I will remove your number from our list. The appointment was Tuesday at 2.30, not Thursday at 3. The quoted price was $1,500, not $50,000.",
+      "provider_duration": 21.556000768
+    },
+    {
+      "model": "whisper-large-v3-turbo",
+      "sample": "jfk.wav",
+      "repeat": 0,
+      "audio_seconds": 11.0,
+      "http_status": 200,
+      "wall_seconds": 0.302,
+      "text": " And so, my fellow Americans, ask not what your country can do for you, ask what you can do for your country.",
+      "provider_duration": 11.000000512
+    },
+    {
+      "model": "whisper-large-v3",
+      "sample": "jfk.wav",
+      "repeat": 0,
+      "audio_seconds": 11.0,
+      "http_status": 200,
+      "wall_seconds": 0.3423,
+      "text": " And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country.",
+      "provider_duration": 11.000000512
+    },
+    {
+      "model": "whisper-large-v3",
+      "sample": "synthetic-2s.wav",
+      "repeat": 1,
+      "audio_seconds": 2.0,
+      "http_status": 200,
+      "wall_seconds": 0.2598,
+      "text": " Hello, this is Morgan from Northstar.",
+      "provider_duration": 2
+    },
+    {
+      "model": "whisper-large-v3-turbo",
+      "sample": "synthetic-2s.wav",
+      "repeat": 1,
+      "audio_seconds": 2.0,
+      "http_status": 200,
+      "wall_seconds": 0.2495,
+      "text": " Hello, this is Morgan from North Star.",
+      "provider_duration": 2
+    },
+    {
+      "model": "whisper-large-v3",
+      "sample": "synthetic-5s.wav",
+      "repeat": 1,
+      "audio_seconds": 5.0,
+      "http_status": 200,
+      "wall_seconds": 0.2717,
+      "text": " Hello, this is Morgan from Northstar Systems. Is Priya available? We help small",
+      "provider_duration": 5
+    },
+    {
+      "model": "whisper-large-v3-turbo",
+      "sample": "synthetic-5s.wav",
+      "repeat": 1,
+      "audio_seconds": 5.0,
+      "http_status": 200,
+      "wall_seconds": 0.2405,
+      "text": " Hello, this is Morgan from Northstar Systems. Is PRIA available? We help small",
+      "provider_duration": 5
+    },
+    {
+      "model": "whisper-large-v3",
+      "sample": "synthetic-10s.wav",
+      "repeat": 1,
+      "audio_seconds": 10.0,
+      "http_status": 200,
+      "wall_seconds": 0.3495,
+      "text": " Hello, this is Morgan from Northstar Systems. Is Priya available? We help small businesses follow up with customers. I am not interested, and please do not call this",
+      "provider_duration": 10
+    },
+    {
+      "model": "whisper-large-v3-turbo",
+      "sample": "synthetic-10s.wav",
+      "repeat": 1,
+      "audio_seconds": 10.0,
+      "http_status": 200,
+      "wall_seconds": 0.3965,
+      "text": " Hello, this is Morgan from Northstar Systems. Is Pria available? We help small businesses follow up with customers. I am not interested, and please do not call this",
+      "provider_duration": 10
+    },
+    {
+      "model": "whisper-large-v3",
+      "sample": "synthetic-8k.wav",
+      "repeat": 1,
+      "audio_seconds": 21.556,
+      "http_status": 200,
+      "wall_seconds": 0.4467,
+      "text": " Hello, this is Morgan from Northstar Systems. Is Priya available? We help small businesses follow up with customers. I am not interested, and please do not call this number again. Understood. I will remove your number from our list. The appointment was Tuesday at 2.30, not Thursday at 3. The quoted price was $1,500, not $50,000.",
+      "provider_duration": 21.556000768
+    },
+    {
+      "model": "whisper-large-v3-turbo",
+      "sample": "synthetic-8k.wav",
+      "repeat": 1,
+      "audio_seconds": 21.556,
+      "http_status": 200,
+      "wall_seconds": 0.2699,
+      "text": " Hello, this is Morgan from Northstar Systems. Is Pria available? We help small businesses follow up with customers. I am not interested. And please do not call this number again. Understood. I will remove your number from our list. The appointment was Tuesday at 2.30, not Thursday at 3. The quoted price was $1,500, not $50,000.",
+      "provider_duration": 21.556000768
+    },
+    {
+      "model": "whisper-large-v3",
+      "sample": "jfk.wav",
+      "repeat": 1,
+      "audio_seconds": 11.0,
+      "http_status": 200,
+      "wall_seconds": 0.3313,
+      "text": " And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country.",
+      "provider_duration": 11.000000512
+    },
+    {
+      "model": "whisper-large-v3-turbo",
+      "sample": "jfk.wav",
+      "repeat": 1,
+      "audio_seconds": 11.0,
+      "http_status": 200,
+      "wall_seconds": 0.3097,
+      "text": " And so, my fellow Americans, ask not what your country can do for you, ask what you can do for your country.",
+      "provider_duration": 11.000000512
+    },
+    {
+      "model": "whisper-large-v3-turbo",
+      "sample": "synthetic-2s.wav",
+      "repeat": 2,
+      "audio_seconds": 2.0,
+      "http_status": 200,
+      "wall_seconds": 0.2294,
+      "text": " Hello, this is Morgan from North Star.",
+      "provider_duration": 2
+    },
+    {
+      "model": "whisper-large-v3",
+      "sample": "synthetic-2s.wav",
+      "repeat": 2,
+      "audio_seconds": 2.0,
+      "http_status": 200,
+      "wall_seconds": 0.2917,
+      "text": " Hello, this is Morgan from Northstar.",
+      "provider_duration": 2
+    },
+    {
+      "model": "whisper-large-v3-turbo",
+      "sample": "synthetic-5s.wav",
+      "repeat": 2,
+      "audio_seconds": 5.0,
+      "http_status": 200,
+      "wall_seconds": 0.2433,
+      "text": " Hello, this is Morgan from Northstar Systems. Is PRIA available? We help small",
+      "provider_duration": 5
+    },
+    {
+      "model": "whisper-large-v3",
+      "sample": "synthetic-5s.wav",
+      "repeat": 2,
+      "audio_seconds": 5.0,
+      "http_status": 200,
+      "wall_seconds": 0.2948,
+      "text": " Hello, this is Morgan from Northstar Systems. Is Priya available? We help small",
+      "provider_duration": 5
+    },
+    {
+      "model": "whisper-large-v3-turbo",
+      "sample": "synthetic-10s.wav",
+      "repeat": 2,
+      "audio_seconds": 10.0,
+      "http_status": 200,
+      "wall_seconds": 0.2955,
+      "text": " Hello, this is Morgan from Northstar Systems. Is Pria available? We help small businesses follow up with customers. I am not interested, and please do not call this",
+      "provider_duration": 10
+    },
+    {
+      "model": "whisper-large-v3",
+      "sample": "synthetic-10s.wav",
+      "repeat": 2,
+      "audio_seconds": 10.0,
+      "http_status": 200,
+      "wall_seconds": 0.3516,
+      "text": " Hello, this is Morgan from Northstar Systems. Is Priya available? We help small businesses follow up with customers. I am not interested, and please do not call this",
+      "provider_duration": 10
+    },
+    {
+      "model": "whisper-large-v3-turbo",
+      "sample": "synthetic-8k.wav",
+      "repeat": 2,
+      "audio_seconds": 21.556,
+      "http_status": 200,
+      "wall_seconds": 0.5396,
+      "text": " Hello, this is Morgan from Northstar Systems. Is Pria available? We help small businesses follow up with customers. I am not interested. And please do not call this number again. Understood. I will remove your number from our list. The appointment was Tuesday at 2.30, not Thursday at 3. The quoted price was $1,500, not $50,000.",
+      "provider_duration": 21.556000768
+    },
+    {
+      "model": "whisper-large-v3",
+      "sample": "synthetic-8k.wav",
+      "repeat": 2,
+      "audio_seconds": 21.556,
+      "http_status": 200,
+      "wall_seconds": 0.4287,
+      "text": " Hello, this is Morgan from Northstar Systems. Is Priya available? We help small businesses follow up with customers. I am not interested, and please do not call this number again. Understood. I will remove your number from our list. The appointment was Tuesday at 2.30, not Thursday at 3. The quoted price was $1,500, not $50,000.",
+      "provider_duration": 21.556000768
+    },
+    {
+      "model": "whisper-large-v3-turbo",
+      "sample": "jfk.wav",
+      "repeat": 2,
+      "audio_seconds": 11.0,
+      "http_status": 200,
+      "wall_seconds": 0.2807,
+      "text": " And so, my fellow Americans, ask not what your country can do for you, ask what you can do for your country.",
+      "provider_duration": 11.000000512
+    },
+    {
+      "model": "whisper-large-v3",
+      "sample": "jfk.wav",
+      "repeat": 2,
+      "audio_seconds": 11.0,
+      "http_status": 200,
+      "wall_seconds": 0.3728,
+      "text": " And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country.",
+      "provider_duration": 11.000000512
+    }
+  ],
+  "summary": [
+    {
+      "model": "whisper-large-v3-turbo",
+      "sample": "synthetic-2s.wav",
+      "n": 3,
+      "audio_seconds": 2.0,
+      "median_seconds": 0.249,
+      "min_seconds": 0.2294,
+      "max_seconds": 0.3912,
+      "first_transcript": " Hello, this is Morgan from North Star."
+    },
+    {
+      "model": "whisper-large-v3-turbo",
+      "sample": "synthetic-5s.wav",
+      "n": 3,
+      "audio_seconds": 5.0,
+      "median_seconds": 0.243,
+      "min_seconds": 0.2405,
+      "max_seconds": 0.2669,
+      "first_transcript": " Hello, this is Morgan from Northstar Systems. Is PRIA available? We help small"
+    },
+    {
+      "model": "whisper-large-v3-turbo",
+      "sample": "synthetic-10s.wav",
+      "n": 3,
+      "audio_seconds": 10.0,
+      "median_seconds": 0.295,
+      "min_seconds": 0.2912,
+      "max_seconds": 0.3965,
+      "first_transcript": " Hello, this is Morgan from Northstar Systems. Is Pria available? We help small businesses follow up with customers. I am not interested, and please do not call this"
+    },
+    {
+      "model": "whisper-large-v3-turbo",
+      "sample": "synthetic-8k.wav",
+      "n": 3,
+      "audio_seconds": 21.556,
+      "median_seconds": 0.299,
+      "min_seconds": 0.2699,
+      "max_seconds": 0.5396,
+      "first_transcript": " Hello, this is Morgan from Northstar Systems. Is Pria available? We help small businesses follow up with customers. I am not interested. And please do not call this number again. Understood. I will remove your number from our list. The appointment was Tuesday at 2.30, not Thursday at 3. The quoted price was $1,500, not $50,000."
+    },
+    {
+      "model": "whisper-large-v3-turbo",
+      "sample": "jfk.wav",
+      "n": 3,
+      "audio_seconds": 11.0,
+      "median_seconds": 0.302,
+      "min_seconds": 0.2807,
+      "max_seconds": 0.3097,
+      "first_transcript": " And so, my fellow Americans, ask not what your country can do for you, ask what you can do for your country."
+    },
+    {
+      "model": "whisper-large-v3",
+      "sample": "synthetic-2s.wav",
+      "n": 3,
+      "audio_seconds": 2.0,
+      "median_seconds": 0.276,
+      "min_seconds": 0.2598,
+      "max_seconds": 0.2917,
+      "first_transcript": " Hello, this is Morgan from Northstar."
+    },
+    {
+      "model": "whisper-large-v3",
+      "sample": "synthetic-5s.wav",
+      "n": 3,
+      "audio_seconds": 5.0,
+      "median_seconds": 0.281,
+      "min_seconds": 0.2717,
+      "max_seconds": 0.2948,
+      "first_transcript": " Hello, this is Morgan from Northstar Systems. Is Priya available? We help small"
+    },
+    {
+      "model": "whisper-large-v3",
+      "sample": "synthetic-10s.wav",
+      "n": 3,
+      "audio_seconds": 10.0,
+      "median_seconds": 0.349,
+      "min_seconds": 0.3446,
+      "max_seconds": 0.3516,
+      "first_transcript": " Hello, this is Morgan from Northstar Systems. Is Priya available? We help small businesses follow up with customers. I am not interested, and please do not call this"
+    },
+    {
+      "model": "whisper-large-v3",
+      "sample": "synthetic-8k.wav",
+      "n": 3,
+      "audio_seconds": 21.556,
+      "median_seconds": 0.429,
+      "min_seconds": 0.4196,
+      "max_seconds": 0.4467,
+      "first_transcript": " Hello, this is Morgan from Northstar Systems. Is Priya available? We help small businesses follow up with customers. I am not interested, and please do not call this number again. Understood. I will remove your number from our list. The appointment was Tuesday at 2.30, not Thursday at 3. The quoted price was $1,500, not $50,000."
+    },
+    {
+      "model": "whisper-large-v3",
+      "sample": "jfk.wav",
+      "n": 3,
+      "audio_seconds": 11.0,
+      "median_seconds": 0.342,
+      "min_seconds": 0.3313,
+      "max_seconds": 0.3728,
+      "first_transcript": " And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country."
+    }
+  ]
+}

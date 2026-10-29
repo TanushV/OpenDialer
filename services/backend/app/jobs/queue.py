@@ -156,7 +156,9 @@ class JobQueue:
                 job.attempts += 1
             return [jobdoc(job) for job in claimed]
 
-    def coalesce_live_in(self, s, queue, payload, key, *, tenant_id, priority, available_at):
+    def coalesce_live_in(
+        self, s, queue, payload, key, *, tenant_id, priority, available_at, fixed_window=False
+    ):
         """One latest context/packet; changed inputs never steal the running owner's lease."""
         payload = job_metadata(payload)
         if queue != "live_coach" and (queue, payload.get("kind")) not in {
@@ -175,6 +177,14 @@ class JobQueue:
                 priority=priority,
                 available_at=available_at,
             )
+        if fixed_window and (
+            job.status == "queued"
+            or (
+                job.status == "running"
+                and job.payload.get("desired_generation", 0) > job.payload.get("claimed_generation", 0)
+            )
+        ):
+            available_at = min(available_at, aware(job.available_at))
         if "pending_deadline" in payload and (
             job.status == "queued"
             or (

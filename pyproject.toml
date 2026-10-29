@@ -19,6 +19,7 @@ dependencies = [
   "scikit-learn>=1.7,<2",
   "beautifulsoup4>=4.14,<5",
   "tzdata>=2026.1,<2027",
+  "supabase==2.33.0",
 ]
 [dependency-groups]
 dev = [

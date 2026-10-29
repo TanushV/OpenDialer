@@ -1,0 +1,120 @@
+{
+  "date": "2026-10-29",
+  "status": "development_foundation_not_complete",
+  "project": {
+    "name": "OpenDialer",
+    "ref": "wfucwxgeexzwhinrylyn",
+    "organization": "Agite",
+    "organization_id": "pykqumqlelrpgxfjjzqg",
+    "plan": "Free",
+    "region": "us-west-1"
+  },
+  "endpoint": "https://wfucwxgeexzwhinrylyn.supabase.co/functions/v1/telnyx-webhook",
+  "http_checks": [
+    {
+      "label": "valid-A",
+      "status": 200,
+      "body": "{\"result\":\"received\"}",
+      "ms": 1393
+    },
+    {
+      "label": "duplicate-A",
+      "status": 200,
+      "body": "{\"result\":\"duplicate\"}",
+      "ms": 156
+    },
+    {
+      "label": "valid-B",
+      "status": 200,
+      "body": "{\"result\":\"received\"}",
+      "ms": 133
+    },
+    {
+      "label": "bad-signature",
+      "status": 401,
+      "body": "{\"result\":\"invalid_signature\"}",
+      "ms": 77
+    },
+    {
+      "label": "stale",
+      "status": 401,
+      "body": "{\"result\":\"invalid_signature\"}",
+      "ms": 42
+    },
+    {
+      "label": "speech-stripped",
+      "status": 200,
+      "body": "{\"result\":\"received\"}",
+      "ms": 141
+    }
+  ],
+  "two_local_receivers": {
+    "two_local_stores": true,
+    "private_delivery_isolated": true,
+    "sdk_refresh_persisted": true,
+    "delivery_and_two_http_requests_ms": 722,
+    "local_receipts": [
+      [
+        "isolation-A"
+      ],
+      [
+        "event-B",
+        "isolation-B"
+      ]
+    ]
+  },
+  "sql_assertions": [
+    "own workspace/routes only",
+    "pending event isolation",
+    "foreign acknowledgement has no effect",
+    "own acknowledgement removes payload",
+    "second simultaneous consumer refused",
+    "client cannot insert events or call trusted receipt RPC"
+  ],
+  "tests": {
+    "receiver_node": 6,
+    "sqlite_scoped": 105,
+    "additional_sqlite_stt_contracts": 3,
+    "postgresql_scoped": 108,
+    "ruff_check": "pass",
+    "ruff_format": "pass"
+  },
+  "failed_attempts": [
+    "Initial prototype contracts failed before implementation",
+    "Initial client readiness could become green before catch-up; readiness now waits for drain",
+    "A failed profile import replaced the prior session; now staged until validation",
+    "Native disposable PostgreSQL initially used SQL_ASCII; recreated task-owned cluster in UTF8 and reran all scoped cases"
+  ],
+  "telnyx_credential_check": {
+    "source": "previously staged private setup file",
+    "read_only_api_status": 401,
+    "replacement_requested": true
+  },
+  "boundaries": {
+    "synthetic_events": true,
+    "live_carrier_calls": false,
+    "real_soniox_account_test": false,
+    "native_audio_test": false,
+    "installed_app_changed": false,
+    "released": false,
+    "full_ci": false,
+    "production_routes_provisioned": false,
+    "windows_verified": false
+  },
+  "remaining": [
+    "direct audio capture and loopback bridge",
+    "real Soniox contract and account validation",
+    "runtime readiness and recovery integration",
+    "assigned number guards and operator provisioning",
+    "simple recipient setup UI",
+    "retention and gap reconciliation",
+    "packaging and full qualification"
+  ],
+  "test_resources_removed": true,
+  "final_deployment": {
+    "version": 3,
+    "signed_request_status": 200,
+    "result": "received",
+    "synthetic_fixture_removed": true
+  }
+}

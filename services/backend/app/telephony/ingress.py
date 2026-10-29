@@ -19,15 +19,20 @@ AGENT_SPEECH_GRACE = 10
 
 
 class WebhookIngress:
-    async def accept_webhook(self, tenant_id, event, body_hash, *, verified=False):
+    async def accept_webhook(self, tenant_id, event, body_hash, *, verified=False, received_at=None):
         # Receipt I/O is synchronous; it must never occupy the control event-loop thread.
         try:
-            return await asyncio.to_thread(self._receive_webhook, tenant_id, event, body_hash, verified)
+            return await asyncio.to_thread(
+                self._receive_webhook, tenant_id, event, body_hash, verified, received_at
+            )
         except IntegrityError:
             # A concurrent identical receipt may win the unique insert. Reload and compare its hash.
-            return await asyncio.to_thread(self._receive_webhook, tenant_id, event, body_hash, verified)
+            return await asyncio.to_thread(
+                self._receive_webhook, tenant_id, event, body_hash, verified, received_at
+            )
 
-    def _receive_webhook(self, tenant_id, event, body_hash, verified=False):
+    def _receive_webhook(self, tenant_id, event, body_hash, verified=False, received_at=None):
+        received_at = min(received_at or self.clock(), self.clock())
         if (
             not isinstance(event, dict)
             or not all(isinstance(event.get(k), str) and event[k] for k in ("id", "event_type"))
@@ -59,9 +64,9 @@ class WebhookIngress:
                         "hash": body_hash,
                         "signature_verified": verified,
                         "status": "received",
-                        "received_at": self.clock().isoformat(),
+                        "received_at": received_at.isoformat(),
                         "occurred_at": event.get("occurred_at"),
-                        "raw_expires_at": (self.clock() + timedelta(seconds=RAW_TTL_SECONDS)).isoformat(),
+                        "raw_expires_at": (received_at + timedelta(seconds=RAW_TTL_SECONDS)).isoformat(),
                     },
                     key=event["id"],
                     now=self.clock(),

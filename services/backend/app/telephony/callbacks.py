@@ -302,11 +302,17 @@ class InboundCallbacks:
                     ),
                     "inbound_verified": bool(receipt and receipt.get("signature_verified")),
                     "routing_attempts": [],
-                    "inbound_deadline": (self.clock() + timedelta(seconds=40)).isoformat(),
+                    "inbound_deadline": (
+                        (dt((receipt or {}).get("received_at")) or self.clock()) + timedelta(seconds=40)
+                    ).isoformat(),
                 },
                 key="callback:" + payload["call_control_id"],
                 now=self.clock(),
             )
+            if dt(task.data["inbound_deadline"]) <= self.clock():
+                update(task, inbound_state="ended", route="missed_offline")
+                emit(s, tenant_id, "task.updated", task, self.clock())
+                return doc(task)
             answer = self._inbound_command(s, p, task, "answer", suffix="inbound-answer")
             self._route_inbound(s, p, task, after=answer.id)
             emit(s, tenant_id, "task.updated", task, self.clock())

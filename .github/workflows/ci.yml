@@ -54,6 +54,7 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: apps/desktop/package-lock.json
+      - run: node --test supabase/functions/telnyx-webhook/receiver.test.mjs
       - run: npm ci && npm run typecheck && npm run format:check && npm run build && npm test
         working-directory: apps/desktop
   e2e:

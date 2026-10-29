@@ -1,0 +1,3 @@
+project_id = "opendialer"
+[functions.telnyx-webhook]
+verify_jwt = false

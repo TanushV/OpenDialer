@@ -329,3 +329,23 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
   ad-hoc signature verification, disposable authority setup/restart and bundled code-mode submission.
   See [verification receipt](evidence/lean/codex-login-20261026.json) for full-run fixture failures and corrected
   runs. Live OAuth/account eligibility and Windows/Docker execution remain open. Exact-commit CI is tracked in GitHub Actions.
+
+- October 29 managed-local design checkpoint (planning only): the owner selected one Supabase control-event
+  webhook shared by independent local workspaces, direct PC-to-Telnyx/Soniox live STT using the existing Telnyx
+  key, and two-second automatic coaching windows with immediate opt-out/manual handling. Current detailed plan:
+  [MANAGED_WEBHOOK_PLAN.md](MANAGED_WEBHOOK_PLAN.md). This replaces that proposal's earlier raw-speech relay;
+  preserve existing direct-local and hosted modes. The 50–100 MB/caller/month Supabase estimate is unmeasured
+  and workload-dependent. No implementation, deployment, release or installed-app changes authorized by this
+  plan-edit request; account/audio/latency and Mac/Windows qualification remain open.
+
+- October 29 managed webhook implementation (in progress): owner authorized the new project in the existing
+  Agite Free organization. `OpenDialer` (`wfucwxgeexzwhinrylyn`, us-west-1) is healthy; the signed control receiver
+  is deployed. Two disposable local SQLite stores verified isolated private delivery and persisted Auth refresh.
+  Added receipt-time preservation, stale inbound callback protection, two-second scheduling primitives and a
+  Soniox protocol adapter. Tests preceded fixes: 6 Node receiver contracts, 105 affected SQLite tests plus
+  3 STT contracts, and 108 PostgreSQL tests pass; lint/format pass. This is a development foundation, not
+  completed setup. Receiver/audio prototypes are not wired into normal app startup/settings. Direct audio,
+  live Soniox, readiness/recovery, provisioning/import UI, retention, packaging and carrier qualification remain.
+  Staged Telnyx key returns 401; replacement requested privately. No installed-app/data changes, real calls,
+  number purchases or release. See [receipt](evidence/lean/managed-webhook-20261029.json) and the current
+  checkpoint in [MANAGED_WEBHOOK_PLAN.md](MANAGED_WEBHOOK_PLAN.md).
