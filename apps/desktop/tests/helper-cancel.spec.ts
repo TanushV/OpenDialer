@@ -235,8 +235,14 @@ test("the help hotkey has one cancellable request and respects key repeats", asy
     await page
       .getByRole("button", { name: "Cancel help", exact: true })
       .click();
+    await expect(
+      page.getByRole("button", { name: "Cancel help", exact: true }),
+    ).toBeHidden();
   } finally {
     release();
-    await page.unrouteAll({ behavior: "wait" });
+    // Cancelling help also aborts background reads. Waiting on every fixture route can
+    // deadlock after all assertions pass (CI 40952532022); the shared fixture uses this
+    // same cancellation-aware cleanup. The delayed response is released above.
+    await page.unrouteAll({ behavior: "ignoreErrors" });
   }
 });

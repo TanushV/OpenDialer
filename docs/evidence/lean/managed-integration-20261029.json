@@ -72,5 +72,19 @@
     "phone_number_purchase": "not performed",
     "production_egress_capacity_latency": "not measured",
     "CI": "tracked separately on GitHub after push"
+  },
+  "github_first_run": {
+    "id": 40952532022,
+    "source": "cf72eb3",
+    "passed_jobs": [
+      "lint",
+      "frontend",
+      "backend sqlite",
+      "backend postgres",
+      "desktop-shell"
+    ],
+    "browser_passed": 175,
+    "browser_failure": "Existing helper hotkey test passed interaction assertions, then timed out in unrouteAll wait on aborted background routing. Replaced only its cleanup with the shared fixture ignoreErrors behavior and explicitly asserted the cancelled UI. No product behavior or timeout changes.",
+    "focused_repeat_passed": 12
   }
 }
