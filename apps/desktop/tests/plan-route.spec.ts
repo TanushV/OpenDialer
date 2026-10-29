@@ -37,9 +37,9 @@ for (const connected of [false, true]) {
       mimeType: "application/json",
       buffer: Buffer.from("not JSON"),
     });
-    await expect(page.getByRole("alert")).toContainText(
-      "not a JSON login file",
-    );
+    await expect(
+      page.getByRole("region", { name: "Your Codex login" }).getByRole("alert"),
+    ).toContainText("not a JSON login file");
     expect(imported).toBe(false);
     await page.getByLabel("Import Codex login").setInputFiles({
       name: "auth.json",

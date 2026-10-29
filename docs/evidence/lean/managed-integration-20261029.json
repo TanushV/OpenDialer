@@ -86,5 +86,19 @@
     "browser_passed": 175,
     "browser_failure": "Existing helper hotkey test passed interaction assertions, then timed out in unrouteAll wait on aborted background routing. Replaced only its cleanup with the shared fixture ignoreErrors behavior and explicitly asserted the cancelled UI. No product behavior or timeout changes.",
     "focused_repeat_passed": 12
+  },
+  "github_second_run": {
+    "id": 40954469916,
+    "source": "170331d",
+    "passed_jobs": [
+      "lint",
+      "frontend",
+      "backend sqlite",
+      "backend postgres",
+      "desktop-shell"
+    ],
+    "browser_passed": 175,
+    "browser_failure": "Hosted Codex fixture used an unscoped alert selector. Its expected JSON-validation error was present alongside a session toast from workspace switching. Scoped assertion to the existing Your Codex login region. No product change or timeout increase.",
+    "focused_repeat_passed": 10
   }
 }
