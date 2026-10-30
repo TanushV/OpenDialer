@@ -106,8 +106,32 @@
     "package": {
       "path": "/tmp/opendialer-060-package.log",
       "sha256": "33f29b481cdc44f1a433c998d4f89ef7a3e521e23a05c95a1a36819d20981db4"
+    },
+    "login_before": {
+      "path": "/tmp/opendialer-060-login-before.log",
+      "sha256": "e907097bde124ceb834525502b2645a133fda4145d02c0cdd121bac1a4496f00"
+    },
+    "login_sqlite": {
+      "path": "/tmp/opendialer-060-login-after.log",
+      "sha256": "64c91f87eee565e11b9715cd89545aafb552c484cf6ead7874e988abb0d1276c"
+    },
+    "login_postgres": {
+      "path": "/tmp/opendialer-060-login-postgres.log",
+      "sha256": "cf7987ab9d63e446845e4a4e86aae5264ebe95e22f74971370de9c1e8b0a57f1"
+    },
+    "browser_corrections": {
+      "path": "/tmp/opendialer-060-ci-regressions-browser.log",
+      "sha256": "64244b2a3a42a6d8c0995b5e78a1bb232857349eb43e7642435f471bb93bbfad"
     }
   },
   "mac_packaging": "Both sidecars rebuilt; complete arm64 bundle, deep strict seal, hardened runtime, extracted archive and DMG verification passed. Local updater signing used a disposable key removed after verification; production signing remains in GitHub.",
-  "ci_fixture_correction": "Clean GitHub lint found ten import-order errors after the root conftest was added; local cached lint missed the module-classification change. Reproduced with --no-cache, explicitly classified the backend conftest imports, then clean-cache lint and formatting passed. No runtime code changed; first draft build was cancelled before publication."
+  "ci_fixture_correction": "Clean GitHub lint found ten import-order errors after the root conftest was added; local cached lint missed the module-classification change. Reproduced with --no-cache, explicitly classified the backend conftest imports, then clean-cache lint and formatting passed. No runtime code changed; first draft build was cancelled before publication.",
+  "ci_login_correction": {
+    "initial_run": "https://github.com/TanushV/OpenDialer/actions/runs/41135908173",
+    "finding": "177 browser passes; successful repeated team logins hit the new per-source cap; script-retry fixture lost its button to an automatic successful reload.",
+    "fix": "Two failing auth regressions preceded account/source-specific failure counters reset only by that account success, with authority-wide work cap retained. Script outage fixture now recovers only at the actual Retry click. No timeout increase or simulation bypass.",
+    "sqlite_targeted_passed": 21,
+    "postgres_targeted_passed": 21,
+    "browser_targeted_passed": 24
+  }
 }

@@ -54,9 +54,10 @@ test("saving Telnyx saves the pasted key and connection together", async ({
 test("a failed script load offers retry instead of a permanently disabled editor", async ({
   page,
 }) => {
-  let failed = true;
-  await page.route("**/v1/optimization/script", (route) =>
-    failed
+  await page.route("**/v1/optimization/script", async (route) =>
+    !(await page.evaluate(
+      () => document.documentElement.dataset.scriptRetried === "yes",
+    ))
       ? route.fulfill({
           status: 503,
           json: { detail: "Temporarily unavailable" },
@@ -67,7 +68,17 @@ test("a failed script load offers retry instead of a permanently disabled editor
   await page.getByRole("button", { name: "Intelligence", exact: true }).click();
   const retry = page.getByRole("button", { name: "Retry loading script" });
   await expect(retry).toBeVisible();
-  failed = false;
+  // Background optimization events can reload this panel. Keep the injected outage
+  // active until the actual user click, so automatic recovery cannot remove the target.
+  await retry.evaluate((button) =>
+    button.addEventListener(
+      "click",
+      () => {
+        document.documentElement.dataset.scriptRetried = "yes";
+      },
+      { once: true },
+    ),
+  );
   await retry.click();
   await expect(
     page.getByRole("button", { name: "Upload or paste script" }),

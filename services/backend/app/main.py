@@ -514,7 +514,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/auth/session")
     def login(data: Login, request: Request):
-        login_limiter.check(request.client.host if request.client else "unknown")
+        source = (request.client.host if request.client else "unknown", data.email.casefold())
+        login_limiter.check(source)
         with db.transaction() as s:
             user = next((u for u in rows(s, "users") if u.data["email"] == data.email.casefold()), None)
             if (
@@ -523,7 +524,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 or not PASSWORDS.verify(data.password, user.data["password_hash"])
             ):
                 fail(401, "Email or password is invalid")
-            return issue_session(s, settings, user, clock())
+            result = issue_session(s, settings, user, clock())
+        login_limiter.succeeded(source)
+        return result
 
     def logout_principal(credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)]):
         if not credentials:

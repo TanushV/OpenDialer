@@ -39,7 +39,7 @@ PASSWORDS = LazyPasswordHash()
 
 
 class LoginLimiter:
-    """Bound password-hash work per source and per authority, without trusting forwarded headers."""
+    """Limit failures per source/account and total hash work per authority."""
 
     def __init__(self):
         self.sources, self.total, self.lock = {}, deque(), threading.Lock()
@@ -58,6 +58,10 @@ class LoginLimiter:
                 )
             entries.append(now)
             self.total.append(now)
+
+    def succeeded(self, source):
+        with self.lock:
+            self.sources.pop(source, None)
 
 
 class ConfigStore:

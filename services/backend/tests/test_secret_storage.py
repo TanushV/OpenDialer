@@ -97,6 +97,32 @@ def test_password_guessing_is_throttled(client):
     )
 
 
+def test_successful_signins_do_not_exhaust_the_failed_login_limit(workspace):
+    client = workspace["client"]
+    for _ in range(12):
+        response = client.post(
+            "/v1/auth/session",
+            json={"email": "operator@example.test", "password": "a-test-only-password-123"},
+        )
+        assert response.status_code == 200
+
+
+def test_successful_other_account_cannot_clear_a_failed_account_limit(workspace):
+    client = workspace["client"]
+    invalid = {"email": "nobody@example.test", "password": "invalid-password"}
+    for _ in range(9):
+        assert client.post("/v1/auth/session", json=invalid).status_code == 401
+    assert (
+        client.post(
+            "/v1/auth/session",
+            json={"email": "operator@example.test", "password": "a-test-only-password-123"},
+        ).status_code
+        == 200
+    )
+    assert client.post("/v1/auth/session", json=invalid).status_code == 401
+    assert client.post("/v1/auth/session", json=invalid).status_code == 429
+
+
 def test_lost_key_and_modified_ciphertext_never_overwrite_saved_credentials(tmp_path, monkeypatch):
     from app.secret_files import SecretStorageError, read_private, write_private
     from cryptography.fernet import Fernet

@@ -162,7 +162,10 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
   preceded public-only research with DNS pinning. Python/npm/Rust scans report zero known vulnerabilities
   after updates; upstream maintenance/platform warnings remain documented. Frozen credential upgrade and
   restart pass. See [receipt](evidence/lean/security-release-20261030.json). GitHub CI, signed release
-  publication and the in-place Mac update remain in progress.
+  publication and the in-place Mac update remain in progress. CI caught successful sign-ins consuming the
+  new login cap and an existing script-retry fixture racing automatic recovery. Two failing auth regressions
+  preceded the correction; 21 scoped cases pass on each database and all 24 affected browser journeys pass.
+  Limits remain enforced; no timeout increase or simulation bypass.
 
 - October 29 owner-requested list/state allocation (unreleased): CSV imports retain a named list and explicit or
   estimated US state. Named-list and whole-campaign plans share the existing background planner; all owned capacity
