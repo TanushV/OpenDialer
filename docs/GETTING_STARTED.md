@@ -1,20 +1,19 @@
 # Set up your first workspace
 
-[Install the app](INSTALL.md) first. These instructions describe current `main`.
-The simplified setup, approved number-order flow and Codex login import are **not yet in the published 0.5.1 installer**.
+[Install OpenDialer 0.6.0](INSTALL.md) first, or update from **Settings → App updates**.
 
 ## Choose a workspace
 
 - **Working alone:** choose **Start a local workspace**. Your data and provider settings stay on this computer. No separate Python or database installation is needed.
 - **Joining a team:** choose **Connect to a server**, enter the HTTPS address from your admin and sign in. Your admin handles providers and the shared database.
 
-For the managed-local development build, use the shared setup below. Existing direct-local builds still use
+For local calling with the shared webhook, use the shared setup below. Existing direct-local builds still use
 [webhook forwarding](../deploy/runbooks/deploy.md#local-authority-with-an-existing-ssh-host); hosted mode is unchanged.
 A sleeping or offline laptop cannot handle callbacks; configure and test the carrier fallback.
 
 ## Local calling with the shared webhook
 
-This is implemented in current source, **not in the published installer**.
+Available in 0.6.0. Import once; the connection restores and refreshes automatically.
 
 1. In a local workspace, open **Settings → Setup → Calling → Import calling setup (.json)**.
    Choose the private file prepared for this computer. It imports the Telnyx application, verification key,
@@ -140,3 +139,16 @@ Raw speech, quotes and helper text expire within five minutes. There is no call 
 | Microphone unavailable | Allow microphone access in the operating system, select the intended input/output and check the headset. |
 
 For backups or interrupted calls, see [recovery](../deploy/runbooks/recovery.md).
+
+## Saving credentials
+
+Paste provider keys in Settings and save. Import Codex login and the per-PC webhook setup file once.
+Saved settings, personal logins and webhook sessions are encrypted; the desktop keeps the encryption key
+in macOS Keychain or Windows Credential Manager. Existing saved credentials convert on first launch.
+If the OS asks for credential-store access, verify it is OpenDialer. No separate encryption key is needed
+for desktop setup. Keep imported setup/login files private: they still contain credentials.
+
+Telnyx/OpenRouter API keys, Codex tokens and webhook login/session credentials are secret. Telnyx application
+and credential IDs, SIP username, webhook verification **public** key, webhook URL and Supabase publishable
+key are identifiers/public configuration, not passwords. No separate SIP password or Cloudflare token is needed
+for the managed-local flow. See [security and recovery](policies/security.md).

@@ -37,8 +37,8 @@ Do not launch a locally built app against installed user data.
 ## Run checks
 
 ```sh
-uv run ruff check services/backend tests scripts deploy/backup
-uv run ruff format --check services/backend tests scripts deploy/backup
+uv run ruff check conftest.py services/backend tests scripts deploy/backup
+uv run ruff format --check conftest.py services/backend tests scripts deploy/backup
 uv run pytest services/backend/tests tests -q -n auto
 npm --prefix apps/desktop run typecheck
 npm --prefix apps/desktop run format:check
@@ -56,3 +56,15 @@ do not run two browser suites at once. Limit test workers when the computer is b
 The [CI workflow](../.github/workflows/ci.yml) is the authoritative check list.
 [Release procedure](../deploy/runbooks/releases.md) covers packaging and signing.
 [Resource measurements](REQUIREMENTS.md) explain how to run the local benchmark.
+
+## Credential storage tests
+
+The root pytest fixture and disposable browser authorities generate temporary encryption keys. They never
+read the user's OS credential store. To run the explicitly disposable native-store roundtrip on Mac/Windows:
+
+```sh
+OPENDIALER_TEST_NATIVE_SECRETS=1 uv run pytest services/backend/tests/test_secret_storage.py -q
+```
+
+Source/server processes on Linux need a persistent `OPENDIALER_SECRET_KEY_FILE` (or `OPENDIALER_SECRET_KEY`).
+The desktop uses its native credential store automatically. See [security](policies/security.md).

@@ -48,7 +48,7 @@ if not archive or not exe:
     raise SystemExit("Both Mac and Windows signed artifacts are required for this release")
 manifest = {
     "version": version,
-    "notes": f"OpenDialer {version}: voicemail drop removed; new workspaces default to calling from 8 a.m. until 9 p.m. in each prospect's timezone. Existing published hours remain editable in Settings. Updates from 0.4.x and 0.5.x keep the existing workspace. Versions 0.2/0.3 start a fresh workspace; old data stays untouched in its previous folder and is not migrated. Update through the signed updater.",
+    "notes": f"OpenDialer {version}: encrypted saved credentials, shared local webhook setup, Codex login import and list/state number planning. Existing credentials are protected automatically using your OS credential store. Updates from 0.4.x and 0.5.x keep the existing workspace. Versions 0.2/0.3 start a fresh workspace; old data stays untouched in its previous folder and is not migrated. Update through the signed updater.",
     "pub_date": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
     "platforms": platforms,
 }

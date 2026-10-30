@@ -1,0 +1,112 @@
+{
+  "date": "2026-10-30",
+  "version": "0.6.0",
+  "security_commit": "2625e86",
+  "status": "Local verification passed; GitHub CI, release publication and signed Mac update pending.",
+  "tests": {
+    "sqlite": {
+      "passed": 736,
+      "skipped": 5
+    },
+    "postgres": {
+      "passed": 737,
+      "skipped": 4
+    },
+    "browser": {
+      "passed": 179
+    },
+    "frontend": {
+      "passed": 81
+    },
+    "rust": {
+      "passed": 7
+    },
+    "native_codex_keychain_and_package": {
+      "passed": 18
+    },
+    "distribution": {
+      "passed": 14
+    },
+    "relay": {
+      "passed": 9
+    }
+  },
+  "regression_first": {
+    "credential_and_http": 7,
+    "research_network": 7
+  },
+  "frozen_backend": "Disposable 0.6.0 startup, old credential conversion, Settings save, encrypted files and restart persistence passed.",
+  "public_https": "Vetted-IP public fetch with original TLS identity passed against example.com; no credentials or business data sent.",
+  "dependency_audits": {
+    "python_known_vulnerabilities": 0,
+    "npm_known_vulnerabilities": 0,
+    "rust_known_vulnerabilities": 0,
+    "fixed": [
+      "GHSA-xmj3-9gf7-h52w",
+      "RUSTSEC-2026-0382",
+      "RUSTSEC-2026-0383"
+    ],
+    "warnings": [
+      "Linux-only glib unsoundness advisory and zbus-family maintenance warnings in the cross-platform Cargo lock; no Linux desktop distributed",
+      "Build-time proc-macro-error unmaintained"
+    ]
+  },
+  "bounds": [
+    "No number purchases, real calls or paid inference",
+    "Apple notarization and Windows publisher signing unavailable",
+    "No independent penetration test or production load certification",
+    "Business databases/backups/cache are not app-encrypted",
+    "Imported source credential files and abnormal-termination Codex temporary files need host protection"
+  ],
+  "logs": {
+    "sqlite": {
+      "path": "/tmp/opendialer-060-sqlite.log",
+      "sha256": "f4fac6b4198f9b50eb7c6667f4510ba69c83aa4a1699d38e579315ddb3f1b899"
+    },
+    "postgres": {
+      "path": "/tmp/opendialer-060-postgres.log",
+      "sha256": "6cf4b1e35a46787c68ba6d45a4107ec5eba35c54034039d212b42e00792611fd"
+    },
+    "browser": {
+      "path": "/tmp/opendialer-060-browser.log",
+      "sha256": "a1b40b3d23941e25e7bfaacee4e41a5e058ca0be75ca71f70f5a2e19b2240a1e"
+    },
+    "frontend": {
+      "path": "/tmp/opendialer-security-frontend-tests.log",
+      "sha256": "c8bccbe8f64161b6f6cbd23f723c8d2dfd470920a3d797b1a06e71771f23d5d9"
+    },
+    "native": {
+      "path": "/tmp/opendialer-060-native.log",
+      "sha256": "ede1051dc389a035dc18f0454529d7fc31fb14eee5bf1fe68df72e1c7f21d87d"
+    },
+    "distribution": {
+      "path": "/tmp/opendialer-060-distribution.log",
+      "sha256": "c248c26fc27621d427413226bcaa727b8761a47a32191435cefb701f337e2170"
+    },
+    "rust": {
+      "path": "/tmp/opendialer-060-rust-tests.log",
+      "sha256": "2e1593a0b65a386624b91e3d51523a7060a76a22bf84f44a302588b2a9c0dfe6"
+    },
+    "clippy": {
+      "path": "/tmp/opendialer-060-clippy.log",
+      "sha256": "47aae031969675b152303829c9ac64404eadd5c782d07d7b0953949966e45105"
+    },
+    "relay": {
+      "path": "/tmp/opendialer-060-relay.log",
+      "sha256": "5429216564898dd0b629f8f5e2bd1d72064a3555962d08919ef12af061f89eef"
+    },
+    "regressions_before": {
+      "path": "/tmp/opendialer-security-before.log",
+      "sha256": "4aa3f3f5bc4fa30f4388f1ddecf515f060cfaaedda7ce8f2d42fc224f81aeccc"
+    },
+    "research_before": {
+      "path": "/tmp/opendialer-research-security-before.log",
+      "sha256": "c3ba687ef28b244ef86aa766f1947e4c98f3895d227eb169bbd944954cb37642"
+    },
+    "package": {
+      "path": "/tmp/opendialer-060-package.log",
+      "sha256": "33f29b481cdc44f1a433c998d4f89ef7a3e521e23a05c95a1a36819d20981db4"
+    }
+  },
+  "mac_packaging": "Both sidecars rebuilt; complete arm64 bundle, deep strict seal, hardened runtime, extracted archive and DMG verification passed. Local updater signing used a disposable key removed after verification; production signing remains in GitHub."
+}

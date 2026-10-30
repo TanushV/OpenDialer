@@ -89,10 +89,10 @@ These findings come from source, not assumptions about a generic dialer.
 | `telephony/workflows.py` | Manages persistent agent legs, prospect bridging, transcription and provider control outbox. | Preserve controls; cover all leg types and give stop/reconciliation priority during delivery failures. |
 | `telephony/callbacks.py` | Routes incoming calls by the local owned DID; starts answer/transfer commands and sets a 40-second deadline using local receipt processing time. | Prevent delayed delivery from creating a new ringing window or answering an already-ended call. |
 | `number_operations.py` | Syncs account inventory; ownership checks see only the current database. Route changes invalidate callback evidence. | Filter managed inventory to registered assignments and enforce those assignments before configuring or using a number. |
-| `security.py`, `main.py` settings endpoints | Provider configuration is plain JSON under the data directory; versioned saves; secret settings must not be returned in normal reads. | Store service sessions separately from editable provider fields; preserve version checks and secret redaction. |
+| `security.py`, `main.py` settings endpoints | Provider configuration is encrypted under the data directory; versioned saves; secret settings are not returned in normal reads. | Store service sessions separately from editable provider fields; preserve version checks and secret redaction. |
 | `SettingsPage.tsx`, `App.tsx` | Current calling form exposes connection/public-key/webhook fields and SSH setup. | Managed import replaces these steps for managed workspaces. Keep manual/direct and hosted setup available. |
 
-`docs/GETTING_STARTED.md` says some current-source setup and Codex-import features are not in the published 0.5.1 installer. Implementation must ship a new tested release; changing Supabase alone cannot upgrade existing clients.
+The managed integration and Codex import ship in 0.6.0. Existing 0.5.1 clients need the desktop update; changing Supabase alone cannot upgrade them.
 
 ## 4. Scope and effects on features
 

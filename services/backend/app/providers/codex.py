@@ -169,7 +169,7 @@ class CodexRuntime:
                     await self.request(
                         "initialize",
                         {
-                            "clientInfo": {"name": "opendialer", "version": "0.5.1"},
+                            "clientInfo": {"name": "opendialer", "version": "0.6.0"},
                             "capabilities": {"experimentalApi": True},
                         },
                     )

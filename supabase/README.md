@@ -6,7 +6,7 @@ One webhook for independent local OpenDialer workspaces:
 
 The `OpenDialer` project is on Free in the Agite organization. The existing AGITE project is unchanged.
 This service receives signed Telnyx controls, wakes the correct local app and retains pending controls for catch-up.
-Audio and transcript text never pass through it. The desktop feature is in source; published 0.5.1 is unchanged.
+Audio and transcript text never pass through it. The desktop integration ships in OpenDialer 0.6.0.
 
 ## Caller setup
 

@@ -1,14 +1,30 @@
 # OpenDialer testing handoff (CURRENT)
 
-> **Status: CURRENT — list/state number allocation and managed-local integration in source, unreleased**, October 29, 2026.
+> **Status: CURRENT — 0.6.0 security and desktop release**, October 30, 2026.
 > Historical 0.5.0 release: `096c55f`, CI 40164184233 passed all jobs including 164 browser cases.
 > Includes script learning and the review fixes described below. This is the single current handoff.
 > Read with [HANDOFF_AST.md](HANDOFF_AST.md) and [SCRIPT_LEARNING.md](SCRIPT_LEARNING.md).
 
-OpenDialer 0.5.0 simplifies calling, scripts and learning. The current local verification is recorded below; older results are explicitly historical.
+OpenDialer 0.6.0 adds protected credentials and ships the accumulated setup, managed-webhook and state/list changes. Older results below are historical.
 Live-provider and clean-machine installer gates remain open. Continue finding what the tests do not prove,
 adding tests before fixes, and supporting approved live testing. Read this file, then `AGENTS.md`, then the
 Status section of `docs/LEAN_PLAN.md`.
+
+## October 30 security and 0.6.0 release
+
+Owner authorized credential protection, GitHub publication and a signed update of this Mac. This overrides
+prior encryption-removal and installation-freeze decisions for this task. Runtime security changes are
+`2625e86`: encrypted credential files backed by the OS credential store (explicit deployment key for hosted),
+atomic old-file conversion, cross-process config writes, HTTP origin checks, credential-safe validation errors,
+password rate limits and public-only research with DNS pinning. Dependency scans found and fixed setuptools
+GHSA-xmj3-9gf7-h52w and Rust TLS RUSTSEC-2026-0382/0383. No known vulnerabilities remain in the scanned locks;
+upstream maintenance warnings remain (Linux-only glib/zbus-family and build-time proc-macro-error).
+
+See [security and recovery](policies/security.md) and the [release receipt](evidence/lean/security-release-20261030.json)
+for verification and external gates. Existing provider configs and personal/session files convert on app startup;
+business data is preserved. Secrets are not included in business exports. Full-disk protection is still needed for
+business databases, caches, exports and imported setup/login files. Native credential stores cannot protect an
+unlocked account from every malicious process. This is not a penetration-test certification.
 
 ## October 29 list/state number allocation
 

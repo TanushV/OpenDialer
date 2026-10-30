@@ -1,6 +1,6 @@
 # OpenDialer lean build validation
 
-**Current software verification: October 26, 2026.** [CI at `2168f05`](https://github.com/TanushV/OpenDialer/actions/runs/40294289811) passed backend SQLite/PostgreSQL, frontend, lint, desktop-shell and all 171 browser cases. The [setup receipt](evidence/lean/setup-journeys-20261026.json) and [handoff](HANDOFF.md) detail local checks and remaining live gates. These source changes are newer than the published 0.5.1 installers. No new installation or provider effects were verified by that audit.
+**Current software verification: October 30, 2026, 0.6.0.** The [release receipt](evidence/lean/security-release-20261030.json) records backend SQLite/PostgreSQL, browser, frontend, native credential/runtime, frozen restart and Mac packaging checks, dependency audits and release status. The [handoff](HANDOFF.md) explains the current implementation and remaining live/security gates. Earlier results below are historical.
 
 See [requirements](REQUIREMENTS.md) for resource evidence. Older results below are dated snapshots, not current release claims.
 

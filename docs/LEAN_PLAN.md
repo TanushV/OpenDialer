@@ -157,7 +157,12 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
   Settings, personal Codex logins and managed webhook sessions now use authenticated encryption; desktop
   keys live in macOS Keychain/Windows Credential Manager, hosted keys are supplied separately. Old files
   convert atomically without changing data. No plaintext fallback. Native Mac credential roundtrip passes.
-  Full verification, signed release and in-place Mac update are in progress.
+  Full verification passes: SQLite 736/5 skips, PostgreSQL 737/4 skips, browser 179, frontend 81,
+  Rust 7, native Codex/Keychain/package 18 and distribution 14. Seven further failing regressions
+  preceded public-only research with DNS pinning. Python/npm/Rust scans report zero known vulnerabilities
+  after updates; upstream maintenance/platform warnings remain documented. Frozen credential upgrade and
+  restart pass. See [receipt](evidence/lean/security-release-20261030.json). GitHub CI, signed release
+  publication and the in-place Mac update remain in progress.
 
 - October 29 owner-requested list/state allocation (unreleased): CSV imports retain a named list and explicit or
   estimated US state. Named-list and whole-campaign plans share the existing background planner; all owned capacity
