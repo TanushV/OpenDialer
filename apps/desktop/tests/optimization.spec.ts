@@ -35,7 +35,7 @@ test("missing and stale capacity estimates are explicit", async ({ page }) => {
   await page.getByRole("button", { name: "Numbers", exact: true }).click();
   await expect(
     page.getByText(
-      "No capacity plan yet. Plan regional capacity to prepare one.",
+      "No capacity plan yet. Plan state coverage to prepare one.",
       { exact: true },
     ),
   ).toBeVisible();
@@ -44,7 +44,7 @@ test("missing and stale capacity estimates are explicit", async ({ page }) => {
   await page.getByRole("button", { name: "Numbers", exact: true }).click();
   await expect(
     page.getByText(
-      "Capacity plan is out of date. Plan regional capacity before acting on it.",
+      "Capacity plan is out of date. Plan state coverage before acting on it.",
       { exact: true },
     ),
   ).toBeVisible();

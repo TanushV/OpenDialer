@@ -51,10 +51,35 @@ Open **Settings → Setup** and complete the checklist in order.
 1. **Calling (Telnyx):** use the setup-file import above when provided. For direct/hosted configuration, paste the Telnyx API v2 key, Call Control connection ID, webhook public key and public HTTPS webhook URL. Add the agent credential and carrier approval details. **Save Telnyx settings** saves the key and connection fields together. Local calling needs a reachable webhook forward; check the saved ingress.
 2. **AI assistance:** add an OpenRouter key for the Cerebras live helper and rundowns. For research/script writing with your Codex ChatGPT login, select **ChatGPT via Codex · import login**, then import the file as described below. An OpenAI key, compatible endpoint or the separate eligible ChatGPT authorization route is an alternative, not an additional requirement.
 3. Complete business identity, campaign hours, authorized DNC coverage and budgets. A DNC API key is needed only for the configured prepaid lookup route; importing authorized registry data is a separate supported path.
-4. In **Numbers**, sync owned numbers, or open **Add numbers with approval**, save count and spending limits, search an area code, review a quote and explicitly approve its recurring rental. Zero limits block new purchases. Complete routing and a genuine inbound callback test, then approve limited legitimate use. Buying or syncing does not start warmup.
+4. In **Numbers**, sync owned numbers. To find additions, select your lead list and click **Plan state coverage**, then **Find numbers in [state]**. Review the metro suggestions and exact rental quotes under **Add numbers with approval**. Save count and spending limits before approving a purchase; zero blocks purchases. Complete routing and a genuine inbound callback test, then approve limited legitimate use. Buying or syncing does not start warmup.
 5. Upload your Markdown script in **Intelligence**, import leads, run preflight and check your audio before going ready. Allocation and next-lead selection use the eligible pool automatically; capacity planning does not place orders.
 
 Keys are saved to the authority, not sent through chat. See [provider onboarding](../deploy/runbooks/providers.md) for account configuration, callback limitations and live verification.
+
+### Numbers for a lead list
+
+Name your list when importing a CSV (the filename is suggested). Include `state` as a US abbreviation or full name,
+for example `CA` or `California`, and a separate IANA `timezone`. Existing imports appear as **Unnamed imports**.
+Duplicate phones in the same campaign retain their original list and caller identity.
+
+**Numbers → Plan numbers for list → Plan state coverage** shows the selected list's demand, usable owned capacity,
+numbers awaiting setup, and proposed additions by state. Choose **All campaign leads** to check the combined demand;
+the same owned pool serves multiple lists, so separate list previews are not reservations and must not be added together.
+Staffing, calling windows, screening and pending setup still constrain the plan. A new number cannot fix those limits.
+
+The scheduler keeps a lead's existing caller identity. For an unbound lead, it prefers ready numbers in the same state,
+balancing current load, daily usage and observed health; an exact area code breaks otherwise equal choices.
+It does not require a separate number for every area code. Eligible general-pool numbers remain a fallback.
+State inference from a phone's area code is labeled as an estimate and never supplies a timezone or legal jurisdiction.
+
+**Find numbers in [state] → Find available numbers** searches up to three suggested in-state area codes and shows
+current prices. Familiar metro defaults are ordered using matching area codes in your list. You can also enter a
+specific area code. These are preferences, not population rankings or evidence of better pickup rates. The offline
+state mapping comes from [NANPA's area-code database](https://nanpa.com/reports/npa-reports); actual availability and
+prices come from Telnyx. Each exact rental still needs approval within your number-count and spending limits.
+
+New number-allocation comparisons group leads by state. An older area-code comparison retains its history but
+does not assign new calls; stop it and start a new comparison if you want to evaluate the new allocation policy.
 
 
 ## Connect your Codex login

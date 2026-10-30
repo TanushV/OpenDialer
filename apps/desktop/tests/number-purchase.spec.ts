@@ -1,5 +1,156 @@
 import { expect, test } from "./fixtures";
 
+test("a late plan request cannot replace the newly selected list", async ({
+  page,
+}) => {
+  await page.route("**/v1/admin/numbers/summary*", (route) => {
+    const list = new URL(route.request().url()).searchParams.get("list_name");
+    return route.fulfill({
+      json: {
+        lists: ["First list", "Second list"],
+        states: [],
+        inventory: {
+          total: 0,
+          ready: 0,
+          pending_setup: 0,
+          limited_use: 0,
+          paused_outbound: 0,
+          investigating: 0,
+        },
+        stable_assignments: 0,
+        forecast: {
+          list_name: list,
+          regions: [],
+          forecast_attempts: 0,
+          staffing_shortfall: 0,
+          number_shortfall: 0,
+          projection: { status: "ready" },
+        },
+      },
+    });
+  });
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let requested = false;
+  await page.route("**/v1/admin/numbers/proposal", async (route) => {
+    requested = true;
+    await held;
+    await route.fulfill({ json: {} });
+  });
+  try {
+    await page.goto("/");
+    await expect(page.getByText("Opening your workspace…")).toBeHidden();
+    if (
+      await page
+        .getByRole("button", { name: "Try a simulated workspace" })
+        .isVisible()
+    )
+      await page
+        .getByRole("button", { name: "Try a simulated workspace" })
+        .click();
+    await page.getByRole("button", { name: "Numbers", exact: true }).click();
+    await page.getByLabel("Plan numbers for list").selectOption("First list");
+    await expect(page.getByTestId("capacity-proposal")).toContainText(
+      "First list.",
+    );
+    await page
+      .getByRole("button", { name: "Plan state coverage", exact: true })
+      .click();
+    await expect.poll(() => requested).toBeTruthy();
+    await page.getByLabel("Plan numbers for list").selectOption("Second list");
+    await expect(page.getByTestId("capacity-proposal")).toContainText(
+      "Second list.",
+    );
+    release();
+    await expect(
+      page.getByRole("button", { name: "Plan state coverage", exact: true }),
+    ).toBeEnabled();
+    await expect(page.getByTestId("capacity-proposal")).toContainText(
+      "Second list.",
+    );
+  } finally {
+    release();
+  }
+});
+
+for (const connected of [false, true]) {
+  test(`${connected ? "hosted" : "local"} list plan opens state quotes without a purchase`, async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await expect(page.getByText("Opening your workspace…")).toBeHidden();
+    if (connected) {
+      if (await page.getByTitle("Sign out").isVisible())
+        await page.getByTitle("Sign out").click();
+      await page.getByRole("button", { name: "Connect to a server" }).click();
+      await page.getByLabel("Server URL").fill("http://127.0.0.1:8766");
+      await page.getByLabel("Email").fill("team@example.test");
+      await page
+        .getByLabel("Password", { exact: true })
+        .fill("Connected-test-password-123");
+      await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    } else if (
+      await page
+        .getByRole("button", { name: "Try a simulated workspace" })
+        .isVisible()
+    ) {
+      await page
+        .getByRole("button", { name: "Try a simulated workspace" })
+        .click();
+    }
+    await page.getByRole("button", { name: "Leads", exact: true }).click();
+    await page.getByLabel("List name", { exact: true }).fill("California list");
+    await page
+      .getByLabel("CSV lead data")
+      .fill(
+        "name,phone,state,timezone\nLA,+14155550194,CA,America/Los_Angeles",
+      );
+    await page
+      .getByRole("button", { name: "Import leads", exact: true })
+      .click();
+    await expect(
+      page.getByText("1 leads imported", { exact: true }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Numbers", exact: true }).click();
+    await page
+      .getByLabel("Plan numbers for list")
+      .selectOption("California list");
+    await page
+      .getByRole("button", { name: "Plan state coverage", exact: true })
+      .click();
+    const plan = page.getByTestId("capacity-proposal");
+    await expect(plan).toContainText("California");
+    await expect(plan).toContainText("California list");
+    await page.screenshot({
+      path: test.info().outputPath("state-plan.png"),
+      fullPage: true,
+    });
+    const purchases: unknown[] = [];
+    await page.route("**/v1/admin/numbers/purchase", (route) => {
+      purchases.push(route.request().postDataJSON());
+      return route.abort();
+    });
+    await plan
+      .getByRole("button", { name: "Find numbers in California" })
+      .click();
+    await expect(page.getByLabel("Search state")).toHaveValue("CA");
+    await page
+      .getByRole("button", { name: "Find available numbers", exact: true })
+      .click();
+    await expect(page.getByText(/Searched area codes:/)).toBeVisible();
+    await page
+      .getByRole("button", { name: /^Review \+1/ })
+      .first()
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Approve and order number" }),
+    ).toBeDisabled();
+    expect(purchases).toEqual([]);
+  });
+}
+
 for (const loseResponse of [false, true]) {
   test(`number purchase preserves approval and uncertain orders with ${loseResponse ? "a lost HTTP response" : "a carrier receipt"}`, async ({
     page,

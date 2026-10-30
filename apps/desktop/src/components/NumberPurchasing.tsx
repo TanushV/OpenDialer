@@ -23,12 +23,22 @@ type Limits = {
 
 export function NumberPurchasing({
   onChanged,
+  states,
+  listName,
+  stateSearch,
 }: {
   onChanged: () => Promise<unknown>;
+  states: { code: string; name: string }[];
+  listName: string | null;
+  stateSearch: { state: string; revision: number } | null;
 }) {
   const { api, run, snapshot: w, notice } = useWorkspace();
   const [settings, setSettings] = useState<Limits | null>(null);
   const [region, setRegion] = useState("");
+  const [state, setState] = useState("");
+  const [searchedAreas, setSearchedAreas] = useState<string[]>([]);
+  const details = useRef<HTMLDetailsElement>(null);
+  const searchVersion = useRef(0);
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [selected, setSelected] = useState<Quote | null>(null);
   const [approved, setApproved] = useState(false);
@@ -57,6 +67,22 @@ export function NumberPurchasing({
       loadVersion.current++;
     };
   }, [api]);
+  useEffect(() => {
+    searchVersion.current++;
+    setQuotes([]);
+    setSelected(null);
+    setApproved(false);
+    setSearchedAreas([]);
+  }, [listName, state, region]);
+  useEffect(() => {
+    if (!stateSearch) return;
+    setState(stateSearch.state);
+    setRegion("");
+    if (details.current) {
+      details.current.open = true;
+      details.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [stateSearch]);
   const action = (work: () => Promise<unknown>) =>
     void run(async () => {
       setBusy(true);
@@ -67,12 +93,13 @@ export function NumberPurchasing({
       }
     });
   return (
-    <details className="card padded">
+    <details ref={details} className="card padded">
       <summary>Add numbers with approval</summary>
       <p>
-        Use Plan regional capacity to see where your lists need more numbers.
-        Existing ready numbers are allocated automatically. Buying requires your
-        approval of each exact number and its rental.
+        Plan state coverage for a list, then open its state to find numbers in
+        preferred metros. Existing ready numbers serve the whole state
+        automatically. Buying requires your approval of each exact number and
+        its rental.
       </p>
       {error && (
         <p role="alert">
@@ -155,14 +182,36 @@ export function NumberPurchasing({
             Save number limits
           </button>
           <label>
+            Search state
+            <select
+              value={state}
+              disabled={busy}
+              onChange={(e) => {
+                setState(e.target.value);
+                setRegion("");
+              }}
+            >
+              <option value="">
+                Choose a state, or enter an area code below
+              </option>
+              {states.map((s) => (
+                <option key={s.code} value={s.code}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
             Area code
             <input
               value={region}
+              disabled={busy}
               inputMode="numeric"
               maxLength={3}
               placeholder="415"
               onChange={(e) => {
                 setRegion(e.target.value);
+                setState("");
                 setQuotes([]);
                 setSelected(null);
                 setApproved(false);
@@ -171,24 +220,38 @@ export function NumberPurchasing({
           </label>
           <button
             className="secondary"
-            disabled={busy || !/^[2-9]\d{2}$/.test(region)}
+            disabled={busy || (!state && !/^[2-9]\d{2}$/.test(region))}
             onClick={() =>
               action(async () => {
-                const result = await api<{ numbers: Quote[] }>(
+                const version = ++searchVersion.current;
+                const result = await api<{
+                  numbers: Quote[];
+                  searched_area_codes?: string[];
+                }>(
                   "/v1/admin/numbers/search",
                   "POST",
-                  { region },
+                  state ? { state, list_name: listName } : { region },
                 );
+                if (version !== searchVersion.current) return;
                 setQuotes(result.numbers);
+                setSearchedAreas(result.searched_area_codes ?? []);
                 setSelected(null);
                 setApproved(false);
                 if (!result.numbers.length)
-                  notice("No priced numbers available in this area code.");
+                  notice(
+                    "No priced numbers found. Try another area code in this state.",
+                  );
               })
             }
           >
             Find available numbers
           </button>
+          {!!searchedAreas.length && (
+            <p className="fine">
+              Searched area codes: {searchedAreas.join(", ")}. Review exact
+              costs below. Searching does not place an order.
+            </p>
+          )}
           {quotes.map((q) => (
             <div className="button-row" key={q.id}>
               <span>

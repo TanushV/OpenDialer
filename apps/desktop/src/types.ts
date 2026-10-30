@@ -22,6 +22,9 @@ export interface Lead {
   timezone: string | null;
   timezone_confidence: string;
   region: string;
+  state?: string | null;
+  state_source?: string;
+  list_name?: string;
   status: string;
   suppressed: boolean;
   coverage_due_at: string;

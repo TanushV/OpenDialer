@@ -143,6 +143,18 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
+- October 29 owner-requested list/state allocation (unreleased): CSV imports retain a named list and explicit or
+  estimated US state. Named-list and whole-campaign plans share the existing background planner; all owned capacity
+  remains shared, and additions are proposed by state. Calling reuses same-state capacity across area codes, retains
+  bound identities, balances load/health first, and uses exact area code only as a tie-breaker. Plan rows open state
+  searches using familiar metro defaults and list demand; every exact rental still requires approval and existing
+  count/cost limits. State estimation does not change timezone, jurisdiction or screening. Allocation comparisons
+  use state clusters; older area-code protocols retain history but no longer assign new calls. New tests preceded
+  implementation and fixes, including PostgreSQL list reads, endpoint corrections and late list-response handling.
+  SQLite 720/4 skips, PostgreSQL 721/3 skips, frontend 81, build/typecheck/format pass. Browser verification and source
+  sizes are recorded in [receipt](evidence/lean/state-list-allocation-20261029.json). Feature growth is intentional for
+  this owner request. No paid provider actions, release, installed-app/data changes or relay redeployment.
+
 - Step 1 done (98a9018).
 - Step 2 done (c4e9707). `services/backend/tests/acceptance/`: 99 HTTP journeys (98 pass, 1 strict xfail for a
   found defect: task.updated events carry no rep scope, so in hosted mode another rep sees a callback task's id and

@@ -531,7 +531,7 @@ test("numbers show whole-inventory counts and one capacity view without a planni
   await page.waitForTimeout(4500);
   expect(proposals).toEqual([]);
   await page
-    .getByRole("button", { name: "Plan regional capacity", exact: true })
+    .getByRole("button", { name: "Plan state coverage", exact: true })
     .click();
   await expect(page.getByTestId("capacity-proposal")).toBeVisible({
     timeout: 20000,

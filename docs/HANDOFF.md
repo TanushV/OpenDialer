@@ -1,6 +1,6 @@
 # OpenDialer testing handoff (CURRENT)
 
-> **Status: CURRENT — managed-local webhook integration verified in source, unreleased**, October 29, 2026.
+> **Status: CURRENT — list/state number allocation and managed-local integration in source, unreleased**, October 29, 2026.
 > Historical 0.5.0 release: `096c55f`, CI 40164184233 passed all jobs including 164 browser cases.
 > Includes script learning and the review fixes described below. This is the single current handoff.
 > Read with [HANDOFF_AST.md](HANDOFF_AST.md) and [SCRIPT_LEARNING.md](SCRIPT_LEARNING.md).
@@ -9,6 +9,20 @@ OpenDialer 0.5.0 simplifies calling, scripts and learning. The current local ver
 Live-provider and clean-machine installer gates remain open. Continue finding what the tests do not prove,
 adding tests before fixes, and supporting approved live testing. Read this file, then `AGENTS.md`, then the
 Status section of `docs/LEAN_PLAN.md`.
+
+## October 29 list/state number allocation
+
+The [setup guide](GETTING_STARTED.md#numbers-for-a-lead-list) describes the visible flow: name a CSV list, provide
+states when known, choose the list in Numbers, plan state coverage, and open a state's metro suggestions for quotes.
+Owned numbers are shared across lists; list previews are not reservations. Existing caller bindings stay stable.
+State matches precede general fallback; load and health precede exact area-code ties. State estimates never change
+calling hours or compliance jurisdiction. New comparison protocols cluster by state; stop an older protocol before
+starting a state comparison. Count/cost approvals, identity, callback proof and readiness gates remain required.
+
+Backend implementation: `afbcfd0`. Full SQLite 720/4 skips and PostgreSQL 721/3 skips; frontend 81 tests and
+build/typecheck/format pass. Browser results, regression evidence and sizes are in the
+[verification receipt](evidence/lean/state-list-allocation-20261029.json). No real provider searches, purchases or calls;
+installed app/data and downloads are unchanged. The offline NPA mapping is dated in `optimization/geography.py`.
 
 ## October 29 shared webhook integration
 

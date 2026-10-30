@@ -6,6 +6,7 @@ import { date, label, percent, useWorkspace } from "../context";
 import type { ReportState } from "./OptimizationPanel";
 
 export interface ControlledComparison {
+  allocation_basis?: string;
   id: string;
   family: string;
   ends_at: string;
@@ -303,7 +304,7 @@ export function Experiments({ state }: { state: ReportState }) {
         <p className="fine">
           {kind === "coaching"
             ? "Randomized two-lead blocks within each rep compare approved static help with the configured live helper."
-            : "Regional numbers use fixed region clusters and preserve existing caller-ID bindings."}
+            : "Number comparisons use fixed state groups and preserve existing caller-ID bindings."}
         </p>
       )}
       <p className="fine">
@@ -500,14 +501,29 @@ export function Experiments({ state }: { state: ReportState }) {
               ? "Reviewed approach comparison"
               : study.family === "coaching"
                 ? "Rep-balanced coaching"
-                : "Regional number comparison"}
+                : study.allocation_basis === "state"
+                  ? "State number comparison"
+                  : "Regional number comparison"}
           </h3>
           <p>
             {study.original_eligible_leads} original eligible leads ·{" "}
             {study.assigned_leads} assigned · {study.unassigned_leads} awaiting
             assignment · {study.cluster_count || study.rep_strata.length}{" "}
-            {study.family === "coaching" ? "rep strata" : "region clusters"}.
+            {study.family === "coaching"
+              ? "rep strata"
+              : study.allocation_basis === "state"
+                ? "state clusters"
+                : "region clusters"}
+            .
           </p>
+          {study.family === "number_allocation" &&
+            study.allocation_basis !== "state" &&
+            !study.stopped_at && (
+              <p className="notice">
+                This older comparison no longer assigns calls. Stop it and start
+                a new comparison to evaluate state-based allocation.
+              </p>
+            )}
           <p className="fine">
             {study.inference_unit}.{" "}
             {study.stopped_at

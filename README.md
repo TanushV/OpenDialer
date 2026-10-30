@@ -58,7 +58,9 @@ at least 1024 × 720 usable display pixels.
 - Calling policies, opt-outs, DNC checks, costs and budgets.
 
 Phone-number purchases require explicit quote approval and configured limits in current source.
-Allocation uses ready inventory; buying or syncing a number does not start warmup.
+Plan numbers by named lead list, primarily by state, with suggested metro area codes for new rentals.
+Allocation reuses ready numbers across that state and preserves existing caller identities;
+buying or syncing a number does not start warmup. See [list-based number setup](docs/GETTING_STARTED.md#numbers-for-a-lead-list).
 There is no call recording or prerecorded voicemail drop. Raw speech and helper text expire within five minutes.
 Provider keys are stored as plain JSON on the local computer or team server; protect that machine and its backups.
 

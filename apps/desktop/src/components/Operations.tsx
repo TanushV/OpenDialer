@@ -38,6 +38,7 @@ export function LeadsPage() {
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
   const admin = isAdmin(w.user.role);
   const [csv, setCSV] = useState("");
+  const [listName, setListName] = useState("");
   const [preview, setPreview] = useState<PreparationPreview | null>(null);
   const [query, setQuery] = useState("");
   const [report, setReport] = useState<{
@@ -189,10 +190,19 @@ export function LeadsPage() {
                 <td>
                   <strong>{lead.name}</strong>
                   <small>{lead.company || "Company not provided"}</small>
+                  {lead.list_name && <small>{lead.list_name}</small>}
                 </td>
                 <td>
                   {lead.phone}
                   <small>{lead.timezone || "Timezone needs review"}</small>
+                  {lead.state && (
+                    <small>
+                      {lead.state}
+                      {lead.state_source === "provided"
+                        ? ""
+                        : " · estimated from phone"}
+                    </small>
+                  )}
                 </td>
                 <td>
                   <span className={`pill ${lead.suppressed ? "red" : "green"}`}>
@@ -242,11 +252,23 @@ export function LeadsPage() {
             <span className="eyebrow">BRING YOUR OWN LIST</span>
             <h2>Import a lead cohort</h2>
             <p className="muted">
-              Use headers: name, phone, company, domain, timezone, region,
-              segment. Suppressions are preserved across every import.
+              Use headers: name, phone, company, domain, timezone, state,
+              segment. Suppressions are preserved across every import. State
+              names or abbreviations work. Without a state, number planning uses
+              the phone area code as an estimate; calling hours still need a
+              timezone.
             </p>
           </div>
           <div>
+            <label>
+              List name
+              <input
+                value={listName}
+                maxLength={120}
+                onChange={(e) => setListName(e.target.value)}
+                placeholder="e.g. California agencies"
+              />
+            </label>
             <label>
               CSV lead data
               <textarea
@@ -267,7 +289,12 @@ export function LeadsPage() {
                   accept=".csv,text/csv"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
-                    if (file) void file.text().then(setCSV);
+                    if (file) {
+                      setListName(
+                        file.name.replace(/\.csv$/i, "").slice(0, 120),
+                      );
+                      void file.text().then(setCSV);
+                    }
                   }}
                 />
               </label>
@@ -283,7 +310,11 @@ export function LeadsPage() {
                     }>(
                       "/v1/leads/import",
                       "POST",
-                      { campaign_id: w.campaign.id, rows: parseCSV(csv) },
+                      {
+                        campaign_id: w.campaign.id,
+                        list_name: listName.trim(),
+                        rows: parseCSV(csv),
+                      },
                       { timeoutMs: LONG_REQUEST_MS },
                     );
                     setReport(report);
@@ -484,6 +515,8 @@ interface RetryCapacity {
 }
 /** The saved capacity plan, read from the same projection the optimization report uses. */
 interface Forecast {
+  list_name?: string | null;
+  estimated_state_leads?: number;
   forecast_attempts?: number;
   existing_only_capacity?: number;
   capacity_shortfall?: number | null;
@@ -535,6 +568,9 @@ interface Forecast {
   };
   regions: {
     region: string;
+    state_name?: string;
+    preferred_metros?: string;
+    suggested_area_codes?: string[];
     forecast_attempts?: number;
     planned_attempts?: number;
     usable_existing_capacity?: number;
@@ -552,6 +588,8 @@ interface Forecast {
   };
 }
 interface NumbersSummary {
+  lists?: string[];
+  states?: { code: string; name: string }[];
   inventory: {
     total: number;
     ready: number;
@@ -567,31 +605,54 @@ interface NumbersSummary {
 const BACKOFF_MS = [1000, 2000, 4000, 8000, 15000, 30000];
 const MAX_CHECKS = 12;
 
-function useNumbersSummary() {
+function useNumbersSummary(listName: string | null) {
   const { api, subscribe } = useWorkspace();
+  const scope = useRef({ api, listName });
+  scope.current = { api, listName };
   const [summary, setSummary] = useState<NumbersSummary | null>(null);
   const [error, setError] = useState("");
   const [checks, setChecks] = useState(0);
   const version = useRef(0);
   const load = useCallback(async () => {
+    if (scope.current.api !== api || scope.current.listName !== listName)
+      return;
     const current = ++version.current;
     try {
-      const value = await api<NumbersSummary>("/v1/admin/numbers/summary");
-      if (current === version.current) {
+      const value = await api<NumbersSummary>(
+        "/v1/admin/numbers/summary" +
+          (listName === null
+            ? ""
+            : `?list_name=${encodeURIComponent(listName)}`),
+      );
+      if (
+        current === version.current &&
+        scope.current.api === api &&
+        scope.current.listName === listName
+      ) {
         setSummary(value);
         setError("");
       }
     } catch (reason) {
-      if (current === version.current)
+      if (
+        current === version.current &&
+        scope.current.api === api &&
+        scope.current.listName === listName
+      )
         setError(reason instanceof Error ? reason.message : String(reason));
     }
-  }, [api]);
+  }, [api, listName]);
   useEffect(() => {
+    setSummary(null);
+    setChecks(0);
     void load();
     const stop = subscribe((events) => {
       if (
         events.some((e) =>
-          ["optimization.updated", "number.updated"].includes(e.type),
+          [
+            "optimization.updated",
+            "number.updated",
+            "planning.changed",
+          ].includes(e.type),
         )
       )
         void load();
@@ -630,7 +691,12 @@ function useNumbersSummary() {
 export function NumbersPage() {
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
   const history = useHistory("numbers", w.numbers);
-  const plan = useNumbersSummary();
+  const [listName, setListName] = useState<string | null>(null);
+  const [stateSearch, setStateSearch] = useState<{
+    state: string;
+    revision: number;
+  } | null>(null);
+  const plan = useNumbersSummary(listName);
   const inventory = plan.summary?.inventory;
   const [planning, setPlanning] = useState(false);
   const [phone, setPhone] = useState("");
@@ -640,6 +706,7 @@ export function NumbersPage() {
       // One explicit request queues (or reuses) the plan; reads then back off.
       await api("/v1/admin/numbers/proposal", "POST", {
         campaign_id: w.campaign.id,
+        list_name: listName,
       });
       plan.restart();
       await plan.load();
@@ -667,9 +734,27 @@ export function NumbersPage() {
           onClick={() => void run(requestPlan)}
         >
           <Layers3 size={17} />
-          Plan regional capacity
+          Plan state coverage
         </button>
       </div>
+      <label className="card padded">
+        Plan numbers for list
+        <select
+          value={listName === null ? "__all_lists__" : listName}
+          onChange={(e) =>
+            setListName(
+              e.target.value === "__all_lists__" ? null : e.target.value,
+            )
+          }
+        >
+          <option value="__all_lists__">All campaign leads</option>
+          {(plan.summary?.lists ?? []).map((name) => (
+            <option key={name} value={name}>
+              {name || "Unnamed imports"}
+            </option>
+          ))}
+        </select>
+      </label>
       <div className="number-summary">
         <div className="card">
           <Radio size={23} />
@@ -719,6 +804,9 @@ export function NumbersPage() {
         </p>
       </section>
       <NumberPurchasing
+        states={plan.summary?.states ?? []}
+        listName={listName}
+        stateSearch={stateSearch}
         onChanged={async () => {
           await refresh();
           await history.load();
@@ -832,6 +920,12 @@ export function NumbersPage() {
         state={plan}
         planning={planning}
         onPlan={() => void run(requestPlan)}
+        onFindState={(state) =>
+          setStateSearch((current) => ({
+            state,
+            revision: (current?.revision ?? 0) + 1,
+          }))
+        }
       />
     </>
   );
@@ -841,10 +935,12 @@ function CapacityPlan({
   state,
   planning,
   onPlan,
+  onFindState,
 }: {
   state: ReturnType<typeof useNumbersSummary>;
   planning: boolean;
   onPlan: () => void;
+  onFindState: (state: string) => void;
 }) {
   const { api, run } = useWorkspace();
   const forecast = state.summary?.forecast;
@@ -866,8 +962,8 @@ function CapacityPlan({
                 ? "Capacity plan is being prepared in the background."
                 : "Showing a saved capacity plan while current inputs are recalculated."
               : projection.status === "pending"
-                ? "No capacity plan yet. Plan regional capacity to prepare one."
-                : "Capacity plan is out of date. Plan regional capacity before acting on it."}
+                ? "No capacity plan yet. Plan state coverage to prepare one."
+                : "Capacity plan is out of date. Plan state coverage before acting on it."}
       </p>
       {projection.as_of && (
         <p className="fine">Calculated {date(projection.as_of)}.</p>
@@ -933,7 +1029,67 @@ function CapacityPlan({
         aria-label="Capacity before procurement"
       >
         <span className="eyebrow">PLAN BEFORE PROCUREMENT</span>
-        <h2>Regional capacity proposal</h2>
+        <h2>State coverage proposal</h2>
+        <p>
+          {forecast.list_name === null || forecast.list_name === undefined
+            ? "All campaign leads"
+            : forecast.list_name || "Unnamed imports"}
+          . Owned numbers are shared across lists; this preview does not reserve
+          them. Keep existing caller identities and reuse state capacity before
+          adding numbers.
+        </p>
+        {!!forecast.estimated_state_leads && (
+          <p className="fine">
+            {forecast.estimated_state_leads} leads use estimated or unknown
+            states. Phone area codes do not confirm where someone lives. Metro
+            suggestions are preferences, not a prediction of better pickup.
+          </p>
+        )}
+        <div className="optimization-table">
+          <table>
+            <thead>
+              <tr>
+                <th>State</th>
+                <th>Due attempts</th>
+                <th>Rep capacity allocated</th>
+                <th>Existing capacity</th>
+                <th>General fallback</th>
+                <th>Awaiting review</th>
+                <th>Additional proposed</th>
+                <th>Preferred metros</th>
+              </tr>
+            </thead>
+            <tbody>
+              {forecast.regions.map((r) => (
+                <tr key={r.region}>
+                  <td>{r.state_name || r.region}</td>
+                  <td>{r.forecast_attempts ?? "Unknown"}</td>
+                  <td>{r.planned_attempts ?? "Unknown"}</td>
+                  <td>{r.usable_existing_capacity ?? "Unknown"}</td>
+                  <td>{r.general_fallback_capacity ?? "Unknown"}</td>
+                  <td>{r.capacity_waiting_for_review ?? "Unknown"}</td>
+                  <td>{r.proposed_additional ?? "Not established"}</td>
+                  <td>
+                    {r.preferred_metros && (
+                      <>
+                        <small>
+                          {r.preferred_metros} ·{" "}
+                          {r.suggested_area_codes?.join(", ")}
+                        </small>
+                        <button
+                          className="secondary small"
+                          onClick={() => onFindState(r.region)}
+                        >
+                          Find numbers in {r.state_name}
+                        </button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         {forecast.schedule_scope === "declared_staffed_windows" && (
           <p className="pill subtle">Declared staffed periods</p>
         )}
@@ -1178,34 +1334,6 @@ function CapacityPlan({
             before any addition; no predicted conversion lift is assumed.
           </p>
         )}
-        <div className="optimization-table">
-          <table>
-            <thead>
-              <tr>
-                <th>Region</th>
-                <th>Due attempts</th>
-                <th>Rep capacity allocated</th>
-                <th>Existing capacity</th>
-                <th>General fallback</th>
-                <th>Awaiting review</th>
-                <th>Additional proposed</th>
-              </tr>
-            </thead>
-            <tbody>
-              {forecast.regions.map((r) => (
-                <tr key={r.region}>
-                  <td>{r.region}</td>
-                  <td>{r.forecast_attempts ?? "Unknown"}</td>
-                  <td>{r.planned_attempts ?? "Unknown"}</td>
-                  <td>{r.usable_existing_capacity ?? "Unknown"}</td>
-                  <td>{r.general_fallback_capacity ?? "Unknown"}</td>
-                  <td>{r.capacity_waiting_for_review ?? "Unknown"}</td>
-                  <td>{r.proposed_additional ?? "Not established"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
         <p className="small muted">
           Indicative monthly rental:{" "}
           {forecast.monthly_rental_estimate_usd == null

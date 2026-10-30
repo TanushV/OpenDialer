@@ -1,0 +1,92 @@
+{
+  "base": "45c3a09d6c3ad3a3a0c2d3f146f35e72ed2766e4",
+  "backend_commit": "afbcfd0",
+  "checks": {
+    "sqlite": {
+      "passed": 720,
+      "skipped": 4
+    },
+    "postgresql": {
+      "passed": 721,
+      "skipped": 3
+    },
+    "frontend_unit": 81,
+    "frontend_build_typecheck_format": "passed",
+    "browser": {
+      "prior_scoped_run_passed": 40,
+      "final_scoped_run_passed": 40,
+      "final_scoped_run_failed": 1,
+      "failure": "Existing script-retry fixture navigated away while clicking Retry loading script; isolated rerun passed without source/test changes or timeout increases.",
+      "isolated_script_retry_rerun": "passed (1 test, 5.8 seconds)",
+      "distinct_affected_journeys_with_passing_evidence": 41
+    }
+  },
+  "regression_first": [
+    "Six initial list/state cases failed before implementation",
+    "PostgreSQL DISTINCT/ORDER BY failure reproduced in acceptance test before correction",
+    "Endpoint corrections refresh inferred state while preserving supplied state",
+    "Area-code tie preference follows workload and health",
+    "State experiment grouping and previous-protocol refusal",
+    "Late plan response reproduced switching back to the wrong list, then fixed with a scope check"
+  ],
+  "size": {
+    "before": {
+      "backend": {
+        "files": 93,
+        "lines": 36862,
+        "ast_nodes": 253325
+      },
+      "frontend": {
+        "files": 61,
+        "lines": 18120,
+        "tokens": 98967
+      }
+    },
+    "after": {
+      "backend": {
+        "files": 94,
+        "lines": 37152,
+        "ast_nodes": 254979
+      },
+      "backend_tests": {
+        "files": 54,
+        "lines": 13175,
+        "ast_nodes": 89463
+      },
+      "repo_tests": {
+        "files": 4,
+        "lines": 692,
+        "ast_nodes": 4069
+      },
+      "frontend": {
+        "files": 61,
+        "lines": 18330,
+        "tokens": 100249
+      },
+      "frontend_tests": {
+        "files": 54,
+        "lines": 10547,
+        "tokens": 76537
+      },
+      "rust": {
+        "files": 2,
+        "lines": 976
+      },
+      "scripts": {
+        "files": 11,
+        "lines": 1413,
+        "ast_nodes": 7917
+      },
+      "workflows": {
+        "files": 2,
+        "lines": 190
+      }
+    }
+  },
+  "boundaries": [
+    "No numbers searched on a live carrier, bought or called",
+    "No installed app or data changes; source remains unreleased",
+    "No shared relay or provider credential changes",
+    "Carrier purchase and audio qualification remain separate live gates"
+  ]
+}

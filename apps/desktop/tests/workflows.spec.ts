@@ -108,9 +108,9 @@ test("admin inventory, lead import, policy, preparation and real readiness bound
   await expect(
     page.getByRole("heading", { name: "Numbers & callbacks" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Plan regional capacity" }).click();
+  await page.getByRole("button", { name: "Plan state coverage" }).click();
   // One planning request; the saved plan is then read back with backoff.
-  await expect(page.getByText("Regional capacity proposal")).toBeVisible({
+  await expect(page.getByText("State coverage proposal")).toBeVisible({
     timeout: 20000,
   });
   await page.getByRole("button", { name: "Settings", exact: true }).click();

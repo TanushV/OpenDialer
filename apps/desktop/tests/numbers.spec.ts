@@ -240,7 +240,7 @@ for (const connected of [false, true]) {
     });
     await page.getByRole("button", { name: "Numbers", exact: true }).click();
     await page
-      .getByRole("button", { name: "Plan regional capacity", exact: true })
+      .getByRole("button", { name: "Plan state coverage", exact: true })
       .click();
     await expect(
       page.getByText("Capacity plan is being prepared in the background.", {
@@ -354,7 +354,7 @@ test("incomplete allocation remains readable with unknown costs and bottlenecks"
     proposal.getByRole("cell", { name: "Not established", exact: true }),
   ).toHaveCount(1);
   await expect(
-    page.getByRole("button", { name: "Plan regional capacity", exact: true }),
+    page.getByRole("button", { name: "Plan state coverage", exact: true }),
   ).toBeEnabled();
 });
 
@@ -378,7 +378,7 @@ test("number capacity distinguishes bottlenecks without searching or ordering re
       .click();
   await page.getByRole("button", { name: "Numbers", exact: true }).click();
   await page
-    .getByRole("button", { name: "Plan regional capacity", exact: true })
+    .getByRole("button", { name: "Plan state coverage", exact: true })
     .click();
   const proposal = page.getByTestId("capacity-proposal");
   await expect(
@@ -435,7 +435,7 @@ test("declared staffing and setup time survive reload and explain the capacity p
   );
   await page.getByRole("button", { name: "Numbers", exact: true }).click();
   await page
-    .getByRole("button", { name: "Plan regional capacity", exact: true })
+    .getByRole("button", { name: "Plan state coverage", exact: true })
     .click();
   const proposal = page.getByTestId("capacity-proposal");
   await expect(
