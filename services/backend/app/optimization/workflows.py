@@ -623,10 +623,13 @@ class OptimizationWorkflows(ComparisonWorkflows):
         result.sort(key=lambda r: (r["at"], r["call_id"]))
         return result
 
-    def forecast_input(self, s, p, *, campaign_id=None, capacity=None, lead_ids=None):
+    def forecast_input(self, s, p, *, campaign_id=None, capacity=None, lead_ids=None, list_name=None):
         from collections import Counter
 
+        from sqlalchemy import func
+
         from app.compliance.operating import screening_page
+        from app.optimization.geography import STATES, coverage_region, suggested_codes
 
         if lead_ids is not None and len(lead_ids) > 100:
             raise ValueError("At most100 changed leads per planning page")
@@ -692,6 +695,11 @@ class OptimizationWorkflows(ComparisonWorkflows):
                         model.tenant_id == p["tenant_id"],
                         model.seller_id == p["seller_id"],
                         model.op_campaign_id == campaign.id,
+                        *(
+                            [func.coalesce(model.data["list_name"].as_string(), "") == list_name]
+                            if list_name is not None
+                            else []
+                        ),
                         *([model.id.in_(lead_ids)] if lead_ids is not None else []),
                         *([model.id > cursor] if cursor else []),
                     )
@@ -739,7 +747,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
         list_staffing_fingerprint = hashlib.sha256(
             json.dumps(
                 {
-                    "list": [(row["id"], row.get("endpoint_id"), row.get("region")) for row in leads],
+                    "list": [(row["id"], row.get("endpoint_id"), coverage_region(row)) for row in leads],
                     "staff": {
                         k: v
                         for k, v in config.items()
@@ -775,6 +783,17 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 slot_estimates=estimate_cache[cell],
             )
         inventory = self.inventory_evidence(s, p, fast=True)
+        # Reuse all owned capacity; additions serve states, not one pool per area code.
+        regions = sorted({coverage_region(row) for row in leads})
+        policy["proposed_number_classes"] = [
+            {
+                "id": region,
+                "region": region,
+                "daily_limit": capacity or config["daily_capacity_per_number"],
+                "capacity": 1,
+            }
+            for region in regions
+        ]
         return {
             "leads": leads,
             "inventory": inventory,
@@ -789,6 +808,18 @@ class OptimizationWorkflows(ComparisonWorkflows):
             "rep_busy_until": busy,
             "retry_observations": profile.get("retry_observations", []),
         }, {
+            "list_name": list_name,
+            "allocation_basis": "state",
+            "state_suggestions": {
+                state: {
+                    "state_name": STATES[state]["name"],
+                    "preferred_metros": STATES[state]["metros"],
+                    "suggested_area_codes": suggested_codes(state, leads)[:3],
+                }
+                for state in regions
+                if state in STATES
+            },
+            "estimated_state_leads": sum(row.get("state_source") != "provided" for row in leads),
             "unavailable_staff_count": len(roster - available),
             "occupied_rep_count": len(busy),
             "list_staffing_fingerprint": list_staffing_fingerprint,
@@ -805,21 +836,26 @@ class OptimizationWorkflows(ComparisonWorkflows):
         inputs, metadata = self.forecast_input(s, p, campaign_id=campaign_id, capacity=capacity)
         return {**capacity_forecast(**inputs), **metadata}
 
-    def build_forecast(self, p, campaign_id, capacity=None, *, lease=None):
+    def build_forecast(self, p, campaign_id, capacity=None, *, lease=None, list_name=None):
         """Snapshot/read, pure calculation, then a short source-checked publication."""
+        from app.optimization.geography import planning_key
         from app.service import fail
 
-        key = f"planning:{campaign_id}:{capacity or 'configured'}"
+        key = planning_key(campaign_id, capacity, list_name)
         with self.db.transaction(False) as s:
             current, _, _, _ = self.report_scope(s, p)
             if current["role"] != "admin":
                 fail(403, "Administrator access is required to plan inventory")
             generation = self.report_revision(s, current)
-            inputs, metadata = self.forecast_input(s, current, campaign_id=campaign_id, capacity=capacity)
+            inputs, metadata = self.forecast_input(
+                s, current, campaign_id=campaign_id, capacity=capacity, list_name=list_name
+            )
             config = self.optimization_config(s, current, campaign_id)
             profile = self.required(s, "campaigns", campaign_id, current).data.get("selection_profile", {})
             profile = profile if profile_current(profile, config) else {}
         result = {**capacity_forecast(**inputs, schedule_row_limit=None), **metadata}
+        for region in result["regions"]:
+            region.update(metadata["state_suggestions"].get(region["region"], {}))
         # One bounded per-campaign summary is the per-lead view; nothing here gates a call.
         result["next_attempts"], result["next_attempts_omitted"] = next_attempts(
             inputs["leads"], result["existing_schedule"], lambda f: saved_prediction(profile, f, config)
@@ -976,9 +1012,11 @@ class OptimizationWorkflows(ComparisonWorkflows):
             },
         }
 
-    def saved_forecast(self, s, p):
+    def saved_forecast(self, s, p, list_name=None):
+        from app.optimization.geography import planning_key
+
         campaign = self.selected_campaign(s, p)
-        row = self._by_key(s, p, "report_projections", f"planning:{campaign.id}:configured")
+        row = self._by_key(s, p, "report_projections", planning_key(campaign.id, list_name=list_name))
         saved = row.data if row else {}
         current = self.report_revision(s, p)
         fresh = (

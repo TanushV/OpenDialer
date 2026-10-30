@@ -375,6 +375,8 @@ class Service(ReservationPlanner):
         )
 
     def import_leads(self, p, body):
+        from app.optimization.geography import AREA_STATES, normalize_state
+
         result = {"imported": 0, "duplicates": 0, "invalid": 0, "errors": [], "leads": []}
         if len(body["rows"]) > self.settings.max_import_rows:
             fail(413, "Import row limit exceeded")
@@ -388,6 +390,11 @@ class Service(ReservationPlanner):
                 if not phone.e164:
                     result["invalid"] += 1
                     result["errors"].append({"row": index + 1, "reason": "INVALID_PHONE"})
+                    continue
+                state = normalize_state(raw.get("state"))
+                if raw.get("state") and not state:
+                    result["invalid"] += 1
+                    result["errors"].append({"row": index + 1, "reason": "INVALID_STATE"})
                     continue
                 endpoint = endpoints.get(phone.e164)
                 if not endpoint:
@@ -434,6 +441,15 @@ class Service(ReservationPlanner):
                             "timezone_confidence", "confirmed" if timezone else "unknown"
                         ),
                         "region": raw.get("region", phone.e164[2:5]),
+                        "state": state
+                        or normalize_state(raw.get("jurisdiction"))
+                        or AREA_STATES.get(phone.e164[2:5]),
+                        "state_source": "provided"
+                        if state or normalize_state(raw.get("jurisdiction"))
+                        else "phone_area_code"
+                        if AREA_STATES.get(phone.e164[2:5])
+                        else "unknown",
+                        "list_name": body.get("list_name", "").strip(),
                         "segment": raw.get("segment", "general"),
                         "jurisdiction": raw.get("jurisdiction"),
                         "originally_eligible": not self.suppressed(s, p, phone.e164),

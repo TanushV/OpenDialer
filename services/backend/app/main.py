@@ -133,6 +133,7 @@ class HoldRelease(Strict):
 
 class ImportLeads(Strict):
     campaign_id: str
+    list_name: str = Field(default="", max_length=120)
     rows: list[dict] = Field(max_length=10000)
 
 
@@ -980,13 +981,14 @@ def create_app(settings=None, *, clock=None, carrier=None):
         return service.add_number(p, data.model_dump(exclude_none=True))
 
     @app.get("/v1/admin/numbers/summary")
-    def numbers_summary(p=Depends(administrator)):
+    def numbers_summary(list_name: str | None = None, p=Depends(administrator)):
         """Whole-inventory counts and the saved capacity plan. Reading never queues planning."""
         from collections import Counter
 
         from sqlalchemy import func, or_
 
         from app.db import MODELS, Job
+        from app.optimization.geography import STATES, planning_key
 
         with db.transaction(False) as s:
             numbers = service.scoped(s, "number_inventory", p)
@@ -998,15 +1000,32 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 .select_from(binding)
                 .where(binding.tenant_id == p["tenant_id"], binding.seller_id == p["seller_id"])
             )
-            forecast = service.saved_forecast(s, p)
+            forecast = service.saved_forecast(s, p, list_name=list_name)
             campaign = service.selected_campaign(s, p)
+            model = MODELS["leads"]
+            lists = sorted(
+                s.scalars(
+                    select(func.coalesce(model.data["list_name"].as_string(), ""))
+                    .where(
+                        model.tenant_id == p["tenant_id"],
+                        model.seller_id == p["seller_id"],
+                        model.op_campaign_id == campaign.id,
+                    )
+                    .distinct()
+                )
+            )
+            key = planning_key(campaign.id, list_name=list_name)
             job = s.scalar(
                 select(Job)
                 .where(
                     Job.tenant_id == p["tenant_id"],
                     or_(
-                        Job.key.startswith(f"planning:{campaign.id}:configured:", autoescape=True),
-                        Job.key == "optimization-work:forecast_refresh:" + campaign.id,
+                        Job.key.startswith(key + ":", autoescape=True)
+                        if list_name is not None
+                        else Job.key.like(key + ":%") & ~Job.key.like(key + ":list-%"),
+                        (Job.key == "optimization-work:forecast_refresh:" + campaign.id)
+                        if list_name is None
+                        else False,
                     ),
                     Job.status.in_(["queued", "running", "dead"]),
                 )
@@ -1020,6 +1039,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
             attempts=job.attempts if job else None,
         )
         return {
+            "lists": lists,
+            "states": [{"code": code, "name": info["name"]} for code, info in STATES.items()],
             "inventory": {
                 "total": len(numbers),
                 "ready": ready,
@@ -1059,7 +1080,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/admin/numbers/proposal")
     def number_proposal(data: dict, p=Depends(administrator)):
-        return service.proposal(p, data["campaign_id"], data.get("daily_capacity_per_number"))
+        return service.proposal(
+            p, data["campaign_id"], data.get("daily_capacity_per_number"), data.get("list_name")
+        )
 
     @app.post("/v1/admin/numbers/sync")
     async def sync_numbers(p=Depends(administrator)):
@@ -1073,15 +1096,43 @@ def create_app(settings=None, *, clock=None, carrier=None):
     async def search_numbers(data: dict, p=Depends(administrator)):
         from decimal import Decimal, InvalidOperation
 
+        from app.optimization.geography import AREA_STATES, normalize_state, suggested_codes
+
         region = str(data.get("region", ""))
-        if not re.fullmatch(r"[2-9][0-9]{2}", region):
+        state = normalize_state(data.get("state"))
+        if data.get("state") and not state:
+            fail(422, "A US state is required")
+        if state:
+
+            def areas_for_list():
+                with db.transaction(False) as s:
+                    campaign = service.selected_campaign(s, p)
+                    leads = [
+                        r.data
+                        for r in service.scoped(s, "leads", p)
+                        if r.data["campaign_id"] == campaign.id
+                        and (
+                            data.get("list_name") is None or r.data.get("list_name", "") == data["list_name"]
+                        )
+                    ]
+                    return suggested_codes(state, leads)[:3]
+
+            areas = await asyncio.to_thread(areas_for_list)
+        elif re.fullmatch(r"[2-9][0-9]{2}", region):
+            areas = [region]
+        else:
             fail(422, "A US area code is required")
-        found = await service.carrier(p["tenant_id"]).search_numbers(region)
+        found = []
+        carrier = service.carrier(p["tenant_id"])
+        results = await asyncio.gather(*(carrier.search_numbers(area) for area in areas))
+        for area, candidates in zip(areas, results, strict=True):
+            found.extend((area, candidate) for candidate in candidates[:10])
 
         def save_quotes():
             quotes = []
+            seen = set()
             with db.transaction() as s:
-                for candidate in found[:10]:
+                for area, candidate in found:
                     cost = candidate.get("cost_information", {})
                     try:
                         upfront, monthly = Decimal(cost["upfront_cost"]), Decimal(cost["monthly_cost"])
@@ -1092,9 +1143,17 @@ def create_app(settings=None, *, clock=None, carrier=None):
                     phone = candidate.get("phone_number", "")
                     if cost.get("currency") != "USD" or not re.fullmatch(r"\+1[2-9][0-9]{9}", phone):
                         continue
+                    if (
+                        phone in seen
+                        or phone[2:5] != area
+                        or (state and AREA_STATES.get(phone[2:5]) != state)
+                    ):
+                        continue
+                    seen.add(phone)
                     value = {
                         "phone": phone,
-                        "region": region,
+                        "region": area,
+                        "state": AREA_STATES.get(area),
                         "monthly_cost_usd": float(monthly),
                         "initial_commitment_usd": float(upfront + monthly),
                         "expires_at": (clock() + timedelta(minutes=5)).isoformat(),
@@ -1112,7 +1171,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
             return quotes
 
         quotes = await asyncio.to_thread(save_quotes)
-        return {"numbers": quotes, "simulation": settings.simulation}
+        return {"numbers": quotes, "simulation": settings.simulation, "searched_area_codes": areas}
 
     @app.get("/v1/admin/numbers/orders")
     def number_orders(p=Depends(administrator)):
@@ -1268,6 +1327,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.patch("/v1/leads/{lead_id}/endpoint")
     def correct_endpoint(lead_id: str, data: dict, p=Depends(administrator)):
         from app.compliance.phone import normalize_phone
+        from app.optimization.geography import AREA_STATES
 
         phone = normalize_phone(data.get("phone", ""))
         if not phone.e164 or not data.get("evidence"):
@@ -1297,12 +1357,23 @@ def create_app(settings=None, *, clock=None, carrier=None):
                     now=clock(),
                 )
             old_endpoint = lead.data["endpoint_id"]
+            inferred_state = AREA_STATES.get(phone.e164[2:5]) if phone.e164.startswith("+1") else None
+            location = (
+                {}
+                if lead.data.get("state_source") == "provided"
+                else {
+                    "state": inferred_state,
+                    "state_source": "phone_area_code" if inferred_state else "unknown",
+                }
+            )
             update(
                 lead,
                 endpoint_id=endpoint.id,
                 phone=phone.e164,
+                region=phone.e164[2:5] if phone.e164.startswith("+1") else "general",
                 status="eligible",
                 next_attempt_at=clock().isoformat(),
+                **location,
             )
             lead.external_key = lead.data["campaign_id"] + ":" + endpoint.id
             audit(

@@ -706,15 +706,33 @@ class Dialer(
                 **({"receipt": self.local_edit_receipt(s, p, identity, number)} if identity else {}),
             }
 
-    def proposal(self, p, campaign_id, capacity=None):
+    def proposal(self, p, campaign_id, capacity=None, list_name=None):
         if capacity is not None and (type(capacity) is not int or not 1 <= capacity <= 1000):
             fail(422, "Positive daily capacity required")
+        from sqlalchemy import func
+
         from app.db import Job
+        from app.optimization.geography import planning_key
         from app.service import dt
 
-        key = f"planning:{campaign_id}:{capacity or 'configured'}"
+        if list_name is not None and (not isinstance(list_name, str) or len(list_name) > 120):
+            fail(422, "Invalid list name")
+        key = planning_key(campaign_id, capacity, list_name)
         with self.db.transaction(False) as s:
             self.required(s, "campaigns", campaign_id, p)
+            if list_name is not None:
+                model = MODELS["leads"]
+                if not s.scalar(
+                    select(model.id)
+                    .where(
+                        model.tenant_id == p["tenant_id"],
+                        model.seller_id == p["seller_id"],
+                        model.op_campaign_id == campaign_id,
+                        func.coalesce(model.data["list_name"].as_string(), "") == list_name,
+                    )
+                    .limit(1)
+                ):
+                    fail(404, "Lead list not found in this campaign")
             current, _, _, _ = self.report_scope(s, p)
             if current["role"] != "admin":
                 fail(403, "Administrator access is required to plan inventory")
@@ -754,6 +772,7 @@ class Dialer(
                             "role": current["role"],
                             "campaign_id": campaign_id,
                             "capacity": capacity,
+                            "list_name": list_name,
                         },
                         f"{key}:{generation}:{int(self.clock().timestamp()) // 60}",
                         tenant_id=p["tenant_id"],

@@ -269,7 +269,7 @@ def test_lower_bound_and_gap_are_never_measured_against_an_unproven_zero(monkeyp
     assert result["optimality_gap"] == result["best_found_additional_numbers"] - result["lower_bound"]
 
 
-def test_regional_proposals_are_attributed_to_their_own_regions():
+def test_regional_proposals_are_attributed_to_their_own_states():
     leads = [lead("a1", region="212"), lead("a2", region="212"), lead("b1", region="415")]
     result = plan(
         leads,
@@ -286,7 +286,7 @@ def test_regional_proposals_are_attributed_to_their_own_regions():
     )
     by_region = {r["region"]: r["proposed_additional"] for r in result["regions"]}
     assert result["proposed_additional_numbers"] == 2
-    assert by_region == {"212": 1, "415": 1}
+    assert by_region == {"NY": 1, "CA": 1}
 
 
 @pytest.mark.parametrize("lifecycle", ["paused_for_outbound", "investigating"])

@@ -426,6 +426,7 @@ def register_optimization(app, service, principal, administrator):
                 "window_days": config["window_days"],
                 "control": "general_first" if body.family == "number_allocation" else "approved_static",
                 "candidate": "regional_first" if body.family == "number_allocation" else "configured_coach",
+                **({"allocation_basis": "state"} if body.family == "number_allocation" else {}),
                 "reviewed_by": p["user_id"],
             }
             update(campaign, controlled_comparisons=studies + [study])

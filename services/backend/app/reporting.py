@@ -30,6 +30,10 @@ REPORT_FIELDS = {
     "leads": {
         "campaign_id",
         "phone",
+        "state",
+        "state_source",
+        "region",
+        "list_name",
         "originally_eligible",
         "status",
         "outreach_hold",

@@ -218,7 +218,8 @@ def comparison_from_counts(study, values, grouped, *, now):
             and a["confidence_high"] is not None
             and b["confidence_low"] > a["confidence_high"]
         )
-        result["inference_unit"] = "region cluster; lead intervals are descriptive only"
+        unit = "state" if study.get("allocation_basis") == "state" else "region"
+        result["inference_unit"] = f"{unit} cluster; lead intervals are descriptive only"
     else:
         result["rep_strata"] = strata
         # Do not let a pooled result hide a loss within a rep or an unbalanced protocol.
@@ -370,6 +371,8 @@ class ComparisonWorkflows:
         }
 
     def comparison_assignment(self, s, p, campaign, lead, family, *, rep_id=None, persist=True):
+        from app.optimization.geography import coverage_region
+
         studies = campaign.data.get("controlled_comparisons", [])
         study = next(
             (
@@ -382,6 +385,9 @@ class ComparisonWorkflows:
             None,
         )
         if not study or lead.id not in study["population"]:
+            return None
+        if family == "number_allocation" and study.get("allocation_basis") != "state":
+            # Do not mix a previous area-code protocol with state-wide treatment.
             return None
         key = study["id"] + ":" + lead.id
         existing = self._by_key(s, p, "experiment_assignments", key)
@@ -451,7 +457,7 @@ class ComparisonWorkflows:
             )
         if family in {"coaching", "script"} and not rep_id:
             return None
-        stratum = lead.data.get("region") or "general" if family == "number_allocation" else rep_id
+        stratum = coverage_region(lead.data) if family == "number_allocation" else rep_id
         rep_count = 0
         if family in {"coaching", "script"}:
             model = MODELS["experiment_assignments"]

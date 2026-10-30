@@ -300,6 +300,7 @@ def job_metadata(payload):
         "receipt_id",
         "campaign_id",
         "capacity",
+        "list_name",
         "epoch",
         "rows",
         "source_dataset_id",

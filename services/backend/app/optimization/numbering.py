@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.optimization.geography import area_code, coverage_region
 from app.scheduling.models import OPTIMIZATION_DEFAULTS, contact_labels
 from app.scheduling.models import wilson as wilson
 
@@ -362,7 +363,8 @@ def select_number(lead, inventory, *, bound_id=None, strategy="regional_first"):
     reassignment_required = waiting_for_bound and not any(
         n["id"] == bound_id and number_ready(n) for n in inventory
     )
-    regional = [n for n in usable if n.get("region") == lead.get("region")]
+    lead_region = coverage_region(lead)
+    regional = [n for n in usable if coverage_region(n) == lead_region]
     general = [n for n in usable if n.get("region") == "general"]
     candidates = (
         [bound] if bound else (general or regional) if strategy == "general_first" else regional or general
@@ -389,6 +391,7 @@ def select_number(lead, inventory, *, bound_id=None, strategy="regional_first"):
             n.get("active_obligations", 0) / max(1, n.get("capacity", 1)),
             n.get("used_today", 0) / max(1, n.get("daily_limit", 1)),
             -(n.get("health", {}).get("score") or 0),
+            area_code(n) != area_code(lead),
             n["id"],
         ),
     )
@@ -435,15 +438,20 @@ def capacity_forecast(
     policy = policy or {}
     from app.optimization.capacity import time_forecast
 
+    normalized_policy = dict(policy)
+    if policy.get("proposed_number_classes"):
+        normalized_policy["proposed_number_classes"] = [
+            {**n, "region": coverage_region(n)} for n in policy["proposed_number_classes"]
+        ]
     return time_forecast(
-        leads,
-        inventory,
+        [{**lead, "region": coverage_region(lead)} for lead in leads],
+        [{**number, "region": coverage_region(number)} for number in inventory],
         now=now,
         horizon_hours=horizon_hours,
         rep_minutes=rep_minutes,
         handling_seconds=handling_seconds,
         daily_capacity_per_number=daily_capacity_per_number,
-        policy=policy,
+        policy=normalized_policy,
         staffed_windows=staffed_windows,
         additional_ready_after_hours=additional_ready_after_hours,
         rep_busy_until=rep_busy_until,

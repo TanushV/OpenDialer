@@ -1414,6 +1414,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                             job["payload"]["campaign_id"],
                             job["payload"].get("capacity"),
                             lease=(job["id"], worker_id),
+                            list_name=job["payload"].get("list_name"),
                         )
                         if receipt["status"] in {"superseded", "pending"}:
                             return await requeue(job, receipt)
