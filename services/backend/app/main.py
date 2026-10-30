@@ -389,9 +389,30 @@ def create_app(settings=None, *, clock=None, carrier=None):
         allow_credentials=False,
     )
     bearer = HTTPBearer(auto_error=False)
+    from fastapi.exceptions import RequestValidationError
+
+    from app.secret_files import SecretStorageError
+    from app.security import LoginLimiter
+
+    login_limiter = LoginLimiter()
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request, error):
+        # Pydantic's default includes submitted input, including malformed passwords/keys.
+        return JSONResponse(
+            {"detail": [{k: entry[k] for k in ("type", "loc", "msg")} for entry in error.errors()]},
+            status_code=422,
+        )
+
+    @app.exception_handler(SecretStorageError)
+    async def credential_error(request, error):
+        return JSONResponse({"detail": str(error)}, status_code=503)
 
     @app.middleware("http")
     async def boundaries(request, call_next):
+        origin = request.headers.get("origin")
+        if origin and origin not in settings.allowed_origins:
+            return JSONResponse({"detail": "Untrusted request origin"}, status_code=403)
         if (
             request.headers.get("content-length", "0").isdigit()
             and int(request.headers.get("content-length", 0)) > 5_000_000
@@ -492,7 +513,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
             return issue_session(s, settings, user, clock())
 
     @app.post("/v1/auth/session")
-    def login(data: Login):
+    def login(data: Login, request: Request):
+        login_limiter.check(request.client.host if request.client else "unknown")
         with db.transaction() as s:
             user = next((u for u in rows(s, "users") if u.data["email"] == data.email.casefold()), None)
             if (

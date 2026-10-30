@@ -28,8 +28,9 @@ jobs:
           workspaces: apps/desktop/src-tauri
       - run: npm ci && npm run build && npm test
         working-directory: apps/desktop
-      - run: uv run pytest tests/test_distribution_contract.py -q
+      - run: uv run pytest tests/test_distribution_contract.py services/backend/tests/test_secret_storage.py -q
         env:
+          OPENDIALER_TEST_NATIVE_SECRETS: '1'
           OMP_NUM_THREADS: '1'
           OPENBLAS_NUM_THREADS: '1'
           PYTHONUTF8: '1'

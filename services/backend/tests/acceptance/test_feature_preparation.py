@@ -313,13 +313,16 @@ def fact(statement, source_id, quote):
 def test_official_site_research_follows_a_small_official_set_and_keeps_only_quoted_facts(
     workspace, app, monkeypatch
 ):
+    from unittest.mock import AsyncMock
+
     import app.research.fetch as fetch
     import httpx
 
+    monkeypatch.setattr(fetch, "public_address", AsyncMock(return_value="93.184.215.14"))
     requested = []
 
     def handler(request):
-        url = str(request.url.copy_with(path=request.url.path or "/"))
+        url = str(request.url.copy_with(host=request.headers["host"], path=request.url.path or "/"))
         requested.append(url)
         status, body, headers = SITE.get(url, (404, "", {}))
         return httpx.Response(status, text=body, headers=headers)

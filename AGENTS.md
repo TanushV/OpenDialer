@@ -9,4 +9,4 @@ Write acceptance tests before changing code and keep them green on SQLite and Po
 
 Tests with simulated providers are evidence about software behavior only. Carrier calls, hardware audio, production hosting, account eligibility, legal approval, and outcome lift require their own evidence. Keep those gates explicit; never convert an absent API key into a successful integration claim.
 
-Do not install, update or modify the installed application or its data. When releases resume, use the signed updater.
+October 30 owner authorization: protect saved credentials, verify and publish the current release, and update this Mac through the signed updater. Preserve installed workspace data. Future installs/updates still require an explicit owner request.

@@ -12,8 +12,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "services/backend")
 import uvicorn
 from app.config import Settings
 from app.main import create_app
+from cryptography.fernet import Fernet
 
 from scripts.disposable_database import validate_database_url
+
+os.environ["OPENDIALER_SECRET_KEY"] = Fernet.generate_key().decode()
+os.environ.pop("OPENDIALER_SECRET_KEY_FILE", None)
 
 mode = sys.argv[1]
 with tempfile.TemporaryDirectory(prefix="opendialer-e2e-") as directory:

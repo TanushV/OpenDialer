@@ -1,12 +1,12 @@
 """Codex login stays personal; managed credentials survive refresh and failed imports."""
 
 import asyncio
-import json
 import os
 import sys
 from pathlib import Path
 
 import pytest
+from app.secret_files import read_private
 
 
 @pytest.mark.asyncio
@@ -103,7 +103,7 @@ async def test_subprocess_refresh_persists_and_tool_only_protocol(tmp_path, runt
     home = tmp_path / "personal"
     codex.save_login(home, login())
     assert (await codex.CodexRuntime(home).account(refresh=True))["email"] == "child@example.test"
-    assert json.loads((home / "auth.json").read_text())["tokens"]["refresh_token"] == "rotated-by-child"
+    assert read_private(home / "auth.json")["tokens"]["refresh_token"] == "rotated-by-child"
     client = codex.CodexClient(home, "fixture", "submit_script_write")
     result = await client.complete("fixture", {"mode": "valid"}, {"type": "object"})
     assert result.data == {"opener": "Hello"}
@@ -112,9 +112,7 @@ async def test_subprocess_refresh_persists_and_tool_only_protocol(tmp_path, runt
     for mode in ("prose", "wrong_tool"):
         with pytest.raises(codex.InferenceError):
             await client.complete("fixture", {"mode": mode}, {"type": "object"})
-    assert (
-        json.loads((home / "auth.json").read_text())["tokens"]["refresh_token"] == "rotated-during-inference"
-    )
+    assert read_private(home / "auth.json")["tokens"]["refresh_token"] == "rotated-during-inference"
     assert {p.name for p in home.iterdir()} == {"auth.json", ".lock"}
 
 
@@ -133,7 +131,7 @@ def test_failed_import_preserves_login_and_personal_route(workspace, app, monkey
         "/v1/inference/codex/import", headers=workspace["headers"], json=login()
     )
     assert result.status_code == 400
-    assert json.loads((home / "auth.json").read_text()) == login()
+    assert read_private(home / "auth.json") == login()
     service.configs.write(workspace["tenant_id"], {"inference_mode": "codex"})
     assert isinstance(
         service.inference(workspace["tenant_id"], "script_write", workspace["user_id"]), CodexClient
@@ -156,14 +154,14 @@ def login():
 
 
 def test_personal_import_refresh_disconnect(workspace, app, monkeypatch):
-    from app.providers.codex import CodexRuntime, profile_home
+    from app.providers.codex import CodexRuntime, profile_home, save_login
 
     async def account(self, refresh=False):
         assert refresh
         path = self.home / "auth.json"
-        data = json.loads(path.read_text())
+        data = read_private(path)
         data["tokens"]["refresh_token"] = "rotated-fixture-refresh"
-        path.write_text(json.dumps(data))
+        save_login(self.home, data)
         return {"type": "chatgpt", "email": "fixture@example.test", "planType": "pro"}
 
     monkeypatch.setattr(CodexRuntime, "account", account)
@@ -175,13 +173,13 @@ def test_personal_import_refresh_disconnect(workspace, app, monkeypatch):
     assert result.json()["connected"] is True
     assert "token" not in result.text
     home = profile_home(app.state.service.settings.data_dir, workspace["user_id"])
-    saved = json.loads((home / "auth.json").read_text())
+    saved = read_private(home / "auth.json")
     assert saved["tokens"]["refresh_token"] == "rotated-fixture-refresh"
     assert client.post(url + "/import", headers=headers, json={"OPENAI_API_KEY": "fake"}).status_code == 422
     malformed = client.post(url + "/import", headers=headers, json=[login()])
     assert malformed.status_code == 422
     assert "fixture-access" not in malformed.text
-    assert json.loads((home / "auth.json").read_text()) == saved
+    assert read_private(home / "auth.json") == saved
     assert client.get(url, headers=headers).json()["connected"] is True
     assert client.delete(url, headers=headers).status_code == 200
     assert not (home / "auth.json").exists()

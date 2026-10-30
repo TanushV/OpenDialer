@@ -2,13 +2,16 @@ import hashlib
 import json
 import secrets
 import threading
+from collections import deque
 from datetime import timedelta
 from pathlib import Path
+from time import monotonic
 
 from fastapi import HTTPException
 from sqlalchemy import select
 
 from app.db import MODELS, put, uid
+from app.secret_files import file_lock, protect_existing, read_private, write_private
 
 
 class LazyPasswordHash:
@@ -35,8 +38,30 @@ class LazyPasswordHash:
 PASSWORDS = LazyPasswordHash()
 
 
+class LoginLimiter:
+    """Bound password-hash work per source and per authority, without trusting forwarded headers."""
+
+    def __init__(self):
+        self.sources, self.total, self.lock = {}, deque(), threading.Lock()
+
+    def check(self, source):
+        now = monotonic()
+        with self.lock:
+            self.sources = {k: v for k, v in self.sources.items() if v and v[-1] > now - 60}
+            entries = self.sources.setdefault(source, deque())
+            for queue in (entries, self.total):
+                while queue and queue[0] <= now - 60:
+                    queue.popleft()
+            if len(entries) >= 10 or len(self.total) >= 100:
+                raise HTTPException(
+                    429, "Too many sign-in attempts. Try again in a minute.", headers={"Retry-After": "60"}
+                )
+            entries.append(now)
+            self.total.append(now)
+
+
 class ConfigStore:
-    """Per-tenant (and per-user plan) provider configuration as plain JSON files.
+    """Per-tenant (and per-user plan) encrypted provider configuration.
 
     Every authority process sharing the data directory reads the same files; writes replace a
     file atomically. Edits carrying a request identity are idempotent and version-checked.
@@ -46,15 +71,14 @@ class ConfigStore:
         self.directory = Path(directory) / "config"
         self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         self._lock = threading.Lock()
+        with file_lock(self.directory / ".lock"):
+            protect_existing(directory)
 
     def read(self, key):
-        try:
-            return json.loads((self.directory / (key + ".json")).read_text())
-        except FileNotFoundError:
-            return {}
+        return read_private(self.directory / (key + ".json"))
 
     def write(self, key, values, *, expected=None, advance_version=False, edit=None):
-        with self._lock:
+        with self._lock, file_lock(self.directory / ".lock"):
             current = self.read(key)
             receipts = dict(current.get("_config_receipts", {}))
             if edit is not None:
@@ -79,9 +103,7 @@ class ConfigStore:
             if edit is not None:
                 data["_config_receipts"] = receipts
             path = self.directory / (key + ".json")
-            temporary = path.with_suffix("." + uid() + ".tmp")
-            temporary.write_text(json.dumps(data))
-            temporary.replace(path)
+            write_private(path, data)
 
 
 def _token_hash(secret):

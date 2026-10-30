@@ -1,4 +1,6 @@
 import asyncio
+import ipaddress
+import socket
 from urllib.parse import urldefrag, urljoin, urlsplit
 
 import httpx
@@ -10,6 +12,17 @@ FETCH_DEADLINE_SECONDS = 20
 
 class UnsafeURL(ValueError):
     pass
+
+
+async def public_address(host, port):
+    try:
+        results = await asyncio.to_thread(socket.getaddrinfo, host, port, type=socket.SOCK_STREAM)
+        addresses = {ipaddress.ip_address(row[4][0]) for row in results}
+    except (OSError, ValueError):
+        raise UnsafeURL("Source must resolve to a public network address") from None
+    if not addresses or any(not address.is_global or address.is_multicast for address in addresses):
+        raise UnsafeURL("Source must resolve only to public network addresses")
+    return str(min(addresses, key=lambda address: (address.version, int(address))))
 
 
 def validate_url(url):
@@ -67,10 +80,19 @@ class SafeFetcher:
             if self.allowed_domains and not same_site(parsed.hostname, self.allowed_domains):
                 raise UnsafeURL("Source domain is not allowlisted")
             validate_url(url)
+            address = await public_address(
+                parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80)
+            )
+            # Connect to exactly the vetted IP, retaining the original HTTP/TLS identity.
+            # A second DNS lookup would reopen the private-network boundary through rebinding.
+            target = httpx.URL(url).copy_with(host=address)
             async with (
-                httpx.AsyncClient(follow_redirects=False, timeout=10) as http,
+                httpx.AsyncClient(follow_redirects=False, timeout=10, trust_env=False) as http,
                 http.stream(
-                    "GET", url, headers={"User-Agent": "OpenDialer/0.1 (public first-party research)"}
+                    "GET",
+                    target,
+                    headers={"User-Agent": "OpenDialer (public first-party research)", "Host": parsed.netloc},
+                    extensions={"sni_hostname": parsed.hostname},
                 ) as response,
             ):
                 if response.status_code in {301, 302, 303, 307, 308}:

@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from app.providers.inference import InferenceError, InferenceResult
+from app.secret_files import read_private, write_private
 
 MAX_LOGIN_BYTES = 65536
 RECONNECT = "Codex could not complete the request. Check your connection and plan limits; if the login expired or was revoked, sign in with Codex again and import a fresh auth.json."
@@ -70,13 +71,7 @@ def validate_login(data):
 
 
 def save_login(home, data):
-    home.mkdir(parents=True, exist_ok=True, mode=0o700)
-    path = home / "auth.json"
-    temporary = home / "auth.tmp"
-    with open(temporary, "w", encoding="utf-8") as stream:
-        os.chmod(temporary, 0o600)
-        json.dump(data, stream)
-    temporary.replace(path)
+    write_private(home / "auth.json", data)
 
 
 @asynccontextmanager
@@ -118,7 +113,7 @@ class CodexRuntime:
             workspace.mkdir()
             auth = self.home / "auth.json"
             if auth.exists():
-                save_login(run_home, json.loads(auth.read_text()))
+                write_private(run_home / "auth.json", read_private(auth), encrypted=False)
             # No user config, plugins, credentials or workspace instructions are inherited.
             config = "\n".join(
                 [
@@ -348,7 +343,7 @@ def bind_api(app, service, principal):
                     account = await CodexRuntime(candidate).account(refresh=True)
                 except InferenceError as exc:
                     raise HTTPException(400, str(exc)) from None
-                save_login(directory, json.loads((candidate / "auth.json").read_text()))
+                save_login(directory, read_private(candidate / "auth.json"))
                 (directory / "account.json").write_text(json.dumps(account))
         return {"connected": True, "account": account}
 

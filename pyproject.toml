@@ -20,6 +20,7 @@ dependencies = [
   "beautifulsoup4>=4.14,<5",
   "tzdata>=2026.1,<2027",
   "supabase==2.33.0",
+  "keyring>=25.6,<26",
 ]
 [dependency-groups]
 dev = [
@@ -28,6 +29,7 @@ dev = [
     "pytest-xdist>=3.8,<4",
     "ruff>=0.15,<1",
     "pyinstaller>=6.19,<7",
+    "setuptools>=84.1.0",
 ]
 [build-system]
 requires = ["hatchling"]

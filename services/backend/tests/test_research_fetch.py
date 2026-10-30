@@ -1,8 +1,15 @@
 """First-party fetch limits with in-memory HTTP responses, never public requests."""
 
+from unittest.mock import AsyncMock
+
 import httpx
 import pytest
 from app.research.fetch import SafeFetcher, UnsafeURL
+
+
+@pytest.fixture(autouse=True)
+def public_dns(monkeypatch):
+    monkeypatch.setattr("app.research.fetch.public_address", AsyncMock(return_value="93.184.215.14"))
 
 
 @pytest.mark.asyncio

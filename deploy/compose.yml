@@ -11,6 +11,7 @@ x-backend: &backend
     OPENDIALER_WORKER_ENABLED: 'false'
     OPENDIALER_SIMULATION: 'false'
     OPENDIALER_DATA_DIR: /var/lib/opendialer
+    OPENDIALER_SECRET_KEY: ${OPENDIALER_SECRET_KEY:?set a persistent Fernet credential-encryption key}
   volumes:
     - app_data:/var/lib/opendialer
   networks: [private]

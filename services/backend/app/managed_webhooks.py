@@ -1,8 +1,6 @@
 """Outgoing control delivery. Auth refresh belongs to the supported Supabase SDK."""
 
 import asyncio
-import json
-import os
 import re
 from pathlib import Path
 from time import monotonic
@@ -13,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 
 from app.db import MODELS
+from app.secret_files import read_private, write_private
 from app.service import dt, fail
 from app.telephony.reducer import TERMINAL
 
@@ -44,18 +43,6 @@ class ConnectionProfile(BaseModel):
         return value
 
 
-def write_private(path, value):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    temporary = path.with_suffix("." + str(uuid4()) + ".tmp")
-    try:
-        with os.fdopen(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as stream:
-            json.dump(value, stream)
-        temporary.replace(path)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
 class SessionStorage:
     """SDK storage interface; secrets never enter normal settings or API responses."""
 
@@ -63,7 +50,7 @@ class SessionStorage:
         self.path = Path(path)
 
     def read(self):
-        return json.loads(self.path.read_text()) if self.path.exists() else {}
+        return read_private(self.path)
 
     async def get_item(self, key):
         return self.read().get(key)
@@ -93,7 +80,7 @@ class ManagedConnection:
         self.service = service
         self.path = service.settings.data_dir / "managed-connection.json"
         self.storage = SessionStorage(service.settings.data_dir / "managed-session.json")
-        self.config = json.loads(self.path.read_text()) if self.path.exists() else {}
+        self.config = read_private(self.path)
         self.installation = str(uuid4())
         self.task = None
         self.client = None

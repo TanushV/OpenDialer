@@ -444,7 +444,7 @@ None of these is proven. Do them only with the owner's explicit approval and the
 ## 11. Decisions and limitations (not bugs)
 
 - No upgrade path from 0.2/0.3; fresh stores only.
-- Provider keys are stored as plain JSON on the authority (internal use).
+- Provider settings, Codex logins and managed sessions use authenticated encryption; see [security and recovery](policies/security.md).
 - Buying numbers, call recording, subscriptions and CRM/calendar sync stay disabled by policy.
 - Raw speech, quotes and helper text expire within five minutes; there is no recording.
 - Size targets were missed: backend -14% (target about -30%), frontend -2% (target about -20%). See HANDOFF_AST.md.

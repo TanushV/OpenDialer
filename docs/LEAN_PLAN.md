@@ -5,6 +5,15 @@ Approved by the user on October 22, 2026. This is the active plan. It supersedes
 detailed description of what each feature does. Progress and evidence go in the "Status" section at the end of this
 file; [STATUS.md](STATUS.md) keeps the historical log.
 
+## October 30 owner revision
+
+The owner requested security cleanup, Git/GitHub publication and updating the installed Mac.
+This supersedes the earlier encryption-removal and install-freeze decisions for this release.
+Restore a small credential-only encryption layer backed by the native OS credential store (or an explicit
+server deployment key), preserve existing settings on upgrade, enforce HTTP origins, sanitize validation
+errors and throttle password logins. Keep both database modes, all features and the signed updater.
+This is a bounded security improvement, not an independent penetration-test certification.
+
 ## Principle
 
 OpenDialer is for internal use. It must be lightweight, clean and fast, with no bloat, and **every end feature a rep,
@@ -142,6 +151,13 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
   legal gates stay external (X01-X08).
 
 ## Status
+
+- October 30 security/update request (in progress): seven regression tests reproduced plaintext credentials,
+  validation-error disclosure, foreign-origin acceptance and unthrottled password guessing before changes.
+  Settings, personal Codex logins and managed webhook sessions now use authenticated encryption; desktop
+  keys live in macOS Keychain/Windows Credential Manager, hosted keys are supplied separately. Old files
+  convert atomically without changing data. No plaintext fallback. Native Mac credential roundtrip passes.
+  Full verification, signed release and in-place Mac update are in progress.
 
 - October 29 owner-requested list/state allocation (unreleased): CSV imports retain a named list and explicit or
   estimated US state. Named-list and whole-campaign plans share the existing background planner; all owned capacity
