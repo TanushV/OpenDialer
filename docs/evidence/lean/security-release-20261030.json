@@ -108,5 +108,6 @@
       "sha256": "33f29b481cdc44f1a433c998d4f89ef7a3e521e23a05c95a1a36819d20981db4"
     }
   },
-  "mac_packaging": "Both sidecars rebuilt; complete arm64 bundle, deep strict seal, hardened runtime, extracted archive and DMG verification passed. Local updater signing used a disposable key removed after verification; production signing remains in GitHub."
+  "mac_packaging": "Both sidecars rebuilt; complete arm64 bundle, deep strict seal, hardened runtime, extracted archive and DMG verification passed. Local updater signing used a disposable key removed after verification; production signing remains in GitHub.",
+  "ci_fixture_correction": "Clean GitHub lint found ten import-order errors after the root conftest was added; local cached lint missed the module-classification change. Reproduced with --no-cache, explicitly classified the backend conftest imports, then clean-cache lint and formatting passed. No runtime code changed; first draft build was cancelled before publication."
 }

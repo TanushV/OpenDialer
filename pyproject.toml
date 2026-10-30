@@ -53,6 +53,9 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "S"]
 ignore = ["E501", "S101", "B008"]
+[tool.ruff.lint.isort]
+# Test helpers named conftest are imported from services/backend/tests, not the root fixture.
+known-third-party = ["conftest"]
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**" = ["S105", "S106", "S311"]
 "tests/**" = ["S105", "S106", "S311"]
