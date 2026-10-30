@@ -12,6 +12,13 @@ Status section of `docs/LEAN_PLAN.md`.
 
 ## October 30 security and 0.6.0 release
 
+Published [v0.6.0](https://github.com/TanushV/OpenDialer/releases/tag/v0.6.0) from `1cd538a`;
+[all six CI jobs pass](https://github.com/TanushV/OpenDialer/actions/runs/41137559225), including 179 browser journeys.
+This Mac updated from 0.5.1 through the signed updater, passed bundle verification, reopened its workspace
+and confirms the current release. The temporary duplicate test app was removed. Native packages passed;
+the release receipt records recovery from transient DMG and asset-upload failures. Installed provider settings
+remain unconfigured: updating the app does not import staged credentials or make it ready for live calls.
+
 Owner authorized credential protection, GitHub publication and a signed update of this Mac. This overrides
 prior encryption-removal and installation-freeze decisions for this task. Runtime security changes are
 `2625e86`: encrypted credential files backed by the OS credential store (explicit deployment key for hosted),
@@ -26,7 +33,7 @@ business data is preserved. Secrets are not included in business exports. Full-d
 business databases, caches, exports and imported setup/login files. Native credential stores cannot protect an
 unlocked account from every malicious process. This is not a penetration-test certification.
 
-## October 29 list/state number allocation
+## October 29 list/state number allocation (shipped in 0.6.0)
 
 The [setup guide](GETTING_STARTED.md#numbers-for-a-lead-list) describes the visible flow: name a CSV list, provide
 states when known, choose the list in Numbers, plan state coverage, and open a state's metro suggestions for quotes.
@@ -38,9 +45,9 @@ starting a state comparison. Count/cost approvals, identity, callback proof and 
 Backend implementation: `afbcfd0`. Full SQLite 720/4 skips and PostgreSQL 721/3 skips; frontend 81 tests and
 build/typecheck/format pass. Browser results, regression evidence and sizes are in the
 [verification receipt](evidence/lean/state-list-allocation-20261029.json). No real provider searches, purchases or calls;
-installed app/data and downloads are unchanged. The offline NPA mapping is dated in `optimization/geography.py`.
+at that checkpoint, installed app/data and downloads were unchanged. The offline NPA mapping is dated in `optimization/geography.py`.
 
-## October 29 shared webhook integration
+## October 29 shared webhook integration (shipped in 0.6.0)
 
 Current [plan checkpoint](MANAGED_WEBHOOK_PLAN.md), [verification receipt](evidence/lean/managed-integration-20261029.json)
 and [caller setup](GETTING_STARTED.md#local-calling-with-the-shared-webhook). Supabase control relay, per-PC profile
@@ -52,11 +59,11 @@ Full source suites passed: SQLite 705, PostgreSQL 707; later focused regressions
 frontend unit 81, relay/setup contracts 9; packaged authority import/restart and real Auth refresh verified.
 A restored session originally authenticated REST but not Realtime or refresh; explicit SDK initialization fixes it.
 This does not prove PSTN calls, hardware audio, funded inference, Windows or production free-tier capacity.
-The installed app/data and published installers remain unchanged. The AST document is an older snapshot.
+At that checkpoint, the installed app/data and published installers were unchanged. The AST document is an older snapshot.
 
-## October 26 setup and journey audit (locally verified, unreleased)
+## October 26 setup and journey audit (shipped in 0.6.0)
 
-Current work also adds **Codex login import** (unreleased): [setup steps](GETTING_STARTED.md#connect-your-codex-login).
+Current work also adds **Codex login import** (shipped in 0.6.0): [setup steps](GETTING_STARTED.md#connect-your-codex-login).
 `providers/codex.py` owns the three personal GET/POST-import/DELETE `/v1/inference/codex` routes, isolated managed
 refresh and named submission-tool inference. The runtime is pinned to 0.164.0; `test_codex_login.py` covers the
 personal file/protocol paths, and opt-in `test_codex_native.py` exercises the actual binary against a local fake

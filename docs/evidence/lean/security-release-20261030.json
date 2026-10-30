@@ -2,7 +2,7 @@
   "date": "2026-10-30",
   "version": "0.6.0",
   "security_commit": "2625e86",
-  "status": "Local verification passed; GitHub CI, release publication and signed Mac update pending.",
+  "status": "Released 0.6.0 from green-CI source; installed Mac updated through signed updater and verified after restart.",
   "tests": {
     "sqlite": {
       "passed": 736,
@@ -122,6 +122,30 @@
     "browser_corrections": {
       "path": "/tmp/opendialer-060-ci-regressions-browser.log",
       "sha256": "64244b2a3a42a6d8c0995b5e78a1bb232857349eb43e7642435f471bb93bbfad"
+    },
+    "frozen_final": {
+      "path": "/tmp/opendialer-060-frozen-final.log",
+      "sha256": "8b55e78b302aed0ce96f327aa2932caf99dbd1d32cf3c9617ce0279d14a730c5"
+    },
+    "ci_sqlite": {
+      "path": "/tmp/opendialer-060-ci-sqlite.log",
+      "sha256": "486143820dee67db07be437df32b24fd945d2af87ba0279c65a104dbc2ccc18b"
+    },
+    "ci_postgres": {
+      "path": "/tmp/opendialer-060-ci-postgres.log",
+      "sha256": "82da50eacbdcb9eff6d768033e996683390ca17e8eb13d407a6c191a48809a9e"
+    },
+    "ci_browser": {
+      "path": "/tmp/opendialer-060-ci-browser.log",
+      "sha256": "e733d79f2234b48e8a91e1cd7a5e23f913941fc1a0fc4d9490c4692cfc827248"
+    },
+    "release_mac_success": {
+      "path": "/tmp/opendialer-060-release-mac-success.log",
+      "sha256": "a240f33e27325a1670cc331da77ff74e52b86a21f9ef7caa4d7f589fb5882ef6"
+    },
+    "release_upload_failure": {
+      "path": "/tmp/opendialer-060-release-upload-failure.log",
+      "sha256": "65ba8a5149a5baed37900469babd7a2d640b1207ac4e0a487f5e99365f64f70c"
     }
   },
   "mac_packaging": "Both sidecars rebuilt; complete arm64 bundle, deep strict seal, hardened runtime, extracted archive and DMG verification passed. Local updater signing used a disposable key removed after verification; production signing remains in GitHub.",
@@ -133,5 +157,48 @@
     "sqlite_targeted_passed": 21,
     "postgres_targeted_passed": 21,
     "browser_targeted_passed": 24
+  },
+  "release_source": "1cd538a1b33ee0c77715bdac353a8a9ca17fb84e",
+  "ci": {
+    "url": "https://github.com/TanushV/OpenDialer/actions/runs/41137559225",
+    "status": "success",
+    "sqlite": {
+      "passed": 732,
+      "skipped": 11
+    },
+    "postgres": {
+      "passed": 733,
+      "skipped": 10
+    },
+    "note": "Linux full suites skip native macOS/Windows cases, which run separately in native CI and release jobs.",
+    "browser_passed": 179,
+    "jobs_passed": 6
+  },
+  "release_build": {
+    "url": "https://github.com/TanushV/OpenDialer/actions/runs/41137557670",
+    "status": "Both native artifact builds verified; release upload recovered manually after HTTP 408.",
+    "first_mac_attempt": "Signed archive and verification passed; hdiutil failed creating DMG with Resource busy. Retry required before publication.",
+    "recovery": "Mac hdiutil Resource busy passed on retry. GitHub draft upload timed out on the Windows EXE; recovered the original Actions artifact, verified its archive SHA256 and installer against SHA256SUMS, then uploaded only the missing EXE. All nine release assets present; artifact digests match published checksums."
+  },
+  "release": {
+    "url": "https://github.com/TanushV/OpenDialer/releases/tag/v0.6.0",
+    "published_at": "2026-10-30T22:54:22Z",
+    "source": "1cd538a1b33ee0c77715bdac353a8a9ca17fb84e",
+    "public_latest_manifest": "0.6.0",
+    "asset_count": 9
+  },
+  "installed_mac": {
+    "version_before": "0.5.1",
+    "version_after": "0.6.0",
+    "method": "Existing app signed updater",
+    "bundle": "/Applications/OpenDialer.app",
+    "codesign_deep_strict": "passed",
+    "gui_restart": "Agite workspace, owner account and approved script reopened; Settings shows 0.6.0 and updater reports current release.",
+    "business_counts_before_and_after": {
+      "leads": 0,
+      "users": 1
+    },
+    "configuration_before_and_after": "Telnyx and OpenRouter unconfigured in the installed workspace. No provider credentials imported or rotated by this task. Calling setup and phone number still required.",
+    "duplicate_test_app": "Removed only task-created target/release/bundle/macos/OpenDialer.app after installed verification."
   }
 }

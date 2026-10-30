@@ -22,8 +22,8 @@ feature goes: security hardening, legacy upgrade code, dead code, duplicate mech
 harnesses. Where a mechanism is over-built, rewrite it smaller with the same results. The AST must go down
 significantly; a step that grows it is wrong.
 
-Out of scope for now: installing or updating the Mac/Windows app. Never touch the installed app
-(`/Applications/OpenDialer.app`) or its data. Verify through the backend and the browser UI.
+Original October 22 scope excluded installed-app updates. The October 30 owner revision above
+authorizes this Mac update through the signed updater while preserving its workspace.
 
 ## Features that stay
 
@@ -62,7 +62,9 @@ Every item below must work at the end, in both modes where it applies.
 13. Admin: settings and provider keys, callback routing, users, backup and restore, webhook reachability check, local
     webhook tunnel, offline viewing in the desktop when the server is down.
 
-## What goes
+## Original October 22 removals
+
+The October 30 revision restores the bounded credential and request protections described above.
 
 - Hardening: encryption at rest (`EncryptedJSON`, Fernet, cipher context); HMAC lookup keys (plain normalized keys
   instead); the encrypted, hash-chained journals (consent, suppression, effect, authorization) and their startup
@@ -134,7 +136,7 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 ## Decisions
 
 - No upgrade path: fresh stores only; existing 0.2/0.3 stores are not migrated. The installed app keeps its own data
-  untouched. Provider keys are stored unencrypted on the authority (internal use).
+  untouched. The original plaintext provider-key decision is superseded by the October 30 credential protection revision.
 - Storage keeps the document shape (JSON `data` per row) with real columns on busy tables; no rewrite to fully typed
   tables.
 - The release build path stays; native acceptance and staging machinery go.
@@ -152,7 +154,7 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
-- October 30 security/update request (in progress): seven regression tests reproduced plaintext credentials,
+- October 30 security/update request (complete): seven regression tests reproduced plaintext credentials,
   validation-error disclosure, foreign-origin acceptance and unthrottled password guessing before changes.
   Settings, personal Codex logins and managed webhook sessions now use authenticated encryption; desktop
   keys live in macOS Keychain/Windows Credential Manager, hosted keys are supplied separately. Old files
@@ -161,13 +163,17 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
   Rust 7, native Codex/Keychain/package 18 and distribution 14. Seven further failing regressions
   preceded public-only research with DNS pinning. Python/npm/Rust scans report zero known vulnerabilities
   after updates; upstream maintenance/platform warnings remain documented. Frozen credential upgrade and
-  restart pass. See [receipt](evidence/lean/security-release-20261030.json). GitHub CI, signed release
-  publication and the in-place Mac update remain in progress. CI caught successful sign-ins consuming the
+  restart pass. See [receipt](evidence/lean/security-release-20261030.json). Release source `1cd538a` passed
+  all six GitHub CI jobs, including all 179 browser cases. v0.6.0 is published and this Mac updated from
+  0.5.1 through the signed updater; bundle seal, version, reopened workspace/account/script and retained
+  user/lead counts verified. The duplicate test app was removed. Both native packages verified; transient
+  DMG creation and Windows EXE upload failures were recovered before publication. The installed workspace
+  still needs provider credentials and calling setup; no real calls or purchases occurred. CI caught successful sign-ins consuming the
   new login cap and an existing script-retry fixture racing automatic recovery. Two failing auth regressions
   preceded the correction; 21 scoped cases pass on each database and all 24 affected browser journeys pass.
   Limits remain enforced; no timeout increase or simulation bypass.
 
-- October 29 owner-requested list/state allocation (unreleased): CSV imports retain a named list and explicit or
+- October 29 owner-requested list/state allocation (shipped in 0.6.0): CSV imports retain a named list and explicit or
   estimated US state. Named-list and whole-campaign plans share the existing background planner; all owned capacity
   remains shared, and additions are proposed by state. Calling reuses same-state capacity across area codes, retains
   bound identities, balances load/health first, and uses exact area code only as a tie-breaker. Plan rows open state

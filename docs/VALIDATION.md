@@ -2,6 +2,8 @@
 
 **Current software verification: October 30, 2026, 0.6.0.** The [release receipt](evidence/lean/security-release-20261030.json) records backend SQLite/PostgreSQL, browser, frontend, native credential/runtime, frozen restart and Mac packaging checks, dependency audits and release status. The [handoff](HANDOFF.md) explains the current implementation and remaining live/security gates. Earlier results below are historical.
 
+Release source `1cd538a` passes [all six CI jobs](https://github.com/TanushV/OpenDialer/actions/runs/41137559225). Published 0.6.0 is installed on this Mac through the signed updater; version, signature seal and reopened workspace verified. Provider setup and live carrier/audio gates remain open.
+
 See [requirements](REQUIREMENTS.md) for resource evidence. Older results below are dated snapshots, not current release claims.
 
 **Historical verification: October 24, 2026, script-learning corrections `74658b4`.**
