@@ -9,8 +9,10 @@ file; [STATUS.md](STATUS.md) keeps the historical log.
 
 The owner requested security cleanup, Git/GitHub publication and updating the installed Mac.
 This supersedes the earlier encryption-removal and install-freeze decisions for this release.
-Restore a small credential-only encryption layer backed by the native OS credential store (or an explicit
-server deployment key), preserve existing settings on upgrade, enforce HTTP origins, sanitize validation
+Keep a small credential-only encryption layer backed by an automatic private desktop key file (or an explicit
+server deployment key). The owner subsequently rejected all native credential-store popups: do not access
+Keychain/Credential Manager. Retain inaccessible old ciphertext and restore available credentials without
+changing business records. Enforce HTTP origins, sanitize validation
 errors and throttle password logins. Keep both database modes, all features and the signed updater.
 This is a bounded security improvement, not an independent penetration-test certification.
 
@@ -154,7 +156,15 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
-- October 30 installed setup follow-up (0.6.1, release pending): imported the existing calling profile and
+- October 30 prompt-free setup follow-up (0.6.2, in progress): owner explicitly removed OS credential-store
+  access. Regression-first change uses a private persistent desktop key file; inaccessible old encrypted files
+  are retained without requesting an OS password. Explicit server keys and failure preservation remain.
+  55 scoped storage, managed webhook, Codex and distribution checks pass on each database; an added Windows-path
+  case brings storage tests to 17. Restored this Mac's available Telnyx, webhook and Codex files under the new key,
+  retaining old ciphertext. Existing 0.6.1 opens without a Keychain request using a temporary explicit-key bootstrap. Signed release, installed
+  setup restoration and normal restart verification follow. No number purchases or calls.
+
+- October 30 installed setup follow-up (0.6.1, published and installed; startup blocked by OS credential prompt): imported the existing calling profile and
   personal Codex login into the installed Mac; Telnyx API access and both application webhook URLs verify.
   The released backend failed private WebSocket subscription with `SSLCertVerificationError`, reproduced
   with disposable data and an instrumented copy of the released binary. A failing packaging regression

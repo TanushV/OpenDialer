@@ -3,7 +3,6 @@
 import json
 import os
 import sys
-from uuid import uuid4
 
 import pytest
 from app.security import ConfigStore
@@ -157,17 +156,21 @@ def test_unavailable_key_store_never_converts_plaintext_or_falls_back(tmp_path, 
     assert path.read_text() == '{"key":"old-private-value"}'
 
 
-@pytest.mark.skipif(
-    not os.getenv("OPENDIALER_TEST_NATIVE_SECRETS") or sys.platform not in {"darwin", "win32"},
-    reason="Explicit disposable native credential-store test",
-)
-def test_native_credential_store_roundtrip(tmp_path, monkeypatch):
+@pytest.mark.parametrize("platform", ["darwin", "win32"])
+def test_desktop_key_is_private_persistent_and_never_requests_os_credentials(tmp_path, monkeypatch, platform):
+    from pathlib import Path
+
     from app import secret_files
 
-    service = "OpenDialer-test-" + str(uuid4())
-    backend = secret_files.native_backend()
     monkeypatch.delenv("OPENDIALER_SECRET_KEY")
-    monkeypatch.setattr(secret_files, "KEY_SERVICE", service)
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    def forbidden():
+        pytest.fail("Desktop credential storage must not request Keychain access")
+
+    monkeypatch.setattr(secret_files, "native_backend", forbidden, raising=False)
     secret_files.native_key.cache_clear()
     try:
         path = tmp_path / "credentials.json"
@@ -175,7 +178,74 @@ def test_native_credential_store_roundtrip(tmp_path, monkeypatch):
         secret_files.native_key.cache_clear()
         assert secret_files.read_private(path) == {"secret": "disposable-native-fixture"}
         assert b"disposable-native-fixture" not in path.read_bytes()
+        key = tmp_path / (
+            "OpenDialer/Security/storage-key.json"
+            if platform == "win32"
+            else "Library/Application Support/OpenDialer/Security/storage-key.json"
+        )
+        assert key.is_file()
+        if os.name != "nt":
+            assert key.stat().st_mode & 0o777 == 0o600
     finally:
         secret_files.native_key.cache_clear()
-        if backend.get_password(service, secret_files.KEY_ACCOUNT) is not None:
-            backend.delete_password(service, secret_files.KEY_ACCOUNT)
+
+
+@pytest.fixture
+def desktop_storage(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from app import secret_files
+
+    monkeypatch.delenv("OPENDIALER_SECRET_KEY")
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(
+        secret_files, "native_backend", lambda: pytest.fail("No legacy Keychain access"), raising=False
+    )
+    secret_files.native_key.cache_clear()
+    yield secret_files
+    secret_files.native_key.cache_clear()
+
+
+def test_legacy_keychain_credentials_are_preserved_without_a_password_prompt(tmp_path, desktop_storage):
+    from cryptography.fernet import Fernet
+
+    secret_files = desktop_storage
+    original = b"OPENDIALER-SECRET-1\n" + Fernet(Fernet.generate_key()).encrypt(b'{"secret":"old"}')
+    path = tmp_path / "managed-session.json"
+    path.write_bytes(original)
+    assert secret_files.read_private(path) == {}
+    assert not path.exists()
+    backups = list(tmp_path.glob("managed-session.json.keychain-*.bak"))
+    assert len(backups) == 1 and backups[0].read_bytes() == original
+    assert secret_files.read_private(path) == {}
+
+
+def test_legacy_desktop_file_with_available_local_key_migrates_without_reimport(tmp_path, desktop_storage):
+    path = tmp_path / "credentials.json"
+    path.write_bytes(b"OPENDIALER-SECRET-1\n" + desktop_storage.cipher().encrypt(b'{"secret":"local"}'))
+    assert desktop_storage.read_private(path) == {"secret": "local"}
+    assert path.read_bytes().startswith(desktop_storage.PREFIX)
+    assert not list(tmp_path.glob("*.bak"))
+
+
+def test_server_missing_key_preserves_legacy_files(tmp_path, monkeypatch):
+    from app import secret_files
+
+    path = tmp_path / "credentials.json"
+    original = b"OPENDIALER-SECRET-1\n" + secret_files.cipher().encrypt(b'{"secret":"server"}')
+    path.write_bytes(original)
+    monkeypatch.delenv("OPENDIALER_SECRET_KEY")
+    monkeypatch.setattr(sys, "platform", "linux")
+    secret_files.native_key.cache_clear()
+    with pytest.raises(secret_files.SecretStorageError):
+        secret_files.read_private(path)
+    assert path.read_bytes() == original
+
+
+def test_explicit_server_key_preserves_legacy_encrypted_credentials(tmp_path):
+    from app.secret_files import cipher, read_private
+
+    path = tmp_path / "credentials.json"
+    path.write_bytes(b"OPENDIALER-SECRET-1\n" + cipher().encrypt(b'{"secret":"server-value"}'))
+    assert read_private(path) == {"secret": "server-value"}

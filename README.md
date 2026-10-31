@@ -10,14 +10,14 @@ Run privately on your computer or connect to a shared team server.
 
 | Computer | Download | Install |
 | --- | --- | --- |
-| Apple Silicon Mac, macOS 14+ | [Mac installer](https://github.com/TanushV/OpenDialer/releases/download/v0.6.1/OpenDialer_0.6.1_aarch64.dmg) | Open the DMG and drag OpenDialer to Applications. |
-| Windows PC, Intel/AMD 64-bit | [Windows installer](https://github.com/TanushV/OpenDialer/releases/download/v0.6.1/OpenDialer_0.6.1_x64-setup.exe) | Run the setup EXE. WebView2 is included. |
+| Apple Silicon Mac, macOS 14+ | [Mac installer](https://github.com/TanushV/OpenDialer/releases/download/v0.6.2/OpenDialer_0.6.2_aarch64.dmg) | Open the DMG and drag OpenDialer to Applications. |
+| Windows PC, Intel/AMD 64-bit | [Windows installer](https://github.com/TanushV/OpenDialer/releases/download/v0.6.2/OpenDialer_0.6.2_x64-setup.exe) | Run the setup EXE. WebView2 is included. |
 
 No Python, Node, Rust or separate database is needed to use the desktop app.
 Intel Mac, Windows ARM and Linux desktop installers are not published.
 This is an internal-use preview: updater signatures are configured, but Apple notarization and Windows publisher signing are not. See [installation help](docs/INSTALL.md).
 
-**Version 0.6.1** includes encrypted credentials, shared webhook setup, Codex login import and list/state number planning.
+**Version 0.6.2** includes encrypted credentials, shared webhook setup, Codex login import and list/state number planning.
 
 ## Get started
 
@@ -61,7 +61,7 @@ Plan numbers by named lead list, primarily by state, with suggested metro area c
 Allocation reuses ready numbers across that state and preserves existing caller identities;
 buying or syncing a number does not start warmup. See [list-based number setup](docs/GETTING_STARTED.md#numbers-for-a-lead-list).
 There is no call recording or prerecorded voicemail drop. Raw speech and helper text expire within five minutes.
-Saved credentials are encrypted using macOS Keychain or Windows Credential Manager; team servers use a separately supplied encryption key. Settings remembers them across restarts. Protect the machine and business-data backups. [Security details](docs/policies/security.md).
+Saved credentials are encrypted using an automatically created private local key file, with no Keychain or Credential Manager prompts; team servers use a separately supplied encryption key. Settings remembers them across restarts. Protect the machine and business-data backups. [Security details](docs/policies/security.md).
 
 ## Help and development
 

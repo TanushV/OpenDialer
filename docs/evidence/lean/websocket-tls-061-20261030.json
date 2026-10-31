@@ -1,0 +1,44 @@
+{
+  "date": "2026-10-30",
+  "version": "0.6.1",
+  "source": "d9edfa99c72d0d612f8aeb81e6910f4d8bd423e6",
+  "defect": {
+    "released_version": "0.6.0",
+    "symptom": "HTTPS login succeeds; managed private WebSocket remains reconnecting",
+    "observed_exception": "SSLCertVerificationError",
+    "location": "ManagedConnection.run subscription",
+    "reproduction": "Instrumented copy of the released backend, disposable workspace; installed binary unchanged"
+  },
+  "correction": "Frozen entry point selects bundled certifi CA roots unless SSL_CERT_FILE is explicitly set. Certificate and hostname verification remain enabled.",
+  "verification": {
+    "regression_before_fix": "1 failed, 1 passed",
+    "sqlite_scoped": "40 passed",
+    "postgresql_scoped": "40 passed",
+    "distribution_after_version_bump": "16 passed",
+    "lint_format": "pass",
+    "released_runtime_with_correction": "Live private subscription and heartbeat connected; repeated connected status with disposable data",
+    "installed_bundle": "0.6.1; deep strict codesign verification passes",
+    "preserved_workspace": "Same tenant/user/playbook counts; no leads, calls or numbers added; four credential files remain encrypted"
+  },
+  "setup": {
+    "telnyx_api_validated": true,
+    "voice_and_agent_applications_active": true,
+    "both_application_webhook_urls_match": true,
+    "agent_credential_and_sip_username_match": true,
+    "agent_outbound_profile_absent": true,
+    "owned_numbers": 0,
+    "installed_profile_imported": true,
+    "installed_codex_imported": true,
+    "installed_saved_sessions_encrypted": true,
+    "openrouter_key_available": false,
+    "agent_credential_active_and_unexpired": true,
+    "legacy_cloudflare_services_disabled": true,
+    "rep_schedule": "Weekdays 09:00-20:00 America/Los_Angeles; existing hours retained, timezone matched to this Mac"
+  },
+  "release_status": "Published v0.6.1; signed workflow 41152680676 and all six CI jobs in 41152681320 passed. Installed Mac updated through signed updater; final connection check in progress.",
+  "limits": [
+    "No purchases or calls",
+    "No funded inference or audio validation",
+    "Business and carrier approval, screening coverage, leads, script, policy and number approval remain operator inputs"
+  ]
+}

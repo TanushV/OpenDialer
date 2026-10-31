@@ -1,7 +1,7 @@
-"""Authenticated credential files; the encryption key never lives beside the data.
+"""Authenticated credential files without interactive desktop credential-store access.
 
-Desktop: native OS credential store only. Servers: an explicitly supplied deployment
-secret. No plaintext fallback. Plain 0.4/0.5 files are replaced atomically on upgrade.
+Desktop: an automatically created private key file outside the workspace. Servers:
+an explicitly supplied deployment secret. Old Keychain files are retained for recovery.
 """
 
 import json
@@ -12,12 +12,12 @@ import threading
 from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
+from uuid import uuid4
 
 from cryptography.fernet import Fernet, InvalidToken
 
-PREFIX = b"OPENDIALER-SECRET-1\n"
-KEY_SERVICE = "OpenDialer credential encryption"
-KEY_ACCOUNT = "storage-v1"
+PREFIX = b"OPENDIALER-SECRET-2\n"
+LEGACY_PREFIX = b"OPENDIALER-SECRET-1\n"
 _KEY_LOCK = threading.Lock()
 
 
@@ -45,34 +45,22 @@ def file_lock(path):
         yield
 
 
-def native_backend():
-    if sys.platform == "darwin":
-        from keyring.backends.macOS import Keyring
-
-        return Keyring()
-    if sys.platform == "win32":
-        from keyring.backends.Windows import WinVaultKeyring
-
-        return WinVaultKeyring()
-    raise SecretStorageError(
-        "Set OPENDIALER_SECRET_KEY_FILE (or OPENDIALER_SECRET_KEY) to a persistent Fernet key for this server."
-    )
-
-
 @lru_cache(maxsize=1)
 def native_key():
-    backend = native_backend()
+    if sys.platform not in {"darwin", "win32"}:
+        raise SecretStorageError(
+            "Set OPENDIALER_SECRET_KEY_FILE (or OPENDIALER_SECRET_KEY) to a persistent Fernet key for this server."
+        )
     directory = (
         Path(os.environ["LOCALAPPDATA"]) / "OpenDialer" / "Security"
         if sys.platform == "win32"
         else Path.home() / "Library/Application Support/OpenDialer/Security"
     )
     with _KEY_LOCK, file_lock(directory / "key.lock"):
-        value = backend.get_password(KEY_SERVICE, KEY_ACCOUNT)
-        if value is None:
-            value = Fernet.generate_key().decode()
-            backend.set_password(KEY_SERVICE, KEY_ACCOUNT, value)
-        return value
+        path = directory / "storage-key.json"
+        if not path.exists():
+            write_private(path, {"key": Fernet.generate_key().decode()}, encrypted=False)
+        return json.loads(path.read_text())["key"]
 
 
 def cipher():
@@ -88,7 +76,7 @@ def cipher():
         raise
     except Exception:
         raise SecretStorageError(
-            "Credential storage is unavailable. Unlock the OS credential store or restore the configured server key. No plaintext fallback is used."
+            "Credential storage is unavailable. Restore the private local key file or configured server key. No plaintext fallback is used."
         ) from None
 
 
@@ -116,6 +104,19 @@ def read_private(path):
     except FileNotFoundError:
         return {}
     try:
+        if content.startswith(LEGACY_PREFIX):
+            try:
+                value = json.loads(cipher().decrypt(content[len(LEGACY_PREFIX) :]))
+            except InvalidToken:
+                if sys.platform not in {"darwin", "win32"} or (
+                    os.environ.get("OPENDIALER_SECRET_KEY") or os.environ.get("OPENDIALER_SECRET_KEY_FILE")
+                ):
+                    raise
+                # Preserve the old ciphertext without requesting OS credential access.
+                path.rename(path.with_name(f"{path.name}.keychain-{uuid4().hex}.bak"))
+                return {}
+            write_private(path, value)
+            return value
         if content.startswith(PREFIX):
             return json.loads(cipher().decrypt(content[len(PREFIX) :]))
         value = json.loads(content)
@@ -125,7 +126,7 @@ def read_private(path):
         return value
     except (InvalidToken, ValueError, UnicodeError):
         raise SecretStorageError(
-            "Saved credentials cannot be decrypted or are damaged. Restore the original credential-store key; the saved file has not been overwritten."
+            "Saved credentials cannot be decrypted or are damaged. Restore the original local or server key; the saved file has not been overwritten."
         ) from None
 
 

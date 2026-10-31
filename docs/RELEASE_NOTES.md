@@ -1,8 +1,8 @@
-# OpenDialer 0.6.1
+# OpenDialer 0.6.2
 
 - Fix the packaged backend staying on “reconnecting” when its Python runtime has no usable system CA path. Secure WebSocket connections now use the bundled trusted CA certificates, with certificate and hostname checks enabled. Explicit operator certificate settings are preserved.
 
-- Saved provider credentials, Codex logins and webhook sessions are encrypted using the OS credential store. Existing 0.4/0.5 settings convert automatically without losing workspace data. Hosted deployments must configure a persistent encryption key before updating.
+- Remove Keychain/Credential Manager access and password popups. Saved provider credentials, Codex logins and webhook sessions use an automatically created private local key file. Back up this key with the credential files. Upgrades from 0.6.0/0.6.1 retain inaccessible encrypted copies and may need credentials re-entered in Settings; workspace records stay intact. Existing 0.4/0.5 settings convert automatically without losing workspace data. Hosted deployments must configure a persistent encryption key before updating.
 - Local callers can import one per-PC setup file for the shared webhook. No tunnel or terminal command is needed. Speech goes directly to Telnyx/Soniox, with two-second coaching windows.
 - Import a Codex login in Settings with managed refresh. Calling setup and number purchases are simpler, with explicit quote approval and count/spending limits.
 - Plan number capacity from named lead lists by state. Suggested metro area codes reflect list geography; owned capacity is shared and existing lead-to-number assignments are preserved.

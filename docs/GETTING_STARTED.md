@@ -1,6 +1,6 @@
 # Set up your first workspace
 
-[Install OpenDialer 0.6.1](INSTALL.md) first, or update from **Settings → App updates**.
+[Install OpenDialer 0.6.2](INSTALL.md) first, or update from **Settings → App updates**.
 
 ## Choose a workspace
 
@@ -133,7 +133,7 @@ Raw speech, quotes and helper text expire within five minutes. There is no call 
 | --- | --- |
 | No eligible next lead | Run preflight; check campaign hours, lead timezone, DNC evidence, budgets, your ready state and number readiness. |
 | Number exists but cannot call | Complete identity/routing, a real inbound callback and limited-use approval in Numbers. Syncing alone is not readiness. |
-| Cannot receive webhooks | Check the public HTTPS URL, verification key and saved ingress. Keep the local computer and tunnel online. |
+| Cannot receive webhooks | For shared setup, keep this computer awake and check **Connected** under Calling; reconcile outstanding calls before using **Reconnect**. Direct-local setup instead needs its own webhook forwarder online. |
 | ChatGPT is missing or setup looks different | Check the version and the release/source notice above. Current source moves ChatGPT into AI assistance. |
 | Provider fails after saving a key | Check account eligibility, balance and connection settings using the [provider guide](../deploy/runbooks/providers.md). A saved key alone does not prove service access. |
 | Microphone unavailable | Allow microphone access in the operating system, select the intended input/output and check the headset. |
@@ -144,9 +144,9 @@ For backups or interrupted calls, see [recovery](../deploy/runbooks/recovery.md)
 
 Paste provider keys in Settings and save. Import Codex login and the per-PC webhook setup file once.
 Saved settings, personal logins and webhook sessions are encrypted; the desktop keeps the encryption key
-in macOS Keychain or Windows Credential Manager. Existing saved credentials convert on first launch.
-If the OS asks for credential-store access, verify it is OpenDialer. No separate encryption key is needed
-for desktop setup. Keep imported setup/login files private: they still contain credentials.
+in a private local file, created automatically without OS password prompts. Existing 0.4/0.5 files convert on first launch.
+When upgrading from 0.6.0/0.6.1, re-enter keys and re-import setup/login files if prompted inside Settings;
+the old encrypted copies are retained. No separate encryption key setup is needed. Keep imported setup/login files private: they still contain credentials.
 
 Telnyx/OpenRouter API keys, Codex tokens and webhook login/session credentials are secret. Telnyx application
 and credential IDs, SIP username, webhook verification **public** key, webhook URL and Supabase publishable
