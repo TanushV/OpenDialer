@@ -154,6 +154,17 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
+- October 30 installed setup follow-up (0.6.1, release pending): imported the existing calling profile and
+  personal Codex login into the installed Mac; Telnyx API access and both application webhook URLs verify.
+  The released backend failed private WebSocket subscription with `SSLCertVerificationError`, reproduced
+  with disposable data and an instrumented copy of the released binary. A failing packaging regression
+  preceded selecting the bundled certifi roots for frozen Python. Certificate/hostname validation stays on,
+  and explicit `SSL_CERT_FILE` settings are preserved. The same released runtime with this correction
+  receives the real shared-service heartbeat and stays connected. Scoped distribution/package/managed
+  checks: 40 pass on SQLite and 40 on PostgreSQL; lint/format and version contracts pass. Signed release
+  and installed-app verification follow. No numbers purchased or calls placed; OpenRouter, business and
+  screening evidence, leads, campaign approval and live audio remain operator inputs.
+
 - October 30 security/update request (complete): seven regression tests reproduced plaintext credentials,
   validation-error disclosure, foreign-origin acceptance and unthrottled password guessing before changes.
   Settings, personal Codex logins and managed webhook sessions now use authenticated encryption; desktop

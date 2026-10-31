@@ -1,4 +1,6 @@
-# OpenDialer 0.6.0
+# OpenDialer 0.6.1
+
+- Fix the packaged backend staying on “reconnecting” when its Python runtime has no usable system CA path. Secure WebSocket connections now use the bundled trusted CA certificates, with certificate and hostname checks enabled. Explicit operator certificate settings are preserved.
 
 - Saved provider credentials, Codex logins and webhook sessions are encrypted using the OS credential store. Existing 0.4/0.5 settings convert automatically without losing workspace data. Hosted deployments must configure a persistent encryption key before updating.
 - Local callers can import one per-PC setup file for the shared webhook. No tunnel or terminal command is needed. Speech goes directly to Telnyx/Soniox, with two-second coaching windows.

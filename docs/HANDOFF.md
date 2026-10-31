@@ -1,6 +1,12 @@
 # OpenDialer testing handoff (CURRENT)
 
-> **Status: CURRENT — 0.6.0 security and desktop release**, October 30, 2026.
+> **Status: CURRENT — 0.6.1 packaged WebSocket TLS correction**, October 30, 2026.
+
+The installed setup check found that the released Python runtime had no usable default CA path for
+WebSockets, although HTTPS login succeeded. 0.6.1 selects bundled trusted roots without disabling
+verification or replacing explicit operator certificate settings. The failing regression, 40 scoped
+checks on each database, and real shared-service heartbeat on the corrected release runtime pass.
+Publication and signed installation are pending; see the current checkpoint in `LEAN_PLAN.md`.
 > Historical 0.5.0 release: `096c55f`, CI 40164184233 passed all jobs including 164 browser cases.
 > Includes script learning and the review fixes described below. This is the single current handoff.
 > Read with [HANDOFF_AST.md](HANDOFF_AST.md) and [SCRIPT_LEARNING.md](SCRIPT_LEARNING.md).

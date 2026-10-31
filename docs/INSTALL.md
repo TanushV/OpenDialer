@@ -33,7 +33,7 @@ Open **Settings → App updates → Check for updates**, then **Install signed u
 The updater checks the repository's pinned signing key. Do not uninstall or delete workspace data to update.
 Updater signing verifies update integrity; it is separate from Apple notarization or Windows publisher trust.
 
-**0.6.0** includes the latest setup, shared webhook, Codex import, state/list number planning and credential protection. Updates from 0.4/0.5 keep your workspace and convert saved credentials to encrypted storage. Allow OpenDialer access to the OS credential store if prompted.
+**0.6.1** fixes secure webhook connections in the packaged runtime and includes the latest setup, shared webhook, Codex import, state/list number planning and credential protection. Updates from 0.4/0.5 keep your workspace and convert saved credentials to encrypted storage. Allow OpenDialer access to the OS credential store if prompted.
 
 **Upgrading from 0.2/0.3:** 0.4 and later start fresh workspaces and leave the old data folders untouched;
 they do not migrate old workspaces. Keep backups and consult [recovery](../deploy/runbooks/recovery.md) before switching.

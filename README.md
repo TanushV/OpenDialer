@@ -10,14 +10,14 @@ Run privately on your computer or connect to a shared team server.
 
 | Computer | Download | Install |
 | --- | --- | --- |
-| Apple Silicon Mac, macOS 14+ | [Mac installer](https://github.com/TanushV/OpenDialer/releases/download/v0.6.0/OpenDialer_0.6.0_aarch64.dmg) | Open the DMG and drag OpenDialer to Applications. |
-| Windows PC, Intel/AMD 64-bit | [Windows installer](https://github.com/TanushV/OpenDialer/releases/download/v0.6.0/OpenDialer_0.6.0_x64-setup.exe) | Run the setup EXE. WebView2 is included. |
+| Apple Silicon Mac, macOS 14+ | [Mac installer](https://github.com/TanushV/OpenDialer/releases/download/v0.6.1/OpenDialer_0.6.1_aarch64.dmg) | Open the DMG and drag OpenDialer to Applications. |
+| Windows PC, Intel/AMD 64-bit | [Windows installer](https://github.com/TanushV/OpenDialer/releases/download/v0.6.1/OpenDialer_0.6.1_x64-setup.exe) | Run the setup EXE. WebView2 is included. |
 
 No Python, Node, Rust or separate database is needed to use the desktop app.
 Intel Mac, Windows ARM and Linux desktop installers are not published.
 This is an internal-use preview: updater signatures are configured, but Apple notarization and Windows publisher signing are not. See [installation help](docs/INSTALL.md).
 
-**Version 0.6.0** includes encrypted credentials, shared webhook setup, Codex login import and list/state number planning.
+**Version 0.6.1** includes encrypted credentials, shared webhook setup, Codex login import and list/state number planning.
 
 ## Get started
 

@@ -4,13 +4,42 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_frozen_authority_loads_trusted_websocket_roots(monkeypatch):
+    import os
+    import runpy
+    import ssl
+    import sys
+
+    import certifi
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+    runpy.run_path(str(ROOT / "scripts/backend_entry.py"))
+    assert os.environ.get("SSL_CERT_FILE") == certifi.where()
+    context = ssl.create_default_context()
+    assert context.cert_store_stats()["x509_ca"] > 0
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname
+
+
+def test_frozen_authority_preserves_explicit_certificate_bundle(monkeypatch):
+    import os
+    import runpy
+    import sys
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setenv("SSL_CERT_FILE", "/operator/custom-ca.pem")
+    runpy.run_path(str(ROOT / "scripts/backend_entry.py"))
+    assert os.environ["SSL_CERT_FILE"] == "/operator/custom-ca.pem"
+
+
 def test_update_manifest_discloses_fresh_workspace(tmp_path):
     import subprocess
     import sys
 
     artifacts = tmp_path / "artifacts"
     artifacts.mkdir()
-    for name in ("OpenDialer.app.tar.gz", "OpenDialer_0.6.0_aarch64.dmg", "OpenDialer_0.6.0_x64-setup.exe"):
+    for name in ("OpenDialer.app.tar.gz", "OpenDialer_0.6.1_aarch64.dmg", "OpenDialer_0.6.1_x64-setup.exe"):
         (artifacts / name).write_bytes(b"test artifact")
         (artifacts / (name + ".sig")).write_text("test signature")
     output = tmp_path / "output"
@@ -124,7 +153,7 @@ def test_version_identity_artifact_contract():
         next(p["version"] for p in python_lock["package"] if p["name"] == "opendialer"),
         next(p["version"] for p in cargo_lock["package"] if p["name"] == "opendialer-desktop"),
     ]
-    assert versions == ["0.6.0"] * len(versions)
+    assert versions == ["0.6.1"] * len(versions)
     assert tauri["identifier"] == "com.opendialer.desktop"
     updater = tauri["plugins"]["updater"]
     assert (

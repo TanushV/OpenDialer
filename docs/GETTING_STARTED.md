@@ -1,6 +1,6 @@
 # Set up your first workspace
 
-[Install OpenDialer 0.6.0](INSTALL.md) first, or update from **Settings → App updates**.
+[Install OpenDialer 0.6.1](INSTALL.md) first, or update from **Settings → App updates**.
 
 ## Choose a workspace
 
@@ -13,7 +13,7 @@ A sleeping or offline laptop cannot handle callbacks; configure and test the car
 
 ## Local calling with the shared webhook
 
-Available in 0.6.0. Import once; the connection restores and refreshes automatically.
+Available in 0.6.0 and later. Import once; the connection restores and refreshes automatically.
 
 1. In a local workspace, open **Settings → Setup → Calling → Import calling setup (.json)**.
    Choose the private file prepared for this computer. It imports the Telnyx application, verification key,
