@@ -58,6 +58,8 @@ def test_update_manifest_discloses_fresh_workspace(tmp_path):
     assert "fresh workspace" in notes
     assert "old data stays untouched" in notes
     assert "Your workspace is preserved; update in place" not in notes
+    assert "without OS password prompts" in notes
+    assert "re-import" in notes
 
 
 def test_signed_installer_updates_do_not_ship_unused_zip_extraction():
