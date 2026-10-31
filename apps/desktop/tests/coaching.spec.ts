@@ -49,6 +49,17 @@ test("practice is a list of what to work on and how, with no AI rehearsal", asyn
         examples: [],
       },
     ];
+    data.recent_tips = [
+      {
+        call_id: "agent-reviewed-call",
+        at: new Date().toISOString(),
+        tips: [
+          {
+            text: "Work on: answering a budget objection. How: Ask what result would justify the spend before moving on.",
+          },
+        ],
+      },
+    ];
     await route.fulfill({ response, json: data });
   });
   await enter(page);
@@ -63,6 +74,16 @@ test("practice is a list of what to work on and how, with no AI rehearsal", asyn
   ).toBeVisible();
   await expect(
     panel.getByText("Seen in 3 calls", { exact: true }),
+  ).toBeVisible();
+  // The call review agent's point after the latest call.
+  await expect(
+    panel.getByText("answering a budget objection", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    panel.getByText(
+      "How: Ask what result would justify the spend before moving on.",
+      { exact: true },
+    ),
   ).toBeVisible();
   await expect(panel.getByRole("button", { name: "Practice" })).toHaveCount(0);
   await expect(

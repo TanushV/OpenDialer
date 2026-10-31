@@ -5,8 +5,10 @@
   before calling. When an agent skips a lead, the list and the lead show why. The AI card in Settings shows Done once
   ChatGPT and the live help key are set, and its text no longer squeezes beside the button. Plainer Leads table
   labels. The updater shows each release's own notes.
-- **Practice is the coaching list.** Each item says what to work on and how, and the call review agent updates it
-  after each call. The AI rehearsal box is gone.
+- **Practice is the coaching list.** Each item says what to work on and how. After each call the review agent adds
+  one or two points from that call ("Work on … How …"). The AI rehearsal box is gone.
+- **Call summaries cover the whole call.** The post-call agent now sees speech already handled during the call, so
+  the summary includes what the prospect said, and quotes with typographic dashes or apostrophes still match.
 - **Live help keeps more good tips.** A tip whose model audit cites a source the app does not know now gets the full
   independent review instead of being dropped.
 - **One script, pasted once.** Paste or open your script as Markdown on the Script page. It is checked as you type,

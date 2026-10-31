@@ -22,6 +22,14 @@ type Overview = {
     raw_evidence_status: string;
   }[];
 };
+/** The review agent writes "Work on: <area>. How: <step>."; show the area and the step apart. */
+function practicePoint(text: string) {
+  const match = /^Work on:\s*(.+?)\s*How:\s*(.+)$/is.exec(text.trim());
+  return match
+    ? { title: match[1].replace(/[.\s]+$/, ""), how: match[2] }
+    : { title: text };
+}
+
 export function Coaching({
   onReview,
 }: {
@@ -115,7 +123,7 @@ export function Coaching({
         })),
         ...(overview.recent_tips[0]?.tips ?? []).slice(0, 5).map((tip, i) => ({
           key: "tip-" + i,
-          title: tip.text,
+          ...practicePoint(tip.text),
           detail: `From your call on ${date(overview.recent_tips[0].at)}`,
           review: overview.recent_tips[0].call_id,
         })),
