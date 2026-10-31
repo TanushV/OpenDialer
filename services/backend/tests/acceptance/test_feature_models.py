@@ -175,6 +175,23 @@ def factual_question(request):
     )
 
 
+def card_question_with_claim(request):
+    """Real Cerebras shape (October 30): the question from an approved card is audited as a
+    supported fact and the explanation adds an unsupported claim."""
+    return turn_output(
+        request,
+        guidance={
+            **guidance(
+                request,
+                "How often do crews lose connectivity today?",
+                "Our tool works without an internet connection.",
+            ),
+            "alternatives": ["Who handles connectivity problems?"],  # left unaudited by the model
+        },
+        field_audit=[audit("say_or_ask", "supported_fact"), audit("reason", "material_claim")],
+    )
+
+
 def supported_demo(request):
     return turn_output(
         request,
@@ -596,3 +613,91 @@ def test_private_help_streams_a_partial_answer_then_settles_on_the_same_identity
     ]
     assert len(published) == 2, "The partial answer is shown first, then the final answer replaces it"
     assert get(ws, f"/v1/calls/{cid}")["coach"]["id"] == reply["id"]
+
+
+def test_a_reviewed_question_stays_when_only_its_explanation_is_rejected(workspace, app, monkeypatch, clock):
+    ws = workspace
+    cid = start(ws)["id"]
+    answered_by_human(ws, cid)
+    live = scripted(("internet", card_question_with_claim))
+    install_fake_models(app, monkeypatch, {"live": live, "verdicts": lambda _: {"reason": "UNSUPPORTED"}})
+    chunk(ws, cid, "s1", "Does it work without internet?")
+    shown = helper_tip(ws, clock, cid)
+    assert shown["say_or_ask"] == "How often do crews lose connectivity today?"
+    assert shown["reason"] == "", "The rejected explanation is never shown"
+    assert shown["meaning_review"]["displayed_fields"] == ["say_or_ask"]
+
+
+def test_practice_accepts_a_model_that_misnumbers_its_turn(workspace, app, monkeypatch):
+    """Real Cerebras (October 30) echoes arbitrary versions and card ids as speech evidence for a
+    practice scenario, which has no transcript."""
+
+    def practice_answer(request):
+        turn = turn_output(
+            request,
+            guidance={
+                "kind": "DISCOVERY",
+                "say_or_ask": "What does your team use for follow-up today?",
+                "reason": "Start from their current process.",
+                "alternatives": [],
+                "evidence_segment_ids": [],
+                "playbook_card_ids": [],
+                "expires_in_ms": 30000,
+            },
+            field_audit=[audit("say_or_ask"), audit("reason")],
+        )
+        turn["guidance"]["evidence_segment_ids"] = ["existing-provider"]
+        return {**turn, "state_version": 2}
+
+    install_fake_models(app, monkeypatch, {"live": practice_answer})
+    result = post(
+        workspace,
+        "/v1/coaching/practice",
+        {"scenario": "They already use a spreadsheet.", "request_id": str(uuid4())},
+    )
+    assert result["status"] == "ready"
+    assert result["guidance"]["say_or_ask"] == "What does your team use for follow-up today?"
+
+
+def test_an_exact_context_echo_outweighs_a_misnumbered_version_and_stray_evidence(
+    workspace, app, monkeypatch, clock
+):
+    """Real Cerebras (October 30) misnumbers state_version and lists card ids as speech while
+    echoing the exact context fingerprint. A wrong fingerprint is still refused."""
+    ws = workspace
+    cid = start(ws)["id"]
+    answered_by_human(ws, cid)
+    echo = {"fingerprint": True}
+
+    def misnumbered(request):
+        turn = turn_output(
+            request,
+            guidance={
+                **guidance(request, "How often do crews lose connectivity today?", "Clarify the need."),
+                "evidence_segment_ids": [prospect_turns(request)[-1]["segment_id"], "budget"],
+            },
+            field_audit=[audit("say_or_ask"), audit("reason")],
+        )
+        if not echo["fingerprint"]:
+            turn["context_fingerprint"] = "0" * 64
+        return {**turn, "state_version": request["state_version"] + 7}
+
+    install_fake_models(app, monkeypatch, {"live": misnumbered})
+    chunk(ws, cid, "s1", "Does it work without internet?")
+    shown = helper_tip(ws, clock, cid)
+    assert shown["say_or_ask"] == "How often do crews lose connectivity today?"
+    assert shown["evidence_segment_ids"] == ["s1"]
+    echo["fingerprint"] = False
+    chunk(ws, cid, "s2", "We would need it offline.")
+    assert helper_tip(ws, clock, cid) is None
+
+
+def test_a_misnumbered_finalization_with_the_exact_context_is_kept(workspace, app, monkeypatch):
+    """Real Cerebras (October 30) wrote a rundown but misnumbered its version."""
+
+    def misnumbered(request):
+        return {**finalize_rundown(request), "state_version": request["state_version"] + 1}
+
+    cid = finish_call(workspace, app, monkeypatch, {"finalize": misnumbered})
+    assert get(workspace, f"/v1/calls/{cid}")["rundown_status"] == "ready"
+    assert get(workspace, f"/v1/calls/{cid}/analysis")["notes"]["summary"].split("\n") == RUNDOWN

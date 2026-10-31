@@ -986,10 +986,10 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             await finish_shielded(self._settle_coach(p, key, call_id, kind, route, provider, submitted))
 
     def _merge_finalization(self, p, call_id, owner, request, result):
-        from app.coaching.context import merge_semantic_state
+        from app.coaching.context import merge_semantic_state, normalized_turn
         from app.coaching.contracts import card_view
 
-        result = card_view(result)
+        result = normalized_turn(card_view(result), request)
         if result.get("state_version") != request["state_version"]:
             raise ValueError("Finalizer returned a different transcript version")
         if (
@@ -1148,7 +1148,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     request,
                     provider,
                     route,
-                    method="suggest",
+                    method="finalize" if hasattr(provider, "finalize") else "suggest",
                     kind="conversation_finalize",
                     current=lambda: self._conversation_request_current(p, call_id, request, owner=owner),
                 )

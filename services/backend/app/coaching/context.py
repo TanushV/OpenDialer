@@ -344,16 +344,45 @@ def material_update(update):
     )
 
 
+def normalized_turn(card, request):
+    """Models misnumber the state version and list card ids as speech evidence (live check,
+    October 30). An exact echo of the context fingerprint identifies the turn, so the version is
+    taken from the request; only real final segments count as evidence."""
+    fingerprint = request.get("context_fingerprint")
+    if not isinstance(card, dict) or not fingerprint or card.get("context_fingerprint") != fingerprint:
+        return card
+    if card.get("action") != "SHOW_CARD":
+        return {**card, "state_version": request["state_version"]}
+    known = {
+        s["segment_id"]
+        for s in request.get("recent_dialogue", [])
+        if s.get("is_final") and not s.get("system_audio")
+    }
+    return {
+        **card,
+        "state_version": request["state_version"],
+        "evidence_segment_ids": [i for i in card.get("evidence_segment_ids") or [] if i in known],
+    }
+
+
 def reviewed_guidance(card, request, receipt):
     """Publishable guidance after one complete independent review of every visible field.
 
-    After any rejection no factual field is shown. A field the generator audited nonassertive,
-    and the reviewer accepted, may still be shown as the primary help.
+    A rejected field is never shown. When the primary suggestion itself is rejected, only
+    fields the generator audited nonassertive and the reviewer accepted may still be shown;
+    when only its explanation or an alternative is rejected, the fields the review supported
+    stay (a seller-approved card question is often audited as a supported fact).
     """
     ground_guidance(card, request, review=receipt)
     if not receipt.rejected:
         return {**card, "meaning_review": receipt.metadata()}
-    safe = nonassertive_fields(card) - set(receipt.rejected)
+    rejected = set(receipt.rejected)
+    audited = {audit["field"] for audit in card.get("field_audit", [])}
+    safe = (
+        (set(guidance_fields(card)) & audited) - rejected
+        if "say_or_ask" not in rejected
+        else nonassertive_fields(card) - rejected
+    )
     fields = guidance_fields(card)
     clarifications = [field for field in fields if field != "reason" and field in safe]
     if not clarifications:

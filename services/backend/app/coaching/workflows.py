@@ -19,6 +19,7 @@ from app.coaching.context import (
     merge_semantic_state,
     persistent_state,
     retrieve_cards,
+    normalized_turn,
     reviewed_guidance,
     upgrade_state,
 )
@@ -281,7 +282,8 @@ class LiveHelper:
                 )
                 return (
                     {
-                        "state_version": 0,
+                        # Practice has no transcript; models number the first turn 1 (live check).
+                        "state_version": 1,
                         "simulation": True,
                         "manual_help": True,
                         "private_question": scenario,
@@ -334,6 +336,9 @@ class LiveHelper:
 
             async def publish(guidance):
                 guidance = card_view(guidance)
+                # Practice has no transcript: an exact context echo fixes the version and no
+                # speech can be cited.
+                guidance = normalized_turn(guidance, request)
                 if not await authorized() or engine.monotonic() >= deadline:
                     raise CardRejected("Practice context changed")
                 try:
@@ -1014,7 +1019,7 @@ class LiveHelper:
     ):
         review_ms = 0.0
         try:
-            result = card_view(result)
+            result = normalized_turn(card_view(result), request)
             try:
                 ground_guidance(result, request, cached=source == "cached_knowledge", progressive=progressive)
             except MeaningReviewRequired:

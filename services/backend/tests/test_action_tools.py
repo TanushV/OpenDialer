@@ -68,32 +68,22 @@ async def test_free_text_and_unoffered_actions_cannot_mutate(output):
 
 
 @pytest.mark.asyncio
-async def test_postcall_uses_tools_while_live_helper_keeps_text_protocol():
+async def test_postcall_on_cerebras_uses_strict_structured_output():
+    """Live check, October 30: Cerebras accepts forced tool calls but does not enforce their
+    schema, while it does enforce a strict response schema. Post-call work therefore asks
+    for strict structured output; anything else is still rejected, never executed."""
     from app.providers.openrouter import OpenRouterCoach
 
     async def respond(request):
         body = json.loads(request.content)
-        name = body["tool_choice"]["function"]["name"]
-        assert name == "submit_postcall_analysis"
-        assert "response_format" not in body
+        assert "tools" not in body and "tool_choice" not in body
+        assert body["response_format"]["json_schema"]["strict"] is True
+        assert body["response_format"]["json_schema"]["name"] == "submit_postcall_analysis"
         return httpx.Response(
             200,
             json={
                 "provider": "Cerebras",
-                "choices": [
-                    {
-                        "finish_reason": "tool_calls",
-                        "message": {
-                            "tool_calls": [
-                                {
-                                    "id": "postcall-1",
-                                    "type": "function",
-                                    "function": {"name": name, "arguments": '{"value":1}'},
-                                }
-                            ]
-                        },
-                    }
-                ],
+                "choices": [{"finish_reason": "stop", "message": {"content": '{"value":1}'}}],
             },
         )
 
@@ -114,7 +104,12 @@ async def test_postcall_rejects_prose_instead_of_executing_it():
                 200,
                 json={
                     "provider": "Cerebras",
-                    "choices": [{"finish_reason": "stop", "message": {"content": "{}"}}],
+                    "choices": [
+                        {
+                            "finish_reason": "stop",
+                            "message": {"content": "Booked a meeting for Tuesday at 2."},
+                        }
+                    ],
                 },
             )
         )

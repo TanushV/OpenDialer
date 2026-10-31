@@ -42,27 +42,19 @@ async def test_independent_live_review_pins_same_route_and_records_its_own_recei
         "data_collection": "deny",
         "zdr": True,
     }
-    assert body["stream"] is False and body["parallel_tool_calls"] is False
-    assert body["tools"][0]["function"]["parameters"]["required"] == ["fingerprint", "verdicts"]
+    # Cerebras on OpenRouter has no endpoint for parallel_tool_calls with required parameters
+    # (live check, October 30): sending it turns every review into a 404. One call is enforced
+    # when the answer is validated instead.
+    # Live check, October 30: Cerebras on OpenRouter rejects parallel_tool_calls and does not
+    # enforce forced tool schemas, but does enforce a strict response schema.
+    assert body["stream"] is False and "tools" not in body and "parallel_tool_calls" not in body
+    output = body["response_format"]["json_schema"]
+    assert output["strict"] is True and output["name"] == "submit_postcall_review"
+    assert output["schema"]["required"] == ["fingerprint", "verdicts"]
     assert adapter.last_request_id == "review-123" and adapter.last_usage["cost"] == 0.0001
 
 
 def completion(provider="Cerebras", content=None, **overrides):
-    if content and "fingerprint" in content and "choices" not in overrides:
-        overrides["choices"] = [
-            {
-                "finish_reason": "tool_calls",
-                "message": {
-                    "tool_calls": [
-                        {
-                            "type": "function",
-                            "id": "review-action",
-                            "function": {"name": "submit_postcall_review", "arguments": json.dumps(content)},
-                        }
-                    ]
-                },
-            }
-        ]
     return {
         "id": "gen-123",
         "model": "openai/gpt-oss-120b",
@@ -365,3 +357,23 @@ def test_simulated_workspace_never_constructs_a_paid_coach(workspace, app):
     provider, route = service.configured_coach({"tenant_id": workspace["tenant_id"]})
     assert provider is None
     assert route == "approved_static"
+
+
+@pytest.mark.asyncio
+async def test_finalization_asks_only_for_the_rundown_at_medium_effort():
+    from app.providers.openrouter import OpenRouterCoach
+
+    captured = []
+
+    def handler(request):
+        captured.append(json.loads(request.content))
+        return httpx.Response(200, json=completion(content={"action": "NO_ACTION", "state_version": 3}))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        result = await OpenRouterCoach("key", http=http).finalize({"mode": "finalize", "state_version": 3})
+    body = captured[0]
+    assert result["action"] == "NO_ACTION"
+    assert body["reasoning"]["effort"] == "medium" and body["stream"] is False
+    assert body["response_format"]["json_schema"]["name"] == "submit_postcall_analysis"
+    assert "guidance null" in body["messages"][0]["content"]
+    assert "rundown" in body["messages"][0]["content"]
