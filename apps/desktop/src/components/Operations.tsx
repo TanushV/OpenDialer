@@ -74,10 +74,11 @@ export function LeadsPage({
               onChange={(e) => setQuery(e.target.value)}
             />
             <button
+              aria-label="Search lead history"
               disabled={history.busy}
               onClick={() => void run(() => history.load(false, query))}
             >
-              Search lead history
+              Search
             </button>
           </div>
         </div>
@@ -88,9 +89,9 @@ export function LeadsPage({
           <thead>
             <tr>
               <th>PERSON / COMPANY</th>
-              <th>ENDPOINT</th>
+              <th>PHONE</th>
               <th>STATUS</th>
-              <th>COVERAGE DUE</th>
+              <th>CALL BY</th>
               <th>ATTEMPTS</th>
               <th />
             </tr>
@@ -152,7 +153,7 @@ export function LeadsPage({
             text={
               history.query
                 ? "No matching leads."
-                : "Your next cohort starts with an import."
+                : "Import a list to get started."
             }
           />
         )}
@@ -278,7 +279,9 @@ export function LeadsPage({
               {packet.script.fallback
                 ? packet.lead.status === "preparing"
                   ? "Being prepared. This is your script as written until the agent finishes."
-                  : "Your script as written."
+                  : packet.preparation?.status === "skipped"
+                    ? `The agent skipped this lead: ${packet.preparation.reason ?? "no reason given."} It is called with your script as written.`
+                    : "Your script as written."
                 : (packet.script.summary ?? "Written from research.")}
             </p>
             <ScriptReader script={packet.script} />

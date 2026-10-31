@@ -469,6 +469,7 @@ class Preparation:
                         "failed": 0,
                         "working": 0,
                         "waiting": 0,
+                        "skipped_leads": [],
                     },
                 )
                 entry["total"] += 1
@@ -477,6 +478,10 @@ class Preparation:
                     entry["working"] += 1
                 elif state["status"] in {"ready", "skipped"}:
                     entry[state["status"]] += 1
+                    if state["status"] == "skipped" and len(entry["skipped_leads"]) < 20:
+                        entry["skipped_leads"].append(
+                            {"name": lead.data.get("name", ""), "reason": state.get("reason", "")}
+                        )
                 elif state["status"] == "failed" and not retry_due(state, now):
                     entry["failed"] += 1
                 else:

@@ -195,3 +195,103 @@ test("script wording is tested from the script memory and purchases are never of
   await page.getByText("Check audio", { exact: true }).click();
   await expect(page.getByLabel("Microphone")).toBeVisible();
 });
+
+test("an imported list shows its progress before any lead finishes preparing", async ({
+  page,
+}) => {
+  // Drop live lead events so only the import itself can refresh the panel;
+  // real agents take minutes before the first lead event arrives.
+  await page.routeWebSocket("**/v1/live", (socket) => {
+    const server = socket.connectToServer();
+    socket.onMessage((message) => server.send(message));
+    server.onMessage((message) => {
+      if (!String(message).includes('"lead.')) socket.send(message);
+    });
+  });
+  await enterSimulation(page);
+  await page.getByRole("button", { name: "Leads", exact: true }).click();
+  const panel = page.getByRole("region", { name: "Lead preparation" });
+  await expect(panel).toBeVisible();
+  await page.getByLabel("List name").fill("Panel refresh list");
+  await page
+    .getByLabel("CSV lead data")
+    .fill(
+      "name,phone,company,timezone\nRiley Example,+12125550178,Panel Refresh Co,America/New_York",
+    );
+  await page.getByRole("button", { name: "Import leads" }).click();
+  await expect(page.getByText(/^1 imported/)).toBeVisible();
+  await expect(
+    panel.getByRole("listitem").filter({ hasText: "Panel refresh list" }),
+  ).toBeVisible();
+});
+
+test("skipped leads show the agent's reason in the list progress and the lead", async ({
+  page,
+}) => {
+  const reason = "The business closed in 2024.";
+  await page.route("**/v1/preparation", async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.lists = [
+      ...data.lists,
+      {
+        list_name: "Skipped reasons list",
+        total: 1,
+        ready: 0,
+        skipped: 1,
+        failed: 0,
+        working: 0,
+        waiting: 0,
+        spent_usd: 0,
+        budget_usd: 5,
+        skipped_leads: [{ name: "Closed Example", reason }],
+      },
+    ];
+    await route.fulfill({ response, json: data });
+  });
+  await page.route("**/v1/leads/*/packet", async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.preparation = { status: "skipped", reason };
+    data.script.fallback = true;
+    await route.fulfill({ response, json: data });
+  });
+  await enterSimulation(page);
+  await page.getByRole("button", { name: "Leads", exact: true }).click();
+  const row = page
+    .getByRole("region", { name: "Lead preparation" })
+    .getByRole("listitem")
+    .filter({ hasText: "Skipped reasons list" });
+  await row.getByText("Why one lead was skipped").click();
+  await expect(row.getByText(reason)).toBeVisible();
+  await page
+    .getByRole("button", { name: /^Open lead / })
+    .first()
+    .click();
+  await expect(
+    page.getByText(`The agent skipped this lead: ${reason}`, { exact: false }),
+  ).toBeVisible();
+});
+
+test("the AI card is done once ChatGPT and the live help key are both set", async ({
+  page,
+}) => {
+  await page.route("**/v1/inference/codex", (route) =>
+    route.fulfill({
+      json: {
+        connected: true,
+        account: { email: "fixture@example.test", planType: "pro" },
+      },
+    }),
+  );
+  await page.route("**/v1/admin/settings", async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.effective.inference_mode = "codex";
+    data.configured.openrouter_api_key = true;
+    await route.fulfill({ response, json: data });
+  });
+  await enterSimulation(page);
+  const card = await openSettingsCard(page, "AI");
+  await expect(card.locator(":scope > summary .pill")).toHaveText("Done");
+});

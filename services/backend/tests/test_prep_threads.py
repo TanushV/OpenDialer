@@ -273,6 +273,30 @@ async def test_a_metered_thread_verifies_pages_publishes_and_charges_its_list(wo
 
 
 @pytest.mark.asyncio
+async def test_list_progress_names_each_skipped_lead_and_why(workspace, app, monkeypatch):
+    from app.db import Job
+
+    service, who, ids = prepared_workspace(workspace, app, monkeypatch, ScriptedAgent())
+    await service.run_prep_thread(who, ids)
+    with service.db.transaction() as s:
+        for job in s.query(Job).filter(Job.queue == "research"):
+            job.status = "completed"  # this test ran the queued thread directly
+    entry = next(e for e in service.preparation_status(who)["lists"] if e["list_name"] == "Real")
+    assert entry["ready"] == 1 and entry["skipped"] == 1
+    assert entry["skipped_leads"] == [
+        {"name": ROWS[1]["name"], "reason": "No public trace of this business."}
+    ]
+
+
+def test_agents_leave_phone_numbers_to_the_dialer():
+    from app.preparation.agent import INSTRUCTIONS, TOOLS
+
+    skip = next(t for t in TOOLS if t["name"] == "skip_lead")["description"]
+    assert "wrong number" not in skip
+    assert "phone number" in INSTRUCTIONS and "the app checks numbers" in INSTRUCTIONS
+
+
+@pytest.mark.asyncio
 async def test_a_lead_left_open_is_retried_then_released_to_the_base_script(workspace, app, monkeypatch):
     service, who, ids = prepared_workspace(workspace, app, monkeypatch, ScriptedAgent("partial"))
     for _ in range(3):

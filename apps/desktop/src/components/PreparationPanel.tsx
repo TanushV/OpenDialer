@@ -12,6 +12,7 @@ interface ListProgress {
   waiting: number;
   spent_usd: number;
   budget_usd: number;
+  skipped_leads: { name: string; reason: string }[];
 }
 export interface PreparationStatus {
   lists: ListProgress[];
@@ -43,14 +44,19 @@ export function PreparationPanel({
     setStatus(next);
     setDraft((old) => old ?? next.settings);
   }, [api]);
+  // An import changes the lead count before any agent reports back, which can take minutes.
+  const leadCount = snapshot.pages?.leads?.total ?? snapshot.leads.length;
   useEffect(() => {
     void load().catch(() => {});
-    const unsubscribe = subscribe((events) => {
-      if (events.some((e) => e.type.startsWith("lead.")))
-        void load().catch(() => {});
-    });
-    return unsubscribe;
-  }, [load, subscribe]);
+  }, [load, leadCount]);
+  useEffect(
+    () =>
+      subscribe((events) => {
+        if (events.some((e) => e.type.startsWith("lead.")))
+          void load().catch(() => {});
+      }),
+    [load, subscribe],
+  );
   const busy = status?.lists.some((l) => l.working || l.waiting);
   useEffect(() => {
     if (!busy) return;
@@ -149,7 +155,7 @@ export function PreparationPanel({
                   <span style={{ width: `${percent}%` }} />
                 </div>
                 <p className="fine">
-                  {list.ready} scripted
+                  {list.ready} with their own script
                   {list.skipped
                     ? ` · ${list.skipped} skipped by the agent`
                     : ""}
@@ -162,6 +168,28 @@ export function PreparationPanel({
                     ? ` · ${money(list.spent_usd)} of ${money(list.budget_usd)} AI budget`
                     : ""}
                 </p>
+                {list.skipped_leads?.length > 0 && (
+                  <details className="prep-skipped">
+                    <summary>
+                      Why{" "}
+                      {list.skipped === 1
+                        ? "one lead was"
+                        : `${list.skipped} leads were`}{" "}
+                      skipped
+                    </summary>
+                    <p className="fine">
+                      Skipped leads are called with your script as written.
+                    </p>
+                    <ul>
+                      {list.skipped_leads.map((lead, index) => (
+                        <li key={index}>
+                          <strong>{lead.name || "Unnamed lead"}</strong>{" "}
+                          {lead.reason}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
                 {admin && list.waiting > 0 && (
                   <button
                     className="text-button"

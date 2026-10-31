@@ -126,6 +126,8 @@ function AdminSettings({
 }) {
   const { api, run, snapshot: w } = useWorkspace();
   const settings = useAdminSettings();
+  // Null until the AI card has read the ChatGPT login.
+  const [chatGpt, setChatGpt] = useState<boolean | null>(null);
   const [preflight, setPreflight] = useState<Readiness | null>(null);
   useEffect(() => setPreflight(null), [settings.data?.version]);
   return (
@@ -203,15 +205,11 @@ function AdminSettings({
           </SettingCard>
           <SettingCard
             title="AI"
-            done={
-              settings.data.effective.inference_mode === "codex"
-                ? undefined
-                : !!settings.data.configured.openai_api_key
-            }
+            done={aiDone(settings.data, chatGpt)}
             summary="ChatGPT researches leads and writes scripts. A Cerebras key powers live help during calls."
             open
           >
-            <AiCard settings={settings} />
+            <AiCard settings={settings} onConnected={setChatGpt} />
           </SettingCard>
           <SettingCard
             title="Script"
@@ -258,6 +256,17 @@ function AdminSettings({
       <MoreSettings settings={settings} onDisconnect={onDisconnect} />
     </>
   );
+}
+
+/** Research has a route (ChatGPT or an API key) and live help has its key. */
+function aiDone(data: SettingsData, chatGpt: boolean | null) {
+  const route =
+    data.effective.inference_mode === "codex"
+      ? chatGpt
+      : !!data.configured.openai_api_key;
+  return route === null
+    ? undefined
+    : route && !!data.configured.openrouter_api_key;
 }
 
 function SettingCard({
@@ -320,7 +329,13 @@ function BusinessConfirmation() {
 type LoginStatus = CodexLoginStatus & { computer_login?: boolean };
 
 /** ChatGPT for research and scripts; a Cerebras key for live help. */
-function AiCard({ settings }: { settings: AdminSettingsState }) {
+function AiCard({
+  settings,
+  onConnected,
+}: {
+  settings: AdminSettingsState;
+  onConnected: (connected: boolean) => void;
+}) {
   const { api, run, notice } = useWorkspace();
   const [login, setLogin] = useState<LoginStatus | null>(null);
   const [busy, setBusy] = useState(false);
@@ -336,6 +351,9 @@ function AiCard({ settings }: { settings: AdminSettingsState }) {
     generation.current++;
     setLogin(value);
   };
+  useEffect(() => {
+    if (login) onConnected(login.connected);
+  }, [login, onConnected]);
   useEffect(() => {
     void load().catch(() => {});
     // Coming back from the browser or Codex refreshes both the login and the saved route.

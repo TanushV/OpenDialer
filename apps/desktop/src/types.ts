@@ -285,7 +285,7 @@ export interface Packet {
     tasks_omitted: number;
   };
   review_token?: string;
-  preparation?: { status: string; as_of?: string };
+  preparation?: { status: string; as_of?: string; reason?: string };
   tasks?: FollowupTask[];
   prospect_brief?: {
     prior_answers?: EvidenceItem[];
