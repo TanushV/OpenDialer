@@ -366,24 +366,15 @@ def test_call_cost_is_estimated_then_settled_by_carrier_records(workspace, clock
     post(workspace, f"/v1/admin/billing/ledger/{record['id']}/reconcile", over, status=409)
 
 
-def test_exhausted_budget_blocks_metered_work_until_the_budget_is_raised(workspace):
-    budget = call(workspace, "PUT", "/v1/admin/budget", json={"daily_limit_usd": 0, "monthly_limit_usd": 0})
-    assert budget["daily_limit_usd"] == 0
-    assert "BUDGET_EXHAUSTED" in refused(workspace)
-    assert "BUDGET_EXHAUSTED" in get(workspace, "/v1/admin/preflight")["blockers"]
-    call(
-        workspace,
-        "PUT",
-        "/v1/admin/budget",
-        json={"daily_limit_usd": -1, "monthly_limit_usd": 10},
-        status=422,
-    )
-    raised = call(
-        workspace, "PUT", "/v1/admin/budget", json={"daily_limit_usd": 25, "monthly_limit_usd": 250}
-    )
-    assert raised["monthly_limit_usd"] == 250
-    assert get(workspace, "/v1/admin/settings")["budget"]["daily_limit_usd"] == 25
+def test_the_ai_budget_is_per_lead_list_and_never_blocks_calling(workspace):
+    budget = call(workspace, "PUT", "/v1/admin/budget", json={"per_list_usd": 0})
+    assert budget["per_list_usd"] == 0
+    assert "BUDGET_EXHAUSTED" not in get(workspace, "/v1/admin/preflight")["blockers"]
     assert offered(workspace) in (PT, ET, CT)
+    call(workspace, "PUT", "/v1/admin/budget", json={"per_list_usd": -1}, status=422)
+    raised = call(workspace, "PUT", "/v1/admin/budget", json={"per_list_usd": 30})
+    assert raised["per_list_usd"] == 30
+    assert get(workspace, "/v1/admin/settings")["budget"]["per_list_usd"] == 30
 
 
 def test_provider_keys_are_stored_but_never_echoed_back(workspace):

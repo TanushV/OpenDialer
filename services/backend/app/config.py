@@ -7,12 +7,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class ProviderDefaults(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-    inference_mode: Literal["api", "litellm", "chatgpt_plan", "codex"] = "api"
+    inference_mode: Literal["api", "litellm", "codex"] = "codex"
     model: str = "gpt-6-luna"
-    plan_model: str = "gpt-6.1-sol"
+    # The ChatGPT sign-in route runs every role on Terra at maximum reasoning effort.
+    plan_model: str = "gpt-6.1-terra"
     coach_provider: Literal["openrouter", "static"] = "openrouter"
     coach_model: str = "openai/gpt-oss-120b"
-    research_search: Literal["disabled", "openai_web_search"] = "disabled"
     # Budget hold for one optional metered request before its receipt settles the actual cost.
     optional_request_estimate_usd: float = 0.10
 
@@ -23,9 +23,11 @@ PROVIDER_DEFAULTS = ProviderDefaults()
 def inference_model(config, role=None):
     default = (
         PROVIDER_DEFAULTS.plan_model
-        if config.get("inference_mode") in {"chatgpt_plan", "codex"}
+        if config.get("inference_mode", PROVIDER_DEFAULTS.inference_mode) == "codex"
         else PROVIDER_DEFAULTS.model
     )
+    if config.get("inference_mode", PROVIDER_DEFAULTS.inference_mode) == "codex":
+        return default
     return config.get(f"{role}_model") or config.get("model") or default
 
 

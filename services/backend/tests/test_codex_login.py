@@ -215,3 +215,72 @@ async def test_codex_requires_named_tool_and_preserves_receipt(tmp_path, monkeyp
     monkeypatch.setattr(CodexRuntime, "complete", prose)
     with pytest.raises(InferenceError):
         await client.complete("instructions", {}, {})
+
+
+@pytest.fixture
+def agent_runtime(tmp_path, monkeypatch):
+    """A fake app-server that calls two offered tools, one unoffered tool, then finishes each turn."""
+    from app.providers import codex
+
+    script = tmp_path / "agent.py"
+    script.write_text("""
+import json, os, sys
+from pathlib import Path
+home = Path(os.environ["CODEX_HOME"])
+config = (home / "config.toml").read_text()
+log = Path(sys.argv[1])
+def send(value):
+ print(json.dumps(value), flush=True)
+turns = 0
+for line in sys.stdin:
+ m = json.loads(line)
+ method = m.get("method")
+ if method == "initialized" or "method" not in m: continue
+ if method == "thread/start":
+  log.write_text(json.dumps({"config": config, "model": m["params"]["model"], "tools": [t["name"] for t in m["params"]["dynamicTools"]]}))
+  send({"id": m["id"], "result": {"thread": {"id": "t1"}}}); continue
+ if method == "turn/start":
+  turns += 1
+  data = json.loads(log.read_text()); data.setdefault("turns", []).append({"effort": m["params"].get("effort"), "text": m["params"]["input"][0]["text"]}); log.write_text(json.dumps(data))
+  send({"id": m["id"], "result": {"turn": {"id": f"u{turns}"}}})
+  if (log.parent / "limit").exists():
+   send({"method": "turn/completed", "params": {"turn": {"id": f"u{turns}", "status": "failed", "error": {"codexErrorInfo": "usageLimitExceeded"}}}}); continue
+  send({"id": 100 + turns, "method": "item/tool/call", "params": {"tool": "save_facts", "arguments": {"n": turns}, "callId": "a", "threadId": "t1", "turnId": f"u{turns}"}})
+  send({"id": 200 + turns, "method": "item/tool/call", "params": {"tool": "exec_command", "arguments": {}, "callId": "b", "threadId": "t1", "turnId": f"u{turns}"}})
+  send({"method": "item/completed", "params": {"item": {"type": "webSearch"}}})
+  send({"method": "thread/tokenUsage/updated", "params": {"threadId": "t1", "tokenUsage": {"total": {"inputTokens": 50 * turns, "outputTokens": 5 * turns}}}})
+  send({"method": "turn/completed", "params": {"turn": {"id": f"u{turns}", "status": "completed"}}})
+  continue
+ send({"id": m["id"], "result": {}})
+""")
+    log = tmp_path / "log.json"
+    monkeypatch.setattr(codex, "runtime_command", lambda: [sys.executable, str(script), str(log)])
+    return codex, log
+
+
+@pytest.mark.asyncio
+async def test_agent_threads_use_terra_max_web_search_and_only_offered_tools(tmp_path, agent_runtime):
+    import json
+
+    codex, log = agent_runtime
+    home = tmp_path / "personal"
+    codex.save_login(home, login())
+    calls, follow = [], iter(["Still open: lead-2", None])
+
+    async def handle(name, args):
+        calls.append((name, args))
+        return json.dumps({"ok": True})
+
+    tools = [{"name": "save_facts", "description": "d", "schema": {"type": "object"}}]
+    client = codex.CodexClient(home, "gpt-6.1-terra", "submit_script_write")
+    usage = await client.run("Prepare", tools, handle, "first", lambda: next(follow))
+    record = json.loads(log.read_text())
+    assert record["model"] == "gpt-6.1-terra" and record["tools"] == ["save_facts"]
+    assert 'web_search = "live"' in record["config"]
+    assert [t["effort"] for t in record["turns"]] == ["max", "max"]
+    assert [t["text"] for t in record["turns"]] == ["first", "Still open: lead-2"]
+    assert calls == [("save_facts", {"n": 1}), ("save_facts", {"n": 2})]
+    assert usage == {"input_tokens": 100, "output_tokens": 10, "web_search_calls": 2}
+    (log.parent / "limit").write_text("1")
+    with pytest.raises(codex.PlanLimit):
+        await client.run("Prepare", tools, handle, "first", lambda: None)

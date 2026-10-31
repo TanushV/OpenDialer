@@ -6,7 +6,7 @@ from app.providers.inference import InferenceClient, InferenceError
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mode", ["api", "litellm", "chatgpt_plan"])
+@pytest.mark.parametrize("mode", ["api", "litellm"])
 async def test_action_requires_named_tool_and_preserves_receipt(mode):
     async def respond(request):
         body = json.loads(request.content)
@@ -36,12 +36,6 @@ async def test_action_requires_named_tool_and_preserves_receipt(mode):
                     }
                 ]
             }
-        if mode == "chatgpt_plan":
-            return httpx.Response(
-                200,
-                text="data: " + json.dumps({"type": "response.completed", "response": payload}) + "\n\n",
-                headers={"content-type": "text/event-stream"},
-            )
         return httpx.Response(200, json=payload)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:

@@ -123,7 +123,7 @@ def request(service, p, call_id, mode):
                 s,
                 p,
                 "research_facts",
-                lead.data.get("domain"),
+                lead.id,
                 model.ctx_status == "supported",
                 model.ctx_expires_at > service.clock(),
                 limit=8,

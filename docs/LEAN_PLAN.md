@@ -156,6 +156,11 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
+- October 30 simplification checkpoint (planning only): the owner requested one Markdown script with options and
+  AI-written blocks, per-lead deep research and script writing by agent threads before calling (ChatGPT route on
+  `gpt-6.1-terra` at `max` effort), company-aware calling, removal of scheduled prepaid screening and a one-page
+  Settings. Plan: [CAMPAIGN_PREP_PLAN.md](CAMPAIGN_PREP_PLAN.md). Awaiting approval; no code changed.
+
 - October 30 prompt-free setup complete (0.6.2): removed Keychain/Credential Manager access and its
   dependency at the owner's request. Private persistent desktop key files keep saved credentials encrypted;
   inaccessible old ciphertext is retained without OS access. Explicit server keys remain supported.

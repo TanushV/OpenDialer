@@ -8,16 +8,13 @@ import hashlib
 import math
 import re
 from collections import Counter, defaultdict
-from copy import deepcopy
 
 from app.optimization.conversations import association_patterns, first_eligible, supported
 
-SECTIONS = ("opener", "gatekeeper", "screening_intro", "discovery_questions", "proof", "closing_question")
-EDITABLE = ("opener", "gatekeeper", "discovery_questions", "closing_question")
+SECTIONS = ("opening", "screening", "gatekeeper", "discovery", "offers", "objections", "close")
+EDITABLE = ("opening", "gatekeeper", "discovery", "offers", "objections", "close")
 LOCKED = {
-    "screening_intro": "The screening line names the seller and stays as the seller approved it.",
-    "proof": "Proof is filled only from reviewed research facts.",
-    "opener": "The opener keeps who is calling: {rep} and {seller}.",
+    "screening": "The screening line names the business with {seller} and stays as the seller wrote it.",
 }
 # Timing depends on transcription timestamps and is used after the call only, never live.
 TIMING_FEATURES = frozenset(
@@ -27,12 +24,13 @@ BANNED = ("guarantee", "risk-free", "risk free", "we spoke before", "double your
 MATCH_THRESHOLD = 0.6
 ENGAGED_WORDS = 12
 NAMES = {
-    "opener": "opener",
+    "opening": "opening",
     "gatekeeper": "gatekeeper line",
-    "screening_intro": "screening line",
-    "discovery_questions": "discovery question",
-    "proof": "proof line",
-    "closing_question": "closing question",
+    "screening": "screening line",
+    "discovery": "discovery question",
+    "offers": "offer",
+    "objections": "objection answer",
+    "close": "close",
 }
 
 
@@ -46,28 +44,26 @@ def variant(text):
 
 
 def section_texts(script):
-    """(key, rendered text, template text) for every section a rep may say."""
+    """(key, rendered text, template text) for every option the rep's script for this lead uses.
+
+    Keys are `section:option-id`, so learning compares the seller's options (which offer, which
+    question) and not only whole sections.
+    """
     template = script.get("template") or {}
-    result = []
-    for field in SECTIONS:
-        value, raw = script.get(field), template.get(field)
-        if isinstance(value, list):
-            for i, text in enumerate(value):
-                source = raw[i] if isinstance(raw, list) and i < len(raw) else text
-                result.append((f"{field}:{i}", text, source))
-        elif isinstance(value, str) and value.strip():
-            result.append((field, value, raw if isinstance(raw, str) else value))
-    for i, section in enumerate(script.get("sections", [])):
-        raw_sections = template.get("sections", [])
-        raw = raw_sections[i]["text"] if i < len(raw_sections) else section["text"]
-        result.append((f"sections:{i}", section["text"], raw))
-    return result
+    raw = {o["id"]: o["text"] for s in template.get("sections", []) for o in s.get("options", [])}
+    return [
+        (f"{section['key']}:{option['id']}", option["text"], raw.get(option["id"], option["text"]))
+        for section in script.get("sections", [])
+        for option in section.get("options", [])
+        if option.get("picked", True) and option.get("text", "").strip()
+    ]
 
 
 def section_label(key):
-    field, _, index = key.partition(":")
+    field, _, option = key.partition(":")
     name = NAMES.get(field, field)
-    return f"{name} {int(index) + 1}" if index else name
+    number = option.rsplit("-", 1)[-1] if option else ""
+    return f"{name} {number}" if number.isdigit() and field != "screening" else name
 
 
 def match_section(text, script):
@@ -180,7 +176,7 @@ def script_trace(script, segments, observations=()):
         "turn_exchanges": metrics["turn_exchanges"],
         "time_to_first_question_ms": question["start_ms"] - first_ms if timed and question else None,
         "sections_delivered": len(sections),
-        "discovery_questions_asked": sum(s["key"].startswith("discovery_questions") for s in sections),
+        "discovery_questions_asked": sum(s["key"].startswith("discovery:") for s in sections),
     }
     return {
         "version": 1,
@@ -227,7 +223,7 @@ def trace_features(trace):
                 "none" if first is None else _bucket(first, (20000, 45000), ("<20s", "20-45s", ">45s")),
             )
         )
-        opener = next((s for s in trace["sections"] if s["key"] == "opener"), None)
+        opener = next((s for s in trace["sections"] if s["key"].startswith("opening")), None)
         if opener and opener["portion_ms"] is not None:
             keys.add(
                 ("opening_length", _bucket(opener["portion_ms"], (10000, 20000), ("<10s", "10-20s", ">20s")))
@@ -361,46 +357,30 @@ def weakest_section(report, *, minimum=10):
 
 
 def candidate_template(base, section, text, *, index=None, source="team"):
-    """The base template with one editable section changed, within the identity and claim locks."""
-    from app.preparation.templates import ScriptTemplate
+    """The base script with one section's Markdown replaced, within the identity and claim locks."""
+    from app.preparation.templates import ScriptError, parse_markdown, replace_section
 
     if not base:
-        raise ValueError("Save a base script template before proposing changes")
+        raise ValueError("Add your script before proposing changes")
     if section not in EDITABLE:
         raise ValueError(
-            LOCKED.get(
-                section,
-                "Only the opener, gatekeeper line, discovery questions and closing question can change",
-            )
+            LOCKED.get(section, "Choose the opening, gatekeeper, discovery, offers, objections or close")
         )
     text = (text or "").strip()
     lowered = text.casefold()
-    if not 3 <= len(text) <= 600:
-        raise ValueError("Write between 3 and 600 characters")
+    if not 3 <= len(text) <= 4000:
+        raise ValueError("Write between 3 and 4000 characters")
     if any(term in lowered for term in BANNED):
         raise ValueError("No guarantees, promises or invented relationships")
     if source == "memory" and re.search(r"[0-9%$£€]", text):
         raise ValueError("A generated change cannot add numbers, prices or other claims")
-    if section == "opener" and not ("{rep}" in text and "{seller}" in text):
-        raise ValueError(LOCKED["opener"])
-    template = deepcopy(base)
-    if section == "discovery_questions":
-        questions = list(template["discovery_questions"])
-        if index is None or not 0 <= index <= len(questions) or index >= 5:
-            raise ValueError("Choose an existing discovery question or the next free slot (at most five)")
-        if index == len(questions):
-            questions.append(text)
-        else:
-            questions[index] = text
-        template["discovery_questions"] = questions
-    else:
-        template[section] = text
-    for uploaded in template.get("sections", []):
-        if uploaded["text"] == base.get(section):
-            uploaded["text"] = text
-    if template == base:
+    try:
+        template = parse_markdown(replace_section(base, section, text))
+    except ScriptError as exc:
+        raise ValueError(str(exc)) from None
+    if [s for s in template["sections"]] == [s for s in base["sections"]]:
         raise ValueError("The proposal does not change the base script")
-    return ScriptTemplate(**template).model_dump()
+    return template
 
 
 def memory_digest(report, notes, *, live_only=True, limit=5):

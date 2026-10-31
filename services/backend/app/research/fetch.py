@@ -141,26 +141,3 @@ def official_links(url, soup):
         if len(links) == 128:
             break
     return links
-
-
-def discovery_links(home, maximum=2):
-    """Pick a small useful official set; never recursively crawl linked pages."""
-    ranked = {}
-    for link in home.get("links", [])[:128]:
-        target = urldefrag(urljoin(home["url"], link.get("url", "")))[0]
-        if target == urldefrag(home["url"])[0] or not same_origin(home["url"], target):
-            continue
-        label = (urlsplit(target).path + " " + link.get("text", "")).casefold()
-        rank = next(
-            (
-                i
-                for i, words in enumerate(
-                    (("service", "product", "solution"), ("about", "company"), ("location", "contact"))
-                )
-                if any(word in label for word in words)
-            ),
-            None,
-        )
-        if rank is not None:
-            ranked[target] = min(rank, ranked.get(target, rank))
-    return sorted(ranked, key=lambda target: (ranked[target], target))[:maximum]

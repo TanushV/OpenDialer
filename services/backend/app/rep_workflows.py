@@ -735,6 +735,28 @@ class RepWorkflows:
             emit(s, p["tenant_id"], "task.updated", task, self.clock())
             return {**doc(task), "edit_receipt": self.local_edit_receipt(s, p, identity, task)}
 
+    def company_hold_in(self, s, p, lead, *, booked):
+        """A booking at one contact pauses calls to the others at that company; undoing it releases them."""
+        key = lead.data.get("company_key")
+        if not key:
+            return
+        model = MODELS["leads"]
+        for other in s.scalars(
+            select(model).where(
+                model.tenant_id == p["tenant_id"],
+                model.seller_id == p["seller_id"],
+                model.op_lead_id == key,
+                model.id != lead.id,
+            )
+        ):
+            if booked and not other.data.get("outreach_hold"):
+                update(other, outreach_hold="company_booked", company_booked_by=lead.id)
+            elif not booked and other.data.get("company_booked_by") == lead.id:
+                update(other, outreach_hold=None, company_booked_by=None)
+            else:
+                continue
+            emit(s, p["tenant_id"], "lead.meeting_updated", other, self.clock())
+
     def _meeting_in(
         self,
         s,
@@ -773,6 +795,7 @@ class RepWorkflows:
             else None
         )
         update(lead, meeting=meeting, outreach_hold=hold)
+        self.company_hold_in(s, p, lead, booked=status in {"booked", "rescheduled", "held"})
         if status in {"booked", "rescheduled", "held"}:
             for task in self.lead_records(s, p, "followup_tasks", lead.id):
                 if task.data.get("kind") != "callback" or task.data.get("status") not in ACTIVE_TASKS:
@@ -1150,6 +1173,7 @@ class RepWorkflows:
                             },
                             outreach_hold="meeting_next_action",
                         )
+                        self.company_hold_in(s, p, lead, booked=False)
                 record = self._by_key(s, p, "outcomes", "disposition:" + call_id)
                 values = {
                     "call_id": call_id,

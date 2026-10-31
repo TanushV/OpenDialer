@@ -19,13 +19,29 @@ class RequestAccounting:
             )
         )
 
-    def reserve_optional_budget(self, p, request_key, estimate_usd, *, object_id=None, work_kind=None):
+    def reserve_optional_budget(
+        self, p, request_key, estimate_usd, *, object_id=None, work_kind=None, scope=None
+    ):
         with self.db.transaction() as s:
             return self.reserve_budget_in(
-                s, p, request_key, estimate_usd, object_id=object_id, work_kind=work_kind
+                s, p, request_key, estimate_usd, object_id=object_id, work_kind=work_kind, scope=scope
             )
 
-    def reserve_budget_in(self, s, p, request_key, estimate_usd, *, object_id=None, work_kind=None):
+    def budget_scope(self, s, p, object_id):
+        """The lead list an AI request is for: its lead's list, or `other` for work without one."""
+        from app.db import get
+
+        for kind in ("leads", "call_attempts"):
+            row = get(s, kind, object_id, p["tenant_id"]) if object_id else None
+            if row and row.seller_id == p["seller_id"]:
+                lead = row if kind == "leads" else get(s, "leads", row.data.get("lead_id"), p["tenant_id"])
+                if lead:
+                    return "list:" + (lead.data.get("list_name") or "")
+        return "other"
+
+    def reserve_budget_in(
+        self, s, p, request_key, estimate_usd, *, object_id=None, work_kind=None, scope=None
+    ):
         if (
             not isinstance(request_key, str)
             or not request_key
@@ -47,9 +63,8 @@ class RequestAccounting:
             if data.get("estimate_usd", data.get("reserved_usd")) != estimate_usd:
                 raise ValueError("Request identity already has a different budget")
             return True
-        # A second admission in this transaction must include the preceding writes.
-        s.info.pop(("budget_totals", p["tenant_id"], p["seller_id"]), None)
-        if not self.budget_ok(s, p, estimate_usd):
+        scope = scope or self.budget_scope(s, p, object_id)
+        if not self.budget_ok(s, p, estimate_usd, scope):
             return False
         put(
             s,
@@ -60,6 +75,7 @@ class RequestAccounting:
                 "kind": "optional_work_reservation",
                 "object_id": object_id,
                 "work_kind": work_kind,
+                "budget_scope": scope,
                 "user_id": p.get("user_id"),
                 "request_key": request_key,
                 "estimate_usd": estimate_usd,

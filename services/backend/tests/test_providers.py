@@ -100,34 +100,6 @@ async def test_litellm_explicit_openai_compatible_route():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "terminal,success",
-    [("response.completed", True), ("response.failed", False), ("response.incomplete", False), (None, False)],
-)
-async def test_official_chatgpt_plan_stream_requires_completed_terminal_event(terminal, success):
-    captured = []
-    events = ["data: " + json.dumps({"type": "response.output_text.delta", "delta": '{"ok":true}'}) + "\n\n"]
-    if terminal:
-        events.append("data: " + json.dumps({"type": terminal, "response": {"usage": {}}}) + "\n\n")
-
-    def handler(request):
-        captured.append(request)
-        return httpx.Response(200, text="".join(events), headers={"content-type": "text/event-stream"})
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        adapter = InferenceClient("chatgpt_plan", "oauth-access-token", "account-model", http=http)
-        if success:
-            assert (await adapter.complete("Return JSON", {}, {"type": "object"})).data["ok"]
-        else:
-            with pytest.raises(InferenceError):
-                await adapter.complete("Return JSON", {}, {"type": "object"})
-    body = json.loads(captured[0].content)
-    assert body["stream"] is True and body["store"] is False
-    assert str(captured[0].url) == "https://api.openai.com/v1/responses"
-    assert "max_output_tokens" not in body
-
-
-@pytest.mark.asyncio
 async def test_provider_refusal_does_not_become_empty_success():
     def handler(request):
         return httpx.Response(
@@ -140,74 +112,43 @@ async def test_provider_refusal_does_not_become_empty_success():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("output", ["[]", "null", '"plain text"', "42"])
-async def test_plan_stream_rejects_non_object_output(output):
-    events = [
-        {"type": "response.output_text.delta", "delta": output},
-        {"type": "response.completed", "response": {"id": "test-response"}},
-    ]
-    transport = httpx.MockTransport(
-        lambda request: httpx.Response(
-            200,
-            text="".join("data: " + json.dumps(event) + "\n\n" for event in events),
-            headers={"content-type": "text/event-stream"},
+async def test_api_agent_loops_tools_with_web_search_and_follow_up_turns():
+    bodies = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        bodies.append(body)
+        if len(bodies) == 1:
+            output = [
+                {"type": "web_search_call", "status": "completed"},
+                {
+                    "type": "function_call",
+                    "name": "finish_research",
+                    "call_id": "c1",
+                    "arguments": '{"lead":"lead-1","summary":"x"}',
+                },
+            ]
+        elif len(bodies) == 2:
+            output = [{"type": "function_call", "name": "nope", "call_id": "c2", "arguments": "{}"}]
+        else:
+            output = [{"type": "message", "content": [{"type": "output_text", "text": "done"}]}]
+        return httpx.Response(200, json={"output": output, "usage": {"input_tokens": 10, "output_tokens": 2}})
+
+    seen, turns = [], iter(["Close lead-1.", None])
+
+    async def handle(name, args):
+        seen.append((name, args))
+        return json.dumps({"ok": True})
+
+    tools = [{"name": "finish_research", "description": "d", "schema": {"type": "object"}}]
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        usage = await InferenceClient("api", "k", "model", http=http).run(
+            "Instructions", tools, handle, "first", lambda: next(turns)
         )
-    )
-    async with httpx.AsyncClient(transport=transport) as http:
-        with pytest.raises(InferenceError, match="Object output required"):
-            await InferenceClient("chatgpt_plan", "test", "test", http=http).complete(
-                "Return an object", {}, {"type": "object"}
-            )
-
-
-@pytest.mark.asyncio
-async def test_research_search_is_explicit_official_bounded_and_identity_filtered():
-    captured = []
-
-    def reply(request):
-        captured.append(json.loads(request.content))
-        return httpx.Response(
-            200,
-            json={
-                "id": "search-receipt",
-                "status": "completed",
-                "usage": {"cost": 0.002},
-                "output": [
-                    {
-                        "type": "web_search_call",
-                        "status": "completed",
-                        "action": {
-                            "type": "search",
-                            "sources": [
-                                {"url": "https://example.test/services"},
-                                {"url": "https://foreign.test/services"},
-                                {"url": "https://example.test/services#duplicate"},
-                                {"url": "http://127.0.0.1/private"},
-                            ],
-                        },
-                    }
-                ],
-            },
-        )
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(reply)) as http:
-        client = InferenceClient("api", "fixture", "configured-model", http=http, search_enabled=True)
-        result = await client.search("Example", "example.test", "services")
-        assert result.data == {"urls": ["https://example.test/services"]}
-        assert result.usage["web_search_calls"] == 1 and result.request_id == "search-receipt"
-        body = captured[0]
-        assert body["model"] == "configured-model" and body["store"] is False
-        assert body["max_tool_calls"] == 1
-        assert body["tools"][0]["filters"] == {"allowed_domains": ["example.test"]}
-        assert body["include"] == ["web_search_call.action.sources"]
-        for mode, enabled, base in [
-            ("api", False, None),
-            ("litellm", True, "https://proxy.example/v1"),
-            ("chatgpt_plan", True, None),
-        ]:
-            other = InferenceClient(
-                mode, "fixture", "configured-model", http=http, base_url=base, search_enabled=enabled
-            )
-            with pytest.raises(InferenceError, match="search"):
-                await other.search("Example", "example.test", "services")
-        assert len(captured) == 1, "Unsupported/unapproved capabilities cannot submit a paid tool request"
+    assert seen == [("finish_research", {"lead": "lead-1", "summary": "x"})]
+    assert usage == {"input_tokens": 40, "output_tokens": 8, "web_search_calls": 1}
+    assert {"type": "web_search"} in bodies[0]["tools"] and bodies[0]["store"] is False
+    assert bodies[2]["input"][-1]["output"].startswith('{"ok": false')
+    assert bodies[3]["input"][-1] == {"role": "user", "content": "Close lead-1."}
+    compatible = InferenceClient("litellm", "k", "m", base_url="http://127.0.0.1:4000/v1")
+    assert not compatible.official

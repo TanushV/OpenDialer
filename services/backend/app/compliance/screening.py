@@ -2,30 +2,26 @@
 
 import asyncio
 from datetime import timedelta
-from decimal import ROUND_CEILING, Decimal
+from decimal import Decimal
 from typing import Literal
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import exists, or_, select
+from sqlalchemy import select
 
 from app.compliance.operating import (
     COSTS,
-    DncRefreshPolicy,
     ScreeningRequest,
     authority_stamp,
     authorized_screen,
     cached_screen,
-    screening_capability,
     screening_expiry,
     screening_key,
     screening_max_age,
-    screening_snapshot,
     usable_screen,
 )
 from app.compliance.phone import normalize_phone
-from app.db import MODELS, Job, audit, doc, put, uid, update
-from app.jobs.queue import aware, jobdoc
+from app.db import MODELS, audit, doc, put, uid, update
 from app.providers.dnc import DNCError, PrepaidDNC
 from app.providers.inference import InferenceResult
 from app.service import dt, fail
@@ -86,7 +82,7 @@ def view(service, row, config, max_age):
     }
 
 
-def claim(service, p, phone=None, identity=None, retry=None, *, refresh=None):
+def claim(service, p, phone=None, identity=None, retry=None):
     config = service.configs.read(p["tenant_id"])
     with service.db.transaction() as s:
         service.db.authorize_stream(s, p)
@@ -141,8 +137,6 @@ def claim(service, p, phone=None, identity=None, retry=None, *, refresh=None):
         seller = service.required(s, "sellers", p["seller_id"], p)
         rate = seller.data.get("operating_policy", {}).get("account_rates", {}).get("dnc")
         estimate = float(rate["values"]["estimated_per_query_usd"]) if rate else QUERY_ESTIMATE
-        if refresh:
-            reserve_refresh_in(service, s, p, refresh, estimate)
         # Retain a legacy/crashed attempt's liability before admitting a new one.
         if row and row.data.get("request_key") and row.data.get("status") in UNFINISHED - {"unsubmitted"}:
             service.usage(
@@ -293,224 +287,6 @@ def finish(service, p, intent, result, refusal=None):
     return saved
 
 
-def reserve_refresh_in(service, s, p, refresh, estimate):
-    """Debit the run/day allowance atomically with the existing per-query intent."""
-    job = s.scalar(select(Job).where(Job.id == refresh["job_id"]).with_for_update())
-    seller = service.required(s, "sellers", p["seller_id"], p)
-    policy = DncRefreshPolicy(**seller.data.get("operating_policy", {}).get("dnc_refresh", {}))
-    if (
-        not job
-        or job.tenant_id != p["tenant_id"]
-        or job.payload.get("seller_id") != p["seller_id"]
-        or job.status != "running"
-        or job.lease_owner != refresh["worker_id"]
-        or aware(job.lease_expires_at) <= service.clock()
-        or job.payload["policy_version"] != seller.data.get("operating_policy_version", 1)
-        or not policy.enabled
-    ):
-        fail(409, "DNC_REFRESH_CHANGED_OR_DISABLED")
-    amount = int((Decimal(str(estimate)) * 1_000_000).to_integral_value(rounding=ROUND_CEILING))
-    day = service.clock().date().isoformat()
-    spending = seller.data.get("dnc_refresh_spending", {})
-    used = spending.get("micro_usd", 0) if spending.get("day") == day else 0
-    run_used = job.payload.get("reserved_micro_usd", 0)
-    if used + amount > int(policy.max_day_usd * 1_000_000) or run_used + amount > int(
-        policy.max_run_usd * 1_000_000
-    ):
-        fail(403, "DNC_REFRESH_BUDGET_EXHAUSTED")
-    job.payload = {**job.payload, "reserved_micro_usd": run_used + amount}
-    update(seller, dnc_refresh_spending={"day": day, "micro_usd": used + amount})
-
-
-def schedule_refresh(service, p):
-    def due(s):
-        """This window's refresh identity, or None when disabled or not authorized."""
-        if not active_admin(service, s, p):
-            return None
-        seller = service.required(s, "sellers", p["seller_id"], p)
-        policy = DncRefreshPolicy(**seller.data.get("operating_policy", {}).get("dnc_refresh", {}))
-        if not policy.enabled:
-            return None
-        window = int(service.clock().timestamp()) // (policy.interval_hours * 3600)
-        version = seller.data.get("operating_policy_version", 1)
-        return version, f"dnc-refresh:{p['seller_id']}:{version}:{window}"
-
-    # Read first: a disabled policy or an already scheduled window needs no writer.
-    with service.db.transaction(False) as s:
-        identity = due(s)
-        if identity is None:
-            return None
-        scheduled = s.scalar(select(Job).where(Job.tenant_id == p["tenant_id"], Job.key == identity[1]))
-        if scheduled is not None:
-            return jobdoc(scheduled)
-    with service.db.transaction() as s:
-        service.db.authorize_stream(s, p)
-        identity = due(s)
-        if identity is None:
-            return None
-        version, key = identity
-        horizon = service.clock() + timedelta(hours=service.optimization_config(s, p)["horizon_hours"])
-        return service.jobs.enqueue_in(
-            s,
-            "research",
-            {
-                "kind": "dnc_refresh",
-                "seller_id": p["seller_id"],
-                "user_id": p["user_id"],
-                "policy_version": version,
-                "cursor": "",
-                "phase": "due",
-                "horizon": horizon.isoformat(),
-                "desired_generation": 1,
-                "inspected": 0,
-                "submitted": 0,
-                "reserved_micro_usd": 0,
-            },
-            key,
-            tenant_id=p["tenant_id"],
-            priority=25,
-        )
-
-
-def refresh_page(service, p, job_id, worker_id):
-    with service.db.transaction(False) as s:
-        job = s.get(Job, job_id)
-        seller = service.required(s, "sellers", p["seller_id"], p)
-        policy = DncRefreshPolicy(**seller.data.get("operating_policy", {}).get("dnc_refresh", {}))
-        if (
-            not active_admin(service, s, p)
-            or not policy.enabled
-            or not job
-            or job.status != "running"
-            or job.lease_owner != worker_id
-            or aware(job.lease_expires_at) <= service.clock()
-            or job.payload["policy_version"] != seller.data.get("operating_policy_version", 1)
-        ):
-            return None
-        endpoint, lead = MODELS["phone_endpoints"], MODELS["leads"]
-        query = select(endpoint).where(
-            endpoint.tenant_id == p["tenant_id"],
-            endpoint.seller_id == p["seller_id"],
-            endpoint.id > job.payload["cursor"],
-        )
-        if job.payload["phase"] == "due":
-            query = query.where(
-                exists(
-                    select(lead.id).where(
-                        lead.tenant_id == p["tenant_id"],
-                        lead.seller_id == p["seller_id"],
-                        lead.op_endpoint_id == endpoint.id,
-                        or_(lead.op_due_at.is_(None), lead.op_due_at <= dt(job.payload["horizon"])),
-                    )
-                )
-            )
-        rows = list(s.scalars(query.order_by(endpoint.id).limit(policy.batch_size)))
-        return {"rows": [doc(r) for r in rows], "payload": dict(job.payload), "limit": policy.batch_size}
-
-
-def refresh_progress(
-    service,
-    job_id,
-    worker_id,
-    *,
-    cursor=None,
-    inspected=0,
-    submitted=0,
-    finish=False,
-    more=False,
-    reason=None,
-):
-    with service.db.transaction() as s:
-        job = s.scalar(select(Job).where(Job.id == job_id).with_for_update())
-        if (
-            not job
-            or job.status != "running"
-            or job.lease_owner != worker_id
-            or aware(job.lease_expires_at) <= service.clock()
-        ):
-            return False
-        values = {
-            **job.payload,
-            "inspected": job.payload.get("inspected", 0) + inspected,
-            "submitted": job.payload.get("submitted", 0) + submitted,
-        }
-        if cursor is not None:
-            values["cursor"] = cursor
-        if finish:
-            if not more and values["phase"] == "due" and not reason:
-                values.update(phase="all", cursor="")
-                more = True
-            values["complete"] = not more
-            values["reason"] = reason
-            if more:
-                values["desired_generation"] = values["claimed_generation"] + 1
-        job.payload = values
-        return True
-
-
-async def refresh_screening(service, p, job, worker_id):
-    page = await asyncio.to_thread(refresh_page, service, p, job["id"], worker_id)
-    if page is None:
-        await asyncio.to_thread(
-            refresh_progress, service, job["id"], worker_id, finish=True, reason="DNC_REFRESH_CHANGED"
-        )
-        return
-    refresh = {"job_id": job["id"], "worker_id": worker_id}
-
-    async def one(endpoint):
-        async with service.screening_capacity:
-
-            def prepare():
-                with service.db.transaction(False) as s:
-                    decision = screening_capability(
-                        screening_snapshot(service, s, p, endpoint["phone"]), endpoint["phone"]
-                    )
-                    if decision["decision"] in {"clear", "listed", "blocked"}:
-                        return None
-                return claim(service, p, endpoint["phone"], refresh=refresh)
-
-            try:
-                result = await asyncio.to_thread(prepare)
-                if result is None or result[0] is None:
-                    return 0, None
-                intent, _, config = result
-                try:
-                    await execute(service, p, intent, config)
-                except HTTPException as exc:
-                    # Original intent/uncertain liability is the recovery owner. A refused key
-                    # or exhausted credit refuses every later number too, so the run stops.
-                    if exc.detail in {"DNC_PROVIDER_KEY_INVALID", "DNC_PROVIDER_CREDITS_EXHAUSTED"}:
-                        return 1, exc.detail
-                return 1, None
-            except HTTPException as exc:
-                return 0, str(exc.detail) if "BUDGET_EXHAUSTED" in str(
-                    exc.detail
-                ) or "REFRESH_CHANGED" in str(exc.detail) else None
-
-    for offset in range(0, len(page["rows"]), 2):
-        pair = page["rows"][offset : offset + 2]
-        result = await asyncio.gather(*(one(row) for row in pair))
-        reason = next((value[1] for value in result if value[1]), None)
-        if not await asyncio.to_thread(
-            refresh_progress,
-            service,
-            job["id"],
-            worker_id,
-            cursor=pair[-1]["id"],
-            inspected=len(pair),
-            submitted=sum(value[0] for value in result),
-        ):
-            return
-        if reason:
-            await asyncio.to_thread(
-                refresh_progress, service, job["id"], worker_id, finish=True, reason=reason
-            )
-            return
-    await asyncio.to_thread(
-        refresh_progress, service, job["id"], worker_id, finish=True, more=len(page["rows"]) == page["limit"]
-    )
-
-
 async def execute(service, p, intent, config):
     result = None
     try:
@@ -577,31 +353,9 @@ def bind_screening_api(app, service, administrator):
                 )
             )
             max_age = screening_max_age(service, s, p)
-            refresh_job = s.scalar(
-                select(Job)
-                .where(Job.tenant_id == p["tenant_id"], Job.key.like(f"dnc-refresh:{p['seller_id']}:%"))
-                .order_by(Job.available_at.desc(), Job.id.desc())
-                .limit(1)
-            )
             return {
                 "screens": [view(service, row, config, max_age) for row in pending + recent],
                 "limited": len(pending) == 100,
-                "refresh": {
-                    "status": refresh_job.status,
-                    **{
-                        key: refresh_job.payload.get(key)
-                        for key in (
-                            "phase",
-                            "inspected",
-                            "submitted",
-                            "reserved_micro_usd",
-                            "complete",
-                            "reason",
-                        )
-                    },
-                }
-                if refresh_job
-                else None,
             }
 
     @app.post("/v1/admin/dnc/screen")

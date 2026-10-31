@@ -130,6 +130,40 @@ class ReservationPlanner:
         prefetch(s, p, specifications)
         s.info["row_cache"][("leads", p["tenant_id"], p["seller_id"])] = leads
 
+    def _company_contacted(self, s, p, lead, claims, now):
+        """Contacts at one company are never called back to back: after any call there, the
+        others wait for the next calling day in the prospect's time zone. A requested callback
+        or contact request is exempt."""
+        from zoneinfo import ZoneInfo
+
+        key = lead.data.get("company_key")
+        if not key or lead.data.get("requested_contact") or lead.data.get("callback_due_at"):
+            return False
+        model = MODELS["leads"]
+        siblings = list(
+            s.scalars(
+                select(model).where(
+                    model.tenant_id == p["tenant_id"],
+                    model.seller_id == p["seller_id"],
+                    model.op_lead_id == key,
+                    model.id != lead.id,
+                )
+            )
+        )
+        if not siblings:
+            return False
+        if {c.lead_id for c in claims} & {sibling.id for sibling in siblings}:
+            return True
+        try:
+            zone = ZoneInfo(lead.data.get("timezone") or "UTC")
+        except (ValueError, KeyError):
+            zone = ZoneInfo("UTC")
+        today = now.astimezone(zone).date()
+        return any(
+            (last := timestamp(sibling.data.get("last_attempt_at"))) and last.astimezone(zone).date() == today
+            for sibling in siblings
+        )
+
     def _queue_presence(self, s, p):
         from app.service import fail
 
@@ -279,6 +313,10 @@ class ReservationPlanner:
             lead = by_id[candidate["id"]]
             if not self._hold_in_flight(p, lead.id):
                 denied.append("CANDIDATE_IN_FLIGHT")
+                return False
+            if self._company_contacted(s, p, lead, claims, now):
+                denied.append("COMPANY_CONTACTED_TODAY")
+                self._release_in_flight(p, [lead.id])
                 return False
             held.append(lead.id)
             number = next(

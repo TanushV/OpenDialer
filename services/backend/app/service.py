@@ -5,7 +5,7 @@ import json
 import logging
 import threading
 from datetime import datetime, timedelta
-from decimal import ROUND_HALF_EVEN, Decimal
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -31,6 +31,18 @@ def dt(value):
 
 def fail(status, message):
     raise HTTPException(status, message)
+
+
+def imported_row(raw, columns=60, size=8000):
+    """Every imported column, as research context: bounded, plain strings, no empty values."""
+    row = {}
+    for key, value in list(raw.items())[:columns]:
+        text = " ".join(str(value if value is not None else "").split())[:1000]
+        if str(key).strip() and text:
+            row[str(key).strip()[:80]] = text
+    while row and len(json.dumps(row)) > size:
+        row.popitem()
+    return row
 
 
 class Service(ReservationPlanner):
@@ -203,7 +215,7 @@ class Service(ReservationPlanner):
                 "budgets",
                 tenant_id,
                 seller_id,
-                {"daily_limit_usd": 10, "monthly_limit_usd": 100, "number_purchase_limit_usd": 0},
+                {"per_list_usd": 25, "number_purchase_limit_usd": 0},
                 key="budget",
                 now=now,
             )
@@ -272,6 +284,10 @@ class Service(ReservationPlanner):
                     ],
                 )
             campaign = self.scoped(s, "campaigns", p)[0]
+            if not (campaign.data.get("script") or {}).get("template"):
+                from app.preparation.templates import STARTER, parse_markdown
+
+                self.adopt_script_in(s, p, campaign, parse_markdown(STARTER), "simulation_starter")
             policy = self.required(s, "policy_versions", campaign.data["policy_id"], p)
             update(
                 policy,
@@ -376,8 +392,10 @@ class Service(ReservationPlanner):
 
     def import_leads(self, p, body):
         from app.optimization.geography import AREA_STATES, normalize_state
+        from app.preparation.workflows import company_key
 
-        result = {"imported": 0, "duplicates": 0, "invalid": 0, "errors": [], "leads": []}
+        result = {"imported": 0, "duplicates": 0, "invalid": 0, "errors": [], "leads": [], "preparing": 0}
+        created = []
         if len(body["rows"]) > self.settings.max_import_rows:
             fail(413, "Import row limit exceeded")
         now = self.clock()
@@ -424,12 +442,15 @@ class Service(ReservationPlanner):
                         ZoneInfo(timezone)
                     except (ValueError, KeyError):
                         timezone = None
+                row = imported_row(raw)
                 lead = put(
                     s,
                     "leads",
                     p["tenant_id"],
                     p["seller_id"],
                     {
+                        "row": row,
+                        "company_key": company_key(raw),
                         "name": str(raw.get("name", "Unknown"))[:200],
                         "company": str(raw.get("company", ""))[:200],
                         "domain": str(raw.get("domain", ""))[:250].lower(),
@@ -466,7 +487,11 @@ class Service(ReservationPlanner):
                 )
                 existing.add((body["campaign_id"], endpoint.id))
                 result["imported"] += 1
+                created.append(lead)
                 result["leads"].append({**doc(lead), "suppressed": self.suppressed(s, p, phone.e164)})
+            if body.get("prepare") and created and self.lead_script_base_ready(s, p) and self.agent_route(p):
+                result["preparing"] = self.request_preparation_in(s, p, created)
+                update(self.required(s, "sellers", p["seller_id"], p), preparation_user_id=p["user_id"])
             self.ensure_experiment_cohort(s, p, body["campaign_id"])
             audit(
                 s,
@@ -478,6 +503,8 @@ class Service(ReservationPlanner):
                 now,
                 {k: result[k] for k in ("imported", "duplicates", "invalid")},
             )
+        if result["preparing"]:
+            self.prepare_tick(p)
         return result
 
     def leads(self, p):
@@ -487,43 +514,28 @@ class Service(ReservationPlanner):
                 for r in self.scoped(s, "leads", p)
             ]
 
-    def budget_ok(self, s, p, estimated=0.001):
-        from sqlalchemy import BigInteger, case, cast, func
+    def scope_spend(self, s, p, scope):
+        """Spent and reserved AI money for one lead list (all time) or `other` work (this month)."""
+        from sqlalchemy import BigInteger, cast, func
 
-        def micro(value):
-            return int((Decimal(str(value)) * 1_000_000).to_integral_value(ROUND_HALF_EVEN))
-
-        budget = self.scoped(s, "budgets", p)[0].data
-        now = self.clock()
         usage = MODELS["usage_ledger"]
-        day, month = (
-            now.replace(hour=0, minute=0, second=0, microsecond=0),
-            now.replace(day=1, hour=0, minute=0, second=0, microsecond=0),
+        amount = cast(func.round(usage.op_amount * 1_000_000), BigInteger)
+        query = select(func.coalesce(func.sum(amount), 0)).where(
+            usage.tenant_id == p["tenant_id"],
+            usage.seller_id == p["seller_id"],
+            usage.op_campaign_id == scope,
         )
-        key = ("budget_totals", p["tenant_id"], p["seller_id"])
-        totals = s.info.get(key)
-        if totals is None:
-            # Each stored amount is rounded to whole micro-dollars before summing, so totals are
-            # exact integers rather than accumulated binary floating point.
-            amount = cast(func.round(usage.op_amount * 1_000_000), BigInteger)
-            totals = s.execute(
-                select(
-                    func.coalesce(func.sum(case((usage.op_at >= day, amount), else_=0)), 0),
-                    func.coalesce(func.sum(amount), 0),
-                ).where(
-                    usage.tenant_id == p["tenant_id"],
-                    usage.seller_id == p["seller_id"],
-                    usage.op_at >= month,
-                    usage.op_at <= now,
-                )
-            ).one()
-            if "row_cache" in s.info:
-                s.info[key] = totals
-        daily, monthly = (int(total) for total in totals)
-        extra = micro(estimated)
-        return daily + extra <= micro(budget.get("daily_limit_usd", 0)) and monthly + extra <= micro(
-            budget.get("monthly_limit_usd", 0)
-        )
+        if scope == "other":
+            month = self.clock().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            query = query.where(usage.op_at >= month)
+        return int(s.scalar(query)) / 1_000_000
+
+    def budget_ok(self, s, p, estimated=0.001, scope="other"):
+        """Each lead list may spend up to the per-list budget on AI; other work gets the same per month."""
+        budget = self.scoped(s, "budgets", p)[0].data
+        limit = Decimal(str(budget.get("per_list_usd", 25.0)))
+        spent = Decimal(str(self.scope_spend(s, p, scope)))
+        return spent + Decimal(str(estimated)) <= limit
 
     def context(self, s, p, lead, number, *, permission="live", active=False):
         campaign = self.required(s, "campaigns", lead.data["campaign_id"], p)
@@ -610,7 +622,8 @@ class Service(ReservationPlanner):
             next_attempt_at=None if active else dt(lead.data.get("next_attempt_at")),
             last_attempt_at=None if active else dt(lead.data.get("last_attempt_at")),
             min_retry_seconds=config.get("min_retry_seconds", 3600),
-            budget_available=self.budget_ok(s, p),
+            # AI budgets are per lead list and never gate calling.
+            budget_available=True,
             route_allowed=lead.data["phone"].startswith("+1")
             and "1" in config.get("allowed_country_codes", []),
             local_start_hour=config.get("local_start_hour", 8),

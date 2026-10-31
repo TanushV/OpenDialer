@@ -5,6 +5,7 @@ and a cross-process personal lock prevents API/worker refresh-token races.
 """
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import os
@@ -98,27 +99,42 @@ async def personal_lock(home):
         os.close(descriptor)
 
 
+class PlanLimit(InferenceError):
+    """The ChatGPT plan's usage limit is reached; work waits and resumes, it does not fail."""
+
+
+LIMIT_WORDS = ("usage limit", "usagelimit", "rate limit", "ratelimit", "429", "too many requests")
+EFFORT = "max"
+
+
 class CodexRuntime:
-    def __init__(self, home):
+    def __init__(self, home, *, web_search=False):
         self.home = Path(home)
+        self.web_search = web_search
         self.sequence = 0
         self.events = []
 
     @asynccontextmanager
-    async def session(self):
+    async def session(self, seconds=120, shared=False):
+        """One disposable runtime. Callers hold the personal lock, or pass `shared` for long agent
+        threads: then only copying the login in and writing a rotated login back are serialized,
+        so several threads of one person run at once."""
         command = runtime_command()
         with tempfile.TemporaryDirectory(prefix="opendialer-codex-") as temporary:
             run_home = Path(temporary)
             workspace = run_home / "workspace"
             workspace.mkdir()
             auth = self.home / "auth.json"
-            if auth.exists():
-                write_private(run_home / "auth.json", read_private(auth), encrypted=False)
+            original = None
+            async with personal_lock(self.home) if shared else contextlib.nullcontext():
+                if auth.exists():
+                    original = read_private(auth)
+                    write_private(run_home / "auth.json", original, encrypted=False)
             # No user config, plugins, credentials or workspace instructions are inherited.
             config = "\n".join(
                 [
                     'cli_auth_credentials_store = "file"',
-                    'web_search = "disabled"',
+                    'web_search = "live"' if self.web_search else 'web_search = "disabled"',
                     'history.persistence = "none"',
                     "analytics.enabled = false",
                     "features.shell_tool = false",
@@ -165,7 +181,7 @@ class CodexRuntime:
                     limit=2 * 1024 * 1024,
                 )
                 self.process, self.workspace = process, workspace
-                async with asyncio.timeout(120):
+                async with asyncio.timeout(seconds):
                     await self.request(
                         "initialize",
                         {
@@ -187,7 +203,12 @@ class CodexRuntime:
                         await process.wait()
                 # Managed auth may rotate a refresh token even when the later inference fails.
                 if (run_home / "auth.json").exists():
-                    save_login(self.home, json.loads((run_home / "auth.json").read_text()))
+                    current = json.loads((run_home / "auth.json").read_text())
+                    if not shared:
+                        save_login(self.home, current)
+                    elif current != original:
+                        async with personal_lock(self.home):
+                            save_login(self.home, current)
 
     async def send(self, value):
         self.process.stdin.write((json.dumps(value) + "\n").encode())
@@ -248,7 +269,11 @@ class CodexRuntime:
             thread_id = thread["thread"]["id"]
             turn = await self.request(
                 "turn/start",
-                {"threadId": thread_id, "input": [{"type": "text", "text": json.dumps(context)}]},
+                {
+                    "threadId": thread_id,
+                    "input": [{"type": "text", "text": json.dumps(context)}],
+                    "effort": EFFORT,
+                },
             )
             turn_id = turn["turn"]["id"]
             result, usage = None, {}
@@ -289,9 +314,103 @@ class CodexRuntime:
                     total = params["tokenUsage"]["total"]
                     usage = {"input_tokens": total["inputTokens"], "output_tokens": total["outputTokens"]}
                 elif method == "turn/completed" and params.get("turn", {}).get("id") == turn_id:
-                    if params["turn"].get("status") != "completed" or result is None:
+                    if params["turn"].get("status") != "completed":
+                        raise_turn_failure(params["turn"])
+                    if result is None:
                         raise InferenceError("Codex did not submit a completed tool result. " + RECONNECT)
                     return {**result, "usage": usage}
+
+    async def run_agent(
+        self, model, instructions, tools, handler, first, follow_up, *, max_turns=3, seconds=3600
+    ):
+        """A multi-turn thread with several offered tools; every tool answer comes from `handler`.
+
+        After each turn, `follow_up()` returns the next message (open work) or None to stop.
+        """
+        names = {tool["name"] for tool in tools}
+        async with self.session(seconds=seconds, shared=True):
+            thread = await self.request(
+                "thread/start",
+                {
+                    "model": model,
+                    "ephemeral": True,
+                    "cwd": str(self.workspace),
+                    "environments": [],
+                    "selectedCapabilityRoots": [],
+                    "approvalPolicy": "never",
+                    "sandbox": "read-only",
+                    "baseInstructions": instructions
+                    + "\nReport results only through the offered tools"
+                    + (" and use web search for research." if self.web_search else "."),
+                    "dynamicTools": [
+                        {
+                            "type": "function",
+                            "name": tool["name"],
+                            "description": tool["description"],
+                            "inputSchema": tool["schema"],
+                        }
+                        for tool in tools
+                    ],
+                },
+            )
+            thread_id = thread["thread"]["id"]
+            usage, searches, text = {"input_tokens": 0, "output_tokens": 0}, 0, first
+            for _ in range(max_turns):
+                turn = await self.request(
+                    "turn/start",
+                    {"threadId": thread_id, "input": [{"type": "text", "text": text}], "effort": EFFORT},
+                )
+                turn_id = turn["turn"]["id"]
+                while True:
+                    message = self.events.pop(0) if self.events else await self.receive()
+                    method, params = message.get("method"), message.get("params", {})
+                    if "id" in message and method:
+                        if (
+                            method != "item/tool/call"
+                            or params.get("tool") not in names
+                            or params.get("threadId") != thread_id
+                            or not isinstance(params.get("arguments"), dict)
+                        ):
+                            await self.send(
+                                {
+                                    "id": message["id"],
+                                    "error": {"code": -32601, "message": "Tool not allowed"},
+                                }
+                            )
+                            continue
+                        answer = await handler(params["tool"], params["arguments"])
+                        await self.send(
+                            {
+                                "id": message["id"],
+                                "result": {
+                                    "contentItems": [{"type": "inputText", "text": answer}],
+                                    "success": True,
+                                },
+                            }
+                        )
+                    elif (
+                        method == "thread/tokenUsage/updated"
+                        and params.get("threadId", thread_id) == thread_id
+                    ):
+                        total = params["tokenUsage"]["total"]
+                        usage = {"input_tokens": total["inputTokens"], "output_tokens": total["outputTokens"]}
+                    elif method == "item/completed" and params.get("item", {}).get("type") == "webSearch":
+                        searches += 1
+                    elif method == "turn/completed" and params.get("turn", {}).get("id") == turn_id:
+                        if params["turn"].get("status") != "completed":
+                            raise_turn_failure(params["turn"])
+                        break
+                text = follow_up()
+                if text is None:
+                    break
+            return {**usage, "web_search_calls": searches}
+
+
+def raise_turn_failure(turn):
+    detail = json.dumps(turn.get("error") or {}).casefold()
+    if any(word in detail for word in LIMIT_WORDS):
+        raise PlanLimit("Your ChatGPT plan's usage limit is reached; preparation resumes when it resets.")
+    raise InferenceError("Codex could not finish the request. " + RECONNECT)
 
 
 class CodexClient:
@@ -299,6 +418,11 @@ class CodexClient:
 
     def __init__(self, home, model, tool_name):
         self.home, self.model, self.tool_name = home, model, tool_name
+
+    async def run(self, instructions, tools, handler, first, follow_up, *, web_search=True, max_turns=3):
+        return await CodexRuntime(self.home, web_search=web_search).run_agent(
+            self.model, instructions, tools, handler, first, follow_up, max_turns=max_turns
+        )
 
     async def complete(self, instructions, context, schema):
         async with personal_lock(self.home):

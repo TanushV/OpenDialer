@@ -4,7 +4,6 @@ from datetime import timedelta
 
 import pytest
 from app.db import doc
-from app.preparation.templates import ScriptTemplate, fill
 from app.providers.inference import InferenceResult
 from helpers import (
     ConversationProvider,
@@ -169,36 +168,6 @@ def test_every_visible_analysis_field_is_reviewed_including_omitted_assertions(w
     )
     assert any(f["value"].get("status") == "not_applicable" for f in fields)
     assert any(f["value"].get("text") == "They never discussed security" for f in fields)
-
-
-@pytest.mark.parametrize("slot_text", ["We are certified.", "are certified", "certified"])
-def test_template_cannot_drop_negation_by_copying_a_substring(slot_text, clock):
-    from app.research.validation import validate_script
-
-    facts = [
-        {
-            "fact_id": "f",
-            "statement": "We are not certified.",
-            "status": "supported",
-            "source_id": "source",
-            "entity_domain": "example.test",
-            "expires_at": (clock.now + timedelta(days=1)).isoformat(),
-        }
-    ]
-    candidate = {
-        "lead_id": "lead",
-        "slots": {"relevance": {"text": slot_text, "fact_ids": ["f"]}, "proof": {"text": "", "fact_ids": []}},
-    }
-    with pytest.raises(ValueError):
-        script = fill(
-            candidate,
-            ScriptTemplate().model_dump(),
-            lead={"id": "lead"},
-            seller="Seller",
-            rep="Rep",
-            facts=facts,
-        )
-        validate_script(script, facts, "example.test", "Seller", clock.now)
 
 
 @pytest.mark.asyncio

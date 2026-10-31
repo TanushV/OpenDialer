@@ -564,7 +564,7 @@ class LiveHelper:
                     s,
                     p,
                     "research_facts",
-                    lead.data.get("domain"),
+                    lead.id,
                     MODELS["research_facts"].ctx_status == "supported",
                     MODELS["research_facts"].ctx_expires_at > self.clock(),
                     limit=8,

@@ -12,23 +12,7 @@ from sqlalchemy import select
 
 from app.config import PROVIDER_DEFAULTS
 from app.db import MODELS, audit, update
-from app.preparation.templates import PreparationPolicy, ScriptTemplate, policy_values, template_version
 from app.service import dt, fail
-
-
-class DncRefreshPolicy(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    enabled: bool = False
-    interval_hours: int = Field(default=24, ge=24, le=168)
-    batch_size: int = Field(default=500, ge=1, le=500)
-    max_run_usd: Decimal = Field(default=Decimal("0"), ge=0, max_digits=12, decimal_places=6)
-    max_day_usd: Decimal = Field(default=Decimal("0"), ge=0, max_digits=12, decimal_places=6)
-
-    @model_validator(mode="after")
-    def explicit_funding(self):
-        if self.enabled and (self.max_run_usd <= 0 or self.max_day_usd <= 0):
-            raise ValueError("Enabling prepaid refresh requires explicit positive run and daily budgets")
-        return self
 
 
 class AccountRate(BaseModel):
@@ -48,19 +32,18 @@ class AccountRate(BaseModel):
 
 
 class OperatingPolicy(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    # Stored policies from older versions may carry retired keys (script templates, rolling
+    # preparation windows, scheduled DNC refresh); they are ignored on read.
+    model_config = ConfigDict(extra="ignore")
     subscriptions_allowed: Literal[False] = False
     recording_enabled: Literal[False] = False
     raw_retention_seconds: Literal[300] = 300
     inference_data_collection: Literal["deny"] = "deny"
     inference_zdr: Literal[True] = True
     auto_coach_interval_seconds: int = Field(default=8, ge=3, le=60)
-    script_template: ScriptTemplate | None = None
-    preparation: PreparationPolicy = Field(default_factory=PreparationPolicy)
     transcription_privacy_verified: bool = False
     transcription_privacy_reference: str = Field(default="", max_length=1000)
     dnc_source_max_age_days: int = Field(default=31, ge=1, le=31)
-    dnc_refresh: DncRefreshPolicy = Field(default_factory=DncRefreshPolicy)
     account_rates: dict[str, AccountRate] = Field(default_factory=dict, max_length=20)
 
     @model_validator(mode="after")
@@ -76,6 +59,7 @@ class OperatingPolicy(BaseModel):
 
 
 class OperatingEdit(OperatingPolicy):
+    model_config = ConfigDict(extra="forbid")
     request_id: str | None = None
     expected_version: int | None = Field(default=None, ge=1)
 
@@ -561,19 +545,11 @@ def bind_operating_api(app, service, administrator):
     def get_policy(p=Depends(administrator)):
         with service.db.transaction(False) as s:
             seller = service.required(s, "sellers", p["seller_id"], p)
-            policy = OperatingPolicy(
-                **{
-                    k: v
-                    for k, v in policy_values(seller.data.get("operating_policy", {})).items()
-                    if k in OperatingPolicy.model_fields
-                }
-            ).model_dump(mode="json")
+            policy = OperatingPolicy(**seller.data.get("operating_policy", {})).model_dump(mode="json")
             version = seller.data.get("operating_policy_version", 1)
         return {
             **policy,
             "version": version,
-            "template_version": template_version(policy["script_template"]),
-            "template_defaults": ScriptTemplate().model_dump(),
             "coach_provider": service.configs.read(p["tenant_id"]).get(
                 "coach_provider", PROVIDER_DEFAULTS.coach_provider
             ),
@@ -615,32 +591,18 @@ def bind_operating_api(app, service, administrator):
                 )
             incoming.pop("request_id", None)
             incoming.pop("expected_version", None)
-            current = {
-                k: v
-                for k, v in policy_values(seller.data.get("operating_policy", {})).items()
-                if k in OperatingPolicy.model_fields
-            }
+            stored = seller.data.get("operating_policy", {})
+            current = {k: v for k, v in stored.items() if k in OperatingPolicy.model_fields}
             try:
-                for field in ("preparation", "dnc_refresh"):
-                    if field in incoming:
-                        incoming[field] = {**current.get(field, {}), **incoming[field]}
                 merged = OperatingPolicy(**{**current, **incoming})
             except ValidationError:
-                fail(422, "Valid operating settings and an IANA preparation timezone are required")
+                fail(422, "Valid operating settings are required")
             if merged.transcription_privacy_verified and not merged.transcription_privacy_reference.strip():
                 fail(422, "Provider/account retention evidence is required")
             if any(rate.checked_at > service.clock().date() for rate in merged.account_rates.values()):
                 fail(422, "An account rate cannot have a future verification date")
-            values = merged.model_dump(mode="json")
-            asset = (values.get("script_template") or {}).get("final_voicemail_asset")
-            if asset and not any(
-                asset
-                in service.required(s, "policy_versions", campaign.data["policy_id"], p).data.get(
-                    "approved_assets", []
-                )
-                for campaign in service.scoped(s, "campaigns", p)
-            ):
-                fail(422, "Choose a voicemail asset already approved for this seller's campaign")
+            # Preparation settings live beside the policy and are edited on their own route.
+            values = {**merged.model_dump(mode="json"), "preparation": stored.get("preparation", {})}
             update(seller, operating_policy=values, operating_policy_version=version + 1)
             receipt = service.local_edit_receipt(s, p, identity, seller, object_version=version + 1)
             audit(

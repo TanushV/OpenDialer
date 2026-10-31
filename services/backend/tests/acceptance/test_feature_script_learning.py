@@ -7,28 +7,28 @@ from uuid import uuid4
 import pytest
 from journey import answered_by_human, call, get, hang_up, import_leads, post, run_jobs, start, wrap_up
 
-TEMPLATE = {
-    "topic": "invoice follow-up",
-    "opener": "Hi {name}, this is {rep} from {seller}. {relevance}",
-    "gatekeeper": "Who handles {topic} for {company}?",
-    "screening_intro": "{rep} from {seller}, calling about {topic}.",
-    "discovery_questions": ["How does your team handle {topic} today?"],
-    "proof": "{proof}",
-    "closing_question": "Would a short walkthrough next week be useful?",
-    "final_voicemail_asset": None,
+SECTIONS = {
+    "opening": "Hi {first_name}, this is {rep} from {seller}.",
+    "screening": "{rep} from {seller}, calling about invoice follow-up.",
+    "gatekeeper": "Who handles invoice follow-up for {company}?",
+    "discovery": "- How does your team handle invoice follow-up today?",
+    "close": "Would a short walkthrough next week be useful?",
 }
+OPEN, ASK, CLOSE = "opening:opening-1", "discovery:discovery-1", "close:close-1"
 PROSPECT = "Honestly we chase every invoice by hand in spreadsheets and it eats two days each month."
 LOGIN = {"email": "operator@example.test", "password": "a-test-only-password-123"}
 
 
 def use_template(ws, **changes):
-    current = get(ws, "/v1/admin/operating-policy")
-    body = {
-        "request_id": str(uuid4()),
-        "expected_version": current["version"],
-        "script_template": {**TEMPLATE, **changes},
-    }
-    return post_put(ws, "/v1/admin/operating-policy", body)
+    """Save the journey's script as Markdown; returns the new base version."""
+    body = "\n\n".join(f"# {key.title()}\n{text}" for key, text in {**SECTIONS, **changes}.items())
+    base = get(ws, "/v1/optimization/script")["base"]
+    saved = post(
+        ws,
+        "/v1/admin/script/import",
+        {"markdown": body, "expected_version": base["version"], "preview": False},
+    )
+    return saved["version"]
 
 
 def post_put(ws, path, body):
@@ -117,11 +117,11 @@ def monologue_call(ws, key):
 
 def test_rep_lines_are_matched_to_script_sections_and_the_trace_outlives_raw_speech(workspace, clock):
     ws = workspace
-    use_template(ws)
+    base = use_template(ws)
     call_id = start(ws)["id"]
     answered_by_human(ws, call_id)
     script = get(ws, f"/v1/calls/{call_id}")["script_snapshot"]
-    assert script["base_version"] == 0 and script["script_arm"] is None
+    assert script["base_version"] == base and script["script_arm"] is None
     say(ws, call_id, "r1", "rep", script["opener"], 0, 4000)
     say(ws, call_id, "s1", "remote", "Okay, what is this about?", 4500, 6000)
     say(ws, call_id, "r2", "rep", script["discovery_questions"][0], 6500, 9000)
@@ -134,12 +134,12 @@ def test_rep_lines_are_matched_to_script_sections_and_the_trace_outlives_raw_spe
     analysis = get(ws, f"/v1/calls/{call_id}/analysis")
     trace = analysis["script_trace"]
     sections = trace["sections"]
-    assert [s["key"] for s in sections] == ["opener", "discovery_questions:0", "closing_question"]
+    assert [s["key"] for s in sections] == [OPEN, ASK, CLOSE]
     assert [s["reaction"] for s in sections] == ["engaged", "engaged", "ended"]
     assert [s["portion_ms"] for s in sections] == [6500, 9000, 3300]
     assert all(len(s["variant"]) == 12 for s in sections)
     assert trace["opening"] == {
-        "key": "opener",
+        "key": OPEN,
         "variant": sections[0]["variant"],
         "reaction": "engaged",
         "first_response_ms": 4500,
@@ -176,9 +176,9 @@ def test_section_and_call_shape_effects_on_close_reach_the_markdown_memory(works
     talk = found[("rep_talk_ratio", "<35%")]
     assert talk["status"] == "supported_correlation" and talk["live"] is False, "Timing stays post-call"
     sections = {s["key"]: s for s in report["sections"]}
-    assert sections["opener"]["delivered"] == 64
-    assert sections["discovery_questions:0"]["delivered"] == 32
-    assert sections["discovery_questions:0"]["reactions"]["engaged"] == 32
+    assert sections[OPEN]["delivered"] == 64
+    assert sections[ASK]["delivered"] == 32
+    assert sections[ASK]["reactions"]["engaged"] == 32
     memory = lab["memory"]
     markdown = memory["markdown"]
     assert markdown.startswith("# Script memory")
@@ -187,7 +187,7 @@ def test_section_and_call_shape_effects_on_close_reach_the_markdown_memory(works
     assert "discovery question" in working.casefold()
     shape = markdown.split("## Call shape (post-call)")[1].split("##")[0]
     assert "talk ratio" in shape.casefold()
-    assert "How does your team handle {topic} today?" in markdown, "Seller-authored text is cited"
+    assert "How does your team handle invoice follow-up today?" in markdown, "Seller-authored text is cited"
     assert "spreadsheets" not in markdown and "Not for us" not in markdown, "Never prospect words"
     assert memory["written_by"] == "learning_refresh" and memory["version"] >= 1
 
@@ -223,24 +223,36 @@ def propose(ws, status=200, **body):
 
 def test_proposals_keep_identity_and_compliance_lines_locked(workspace):
     ws = workspace
-    use_template(ws)
-    propose(ws, 422, section="screening_intro", text="Calling about {topic}.")
-    propose(ws, 422, section="proof", text="We cut collection time in half.")
-    propose(ws, 422, section="opener", text="Hi {name}, quick question about {topic}.")  # No {rep}/{seller}.
-    propose(ws, 422, section="opener", text="Hi {name}, {rep} from {seller}. We guarantee results.")
-    propose(ws, 422, section="opener", text="Hi {name}, {rep} from {seller} about {pricing}.")
-    propose(ws, 422, section="discovery_questions", index=5, text="What happens when an invoice is late?")
-    added = propose(ws, section="discovery_questions", index=1, text="What happens when an invoice is late?")
+    base = use_template(ws)
+    propose(ws, 422, section="screening", text="{rep} from {seller}, about invoices.")
+    propose(
+        ws, 422, section="opening", text="Hi {name}, quick question about invoices."
+    )  # No {rep}/{seller}.
+    propose(ws, 422, section="opening", text="Hi {name}, {rep} from {seller}. We guarantee results.")
+    propose(ws, 422, section="opening", text="Hi {name}, {rep} from {seller} about {pricing}.")
+    propose(ws, 422, section="discovery", text="What happens when an invoice is late?")  # Not bullets.
+    added = propose(
+        ws,
+        section="discovery",
+        text="- How does your team handle invoice follow-up today?\n- What happens when an invoice is late?",
+    )
     assert added["status"] == "suggested" and added["source"] == "team"
-    candidate = added["template"]
-    assert candidate["discovery_questions"] == [TEMPLATE["discovery_questions"][0], added["text"]]
-    assert candidate["screening_intro"] == TEMPLATE["screening_intro"] and candidate["proof"] == "{proof}"
+    candidate = {s["key"]: s for s in added["template"]["sections"]}
+    assert [o["text"] for o in candidate["discovery"]["options"]] == [
+        "How does your team handle invoice follow-up today?",
+        "What happens when an invoice is late?",
+    ]
+    assert candidate["screening"]["options"][0]["text"] == SECTIONS["screening"]
     lab = get(ws, "/v1/optimization/script")
-    assert lab["base"]["version"] == 0 and lab["base"]["source"] == "seller_template"
+    assert lab["base"]["version"] == base and lab["base"]["source"] == "markdown_upload"
     assert [p["id"] for p in lab["proposals"]] == [added["id"]]
 
 
-OPENER = "Hi {name}, {rep} with {seller}. How does your team chase {topic} today?"
+def opening(template):
+    return template["sections"][0]["options"][0]["text"]
+
+
+OPENER = "Hi {first_name}, {rep} with {seller}. How does your team chase invoice follow-up today?"
 
 
 def run_test(ws, clock, *, candidate_converts, count=30):
@@ -261,10 +273,10 @@ def run_test(ws, clock, *, candidate_converts, count=30):
 
 def test_a_winning_proposal_replaces_the_base_automatically_and_can_be_rolled_back(workspace, clock):
     ws = workspace
-    use_template(ws)
+    base = use_template(ws)
     import_leads(ws, leads("Trial", 30, area="212"))  # A test's population is fixed at its start.
     proposal = propose(
-        ws, section="opener", text=OPENER, start_test=True, duration_days=1, minimum_effect=0.5
+        ws, section="opening", text=OPENER, start_test=True, duration_days=1, minimum_effect=0.5
     )
     assert proposal["status"] == "testing" and proposal["comparison_id"]
     arms = run_test(ws, clock, candidate_converts=True)
@@ -272,55 +284,72 @@ def test_a_winning_proposal_replaces_the_base_automatically_and_can_be_rolled_ba
     clock.now += timedelta(days=16)
     ws = relogin(ws)
     lab = refresh_learning(ws)
-    assert lab["base"]["version"] == 1 and lab["base"]["source"] == "proposal:" + proposal["id"]
-    assert lab["base"]["template"]["opener"] == OPENER
+    assert lab["base"]["version"] == base + 1 and lab["base"]["source"] == "proposal:" + proposal["id"]
+    assert opening(lab["base"]["template"]) == OPENER
     assert next(p for p in lab["proposals"] if p["id"] == proposal["id"])["status"] == "promoted"
-    assert [h["version"] for h in lab["history"]] == [1, 0]
+    assert [h["version"] for h in lab["history"]][:2] == [base + 1, base]
     test = next(t for t in lab["tests"] if t["id"] == proposal["comparison_id"])
     assert test["sufficient_evidence"] is True and test["stopped_at"]
     assert "Promoted" in lab["memory"]["markdown"] or "promoted" in lab["memory"]["markdown"]
     fresh = import_leads(ws, leads("After", 1, area="512"))["leads"][0]["id"]
     assert " with Example Seller" in get(ws, f"/v1/leads/{fresh}/packet")["script"]["opener"]
-    rolled = post(ws, "/v1/admin/script/rollback", {"version": 0, "reason": "Back to the seller wording"})
-    assert rolled["base"]["version"] == 2 and rolled["base"]["template"]["opener"] == TEMPLATE["opener"]
-    assert rolled["base"]["source"] == "rollback:0"
+    rolled = post(ws, "/v1/admin/script/rollback", {"version": base, "reason": "Back to the seller wording"})
+    assert (
+        rolled["base"]["version"] == base + 2 and opening(rolled["base"]["template"]) == SECTIONS["opening"]
+    )
+    assert rolled["base"]["source"] == f"rollback:{base}"
     assert " with Example Seller" not in get(ws, f"/v1/leads/{fresh}/packet")["script"]["opener"]
 
 
 def test_approval_mode_waits_for_an_administrator_before_the_base_changes(workspace, clock):
     ws = workspace
-    use_template(ws)
+    base = use_template(ws)
     post_put(ws, "/v1/admin/script/settings", {"auto_propose": False, "promotion": "approval"})
     import_leads(ws, leads("Trial", 30, area="212"))  # A test's population is fixed at its start.
     proposal = propose(
-        ws, section="opener", text=OPENER, start_test=True, duration_days=1, minimum_effect=0.5
+        ws, section="opening", text=OPENER, start_test=True, duration_days=1, minimum_effect=0.5
     )
     run_test(ws, clock, candidate_converts=True)
     clock.now += timedelta(days=16)
     ws = relogin(ws)
     lab = refresh_learning(ws)
-    assert lab["base"]["version"] == 0
+    assert lab["base"]["version"] == base
     assert next(p for p in lab["proposals"] if p["id"] == proposal["id"])["status"] == "won"
     approved = post(
         ws, f"/v1/admin/script/proposals/{proposal['id']}/approve", {"reason": "Reviewed the test"}
     )
-    assert approved["base"]["version"] == 1 and approved["base"]["template"]["opener"] == OPENER
+    assert approved["base"]["version"] == base + 1 and opening(approved["base"]["template"]) == OPENER
 
 
 def test_a_losing_proposal_stops_and_the_base_stays(workspace, clock):
     ws = workspace
-    use_template(ws)
+    base = use_template(ws)
     import_leads(ws, leads("Trial", 30, area="212"))  # A test's population is fixed at its start.
     proposal = propose(
-        ws, section="opener", text=OPENER, start_test=True, duration_days=1, minimum_effect=0.5
+        ws, section="opening", text=OPENER, start_test=True, duration_days=1, minimum_effect=0.5
     )
     run_test(ws, clock, candidate_converts=False)
     clock.now += timedelta(days=16)
     ws = relogin(ws)
     lab = refresh_learning(ws)
-    assert lab["base"]["version"] == 0
+    assert lab["base"]["version"] == base
     assert next(p for p in lab["proposals"] if p["id"] == proposal["id"])["status"] == "lost"
     assert next(t for t in lab["tests"] if t["id"] == proposal["comparison_id"])["stopped_at"]
+
+
+class RecordingAgent:
+    """The simulated preparation agent, recording what each thread was given."""
+
+    billing = "simulation"
+
+    def __init__(self):
+        from app.preparation.agent import SimulatedAgent
+
+        self.inner, self.contexts = SimulatedAgent(), []
+
+    async def run(self, instructions, tools, handler, first, follow_up, **kwargs):
+        self.contexts.append(json.loads(first))
+        return await self.inner.run(instructions, tools, handler, first, follow_up, **kwargs)
 
 
 class ScriptModel:
@@ -337,13 +366,13 @@ class ScriptModel:
         self.requests.append((instructions, payload, schema))
         if "section" in schema.get("properties", {}):
             data = {
-                "section": "opener",
+                "section": "opening",
                 "index": None,
                 "text": OPENER,
                 "rationale": "Ask about the process sooner.",
             }
         else:
-            data = {}  # Slot filling falls back to the approved template.
+            data = {}
         return InferenceResult(data, {"cost": 0.001}, str(uuid4()))
 
 
@@ -353,7 +382,7 @@ def test_the_memory_reaches_script_writing_and_live_help_but_call_shape_stays_po
     from test_feature_models import asker_answer, install_fake_models
 
     ws = workspace
-    use_template(ws)
+    base = use_template(ws)
     post_put(ws, "/v1/admin/script/settings", {"auto_propose": False, "promotion": "automatic"})
     one_attempt_per_lead(ws)
     import_leads(ws, leads("Feed", 64))
@@ -374,13 +403,13 @@ def test_the_memory_reaches_script_writing_and_live_help_but_call_shape_stays_po
         {"expected_version": memory["version"], "team_notes": "Lead with the time saved."},
     )
     service = app.state.service
-    model = ScriptModel()
-    monkeypatch.setattr(service, "inference", lambda *args, **kwargs: model)
+    agent = RecordingAgent()
+    monkeypatch.setattr(service, "agent_route", lambda p: agent)
     lead = import_leads(ws, leads("Write", 1, area="512"))["leads"][0]["id"]
     post(ws, "/v1/research/batches", {"lead_ids": [lead]})
     run_jobs(ws)
-    [(_, payload, _)] = [r for r in model.requests if "slots" in json.dumps(r[2])]
-    digest = payload["script_memory"]
+    [context] = agent.contexts
+    digest = context["what_works"]
     assert digest["team_notes"] == "Lead with the time saved."
     assert any(item["feature"] == "discovery_questions" for item in digest["working"])
     assert not any(item["feature"] == "rep_talk_ratio" for item in digest["working"] + digest["not_working"])
@@ -406,7 +435,7 @@ def test_the_memory_reaches_script_writing_and_live_help_but_call_shape_stays_po
     clock.now += timedelta(milliseconds=400)
     run_jobs(ws)
     [context] = contexts
-    assert context["base_version"] == 0 and context["arm"] is None
+    assert context["base_version"] == base and context["arm"] is None
     assert any(f["feature"] == "discovery_questions" for f in context["findings"])
     features = {f["feature"] for f in context["findings"]}
     assert not features & {"rep_talk_ratio", "longest_monologue", "time_to_first_question", "opening_length"}
@@ -431,10 +460,10 @@ def test_the_memory_proposes_a_change_for_the_weakest_section_and_starts_its_tes
     monkeypatch.setattr(app.state.service, "inference", lambda *args, **kwargs: model)
     lab = refresh_learning(ws)
     [proposal] = lab["proposals"]
-    assert proposal["source"] == "memory" and proposal["section"] == "opener"
+    assert proposal["source"] == "memory" and proposal["section"] == "opening"
     assert proposal["status"] == "testing" and proposal["text"] == OPENER
     [(instructions, payload, _)] = [r for r in model.requests if "section" in r[2].get("properties", {})]
-    assert payload["section"] == "opener" and payload["current_text"] == TEMPLATE["opener"]
+    assert payload["section"] == "opening" and payload["current_text"] == SECTIONS["opening"]
     assert "{seller}" in json.dumps(payload["locked"]) and payload["memory"].startswith("# Script memory")
     assert "never" in instructions.casefold()
     # One test at a time: another refresh does not open a second proposal.
@@ -444,27 +473,12 @@ def test_the_memory_proposes_a_change_for_the_weakest_section_and_starts_its_tes
 def test_changed_memory_reaches_reprepared_existing_lead(workspace, app, monkeypatch, clock):
     ws = workspace
     use_template(ws)
-
-    class ValidScriptModel(ScriptModel):
-        async def complete(self, instructions, payload, schema):
-            from app.providers.inference import InferenceResult
-
-            self.requests.append((instructions, payload, schema))
-            return InferenceResult(
-                {
-                    "lead_id": payload["lead_id"],
-                    "slots": {k: {"text": "", "fact_ids": []} for k in ("relevance", "proof")},
-                },
-                {},
-                None,
-            )
-
-    model = ValidScriptModel()
-    monkeypatch.setattr(app.state.service, "inference", lambda *a, **k: model)
+    agent = RecordingAgent()
+    monkeypatch.setattr(app.state.service, "agent_route", lambda p: agent)
     lead = import_leads(ws, leads("Cache", 1, area="512"))["leads"][0]["id"]
     post(ws, "/v1/research/batches", {"lead_ids": [lead]})
     run_jobs(ws)
-    assert len(model.requests) == 1
+    assert len(agent.contexts) == 1
     post_put(
         ws,
         "/v1/admin/script/memory",
@@ -472,23 +486,23 @@ def test_changed_memory_reaches_reprepared_existing_lead(workspace, app, monkeyp
     )
     post(ws, "/v1/research/batches", {"lead_ids": [lead]})
     run_jobs(ws)
-    assert len(model.requests) == 2, (
+    assert len(agent.contexts) == 2, (
         "Explicit reprepare reused the old script despite changed campaign memory"
     )
-    assert model.requests[-1][1]["script_memory"]["team_notes"] == "Use the operational time saving angle."
+    assert agent.contexts[-1]["what_works"]["team_notes"] == "Use the operational time saving angle."
     clock.now += timedelta(minutes=1)
     refresh_learning(ws)  # Only the report timestamp changes, not the writer's memory content.
     post(ws, "/v1/research/batches", {"lead_ids": [lead]})
     run_jobs(ws)
-    assert len(model.requests) == 2, "Unchanged memory must keep the prepared-script cache"
+    assert len(agent.contexts) == 2, "Unchanged memory must keep the prepared script"
 
 
 def test_control_script_is_frozen_for_running_trial(workspace):
     ws = workspace
     use_template(ws)
-    propose(ws, section="opener", text=OPENER, start_test=True)
+    propose(ws, section="opening", text=OPENER, start_test=True)
     changed = "Would you prefer a detailed demonstration tomorrow?"
-    use_template(ws, closing_question=changed)
+    use_template(ws, close=changed)
     seen = []
     for i in range(2):
         placed = start(ws, key=f"base-edit-{i}")
@@ -496,7 +510,7 @@ def test_control_script_is_frozen_for_running_trial(workspace):
         seen.append((script["script_arm"], script["closing_question"]))
         finish(ws, placed["id"], "not_interested")
     assert {"candidate", "control"} == {a for a, _ in seen}
-    assert all(text == TEMPLATE["closing_question"] for _, text in seen), seen
+    assert all(text == SECTIONS["close"] for _, text in seen), seen
 
 
 @pytest.mark.parametrize("promotion", ["automatic", "approval"])
@@ -506,7 +520,7 @@ def test_changed_base_cannot_be_overwritten_by_an_old_winner(workspace, clock, p
     post_put(ws, "/v1/admin/script/settings", {"auto_propose": False, "promotion": promotion})
     import_leads(ws, leads("Trial", 30, area="212"))
     proposal = propose(
-        ws, section="opener", text=OPENER, start_test=True, duration_days=1, minimum_effect=0.5
+        ws, section="opening", text=OPENER, start_test=True, duration_days=1, minimum_effect=0.5
     )
     run_test(ws, clock, candidate_converts=True)
     clock.now += timedelta(days=16)
@@ -514,7 +528,7 @@ def test_changed_base_cannot_be_overwritten_by_an_old_winner(workspace, clock, p
     if promotion == "approval":
         refresh_learning(ws)
     changed = "Would you prefer a detailed demonstration tomorrow?"
-    use_template(ws, closing_question=changed)
+    edited = use_template(ws, close=changed)
     if promotion == "approval":
         call(
             ws,
@@ -524,6 +538,6 @@ def test_changed_base_cannot_be_overwritten_by_an_old_winner(workspace, clock, p
             status=409,
         )
     lab = refresh_learning(ws)
-    assert lab["base"]["version"] == 0
-    assert lab["base"]["template"]["closing_question"] == changed
+    assert lab["base"]["version"] == edited
+    assert lab["base"]["template"]["sections"][-1]["options"][0]["text"] == changed
     assert next(p for p in lab["proposals"] if p["id"] == proposal["id"])["status"] != "promoted"

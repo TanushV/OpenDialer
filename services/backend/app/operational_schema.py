@@ -70,8 +70,8 @@ CONTEXT_FIELDS = {
     "playbooks": ("approval_state", None, None),
     "model_versions": ("serving_state", "goal", "trial_ends_at"),
     "registry_snapshots": ("kind", "status", None),
-    "research_facts": ("domain", "status", "expires_at"),
-    "research_sources": ("domain", None, None),
+    "research_facts": ("lead_id", "status", "expires_at"),
+    "research_sources": ("lead_id", None, None),
     "script_versions": ("lead_id", None, None),
     "consent_evidence": ("endpoint_id", None, None),
     "transcript_segments": ("call_id", None, "raw_expires_at"),
@@ -334,6 +334,13 @@ def sync_columns(row):
     row.op_status = data.get("status", data.get("state", data.get("lifecycle")))
     for name in ("campaign_id", "lead_id", "endpoint_id", "number_id", "provider_id"):
         setattr(row, "op_" + name, data.get(name))
+    if row.__tablename__ == "leads":
+        # A lead has no lead reference; its indexed slot holds the company group, so the
+        # other contacts at one company are found without a scan.
+        row.op_lead_id = data.get("company_key")
+    if row.__tablename__ == "usage_ledger":
+        # Usage has no campaign; its indexed slot holds the budget scope (one lead list).
+        row.op_campaign_id = data.get("budget_scope")
     row.op_owner_id = data.get("rep_id", data.get("owner_id"))
     row.op_due_at = as_time(data.get("callback_due_at") or data.get("next_attempt_at") or data.get("due_at"))
     row.op_coverage_at = as_time(data.get("coverage_due_at"))

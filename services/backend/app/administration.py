@@ -215,8 +215,6 @@ class Dialer(
                 self._preflight_queue(s, p, campaign, numbers, screening, blockers, warnings)
             if not self.scoped(s, "budgets", p):
                 blockers.append("BUDGET_NOT_CONFIGURED")
-            elif not self.budget_ok(s, p):
-                blockers.append("BUDGET_EXHAUSTED")
             pending = sum(
                 c.data.get("status") in {"sending", "uncertain"} for c in self.scoped(s, "command_outbox", p)
             )
