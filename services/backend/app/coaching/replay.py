@@ -37,7 +37,6 @@ CONTEXT_FIELDS = {
     "prior_call_context",
     "objective",
     "conversation_learning",
-    "practice_goals",
 }
 
 
@@ -82,7 +81,6 @@ def validate_cases(cases):
             "facts",
             "prior_commitments",
             "prior_call_context",
-            "practice_goals",
         ):
             values = case.get(field, [])
             if (

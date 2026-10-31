@@ -255,7 +255,7 @@ def test_next_call_brief_carries_prior_conversation_before_the_next_call(workspa
     assert [n["text"] for n in updated["human_notes"]] == ["Wants pricing by Friday."]
 
 
-def test_coaching_goals_history_and_practice_stay_versioned(workspace):
+def test_coaching_goals_and_history_stay_versioned(workspace):
     ws = workspace
     finished_call(ws)
     run_jobs(ws)
@@ -272,25 +272,8 @@ def test_coaching_goals_history_and_practice_stay_versioned(workspace):
     assert clash.status_code == 422
     assert get(ws, "/v1/coaching")["goals"] == [goal]
 
-    scenario, request_id = "Prospect says they have no budget", str(uuid4())
-    practice = call(
-        ws, "POST", "/v1/coaching/practice", json={"scenario": scenario, "request_id": request_id}
-    )
-    assert practice["simulation"] is True and practice["status"] == "unconfigured"
-    assert "budget" in [example["id"] for example in practice["examples"]]
-    assert practice["raw_remaining_ms"] > 0
-    repeat = call(ws, "POST", "/v1/coaching/practice", json={"scenario": scenario, "request_id": request_id})
-    assert repeat["status"] == "unconfigured" and repeat["request_id"] == request_id
-    other = send(
-        ws,
-        "POST",
-        "/v1/coaching/practice",
-        json={"scenario": "A different scenario", "request_id": request_id},
-    )
-    assert other.status_code == 409
-    call(ws, "PUT", "/v1/coaching/goals", json={"expected_version": 1, "goals": []})
-    stale = call(ws, "POST", "/v1/coaching/practice", json={"scenario": scenario, "request_id": request_id})
-    assert stale["status"] == "source_changed", "Practice built on earlier goals is not reused"
+    # Practice is the coaching list itself: what to work on and how. There is no AI rehearsal.
+    assert send(ws, "POST", "/v1/coaching/practice", json={"scenario": "No budget"}).status_code == 404
 
 
 def test_example_library_refuses_unreviewed_tips_and_replay_scores_cases(workspace):

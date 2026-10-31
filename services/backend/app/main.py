@@ -85,11 +85,6 @@ class CoachCancel(Strict):
     request_id: UUID
 
 
-class PracticeRequest(Strict):
-    scenario: str = Field(min_length=1, max_length=2000)
-    request_id: UUID | None = None
-
-
 class Login(Strict):
     email: str
     password: str
@@ -712,12 +707,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.post("/v1/calls/{call_id}/coach/cancel")
     def cancel_coach(call_id: str, data: CoachCancel, p=Depends(principal)):
         return service.cancel_help(p, call_id, str(data.request_id))
-
-    @app.post("/v1/coaching/practice")
-    async def practice(data: PracticeRequest, p=Depends(principal)):
-        return await service.practice(
-            p, data.scenario, request_id=str(data.request_id) if data.request_id else None
-        )
 
     @app.get("/v1/coaching")
     def coaching(p=Depends(principal)):

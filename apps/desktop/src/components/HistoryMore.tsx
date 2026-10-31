@@ -16,12 +16,12 @@ export function HistoryMore({
   const { run } = useWorkspace();
   return (
     <div className="button-row">
-      <span className="fine">
-        {history.items.length} displayed
-        {history.totalLabel != null
-          ? ` · ${history.totalLabel} records in scope`
-          : ""}
-      </span>
+      {history.items.length > 0 && (
+        <span className="fine">
+          Showing {history.items.length}
+          {history.totalLabel != null ? ` of ${history.totalLabel}` : ""}
+        </span>
+      )}
       {history.cursor && (
         <button
           className="secondary small"

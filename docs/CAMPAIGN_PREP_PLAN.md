@@ -148,8 +148,8 @@ plain sentences without internal terms (authority, ingress, quiescence, capabili
 - **Dialer**: the lead's own script. Picked opening, top questions, lead offer (backup collapsed), objections in
   likelihood order, AI-written lines marked subtly. Live helper unchanged in behavior, now given the lead's script
   and picks.
-- **Review**: coaching is one list. Each item: what to improve, one example, and a Practice button. Goals and
-  reviewed examples become items in the same list.
+- **Review**: coaching is one list. Each item: what to work on and how (owner, October 31: practice needs no AI;
+  the call review agent keeps the list current). Goals and reviewed examples become items in the same list.
 - Visual pass across these pages: consistent heading sizes, spacing, one primary button per card, fewer pills.
 
 ## 6. Script learning follows the new structure

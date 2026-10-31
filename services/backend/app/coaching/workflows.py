@@ -1,7 +1,6 @@
 """Proactive/private help using one bounded context and one accountable inference."""
 
 import asyncio
-import hashlib
 import time
 from datetime import timedelta
 
@@ -30,7 +29,7 @@ from app.db import MODELS, doc, emit, get, put, uid, update
 from app.grounding import accept_review
 from app.privacy import RAW_TTL_SECONDS, persistent_document
 from app.providers.inference import InferenceResult
-from app.service import dt, fail
+from app.service import dt
 from app.telephony.reducer import TERMINAL
 
 LINEAGE_DEPTH = 8  # Observation lineage is checkpointed by review before it grows deeper.
@@ -225,212 +224,6 @@ class LiveHelper:
                 return False
         return True
 
-    async def practice(self, p, scenario, request_id=None):
-        identity = request_id or uid()
-        key = "practice:" + p["user_id"] + ":" + identity
-        raw_key = p["tenant_id"] + ":" + key
-        digest = hashlib.sha256(scenario.encode()).hexdigest()
-
-        def context():
-            with self.db.transaction() as s:
-                user = self.required(s, "users", p["user_id"], p)
-                s.refresh(user, with_for_update=True)
-                if not self._coach_authority(s, p):
-                    return None, {"status": "unavailable"}, None
-                prior = self._by_key(s, p, "conversation_states", key)
-                if prior:
-                    if prior.data["request_hash"] != digest:
-                        fail(409, "Practice identity already belongs to a different scenario")
-                    expires = dt(prior.data["expires_at"])
-                    if expires > self.clock() and not self._practice_knowledge_current(s, p, prior):
-                        self.raw.discard(raw_key)
-                        update(prior, status="source_changed")
-                        return None, {"status": "source_changed"}, expires
-                    value = self.raw.get(raw_key)
-                    return (
-                        None,
-                        (
-                            {**value, "raw_remaining_ms": self.raw.remaining_ms(raw_key) or 0}
-                            if value
-                            else {"status": "expired" if expires <= self.clock() else prior.data["status"]}
-                        ),
-                        expires,
-                    )
-                expires = self.clock() + timedelta(seconds=300)
-                book = self.approved_playbook(s, p)
-                seller = self.required(s, "sellers", p["seller_id"], p)
-                examples = library.context_examples(self, s, p, scenario)
-                put(
-                    s,
-                    "conversation_states",
-                    p["tenant_id"],
-                    p["seller_id"],
-                    {
-                        "kind": "practice",
-                        "user_id": p["user_id"],
-                        "request_hash": digest,
-                        "expires_at": expires.isoformat(),
-                        "status": "pending",
-                        "privacy_contract": 1,
-                        "knowledge": sources.knowledge(book, seller.data["name"], examples),
-                        "personal_context": {
-                            "goals_version": user.data.get("coaching_goals_version", 0),
-                        },
-                    },
-                    key=key,
-                    now=self.clock(),
-                )
-                return (
-                    {
-                        # Practice has no transcript; models number the first turn 1 (live check).
-                        "state_version": 1,
-                        "simulation": True,
-                        "manual_help": True,
-                        "private_question": scenario,
-                        "seller": {
-                            "name": seller.data["name"],
-                            "knowledge": book.data.get("product_description", "") if book else "",
-                        },
-                        "approved_cards": book.data.get("cards", []) if book else [],
-                        "approved_claims": book.data.get("claims", []) if book else [],
-                        "prohibited_claims": book.data.get("prohibited_claims", []) if book else [],
-                        "reviewed_examples": examples,
-                        "practice_goals": user.data.get("coaching_goals", []),
-                        "recent_dialogue": [],
-                        "facts": [],
-                        "context_sources": {
-                            "knowledge": sources.knowledge(book, seller.data["name"], examples)
-                        },
-                    },
-                    None,
-                    expires,
-                )
-
-        request, previous, expires = await asyncio.to_thread(context)
-        if previous is not None:
-            return {"simulation": True, "request_id": identity, **previous}
-        request["context_fingerprint"] = sources.digest(request)
-        request["evidence_catalog"] = guidance_sources(request)
-        request["help_request_id"] = key
-        provider, route = await asyncio.to_thread(self.configured_coach, p)
-        result = {"status": "unconfigured", "examples": request["approved_cards"]}
-        if provider and not self.settings.simulation:
-            deadline = engine.monotonic() + min(
-                LIMITS.manual_full_ms / 1000,
-                (expires - self.clock()).total_seconds(),
-            )
-
-            async def authorized():
-                return self.coach.current(key, key) and await asyncio.to_thread(
-                    self._practice_authorized, p, key
-                )
-
-            async def admit(submit, admission_deadline):
-                with_authority = await authorized()
-                return with_authority and (
-                    not submit or await self._reserve_coach(p, key, key, "coaching_practice")
-                )
-
-            async def settle(submitted):
-                await self._settle_coach(p, key, key, "coaching_practice", route, provider, submitted)
-
-            async def publish(guidance):
-                guidance = card_view(guidance)
-                # Practice has no transcript: an exact context echo fixes the version and no
-                # speech can be cited.
-                guidance = normalized_turn(guidance, request)
-                if not await authorized() or engine.monotonic() >= deadline:
-                    raise CardRejected("Practice context changed")
-                try:
-                    ground_guidance(guidance, request)
-                except MeaningReviewRequired:
-                    receipt = await self._review_help(
-                        p,
-                        key,
-                        request,
-                        guidance,
-                        provider,
-                        route,
-                        expires,
-                        deadline,
-                        authorize=authorized,
-                        work_kind="coaching_practice_review",
-                    )
-                    guidance = reviewed_guidance(guidance, request, receipt)
-                else:
-                    guidance = {**guidance, "meaning_review": {"status": "model_suggestion"}}
-                return guidance
-
-            result = {"status": "unavailable"}
-            try:
-                guidance = await self.coach.suggest(
-                    key,
-                    request,
-                    provider,
-                    {"action": "NO_ACTION"},
-                    deadline_ms=max(1, int((deadline - engine.monotonic()) * 1000)),
-                    admit=admit,
-                    settle=settle,
-                    publish=publish,
-                    circuit_key=(p["tenant_id"], p["seller_id"], route),
-                    owner_key=(p["tenant_id"], p["seller_id"], p["user_id"]),
-                )
-                if guidance.get("action") == "SHOW_CARD":
-                    result = {"status": "ready", "guidance": guidance}
-            except (CardRejected, ValueError):
-                pass
-            finally:
-                if asyncio.current_task().cancelling():
-                    await finish_shielded(
-                        asyncio.to_thread(self._finish_practice, p, key, raw_key, expires, result)
-                    )
-        return {
-            "simulation": True,
-            "request_id": identity,
-            **await asyncio.to_thread(self._finish_practice, p, key, raw_key, expires, result),
-        }
-
-    def _practice_authorized(self, p, key):
-        with self.db.transaction(False) as s:
-            record = self._by_key(s, p, "conversation_states", key)
-            return (
-                self._coach_authority(s, p)
-                and record is not None
-                and dt(record.data["expires_at"]) > self.clock()
-                and self._practice_knowledge_current(s, p, record)
-            )
-
-    def _practice_knowledge_current(self, s, p, record):
-        if not sources.knowledge_current(self, s, p, record.data.get("knowledge")):
-            return False
-        user = self.required(s, "users", p["user_id"], p)
-        return record.data.get("personal_context", {}).get("goals_version") == user.data.get(
-            "coaching_goals_version", 0
-        )
-
-    def _finish_practice(self, p, key, raw_key, expires, result):
-        with self.db.transaction() as s:
-            record = self._by_key(s, p, "conversation_states", key)
-            if not self._coach_authority(s, p) or expires <= self.clock():
-                result = {"status": "unavailable"}
-            elif not self._practice_knowledge_current(s, p, record):
-                result = {"status": "source_changed"}
-            update(
-                record,
-                status=result["status"] if result["status"] != "ready" else "unavailable_after_restart",
-            )
-            self.raw.put(
-                raw_key, result, expires_at=expires, scope=p["tenant_id"] + ":practice:" + p["user_id"]
-            )
-        remaining = self.raw.remaining_ms(raw_key)
-        return {
-            **result,
-            "raw_expires_at": expires.isoformat(),
-            "raw_remaining_ms": remaining
-            if remaining is not None
-            else max(0, int((expires - self.clock()).total_seconds() * 1000)),
-        }
-
     def coach_content(self, p, record):
         if record.get("private") and record.get("user_id") != p["user_id"]:
             return None
@@ -472,7 +265,7 @@ class LiveHelper:
 
     async def _reserve_coach(self, p, key, object_id, kind):
         # A cancelled to_thread still runs. Finish admission before deciding whether
-        # the hold is unused; cleanup is shared by practice and live help.
+        # the hold is unused.
         return await finish_shielded(
             asyncio.to_thread(
                 self.reserve_optional_budget,

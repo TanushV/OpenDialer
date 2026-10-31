@@ -52,7 +52,7 @@ at least 1024 × 720 usable display pixels.
 ## What it does
 
 - Scheduler-selected calls and retries, readable scripts and live helper tips.
-- Post-call summaries and outcomes with human corrections, follow-ups and focused practice.
+- Post-call summaries and outcomes with human corrections, follow-ups, and a list of what to practice and how.
 - Script memory, statistical learning, number allocation and capacity planning.
 - Calling policies, opt-outs, DNC checks, costs and budgets.
 

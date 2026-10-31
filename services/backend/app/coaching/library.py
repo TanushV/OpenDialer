@@ -238,7 +238,7 @@ def save_goals(service, p, data):
         s.refresh(user, with_for_update=True)
         version = user.data.get("coaching_goals_version", 0)
         if data["expected_version"] != version:
-            fail(409, "Practice goals changed; reload before saving")
+            fail(409, "Coaching goals changed; reload before saving")
         update(user, coaching_goals=goals, coaching_goals_version=version + 1)
         audit(
             s,

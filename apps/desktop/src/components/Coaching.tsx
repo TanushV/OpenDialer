@@ -1,8 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { date, useWorkspace } from "../context";
-import type { Call, Coach } from "../types";
-import { receiveSpeech } from "../state/privacy";
-import { useSpeechExpiry } from "../state/useSpeechExpiry";
 
 type Goal = { id: string; text: string; status: "active" | "completed" };
 type Overview = {
@@ -36,21 +33,7 @@ export function Coaching({
     { label: string; samples: number }[]
   >([]);
   const [goal, setGoal] = useState("");
-  const [scenario, setScenario] = useState("");
-  const [practicing, setPracticing] = useState(false);
   const [status, setStatus] = useState("");
-  const [waiting, setWaiting] = useState(false);
-  const [answer, setAnswer] = useState<Pick<
-    Call,
-    "coach" | "transcript"
-  > | null>(null);
-  const pending = useRef<string | null>(null);
-  useSpeechExpiry(answer, setAnswer);
-  const hasScenario = !!scenario;
-  useEffect(() => {
-    const timer = setTimeout(() => setScenario(""), 300000);
-    return () => clearTimeout(timer);
-  }, [hasScenario]);
   useEffect(() => {
     let active = true;
     void Promise.all([
@@ -77,7 +60,6 @@ export function Coaching({
       });
     return () => {
       active = false;
-      pending.current = null;
     };
   }, [api]);
   async function save(goals: Goal[]) {
@@ -98,60 +80,12 @@ export function Coaching({
       throw error;
     }
   }
-  function discard() {
-    pending.current = null;
-    setScenario("");
-    setAnswer(null);
-    setWaiting(false);
-    setStatus("");
-  }
-  async function practice() {
-    if (!scenario.trim() || pending.current) return;
-    const id = crypto.randomUUID();
-    pending.current = id;
-    setWaiting(true);
-    setAnswer(null);
-    setStatus("");
-    const question = scenario;
-    setScenario("");
-    try {
-      const result = await api<{
-        status: string;
-        guidance?: Coach;
-        raw_remaining_ms?: number;
-      }>("/v1/coaching/practice", "POST", {
-        request_id: id,
-        scenario: question,
-      });
-      if (pending.current !== id) return;
-      if (result.status === "ready" && result.guidance) {
-        setAnswer(
-          receiveSpeech({
-            transcript: [],
-            coach: {
-              ...result.guidance,
-              id,
-              private: true,
-              remaining_ms: result.raw_remaining_ms,
-            },
-          }),
-        );
-      } else
-        setStatus(
-          "AI practice is unavailable. Your approved knowledge remains available.",
-        );
-    } finally {
-      if (pending.current === id) {
-        pending.current = null;
-        setWaiting(false);
-      }
-    }
-  }
   type Item = {
     key: string;
     title: string;
+    /** How to work on it, in one line. */
+    how?: string;
     detail?: string;
-    practice?: string;
     review?: string;
     goal?: Goal;
     example?: Overview["examples"][number];
@@ -169,16 +103,14 @@ export function Coaching({
         ...patterns.map((pattern) => ({
           key: "pattern-" + pattern.label,
           title: pattern.label,
-          detail: `Linked to fewer good outcomes across ${pattern.samples} calls`,
-          practice: `Practice improving ${pattern.label}. This pattern is linked to worse outcomes, not proven to cause them. Give one concrete exercise and an improved example.`,
+          how: "Notice it in your next calls and try a different approach.",
+          detail: `Linked to fewer good outcomes across ${pattern.samples} calls (not proven to cause them)`,
         })),
         ...(overview.improvement_groups ?? []).map((group) => ({
           key: "group-" + group.id,
           title: group.concept,
-          detail:
-            (group.approach || "Try a shorter, clearer response.") +
-            ` · seen in ${group.count} call${group.count === 1 ? "" : "s"}`,
-          practice: `Help me improve this: ${group.concept}. ${group.approach || ""} Give one concrete exercise and an improved example, using approved product facts only.`,
+          how: group.approach || "Try a shorter, clearer response.",
+          detail: `Seen in ${group.count} call${group.count === 1 ? "" : "s"}`,
           review: group.examples[0]?.call_id,
         })),
         ...(overview.recent_tips[0]?.tips ?? []).slice(0, 5).map((tip, i) => ({
@@ -199,21 +131,19 @@ export function Coaching({
   return (
     <section className="card padded coaching" aria-label="Coaching">
       <div className="section-heading">
-        <h2>Coaching</h2>
-        <button
-          className="secondary"
-          onClick={() => {
-            setPracticing(true);
-            setAnswer(null);
-          }}
-        >
-          Practice
-        </button>
+        <div>
+          <h2>Coaching</h2>
+          <p className="muted small">
+            What to practice and how. The call review agent updates this after
+            each call.
+          </p>
+        </div>
       </div>
       {status && <p role="status">{status}</p>}
       {overview && !items.length && (
         <p className="muted">
-          Nothing yet. Coaching points appear here as your calls are reviewed.
+          Nothing yet. After your calls are reviewed, what to work on appears
+          here.
         </p>
       )}
       <ol className="coach-list">
@@ -221,21 +151,10 @@ export function Coaching({
           <li key={item.key}>
             <div>
               <strong>{item.title}</strong>
+              {item.how && <span className="coach-how">How: {item.how}</span>}
               {item.detail && <small>{item.detail}</small>}
             </div>
             <div className="coach-actions">
-              {item.practice && (
-                <button
-                  className="text-button"
-                  onClick={() => {
-                    setScenario(item.practice!);
-                    setPracticing(true);
-                    setAnswer(null);
-                  }}
-                >
-                  Practice
-                </button>
-              )}
               {item.review && (
                 <button
                   className="text-button"
@@ -332,42 +251,6 @@ export function Coaching({
             </button>
           </div>
         )}
-      {(practicing || scenario || waiting || answer?.coach) && (
-        <div className="practice-box">
-          <label>
-            Practice
-            <textarea
-              aria-label="Practice scenario"
-              value={scenario}
-              maxLength={2000}
-              onChange={(e) => setScenario(e.target.value)}
-            />
-          </label>
-          <div className="button-row">
-            <button
-              className="primary"
-              disabled={waiting || !scenario.trim()}
-              onClick={() => void run(practice)}
-            >
-              Practice privately
-            </button>
-            <button className="text-button" onClick={discard}>
-              Discard practice
-            </button>
-          </div>
-          {waiting && <p role="status">Working through it…</p>}
-          {answer?.coach && (
-            <div aria-live="polite" className="practice-answer">
-              <p>{answer.coach.say_or_ask}</p>
-              <p className="small muted">{answer.coach.reason}</p>
-            </div>
-          )}
-          <p className="fine">
-            Practice is private, places no call, and is erased within five
-            minutes.
-          </p>
-        </div>
-      )}
     </section>
   );
 }

@@ -11,7 +11,7 @@ async function enter(page: Page) {
   await page.getByRole("button", { name: "Review", exact: true }).click();
 }
 
-test("personal practice goals survive reload and practice requires no call", async ({
+test("personal goals survive reload and sit in the coaching list", async ({
   page,
 }) => {
   await enter(page);
@@ -28,92 +28,46 @@ test("personal practice goals survive reload and practice requires no call", asy
   await expect(
     panel.getByText("Clarify ownership before pitching", { exact: true }),
   ).toBeVisible();
-  await panel.getByRole("button", { name: "Practice", exact: true }).click();
-  await panel
-    .getByRole("textbox", { name: "Practice scenario" })
-    .fill("How can I clarify a new objection?");
-  await panel
-    .getByRole("button", { name: "Practice privately", exact: true })
-    .click();
-  await expect(
-    panel.getByText(
-      "AI practice is unavailable. Your approved knowledge remains available.",
-    ),
-  ).toBeVisible();
-  await expect(
-    panel.getByText(/Practice is private, places no call/),
-  ).toBeVisible();
   await panel.getByRole("button", { name: "Done", exact: true }).click();
   await expect(
     panel.getByText("Clarify ownership before pitching", { exact: true }),
   ).toBeHidden();
 });
 
-test("private practice text expires and a late abandoned response cannot reappear", async ({
+test("practice is a list of what to work on and how, with no AI rehearsal", async ({
   page,
 }) => {
-  await page.clock.install();
-  let calls = 0;
-  let release!: () => void;
-  const pending = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  await page.route("**/v1/coaching/practice", async (route) => {
-    calls++;
-    if (calls === 2) await pending;
-    await route.fulfill({
-      json: {
-        simulation: true,
-        status: "ready",
-        raw_remaining_ms: 1000,
-        guidance: {
-          action: "SHOW_CARD",
-          say_or_ask: "Which team owns the decision?",
-          reason: "Ask before assuming.",
-        },
+  await page.route("**/v1/coaching", async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.improvement_groups = [
+      {
+        id: "pricing-too-early",
+        concept: "Pricing came up before discovery",
+        approach: "Ask two discovery questions before naming a price.",
+        count: 3,
+        examples: [],
       },
-    });
+    ];
+    await route.fulfill({ response, json: data });
   });
   await enter(page);
   const panel = page.getByRole("region", { name: "Coaching" });
-  try {
-    await panel.getByRole("button", { name: "Practice", exact: true }).click();
-    await panel
-      .getByRole("textbox", { name: "Practice scenario" })
-      .fill("An unfamiliar decision process");
-    await panel
-      .getByRole("button", { name: "Practice privately", exact: true })
-      .click();
-    await expect(
-      panel.getByText("Which team owns the decision?", { exact: true }),
-    ).toBeVisible();
-    await page.clock.runFor(1100);
-    await expect(
-      panel.getByText("Which team owns the decision?", { exact: true }),
-    ).toBeHidden();
-    await panel
-      .getByRole("textbox", { name: "Practice scenario" })
-      .fill("Another private scenario");
-    await panel
-      .getByRole("button", { name: "Practice privately", exact: true })
-      .click();
-    await expect(
-      panel.getByRole("button", { name: "Discard practice", exact: true }),
-    ).toBeVisible();
-    await panel
-      .getByRole("button", { name: "Discard practice", exact: true })
-      .click();
-    release();
-    await expect(
-      panel.getByRole("textbox", { name: "Practice scenario" }),
-    ).toHaveValue("");
-    await expect(
-      panel.getByText("Which team owns the decision?", { exact: true }),
-    ).toBeHidden();
-  } finally {
-    release();
-    await page.unrouteAll({ behavior: "wait" });
-  }
+  await expect(
+    panel.getByText("Pricing came up before discovery", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    panel.getByText("How: Ask two discovery questions before naming a price.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    panel.getByText("Seen in 3 calls", { exact: true }),
+  ).toBeVisible();
+  await expect(panel.getByRole("button", { name: "Practice" })).toHaveCount(0);
+  await expect(
+    panel.getByRole("textbox", { name: "Practice scenario" }),
+  ).toHaveCount(0);
 });
 
 test("a reviewed coaching tip can be published and withdrawn with its source version", async ({

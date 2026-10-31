@@ -5,6 +5,10 @@
   before calling. When an agent skips a lead, the list and the lead show why. The AI card in Settings shows Done once
   ChatGPT and the live help key are set, and its text no longer squeezes beside the button. Plainer Leads table
   labels. The updater shows each release's own notes.
+- **Practice is the coaching list.** Each item says what to work on and how, and the call review agent updates it
+  after each call. The AI rehearsal box is gone.
+- **Live help keeps more good tips.** A tip whose model audit cites a source the app does not know now gets the full
+  independent review instead of being dropped.
 - **One script, pasted once.** Paste or open your script as Markdown on the Script page. It is checked as you type,
   with every problem listed by line. Sections: Opening, Screening, Discovery and Close are required; Gatekeeper,
   Offers, Objections, Facts and Never say are optional. Bullets are options the AI picks for each lead, and
@@ -20,7 +24,7 @@
 - **Simpler Settings:** one page with Calling, AI, Script, Leads, Calling hours and Do-not-call list; everything else
   is under More settings. Connect ChatGPT with one click when Codex is signed in on this computer. The AI budget is
   now set per lead list and never blocks calling.
-- **Coaching is one list** on the Review page, with practice beside it. Follow-ups moved to Review.
+- **Coaching is one list** on the Review page. Follow-ups moved to Review.
 - **Live help on the real Cerebras route works end to end:** independent reviews and call summaries no longer fail
   on OpenRouter, and a supported question stays visible when only its explanation is rejected.
 - Removed: scheduled prepaid DNC screening (the manual prepaid check stays), the separate ChatGPT plan sign-in, and

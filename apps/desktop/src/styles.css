@@ -2382,17 +2382,14 @@ details.transcript-card {
   display: flex;
   gap: 8px;
 }
-.practice-box {
-  margin-top: 16px;
-  padding: 14px;
-  border: 1px solid #e3ebd4;
-  border-radius: 8px;
-  background: #fafcf6;
-  display: grid;
-  gap: 10px;
+.inline-add button {
+  white-space: nowrap;
 }
-.practice-answer p {
-  margin: 0 0 6px;
+.coach-how {
+  display: block;
+  font-size: 13px;
+  color: #3f4a3b;
+  margin-top: 2px;
 }
 @media (max-width: 900px) {
   .script-columns,
