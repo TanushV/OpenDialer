@@ -12,7 +12,7 @@ Audio and transcript text never pass through it. The desktop integration ships i
 
 Import the private per-computer JSON profile in **Settings → Setup → Calling**. It supplies public carrier settings,
 a scoped delivery login and optionally provider keys. Sessions refresh automatically. Callers do not need tunnels,
-a public PC address, SIP passwords or Supabase dashboard accounts. See [the user setup guide](../docs/GETTING_STARTED.md#local-calling-with-the-shared-webhook).
+a public PC address, SIP passwords or Supabase dashboard accounts. See [the user setup guide](../docs/GETTING_STARTED.md#calling-card).
 
 ## Operator provisioning
 

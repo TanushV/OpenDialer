@@ -1,7 +1,9 @@
 # Provider onboarding
 
-**Codex ChatGPT login (current source):** use **Settings → Setup → AI assistance → ChatGPT via Codex · import login**.
-Follow [the file import steps](../../docs/GETTING_STARTED.md#connect-your-codex-login). The official pinned Codex
+**ChatGPT through Codex (research and per-lead scripts):** in **Settings → AI**, click **Use the ChatGPT login on
+this computer** when Codex is signed in on the computer running the workspace, or **Import Codex login** with an
+`auth.json` file ([steps](../../docs/GETTING_STARTED.md#connect-chatgpt-with-a-login-file)). Work runs on
+`gpt-6.1-terra` at maximum reasoning effort with live web search, included in the user's ChatGPT plan. The official pinned Codex
 app-server runs with an isolated home and managed refresh; only the personal auth file and account label persist.
 The shared API and worker must mount the same authority data directory for refresh and per-user locking.
 The desktop build and server image bundle the runtime. Source development needs `npm ci` in `apps/desktop`.
@@ -28,7 +30,7 @@ Transfer commands currently use the published PAYG reference of $0.10 per invoca
 
 **OpenAI-compatible endpoint (LiteLLM, OpenRouter or similar):** Select the explicit compatible route and enter its HTTPS base URL or loopback HTTP URL plus optional key. It uses chat/completions with structured JSON. Nothing auto-discovers a local endpoint or sends data to an unconfigured account. Use a model that supports the selected schema contract.
 
-**ChatGPT plan usage (optional):** Research and script writing can run on a user's own eligible ChatGPT plan (default model `gpt-6.1-sol`) instead of metered API calls. Choose "Official eligible ChatGPT plan usage" under Settings → Setup → AI assistance, then Continue with ChatGPT. Locally the authority receives the official sign-in on its loopback address. A hosted authority cannot, so after signing in paste the `http://127.0.0.1:1455/auth/callback?…` address your browser ends on and select Finish ChatGPT sign-in; the server exchanges the one-time code with its own PKCE verifier. Work runs on the plan of the user who queued it; a user without a plan sign-in gets the approved generic script. The live helper always stays on Cerebras, and plan usage is subject to your ChatGPT plan's terms and limits. Plan requests keep their token counts in the usage ledger but settle at zero marginal cost, labeled `chatgpt_plan_included` and never billing-verified, so a request's temporary budget hold is released when it settles.
+**ChatGPT plan sign-in through the browser:** removed in 0.7.0. The Codex login above is the only ChatGPT route.
 
 **Live coaching/STT:** Select OpenRouter and enter its API key plus an evaluated model (default openai/gpt-oss-120b). Cerebras is the only permitted provider, with ZDR, denied data collection and no provider fallbacks. Supported structured output and route receipts are required. A transient refusal, timeout or rate limit stays quiet and shows a calm helper status; cached knowledge is shown only when the helper is unconfigured or its circuit is open. Calling controls remain independent. The live interpreter and ordinary finalizer use the same Cerebras capability. Optional research/script and stronger-review roles remain separately configured. Transcription runs on Telnyx with separate permission and account-retention evidence: one inbound-track stream on the prospect leg and one on the rep's agent leg, so the speaker side comes from the leg (Soniox does not report a track). Verify finality, timing and per-stream charges. Raw content expires locally within five minutes of original receipt; local tests do not certify upstream deletion. Null timestamps/confidence remain null. See the active [remediation plan](../../docs/REMEDIATION_PLAN.md) for remaining replay, privacy and live-provider gates.
 

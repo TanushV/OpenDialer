@@ -18,7 +18,7 @@ Use this only with a hostname and SSH host you already control. The desktop star
 1. On the forwarding host, dedicate an SSH user and key to this workspace, restricted to remote forwarding (`GatewayPorts no`, `PermitListen 127.0.0.1:18765`). Accept the verified host key in the rep's OS known-hosts file.
 2. Reserve remote loopback port 18765 for this one authority; give another workspace a distinct port and hostname.
 3. Point an owned DNS hostname at the host and run Caddy with `deploy/Caddyfile.local-ingress` (not the connected Caddyfile), setting `OPENDIALER_INGRESS_DOMAIN` and `OPENDIALER_FORWARD_PORT=18765`. It forwards only `POST /webhooks/telnyx` and `GET /webhooks/ingress-check/<nonce>`; everything else returns 404.
-4. In the local workspace, open Settings → Setup → Calling (Telnyx) → Existing SSH forwarding host, enter host, user and port, enable and save. The desktop restarts the forward when the local authority restarts.
-5. Save `https://<hostname>/webhooks/telnyx` and the Telnyx public verification key in Settings, configure the same URL on the carrier application, and click **Check saved ingress**.
+4. In the local workspace, open **Settings → Calling → Existing SSH forwarding host**, enter host, user and port, enable and save. The desktop restarts the forward when the local authority restarts.
+5. Save `https://<hostname>/webhooks/telnyx` and the Telnyx public verification key in **Settings → Calling** (**Save Telnyx settings**), configure the same URL on the carrier application, and click **Check connection**.
 
 An offline laptop cannot route callbacks. Use the same authority in connected mode on an always-on host when callbacks must be answered while the laptop is off.

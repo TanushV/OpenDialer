@@ -1,88 +1,274 @@
-# Set up your first workspace
+# Setup guide
 
-[Install OpenDialer 0.6.2](INSTALL.md) first, or update from **Settings → App updates**.
+[Back to README](../README.md) · [Install](INSTALL.md) · [Example script](examples/script.md) ·
+[Example lead list](examples/leads.csv)
 
-## Choose a workspace
+This guide takes you from a fresh install to your first call, in the order the app expects.
 
-- **Working alone:** choose **Start a local workspace**. Your data and provider settings stay on this computer. No separate Python or database installation is needed.
-- **Joining a team:** choose **Connect to a server**, enter the HTTPS address from your admin and sign in. Your admin handles providers and the shared database.
+| Step | Page | Done when |
+| --- | --- | --- |
+| [1. Open a workspace](#1-open-a-workspace) | First screen | You see the Dialer. |
+| [2. Connect calling and AI](#2-connect-calling-and-ai) | Settings | The Calling and AI cards say **Done**. |
+| [3. Set calling hours and the do-not-call list](#3-set-calling-hours-and-the-do-not-call-list) | Settings | Both cards say **Done**. |
+| [4. Add your script](#4-add-your-script) | Script | The checker says **Looks good** and you saved. |
+| [5. Import leads](#5-import-leads) | Leads | The list shows **N of N ready to call**. |
+| [6. Get phone numbers ready](#6-get-phone-numbers-ready) | Numbers | At least one number is in limited use. |
+| [7. Make calls](#7-make-calls) | Dialer | You are on a call. |
+| [8. After calls](#8-after-calls) | Review | You see your summary and what to practice. |
 
-For local calling with the shared webhook, use the shared setup below. Existing direct-local builds still use
-[webhook forwarding](../deploy/runbooks/deploy.md#local-authority-with-an-existing-ssh-host); hosted mode is unchanged.
-A sleeping or offline laptop cannot handle callbacks; configure and test the carrier fallback.
+**Before you start, have:** a Telnyx account (or the calling setup file your admin gave you), a ChatGPT plan with
+Codex signed in on this computer, an OpenRouter API key for live help, your do-not-call download for the area codes
+you call, and a headset.
 
-## Local calling with the shared webhook
+**Just looking?** Choose **Try a simulated workspace** on the first screen. Calls, carriers and AI are simulated,
+so you can click through everything without accounts or costs.
 
-Available in 0.6.0 and later. Import once; the connection restores and refreshes automatically.
+## 1. Open a workspace
 
-1. In a local workspace, open **Settings → Calling → Import calling setup (.json)**.
-   Choose the private file prepared for this computer. It imports the Telnyx application, verification key,
-   browser credential, SIP username and shared webhook URL. Included provider keys are saved too.
-2. Wait for **Connected**. Login refresh and reconnect happen automatically. There is no tunnel token,
-   SIP password to enter, Supabase dashboard login or terminal command for callers.
-3. Save a Telnyx key if omitted. In **Settings → AI**, connect ChatGPT and add the live help (OpenRouter) key.
-   DNC coverage and calling hours are their own cards on the same page.
-4. In **Numbers**, sync numbers already assigned to your calling application, or explicitly approve a priced
-   purchase within your limits. Configure the number, complete identity evidence, and call it from another phone
-   to verify callback delivery. A signed incoming event assigns that number to this workspace at the relay;
-   normal callback evidence and outbound-readiness checks still apply. Nothing buys or warms up numbers automatically.
-5. Paste your Markdown script on the **Script** page, import leads (they are researched and scripted first),
-   press **Check readiness**, check your headset and go ready.
+- **Working alone:** choose **Start a local workspace**. Your data and keys stay on this computer.
+- **Joining a team:** choose **Connect to a server**, enter the HTTPS address from your admin and sign in. Your
+  admin sets up calling and AI for everyone; skip to [step 4](#4-add-your-script) unless you are the admin.
 
-Each independent computer needs its own setup file and Telnyx application/agent credential. All use the **same
-webhook URL**. Do not copy one live workspace profile to two computers: the receiver permits one store/consumer.
-Keep the file private. Restoring or moving an existing store needs its connection/session files too, or an operator
-must explicitly release the old binding after confirming that computer has stopped.
+## 2. Connect calling and AI
 
-Keep the app open and computer awake. New calls pause if delivery or transcription fails; hangup remains usable.
-Resolve outstanding calls in Recovery, then use **Reconnect** in Calling. Reconnect after a delivery gap acknowledges
-that old events may be missing; it does not recreate lost conversations. Pending controls expire after 24 hours,
-with a visible gap, and acknowledged payloads are immediately removed (dedupe IDs remain seven days).
+Open **Settings**. It is one page of cards. Each card shows **Done** or **To do**.
 
-Live speech uses continuous Telnyx Soniox streams, one per speaker. The automatic helper groups stable text into
-fixed two-second windows. Supabase carries control events only, not audio, transcripts, leads, scripts or history.
-Carrier/STT/AI usage remains billable; the shared service uses the existing Free Supabase plan without an uptime SLA.
+### Calling card
 
-## Connect services and prepare to call
+Use **one** of these:
 
-Open **Settings → Setup** and complete the checklist in order.
+- **You have a calling setup file** (the usual case for a local workspace): click **Import calling setup (.json)**
+  and choose the file prepared for this computer. Wait for **Connected**. That is all: no tunnel, password or
+  terminal command. Each computer needs its own file; do not copy one computer's workspace to another.
+- **You configure Telnyx yourself:** paste the Telnyx API v2 key, Voice API connection ID, webhook public key and
+  webhook address, then save. See [provider accounts](../deploy/runbooks/providers.md) for what each one is.
 
+Keep the app open and the computer awake while calling. Callbacks cannot reach a sleeping laptop.
 
-1. **Calling (Telnyx):** use the setup-file import above when provided. For direct/hosted configuration, paste the Telnyx API v2 key, Call Control connection ID, webhook public key and public HTTPS webhook URL. Add the agent credential and carrier approval details. **Save Telnyx settings** saves the key and connection fields together. Local calling needs a reachable webhook forward; check the saved ingress.
-2. **AI:** connect ChatGPT for research and per-lead scripts (one click when Codex is signed in on this computer, otherwise import the login file as described below) and add an OpenRouter key for the Cerebras live helper and call summaries. An OpenAI API key or compatible endpoint is an alternative under *Use an OpenAI API key instead of ChatGPT*.
-3. Set **Calling hours** (and confirm your business there), and load the **Do-not-call list** for the area codes you call. The AI budget per lead list and other options are under **More settings**. A DNC API key is needed only for manual prepaid lookups.
-4. In **Numbers**, sync owned numbers. To find additions, select your lead list and click **Plan state coverage**, then **Find numbers in [state]**. Review the metro suggestions and exact rental quotes under **Add numbers with approval**. Save count and spending limits before approving a purchase; zero blocks purchases. Complete routing and a genuine inbound callback test, then approve limited legitimate use. Buying or syncing does not start warmup.
-5. Paste your Markdown script on the **Script** page, import leads and wait for them to be prepared (Leads shows progress per list), press **Check readiness** and check your audio before going ready. Allocation and next-lead selection use prepared leads automatically; capacity planning does not place orders.
+### AI card
 
-Keys are saved to the authority, not sent through chat. See [provider onboarding](../deploy/runbooks/providers.md) for account configuration, callback limitations and live verification.
+1. **ChatGPT** (research and per-lead scripts): click **Use the ChatGPT login on this computer**. It appears when
+   Codex is signed in here. Otherwise click **Import Codex login** and choose your `auth.json` file
+   ([how to get it](#connect-chatgpt-with-a-login-file)). The card then shows your account and plan.
+   Research and scripts run on GPT-6.1 Terra at maximum effort, included in your plan.
+2. **Live help key (OpenRouter, Cerebras):** paste your OpenRouter key and click save. It powers the live helper
+   during calls and the notes after each call.
 
-### Numbers for a lead list
+No ChatGPT plan? Open **Use an OpenAI API key instead of ChatGPT** on the same card. That route is billed per use.
 
-Name your list when importing a CSV (the filename is suggested). Include `state` as a US abbreviation or full name,
-for example `CA` or `California`, and a separate IANA `timezone`. Existing imports appear as **Unnamed imports**.
-Duplicate phones in the same campaign retain their original list and caller identity.
+## 3. Set calling hours and the do-not-call list
 
-**Numbers → Plan numbers for list → Plan state coverage** shows the selected list's demand, usable owned capacity,
-numbers awaiting setup, and proposed additions by state. Choose **All campaign leads** to check the combined demand;
-the same owned pool serves multiple lists, so separate list previews are not reservations and must not be added together.
-Staffing, calling windows, screening and pending setup still constrain the plan. A new number cannot fix those limits.
+### Calling hours card
 
-The scheduler keeps a lead's existing caller identity. For an unbound lead, it prefers ready numbers in the same state,
-balancing current load, daily usage and observed health; an exact area code breaks otherwise equal choices.
-It does not require a separate number for every area code. Eligible general-pool numbers remain a fallback.
-State inference from a phone's area code is labeled as an estimate and never supplies a timezone or legal jurisdiction.
+1. Set **Start (hour)**, **End (hour)** and **Attempts per lead**. Hours are in each lead's own time zone; new
+   workspaces start at 8:00 to 21:00.
+2. Click **Confirm our business is allowed to call these leads** once.
+3. Tick **Approved for live calls** and click **Save calling hours**. Until you do, nothing is dialed for real.
 
-**Find numbers in [state] → Find available numbers** searches up to three suggested in-state area codes and shows
-current prices. Familiar metro defaults are ordered using matching area codes in your list. You can also enter a
-specific area code. These are preferences, not population rankings or evidence of better pickup rates. The offline
-state mapping comes from [NANPA's area-code database](https://nanpa.com/reports/npa-reports); actual availability and
-prices come from Telnyx. Each exact rental still needs approval within your number-count and spending limits.
+### Do-not-call list card
 
-New number-allocation comparisons group leads by state. An older area-code comparison retains its history but
-does not assign new calls; stop it and start a new comparison if you want to evaluate the new allocation policy.
+Paste the numbers from your do-not-call download, one per line, choose **National** or **State**, enter the area
+codes it covers and a reference (for example your download ID), then click **Validate & publish dataset**.
+Leads in area codes without a current list are not called. People who opt out during a call are blocked forever.
 
+### More settings
 
-## Connect your Codex login
+Everything else has a sensible default and is folded under **More settings** at the bottom of the page:
+
+| Section | What it is for |
+| --- | --- |
+| AI budget | A spending cap per lead list for paid AI (live help, call notes, or the API route). ChatGPT research costs $0 here. It never blocks calling. |
+| Campaign goal and team schedule | What counts as a win (for example a meeting held) and when your team calls. |
+| Do-not-call checks and consent | Extra checks before each call, such as state do-not-call lists. |
+| Privacy and spending rules | Which paid services the app may spend on. |
+| Callbacks | Who answers when a prospect calls back. |
+| Call scoring | The rubric used to score calls. |
+| Work time | How your working time is counted for statistics. |
+| Billing records | Carrier and AI charges. |
+| Learning experiments and trackers | Advanced testing and planning assumptions. |
+| Users, backups and recovery | Team members, backups and restore. |
+| Workspace and app updates | Switch workspace and install updates. |
+
+When you think you are done, click **Check readiness** at the top of Settings. It lists anything still blocking
+live calls in plain words.
+
+## 4. Add your script
+
+Open **Script**. Paste your script into the editor or click **Open .md file**. The right side checks it as you
+type and shows how each section will be used. Fix anything it lists by line, then click **Save script**.
+Start from the [example script](examples/script.md) if you are writing one from scratch.
+
+### The format
+
+```markdown
+# Opening
+- Hi {first_name}, this is {rep} with {seller}. {{ one specific, recent reason we're calling {company} }}
+- Hi {first_name}, {rep} from {seller} here. {{ a short line linking their business to faster follow-up }}
+
+# Screening
+{rep} from {seller}, calling about customer follow-up.
+
+# Gatekeeper
+Who looks after customer follow-up for {company}?
+
+# Discovery
+- How do you follow up with customers after a first visit today?
+- What happens when a lead comes in after hours?
+- Who else weighs in on changes to that process?
+
+# Offers
+## Follow-up review
+A free 20-minute review of how your team follows up.
+
+## Pilot
+{{ how a two-week pilot would fit their business }}
+
+# Objections
+## Not interested
+Fair enough. Is that because it's handled, or because now isn't the time?
+
+# Close
+- Would a 15-minute call later this week be useful?
+
+# Facts
+- Setup takes under two weeks.
+
+# Never say
+- Guaranteed results
+```
+
+| Part | Meaning |
+| --- | --- |
+| `# Opening`, `# Screening`, `# Discovery`, `# Close` | Required sections. |
+| `# Gatekeeper`, `# Offers`, `# Objections`, `# Facts`, `# Never say` | Optional sections. |
+| `- bullet` | An option. The AI picks the best opening, up to three discovery questions, a lead offer and a backup, and so on, for each lead. |
+| `## Heading` | One offer or one objection, with its text underneath. |
+| `{{ instruction }}` | A line the AI writes for each lead from research, following your instruction. |
+| `{first_name}` `{name}` `{company}` `{rep}` `{seller}` | Filled in for you. Every opening needs `{rep}` and `{seller}`; Screening needs `{seller}`. |
+| `# Facts` | True things about your product the AI and live helper may say. |
+| `# Never say` | Phrases the AI must never use. |
+
+Text outside `{{ }}` is said exactly as you wrote it. The AI never invents facts, prices or promises; every line it
+writes must cite something it found or a column from your lead list.
+
+**Changing the script later:** save again. Leads already prepared are rewritten for the new version in the
+background, and stay callable meanwhile.
+
+Below the editor, **What's working** shows which openings and questions do best over time, **Call statistics**
+shows your numbers, and **What you sell** is a short description of your business the live helper can use.
+
+## 5. Import leads
+
+Open **Leads** and scroll to **Import a list**.
+
+1. Type a **List name** (for example "Bay Area dentists"). Names keep lists, budgets and progress apart.
+2. Paste your CSV into **CSV lead data** or click **Choose CSV file**, then click **Import leads**.
+
+### The CSV
+
+```csv
+name,phone,company,domain,state,timezone,title,notes
+Jordan Lee,+14155550191,Example Coffee Roasters,example.com,CA,America/Los_Angeles,Operations Manager,Asked about weekend staffing
+```
+
+- **Required:** `name` and `phone` (with country code, like `+14155550191`).
+- **Helpful:** `company`, `domain` (their website), `state` (`CA` or `California`) and `timezone`
+  (like `America/Los_Angeles`). Without a time zone or state, the app estimates them from the area code.
+- **Anything else** (title, notes, size, source) is given to the research agent as context.
+
+Download the [example lead list](examples/leads.csv) to see the format.
+
+### Research and scripts
+
+After import, the **Research and scripts** panel at the top of Leads shows each list's progress. AI agents work in
+small groups of leads: each one searches the web using the whole row, saves facts with the exact quote from the
+page (the app checks the quote is really there), then writes that lead's script from yours. A lead cannot be
+called until its script is done. Expect a minute or two per small group.
+
+- **N with their own script:** ready, with lines written from research.
+- **Skipped by the agent:** the agent found a reason not to personalize (for example the business has closed).
+  Open **Why N leads were skipped** to read each reason. Skipped leads are called with your script as written.
+- **Open any lead** with the arrow on its row to read its script, what the agent found, and the sources.
+- **Agent settings** sets **Leads per agent** and **Agents at once**. The defaults suit most lists.
+
+Contacts at the same company are never called back to back, and when one books a meeting the others are held.
+
+## 6. Get phone numbers ready
+
+Open **Numbers**. Each number goes through the same short path before it is used: **Purchased → Identity →
+Callback tested → Limited use → Healthy**. Nothing is bought or started automatically.
+
+**Numbers you already own on Telnyx**
+
+1. Click **Sync existing numbers**.
+2. For each number, click **Configure voice route**.
+3. Call the number from another phone to prove callbacks reach you.
+4. Click **Review number evidence**, then **Start or resume limited use**.
+
+**Buying new numbers for a list**
+
+1. Under **Plan numbers for list**, choose your list and click **Plan state coverage**. It shows how many calls the
+   list needs, how many your numbers can handle, and what to add by state.
+2. Click **Find numbers in [state]**, then **Find available numbers** to see exact rental prices for suggested
+   local area codes, or type your own area code.
+3. Under **Add numbers with approval**, set how many numbers and how much you allow, click **Save number limits**,
+   then **Approve number rental** for the exact quote you want. Zero limits block all purchases.
+4. Take each new number through the setup path above.
+
+The dialer keeps each lead on the same caller number and prefers ready numbers in the lead's state.
+
+## 7. Make calls
+
+Open **Dialer**.
+
+1. Open **Check audio** once to pick your headset and test it.
+2. Click **Go ready**. Press **Space** (or **Next call**) to call the next lead the scheduler picks. To look first,
+   click **View next lead**, read it, then **Start call**.
+3. Read the lead's script. Lines the AI wrote for this lead are highlighted; other options are folded underneath.
+4. The **live helper** above the script suggests what to ask next when it has something useful, and may stay quiet.
+   Press **F1** or click **Private help** to ask it directly. **Mute tips** silences it.
+5. If the prospect asks not to be called (or presses 9), click **Opt out** right away.
+6. Click **Hang up**, then choose the outcome: **No answer**, **Voicemail**, **Gatekeeper / wrong person**,
+   **Talked: not interested**, **Talked: callback requested** or **Meeting booked** (more under **More outcomes**).
+   Bookings and callback times ask you to confirm.
+7. Tick **Pause after call** to stop after this one, or click **Pause dialing** any time.
+
+The scheduler only calls within calling hours, respects attempts and the do-not-call list, and decides when
+another try is worthwhile. There is no automatic double dial.
+
+## 8. After calls
+
+Open **Review**.
+
+- **Coaching** is what to practice and how. After each call the review agent adds one or two points from that
+  call, written as what to work on and one concrete step. Add your own goals in the box below it.
+- **Follow-ups** lists agreed callbacks to confirm, reschedule, snooze, assign or complete.
+- **Past calls** open the summary, outcome and notes. Expand **Correct outcome** to fix a saved result.
+
+## Updating the app
+
+**Settings → More settings → Workspace and app updates → Check for updates**, then **Install signed update**.
+Quit and reopen the app when it finishes. Your workspace is kept.
+
+## If something is blocked
+
+| Problem | What to do |
+| --- | --- |
+| **Next call** does nothing | Leads may still be researching (see Leads). Otherwise click **Check readiness** in Settings: it names the blocker, such as calling hours not approved, no do-not-call list for an area code, or no ready number. |
+| A lead was skipped | Open **Why N leads were skipped** on Leads. Fix the row and import it again, or call it with your script as written. |
+| ChatGPT is not connected | Settings → AI → **Use the ChatGPT login on this computer**, or import the login file. |
+| A number cannot call | Finish its setup in Numbers: voice route, a real callback test, then limited use. Syncing alone is not enough. |
+| Calling says it is not connected | Keep this computer awake and the app open. Resolve any unfinished calls, then click **Reconnect** in Settings → Calling. |
+| A key fails after saving | Check the account's balance and settings with the [provider guide](../deploy/runbooks/providers.md). A saved key alone does not prove the service works. |
+| No microphone | Allow microphone access for OpenDialer in your system settings, then pick the headset under **Check audio**. |
+
+For backups or interrupted calls, see [recovery](../deploy/runbooks/recovery.md).
+
+## Details
+
+### Connect ChatGPT with a login file
+
+Use this when Codex is not signed in on the computer running OpenDialer, or on a team server.
 
 1. On a trusted computer with [Codex installed](https://learn.chatgpt.com/docs/auth), run:
 
@@ -90,66 +276,22 @@ does not assign new calls; stop it and start a new comparison if you want to eva
    codex -c cli_auth_credentials_store='"file"' login
    ```
 
-   Choose ChatGPT and complete sign-in. The file-store flag makes a transferable file instead of using the OS keychain.
-2. Find **`auth.json`** in your home folder's **`.codex`** directory: `~/.codex/auth.json` on Mac/Linux,
-   or `%USERPROFILE%\.codex\auth.json` on Windows. A custom `CODEX_HOME` changes this location.
-   On a Mac file picker, press **Command–Shift–G** to enter the folder; on Windows paste it into the address bar.
-3. In OpenDialer, open **Settings → AI** and choose **Import Codex login**,
-   and select the file. A successful import displays the account and saves this route. Reps on a team server
-   have **Your Codex login** directly in Settings; the admin selects the workspace's inference route.
+   Choose ChatGPT and finish signing in.
+2. Find `auth.json` in the `.codex` folder in your home folder (`~/.codex/auth.json` on Mac,
+   `%USERPROFILE%\.codex\auth.json` on Windows). On a Mac file picker, press **Command–Shift–G** to type the path.
+3. In OpenDialer, open **Settings → AI → Import Codex login** and choose the file.
 
-OpenDialer keeps a separate per-user copy on its authority computer and bundles the Codex runtime.
-Your friend does not need to install Codex separately to use this build. On a hosted workspace, the file goes
-to the team server, so only import into a server you trust. Keep the file private and remove temporary transfer copies.
+OpenDialer keeps its own copy and refreshes it while in use. A revoked or expired login needs a fresh import.
+**Disconnect ChatGPT** removes OpenDialer's copy only. On a team server the file goes to that server, so only import
+into a server you trust, and delete temporary copies of the file.
 
-The official runtime refreshes expiring sessions during use and OpenDialer retains the refreshed credentials
-across restarts. A revoked login, expired refresh token or account restriction still requires a fresh sign-in/import;
-this is not a permanent token. Prefer a dedicated login for this installation rather than concurrently using copies
-of the same refresh token on several machines. **Disconnect Codex** deletes OpenDialer's copy without logging out
-your other Codex installation or revoking the account globally.
+### Keys and privacy
 
-This route uses your plan's limits for preparation and analysis. It does not enable paid API search, change
-live coaching, or bypass the separate post-call privacy gate. AI results must use named submission tools and pass
-the existing application validation. A successful login check does not prove model access or output quality.
+- Keys are saved encrypted on the computer running your workspace, with no Keychain or password prompts.
+- Calling setup and Codex login files contain credentials: keep them private.
+- There is no call recording. Raw speech, quotes and helper text are deleted within five minutes; summaries keep
+  only paraphrased notes.
+- On the shared webhook setup, audio goes directly to Telnyx and the relay carries only call control events,
+  never audio, transcripts, leads or scripts.
 
-## Make a call
-
-
-1. Choose the workspace, campaign and audio device, then Go ready. Press **Space** or **Next call** to call the scheduler's next eligible lead. Get next lead previews the person and script first. The scheduler decides when another attempt is worthwhile, within campaign limits; there is no unconditional double dial.
-2. Read the lead's own script: the opening, questions and offer the AI picked, with lines written for this lead highlighted. On the **Script** page you paste Markdown with `# Opening`, `# Screening`, `# Discovery`, `# Close` (required) and `# Gatekeeper`, `# Offers`, `# Objections`, `# Facts`, `# Never say` (optional); bullets are options and `{{ instruction }}` is written per lead. *What's working* holds the learning history and controlled tests. The helper above it follows stable turns and may stay quiet; F1 asks for private help. Mute, pin or dismiss tips and mark them useful, wrong or late.
-3. Use Opt out the moment it is asked for (or the prospect presses 9). Voicemail detection remains available; prerecorded voicemail drop is removed.
-4. Confirmed carrier results and supported, reviewed AI outcomes save automatically; expand **Correct outcome** to amend them. Unknown results, bookings and callback times still need confirmation. Optionally enable the next scheduled call five seconds after voicemail ends; Cancel and Pause after call take precedence. Voicemail drop is not available; a detected mailbox is not proof a message was delivered. New workspaces allow calls from 8 a.m. until 9 p.m. in the prospect’s timezone; existing campaign hours are editable in Settings.
-5. In Follow-ups, confirm, reschedule, snooze, assign, complete or cancel tasks. Pause when unavailable.
-
-Practice is the coaching list on Review: each item says what to work on and how, from reviewed calls and supported negative statistical findings, and the call review agent updates it after each call. Number workload adapts to observed delivery within its reviewed daily maximum; staffing and current obligations constrain the capacity planner.
-
-Research and post-call updates require named application tool calls. The live helper keeps its streaming display. AI-saved dispositions are labeled and excluded from observed training labels until human confirmation.
-
-Raw speech, quotes and helper text expire within five minutes. There is no call recording.
-
-
-## If something is blocked
-
-| Problem | Next step |
-| --- | --- |
-| No eligible next lead | Leads may still be being prepared (see Leads). Otherwise press Check readiness; check calling hours, lead timezone, DNC evidence, your ready state and number readiness. |
-| Number exists but cannot call | Complete identity/routing, a real inbound callback and limited-use approval in Numbers. Syncing alone is not readiness. |
-| Cannot receive webhooks | For shared setup, keep this computer awake and check **Connected** under Calling; reconcile outstanding calls before using **Reconnect**. Direct-local setup instead needs its own webhook forwarder online. |
-| ChatGPT is missing or setup looks different | Check the version. From 0.7.0, ChatGPT is in Settings → AI. |
-| Provider fails after saving a key | Check account eligibility, balance and connection settings using the [provider guide](../deploy/runbooks/providers.md). A saved key alone does not prove service access. |
-| Microphone unavailable | Allow microphone access in the operating system, select the intended input/output and check the headset. |
-
-For backups or interrupted calls, see [recovery](../deploy/runbooks/recovery.md).
-
-## Saving credentials
-
-Paste provider keys in Settings and save. Import Codex login and the per-PC webhook setup file once.
-Saved settings, personal logins and webhook sessions are encrypted; the desktop keeps the encryption key
-in a private local file, created automatically without OS password prompts. Existing 0.4/0.5 files convert on first launch.
-When upgrading from 0.6.0/0.6.1, re-enter keys and re-import setup/login files if prompted inside Settings;
-the old encrypted copies are retained. No separate encryption key setup is needed. Keep imported setup/login files private: they still contain credentials.
-
-Telnyx/OpenRouter API keys, Codex tokens and webhook login/session credentials are secret. Telnyx application
-and credential IDs, SIP username, webhook verification **public** key, webhook URL and Supabase publishable
-key are identifiers/public configuration, not passwords. No separate SIP password or Cloudflare token is needed
-for the managed-local flow. See [security and recovery](policies/security.md).
+More: [security and data handling](policies/security.md) · [team server and direct webhooks](../deploy/runbooks/deploy.md).

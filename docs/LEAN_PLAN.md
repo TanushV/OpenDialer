@@ -440,4 +440,4 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
   persisted refresh and frozen authority import/restart were verified with disposable data. Authenticated Soniox
   access sent zero audio bytes. The account has no phone numbers; paid calls/STT/AI, hardware audio, Windows,
   production load/egress and signed releases remain live gates. Installed app/data unchanged. See
-  [integration receipt](evidence/lean/managed-integration-20261029.json) and [setup guide](GETTING_STARTED.md#local-calling-with-the-shared-webhook).
+  [integration receipt](evidence/lean/managed-integration-20261029.json) and [setup guide](GETTING_STARTED.md#calling-card).

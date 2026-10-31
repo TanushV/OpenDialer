@@ -64,7 +64,7 @@ unlocked account from every malicious process. This is not a penetration-test ce
 
 ## October 29 list/state number allocation (shipped in 0.6.0)
 
-The [setup guide](GETTING_STARTED.md#numbers-for-a-lead-list) describes the visible flow: name a CSV list, provide
+The [setup guide](GETTING_STARTED.md#6-get-phone-numbers-ready) describes the visible flow: name a CSV list, provide
 states when known, choose the list in Numbers, plan state coverage, and open a state's metro suggestions for quotes.
 Owned numbers are shared across lists; list previews are not reservations. Existing caller bindings stay stable.
 State matches precede general fallback; load and health precede exact area-code ties. State estimates never change
@@ -79,7 +79,7 @@ at that checkpoint, installed app/data and downloads were unchanged. The offline
 ## October 29 shared webhook integration (shipped in 0.6.0)
 
 Current [plan checkpoint](MANAGED_WEBHOOK_PLAN.md), [verification receipt](evidence/lean/managed-integration-20261029.json)
-and [caller setup](GETTING_STARTED.md#local-calling-with-the-shared-webhook). Supabase control relay, per-PC profile
+and [caller setup](GETTING_STARTED.md#calling-card). Supabase control relay, per-PC profile
 import/refresh/reconnect, direct two-track Soniox transport and two-second coaching are wired into the app.
 The Mac profile and provider key remain outside Git. Both existing OpenDialer Telnyx applications point to the
 common Supabase endpoint. No numbers are owned yet; no paid carrier/AI actions were performed.
@@ -92,7 +92,7 @@ At that checkpoint, the installed app/data and published installers were unchang
 
 ## October 26 setup and journey audit (shipped in 0.6.0)
 
-Current work also adds **Codex login import** (shipped in 0.6.0): [setup steps](GETTING_STARTED.md#connect-your-codex-login).
+Current work also adds **Codex login import** (shipped in 0.6.0): [setup steps](GETTING_STARTED.md#connect-chatgpt-with-a-login-file).
 `providers/codex.py` owns the three personal GET/POST-import/DELETE `/v1/inference/codex` routes, isolated managed
 refresh and named submission-tool inference. The runtime is pinned to 0.164.0; `test_codex_login.py` covers the
 personal file/protocol paths, and opt-in `test_codex_native.py` exercises the actual binary against a local fake

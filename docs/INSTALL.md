@@ -29,11 +29,20 @@ Check the repository/download with your administrator if blocked. No Windows ARM
 
 ## Update an existing installation
 
-Open **Settings → App updates → Check for updates**, then **Install signed update** when offered.
-The updater checks the repository's pinned signing key. Do not uninstall or delete workspace data to update.
-Updater signing verifies update integrity; it is separate from Apple notarization or Windows publisher trust.
+1. Open **Settings → More settings → Workspace and app updates**.
+2. Click **Check for updates**, then **Install signed update** when offered.
+3. Quit OpenDialer (**OpenDialer → Quit OpenDialer** on a Mac) and open it again.
 
-**0.6.2** fixes secure webhook connections in the packaged runtime and includes the latest setup, shared webhook, Codex import, state/list number planning and credential protection. Updates from 0.4/0.5 keep your workspace and convert saved credentials to encrypted storage. Desktop credential storage no longer requests OS passwords. Upgrading from 0.6.0/0.6.1 may require re-entering provider keys and re-importing setup/login files; the old encrypted files are retained for recovery.
+Your workspace, leads and keys are kept. Do not uninstall or delete workspace data to update.
+The updater checks the repository's pinned signing key; that verifies the download, separately from Apple
+notarization or Windows publisher trust. Versions before 0.7 show the same steps under **Settings → App updates**.
+
+**0.7.1** is the current version: one Markdown script, AI research and a script for every lead before calling,
+a one-page Settings and a plain practice list. [What's new](RELEASE_NOTES.md). After updating from 0.6.x, paste
+your script again on the **Script** page in the new format ([example](examples/script.md)); the
+[setup guide](GETTING_STARTED.md#4-add-your-script) explains it. Updates from 0.4 to 0.6 keep your workspace.
+Upgrading from 0.6.0/0.6.1 may ask you to re-enter provider keys and re-import setup or login files; the old
+encrypted files are kept for recovery.
 
 **Upgrading from 0.2/0.3:** 0.4 and later start fresh workspaces and leave the old data folders untouched;
 they do not migrate old workspaces. Keep backups and consult [recovery](../deploy/runbooks/recovery.md) before switching.
