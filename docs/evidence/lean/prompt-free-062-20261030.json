@@ -1,0 +1,81 @@
+{
+  "date": "2026-10-30",
+  "version": "0.6.2",
+  "source": "776e47acfc938b061194018ae25101e254e8709d",
+  "request": "Remove OS credential-store password prompts; preserve and finish installed local setup",
+  "change": "Private persistent desktop key file; no Keychain/Credential Manager dependency. Explicit server keys retained. Old inaccessible ciphertext retained without OS access.",
+  "regressions_before_fix": {
+    "desktop_storage": "2 failed, 1 passed",
+    "migration_and_server_key": "2 failed"
+  },
+  "local_verification": {
+    "scoped_sqlite": "55 passed",
+    "scoped_postgresql": "55 passed",
+    "final_storage_sqlite": "17 passed including both desktop path branches",
+    "final_storage_postgresql": "17 passed",
+    "ruff": "pass for CI source paths",
+    "diff_check": "pass"
+  },
+  "installed_bootstrap": {
+    "version": "0.6.1",
+    "purpose": "Enable signed updater without accessing Keychain",
+    "credential_files_restored": 4,
+    "legacy_encrypted_backups_retained": 4,
+    "workspace_counts_unchanged": true,
+    "key_file_mode": "0600",
+    "managed_connection": "Connected; real subscription/heartbeat; app check reports software_verified",
+    "codex_recheck": "Saved dedicated login returns no authenticated account on forced refresh; fresh login import required",
+    "openrouter_key_available": false
+  },
+  "release": {
+    "workflow": 41156542914,
+    "ci": 41156542942,
+    "status": "published",
+    "url": "https://github.com/TanushV/OpenDialer/releases/tag/v0.6.2",
+    "signed_builds": "Mac and Windows passed",
+    "runtime_ci": "all six jobs passed",
+    "updater_notes_correction": "dbb97ad; 16 distribution checks pass; public manifest notes corrected, signed artifact URLs and signatures unchanged"
+  },
+  "limits": [
+    "No purchases or calls",
+    "No paid inference",
+    "No hardware audio proof",
+    "No fabricated business, carrier or screening approvals"
+  ],
+  "ci_verification": {
+    "sqlite": "740 passed, 10 skipped",
+    "postgresql": "741 passed, 9 skipped",
+    "browser": "179 passed",
+    "frontend": "81 passed",
+    "native_codex_storage_package": "25 passed",
+    "rust": "7 passed",
+    "lint_format_typecheck_clippy": "pass"
+  },
+  "installed_update": {
+    "bundle_version": "0.6.2",
+    "update_method": "signed updater",
+    "codesign_deep_strict": "pass",
+    "temporary_key_removed": true,
+    "launch_environment_overrides_absent": true,
+    "normal_startup": "Existing workspace opens without credential prompt or key environment overrides",
+    "managed_webhook": "Connected in installed Settings after normal startup",
+    "current_credential_format": "All three active saved credential files use v2 encryption",
+    "workspace_counts": {
+      "tenants": 1,
+      "users": 1,
+      "leads": 0,
+      "call_attempts": 0,
+      "number_inventory": 0,
+      "playbooks": 1
+    },
+    "codex": "Old export failed refresh validation; retained privately and stale connected status cleared. Fresh import required."
+  },
+  "provider_readback": {
+    "voice_application_active": true,
+    "agent_application_active": true,
+    "both_webhook_urls_correct": true,
+    "sip_credential_active_unexpired": true,
+    "sip_username_matches": true,
+    "owned_numbers": 0
+  }
+}

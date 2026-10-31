@@ -156,13 +156,21 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
-- October 30 prompt-free setup follow-up (0.6.2, in progress): owner explicitly removed OS credential-store
-  access. Regression-first change uses a private persistent desktop key file; inaccessible old encrypted files
-  are retained without requesting an OS password. Explicit server keys and failure preservation remain.
-  55 scoped storage, managed webhook, Codex and distribution checks pass on each database; an added Windows-path
-  case brings storage tests to 17. Restored this Mac's available Telnyx, webhook and Codex files under the new key,
-  retaining old ciphertext. Existing 0.6.1 opens without a Keychain request using a temporary explicit-key bootstrap. Signed release, installed
-  setup restoration and normal restart verification follow. No number purchases or calls.
+- October 30 prompt-free setup complete (0.6.2): removed Keychain/Credential Manager access and its
+  dependency at the owner's request. Private persistent desktop key files keep saved credentials encrypted;
+  inaccessible old ciphertext is retained without OS access. Explicit server keys remain supported.
+  Regression-first storage/migration checks pass on SQLite and PostgreSQL. Runtime source `776e47a` passed
+  all six CI jobs: SQLite 740/10 skips, PostgreSQL 741/9, browser 179, frontend 81, native/package 25,
+  Rust 7, lint/format/typecheck/Clippy. Both signed builds passed and v0.6.2 is published.
+  This Mac updated through the signed updater, passed deep strict signature verification, reopened normally
+  without temporary key overrides or a credential prompt, and shows the shared webhook Connected.
+  Original workspace counts are unchanged; three active credential files use v2 encryption. Temporary
+  updater key removed. Telnyx Voice API/agent apps, SIP credential and webhook URLs verify. The saved
+  Codex export fails fresh account validation; its copy is retained and a fresh import is needed. OpenRouter
+  remains absent. No numbers purchased or calls placed. Business/carrier approval, screening coverage,
+  leads, campaign approval, a number and hardware audio remain first-call inputs. Updater note correction
+  `dbb97ad` passes all 16 distribution checks; signed application artifacts are unchanged. See
+  [receipt](evidence/lean/prompt-free-062-20261030.json).
 
 - October 30 installed setup follow-up (0.6.1, published and installed; startup blocked by OS credential prompt): imported the existing calling profile and
   personal Codex login into the installed Mac; Telnyx API access and both application webhook URLs verify.
