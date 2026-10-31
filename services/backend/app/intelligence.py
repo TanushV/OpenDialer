@@ -1012,7 +1012,8 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             state = merge_semantic_state(
                 {**row.data, "_lineage": self._conversation_lineage(s, p, call_id)},
                 result.get("state_update"),
-                request["recent_dialogue"],
+                # The rundown may cite any still-live turn of the call.
+                request.get("call_transcript") or request["recent_dialogue"],
                 request_id=owner,
                 at=self.clock(),
                 hash_sources=True,

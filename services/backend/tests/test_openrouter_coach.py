@@ -377,3 +377,8 @@ async def test_finalization_asks_only_for_the_rundown_at_medium_effort():
     assert body["response_format"]["json_schema"]["name"] == "submit_postcall_analysis"
     assert "guidance null" in body["messages"][0]["content"]
     assert "rundown" in body["messages"][0]["content"]
+    # Real Cerebras (October 31) wrote no coaching points, copied speech and marked new lines stale.
+    instructions = body["messages"][0]["content"]
+    assert "Work on:" in instructions and "How:" in instructions
+    assert "own words" in instructions and "never stale" in instructions
+    assert "at most twelve words" in instructions

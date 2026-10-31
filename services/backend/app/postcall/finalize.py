@@ -81,8 +81,8 @@ def request(service, p, call_id, mode):
     """Read-only finalize/review input.
 
     Compact persistent state, this call's current commitments and tasks (human edits
-    included), the human note, the frozen rubric and, for finalize, only still-live
-    unprocessed chunks. Review receives the call's bounded live raw buffer, which its
+    included), the human note, the frozen rubric and, for finalize, still-live unprocessed
+    chunks to interpret plus the whole still-live call for the rundown. Review receives the call's bounded live raw buffer, which its
     selective review narrows to cited sources.
     """
     from sqlalchemy import select
@@ -177,6 +177,10 @@ def request(service, p, call_id, mode):
             "state_version": call.data.get("transcript_version", 0),
             "state": persistent_state(state),
             "recent_dialogue": dialogue,
+            # The rundown covers the whole call; only recent_dialogue is interpreted again.
+            "call_transcript": [r for r in live if r.get("is_final") and not r.get("system_audio")][-PAGE:]
+            if mode == "finalize"
+            else [],
             "automatic_tips_muted": True,
             "manual_help": False,
             "private_question": None,

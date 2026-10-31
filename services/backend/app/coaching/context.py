@@ -345,6 +345,22 @@ def material_update(update):
     )
 
 
+# Models quote with typographic dashes, quotes and spaces where transcripts have plain ASCII.
+_TYPOGRAPHIC = str.maketrans(
+    {
+        **dict.fromkeys("\u2010\u2011\u2012\u2013\u2014\u2212", "-"),
+        **dict.fromkeys("\u2018\u2019\u201b\u2032", "'"),
+        **dict.fromkeys("\u201c\u201d\u201f\u2033", '"'),
+        **dict.fromkeys("\u00a0\u2007\u202f", " "),
+    }
+)
+
+
+def plain(text):
+    """Text for exact-quote comparison: typographic punctuation as ASCII, spaces collapsed, casefolded."""
+    return " ".join(str(text).translate(_TYPOGRAPHIC).split()).casefold()
+
+
 def normalized_turn(card, request):
     """Models misnumber the state version and list card ids as speech evidence (live check,
     October 30). An exact echo of the context fingerprint identifies the turn, so the version is
@@ -742,7 +758,7 @@ def merge_semantic_state(
         if len(refs) > 32:
             raise CardRejected("Observation source count exceeds its bound")
         source_text = " ".join(live[r["id"]]["text"] for r in refs if r["kind"] == "segment")
-        if item["quote"] and item["quote"].casefold() not in source_text.casefold():
+        if item["quote"] and plain(item["quote"]) not in plain(source_text):
             raise CardRejected("State evidence is absent")
         if not paraphrased(item["text"], segments):
             continue

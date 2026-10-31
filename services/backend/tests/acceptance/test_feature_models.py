@@ -687,6 +687,72 @@ def test_an_exact_context_echo_outweighs_a_misnumbered_version_and_stray_evidenc
     assert helper_tip(ws, clock, cid) is None
 
 
+def test_a_quote_with_typographic_punctuation_still_matches_its_speech(workspace, app, monkeypatch):
+    """Real Cerebras (October 31) quotes "follow‑ups" with a non-breaking hyphen and curly
+    apostrophes where the transcript has plain ASCII; the quote check refused the whole rundown."""
+
+    def typographic(request):
+        observed = [
+            observation(request, "rundown", RUNDOWN[0], segment="r1"),
+            observation(
+                request,
+                "rundown",
+                "Prospect said follow-up is handled and money is short",
+                segment="s1",
+                quote="don’t have budget for follow‑ups",
+            ),
+        ]
+        return turn_output(request, state_delta=delta(request, observations=observed))
+
+    ws = workspace
+    cid = start(ws)["id"]
+    answered_by_human(ws, cid)
+    chunk(ws, cid, "r1", "Hi, this is Example Seller calling about a brief introduction.", side="rep")
+    chunk(ws, cid, "s1", "We don't have budget for follow-ups right now.")
+    call(ws, "POST", f"/v1/calls/{cid}/hangup")
+    install_fake_models(app, monkeypatch, {"finalize": typographic})
+    wrap_up(ws, cid, outcome="not_interested", contact_role="right_party")
+    run_jobs(ws)
+    run_jobs(ws)
+    assert get(ws, f"/v1/calls/{cid}")["rundown_status"] == "ready"
+    assert get(ws, f"/v1/calls/{cid}/analysis")["notes"]["summary"].split("\n") == [
+        RUNDOWN[0],
+        "Prospect said follow-up is handled and money is short",
+    ]
+
+
+def test_the_rundown_sees_speech_already_interpreted_during_the_call(workspace, app, monkeypatch, clock):
+    """Real Cerebras (October 31) interpreted the prospect's reply live without retaining an
+    observation. Finalization then got only the rep's opener and wrote that the prospect never
+    answered. The whole call is context for the rundown; only new turns are interpreted again."""
+    ws = workspace
+    seen = {}
+
+    def live(request):
+        return turn_output(request, state_delta=delta(request))  # interprets, retains nothing
+
+    def finalize(request):
+        seen["new"] = [s["segment_id"] for s in request["recent_dialogue"]]
+        seen["whole"] = [s["segment_id"] for s in request.get("call_transcript", [])]
+        observed = [observation(request, "rundown", RUNDOWN[1], segment="s1")]
+        return turn_output(request, state_delta=delta(request, observations=observed))
+
+    cid = start(ws)["id"]
+    answered_by_human(ws, cid)
+    install_fake_models(app, monkeypatch, {"live": live})
+    chunk(ws, cid, "s1", "We have no budget for this right now.")
+    helper_tip(ws, clock, cid)
+    chunk(ws, cid, "r1", "Understood, thanks for your time.", side="rep")
+    monkeypatch.setattr(app.state.service.settings, "simulation", True)  # the carrier side is simulated
+    call(ws, "POST", f"/v1/calls/{cid}/hangup")
+    install_fake_models(app, monkeypatch, {"finalize": finalize})
+    wrap_up(ws, cid, outcome="not_interested", contact_role="right_party")
+    run_jobs(ws)
+    run_jobs(ws)
+    assert seen["new"] == ["r1"] and seen["whole"] == ["s1", "r1"]
+    assert get(ws, f"/v1/calls/{cid}/analysis")["notes"]["summary"].split("\n") == [RUNDOWN[1]]
+
+
 def test_a_misnumbered_finalization_with_the_exact_context_is_kept(workspace, app, monkeypatch):
     """Real Cerebras (October 30) wrote a rundown but misnumbered its version."""
 
