@@ -628,35 +628,30 @@ def test_a_reviewed_question_stays_when_only_its_explanation_is_rejected(workspa
     assert shown["meaning_review"]["displayed_fields"] == ["say_or_ask"]
 
 
-def test_practice_accepts_a_model_that_misnumbers_its_turn(workspace, app, monkeypatch):
-    """Real Cerebras (October 30) echoes arbitrary versions and card ids as speech evidence for a
-    practice scenario, which has no transcript."""
+def test_a_tip_whose_audit_cites_an_unknown_source_gets_the_full_review(workspace, app, monkeypatch, clock):
+    """Real Cerebras (October 31) cites sources outside the catalog in its field audit. Audits only
+    route work, so such a tip goes to the complete independent review instead of being dropped."""
+    ws = workspace
+    cid = start(ws)["id"]
+    answered_by_human(ws, cid)
+    reviewed = []
 
-    def practice_answer(request):
-        turn = turn_output(
+    def odd_audit(request):
+        return turn_output(
             request,
-            guidance={
-                "kind": "DISCOVERY",
-                "say_or_ask": "What does your team use for follow-up today?",
-                "reason": "Start from their current process.",
-                "alternatives": [],
-                "evidence_segment_ids": [],
-                "playbook_card_ids": [],
-                "expires_in_ms": 30000,
-            },
-            field_audit=[audit("say_or_ask"), audit("reason")],
+            guidance=guidance(request, "What still slows follow-up down with that CRM?", "Build on it."),
+            field_audit=[{**audit("say_or_ask"), "sources": [ref("private_question")]}, audit("reason")],
         )
-        turn["guidance"]["evidence_segment_ids"] = ["existing-provider"]
-        return {**turn, "state_version": 2}
 
-    install_fake_models(app, monkeypatch, {"live": practice_answer})
-    result = post(
-        workspace,
-        "/v1/coaching/practice",
-        {"scenario": "They already use a spreadsheet.", "request_id": str(uuid4())},
-    )
-    assert result["status"] == "ready"
-    assert result["guidance"]["say_or_ask"] == "What does your team use for follow-up today?"
+    def verdicts(review):
+        reviewed.append([field["field"] for field in review["fields"]])
+        return {}
+
+    install_fake_models(app, monkeypatch, {"live": scripted(("CRM", odd_audit)), "verdicts": verdicts})
+    chunk(ws, cid, "s1", "We already use a CRM for follow-up and it works fine.")
+    shown = helper_tip(ws, clock, cid)
+    assert shown["say_or_ask"] == "What still slows follow-up down with that CRM?"
+    assert reviewed and "say_or_ask" in reviewed[-1]
 
 
 def test_an_exact_context_echo_outweighs_a_misnumbered_version_and_stray_evidence(

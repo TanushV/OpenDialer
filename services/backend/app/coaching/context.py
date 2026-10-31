@@ -310,7 +310,8 @@ def ground_guidance(card, request, *, review=None, cached=False, progressive=Fal
         raise MeaningReviewRequired("Incomplete generator audit") from exc
     catalog = {(s["kind"], s["id"], s["version"]) for s in guidance_sources(request)}
     if any((s.kind, s.id, s.version) not in catalog for audit in audits for s in audit.sources):
-        raise CardRejected("Generator audit cites an unknown or obsolete source")
+        # Audits only route work; one citing a source outside the catalog gets the full review.
+        raise MeaningReviewRequired("Generator audit cites an unknown or obsolete source")
     expected = set(guidance_fields(card, progressive=progressive))
     selected = [a for a in audits if a.field in expected]
     # Audits route work; they do not establish semantic truth. The independent
