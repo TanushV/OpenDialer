@@ -22,7 +22,9 @@
   the rolling preparation settings.
 
 Updates from 0.4.x through 0.6.x keep the workspace. Your existing script, if any, needs to be pasted again in the
-new format; until then leads are prepared once a script is saved. Versions 0.2/0.3 start a fresh workspace.
+new format; until then leads are prepared once a script is saved. Desktop credentials use a private local key file
+without OS password prompts; upgrades from 0.6.0/0.6.1 may require you to re-enter keys and re-import setup/login
+files. Versions 0.2/0.3 start a fresh workspace; old data stays untouched in its previous folder and is not migrated.
 
 Updater signatures verify artifact integrity. Apple notarization, Windows publisher signing, clean-machine
 installation and live carrier/audio behavior remain separate gates.

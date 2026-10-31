@@ -55,6 +55,12 @@ def test_update_manifest_discloses_fresh_workspace(tmp_path):
         check=True,
     )
     notes = json.loads((output / "latest.json").read_text())["notes"]
+    # The updater shows this release's headlines, not an earlier release's.
+    release_notes = (ROOT / "docs/RELEASE_NOTES.md").read_text()
+    assert release_notes.splitlines()[0] == "# OpenDialer 0.7.0"
+    assert "One script, pasted once." in notes
+    assert "Every lead is researched and gets its own script before it is called." in notes
+    assert "list/state number planning" not in notes
     assert "fresh workspace" in notes
     assert "old data stays untouched" in notes
     assert "Your workspace is preserved; update in place" not in notes

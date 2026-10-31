@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import re
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
@@ -46,9 +47,15 @@ if msi:
     platforms["windows-x86_64-msi"] = entry(msi)
 if not archive or not exe:
     raise SystemExit("Both Mac and Windows signed artifacts are required for this release")
+# The updater shows each bullet's bold headline from this release's notes, then the upgrade paragraph after them.
+release_notes = (root / "docs/RELEASE_NOTES.md").read_text()
+headlines = "".join(
+    h.rstrip(".:") + ". " for h in re.findall(r"^- \*\*(.+?)\*\*", release_notes, re.MULTILINE)
+)
+upgrade = " ".join(release_notes.split("\n\n")[2].split())
 manifest = {
     "version": version,
-    "notes": f"OpenDialer {version}: encrypted saved credentials, shared local webhook setup, Codex login import and list/state number planning. Desktop credentials use a private local key file without OS password prompts. Upgrades from 0.6.0/0.6.1 retain old encrypted copies and may require you to re-enter keys and re-import setup/login files. Updates from 0.4.x and 0.5.x keep the existing workspace. Versions 0.2/0.3 start a fresh workspace; old data stays untouched in its previous folder and is not migrated. Update through the signed updater.",
+    "notes": f"OpenDialer {version}: {headlines}{upgrade}",
     "pub_date": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
     "platforms": platforms,
 }
