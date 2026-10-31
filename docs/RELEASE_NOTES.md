@@ -1,5 +1,10 @@
-# OpenDialer 0.7.0
+# OpenDialer 0.7.1
 
+- **Fixes from running 0.7.0 on a real list.** The Leads page shows a list's research progress right after import
+  instead of after the first lead finishes. Agents no longer skip a lead over its phone number; the app checks numbers
+  before calling. When an agent skips a lead, the list and the lead show why. The AI card in Settings shows Done once
+  ChatGPT and the live help key are set, and its text no longer squeezes beside the button. Plainer Leads table
+  labels. The updater shows each release's own notes.
 - **One script, pasted once.** Paste or open your script as Markdown on the Script page. It is checked as you type,
   with every problem listed by line. Sections: Opening, Screening, Discovery and Close are required; Gatekeeper,
   Offers, Objections, Facts and Never say are optional. Bullets are options the AI picks for each lead, and

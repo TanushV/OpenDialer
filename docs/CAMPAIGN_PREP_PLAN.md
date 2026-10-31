@@ -220,3 +220,17 @@ updater (owner request, October 30), verify the installed app opens and its data
   regression test that failed first. After the fixes, repeated real runs showed manual help and automatic tips in
   most runs (1.0–2.3 s), practice in most runs, and post-call rundowns produced; failures that remain are the
   grounding and review rules declining a tip, which is the intended behavior.
+- AI card as shipped: one click uses the Codex login already on this computer, or a Codex `auth.json` file can be
+  chosen; the planned in-app browser sign-in was not built because the existing login works (owner: "the codex login
+  is fine").
+- Verification of `fdca278` (simulated providers, no calls): backend SQLite 736 passed / 4 skipped, PostgreSQL 737
+  passed / 3 skipped, ruff clean; 172 of 172 browser journeys (local and connected PostgreSQL authority); 81 frontend
+  unit tests, typecheck and format. GitHub CI [run 41173023247](https://github.com/TanushV/OpenDialer/actions/runs/41173023247)
+  passed all six jobs. Browser runs before that exposed specs still opening the removed Advanced tab, a stale import
+  message, and specs that assumed a fresh workspace on the shared server; each spec now opens its own section, list or
+  workspace.
+- Released [v0.7.0](https://github.com/TanushV/OpenDialer/releases/tag/v0.7.0) from `fdca278` by
+  [run 41173802549](https://github.com/TanushV/OpenDialer/actions/runs/41173802549). Before publishing: the Mac
+  archive matched `SHA256SUMS.txt`, passed `codesign --verify --deep --strict`, reports 0.7.0, and its updater
+  signature matches `latest.json`; the public manifest now serves 0.7.0.
+
