@@ -582,7 +582,8 @@ test("an imported list is researched and scripted before it can be called", asyn
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   const list = `Prep list ${Date.now()}`;
   await page.getByLabel("List name").fill(list);
-  const phone = `+1415${String(Date.now()).slice(-7)}`;
+  // Fictional 555-01xx range: a clock-derived exchange can start with 0 and be invalid.
+  const phone = `+141555501${String(Date.now()).slice(-2)}`;
   await page
     .getByLabel("CSV lead data")
     .fill(
