@@ -233,4 +233,10 @@ updater (owner request, October 30), verify the installed app opens and its data
   [run 41173802549](https://github.com/TanushV/OpenDialer/actions/runs/41173802549). Before publishing: the Mac
   archive matched `SHA256SUMS.txt`, passed `codesign --verify --deep --strict`, reports 0.7.0, and its updater
   signature matches `latest.json`; the public manifest now serves 0.7.0.
-
+- October 31, installed app (0.6.2 -> 0.7.0 -> 0.7.1 through the signed updater, business records unchanged): the
+  journey with real models found the issues fixed in 0.7.1 (stale preparation panel, Terra skipping 555-01xx test
+  rows, hidden skip reasons, AI card layout and state, table labels, stale updater notes). At the owner's request
+  practice became the coaching list ("Work on … How …" from the post-call agent) with no AI rehearsal. Real Cerebras
+  runs then showed coaching points in 12 of 12 calls and two-sided rundowns once lines were capped at twelve words.
+  After 0.7.1, a script edit re-prepared the three test leads on real Terra: all ready with their own scripts.
+  Receipt: [campaign-prep-071-20261031.json](evidence/lean/campaign-prep-071-20261031.json).

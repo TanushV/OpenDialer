@@ -16,7 +16,7 @@ Live-provider and clean-machine installer gates remain open. Continue finding wh
 adding tests before fixes, and supporting approved live testing. Read this file, then `AGENTS.md`, then the
 Status section of `docs/LEAN_PLAN.md`.
 
-## 0.7.0: one script, per-lead preparation, simple settings (October 30)
+## 0.7.x: one script, per-lead preparation, simple settings (October 30–31)
 
 Plan, decisions and real-model evidence: [CAMPAIGN_PREP_PLAN.md](CAMPAIGN_PREP_PLAN.md). What changed for users:
 [release notes](RELEASE_NOTES.md). Where things live: the Markdown parser, renderer and close-out rules are in
@@ -28,8 +28,16 @@ publication in `preparation/workflows.py`; the Codex agent loop in `providers/co
 `acceptance/test_campaign_prep.py`, plus the live-helper regressions in `test_openrouter_coach.py` and
 `acceptance/test_feature_models.py`. Real-model scripts used for evidence live in ignored `work/prep/real/`.
 
+0.7.1 (October 31) fixes what running 0.7.0 in the installed app with real models exposed: the Leads preparation
+panel reloads on import; agents skip only for reasons about the business (Terra had skipped 555-01xx test rows);
+list progress and the lead view show skip reasons; practice is the coaching list ("Work on … How …" points from the
+post-call agent, no AI rehearsal endpoint); finalization gets the whole still-live call as `call_transcript` and may
+cite it while interpreting only new turns; quotes match across typographic punctuation; a live tip whose audit cites
+an unknown source gets the full independent review. Real evidence is in `work/prep/real/` (ignored):
+`thread_phones.py` (Terra prepared all three rows with test phones, 124 s) and `live_help.py` runs z12–z23.
+
 Open gates: real phone calls and audio, Windows and clean-machine installs, plan usage limits on large lists, and
-the rate at which the grounding rules decline real Cerebras tips.
+the independent reviewer still withholding some real Cerebras tips (manual help 8 of 12 runs after the fixes).
 
 ## October 30 security and 0.6.0 release
 

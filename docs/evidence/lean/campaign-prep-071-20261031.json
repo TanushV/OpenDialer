@@ -1,0 +1,83 @@
+{
+  "date": "2026-10-31",
+  "versions": [
+    "0.7.0",
+    "0.7.1"
+  ],
+  "status": "0.7.0 and 0.7.1 released from green CI; this Mac updated twice through the signed updater; installed-app journeys run with real models and fictional 555-01xx phone numbers, no calls placed.",
+  "tests_0_7_1": {
+    "sqlite": {
+      "passed": 740,
+      "skipped": 4
+    },
+    "postgres": {
+      "passed": 741,
+      "skipped": 3
+    },
+    "browser": {
+      "passed": 174,
+      "note": "175th (admin-setup preparation journey) failed once on a clock-derived invalid phone; spec fixed in ca6ef1c and its file passed 16 of 16; CI e2e passed on ca6ef1c"
+    },
+    "frontend_unit": {
+      "passed": 81
+    }
+  },
+  "ci": {
+    "0.7.0": "https://github.com/TanushV/OpenDialer/actions/runs/41173023247",
+    "0.7.1": "https://github.com/TanushV/OpenDialer/actions/runs/41180414595"
+  },
+  "release": {
+    "0.7.0": {
+      "url": "https://github.com/TanushV/OpenDialer/releases/tag/v0.7.0",
+      "source": "fdca278",
+      "build": "https://github.com/TanushV/OpenDialer/actions/runs/41173802549",
+      "latest_json_notes_corrected": "notes were 0.6 text; replaced in place, signatures and URLs unchanged"
+    },
+    "0.7.1": {
+      "url": "https://github.com/TanushV/OpenDialer/releases/tag/v0.7.1",
+      "source": "ca6ef1c",
+      "cancelled_stale_build": "https://github.com/TanushV/OpenDialer/actions/runs/41177785086"
+    },
+    "pre_publish_checks": "Mac archive matched SHA256SUMS, codesign --verify --deep --strict passed, bundle version matched, updater signature matched latest.json, public latest.json served the new version after publishing"
+  },
+  "installed_mac": {
+    "path": "0.6.2 -> 0.7.0 -> 0.7.1 through the in-app signed updater, restarted via the app menu",
+    "codesign_deep_strict": "passed after each update",
+    "business_records": "identical before and after each update (only sessions, jobs, events changed)",
+    "journey_findings_fixed_in_0_7_1": [
+      "Preparation panel stayed stale after import until the first lead finished",
+      "Terra skipped every 555-01xx test lead because the skip rule listed wrong number",
+      "Skip reasons were not shown in the list or the lead",
+      "AI settings card squeezed its status text and showed no Done state",
+      "Leads table used Endpoint and Coverage due; search button wrapped",
+      "Updater notes described 0.6",
+      "Practice used AI; owner asked for a plain what-and-how list updated by the review agent"
+    ],
+    "after_0_7_1": "Script edit re-prepared the three test leads on real Terra: all ready with their own scripts, 17 verified facts; Review shows the what-and-how coaching list",
+    "left_in_workspace": "Three fictional test leads (Blue Bottle Coffee, Tartine Bakery, Allbirds at +1415555019x) and the test script; ChatGPT login imported from this computer"
+  },
+  "real_models": {
+    "terra_thread_with_test_phones": {
+      "elapsed_s": 123.8,
+      "web_searches": 12,
+      "tool_calls": 12,
+      "rejections_corrected": 3,
+      "prepared": 3,
+      "skipped": 0
+    },
+    "cerebras_live_help_runs_after_fixes": {
+      "runs": 12,
+      "manual_help_ready": 8,
+      "automatic_tip": 10,
+      "coaching_points_written": 12,
+      "two_sided_rundown_after_line_cap": "8 of 8"
+    },
+    "practice_probe_before_removal": "Real Cerebras practice succeeded 1 of 9 and 0 of 6; causes were the scenario missing as a source and audits citing unknown sources. Practice was then replaced by the coaching list at the owner's request; the audit routing fix stays for live help."
+  },
+  "bounds": [
+    "No phone calls, number purchases or carrier tests",
+    "Independent reviewer still withholds some real Cerebras tips",
+    "Windows installers built and signed by CI but not installed on a Windows machine in this task",
+    "Apple notarization and Windows publisher signing unavailable"
+  ]
+}
