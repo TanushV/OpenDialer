@@ -15,23 +15,20 @@ test("personal practice goals survive reload and practice requires no call", asy
   page,
 }) => {
   await enter(page);
-  const panel = page.getByRole("region", { name: "Coaching and practice" });
-  await panel.getByText("Your practice goals", { exact: true }).click();
+  const panel = page.getByRole("region", { name: "Coaching" });
   await panel
-    .getByRole("textbox", { name: "Practice goal" })
+    .getByRole("textbox", { name: "Add a goal" })
     .fill("Clarify ownership before pitching");
-  await panel
-    .getByRole("button", { name: "Save practice goal", exact: true })
-    .click();
+  await panel.getByRole("button", { name: "Add goal", exact: true }).click();
   await expect(
     panel.getByText("Clarify ownership before pitching", { exact: true }),
   ).toBeVisible();
   await page.reload();
   await page.getByRole("button", { name: "Review", exact: true }).click();
-  await panel.getByText("Your practice goals", { exact: true }).click();
   await expect(
     panel.getByText("Clarify ownership before pitching", { exact: true }),
   ).toBeVisible();
+  await panel.getByRole("button", { name: "Practice", exact: true }).click();
   await panel
     .getByRole("textbox", { name: "Practice scenario" })
     .fill("How can I clarify a new objection?");
@@ -44,14 +41,12 @@ test("personal practice goals survive reload and practice requires no call", asy
     ),
   ).toBeVisible();
   await expect(
-    panel.getByText(
-      "Practice never places a call or records a business outcome.",
-    ),
+    panel.getByText(/Practice is private, places no call/),
   ).toBeVisible();
-  await panel
-    .getByRole("button", { name: "Complete goal", exact: true })
-    .click();
-  await expect(panel.getByText("Completed", { exact: true })).toBeVisible();
+  await panel.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(
+    panel.getByText("Clarify ownership before pitching", { exact: true }),
+  ).toBeHidden();
 });
 
 test("private practice text expires and a late abandoned response cannot reappear", async ({
@@ -80,8 +75,9 @@ test("private practice text expires and a late abandoned response cannot reappea
     });
   });
   await enter(page);
-  const panel = page.getByRole("region", { name: "Coaching and practice" });
+  const panel = page.getByRole("region", { name: "Coaching" });
   try {
+    await panel.getByRole("button", { name: "Practice", exact: true }).click();
     await panel
       .getByRole("textbox", { name: "Practice scenario" })
       .fill("An unfamiliar decision process");
@@ -202,11 +198,8 @@ test("a reviewed coaching tip can be published and withdrawn with its source ver
   await page
     .getByRole("button", { name: "All conversations", exact: true })
     .click();
-  await page.getByText("Reviewed examples", { exact: true }).click();
-  const panel = page.getByRole("region", { name: "Coaching and practice" });
+  const panel = page.getByRole("region", { name: "Coaching" });
   await expect(panel.getByText(example.text, { exact: true })).toBeVisible();
-  await panel
-    .getByRole("button", { name: "Withdraw example", exact: true })
-    .click();
+  await panel.getByRole("button", { name: "Withdraw", exact: true }).click();
   await expect(panel.getByText(example.text, { exact: true })).toBeHidden();
 });

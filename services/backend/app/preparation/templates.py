@@ -461,6 +461,8 @@ def check_submission(template, picks, written, facts, row, *, required_blocks=No
     sections = {section["key"]: section for section in template["sections"]}
     for key, chosen in (picks or {}).items():
         section = sections.get(key)
+        if section and section["pick"] is None and key != "objections" and chosen == [o["id"] for o in section["options"]]:
+            continue  # Picking the only version of a fixed section changes nothing.
         if not section or section["pick"] is None and key != "objections":
             errors.append(f"'{key}' has no options to pick; leave it out")
             continue

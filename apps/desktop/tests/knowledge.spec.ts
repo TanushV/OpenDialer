@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures";
+import { openScriptSection } from "./navigation";
 
 test("reviewed business knowledge and current version survive publication and reload", async ({
   page,
@@ -9,8 +10,7 @@ test("reviewed business knowledge and current version survive publication and re
     name: "Try a simulated workspace",
   });
   if (await sample.isVisible()) await sample.click();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
-  await page.getByText("Product facts", { exact: true }).click();
+  await openScriptSection(page, "What you sell");
   await page
     .getByRole("textbox", {
       name: "Product and pricing knowledge",
@@ -45,8 +45,7 @@ test("reviewed business knowledge and current version survive publication and re
     ),
   ).toBeVisible();
   await page.reload();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
-  await page.getByText("Product facts", { exact: true }).click();
+  await openScriptSection(page, "What you sell");
   await expect(
     page.getByRole("textbox", {
       name: "Product and pricing knowledge",
@@ -83,10 +82,7 @@ for (const failure of ["conflict", "lost response", "failed refresh"]) {
       name: "Try a simulated workspace",
     });
     if (await sample.isVisible()) await sample.click();
-    await page
-      .getByRole("button", { name: "Intelligence", exact: true })
-      .click();
-    await page.getByText("Product facts", { exact: true }).click();
+    await openScriptSection(page, "What you sell");
     const panel = page.getByRole("region", { name: "Business knowledge" });
     let saved = false;
     let version: Record<string, unknown>;

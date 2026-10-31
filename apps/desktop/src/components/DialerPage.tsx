@@ -874,36 +874,33 @@ export function DialerPage({ visible = true }: { visible?: boolean }) {
         <section className="card script-card" data-testid="prepared-script">
           <div className="card-eyebrow">
             <span>
-              <FileText size={15} /> YOUR TALK TRACK
+              <FileText size={15} /> SCRIPT
             </span>
-            <span className="pill subtle">
+            <span
+              className={`pill ${packet && !packet.script.fallback ? "green" : "subtle"}`}
+            >
               {packet
                 ? packet.script.fallback
-                  ? packet.preparation?.status === "failed"
-                    ? "Preparation failed · generic"
-                    : packet.preparation?.status === "stale"
-                      ? "Refresh due · generic"
-                      : "Generic baseline"
-                  : "Prepared"
-                : "Approved playbook"}
+                  ? "Your script as written"
+                  : "Written for this lead"
+                : "Waiting for a lead"}
             </span>
           </div>
-          <ScriptReader
-            script={
-              packet?.script || {
-                opener: w.active_playbook?.opener.replace("{rep}", w.user.name),
-                screening_intro: w.active_playbook?.screening_intro.replace(
-                  "{rep}",
-                  w.user.name,
-                ),
-              }
-            }
-          />
+          {packet ? (
+            <ScriptReader script={packet.script} />
+          ) : (
+            <p className="muted script-empty">
+              The next lead's script appears here, with the options picked and
+              lines written for them.
+            </p>
+          )}
           <div className="script-footer">
             <Layers3 size={13} />
             <span>
-              Version{" "}
-              {packet?.script.script_version.slice(0, 12) || "approved-v1"}
+              {packet?.script.summary ||
+                (packet
+                  ? `Version ${packet.script.script_version.slice(0, 12)}`
+                  : "")}
             </span>
           </div>
         </section>

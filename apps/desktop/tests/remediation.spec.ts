@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "./fixtures";
+import { openMoreSettings, openSettingsCard } from "./navigation";
 import { importLead, chooseOutcome } from "./simulation";
 
 async function enter(page: Page, connected = false) {
@@ -76,8 +77,7 @@ test("no-subscription costs, short retention and prepaid DNC configuration are e
   page,
 }) => {
   await enter(page);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Policy & DNC", exact: true }).click();
+  await openMoreSettings(page, "Privacy and spending rules");
   await expect(
     page.getByText("Raw calls and transcripts: five minutes at most.", {
       exact: true,
@@ -93,18 +93,14 @@ test("no-subscription costs, short retention and prepaid DNC configuration are e
   ).toHaveCount(0);
 });
 
-test("batch script preparation exposes gatekeeper and screening sections", async ({
+test("a requested lead's own script shows its gatekeeper and screening sections", async ({
   page,
 }) => {
   await enter(page);
   await page.getByRole("button", { name: "Leads", exact: true }).click();
-  await expect(page.getByTestId("preparation-runway")).toBeVisible();
-  await page
-    .getByRole("button", { name: "Prepare displayed lead packets" })
-    .click();
-  // The count and budget preview precedes queueing.
-  await page.getByRole("button", { name: "Queue preparation" }).click();
-  await expect(page.getByText(/Preparation queued/)).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Lead preparation" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
   const ready = page.getByRole("button", { name: "Go ready", exact: true });
   if (await ready.isVisible()) await ready.click();
@@ -123,125 +119,33 @@ test("batch script preparation exposes gatekeeper and screening sections", async
     .click();
 });
 
-test("seller can save a fixed script and an overnight preparation window", async ({
+test("a route choice made during a settings refresh is the one saved", async ({
   page,
 }) => {
   await enter(page);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Operations", exact: true }).click();
-  await page
-    .getByLabel("Script topic", { exact: true })
-    .fill("service scheduling");
-  await page
-    .getByLabel("Gatekeeper template", { exact: true })
-    .fill("Who handles {topic} for your team?");
-  await page.getByLabel("Prepared-ahead target", { exact: true }).fill("6");
-  await expect(
-    page.getByLabel("Final-attempt voicemail reference", { exact: true }),
-  ).toHaveCount(0);
-  await page
-    .getByLabel("Workspace preparation cap", { exact: true })
-    .fill("30");
-  await page
-    .getByLabel("Preparation starts at hour", { exact: true })
-    .fill("18");
-  await page.getByLabel("Preparation ends at hour", { exact: true }).fill("8");
-  await page
-    .getByRole("button", { name: "Save script and preparation" })
-    .click();
-  await expect(page.getByText("Script and preparation saved")).toBeVisible();
-  await page.reload();
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Operations", exact: true }).click();
-  await expect(page.getByLabel("Script topic", { exact: true })).toHaveValue(
-    "service scheduling",
-  );
-  await expect(
-    page.getByLabel("Workspace preparation cap", { exact: true }),
-  ).toHaveValue("30");
-  await expect(
-    page.getByLabel("Preparation starts at hour", { exact: true }),
-  ).toHaveValue("18");
-  await page.getByRole("button", { name: "Leads", exact: true }).click();
-  await expect(page.getByTestId("preparation-runway")).toContainText(
-    "Target 6",
-  );
-  await expect(page.getByTestId("preparation-runway")).toContainText(
-    "Outside preparation window",
-  );
-  await expect(page.getByTestId("preparation-runway")).toContainText(
-    "declared schedule",
-  );
-  await expect(page.getByTestId("preparation-runway")).toContainText(
-    "inspected",
-  );
-});
-
-test("a provider choice made during a settings refresh is the one saved", async ({
-  page,
-}) => {
-  await enter(page);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByTestId("setup-helper").locator(":scope > summary").click();
-  await page
-    .getByText("Models and optional paid search", { exact: true })
-    .click();
-  const search = page.getByLabel("Optional research search", { exact: true });
-  await expect(search).toBeVisible();
-  // Hold a returning-browser refresh until after the choice.
+  const card = await openSettingsCard(page, "AI");
+  await card.getByText("Use an OpenAI API key instead of ChatGPT").click();
+  const route = card.getByLabel("Research and scripts use");
+  await expect(route).toBeVisible();
+  // Hold a settings refresh until after the choice.
   let release = () => {};
   const held = new Promise<void>((resolve) => (release = resolve));
-  await page.route("**/v1/admin/settings", async (route) => {
-    if (route.request().method() === "GET") await held;
-    await route.continue();
+  await page.route("**/v1/admin/settings", async (request) => {
+    if (request.request().method() === "GET") await held;
+    await request.continue();
   });
-  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await search.selectOption("openai_web_search");
   const loaded = page.waitForResponse(
     (r) =>
       r.url().endsWith("/v1/admin/settings") && r.request().method() === "GET",
   );
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await route.selectOption("api");
   release();
   await loaded;
-  await expect(search).toHaveValue("openai_web_search");
-  expect((await saveProviders(page)).research_search).toBe("openai_web_search");
-  await expect(
-    page.getByText("Provider configuration saved securely."),
-  ).toBeVisible();
-  await search.selectOption("disabled");
-  await saveProviders(page);
-  await expect(
-    page.getByText("Provider configuration saved securely."),
-  ).toBeVisible();
-});
-
-test("optional metered research search is an explicit saved choice", async ({
-  page,
-}) => {
-  await enter(page);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByTestId("setup-helper").locator(":scope > summary").click();
-  await page
-    .getByText("Models and optional paid search", { exact: true })
-    .click();
-  const search = page.getByLabel("Optional research search", { exact: true });
-  await expect(search).toHaveValue("disabled");
-  await search.selectOption("openai_web_search");
-  await saveProviders(page);
-  await expect(
-    page.getByText("Provider configuration saved securely."),
-  ).toBeVisible();
-  await page.reload();
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByTestId("setup-helper").locator(":scope > summary").click();
-  await page
-    .getByText("Models and optional paid search", { exact: true })
-    .click();
-  await expect(search).toHaveValue("openai_web_search");
-  await expect(
-    page.getByText(/At most two metered searches per company/),
-  ).toBeVisible();
-  await search.selectOption("disabled");
+  await expect(route).toHaveValue("api");
+  expect((await saveProviders(page)).inference_mode).toBe("api");
+  await expect(page.getByText("AI route saved.").first()).toBeVisible();
+  await route.selectOption("codex");
   await saveProviders(page);
 });
 
@@ -251,7 +155,7 @@ async function saveProviders(page: Page) {
       r.url().endsWith("/v1/admin/settings") && r.request().method() === "PUT",
   );
   await page
-    .getByRole("button", { name: "Save provider settings", exact: true })
+    .getByRole("button", { name: "Save AI route", exact: true })
     .click();
   const response = await saved;
   expect(response.ok()).toBeTruthy();

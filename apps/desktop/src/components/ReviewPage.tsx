@@ -17,6 +17,7 @@ import { ConversationObservations } from "./ConversationObservations";
 import { CallPurpose } from "./Rubrics";
 import { ScoreReview } from "./ScoreReview";
 import { Coaching, ReviewTip } from "./Coaching";
+import { FollowupTasks } from "./FollowupTasks";
 import { WrapUp } from "./WrapUp";
 
 export function ReviewPage() {
@@ -72,14 +73,8 @@ export function ReviewPage() {
       <>
         <div className="page-heading">
           <div>
-            <span className="eyebrow">LEAVE ROOM TO LEARN</span>
-            <h1>
-              Every call has a story<span className="soft-dot">.</span>
-            </h1>
-            <p>
-              Inspect the evidence, correct the record, and carry the right
-              context forward.
-            </p>
+            <h1>Review</h1>
+            <p>Coaching, follow-ups and your past calls.</p>
           </div>
           <label className="inline-label">
             Filter
@@ -98,6 +93,10 @@ export function ReviewPage() {
           </label>
         </div>
         <Coaching onReview={open} />
+        <section className="card padded" aria-label="Follow-ups">
+          <h2>Follow-ups</h2>
+          <FollowupTasks />
+        </section>
         <section className="card table-card">
           <table>
             <thead>

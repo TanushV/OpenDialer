@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "./fixtures";
+import { openMoreSettings, openSettingsCard } from "./navigation";
 
 async function enter(page: Page, connected: boolean) {
   await page.goto("/");
@@ -48,12 +49,7 @@ for (const connected of [false, true]) {
           return route.continue();
         });
         async function fill() {
-          await page
-            .getByRole("button", { name: "Settings", exact: true })
-            .click();
-          await page
-            .getByRole("button", { name: "Policy & DNC", exact: true })
-            .click();
+          await openSettingsCard(page, "Do-not-call list");
           await page
             .getByLabel("Authorized area codes (comma separated)")
             .fill("415, 212, 512");
@@ -116,12 +112,7 @@ for (const connected of [false, true]) {
         page,
       }) => {
         await enter(page, connected);
-        await page
-          .getByRole("button", { name: "Settings", exact: true })
-          .click();
-        await page
-          .getByRole("button", { name: "Policy & DNC", exact: true })
-          .click();
+        await openMoreSettings(page, "Privacy and spending rules");
         await page.getByText("Account rate estimates", { exact: true }).click();
         await page.getByLabel("Rate component").selectOption("dnc");
         await page.getByLabel("Estimated per query usd").fill("0.003");
@@ -136,12 +127,7 @@ for (const connected of [false, true]) {
           page.getByText("Account rate estimate saved", { exact: true }),
         ).toBeVisible();
         await page.reload();
-        await page
-          .getByRole("button", { name: "Settings", exact: true })
-          .click();
-        await page
-          .getByRole("button", { name: "Policy & DNC", exact: true })
-          .click();
+        await openMoreSettings(page, "Privacy and spending rules");
         await page.getByText("Account rate estimates", { exact: true }).click();
         await expect(page.getByLabel("Estimated per query usd")).toHaveValue(
           "0.003",
@@ -154,55 +140,6 @@ for (const connected of [false, true]) {
             "Published reference rates remain separate from account estimates and actual charges.",
             { exact: true },
           ),
-        ).toBeVisible();
-      });
-
-      test("scheduled prepaid screening requires explicit budgets and saves without charged reads", async ({
-        page,
-      }) => {
-        let charges = 0;
-        await page.route("**/v1/admin/dnc/screen", (route) => {
-          charges++;
-          return route.fulfill({ json: { results: [] } });
-        });
-        await enter(page, connected);
-        await page
-          .getByRole("button", { name: "Settings", exact: true })
-          .click();
-        await page
-          .getByRole("button", { name: "Policy & DNC", exact: true })
-          .click();
-        const enabled = page.getByLabel(
-          "Authorize scheduled prepaid DNC checks",
-        );
-        await expect(enabled).not.toBeChecked();
-        await enabled.check();
-        await page.getByLabel("DNC maximum per run (USD)").fill("0.05");
-        await page.getByLabel("DNC maximum per day (USD)").fill("0.10");
-        await page
-          .getByRole("button", { name: "Save privacy and usage policy" })
-          .click();
-        await expect(
-          page.getByText("Privacy and usage policy saved", { exact: true }),
-        ).toBeVisible();
-        await page.reload();
-        await page
-          .getByRole("button", { name: "Settings", exact: true })
-          .click();
-        await page
-          .getByRole("button", { name: "Policy & DNC", exact: true })
-          .click();
-        await expect(enabled).toBeChecked();
-        await expect(page.getByLabel("DNC maximum per run (USD)")).toHaveValue(
-          "0.05",
-        );
-        expect(charges).toBe(0);
-        await enabled.uncheck();
-        await page
-          .getByRole("button", { name: "Save privacy and usage policy" })
-          .click();
-        await expect(
-          page.getByText("Privacy and usage policy saved", { exact: true }),
         ).toBeVisible();
       });
 
@@ -251,12 +188,7 @@ for (const connected of [false, true]) {
           },
         );
         await enter(page, connected);
-        await page
-          .getByRole("button", { name: "Settings", exact: true })
-          .click();
-        await page
-          .getByRole("button", { name: "Policy & DNC", exact: true })
-          .click();
+        await openMoreSettings(page, "Privacy and spending rules");
         const panel = page.getByRole("region", {
           name: "Prepaid screening results",
           exact: true,
@@ -280,12 +212,7 @@ for (const connected of [false, true]) {
         expect(posts).toHaveLength(2);
         expect(posts[1]).toEqual(posts[0]);
         await page.reload();
-        await page
-          .getByRole("button", { name: "Settings", exact: true })
-          .click();
-        await page
-          .getByRole("button", { name: "Policy & DNC", exact: true })
-          .click();
+        await openMoreSettings(page, "Privacy and spending rules");
         await expect(panel).toContainText("Not listed in this national check");
         expect(posts).toHaveLength(2);
       });

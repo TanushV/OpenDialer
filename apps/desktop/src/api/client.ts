@@ -14,7 +14,9 @@ export class ApiError extends Error {
 /** Coded refusals the rep or administrator can act on directly. */
 const ACTIONABLE: Record<string, string> = {
   TELNYX_NOT_CONFIGURED:
-    "Connect Telnyx in Settings → Setup → Calling before using numbers or calls.",
+    "Connect Telnyx in Settings → Calling before using numbers or calls.",
+  NO_ELIGIBLE_LEADS:
+    "No one to call right now. Leads still being researched show on the Leads page; others may be outside calling hours or already called today.",
   REP_AUDIO_NOT_READY:
     "Check audio before calling. Reconnect your headset or microphone, then start the call.",
   TELEPHONY_CREDENTIAL_MISCONFIGURED:

@@ -379,7 +379,7 @@ test("an open follow-up draft survives a refreshed task version", async ({
   await page.getByRole("button", { name: "Save outcome", exact: true }).click();
   const call = await (await saved).json();
   await page.getByRole("button", { name: "Pause dialing" }).click();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page.getByRole("button", { name: "Review", exact: true }).click();
   const task = page.locator(`[data-call-id="${call.id}"]`);
   await task.getByLabel(/^Callback time/).fill("2026-10-23T09:15");
   // Another edit elsewhere advanced this task's version.

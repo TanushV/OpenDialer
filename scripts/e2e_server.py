@@ -21,6 +21,8 @@ os.environ.pop("OPENDIALER_SECRET_KEY_FILE", None)
 
 mode = sys.argv[1]
 with tempfile.TemporaryDirectory(prefix="opendialer-e2e-") as directory:
+    # Browser journeys never see the ChatGPT login Codex keeps for this computer's user.
+    os.environ["CODEX_HOME"] = str(Path(directory) / "codex-home")
     database_url = f"sqlite:///{directory}/test.db"
     if mode == "connected":
         database_url = validate_database_url(os.environ["OPENDIALER_E2E_DATABASE_URL"], purpose="browser")

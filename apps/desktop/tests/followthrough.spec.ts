@@ -1,5 +1,10 @@
 import { expect, test } from "./fixtures";
-import { importLead, prepareSimulationCall, chooseOutcome } from "./simulation";
+import {
+  importLead,
+  prepareSimulationCall,
+  chooseOutcome,
+  waitForPreparation,
+} from "./simulation";
 
 for (const connected of [false, true]) {
   test(`correct a confirmed meeting without losing the rep note, then review outreach ${connected ? "postgres" : "local"}`, async ({
@@ -303,9 +308,7 @@ for (const connected of [false, true]) {
     );
     await page.getByRole("button", { name: "Save outcome" }).click();
     const call = await (await saved).json();
-    await page
-      .getByRole("button", { name: "Intelligence", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Review", exact: true }).click();
     const task = page.locator(`[data-call-id="${call.id}"]`);
     await task.getByLabel(/^Callback time/).fill("2026-10-22T13:30");
     const requests: Record<string, unknown>[] = [];
@@ -335,9 +338,7 @@ for (const connected of [false, true]) {
     );
     expect(result.snoozed_until).not.toBe(result.due_at);
     await page.reload();
-    await page
-      .getByRole("button", { name: "Intelligence", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Review", exact: true }).click();
     await expect(task.getByLabel(/^Callback time/)).toHaveValue(
       "2026-10-22T13:30",
     );
@@ -388,7 +389,7 @@ test("inferred follow-ups show time windows and source correction conflicts", as
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page.getByRole("button", { name: "Review", exact: true }).click();
   const task = page.locator('[data-call-id="source-call"]');
   await expect(
     task.getByText(
@@ -456,7 +457,7 @@ test("an AI-suggested callback shows its confirmation deadline apart from confir
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page.getByRole("button", { name: "Review", exact: true }).click();
   const suggested = page.locator('[data-call-id="suggested-source-call"]');
   // Shown in the lead's zone: 18:00 UTC is 2:00 PM in New York.
   await expect(
@@ -545,7 +546,7 @@ test("a local callback is confirmed, rescheduled, retained on reload and complet
   );
   await page.getByRole("button", { name: "Save outcome" }).click();
   const call = await (await saved).json();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page.getByRole("button", { name: "Review", exact: true }).click();
   const task = page.locator(`[data-call-id="${call.id}"]`);
   await expect(
     task.getByText("Needs confirmation", { exact: true }),
@@ -556,7 +557,7 @@ test("a local callback is confirmed, rescheduled, retained on reload and complet
   await task.getByLabel(/^Callback time/).fill("2026-10-22T13:30");
   await task.getByRole("button", { name: "Save follow-up" }).click();
   await page.reload();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page.getByRole("button", { name: "Review", exact: true }).click();
   await expect(task.getByLabel(/^Callback time/)).toHaveValue(
     "2026-10-22T13:30",
   );
@@ -585,10 +586,11 @@ test("unfinished wrap-up survives navigation and a full reload", async ({
   await page
     .getByLabel("CSV lead data")
     .fill(
-      "name,phone,company,timezone,region\nRestart Fixture,+14155550119,Example,America/Los_Angeles,415",
+      "name,phone,company,timezone,region\nRestart Fixture,+14155550119,Restart Fixture Co,America/Los_Angeles,415",
     );
   await page.getByRole("button", { name: "Import leads", exact: true }).click();
   await expect(page.getByText(/1 imported/)).toBeVisible();
+  await waitForPreparation(page);
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
   if (await page.getByRole("button", { name: "Go ready" }).isVisible())
     await page.getByRole("button", { name: "Go ready" }).click();

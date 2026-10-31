@@ -29,9 +29,6 @@ for (const connected of [false, true]) {
       });
     });
     await enter(page, connected);
-    await page
-      .getByLabel("Preparation and analysis route")
-      .selectOption("codex");
     await page.getByLabel("Import Codex login").setInputFiles({
       name: "invalid.json",
       mimeType: "application/json",
@@ -51,12 +48,14 @@ for (const connected of [false, true]) {
     await expect(
       page.getByText(/Connected as fixture@example.test/),
     ).toBeVisible();
-    await expect(page.getByLabel("Import Codex login")).toHaveValue("");
+    await expect(
+      page.getByText(/GPT-6.1 Terra at maximum effort/),
+    ).toBeVisible();
     expect(
       await page.evaluate(() => JSON.stringify(localStorage)),
     ).not.toContain("fixture-refresh");
-    await page.getByRole("button", { name: "Disconnect Codex" }).click();
-    await expect(page.getByText("No Codex login imported.")).toBeVisible();
+    await page.getByRole("button", { name: "Disconnect ChatGPT" }).click();
+    await expect(page.getByLabel("Import Codex login")).toBeVisible();
   });
 }
 
@@ -79,11 +78,10 @@ test("a late status read cannot erase a successful Codex import", async ({
       },
     }),
   );
-  await enter(page, false);
   const pending = page.waitForRequest((request) =>
     request.url().endsWith("/v1/inference/codex"),
   );
-  await page.getByLabel("Preparation and analysis route").selectOption("codex");
+  await enter(page, false);
   await pending;
   await page.getByLabel("Import Codex login").setInputFiles({
     name: "auth.json",
@@ -142,53 +140,5 @@ async function enter(page: Page, connected: boolean) {
   }
   await expect(page.getByText("SIMULATION", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByTestId("setup-helper").locator(":scope > summary").click();
-  await page
-    .getByLabel("Preparation and analysis route")
-    .selectOption("chatgpt_plan");
+  await expect(page.getByTestId("setting-AI")).toBeVisible();
 }
-
-test("hosted ChatGPT plan sign-in completes from the pasted loopback address", async ({
-  page,
-}) => {
-  await enter(page, true);
-  await page.getByRole("button", { name: "Continue with ChatGPT" }).click();
-  await expect(page.getByText(/paste the address it ends on/)).toBeVisible();
-  const opened = await page.evaluate(
-    () => (window as unknown as { opened: string }).opened,
-  );
-  const authorize = new URL(opened);
-  expect(authorize.origin).toBe("https://auth.openai.com");
-  expect(authorize.searchParams.get("redirect_uri")).toBe(
-    "http://127.0.0.1:1455/auth/callback",
-  );
-  // The code exchange itself is the server's; its contract is covered by pytest.
-  let pasted = "";
-  await page.route("**/v1/inference/chatgpt/complete", async (route) => {
-    pasted = route.request().postDataJSON().redirect_url;
-    await route.fulfill({ json: { connected: true } });
-  });
-  const address = `http://127.0.0.1:1455/auth/callback?code=one-time&state=${authorize.searchParams.get("state")}`;
-  await page.getByLabel("Address shown after signing in").fill(address);
-  await page.getByRole("button", { name: "Finish ChatGPT sign-in" }).click();
-  await expect(
-    page.getByText("ChatGPT is connected to your OpenDialer user."),
-  ).toBeVisible();
-  expect(pasted).toBe(address);
-  await expect(page.getByLabel("Address shown after signing in")).toHaveCount(
-    0,
-  );
-});
-
-test("local ChatGPT plan sign-in returns through the local authority", async ({
-  page,
-}) => {
-  await enter(page, false);
-  await page.getByRole("button", { name: "Continue with ChatGPT" }).click();
-  await expect(
-    page.getByText(/Complete the official authorization in your browser/),
-  ).toBeVisible();
-  await expect(page.getByLabel("Address shown after signing in")).toHaveCount(
-    0,
-  );
-});

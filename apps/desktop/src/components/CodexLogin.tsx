@@ -2,15 +2,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkspace } from "../context";
 import { LONG_REQUEST_MS } from "../api/client";
 
-type LoginStatus = {
+export type LoginStatus = {
   connected: boolean;
   account: { email: string | null; planType: string | null } | null;
 };
 
 export function CodexLogin({
   onImported,
+  compact = false,
 }: {
-  onImported?: () => Promise<void>;
+  onImported?: (status: LoginStatus) => Promise<void>;
+  /** Inside the Settings AI card: only the file picker and its help. */
+  compact?: boolean;
 }) {
   const { api } = useWorkspace();
   const [status, setStatus] = useState<LoginStatus | null>(null);
@@ -38,19 +41,22 @@ export function CodexLogin({
   }, [load]);
   return (
     <section aria-label="Your Codex login">
-      <h3>Your Codex login</h3>
-      <p className="fine">
-        Import the auth.json file from your ChatGPT login in Codex. OpenDialer
-        keeps its own copy and refreshes it automatically while in use. Live
-        coaching still uses OpenRouter/Cerebras.
-      </p>
-      <p role="status">
-        {status?.connected
-          ? `Connected as ${status.account?.email || "your ChatGPT account"}${status.account?.planType ? ` · ${status.account.planType}` : ""}`
-          : status
-            ? "No Codex login imported."
-            : "Checking your saved login…"}
-      </p>
+      {!compact && (
+        <>
+          <h3>Your Codex login</h3>
+          <p className="fine">
+            Import the auth.json file from your ChatGPT login in Codex.
+            OpenDialer keeps its own copy and refreshes it automatically.
+          </p>
+          <p role="status">
+            {status?.connected
+              ? `Connected as ${status.account?.email || "your ChatGPT account"}${status.account?.planType ? ` · ${status.account.planType}` : ""}`
+              : status
+                ? "No Codex login imported."
+                : "Checking your saved login…"}
+          </p>
+        </>
+      )}
       <label>
         Import Codex login
         <input
@@ -87,7 +93,7 @@ export function CodexLogin({
                 );
                 if (current !== generation.current) return;
                 setStatus(value);
-                await onImported?.();
+                await onImported?.(value);
                 if (current === generation.current) setSaved(true);
               } catch (reason) {
                 if (current !== generation.current) return;
@@ -106,10 +112,16 @@ export function CodexLogin({
         <p role="status">Codex login imported. Automatic refresh is enabled.</p>
       )}
       {error && <p role="alert">{error}</p>}
-      <button className="secondary" disabled={busy} onClick={() => void load()}>
-        Reload login status
-      </button>
-      {status?.connected && (
+      {!compact && (
+        <button
+          className="secondary"
+          disabled={busy}
+          onClick={() => void load()}
+        >
+          Reload login status
+        </button>
+      )}
+      {!compact && status?.connected && (
         <button
           className="secondary"
           disabled={busy}

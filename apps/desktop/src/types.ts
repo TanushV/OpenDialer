@@ -211,18 +211,57 @@ export interface Call {
     } | null;
   } | null;
 }
+export interface ScriptOption {
+  id: string;
+  title: string | null;
+  text: string;
+  picked?: boolean;
+  rank?: number | null;
+}
+export interface ScriptSection {
+  key?: string;
+  title: string;
+  /** Older call snapshots carry plain text instead of options. */
+  text?: string;
+  options?: ScriptOption[];
+}
+export interface ScriptTemplate {
+  format: 2;
+  markdown: string;
+  sections: {
+    key: string;
+    title: string;
+    shape: string;
+    options: ScriptOption[];
+    pick: [number, number] | null;
+  }[];
+  blocks: {
+    id: string;
+    instruction: string;
+    section: string;
+    option: string;
+  }[];
+  facts: string[];
+  never_say: string[];
+}
+export interface ScriptError {
+  line: number;
+  message: string;
+}
 export interface Script {
-  sections?: { title: string; text: string }[];
-  final_voicemail_asset?: string | null;
+  sections?: ScriptSection[];
+  picks?: Record<string, string[]>;
+  written?: Record<string, { text: string; fact_ids: string[] }>;
+  offers?: { title: string | null; text: string }[];
+  summary?: string;
+  preparation_status?: string;
   opener: string;
   gatekeeper?: string;
-  proof?: string;
   closing_question?: string;
   template_version?: string;
   screening_intro: string;
   discovery_questions: string[];
   script_version: string;
-  playbook_version: string;
   objection_cards: { id: string; text: string; tags: string[] }[];
   fallback: boolean;
   ready_for_rep: boolean;

@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures";
+import { waitForPreparation } from "./simulation";
 
 test("a late plan request cannot replace the newly selected list", async ({
   page,
@@ -113,6 +114,7 @@ for (const connected of [false, true]) {
     await expect(
       page.getByText("1 leads imported", { exact: true }),
     ).toBeVisible();
+    await waitForPreparation(page);
     await page.getByRole("button", { name: "Numbers", exact: true }).click();
     await page
       .getByLabel("Plan numbers for list")

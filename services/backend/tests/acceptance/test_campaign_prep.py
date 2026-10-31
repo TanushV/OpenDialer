@@ -279,3 +279,15 @@ def test_retired_routes_and_settings_are_gone(workspace):
     )
     assert response.status_code == 422
     assert "refresh" not in get(ws, "/v1/admin/dnc/screens")
+
+
+def test_opted_out_numbers_are_never_researched(workspace):
+    ws = workspace
+    save_script(ws)
+    rows = leads("Optout", 2)
+    post(ws, "/v1/suppressions", {"phone": rows[0]["phone"], "reason": "opt_out"})
+    imported = import_leads(ws, rows, list_name="Opt-outs", prepare=True)
+    assert imported["preparing"] == 1
+    blocked, open_lead = (lead["id"] for lead in imported["leads"])
+    assert lead_row(ws, blocked)["status"] == "eligible" and lead_row(ws, open_lead)["status"] == "preparing"
+    assert post(ws, "/v1/preparation/lists", {"list_name": "Opt-outs"})["marked"] == 0

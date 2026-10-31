@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures";
+import { openScriptSection } from "./navigation";
 import { importLead, chooseOutcome } from "./simulation";
 
 test("conversation learning is honest about sparse evidence and saves reviewed aliases", async ({
@@ -14,8 +15,7 @@ test("conversation learning is honest about sparse evidence and saves reviewed a
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
-  await page.getByText("Stats & statistical learning", { exact: true }).click();
+  await openScriptSection(page, "Call statistics");
   const panel = page.getByRole("region", {
     name: "Conversation learning",
     exact: true,
@@ -37,8 +37,7 @@ test("conversation learning is honest about sparse evidence and saves reviewed a
     "Purchasing signoff → Procurement approval",
   );
   await page.reload();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
-  await page.getByText("Stats & statistical learning", { exact: true }).click();
+  await openScriptSection(page, "Call statistics");
   await expect(panel).toContainText(
     "Purchasing signoff → Procurement approval",
   );

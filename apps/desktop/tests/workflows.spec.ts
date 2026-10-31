@@ -1,5 +1,6 @@
 import { expect, test } from "./fixtures";
-import { chooseOutcome } from "./simulation";
+import { openMoreSettings, openSettingsCard } from "./navigation";
+import { chooseOutcome, waitForPreparation } from "./simulation";
 
 async function enterSimulation(page: import("@playwright/test").Page) {
   await page.goto("/");
@@ -31,6 +32,7 @@ test("local setup, readiness, calling, evidence, human notes and opt-out", async
     );
   await page.getByRole("button", { name: "Import leads", exact: true }).click();
   await expect(page.getByText(/^1 imported/)).toBeVisible();
+  await waitForPreparation(page);
   await page.getByLabel("Search leads").fill("Workflow Call");
   await page
     .getByRole("button", { name: "Search lead history", exact: true })
@@ -93,17 +95,18 @@ test("admin inventory, lead import, policy, preparation and real readiness bound
     );
   await page.getByRole("button", { name: "Import leads" }).click();
   await expect(page.getByText(/^1 imported/)).toBeVisible();
+  await waitForPreparation(page);
+  // The app asks for research and a script for each imported lead before calling.
+  await expect(
+    page
+      .getByRole("region", { name: "Lead preparation" })
+      .getByText(/ready to call/),
+  ).toBeVisible();
   await page.getByLabel("Search leads").fill("Taylor Example");
   await page
     .getByRole("button", { name: "Search lead history", exact: true })
     .click();
   await expect(page.getByText("Taylor Example", { exact: true })).toBeVisible();
-  await page
-    .getByRole("button", { name: "Prepare displayed lead packets" })
-    .click();
-  // Preparation is previewed with its count and budget before it is queued.
-  await page.getByRole("button", { name: "Queue preparation" }).click();
-  await expect(page.getByText(/Preparation queued/)).toBeVisible();
   await page.getByRole("button", { name: "Numbers", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Numbers & callbacks" }),
@@ -114,8 +117,8 @@ test("admin inventory, lead import, policy, preparation and real readiness bound
     timeout: 20000,
   });
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Run preflight" }).click();
-  await expect(page.getByText(/Simulated providers/)).toBeVisible();
+  await page.getByRole("button", { name: "Check readiness" }).click();
+  await expect(page.getByRole("region", { name: "Readiness" })).toBeVisible();
 });
 
 test("connected authentication and shared state survive reconnect", async ({
@@ -143,9 +146,8 @@ test("advanced administration exposes evidence-controlled workflows", async ({
   page,
 }) => {
   await enterSimulation(page);
-  // Trackers are advanced analysis configuration: Settings → Advanced.
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByText("Advanced", { exact: true }).click();
+  // Trackers are advanced analysis configuration: Settings → More settings.
+  await openMoreSettings(page, "Learning experiments and trackers");
   await page.getByLabel("Tracker name").fill("Existing supplier");
   await page
     .getByLabel("Tracker definition")
@@ -157,19 +159,17 @@ test("advanced administration exposes evidence-controlled workflows", async ({
   await expect(
     page.getByText("Existing supplier", { exact: true }),
   ).toBeVisible();
-  // Business identity evidence is the first setup step.
-  await page.getByRole("button", { name: "Setup", exact: true }).click();
-  await page.getByTestId("setup-identity").locator(":scope > summary").click();
-  await expect(page.getByLabel("Business identity evidence")).toBeVisible();
+  // Business confirmation is one button in Calling hours.
+  const hours = await openSettingsCard(page, "Calling hours");
+  await expect(hours).toContainText(/Business confirmed|Confirm our business/);
 });
 
 test("script wording is tested from the script memory and purchases are never offered", async ({
   page,
 }) => {
   await enterSimulation(page);
-  // The Advanced experiment view no longer publishes opener variants; script memory tests them.
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByText("Advanced", { exact: true }).click();
+  // The experiment view no longer publishes opener variants; script memory tests them.
+  await openMoreSettings(page, "Learning experiments and trackers");
   await expect(
     page
       .getByLabel("Experiment type")

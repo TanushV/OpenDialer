@@ -1,6 +1,8 @@
-# Simple setup and per-lead campaign preparation (plan, awaiting approval)
+# Simple setup and per-lead campaign preparation (implemented in 0.7.0)
 
-Owner request, October 30, 2026. Planning only: nothing below is implemented until the owner approves.
+Owner request, October 30, 2026; approved the same day with these changes: OpenAI web search instead of DDGS, the
+AI budget per lead list, real model runs for testing (the owner's Codex login and the OpenRouter key saved in the app),
+no real phone calls.
 This plan sits under [LEAN_PLAN.md](LEAN_PLAN.md) (both database modes, tests first, no AI attribution) and
 changes the script and preparation parts of [SCRIPT_LEARNING.md](SCRIPT_LEARNING.md).
 
@@ -200,4 +202,21 @@ updater (owner request, October 30), verify the installed app opens and its data
 
 ## Status
 
-- October 30: plan written; awaiting owner approval. No code changed.
+- October 30: plan written and approved (budget per lead list; OpenAI web search kept; real model runs allowed).
+- Implemented (backend `e5f208b`, live-help fixes `02c43c6`, UI and tests in the 0.7.0 commits):
+  `preparation/templates.py` (Markdown parser, renderer, close-out rules), `preparation/agent.py` (tools, thread
+  handler, simulated agent), `preparation/workflows.py` (list requests, company-grouped threads, publication,
+  per-list status), `providers/codex.py` (multi-turn agent loop, Terra at `max`, live web search, plan-limit pause,
+  shared-login session), `providers/inference.py` (API agent loop with metered web search), queue company spacing,
+  booking holds, per-list budget, removal of scheduled prepaid screening and the plan OAuth route; one-page Settings,
+  Script editor, Leads preparation panel, per-lead script reader, coaching list.
+- Real-model evidence (no calls; fictional numbers): one ChatGPT-route thread on `gpt-6.1-terra`/`max` prepared three
+  real public companies in 129 s with 14 live web searches and 13 tool calls; 4 submissions were rejected by the
+  close-out rules and corrected by the agent; every fact's quote was verified on its page. The live helper on real
+  Cerebras exposed five defects that simulated tests could not: OpenRouter has no Cerebras endpoint for
+  `parallel_tool_calls` (every review and summary 404'd); Cerebras does not enforce forced tool schemas but does
+  enforce strict response schemas; the model misnumbers the state version and cites card ids as speech while echoing
+  the exact context fingerprint; a rejected explanation hid an approved question; practice used version 0. Each has a
+  regression test that failed first. After the fixes, repeated real runs showed manual help and automatic tips in
+  most runs (1.0–2.3 s), practice in most runs, and post-call rundowns produced; failures that remain are the
+  grounding and review rules declining a tip, which is the intended behavior.

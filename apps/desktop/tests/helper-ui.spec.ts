@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures";
+import { openMoreSettings } from "./navigation";
 import {
   prepareSimulationCall,
   chooseOutcome,
@@ -264,8 +265,7 @@ test("settings display the authority cost register, including changed rates", as
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Policy & DNC", exact: true }).click();
+  await openMoreSettings(page, "Privacy and spending rules");
   await page.getByText("PAYG cost outline", { exact: true }).click();
   await expect(
     page.getByText("$0.0037/min API", { exact: false }),

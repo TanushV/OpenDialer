@@ -39,8 +39,8 @@ class LIMITS:
     live_per_rep = 2
     prospect_debounce_ms = 300
     automatic_per_call_minute = 30
-    company_units = 2
-    script_generations = 2
+    # Agent threads that research and script leads at once (the owner's setting caps it lower).
+    agent_threads = 4
     postcall_active = 2
     automatic_deadline_ms = 1500
     manual_connect_ms = 1000
@@ -94,4 +94,4 @@ class Settings(BaseSettings):
     max_call_seconds: int = 7200
     session_seconds: int = 28800
     max_import_rows: int = 10000
-    version: str = "0.6.2"
+    version: str = "0.7.0"

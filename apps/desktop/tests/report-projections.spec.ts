@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures";
+import { openScriptSection } from "./navigation";
 
 test("an unfinished report shows pending evidence without invented totals", async ({
   page,
@@ -27,8 +28,7 @@ test("an unfinished report shows pending evidence without invented totals", asyn
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
-  await page.getByText("Stats & statistical learning", { exact: true }).click();
+  await openScriptSection(page, "Call statistics");
   await expect(
     page.getByText("Preparing the first report in the background.", {
       exact: true,
@@ -107,8 +107,7 @@ async function openIntelligence(page: import("@playwright/test").Page) {
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
-  await page.getByText("Stats & statistical learning", { exact: true }).click();
+  await openScriptSection(page, "Call statistics");
 }
 
 test("stale totals disclose their definition and failed refresh without losing settings", async ({

@@ -340,7 +340,7 @@ export function DueTasks() {
       <p className="fine">
         Due callbacks come first when you get the next lead and calling policy
         permits.
-        {due.length > 5 ? ` ${due.length - 5} more in Intelligence.` : ""}
+        {due.length > 5 ? ` ${due.length - 5} more in Review.` : ""}
       </p>
     </section>
   );

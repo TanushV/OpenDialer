@@ -297,9 +297,13 @@ class Preparation:
         """Mark leads to be prepared before they can be called. Returns how many were marked."""
         marked = 0
         for lead in leads:
+            state = lead.data.get("preparation") or {}
             if lead.data.get("status") not in {"eligible", "preparing"}:
                 continue
-            state = lead.data.get("preparation") or {}
+            if lead.data.get("prepare_requested") and state.get("status") != "failed":
+                continue  # Already requested; a failed lead is asked again with fresh attempts.
+            if self.suppressed(s, p, lead.data["phone"]):
+                continue  # An opted-out number is never researched or scripted.
             update(
                 lead,
                 prepare_requested=True,

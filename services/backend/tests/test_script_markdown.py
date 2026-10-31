@@ -158,6 +158,10 @@ def test_close_out_rules_name_each_problem():
     }
     text = {"ai-1": {"text": "You added two buildings on Elm Street in 2025.", "fact_ids": ["f1"]}}
     assert check_submission(template, good, text, facts, row) == []
+    # Agents often "pick" the only version of a fixed section (real run, October 30): harmless.
+    fixed = {**good, "screening": ["screening-1"], "close": ["close-1"]}
+    assert check_submission(template, fixed, text, facts, row) == []
+    assert any("'screening' has no options" in p for p in check_submission(template, {**good, "screening": ["x"]}, text, facts, row))
     problems = check_submission(
         template,
         {"opening": ["opening-9"], "discovery": ["discovery-1"] * 2, "offers": []},

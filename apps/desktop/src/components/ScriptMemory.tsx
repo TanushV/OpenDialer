@@ -8,12 +8,13 @@ import {
 import { date, label, useWorkspace } from "../context";
 
 type Section =
-  | "opener"
+  | "opening"
+  | "screening"
   | "gatekeeper"
-  | "screening_intro"
-  | "discovery_questions"
-  | "proof"
-  | "closing_question";
+  | "discovery"
+  | "offers"
+  | "objections"
+  | "close";
 interface Proposal {
   id: string;
   section: Section;
@@ -40,7 +41,7 @@ interface ScriptTest {
 }
 interface Version {
   version: number;
-  source: string;
+  source: string | null;
   adopted_at: string | null;
   template: Record<string, unknown> | null;
 }
@@ -68,12 +69,13 @@ interface Lab {
 }
 
 const SECTION_NAMES: Record<Section, string> = {
-  opener: "Opener",
-  gatekeeper: "Gatekeeper line",
-  screening_intro: "Screening line",
-  discovery_questions: "Discovery question",
-  proof: "Proof line",
-  closing_question: "Closing question",
+  opening: "Opening",
+  screening: "Screening",
+  gatekeeper: "Gatekeeper",
+  discovery: "Discovery",
+  offers: "Offers",
+  objections: "Objections",
+  close: "Close",
 };
 
 function inline(text: string): ReactNode[] {
@@ -134,8 +136,7 @@ export function ScriptMemory() {
   const { api, run, subscribe, snapshot, notice } = useWorkspace();
   const [lab, setLab] = useState<Lab | null>(null);
   const [notes, setNotes] = useState<string | null>(null);
-  const [section, setSection] = useState<Section>("opener");
-  const [index, setIndex] = useState(0);
+  const [section, setSection] = useState<Section>("opening");
   const [text, setText] = useState("");
   const [rationale, setRationale] = useState("");
   const [reference, setReference] = useState("");
@@ -192,7 +193,7 @@ export function ScriptMemory() {
         Base script v{lab.base.version} ·{" "}
         {lab.base.source === "seller_template"
           ? "the seller's template"
-          : label(lab.base.source.split(":")[0])}
+          : label((lab.base.source ?? "not saved yet").split(":")[0])}
         {lab.base.adopted_at ? ` · adopted ${date(lab.base.adopted_at)}` : ""}
       </p>
       {admin && (
@@ -314,12 +315,8 @@ export function ScriptMemory() {
         {lab.proposals.map((proposal) => (
           <li key={proposal.id}>
             <strong>{label(proposal.status)}</strong> ·{" "}
-            {SECTION_NAMES[proposal.section]}
-            {proposal.section === "discovery_questions" &&
-            proposal.index !== null
-              ? ` ${proposal.index + 1}`
-              : ""}
-            : “{proposal.text}”{" "}
+            {SECTION_NAMES[proposal.section] ?? proposal.section}: “
+            {proposal.text}”{" "}
             <span className="fine">
               (
               {proposal.source === "memory"
@@ -404,7 +401,7 @@ export function ScriptMemory() {
               async () => {
                 await api("/v1/admin/script/proposals", "POST", {
                   section,
-                  index: section === "discovery_questions" ? index : null,
+                  index: null,
                   text,
                   rationale,
                   review_reference: reference,
@@ -436,21 +433,6 @@ export function ScriptMemory() {
                 ))}
               </select>
             </label>
-            {section === "discovery_questions" && (
-              <label>
-                Question number
-                <input
-                  aria-label="Question number"
-                  type="number"
-                  min={1}
-                  max={5}
-                  value={index + 1}
-                  onChange={(e) =>
-                    setIndex(Math.max(0, Number(e.target.value) - 1))
-                  }
-                />
-              </label>
-            )}
             <label>
               Test length (days)
               <input
@@ -464,17 +446,20 @@ export function ScriptMemory() {
             </label>
           </div>
           <label>
-            New wording
+            New Markdown for this section
             <textarea
               aria-label="New wording"
-              rows={2}
-              maxLength={600}
+              rows={4}
+              maxLength={4000}
               value={text}
               onChange={(e) => setText(e.target.value)}
-              placeholder="Placeholders: {name}, {rep}, {seller}, {company}, {topic}, {relevance}"
+              placeholder={"- First option\n- Second option"}
             />
           </label>
-          {section === "opener" && <p className="fine">{lab.locked.opener}</p>}
+          <p className="fine">
+            Same format as your script: bullets for options, ## for each offer
+            or objection, {"{{ }}"} for text written per lead.
+          </p>
           <label>
             Why
             <input
@@ -527,7 +512,7 @@ export function ScriptMemory() {
             v{version.version} ·{" "}
             {version.source === "seller_template"
               ? "seller template"
-              : label(version.source.split(":")[0])}
+              : label((version.source ?? "not saved yet").split(":")[0])}
             {version.adopted_at ? ` · ${date(version.adopted_at)}` : ""}
             {admin && version.version !== lab.base.version && (
               <button

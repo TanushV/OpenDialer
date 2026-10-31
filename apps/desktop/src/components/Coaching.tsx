@@ -37,6 +37,7 @@ export function Coaching({
   >([]);
   const [goal, setGoal] = useState("");
   const [scenario, setScenario] = useState("");
+  const [practicing, setPracticing] = useState(false);
   const [status, setStatus] = useState("");
   const [waiting, setWaiting] = useState(false);
   const [answer, setAnswer] = useState<Pick<
@@ -146,79 +147,112 @@ export function Coaching({
       }
     }
   }
+  type Item = {
+    key: string;
+    title: string;
+    detail?: string;
+    practice?: string;
+    review?: string;
+    goal?: Goal;
+    example?: Overview["examples"][number];
+  };
+  const items: Item[] = overview
+    ? [
+        ...overview.goals
+          .filter((g) => g.status === "active")
+          .map((g) => ({
+            key: "goal-" + g.id,
+            title: g.text,
+            detail: "Your goal",
+            goal: g,
+          })),
+        ...patterns.map((pattern) => ({
+          key: "pattern-" + pattern.label,
+          title: pattern.label,
+          detail: `Linked to fewer good outcomes across ${pattern.samples} calls`,
+          practice: `Practice improving ${pattern.label}. This pattern is linked to worse outcomes, not proven to cause them. Give one concrete exercise and an improved example.`,
+        })),
+        ...(overview.improvement_groups ?? []).map((group) => ({
+          key: "group-" + group.id,
+          title: group.concept,
+          detail:
+            (group.approach || "Try a shorter, clearer response.") +
+            ` · seen in ${group.count} call${group.count === 1 ? "" : "s"}`,
+          practice: `Help me improve this: ${group.concept}. ${group.approach || ""} Give one concrete exercise and an improved example, using approved product facts only.`,
+          review: group.examples[0]?.call_id,
+        })),
+        ...(overview.recent_tips[0]?.tips ?? []).slice(0, 5).map((tip, i) => ({
+          key: "tip-" + i,
+          title: tip.text,
+          detail: `From your call on ${date(overview.recent_tips[0].at)}`,
+          review: overview.recent_tips[0].call_id,
+        })),
+        ...overview.examples.map((example) => ({
+          key: "example-" + example.id,
+          title: example.text,
+          detail: "Team example",
+          example,
+        })),
+      ]
+    : [];
+  const admin = ["owner", "admin"].includes(session.role);
   return (
-    <section className="card padded" aria-label="Coaching and practice">
-      <h2>Coaching and practice</h2>
-      <p className="small muted">
-        Practice never places a call or records a business outcome.
-      </p>
+    <section className="card padded coaching" aria-label="Coaching">
+      <div className="section-heading">
+        <h2>Coaching</h2>
+        <button
+          className="secondary"
+          onClick={() => {
+            setPracticing(true);
+            setAnswer(null);
+          }}
+        >
+          Practice
+        </button>
+      </div>
       {status && <p role="status">{status}</p>}
-      {overview && (
-        <>
-          <h3>Patterns to improve</h3>
-          {patterns.map((pattern) => (
-            <article key={pattern.label}>
-              <h4>{pattern.label}</h4>
-              <p className="fine">
-                Statistical learning · {pattern.samples} samples · correlation,
-                not cause
-              </p>
-              <button
-                onClick={() => {
-                  setScenario(
-                    `Practice improving ${pattern.label}. This pattern is associated with worse outcomes, not proven causal. Give one concrete exercise and an improved example.`,
-                  );
-                  setAnswer(null);
-                }}
-              >
-                Practice this finding
-              </button>
-            </article>
-          ))}
-          {!overview.improvement_groups?.length && (
-            <p className="muted">
-              No reviewed patterns yet. As calls are reviewed, practice
-              opportunities appear here.
-            </p>
-          )}
-          {overview.improvement_groups?.map((group) => (
-            <article key={group.id}>
-              <h4>{group.concept}</h4>
-              <p>
-                {group.approach ||
-                  "Review the examples and try a shorter, clearer response."}
-              </p>
-              <p className="fine">
-                {group.count} reviewed opportunities · an observed pattern, not
-                proof of cause
-              </p>
-              <button
-                onClick={() => {
-                  setScenario(
-                    `Help me improve this observed pattern: ${group.concept}. ${group.approach || ""} Give one concrete exercise and an improved example, using approved product facts only.`,
-                  );
-                  setAnswer(null);
-                }}
-              >
-                Practice this pattern
-              </button>
-            </article>
-          ))}
-          <details>
-            <summary>Your practice goals</summary>
-            {overview.goals.map((item) => (
-              <div key={item.id}>
-                <span>{item.text}</span>{" "}
-                {item.status === "completed" ? (
-                  <span className="pill subtle">Completed</span>
-                ) : (
+      {overview && !items.length && (
+        <p className="muted">
+          Nothing yet. Coaching points appear here as your calls are reviewed.
+        </p>
+      )}
+      <ol className="coach-list">
+        {items.map((item) => (
+          <li key={item.key}>
+            <div>
+              <strong>{item.title}</strong>
+              {item.detail && <small>{item.detail}</small>}
+            </div>
+            <div className="coach-actions">
+              {item.practice && (
+                <button
+                  className="text-button"
+                  onClick={() => {
+                    setScenario(item.practice!);
+                    setPracticing(true);
+                    setAnswer(null);
+                  }}
+                >
+                  Practice
+                </button>
+              )}
+              {item.review && (
+                <button
+                  className="text-button"
+                  onClick={() => void run(() => onReview(item.review!))}
+                >
+                  Open call
+                </button>
+              )}
+              {item.goal && overview && (
+                <>
                   <button
                     className="text-button"
                     onClick={() =>
                       void run(() =>
                         save(
                           overview.goals.map((g) =>
-                            g.id === item.id
+                            g.id === item.goal!.id
                               ? { ...g, status: "completed" }
                               : g,
                           ),
@@ -226,33 +260,61 @@ export function Coaching({
                       )
                     }
                   >
-                    Complete goal
+                    Done
                   </button>
-                )}
+                  <button
+                    className="text-button"
+                    aria-label={`Remove goal ${item.goal.text}`}
+                    onClick={() =>
+                      void run(() =>
+                        save(
+                          overview.goals.filter((g) => g.id !== item.goal!.id),
+                        ),
+                      )
+                    }
+                  >
+                    Remove
+                  </button>
+                </>
+              )}
+              {item.example && admin && (
                 <button
                   className="text-button"
-                  aria-label={`Remove goal ${item.text}`}
                   onClick={() =>
-                    void run(() =>
-                      save(overview.goals.filter((g) => g.id !== item.id)),
-                    )
+                    void run(async () => {
+                      await api(
+                        `/v1/admin/snippets/${item.example!.id}`,
+                        "PATCH",
+                        {
+                          expected_version: item.example!.version,
+                          approved: false,
+                        },
+                      );
+                      setOverview(await api<Overview>("/v1/coaching"));
+                      notice("Example withdrawn");
+                    })
                   }
                 >
-                  Remove
+                  Withdraw
                 </button>
-              </div>
-            ))}
-            <label>
-              Practice goal
-              <input
-                aria-label="Practice goal"
-                value={goal}
-                maxLength={300}
-                onChange={(e) => setGoal(e.target.value)}
-              />
-            </label>
+              )}
+            </div>
+          </li>
+        ))}
+      </ol>
+      {overview &&
+        overview.goals.filter((g) => g.status === "active").length < 3 && (
+          <div className="inline-add">
+            <input
+              aria-label="Add a goal"
+              placeholder="Add a goal, like “ask about timing before pitching”"
+              value={goal}
+              maxLength={300}
+              onChange={(e) => setGoal(e.target.value)}
+            />
             <button
-              disabled={!goal.trim() || overview.goals.length >= 3}
+              className="secondary"
+              disabled={!goal.trim()}
               onClick={() =>
                 void run(() =>
                   save([
@@ -266,136 +328,46 @@ export function Coaching({
                 )
               }
             >
-              Save practice goal
+              Add goal
             </button>
-            <p className="fine">
-              Up to three goals. Completion is your assessment; it does not
-              imply conversion lift.
-            </p>
-          </details>
-          <details>
-            <summary>Recent coaching opportunities</summary>
-            <p>
-              Up to 20 reviewed opportunities, grouped within comparable
-              campaign and call-purpose context. These counts do not measure
-              conversion lift.
-            </p>
-            {overview.improvement_groups?.map((group) => (
-              <article key={group.id}>
-                <strong>
-                  {group.concept} · {group.count} reviewed opportunities
-                </strong>
-                {group.approach && <p>{group.approach}</p>}
-                {group.examples.map((example) => (
-                  <p key={example.observation_id}>
-                    {example.text}{" "}
-                    <button
-                      className="text-button"
-                      onClick={() => void run(() => onReview(example.call_id))}
-                    >
-                      Review example
-                    </button>
-                  </p>
-                ))}
-              </article>
-            ))}
-            <p className="small muted">
-              Your latest {overview.inspected_calls} calls, up to{" "}
-              {overview.history_limit}. Tips are interpretations; review the
-              call context. Controlled comparisons are available in
-              Intelligence.
-            </p>
-            {overview.recent_tips.map((entry) => (
-              <div key={entry.call_id}>
-                <button
-                  className="text-button"
-                  onClick={() => void run(() => onReview(entry.call_id))}
-                >
-                  Review coaching from {date(entry.at)}
-                </button>
-                <ul>
-                  {entry.tips.map((tip, i) => (
-                    <li key={i}>{tip.text}</li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-            {!overview.recent_tips.length && (
-              <p>No retained coaching tips yet.</p>
-            )}
-          </details>
-          <details>
-            <summary>Reviewed examples</summary>
-            {!overview.examples.length && (
-              <p>
-                No team examples have been approved yet. Current product
-                knowledge still guides the helper.
-              </p>
-            )}
-            {overview.examples.map((example) => (
-              <div key={example.id}>
-                <p>{example.text}</p>
-                <small>
-                  Human reviewed example
-                  {example.raw_evidence_status === "expired"
-                    ? " · Original speech expired"
-                    : ""}
-                </small>
-                {["owner", "admin"].includes(session.role) && (
-                  <button
-                    className="text-button"
-                    onClick={() =>
-                      void run(async () => {
-                        await api(`/v1/admin/snippets/${example.id}`, "PATCH", {
-                          expected_version: example.version,
-                          approved: false,
-                        });
-                        setOverview(await api<Overview>("/v1/coaching"));
-                        notice("Example withdrawn");
-                      })
-                    }
-                  >
-                    Withdraw example
-                  </button>
-                )}
-              </div>
-            ))}
-          </details>
-        </>
-      )}
-      <h3>Private practice</h3>
-      <label>
-        Practice scenario
-        <textarea
-          aria-label="Practice scenario"
-          value={scenario}
-          maxLength={2000}
-          onChange={(e) => setScenario(e.target.value)}
-        />
-      </label>
-      <button
-        disabled={waiting || !scenario.trim()}
-        onClick={() => void run(practice)}
-      >
-        Practice privately
-      </button>
-      {(waiting || answer?.coach) && (
-        <button className="text-button" onClick={discard}>
-          Discard practice
-        </button>
-      )}
-      {waiting && <p role="status">Working through the scenario…</p>}
-      {answer?.coach && (
-        <div aria-live="polite">
-          <p>{answer.coach.say_or_ask}</p>
-          <p className="small muted">{answer.coach.reason}</p>
+          </div>
+        )}
+      {(practicing || scenario || waiting || answer?.coach) && (
+        <div className="practice-box">
+          <label>
+            Practice
+            <textarea
+              aria-label="Practice scenario"
+              value={scenario}
+              maxLength={2000}
+              onChange={(e) => setScenario(e.target.value)}
+            />
+          </label>
+          <div className="button-row">
+            <button
+              className="primary"
+              disabled={waiting || !scenario.trim()}
+              onClick={() => void run(practice)}
+            >
+              Practice privately
+            </button>
+            <button className="text-button" onClick={discard}>
+              Discard practice
+            </button>
+          </div>
+          {waiting && <p role="status">Working through it…</p>}
+          {answer?.coach && (
+            <div aria-live="polite" className="practice-answer">
+              <p>{answer.coach.say_or_ask}</p>
+              <p className="small muted">{answer.coach.reason}</p>
+            </div>
+          )}
+          <p className="fine">
+            Practice is private, places no call, and is erased within five
+            minutes.
+          </p>
         </div>
       )}
-      <p className="fine">
-        Private text expires within five minutes. Connected AI practice uses
-        your configured PAYG budget; discarding a submitted request cannot
-        reverse a provider charge.
-      </p>
     </section>
   );
 }

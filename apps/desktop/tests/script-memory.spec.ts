@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures";
+import { openScriptSection } from "./navigation";
 
 async function enter(page: import("@playwright/test").Page) {
   await page.goto("/");
@@ -18,18 +19,8 @@ test("the script memory keeps team notes and tests a proposed change against the
   page,
 }) => {
   await enter(page);
-  // A base script template is the starting point for proposals.
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Operations", exact: true }).click();
-  await page
-    .getByLabel("Script topic", { exact: true })
-    .fill("invoice follow-up");
-  await page
-    .getByRole("button", { name: "Save script and preparation" })
-    .click();
-  await expect(page.getByText("Script and preparation saved")).toBeVisible();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
-  await page.getByText("Script memory & variations", { exact: true }).click();
+  // The simulated workspace starts from the starter script, the base for proposals.
+  await openScriptSection(page, "What's working");
   const panel = page.getByRole("region", { name: "Script memory" });
   await expect(panel.getByText(/^Base script v\d+/)).toBeVisible();
   await panel.getByLabel("Team notes").fill("Lead with the time saved.");
@@ -40,16 +31,16 @@ test("the script memory keeps team notes and tests a proposed change against the
       .getByText("Lead with the time saved."),
   ).toBeVisible();
   const form = panel.getByRole("form", { name: "Propose a script change" });
-  await form.getByLabel("Script section").selectOption("opener");
+  await form.getByLabel("Script section").selectOption("opening");
   await form
     .getByLabel("New wording")
-    .fill("Hi {name}, quick question about {topic}.");
+    .fill("Hi {name}, quick question for you.");
   await form.getByLabel("Script review reference").fill("Reviewed by the lead");
   await form.getByRole("button", { name: "Save proposal" }).click();
-  await expect(page.getByText(/keeps who is calling/).first()).toBeVisible();
+  await expect(page.getByText(/must say who is calling/).first()).toBeVisible();
   await form
     .getByLabel("New wording")
-    .fill("Hi {name}, {rep} with {seller}. How do you handle {topic} today?");
+    .fill("Hi {name}, {rep} with {seller}. How do you handle this today?");
   await form.getByRole("button", { name: "Save proposal" }).click();
   await expect(
     page.getByText("Proposal saved and its test started"),

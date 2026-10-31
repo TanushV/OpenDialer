@@ -98,14 +98,15 @@ class ScriptLab:
     def script_history(self, s, p, campaign):
         stored = campaign.data.get("script") or {}
         if stored.get("history"):
-            return stored["history"]
-        return [{**self.script_base(s, p, campaign), "evidence": None}]
+            return [h for h in stored["history"] if (h.get("template") or {}).get("format") == 2]
+        base = self.script_base(s, p, campaign)
+        return [{**base, "evidence": None}] if base["template"] else []
 
     def adopt_script_in(self, s, p, campaign, template, source, evidence=None):
         stored = dict(campaign.data.get("script") or {})
         history = self.script_history(s, p, campaign)
         entry = {
-            "version": max(h["version"] for h in history) + 1,
+            "version": max([h["version"] for h in history] + [stored.get("version", 0)]) + 1,
             "template": template,
             "adopted_at": self.clock().isoformat(),
             "source": source,

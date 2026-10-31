@@ -9,7 +9,6 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
-  Sparkles,
   Upload,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -20,26 +19,23 @@ import { LONG_REQUEST_MS, openSource } from "../api/client";
 import { date, isAdmin, label, percent, useWorkspace } from "../context";
 import { parseCSV } from "../state/csv";
 import type { Lead, NumberRecord, Packet } from "../types";
-import { FollowupTasks } from "./FollowupTasks";
 import { ProspectBrief } from "./ProspectBrief";
-import { PreparationRunway } from "./Preparation";
+import { PreparationPanel } from "./PreparationPanel";
 import { ConversationLearning } from "./ConversationLearning";
-import { ScriptUpload } from "./ScriptUpload";
+import { ScriptEditor } from "./ScriptEditor";
 import { ScriptMemory } from "./ScriptMemory";
+import { ScriptReader } from "./ScriptReader";
 import { OptimizationPanel } from "./OptimizationPanel";
 
-interface PreparationPreview {
-  ids: string[];
-  companies: number;
-  budget: { daily_limit_usd: number; monthly_limit_usd: number };
-}
-
-export function LeadsPage() {
+export function LeadsPage({
+  onNavigate,
+}: {
+  onNavigate: (view: "Script" | "Settings") => void;
+}) {
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
   const admin = isAdmin(w.user.role);
   const [csv, setCSV] = useState("");
   const [listName, setListName] = useState("");
-  const [preview, setPreview] = useState<PreparationPreview | null>(null);
   const [query, setQuery] = useState("");
   const [report, setReport] = useState<{
     imported: number;
@@ -53,99 +49,14 @@ export function LeadsPage() {
     <>
       <div className="page-heading">
         <div>
-          <span className="eyebrow">THE WHOLE COHORT</span>
-          <h1>
-            Good conversations start here<span className="soft-dot">.</span>
-          </h1>
+          <h1>Leads</h1>
           <p>
-            Every lead stays visible. Context improves; coverage stays
-            accountable.
+            Import a list. Each lead is researched and gets its own script
+            before it is called.
           </p>
         </div>
-        {admin && (
-          <button
-            className="primary"
-            onClick={() =>
-              void run(async () => {
-                const eligible = leads.filter((lead) => !lead.suppressed);
-                const settings = await api<{
-                  budget: {
-                    daily_limit_usd: number;
-                    monthly_limit_usd: number;
-                  };
-                }>("/v1/admin/settings");
-                setPreview({
-                  ids: eligible.map((lead) => lead.id),
-                  companies: new Set(
-                    eligible.map(
-                      (lead) => lead.domain || lead.company || lead.id,
-                    ),
-                  ).size,
-                  budget: settings.budget,
-                });
-              })
-            }
-          >
-            <Sparkles size={16} />
-            Prepare displayed lead packets
-          </button>
-        )}
       </div>
-      {preview && (
-        <section
-          className="card padded"
-          role="region"
-          aria-label="Preparation preview"
-        >
-          <h3>
-            Prepare {preview.ids.length} displayed{" "}
-            {preview.ids.length === 1 ? "lead" : "leads"} across{" "}
-            {preview.companies}{" "}
-            {preview.companies === 1 ? "company" : "companies"}?
-          </h3>
-          {w.simulation ? (
-            <p>Simulation: provider responses are simulated; no charges.</p>
-          ) : (
-            <p>
-              Each optional research or script request reserves an estimate
-              against your optional-work limits ($
-              {preview.budget.daily_limit_usd.toFixed(2)} per day, $
-              {preview.budget.monthly_limit_usd.toFixed(2)} per month) before it
-              runs, and preparation stops when a limit is reached. Current
-              packets are reused. Without configured research inference, leads
-              keep the approved generic script and no model request is made.
-              Actual charges come from provider receipts.
-            </p>
-          )}
-          <div className="button-row">
-            <button
-              className="primary"
-              disabled={!preview.ids.length}
-              onClick={() =>
-                void run(async () => {
-                  await api("/v1/research/batches", "POST", {
-                    lead_ids: preview.ids,
-                  });
-                  setPreview(null);
-                  notice(
-                    "Preparation queued. Lead packets will update as work completes.",
-                  );
-                  await refresh();
-                })
-              }
-            >
-              Queue preparation
-            </button>
-            <button className="secondary" onClick={() => setPreview(null)}>
-              Cancel preparation
-            </button>
-          </div>
-          {!preview.ids.length && (
-            <p className="fine">No displayed lead is eligible to prepare.</p>
-          )}
-        </section>
-      )}
-      <PreparationRunway />
+      <PreparationPanel onNavigate={onNavigate} />
       <section className="card table-card">
         <div className="table-toolbar">
           <h3>
@@ -205,8 +116,16 @@ export function LeadsPage() {
                   )}
                 </td>
                 <td>
-                  <span className={`pill ${lead.suppressed ? "red" : "green"}`}>
-                    {lead.suppressed ? "Suppressed" : label(lead.status)}
+                  <span
+                    className={`pill ${lead.suppressed ? "red" : lead.status === "preparing" ? "amber" : lead.outreach_hold ? "subtle" : "green"}`}
+                  >
+                    {lead.suppressed
+                      ? "Suppressed"
+                      : lead.status === "preparing"
+                        ? "Being prepared"
+                        : lead.outreach_hold === "company_booked"
+                          ? "Company booked"
+                          : label(lead.status)}
                   </span>
                 </td>
                 <td>{date(lead.coverage_due_at)}</td>
@@ -241,22 +160,16 @@ export function LeadsPage() {
           history={history}
           label={history.query ? "Continue lead search" : "Load more leads"}
         />
-        <p className="fine">
-          Preparation above applies to displayed leads. Advance preparation uses
-          the configured ready-queue target across the cohort.
-        </p>
       </section>
       {admin && (
         <section className="card import-card">
           <div>
-            <span className="eyebrow">BRING YOUR OWN LIST</span>
-            <h2>Import a lead cohort</h2>
+            <h2>Import a list</h2>
             <p className="muted">
-              Use headers: name, phone, company, domain, timezone, state,
-              segment. Suppressions are preserved across every import. State
-              names or abbreviations work. Without a state, number planning uses
-              the phone area code as an estimate; calling hours still need a
-              timezone.
+              A CSV with <code>name</code> and <code>phone</code> columns.{" "}
+              <code>company</code>, <code>domain</code>, <code>timezone</code>{" "}
+              and <code>state</code> help, and every other column is used as
+              research context. Opted-out numbers stay blocked.
             </p>
           </div>
           <div>
@@ -307,6 +220,7 @@ export function LeadsPage() {
                       imported: number;
                       duplicates: number;
                       invalid: number;
+                      preparing: number;
                     }>(
                       "/v1/leads/import",
                       "POST",
@@ -314,12 +228,18 @@ export function LeadsPage() {
                         campaign_id: w.campaign.id,
                         list_name: listName.trim(),
                         rows: parseCSV(csv),
+                        prepare: true,
                       },
                       { timeoutMs: LONG_REQUEST_MS },
                     );
                     setReport(report);
+                    setCSV("");
                     await refresh();
-                    notice(`${report.imported} leads imported`);
+                    notice(
+                      report.preparing
+                        ? `${report.imported} leads imported. Agents are researching them now.`
+                        : `${report.imported} leads imported.`,
+                    );
                   })
                 }
               >
@@ -329,8 +249,8 @@ export function LeadsPage() {
             </div>
             {report && (
               <p className="small">
-                {report.imported} imported · {report.duplicates} duplicate rows
-                · {report.invalid} invalid endpoints
+                {report.imported} imported · {report.duplicates} already in the
+                list · {report.invalid} without a valid phone number
               </p>
             )}
           </div>
@@ -347,15 +267,24 @@ export function LeadsPage() {
             <button className="close-modal" onClick={() => setPacket(null)}>
               Close
             </button>
-            <span className="eyebrow">LEAD PACKET</span>
             <h2>{packet.lead.name}</h2>
             <p>
               {packet.lead.company} · {packet.lead.phone}
             </p>
             <div className="section-rule" />
-            <h3>Approved opener</h3>
-            <p>{packet.script.opener}</p>
-            <h3>Verified facts</h3>
+            <h3>Script for this lead</h3>
+            <p className="fine">
+              {packet.script.fallback
+                ? packet.lead.status === "preparing"
+                  ? "Being prepared. This is your script as written until the agent finishes."
+                  : "Your script as written."
+                : (packet.script.summary ?? "Written from research.")}
+            </p>
+            <ScriptReader script={packet.script} />
+            <h3>What the agent found</h3>
+            {!packet.research.facts.length && (
+              <p className="muted small">No researched facts yet.</p>
+            )}
             {packet.research.facts.map((f) => (
               <p key={f.id}>
                 {f.statement}
@@ -1808,33 +1737,32 @@ function NumberRow({
     </>
   );
 }
-export function IntelligencePage() {
+export function ScriptPage() {
   return (
     <>
       <div className="page-heading">
         <div>
-          <h1>Script & learning</h1>
-          <p>Your words, what works, and what to improve.</p>
+          <h1>Script</h1>
+          <p>
+            Paste your script once. Each lead gets its own version, written from
+            research.
+          </p>
         </div>
       </div>
-      <ScriptUpload />
+      <ScriptEditor />
       <details className="card padded">
-        <summary>Script memory & variations</summary>
+        <summary>What's working</summary>
         <ScriptMemory />
       </details>
       <details className="card padded">
-        <summary>Stats & statistical learning</summary>
+        <summary>Call statistics</summary>
         <ConversationLearning />
         <OptimizationPanel />
       </details>
       <details className="card padded">
-        <summary>Product facts</summary>
+        <summary>What you sell</summary>
         <ProductKnowledge />
       </details>
-      <section className="card padded">
-        <h2>Follow-ups</h2>
-        <FollowupTasks />
-      </section>
     </>
   );
 }

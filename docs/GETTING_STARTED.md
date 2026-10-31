@@ -15,18 +15,19 @@ A sleeping or offline laptop cannot handle callbacks; configure and test the car
 
 Available in 0.6.0 and later. Import once; the connection restores and refreshes automatically.
 
-1. In a local workspace, open **Settings → Setup → Calling → Import calling setup (.json)**.
+1. In a local workspace, open **Settings → Calling → Import calling setup (.json)**.
    Choose the private file prepared for this computer. It imports the Telnyx application, verification key,
    browser credential, SIP username and shared webhook URL. Included provider keys are saved too.
 2. Wait for **Connected**. Login refresh and reconnect happen automatically. There is no tunnel token,
    SIP password to enter, Supabase dashboard login or terminal command for callers.
-3. Save a Telnyx key if omitted. Add your OpenRouter key in **AI assistance** and import your own Codex
-   login there if using the ChatGPT route. DNC coverage and business/campaign settings remain separate.
+3. Save a Telnyx key if omitted. In **Settings → AI**, connect ChatGPT and add the live help (OpenRouter) key.
+   DNC coverage and calling hours are their own cards on the same page.
 4. In **Numbers**, sync numbers already assigned to your calling application, or explicitly approve a priced
    purchase within your limits. Configure the number, complete identity evidence, and call it from another phone
    to verify callback delivery. A signed incoming event assigns that number to this workspace at the relay;
    normal callback evidence and outbound-readiness checks still apply. Nothing buys or warms up numbers automatically.
-5. Import leads, upload your Markdown script in **Intelligence**, run preflight, check your headset and go ready.
+5. Paste your Markdown script on the **Script** page, import leads (they are researched and scripted first),
+   press **Check readiness**, check your headset and go ready.
 
 Each independent computer needs its own setup file and Telnyx application/agent credential. All use the **same
 webhook URL**. Do not copy one live workspace profile to two computers: the receiver permits one store/consumer.
@@ -48,10 +49,10 @@ Open **Settings → Setup** and complete the checklist in order.
 
 
 1. **Calling (Telnyx):** use the setup-file import above when provided. For direct/hosted configuration, paste the Telnyx API v2 key, Call Control connection ID, webhook public key and public HTTPS webhook URL. Add the agent credential and carrier approval details. **Save Telnyx settings** saves the key and connection fields together. Local calling needs a reachable webhook forward; check the saved ingress.
-2. **AI assistance:** add an OpenRouter key for the Cerebras live helper and rundowns. For research/script writing with your Codex ChatGPT login, select **ChatGPT via Codex · import login**, then import the file as described below. An OpenAI key, compatible endpoint or the separate eligible ChatGPT authorization route is an alternative, not an additional requirement.
-3. Complete business identity, campaign hours, authorized DNC coverage and budgets. A DNC API key is needed only for the configured prepaid lookup route; importing authorized registry data is a separate supported path.
+2. **AI:** connect ChatGPT for research and per-lead scripts (one click when Codex is signed in on this computer, otherwise import the login file as described below) and add an OpenRouter key for the Cerebras live helper and call summaries. An OpenAI API key or compatible endpoint is an alternative under *Use an OpenAI API key instead of ChatGPT*.
+3. Set **Calling hours** (and confirm your business there), and load the **Do-not-call list** for the area codes you call. The AI budget per lead list and other options are under **More settings**. A DNC API key is needed only for manual prepaid lookups.
 4. In **Numbers**, sync owned numbers. To find additions, select your lead list and click **Plan state coverage**, then **Find numbers in [state]**. Review the metro suggestions and exact rental quotes under **Add numbers with approval**. Save count and spending limits before approving a purchase; zero blocks purchases. Complete routing and a genuine inbound callback test, then approve limited legitimate use. Buying or syncing does not start warmup.
-5. Upload your Markdown script in **Intelligence**, import leads, run preflight and check your audio before going ready. Allocation and next-lead selection use the eligible pool automatically; capacity planning does not place orders.
+5. Paste your Markdown script on the **Script** page, import leads and wait for them to be prepared (Leads shows progress per list), press **Check readiness** and check your audio before going ready. Allocation and next-lead selection use prepared leads automatically; capacity planning does not place orders.
 
 Keys are saved to the authority, not sent through chat. See [provider onboarding](../deploy/runbooks/providers.md) for account configuration, callback limitations and live verification.
 
@@ -93,7 +94,7 @@ does not assign new calls; stop it and start a new comparison if you want to eva
 2. Find **`auth.json`** in your home folder's **`.codex`** directory: `~/.codex/auth.json` on Mac/Linux,
    or `%USERPROFILE%\.codex\auth.json` on Windows. A custom `CODEX_HOME` changes this location.
    On a Mac file picker, press **Command–Shift–G** to enter the folder; on Windows paste it into the address bar.
-3. In OpenDialer, open **Settings → Setup → AI assistance**, choose **ChatGPT via Codex · import login**,
+3. In OpenDialer, open **Settings → AI** and choose **Import Codex login**,
    and select the file. A successful import displays the account and saves this route. Reps on a team server
    have **Your Codex login** directly in Settings; the admin selects the workspace's inference route.
 
@@ -115,7 +116,7 @@ the existing application validation. A successful login check does not prove mod
 
 
 1. Choose the workspace, campaign and audio device, then Go ready. Press **Space** or **Next call** to call the scheduler's next eligible lead. Get next lead previews the person and script first. The scheduler decides when another attempt is worthwhile, within campaign limits; there is no unconditional double dial.
-2. Read the plain-text script. In **Intelligence**, upload or paste Markdown, preview its sections and save it. Headings can describe openings, questions, offers, objections and alternate wording. Script memory & variations holds the learning history and controlled tests. The helper above it follows stable turns and may stay quiet; F1 asks for private help. Mute, pin or dismiss tips and mark them useful, wrong or late.
+2. Read the lead's own script: the opening, questions and offer the AI picked, with lines written for this lead highlighted. On the **Script** page you paste Markdown with `# Opening`, `# Screening`, `# Discovery`, `# Close` (required) and `# Gatekeeper`, `# Offers`, `# Objections`, `# Facts`, `# Never say` (optional); bullets are options and `{{ instruction }}` is written per lead. *What's working* holds the learning history and controlled tests. The helper above it follows stable turns and may stay quiet; F1 asks for private help. Mute, pin or dismiss tips and mark them useful, wrong or late.
 3. Use Opt out the moment it is asked for (or the prospect presses 9). Voicemail detection remains available; prerecorded voicemail drop is removed.
 4. Confirmed carrier results and supported, reviewed AI outcomes save automatically; expand **Correct outcome** to amend them. Unknown results, bookings and callback times still need confirmation. Optionally enable the next scheduled call five seconds after voicemail ends; Cancel and Pause after call take precedence. Voicemail drop is not available; a detected mailbox is not proof a message was delivered. New workspaces allow calls from 8 a.m. until 9 p.m. in the prospect’s timezone; existing campaign hours are editable in Settings.
 5. In Follow-ups, confirm, reschedule, snooze, assign, complete or cancel tasks. Pause when unavailable.
@@ -131,10 +132,10 @@ Raw speech, quotes and helper text expire within five minutes. There is no call 
 
 | Problem | Next step |
 | --- | --- |
-| No eligible next lead | Run preflight; check campaign hours, lead timezone, DNC evidence, budgets, your ready state and number readiness. |
+| No eligible next lead | Leads may still be being prepared (see Leads). Otherwise press Check readiness; check calling hours, lead timezone, DNC evidence, your ready state and number readiness. |
 | Number exists but cannot call | Complete identity/routing, a real inbound callback and limited-use approval in Numbers. Syncing alone is not readiness. |
 | Cannot receive webhooks | For shared setup, keep this computer awake and check **Connected** under Calling; reconcile outstanding calls before using **Reconnect**. Direct-local setup instead needs its own webhook forwarder online. |
-| ChatGPT is missing or setup looks different | Check the version and the release/source notice above. Current source moves ChatGPT into AI assistance. |
+| ChatGPT is missing or setup looks different | Check the version. From 0.7.0, ChatGPT is in Settings → AI. |
 | Provider fails after saving a key | Check account eligibility, balance and connection settings using the [provider guide](../deploy/runbooks/providers.md). A saved key alone does not prove service access. |
 | Microphone unavailable | Allow microphone access in the operating system, select the intended input/output and check the headset. |
 

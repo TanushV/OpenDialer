@@ -38,6 +38,15 @@ export async function isolatedSimulationWorkspace(page: Page, name: string) {
   await expect(page.getByText("Opening your workspace…")).toBeHidden();
 }
 
+/** Imported leads are researched and scripted before they can be called; wait for that. */
+export async function waitForPreparation(page: Page) {
+  const panel = page.getByRole("region", { name: "Lead preparation" });
+  await expect(panel).toBeVisible();
+  await expect(panel.getByText(/in progress|waiting/)).toHaveCount(0, {
+    timeout: 30000,
+  });
+}
+
 /**
  * Add one fictional lead and return to the dialer. Earlier specs on the shared
  * authority may have used every seeded lead's attempts, so a calling journey
@@ -48,10 +57,11 @@ export async function importLead(page: Page, name: string, phone: string) {
   await page
     .getByLabel("CSV lead data")
     .fill(
-      `name,phone,company,timezone,region\n${name},${phone},Example,America/Los_Angeles,415`,
+      `name,phone,company,timezone,region\n${name},${phone},${name} Co,America/Los_Angeles,415`,
     );
   await page.getByRole("button", { name: "Import leads", exact: true }).click();
   await expect(page.getByText(/^1 imported/)).toBeVisible();
+  await waitForPreparation(page);
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
 }
 
@@ -68,7 +78,10 @@ export async function prepareSimulationCall(
   ).toBeVisible();
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   const rows = [{ name, phone }, ...more]
-    .map((lead) => `${lead.name},${lead.phone},Example,America/Los_Angeles,415`)
+    .map(
+      (lead) =>
+        `${lead.name},${lead.phone},${lead.name} Co,America/Los_Angeles,415`,
+    )
     .join("\n");
   await page
     .getByLabel("CSV lead data")
@@ -77,6 +90,7 @@ export async function prepareSimulationCall(
   await expect(
     page.getByText(new RegExp(`^${1 + more.length} imported`)),
   ).toBeVisible();
+  await waitForPreparation(page);
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
   const ready = page.getByRole("button", { name: "Go ready", exact: true });
   await expect(

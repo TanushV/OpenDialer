@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures";
+import { openMoreSettings } from "./navigation";
 
 test("restore explains current-record preservation and permits the same backup retry", async ({
   page,
@@ -32,10 +33,10 @@ test("restore explains current-record preservation and permits the same backup r
       .click();
   }
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Operations", exact: true }).click();
+  await openMoreSettings(page, "Users, backups and recovery");
   const backup = page
-    .locator("section")
-    .filter({ has: page.getByRole("heading", { name: "Encrypted backups" }) });
+    .locator("div.stack")
+    .filter({ has: page.getByRole("heading", { name: "Backups" }) });
   await expect(backup).toContainText(
     "keeps current records and live obligations",
   );

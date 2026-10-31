@@ -80,82 +80,84 @@ test("reload restores the reserved lead and Space starts that reservation once",
   await finishCall(page);
 });
 
-test("upload a Markdown script, preview sections, and preserve readable wording", async ({
+test("open a Markdown script file, see it parsed, and keep readable wording", async ({
   page,
 }, testInfo) => {
   await enter(page);
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page.getByRole("button", { name: "Script", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Script & learning" }),
+    page.getByRole("heading", { name: "Script", exact: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("region", { name: "Script memory", exact: true }),
   ).toBeHidden();
-  await page.getByRole("button", { name: "Upload or paste script" }).click();
-  await page.getByLabel("Markdown or text file").setInputFiles({
+  await page.getByLabel("Open .md file").setInputFiles({
     name: "sales.md",
     mimeType: "text/markdown",
     buffer: Buffer.from(
-      "## Opener\nHi {name}, this is {rep} from {seller}.\n\n## Objection: busy\nWhen would be better?",
+      "# Opening\nHi {first_name}, this is {rep} from {seller}.\n\n# Screening\n{rep} from {seller}, about your process.\n\n# Discovery\n- How do you handle this today?\n\n# Objections\n## Busy\nWhen would be better?\n\n# Close\nWould a short call help?",
     ),
   });
-  await page.getByRole("button", { name: "Preview sections" }).click();
+  const outline = page.locator(".script-outline");
   await expect(
-    page.getByRole("heading", { name: "Objection: busy" }),
+    outline.getByRole("heading", { name: "Objections" }),
   ).toBeVisible();
+  await expect(outline).toContainText("Busy: When would be better?");
   await page.getByRole("button", { name: "Save script", exact: true }).click();
-  await expect(
-    page.getByText("Script saved. New calls will use this version."),
-  ).toBeVisible();
+  await expect(page.getByText(/Script saved/).first()).toBeVisible();
   await page.reload();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
-  await expect(
-    page.getByText("When would be better?", { exact: true }),
-  ).toBeVisible();
+  await page.getByRole("button", { name: "Script", exact: true }).click();
+  await expect(page.locator(".script-outline")).toContainText(
+    "When would be better?",
+  );
   await page.screenshot({
-    path: testInfo.outputPath("script-learning-screen.png"),
+    path: testInfo.outputPath("script-screen.png"),
     fullPage: true,
   });
 });
 
-test("a background script adoption cannot silently rebase an open editor", async ({
+test("a background script adoption cannot silently replace open edits", async ({
   page,
 }) => {
   await enter(page);
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
-  await page.getByRole("button", { name: "Upload or paste script" }).click();
-  await page
-    .getByLabel("Script text", { exact: true })
-    .fill("## Opener\nMy original draft, {rep} from {seller}.");
+  await page.getByRole("button", { name: "Script", exact: true }).click();
+  const editor = page.getByLabel("Script Markdown");
+  await expect(editor).toHaveValue(/# Opening/);
   const previewRequest = page.waitForRequest((r) =>
     r.url().endsWith("/v1/admin/script/import"),
   );
-  await page.getByRole("button", { name: "Preview sections" }).click();
+  await editor.fill(
+    "# Opening\nHi {first_name}, this is {rep} from {seller}.\n\n# Screening\n{rep} from {seller}, about your process.\n\n# Discovery\n- How do you handle this today?\n\n# Objections\n## Busy\nWhen would be better?\n\n# Close\nWould a short call help?".replace(
+      "Hi {first_name}",
+      "My original draft, {first_name}",
+    ),
+  );
   const sent = await previewRequest;
   await expect(
     page.getByRole("button", { name: "Save script", exact: true }),
-  ).toBeVisible();
+  ).toBeEnabled();
   const adopted = await page.request.post(sent.url(), {
     headers: { authorization: sent.headers()["authorization"] },
     data: {
       ...sent.postDataJSON(),
-      markdown: "## Opener\nNew team script, {rep} from {seller}.",
+      markdown:
+        "# Opening\nHi {first_name}, this is {rep} from {seller}.\n\n# Screening\n{rep} from {seller}, about your process.\n\n# Discovery\n- How do you handle this today?\n\n# Objections\n## Busy\nWhen would be better?\n\n# Close\nWould a short call help?".replace(
+          "Hi {first_name}",
+          "New team script, {first_name}",
+        ),
       preview: false,
     },
   });
   expect(adopted.ok()).toBeTruthy();
   await expect(
-    page.getByText(
-      "The script changed while you were editing. Reopen the editor to review the latest version.",
-    ),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Save script", exact: true }).click();
-  await expect(
-    page.getByText("The script changed; reload before replacing it"),
+    page.getByText("A newer version was saved while you were editing."),
   ).toBeVisible();
   await expect(
-    page.getByRole("textbox", { name: "Script text", exact: true }),
-  ).toHaveValue(/My original draft/);
+    page.getByRole("button", { name: "Save script", exact: true }),
+  ).toBeDisabled();
+  await expect(editor).toHaveValue(/My original draft/);
+  await page.getByRole("button", { name: "Load the newer version" }).click();
+  await expect(editor).toHaveValue(/New team script/);
 });
 
 test("pause after call takes precedence over automatic voicemail advance", async ({

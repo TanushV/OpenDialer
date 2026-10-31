@@ -442,6 +442,13 @@ def bind_api(app, service, principal):
     def home(p):
         return profile_home(service.settings.data_dir, p["user_id"])
 
+    def computer_login():
+        """The ChatGPT login Codex keeps on this computer, offered only to a local workspace."""
+        if service.settings.mode != "local":
+            return None
+        path = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "auth.json"
+        return path if path.is_file() else None
+
     @app.get("/v1/inference/codex")
     def status(p=Depends(principal)):
         directory = home(p)
@@ -450,7 +457,19 @@ def bind_api(app, service, principal):
         return {
             "connected": connected,
             "account": json.loads(metadata.read_text()) if connected and metadata.exists() else None,
+            "computer_login": computer_login() is not None,
         }
+
+    @app.post("/v1/inference/codex/import-computer")
+    async def import_computer_login(p=Depends(principal)):
+        path = computer_login()
+        if not path:
+            raise HTTPException(404, "No ChatGPT login from Codex was found on this computer.")
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, ValueError):
+            raise HTTPException(422, "The Codex login on this computer could not be read.") from None
+        return await import_login(data, p)
 
     @app.post("/v1/inference/codex/import")
     async def import_login(data: object = Body(), p=Depends(principal)):

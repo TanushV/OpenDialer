@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures";
+import { openMoreSettings } from "./navigation";
 
 test("an imported receipt settles the original liability with recoverable lost-response retry", async ({
   page,
@@ -65,7 +66,7 @@ test("an imported receipt settles the original liability with recoverable lost-r
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Operations", exact: true }).click();
+  await openMoreSettings(page, "Billing records");
   const panel = page.getByRole("region", {
     name: "Provider cost reconciliation",
     exact: true,
@@ -103,7 +104,7 @@ test("an imported receipt settles the original liability with recoverable lost-r
   });
   await page.reload();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Operations", exact: true }).click();
+  await openMoreSettings(page, "Billing records");
   await expect(panel).toContainText("0.003000");
   expect(posts).toHaveLength(2);
 });
@@ -141,7 +142,7 @@ test("carrier statement import is explicit, repeatable and preserves original re
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Operations", exact: true }).click();
+  await openMoreSettings(page, "Billing records");
   const panel = page.getByRole("region", {
     name: "Provider cost reconciliation",
     exact: true,
@@ -237,7 +238,7 @@ test("a confirmed no-charge statement is distinct from a missing carrier receipt
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Operations", exact: true }).click();
+  await openMoreSettings(page, "Billing records");
   const panel = page.getByRole("region", {
     name: "Provider cost reconciliation",
     exact: true,
@@ -339,7 +340,7 @@ test("settled call estimates are shown as estimates, apart from carrier-verified
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Operations", exact: true }).click();
+  await openMoreSettings(page, "Billing records");
   const panel = page.getByRole("region", {
     name: "Provider cost reconciliation",
     exact: true,

@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures";
+import { openMoreSettings } from "./navigation";
 
 test("number review distinguishes operational evidence from unknown external reputation", async ({
   page,
@@ -180,11 +181,7 @@ for (const connected of [false, true]) {
         .click();
     }
     const schedule = async () => {
-      await page.getByRole("button", { name: "Settings", exact: true }).click();
-      await page
-        .getByTestId("setup-schedule")
-        .locator(":scope > summary")
-        .click();
+      await openMoreSettings(page, "Campaign goal and team schedule");
     };
     await schedule();
     await page

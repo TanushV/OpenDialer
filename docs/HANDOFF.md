@@ -1,6 +1,6 @@
 # OpenDialer testing handoff (CURRENT)
 
-> **Status: CURRENT — 0.6.1 packaged WebSocket TLS correction**, October 30, 2026.
+> **Status: CURRENT — 0.7.0 simple setup and per-lead preparation**, October 30, 2026. Earlier sections are history.
 
 The installed setup check found that the released Python runtime had no usable default CA path for
 WebSockets, although HTTPS login succeeded. 0.6.1 selects bundled trusted roots without disabling
@@ -15,6 +15,21 @@ OpenDialer 0.6.0 adds protected credentials and ships the accumulated setup, man
 Live-provider and clean-machine installer gates remain open. Continue finding what the tests do not prove,
 adding tests before fixes, and supporting approved live testing. Read this file, then `AGENTS.md`, then the
 Status section of `docs/LEAN_PLAN.md`.
+
+## 0.7.0: one script, per-lead preparation, simple settings (October 30)
+
+Plan, decisions and real-model evidence: [CAMPAIGN_PREP_PLAN.md](CAMPAIGN_PREP_PLAN.md). What changed for users:
+[release notes](RELEASE_NOTES.md). Where things live: the Markdown parser, renderer and close-out rules are in
+`preparation/templates.py`; agent tools and the simulated agent in `preparation/agent.py`; list requests, threads and
+publication in `preparation/workflows.py`; the Codex agent loop in `providers/codex.py` and the API loop in
+`providers/inference.py`. Company spacing is `ReservationPlanner._company_contacted` (queue) and booking holds
+`company_hold_in` (rep workflows); leads index their company group in `op_lead_id` and usage its budget scope in
+`op_campaign_id` (no schema change). Tests: `test_script_markdown.py`, `test_prep_threads.py`,
+`acceptance/test_campaign_prep.py`, plus the live-helper regressions in `test_openrouter_coach.py` and
+`acceptance/test_feature_models.py`. Real-model scripts used for evidence live in ignored `work/prep/real/`.
+
+Open gates: real phone calls and audio, Windows and clean-machine installs, plan usage limits on large lists, and
+the rate at which the grounding rules decline real Cerebras tips.
 
 ## October 30 security and 0.6.0 release
 

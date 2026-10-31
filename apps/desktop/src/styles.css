@@ -182,10 +182,10 @@ strong {
   color: #7d897b;
 }
 .fine {
-  font-size: 10px;
-  color: #8d9689;
-  line-height: 1.7;
-  margin-top: 16px;
+  font-size: 11.5px;
+  color: #7f8a7b;
+  line-height: 1.6;
+  margin-top: 8px;
 }
 .eyebrow {
   display: block;
@@ -204,7 +204,7 @@ strong {
   gap: 5px;
   padding: 4px 8px;
   border-radius: 5px;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.4;
   white-space: nowrap;
   font-weight: 450;
@@ -2056,4 +2056,342 @@ details.transcript-card {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+}
+
+/* One-page settings: a short card per thing to set, more behind one fold. */
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+  align-items: start;
+}
+.setting-card > summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px;
+  cursor: pointer;
+  list-style: none;
+}
+.setting-card > summary::-webkit-details-marker {
+  display: none;
+}
+.setting-card > summary > span:first-child {
+  display: grid;
+  gap: 4px;
+}
+.setting-card > summary strong {
+  font-size: 15px;
+}
+.setting-card > summary small {
+  color: #6f7b6c;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.setting-card[open] > summary {
+  border-bottom: 1px solid #edf0e7;
+}
+.setting-body {
+  padding: 16px 20px 20px;
+  display: grid;
+  gap: 12px;
+}
+.setting-body label,
+.stack label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+}
+.stack {
+  display: grid;
+  gap: 12px;
+}
+.ai-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+}
+.ai-row > div {
+  display: grid;
+  gap: 4px;
+}
+.ai-row small {
+  color: #6f7b6c;
+  line-height: 1.5;
+}
+.readiness ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  line-height: 1.8;
+}
+.readiness.passed {
+  border-color: #cfe1bf;
+}
+.more-settings > summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+}
+.more-list {
+  margin-top: 14px;
+  display: grid;
+  gap: 2px;
+}
+.more-list > details {
+  border-top: 1px solid #edf0e7;
+  padding: 12px 2px;
+}
+.more-list > details > summary {
+  cursor: pointer;
+  font-weight: 550;
+}
+.more-list > details[open] > summary {
+  margin-bottom: 12px;
+}
+.more-list .card {
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+.two-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+/* The script editor: Markdown on the left, what it means on the right. */
+.script-editor .section-heading {
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.script-editor h2 {
+  margin: 0 0 4px;
+}
+.format-guide {
+  background: #f7f9f2;
+  border: 1px solid #e6ecdc;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  font-size: 12px;
+}
+.format-guide summary {
+  cursor: pointer;
+  font-weight: 550;
+}
+.format-guide ul {
+  margin: 8px 0 2px;
+  padding-left: 18px;
+  line-height: 1.8;
+}
+.format-guide code,
+.prep-panel code,
+.import-card code {
+  background: #eef2e7;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 11.5px;
+}
+.script-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+.script-source textarea {
+  min-height: 520px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.script-parsed {
+  border: 1px solid #edf0e7;
+  border-radius: 8px;
+  padding: 14px 16px;
+  max-height: 560px;
+  overflow: auto;
+  background: #fcfdfa;
+}
+.status-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+  color: #527546;
+}
+.script-errors {
+  color: #9f4b3c;
+}
+.script-errors ul {
+  padding-left: 18px;
+  line-height: 1.8;
+}
+.script-errors .line {
+  display: inline-block;
+  min-width: 56px;
+  font-weight: 600;
+}
+.script-outline section {
+  padding: 8px 0 12px;
+  border-bottom: 1px solid #f0f2ec;
+}
+.script-outline header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+.script-outline h3 {
+  margin: 0;
+  font-size: 13px;
+}
+.script-outline header .fine {
+  margin: 0;
+}
+.script-outline ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  line-height: 1.7;
+}
+.ai-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #efeafc;
+  color: #5b4a9a;
+  border-radius: 5px;
+  padding: 0 6px;
+  font-size: 12px;
+}
+.ai-text {
+  background: #f1ecfd;
+  color: inherit;
+  border-radius: 4px;
+  padding: 0 2px;
+}
+.script-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+}
+.script-option strong {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+.script-others,
+.script-objection {
+  margin: 4px 0 8px;
+  font-size: 14px;
+}
+.script-others summary,
+.script-objection summary {
+  cursor: pointer;
+  color: #6f7b6c;
+}
+.script-objection summary {
+  color: inherit;
+  font-weight: 500;
+}
+.script-empty {
+  padding: 18px 0;
+}
+
+/* Lead preparation progress. */
+.prep-panel h2 {
+  margin: 0 0 4px;
+}
+.prep-lists {
+  list-style: none;
+  padding: 0;
+  margin: 14px 0 0;
+  display: grid;
+  gap: 14px;
+}
+.prep-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.prep-row .fine {
+  margin: 0;
+}
+.progress {
+  height: 7px;
+  border-radius: 99px;
+  background: #eef1ea;
+  overflow: hidden;
+}
+.progress > span {
+  display: block;
+  height: 100%;
+  background: #739950;
+  transition: width 0.4s;
+}
+.prep-settings {
+  margin-top: 14px;
+}
+.prep-settings > summary {
+  cursor: pointer;
+  color: #6f7b6c;
+}
+
+/* Coaching is one list of things to work on. */
+.coach-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 12px;
+}
+.coach-list > li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 0;
+  border-bottom: 1px solid #f0f2ec;
+}
+.coach-list > li > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+.coach-list small {
+  color: #7f8a7b;
+}
+.coach-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.inline-add {
+  display: flex;
+  gap: 8px;
+}
+.practice-box {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid #e3ebd4;
+  border-radius: 8px;
+  background: #fafcf6;
+  display: grid;
+  gap: 10px;
+}
+.practice-answer p {
+  margin: 0 0 6px;
+}
+@media (max-width: 900px) {
+  .script-columns,
+  .two-fields {
+    grid-template-columns: 1fr;
+  }
 }

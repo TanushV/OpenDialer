@@ -73,7 +73,7 @@ describe("actionable authority refusals", () => {
   it("explains a missing carrier setup instead of exposing its internal code", async () => {
     const error = await refuse(503, "TELNYX_NOT_CONFIGURED");
     expect(error?.message).toBe(
-      "Connect Telnyx in Settings → Setup → Calling before using numbers or calls.",
+      "Connect Telnyx in Settings → Calling before using numbers or calls.",
     );
   });
 

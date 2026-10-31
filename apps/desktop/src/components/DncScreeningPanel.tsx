@@ -20,14 +20,6 @@ interface Screening {
 interface Screens {
   screens: Screening[];
   limited: boolean;
-  refresh?: {
-    status: string;
-    phase: string;
-    inspected: number;
-    submitted: number;
-    complete: boolean;
-    reason: string | null;
-  } | null;
 }
 
 export function DncScreeningPanel() {
@@ -121,18 +113,6 @@ export function DncScreeningPanel() {
         </button>
       </form>
       {!data && <p>Loading screening status…</p>}
-      {data?.refresh && (
-        <p className="fine">
-          Scheduled screening: {label(data.refresh.status)} ·{" "}
-          {data.refresh.inspected} endpoints inspected ·{" "}
-          {data.refresh.submitted} lookups submitted. Charges are reconciled
-          from provider receipts under Operations.
-          {data.refresh.reason &&
-            ` ${label(data.refresh.reason)}. Review the configured budget or source before authorizing further work.`}
-          {!data.refresh.complete &&
-            " Remaining pages resume through the saved cursor."}
-        </p>
-      )}
       {data && !data.screens.length && <p>No prepaid checks recorded.</p>}
       {data?.limited && (
         <p>

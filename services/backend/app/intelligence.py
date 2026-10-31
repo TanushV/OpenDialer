@@ -592,7 +592,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             "live_coach": LIMITS.live_active,
             "postcall": LIMITS.postcall_active,
         }
-        capacity.update(research=LIMITS.company_units, scripts=LIMITS.company_units, ml=2)
+        capacity.update(research=LIMITS.agent_threads, scripts=LIMITS.agent_threads, ml=2)
         processed = 0
 
         async def drain(lane):

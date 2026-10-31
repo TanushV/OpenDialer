@@ -7,7 +7,6 @@ import { WorkTime } from "./WorkTime";
 import { CallbackRouting } from "./CallbackRouting";
 import { RecoveryPanel } from "./RecoveryPanel";
 import { RubricSettings } from "./Rubrics";
-import { PreparationSettings } from "./Preparation";
 import { AccessAndRecovery } from "./AdminWorkflows";
 import { Trackers } from "./AdvancedIntelligence";
 import {
@@ -16,14 +15,13 @@ import {
 } from "./OptimizationPanel";
 import { WeeklySchedule, type SimpleStaffing } from "./Staffing";
 import { CredentialField } from "./CredentialField";
-import { CodexLogin } from "./CodexLogin";
+import { CodexLogin, type LoginStatus as CodexLoginStatus } from "./CodexLogin";
 import type { Update } from "@tauri-apps/plugin-updater";
 import {
   ArrowDownToLine,
   Database,
   Download,
   LoaderCircle,
-  LockKeyhole,
   RefreshCw,
   ShieldCheck,
   Wifi,
@@ -42,11 +40,10 @@ import {
 } from "../api/client";
 import { date, isAdmin, label, useWorkspace } from "../context";
 import { limits, options, useDefinitions } from "../state/definitions";
-import type { CapabilityStatus, Policy, Readiness } from "../types";
+import type { Policy, Readiness } from "../types";
 
 type BudgetData = {
-  daily_limit_usd: number;
-  monthly_limit_usd: number;
+  per_list_usd: number;
   number_purchase_limit_usd: number;
 };
 type SettingsData = {
@@ -58,7 +55,7 @@ type SettingsData = {
   defaults: { optimization: OptimizationSettings };
   [key: string]: unknown;
 };
-type View = "Dialer" | "Leads" | "Review" | "Numbers" | "Intelligence";
+type View = "Dialer" | "Leads" | "Review" | "Numbers" | "Script";
 const message = (reason: unknown) =>
   reason instanceof Error ? reason.message : String(reason);
 
@@ -75,16 +72,11 @@ export function SettingsPage({
       <>
         <div className="page-heading">
           <div>
-            <span className="eyebrow">YOUR WORKSPACE</span>
             <h1>Settings</h1>
-            <p>
-              Your working time, workspace connection and app updates. An
-              administrator manages providers, policy and numbers.
-            </p>
+            <p>Your working time, workspace and app updates.</p>
           </div>
         </div>
         <WorkTime />
-        <CodexLogin />
         <WorkspaceConnection onDisconnect={onDisconnect} />
         <UpdateSettings />
       </>
@@ -117,6 +109,14 @@ function useAdminSettings() {
 }
 type AdminSettingsState = ReturnType<typeof useAdminSettings>;
 
+const READINESS: Record<string, string> = {
+  POLICY_NOT_PUBLISHED: "Approve your calling hours for live calls.",
+  SELLER_NOT_APPROVED: "Confirm your business is allowed to make these calls.",
+  NO_CAMPAIGN: "Create a campaign.",
+  RESTORE_RECONCILIATION_REQUIRED: "Finish checking the restored backup.",
+  BUDGET_NOT_CONFIGURED: "Set an AI budget.",
+};
+
 function AdminSettings({
   onDisconnect,
   onNavigate,
@@ -124,492 +124,316 @@ function AdminSettings({
   onDisconnect: () => void;
   onNavigate: (view: View) => void;
 }) {
-  const { api, run } = useWorkspace();
+  const { api, run, snapshot: w } = useWorkspace();
   const settings = useAdminSettings();
   const [preflight, setPreflight] = useState<Readiness | null>(null);
-  const [section, setSection] = useState("Setup");
-  useEffect(() => {
-    void settings.load().catch(() => {});
-  }, [section, settings.load]);
   useEffect(() => setPreflight(null), [settings.data?.version]);
   return (
     <>
       <div className="page-heading">
         <div>
-          <span className="eyebrow">A WORKSPACE YOU CAN TRUST</span>
-          <h1>Settings &amp; readiness</h1>
-          <p>
-            Connect calling and AI, add your script and leads, then check
-            readiness.
-          </p>
+          <h1>Settings</h1>
+          <p>Set these once. Everything else has sensible defaults.</p>
         </div>
         <button
-          className="primary"
+          className="secondary"
           onClick={() =>
             void run(async () => setPreflight(await api("/v1/admin/preflight")))
           }
         >
-          <ShieldCheck size={17} />
-          Run preflight
+          <ShieldCheck size={16} />
+          Check readiness
         </button>
       </div>
-      {preflight && <PreflightResult preflight={preflight} />}
-      <div className="tabs">
-        {["Setup", "Policy & DNC", "Operations", "App updates"].map((tab) => (
-          <button
-            className={section === tab ? "selected" : ""}
-            aria-pressed={section === tab}
-            onClick={() => setSection(tab)}
-            key={tab}
+      {preflight && (
+        <section
+          className={`card padded readiness ${preflight.ready_to_call ? "passed" : ""}`}
+          aria-label="Readiness"
+        >
+          <h3>
+            {preflight.ready_to_call
+              ? "Ready to call"
+              : `${preflight.blockers.length} thing${preflight.blockers.length === 1 ? "" : "s"} left before live calls`}
+          </h3>
+          <ul>
+            {preflight.blockers.map((b) => (
+              <li key={b}>{READINESS[b] ?? label(b)}</li>
+            ))}
+          </ul>
+          {preflight.warnings.length > 0 && (
+            <details>
+              <summary>Notes</summary>
+              {preflight.warnings.map((warning) => (
+                <p className="small" key={warning}>
+                  {warning}
+                </p>
+              ))}
+            </details>
+          )}
+        </section>
+      )}
+      {!settings.data ? (
+        <section className="card padded">
+          <p role="status">
+            {settings.error
+              ? `Settings could not be loaded: ${settings.error}`
+              : "Loading settings…"}
+          </p>
+          {settings.error && (
+            <button
+              className="secondary"
+              onClick={() => void settings.load().catch(() => {})}
+            >
+              Try again
+            </button>
+          )}
+        </section>
+      ) : (
+        <div className="settings-grid">
+          <SettingCard
+            title="Calling"
+            done={!!settings.data.configured.telnyx_api_key}
+            summary={
+              settings.data.configured.telnyx_api_key
+                ? "Telnyx is connected."
+                : "Add your Telnyx API key."
+            }
           >
-            {tab}
-          </button>
-        ))}
-      </div>
-      {section === "Setup" && (
-        <SetupChecklist
-          settings={settings}
-          preflight={preflight}
-          onNavigate={onNavigate}
-          onSection={setSection}
-        />
-      )}
-      {section === "Policy & DNC" && (
-        <>
-          <OperatingPolicySettings />
-          <div className="two-column">
-            <CallingPolicySettings />
+            <TelnyxStep settings={settings} />
+          </SettingCard>
+          <SettingCard
+            title="AI"
+            done={
+              settings.data.effective.inference_mode === "codex"
+                ? undefined
+                : !!settings.data.configured.openai_api_key
+            }
+            summary="ChatGPT researches leads and writes scripts. A Cerebras key powers live help during calls."
+            open
+          >
+            <AiCard settings={settings} />
+          </SettingCard>
+          <SettingCard
+            title="Script"
+            summary="Paste your script once; every lead gets its own version."
+            open
+          >
+            <button className="secondary" onClick={() => onNavigate("Script")}>
+              Open Script
+            </button>
+          </SettingCard>
+          <SettingCard
+            title="Leads"
+            done={(w.pages?.leads?.total ?? w.leads.length) > 0}
+            summary={`${countLabel(w.pages?.leads?.total ?? w.leads.length, w.pages?.leads?.total_capped)} leads imported.`}
+            open
+          >
+            <button className="secondary" onClick={() => onNavigate("Leads")}>
+              Open Leads
+            </button>
+          </SettingCard>
+          <SettingCard
+            title="Calling hours"
+            done={w.policy.approved}
+            summary={`${w.policy.local_start_hour}:00 to ${w.policy.local_end_hour}:00 in each lead's time zone · up to ${w.policy.max_attempts} attempts${w.policy.approved ? "" : " · not approved for live calls yet"}`}
+          >
+            <CallingWindow />
+            <BusinessConfirmation />
+          </SettingCard>
+          <SettingCard
+            title="Do-not-call list"
+            done={w.registries.some(
+              (r) => r.kind === "national" && r.published,
+            )}
+            summary={
+              w.registries.some((r) => r.kind === "national" && r.published)
+                ? "A national do-not-call list is loaded. Your own opt-outs always apply."
+                : "Load the national do-not-call list for your area codes before live calls."
+            }
+          >
             <RegistrySettings />
-          </div>
-        </>
+          </SettingCard>
+        </div>
       )}
-      {section === "Operations" && (
-        <OperationsSettings onDisconnect={onDisconnect} />
-      )}
-      {section === "App updates" && <UpdateSettings />}
-      <AdvancedView />
+      <MoreSettings settings={settings} onDisconnect={onDisconnect} />
     </>
   );
 }
 
-function PreflightResult({ preflight }: { preflight: Readiness }) {
-  const { snapshot: w } = useWorkspace();
-  return (
-    <section
-      className={`preflight card ${preflight.ready_to_call ? "passed" : ""}`}
-    >
-      <div>
-        <ShieldCheck size={24} />
-        <div>
-          <h3>
-            {preflight.ready_to_call
-              ? w.simulation
-                ? "Simulation checks passed"
-                : "Configuration checks passed"
-              : "A few things need attention"}
-          </h3>
-          <p>
-            {preflight.integrity_ok
-              ? "Database integrity verified"
-              : "Database integrity check failed"}{" "}
-            · {preflight.version} · {preflight.mode}
-          </p>
-        </div>
-      </div>
-      {preflight.screening && (
-        <div className="stack">
-          <p>
-            National screening: {label(preflight.screening.mode)} ·{" "}
-            {preflight.screening.cleared_count} clear ·{" "}
-            {preflight.screening.pending_count} pending ·{" "}
-            {preflight.screening.blocked_count} blocked.
-          </p>
-          <p className="fine">
-            {preflight.screening.dialable_queue_count} currently eligible
-            candidates for this rep in {preflight.screening.inspected_count}{" "}
-            inspected leads, of {preflight.screening.total_count} total.
-            {preflight.screening.omitted_count > 0 &&
-              ` ${preflight.screening.omitted_count} leads remain outside this bounded check.`}{" "}
-            Every submission is checked again.
-          </p>
-        </div>
-      )}
-      {preflight.blockers.map((b) => (
-        <p className="preflight-blocker" key={b}>
-          ● {label(b)}
-        </p>
-      ))}
-      {preflight.warnings.map((warning) => (
-        <p className="small" key={warning}>
-          {warning}
-        </p>
-      ))}
-    </section>
-  );
-}
-
-type StepState = CapabilityStatus["state"];
-const tone = (state: StepState) =>
-  ["configured", "software_verified", "live_verified"].includes(state)
-    ? "green"
-    : state === "unavailable"
-      ? "red"
-      : "amber";
-
-function Step({
-  id,
-  index,
+function SettingCard({
   title,
-  state,
+  done,
   summary,
+  open = false,
   children,
 }: {
-  id: string;
-  index: number;
   title: string;
-  state: StepState;
+  done?: boolean;
   summary: string;
+  open?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <details className="setup-step" data-testid={`setup-${id}`}>
+    <details
+      className="card setting-card"
+      open={open}
+      data-testid={`setting-${title}`}
+    >
       <summary>
-        <span className="setup-index">{index}</span>
-        <strong>{title}</strong>
-        <span className={`pill ${tone(state)}`}>{label(state)}</span>
-        <span className="fine setup-summary">{summary}</span>
+        <span>
+          <strong>{title}</strong>
+          <small>{summary}</small>
+        </span>
+        {done !== undefined && (
+          <span className={`pill ${done ? "green" : "amber"}`}>
+            {done ? "Done" : "To do"}
+          </span>
+        )}
       </summary>
-      <div className="setup-body">{children}</div>
+      <div className="setting-body">{children}</div>
     </details>
   );
 }
 
-/** Admin setup in order: each step shows saved or checked state and its remedy. */
-function SetupChecklist({
-  settings,
-  preflight,
-  onNavigate,
-  onSection,
-}: {
-  settings: AdminSettingsState;
-  preflight: Readiness | null;
-  onNavigate: (view: View) => void;
-  onSection: (section: string) => void;
-}) {
-  const { snapshot: w, api } = useWorkspace();
-  const bounds = useDefinitions();
-  const readiness = preflight ?? w.readiness;
-  const capabilities = readiness.capabilities;
-  const capability = (id: string) => capabilities?.find((c) => c.id === id);
-  const [numbers, setNumbers] = useState<{
-    total: number;
-    ready: number;
-  } | null>(null);
-  const [numbersError, setNumbersError] = useState("");
-  const [numberRetry, setNumberRetry] = useState(0);
-  const numberVersion = w.numbers.map((n) => `${n.id}:${n.version}`).join(",");
-  useEffect(() => {
-    let live = true;
-    void api<{ inventory: { total: number; ready: number } }>(
-      "/v1/admin/numbers/summary",
-    )
-      .then((value) => {
-        if (live) {
-          setNumbers(value.inventory);
-          setNumbersError("");
-        }
-      })
-      .catch((error) => {
-        if (live) setNumbersError(message(error));
-      });
-    return () => {
-      live = false;
-    };
-  }, [api, numberVersion, numberRetry]);
-  const data = settings.data;
-  if (!data)
-    return (
-      <section className="card padded" aria-label="Setup checklist">
-        <p role="status">
-          {settings.error
-            ? `Saved settings could not be loaded: ${settings.error}`
-            : "Loading saved settings…"}
-        </p>
-        {settings.error && (
-          <button
-            className="secondary"
-            onClick={() => void settings.load().catch(() => {})}
-          >
-            Retry loading settings
-          </button>
-        )}
-      </section>
-    );
-  const configured = data.configured;
-  const checked = (id: string, saved: boolean): StepState =>
-    capability(id)?.state ?? (saved ? "configured" : "unconfigured");
-  const remedy = (id: string, fallback: string) =>
-    capability(id)?.remedy ?? fallback;
-  const telnyxSaved =
-    ["telnyx_api_key"].every((k) => configured[k]) &&
-    ["telnyx_connection_id", "telnyx_public_key"].every((k) => !!data[k]);
-  const knowledge = !!w.active_playbook?.product_description?.trim();
-  const registry = w.registries.some(
-    (r) => r.kind === "national" && r.published,
-  );
-  const leads = w.pages?.leads?.total ?? w.leads.length;
-  const optimization = data.optimization;
-  const defaults = data.defaults.optimization;
-  const scheduleDefault = (
-    [
-      "staffing_timezone",
-      "staffing_start_hour",
-      "staffing_end_hour",
-      "staffing_reps",
-    ] as const
-  ).every((k) => optimization[k] === defaults[k]);
-  const budget = data.budget;
+function BusinessConfirmation() {
+  const { snapshot: w, api, run, refresh, notice } = useWorkspace();
+  if (w.seller.approved)
+    return <p className="fine">Business confirmed for calling.</p>;
   return (
-    <section className="setup-checklist" aria-label="Setup checklist">
-      <p className="fine">
-        {capabilities
-          ? `Capability evidence checked ${date(readiness.capabilities_as_of)}${readiness.capabilities_stale ? "; it may be out of date" : ""}. `
-          : "Capabilities have not been checked since this authority started; states below come from saved settings. "}
-        Run preflight for a fresh no-charge check. Simulation never claims live
-        verification.
-      </p>
-      <Step
-        id="identity"
-        index={1}
-        title="Business identity & knowledge"
-        state={w.seller.approved && knowledge ? "configured" : "unconfigured"}
-        summary={`${w.seller.approved ? "Identity reviewed" : "Record your business identity evidence"} · ${knowledge ? "business knowledge published" : "describe what you sell and which claims are valid"}`}
-      >
-        <IdentityStep onKnowledge={() => onNavigate("Intelligence")} />
-      </Step>
-      <Step
-        id="telnyx"
-        index={2}
-        title="Calling (Telnyx)"
-        state={checked("telephony", telnyxSaved)}
-        summary={remedy(
-          "telephony",
-          telnyxSaved
-            ? "Saved; run preflight and test an owned destination."
-            : "Add your Telnyx key, connection and webhook signing key.",
-        )}
-      >
-        <TelnyxStep settings={settings} />
-      </Step>
-      <Step
-        id="helper"
-        index={3}
-        title="AI assistance"
-        state={checked("live_helper", !!configured.openrouter_api_key)}
-        summary={remedy(
-          "live_helper",
-          configured.openrouter_api_key
-            ? "Key saved; funded Cerebras acceptance still required."
-            : "Add an OpenRouter key; reps keep the prepared script without it.",
-        )}
-      >
-        <CredentialButton
-          field="openrouter_api_key"
-          title="OpenRouter API key"
-          settings={settings}
-        />
-        <p className="fine">
-          Cerebras only, zero data retention, no other-provider fallback. A
-          refused or unsupported endpoint disables help instead of switching
-          models.
-          {data.effective.coach_provider === "static" &&
-            " Approved static guidance is selected under Live coaching model below."}
-        </p>
-        <AdvancedProviders settings={settings} />
-      </Step>
-      <Step
-        id="dnc"
-        index={4}
-        title="Do-not-call sources"
-        state={checked("national_dnc", registry || !!configured.dnc_api_key)}
-        summary={remedy(
-          "national_dnc",
-          registry
-            ? "A national registry snapshot is published."
-            : "Import seller-authorized national coverage or configure prepaid screening.",
-        )}
-      >
-        <p>
-          National screening and your internal opt-outs are checked before every
-          US call. Missing, stale or uncovered data blocks dialing.
-        </p>
-        {capability("national_dnc")?.reason_codes.length ? (
-          <p className="fine">
-            {capability("national_dnc")!.reason_codes.map(label).join(" · ")}
-          </p>
-        ) : null}
-        <button className="secondary" onClick={() => onSection("Policy & DNC")}>
-          Open DNC sources
-        </button>
-      </Step>
-      <Step
-        id="numbers"
-        index={5}
-        title="Phone numbers"
-        state={
-          !numbers
-            ? "unconfigured"
-            : numbers.total === 0
-              ? "unconfigured"
-              : numbers.ready
-                ? "configured"
-                : "degraded"
-        }
-        summary={
-          numbers
-            ? `${numbers.total} owned · ${numbers.ready} ready. Sync owned numbers or review a purchase.`
-            : numbersError
-              ? "Number totals could not be loaded. Open this step to retry."
-              : "Inventory totals are loading."
-        }
-      >
-        {numbersError && (
-          <p role="alert">
-            {numbersError}{" "}
-            <button
-              className="secondary"
-              onClick={() => setNumberRetry((n) => n + 1)}
-            >
-              Retry number totals
-            </button>
-          </p>
-        )}
-        <p>
-          Sync existing Telnyx numbers or approve a quoted rental in Numbers.
-          Set a maximum number count and spending limits first. Allocation is
-          automatic after routing, a real callback test and approval for limited
-          use.
-        </p>
-        <button className="secondary" onClick={() => onNavigate("Numbers")}>
-          Open Numbers
-        </button>
-      </Step>
-      <Step
-        id="leads"
-        index={6}
-        title="Lead list"
-        state={leads ? "configured" : "unconfigured"}
-        summary={
-          leads
-            ? `${countLabel(leads, w.pages?.leads?.total_capped)} leads imported; suppressions are preserved.`
-            : "Import a CSV of the people you are allowed to call."
-        }
-      >
-        <button className="secondary" onClick={() => onNavigate("Leads")}>
-          Open Leads
-        </button>
-      </Step>
-      <Step
-        id="campaign"
-        index={7}
-        title="Campaign goal, hours & attempts"
-        state={w.policy.approved ? "configured" : "unconfigured"}
-        summary={`${label(optimization.conversion_goal)} within ${optimization.window_days} days · calls ${w.policy.local_start_hour}:00–${w.policy.local_end_hour}:00 prospect time · up to ${w.policy.max_attempts} attempts${w.policy.approved ? "" : " · not yet approved for live calling"}`}
-      >
-        <CampaignGoal
-          current={optimization}
-          bounds={bounds}
-          onSaved={settings.load}
-        />
-        <CallingWindow bounds={bounds} />
-      </Step>
-      <Step
-        id="schedule"
-        index={8}
-        title="Rep schedule (weekly)"
-        state={scheduleDefault ? "unconfigured" : "configured"}
-        summary={`${scheduleDefault ? "Default schedule: " : ""}${optimization.staffing_start_hour}:00–${optimization.staffing_end_hour}:00 ${optimization.staffing_timezone.replaceAll("_", " ")} · ${optimization.staffing_reps} rep(s) · ${optimization.staffing_weekdays.length} day(s) a week`}
-      >
-        <ScheduleStep
-          current={optimization}
-          bounds={bounds}
-          onSaved={settings.load}
-        />
-      </Step>
-      <Step
-        id="budget"
-        index={9}
-        title="Budgets"
-        state={
-          budget.daily_limit_usd > 0 && budget.monthly_limit_usd > 0
-            ? "configured"
-            : "unconfigured"
-        }
-        summary={`Optional AI work: $${budget.daily_limit_usd.toFixed(2)} per day, $${budget.monthly_limit_usd.toFixed(2)} per month. Calling controls are never budget-gated.`}
-      >
-        <BudgetStep settings={settings} bounds={bounds} />
-      </Step>
-      {capabilities && (
-        <section className="card padded" aria-label="Capability evidence">
-          <h3>Capability evidence</h3>
-          {capabilities.map((c) => (
-            <p className="small" key={c.id} data-testid={`capability-${c.id}`}>
-              <strong>{label(c.id)}</strong> · {label(c.state)} ·{" "}
-              {c.evidence_at
-                ? `Evidence ${date(c.evidence_at)}`
-                : "No live evidence"}
-              {c.reason_codes.length
-                ? ` · ${c.reason_codes.map(label).join(", ")}`
-                : ""}
-            </p>
-          ))}
-        </section>
-      )}
-    </section>
+    <button
+      className="secondary"
+      onClick={() =>
+        void run(async () => {
+          await api("/v1/admin/seller/approve", "POST", {
+            identity_reference: `Confirmed in Settings by ${w.user.name}`,
+          });
+          await refresh();
+          notice("Business confirmed.");
+        })
+      }
+    >
+      Confirm our business is allowed to call these leads
+    </button>
   );
 }
 
-function IdentityStep({ onKnowledge }: { onKnowledge: () => void }) {
-  const { snapshot: w, api, run, refresh, notice } = useWorkspace();
-  const [evidence, setEvidence] = useState("");
+type LoginStatus = CodexLoginStatus & { computer_login?: boolean };
+
+/** ChatGPT for research and scripts; a Cerebras key for live help. */
+function AiCard({ settings }: { settings: AdminSettingsState }) {
+  const { api, run, notice } = useWorkspace();
+  const [login, setLogin] = useState<LoginStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const mode = settings.data?.effective.inference_mode;
+  // A status read that started before an import cannot overwrite its result.
+  const generation = useRef(0);
+  const load = useCallback(async () => {
+    const current = ++generation.current;
+    const value = await api<LoginStatus>("/v1/inference/codex");
+    if (current === generation.current) setLogin(value);
+  }, [api]);
+  const accept = (value: LoginStatus) => {
+    generation.current++;
+    setLogin(value);
+  };
+  useEffect(() => {
+    void load().catch(() => {});
+    // Coming back from the browser or Codex refreshes both the login and the saved route.
+    const returned = () => {
+      void load().catch(() => {});
+      void settings.load().catch(() => {});
+    };
+    window.addEventListener("focus", returned);
+    return () => window.removeEventListener("focus", returned);
+  }, [load, settings.load]);
+  const useChatGpt = async () => {
+    if (mode !== "codex" && settings.data)
+      settings.setData(
+        await api<SettingsData>("/v1/admin/settings", "PUT", {
+          inference_mode: "codex",
+          request_id: crypto.randomUUID(),
+          expected_version: settings.data.version,
+        }),
+      );
+  };
   return (
-    <>
-      <label>
-        Business identity evidence
-        <input
-          value={evidence}
-          onChange={(e) => setEvidence(e.target.value)}
-          placeholder="Verified business registration / identity reference"
+    <div className="stack">
+      <div className="ai-row">
+        <div>
+          <strong>ChatGPT</strong>
+          <small>
+            {login?.connected
+              ? `Connected${login.account?.email ? ` as ${login.account.email}` : ""}${login.account?.planType ? ` · ${login.account.planType} plan` : ""}. Research and scripts use GPT-6.1 Terra at maximum effort, included in your plan.`
+              : "Not connected. Leads are called with your script as written until it is."}
+          </small>
+        </div>
+        {login?.connected ? (
+          <span className="pill green">Connected</span>
+        ) : login?.computer_login ? (
+          <button
+            className="primary"
+            disabled={busy}
+            onClick={() =>
+              void run(async () => {
+                setBusy(true);
+                try {
+                  accept(
+                    await api<LoginStatus>(
+                      "/v1/inference/codex/import-computer",
+                      "POST",
+                      undefined,
+                      { timeoutMs: LONG_REQUEST_MS },
+                    ),
+                  );
+                  await useChatGpt();
+                  notice("ChatGPT connected.");
+                } finally {
+                  setBusy(false);
+                }
+              })
+            }
+          >
+            {busy ? "Connecting…" : "Use the ChatGPT login on this computer"}
+          </button>
+        ) : null}
+      </div>
+      {!login?.connected && !login?.computer_login && (
+        <CodexLogin
+          compact
+          onImported={async (value) => {
+            accept(value);
+            await useChatGpt();
+          }}
         />
-      </label>
-      <button
-        className="secondary"
-        disabled={!evidence.trim()}
-        onClick={() =>
-          void run(async () => {
-            await api("/v1/admin/seller/approve", "POST", {
-              identity_reference: evidence,
-            });
-            await refresh();
-            notice(
-              "Business identity review recorded. Campaign permission remains separately controlled.",
-            );
-          })
-        }
-      >
-        Record business identity approval
-      </button>
-      {w.seller.approved && (
-        <p className="fine">Identity approval is recorded for this seller.</p>
       )}
-      <p>
-        Business knowledge tells the helper what you sell, which prices and
-        claims are valid, and what to avoid.
-      </p>
-      <button className="secondary" onClick={onKnowledge}>
-        Edit business knowledge
-      </button>
-    </>
+      {login?.connected && mode !== "codex" && (
+        <button className="secondary" onClick={() => void run(useChatGpt)}>
+          Use ChatGPT for research and scripts
+        </button>
+      )}
+      {login?.connected && (
+        <button
+          className="text-button"
+          onClick={() =>
+            void run(async () => {
+              setLogin(await api<LoginStatus>("/v1/inference/codex", "DELETE"));
+              notice("ChatGPT disconnected.");
+            })
+          }
+        >
+          Disconnect ChatGPT
+        </button>
+      )}
+      <CredentialButton
+        field="openrouter_api_key"
+        title="Live help key (OpenRouter, Cerebras)"
+        settings={settings}
+      />
+      <details>
+        <summary>Use an OpenAI API key instead of ChatGPT</summary>
+        <AdvancedProviders settings={settings} />
+      </details>
+    </div>
   );
 }
 
@@ -755,22 +579,17 @@ function TelnyxStep({ settings }: { settings: AdminSettingsState }) {
       {runtime?.local_token && !runtime.simulation && (
         <ManagedConnection changed={managedChanged} />
       )}
-      {!configured && (
-        <p>
-          Start with your Telnyx API key. Then connect the Voice API application
-          and the browser calling credential.
-        </p>
-      )}
-      <button
-        className="secondary"
-        onClick={() => void run(() => openSource("https://portal.telnyx.com/"))}
-      >
-        Open Telnyx portal
-      </button>
       <p className="fine">
-        In Telnyx: Account settings → API Keys → Create API Key. The connection
-        ID comes from your Voice API application; the public key verifies
-        incoming events.
+        In the{" "}
+        <button
+          className="text-button"
+          onClick={() =>
+            void run(() => openSource("https://portal.telnyx.com/"))
+          }
+        >
+          Telnyx portal
+        </button>
+        : Account settings → API Keys → Create API Key.
       </p>
       <label>
         Telnyx API key
@@ -787,31 +606,22 @@ function TelnyxStep({ settings }: { settings: AdminSettingsState }) {
           onChange={(e) => setKey(e.target.value)}
         />
       </label>
-      <p className="fine">
-        {settings.data?.configured.telnyx_api_key
-          ? "API key saved"
-          : "Your key and connection details save together below."}
-      </p>
+
       {!configured && (
         <>
-          {form.field("telnyx_connection_id", "Call Control connection ID")}
-          {form.field("telnyx_public_key", "Ed25519 webhook public key")}
+          {form.field("telnyx_connection_id", "Voice API connection ID")}
+          {form.field("telnyx_public_key", "Webhook public key")}
           {form.field(
             "webhook_url",
-            "Public HTTPS webhook URL",
+            "Webhook address",
             "https://your-endpoint/webhooks/telnyx",
           )}
-          <p className="fine">
-            Use the same public HTTPS webhook address in Telnyx. For calling
-            from this Mac, configure the forwarding host below and run Check
-            saved ingress.
-          </p>
           <LocalWebhookForward />
         </>
       )}
       {!configured && (
         <details>
-          <summary>Agent credential and carrier approval</summary>
+          <summary>Browser calling credential</summary>
           {form.field(
             "telephony_credential_id",
             "Scoped telephony credential ID",
@@ -859,16 +669,9 @@ function TelnyxStep({ settings }: { settings: AdminSettingsState }) {
             })
           }
         >
-          {configured ? "Check connection" : "Check saved ingress"}
+          Check connection
         </button>
       </div>
-      {!configured && (
-        <p className="fine">
-          Signed carrier callbacks need a public HTTPS route to this authority's
-          webhook endpoint; keep administrative routes private. The ingress
-          check verifies routing and signature handling without a carrier call.
-        </p>
-      )}
       {ingress && (
         <pre className="small" aria-label="Ingress check result">
           {JSON.stringify(ingress, null, 2)}
@@ -1057,7 +860,7 @@ function usePolicyEditor<T extends object>(pick: (policy: Policy) => T) {
     try {
       await api(`/v1/admin/policies/${w.policy.id}/publish`, "POST", {
         ...draft,
-        reason,
+        reason: reason.trim() || "Edited in Settings",
         expected_version: w.policy.version,
       });
     } catch (error) {
@@ -1068,7 +871,7 @@ function usePolicyEditor<T extends object>(pick: (policy: Policy) => T) {
     setConflict(false);
     setReason("");
     await refresh();
-    notice("New policy version published. Queued calls will recheck it.");
+    notice("Saved.");
   };
   const reload = async () => {
     setConflict(false);
@@ -1082,9 +885,8 @@ function PolicyConflict({ onReload }: { onReload: () => Promise<void> }) {
   const { run } = useWorkspace();
   return (
     <div className="alert" role="alert">
-      A newer calling policy is current. Reload it, review your change, then
-      publish again.
-      <button onClick={() => void run(onReload)}>Reload calling policy</button>
+      Someone else changed this. Reload, then make your change again.
+      <button onClick={() => void run(onReload)}>Reload</button>
     </div>
   );
 }
@@ -1097,12 +899,9 @@ const callingWindow = (policy: Policy) => ({
   review_reference: policy.review_reference || "",
 });
 
-function CallingWindow({
-  bounds,
-}: {
-  bounds: ReturnType<typeof useDefinitions>;
-}) {
+function CallingWindow() {
   const { run } = useWorkspace();
+  const bounds = useDefinitions();
   const editor = usePolicyEditor(callingWindow);
   const p = bounds?.policy;
   const { draft, change } = editor;
@@ -1110,7 +909,7 @@ function CallingWindow({
     <div className="setup-form">
       <div className="three-fields">
         <label>
-          Local start hour
+          Start (hour)
           <input
             type="number"
             {...limits(p?.local_start_hour)}
@@ -1121,7 +920,7 @@ function CallingWindow({
           />
         </label>
         <label>
-          Local end hour
+          End (hour)
           <input
             type="number"
             {...limits(p?.local_end_hour)}
@@ -1130,7 +929,7 @@ function CallingWindow({
           />
         </label>
         <label>
-          Attempt limit
+          Attempts per lead
           <input
             type="number"
             {...limits(p?.max_attempts)}
@@ -1139,42 +938,17 @@ function CallingWindow({
           />
         </label>
       </div>
-      <p className="fine">
-        Hours are the prospect's local time. National screening and internal
-        opt-outs are always required.
-      </p>
       <label className="check-label">
         <input
           type="checkbox"
           checked={draft.approved}
           onChange={(e) => change({ approved: e.target.checked })}
         />
-        Campaign approved for live use
+        Approved for live calls
       </label>
-      <label>
-        Reviewed policy reference
-        <input
-          value={draft.review_reference}
-          onChange={(e) => change({ review_reference: e.target.value })}
-        />
-      </label>
-      <label>
-        Publication reason
-        <input
-          value={editor.reason}
-          onChange={(e) => editor.setReason(e.target.value)}
-        />
-      </label>
-      <button
-        className="primary"
-        disabled={!editor.reason.trim()}
-        onClick={() => void run(editor.publish)}
-      >
-        Publish calling window
+      <button className="primary" onClick={() => void run(editor.publish)}>
+        Save calling hours
       </button>
-      {!editor.reason.trim() && (
-        <p className="fine">A publication reason is required.</p>
-      )}
       {editor.conflict && <PolicyConflict onReload={editor.reload} />}
     </div>
   );
@@ -1239,80 +1013,46 @@ function ScheduleStep({
   );
 }
 
-function BudgetStep({
-  settings,
-  bounds,
-}: {
-  settings: AdminSettingsState;
-  bounds: ReturnType<typeof useDefinitions>;
-}) {
-  const { snapshot: w, api, run, notice, refresh } = useWorkspace();
-  const [budget, setBudget] = useState<BudgetData | null>(
-    settings.data?.budget ?? null,
-  );
-  const saved = JSON.stringify(settings.data?.budget ?? null);
+function BudgetSettings({ settings }: { settings: AdminSettingsState }) {
+  const { api, run, notice } = useWorkspace();
+  const [value, setValue] = useState(settings.data?.budget.per_list_usd ?? 25);
   useEffect(() => {
-    if (settings.data) setBudget(settings.data.budget);
-  }, [saved]);
-  if (!budget) return null;
-  const b = bounds?.budget;
+    if (settings.data) setValue(settings.data.budget.per_list_usd);
+  }, [settings.data?.budget.per_list_usd]);
+  if (!settings.data) return null;
+  const budget = settings.data.budget;
   return (
     <div className="setup-form">
-      <div className="two-column">
-        <label>
-          Daily optional-work limit (USD)
-          <input
-            type="number"
-            {...limits(b?.daily_limit_usd)}
-            value={budget.daily_limit_usd}
-            onChange={(e) =>
-              setBudget({ ...budget, daily_limit_usd: Number(e.target.value) })
-            }
-          />
-        </label>
-        <label>
-          Monthly limit (USD)
-          <input
-            type="number"
-            {...limits(b?.monthly_limit_usd)}
-            value={budget.monthly_limit_usd}
-            onChange={(e) =>
-              setBudget({
-                ...budget,
-                monthly_limit_usd: Number(e.target.value),
-              })
-            }
-          />
-        </label>
-      </div>
+      <label>
+        AI budget per lead list (USD)
+        <input
+          type="number"
+          min={0}
+          step="1"
+          value={value}
+          onChange={(e) => setValue(Number(e.target.value))}
+        />
+      </label>
       <p className="fine">
-        Limits optional research, preparation and model requests. Hangup,
-        opt-out, recovery and owed bookkeeping are never blocked. New number
-        rentals are blocked by the no-subscription policy.
+        Covers research, scripts, live help and call notes for each list. On
+        ChatGPT, research and scripts are included in your plan and cost $0
+        here. Calling is never blocked by this budget.
       </p>
       <button
-        className="primary"
+        className="secondary"
         onClick={() =>
           void run(async () => {
-            await api("/v1/admin/budget", "PUT", budget);
+            await api("/v1/admin/budget", "PUT", {
+              ...budget,
+              per_list_usd: value,
+            });
             await settings.load();
-            notice("Budget limits saved");
-            await refresh();
+            notice("Budget saved.");
           })
         }
       >
-        Save budget limits
+        Save budget
       </button>
-      <p className="fine">
-        Reserved usage: $
-        {w.metrics.reserved_cost_usd == null
-          ? "Unknown"
-          : w.metrics.reserved_cost_usd.toFixed(2)}{" "}
-        · Verified provider billing:{" "}
-        {w.metrics.billing_verified ? "Reconciled" : "Not yet reconciled"}.
-        Reserved amounts are internal controls; provider receipts establish
-        billed costs.
-      </p>
     </div>
   );
 }
@@ -1334,12 +1074,7 @@ function CallingPolicySettings() {
   const { draft: policy, change } = editor;
   return (
     <section className="card padded">
-      <span className="eyebrow">VERSIONED CAMPAIGN POLICY</span>
-      <h2>Permission before every dial</h2>
-      <p className="fine">
-        National screening is always required. Calling hours, attempts and live
-        approval are in Setup.
-      </p>
+      <h3>Extra checks before each call</h3>
       <label className="check-label">
         <input
           type="checkbox"
@@ -1348,9 +1083,9 @@ function CallingPolicySettings() {
             change({ state_registry_required: e.target.checked })
           }
         />
-        Require applicable state registry data
+        Also check state do-not-call lists
       </label>
-      <h3>Separate treatment permissions</h3>
+      <p className="fine">Allowed during calls:</p>
       {["live", "transcription"].map((permission) => (
         <label className="check-label" key={permission}>
           <input
@@ -1367,24 +1102,9 @@ function CallingPolicySettings() {
           {label(permission)}
         </label>
       ))}
-      <label>
-        Publication reason
-        <input
-          value={editor.reason}
-          onChange={(e) => editor.setReason(e.target.value)}
-        />
-      </label>
-      <button
-        className="primary"
-        disabled={!editor.reason.trim()}
-        onClick={() => void run(editor.publish)}
-      >
-        Publish policy version
-        <ShieldCheck size={15} />
+      <button className="secondary" onClick={() => void run(editor.publish)}>
+        Save checks
       </button>
-      {!editor.reason.trim() && (
-        <p className="fine">A publication reason is required.</p>
-      )}
       {editor.conflict && <PolicyConflict onReload={editor.reload} />}
     </section>
   );
@@ -1415,8 +1135,7 @@ function RegistrySettings() {
         : "";
   return (
     <section className="card padded">
-      <span className="eyebrow">AUTHORITATIVE DATA</span>
-      <h2>Registry snapshots</h2>
+      <h3>Loaded lists</h3>
       {history.items.map((r) => (
         <div className="registry-row" key={r.id}>
           <strong>
@@ -1431,8 +1150,8 @@ function RegistrySettings() {
       ))}
       <HistoryMore history={history} label="Load older registry snapshots" />
       <p className="muted small">
-        Import seller-authorized data only. Missing or stale coverage blocks
-        calling. Registry membership never enters scheduling features.
+        Paste the numbers from your do-not-call download for the area codes you
+        call. Leads in area codes without a current list are not called.
       </p>
       <label>
         Dataset import mode
@@ -1673,93 +1392,160 @@ function RegistrySettings() {
     </section>
   );
 }
-function OperationsSettings({ onDisconnect }: { onDisconnect: () => void }) {
+function MoreSettings({
+  settings,
+  onDisconnect,
+}: {
+  settings: AdminSettingsState;
+  onDisconnect: () => void;
+}) {
   const { api, run, refresh, notice } = useWorkspace();
   const [backupId, setBackupId] = useState("");
   const [restoreId, setRestoreId] = useState("");
+  const [open, setOpen] = useState(false);
+  const bounds = useDefinitions();
   return (
-    <>
-      <WorkTime />
-      <PreparationSettings />
-      <CallbackRouting />
-      <RubricSettings />
-      <BillingReconciliation />
-      <section className="card padded">
-        <span className="eyebrow">RECOVERABLE BY DESIGN</span>
-        <h2>Encrypted backups</h2>
-        <p className="muted small">
-          Restore recovers missing records and keeps current records and live
-          obligations, then pauses outbound work until carrier reconciliation.
-          Backups contain business records, not provider credentials.
-        </p>
-        <button
-          className="primary"
-          onClick={() =>
-            void run(async () => {
-              const r = await api<{ backup_id: string }>(
-                "/v1/admin/backup",
-                "POST",
-                undefined,
-                { timeoutMs: LONG_REQUEST_MS },
-              );
-              setBackupId(r.backup_id);
-              notice("Backup created");
-            })
-          }
-        >
-          <Database size={15} />
-          Create backup
-        </button>
-        {backupId && <p className="mono small">Backup ID: {backupId}</p>}
-        <label>
-          Backup ID to restore
-          <input
-            value={restoreId}
-            onChange={(e) => setRestoreId(e.target.value)}
-          />
-        </label>
-        <button
-          className="secondary"
-          disabled={!restoreId}
-          onClick={() =>
-            void run(async () => {
-              const restored = await api<{ recovered_records: number }>(
-                "/v1/admin/restore",
-                "POST",
-                { backup_id: restoreId },
-                { timeoutMs: LONG_REQUEST_MS },
-              );
-              await refresh();
-              notice(
-                `Recovered ${restored.recovered_records} missing records. Current records were kept. Outbound calling is paused.`,
-              );
-            })
-          }
-        >
-          Restore selected backup
-        </button>
-        <div className="section-rule" />
-        <button
-          className="secondary"
-          onClick={() =>
-            void run(async () => {
-              await api("/v1/admin/recovery", "POST");
-              await refresh();
-              notice("Recovery sweep completed");
-            })
-          }
-        >
-          <RefreshCw size={15} />
-          Run recovery sweep
-        </button>
-      </section>
-      <WorkspaceConnection onDisconnect={onDisconnect} />
-      <AccessAndRecovery />
-      <RecoveryPanel />
-    </>
+    <details
+      className="card padded more-settings"
+      onToggle={(e) => setOpen(e.currentTarget.open)}
+    >
+      <summary>More settings</summary>
+      {open && (
+        <div className="more-list">
+          <details>
+            <summary>AI budget</summary>
+            <BudgetSettings settings={settings} />
+          </details>
+          <details>
+            <summary>Campaign goal and team schedule</summary>
+            {settings.data && (
+              <>
+                <CampaignGoal
+                  current={settings.data.optimization}
+                  bounds={bounds}
+                  onSaved={settings.load}
+                />
+                <ScheduleStep
+                  current={settings.data.optimization}
+                  bounds={bounds}
+                  onSaved={settings.load}
+                />
+              </>
+            )}
+          </details>
+          <details>
+            <summary>Do-not-call checks and consent</summary>
+            <CallingPolicySettings />
+          </details>
+          <details>
+            <summary>Privacy and spending rules</summary>
+            <OperatingPolicySettings />
+          </details>
+          <details>
+            <summary>Callbacks</summary>
+            <CallbackRouting />
+          </details>
+          <details>
+            <summary>Call scoring</summary>
+            <RubricSettings />
+          </details>
+          <details>
+            <summary>Work time</summary>
+            <WorkTime />
+          </details>
+          <details>
+            <summary>Billing records</summary>
+            <BillingReconciliation />
+          </details>
+          <details>
+            <summary>Learning experiments and trackers</summary>
+            <LearningAdvanced />
+            <Trackers />
+          </details>
+          <details>
+            <summary>Users, backups and recovery</summary>
+            <div className="stack">
+              <h3>Backups</h3>
+              <p className="muted small">
+                Restore recovers missing records and keeps current records and
+                live obligations, then pauses outbound work until carrier
+                reconciliation. Backups contain business records, not provider
+                credentials.
+              </p>
+              <button
+                className="primary"
+                onClick={() =>
+                  void run(async () => {
+                    const r = await api<{ backup_id: string }>(
+                      "/v1/admin/backup",
+                      "POST",
+                      undefined,
+                      { timeoutMs: LONG_REQUEST_MS },
+                    );
+                    setBackupId(r.backup_id);
+                    notice("Backup created");
+                  })
+                }
+              >
+                <Database size={15} />
+                Create backup
+              </button>
+              {backupId && <p className="mono small">Backup ID: {backupId}</p>}
+              <label>
+                Backup ID to restore
+                <input
+                  value={restoreId}
+                  onChange={(e) => setRestoreId(e.target.value)}
+                />
+              </label>
+              <button
+                className="secondary"
+                disabled={!restoreId}
+                onClick={() =>
+                  void run(async () => {
+                    const restored = await api<{ recovered_records: number }>(
+                      "/v1/admin/restore",
+                      "POST",
+                      { backup_id: restoreId },
+                      { timeoutMs: LONG_REQUEST_MS },
+                    );
+                    await refresh();
+                    notice(
+                      `Recovered ${restored.recovered_records} missing records. Current records were kept. Outbound calling is paused.`,
+                    );
+                  })
+                }
+              >
+                Restore selected backup
+              </button>
+              <div className="section-rule" />
+              <button
+                className="secondary"
+                onClick={() =>
+                  void run(async () => {
+                    await api("/v1/admin/recovery", "POST");
+                    await refresh();
+                    notice("Recovery sweep completed");
+                  })
+                }
+              >
+                <RefreshCw size={15} />
+                Run recovery sweep
+              </button>
+            </div>
+            <AccessAndRecovery />
+            <RecoveryPanel />
+          </details>
+          <details>
+            <summary>Workspace and app updates</summary>
+            <WorkspaceConnection onDisconnect={onDisconnect} />
+            <UpdateSettings />
+          </details>
+        </div>
+      )}
+    </details>
   );
 }
-
 function WorkspaceConnection({ onDisconnect }: { onDisconnect: () => void }) {
   const { snapshot: w } = useWorkspace();
   const reasons = w.quiescence?.reasons ?? [];
@@ -1794,241 +1580,59 @@ function WorkspaceConnection({ onDisconnect }: { onDisconnect: () => void }) {
   );
 }
 
-/** Optional learning and tracker controls stay out of the setup checklist. */
-function AdvancedView() {
-  const [open, setOpen] = useState(false);
-  return (
-    <details
-      className="card padded advanced-view"
-      onToggle={(e) => setOpen(e.currentTarget.open)}
-    >
-      <summary>Advanced</summary>
-      <p className="fine">
-        Learning experiments and trackers. Defaults apply until you change them;
-        changes are versioned and audited.
-      </p>
-      {open && (
-        <>
-          <LearningAdvanced />
-          <Trackers />
-        </>
-      )}
-    </details>
-  );
-}
-
 function AdvancedProviders({ settings }: { settings: AdminSettingsState }) {
-  const { api, run, notice } = useWorkspace();
+  const { run } = useWorkspace();
   const form = useProviderDraft(settings, [
-    "coach_provider",
-    "coach_model",
     "inference_mode",
     "inference_base_url",
     "model",
-    "research_search",
-    "script_write_model",
-    "scorecard_review_model",
   ]);
   const { draft, setDraft } = form;
-  const [planPaste, setPlanPaste] = useState(false);
-  const [planAddress, setPlanAddress] = useState("");
-  useEffect(() => {
-    const returned = () => {
-      void settings.load().catch(() => {});
-    };
-    window.addEventListener("focus", returned);
-    return () => window.removeEventListener("focus", returned);
-  }, [settings.load]);
   return (
-    <section className="card padded" aria-label="Optional model routes">
-      <h3>Research &amp; script writing</h3>
-      <p className="fine">
-        Use your ChatGPT sign-in for preparation. Live coaching uses the
-        OpenRouter key above.
-      </p>
-      <details>
-        <summary>Live coaching model</summary>
-        <label>
-          Live coach provider
-          <select
-            value={draft.coach_provider || ""}
-            onChange={(e) =>
-              setDraft({ ...draft, coach_provider: e.target.value })
-            }
-          >
-            <option value="openrouter">OpenRouter · Cerebras</option>
-            <option value="static">Approved static guidance</option>
-          </select>
-        </label>
-        {draft.coach_provider === "openrouter" && (
-          <>
-            {form.field("coach_model", "Cerebras coach model")}
-            <p className="fine">
-              Cerebras only · other-provider fallbacks disabled · strict
-              structured responses. Endpoint support and live timing must pass
-              your account checks.
-            </p>
-          </>
-        )}
-      </details>
+    <div className="stack" aria-label="AI route">
       <label>
-        Preparation and analysis route
+        Research and scripts use
         <select
-          value={draft.inference_mode || ""}
+          value={draft.inference_mode || "codex"}
           onChange={(e) =>
             setDraft({ ...draft, inference_mode: e.target.value })
           }
         >
-          <option value="api">OpenAI Responses API</option>
-          <option value="codex">ChatGPT via Codex · import login</option>
-          <option value="litellm">
-            Explicit OpenAI-compatible LiteLLM endpoint
+          <option value="codex">ChatGPT (included in your plan)</option>
+          <option value="api">
+            OpenAI API key (billed per use, with web search)
           </option>
-          <option value="chatgpt_plan">
-            Official eligible ChatGPT plan usage
-          </option>
+          <option value="litellm">OpenAI-compatible endpoint</option>
         </select>
       </label>
-      {!["chatgpt_plan", "codex"].includes(draft.inference_mode || "") && (
-        <CredentialButton
-          field="openai_api_key"
-          title={
-            draft.inference_mode === "litellm"
-              ? "LiteLLM API key"
-              : "OpenAI API key"
-          }
-          settings={settings}
-        />
-      )}
-      {draft.inference_mode === "litellm" &&
-        form.field(
-          "inference_base_url",
-          "Inference base URL",
-          "http://127.0.0.1:4000/v1",
-        )}
-      {draft.inference_mode === "codex" && (
-        <CodexLogin
-          onImported={async () => {
-            await form.save("Codex route saved.");
-          }}
-        />
-      )}
-      {draft.inference_mode === "chatgpt_plan" && (
+      {draft.inference_mode && draft.inference_mode !== "codex" && (
         <>
-          <p role="status">
-            {settings.data?.configured.chatgpt_access_token
-              ? "ChatGPT connected"
-              : "ChatGPT not connected yet"}
-          </p>
-          <p className="fine">
-            Research and script writing use your own ChatGPT plan. Each user
-            signs in for the work they queue; the live helper stays on Cerebras.
-          </p>
-          <button
-            className="secondary"
-            onClick={() =>
-              void run(async () => {
-                await form.save("ChatGPT route saved.");
-                const flow = await api<{
-                  authorization_url: string;
-                  completion: "loopback" | "paste";
-                }>("/v1/inference/chatgpt/start", "POST");
-                await openSource(flow.authorization_url);
-                setPlanPaste(flow.completion === "paste");
-                notice(
-                  flow.completion === "paste"
-                    ? "Sign in in your browser, then paste the address it ends on here."
-                    : "Complete the official authorization in your browser, then return here.",
-                );
-              })
+          <CredentialButton
+            field="openai_api_key"
+            title={
+              draft.inference_mode === "litellm"
+                ? "Endpoint API key"
+                : "OpenAI API key"
             }
-            disabled={form.busy}
-          >
-            Continue with ChatGPT
-          </button>
-          {planPaste && (
-            <>
-              <label>
-                Address shown after signing in
-                <input
-                  value={planAddress}
-                  placeholder="http://127.0.0.1:1455/auth/callback?code=…"
-                  onChange={(e) => setPlanAddress(e.target.value)}
-                />
-              </label>
-              <button
-                className="primary"
-                disabled={!planAddress.trim()}
-                onClick={() =>
-                  void run(async () => {
-                    await api("/v1/inference/chatgpt/complete", "POST", {
-                      redirect_url: planAddress.trim(),
-                    });
-                    setPlanAddress("");
-                    setPlanPaste(false);
-                    await settings.load();
-                    notice("ChatGPT is connected to your OpenDialer user.");
-                  })
-                }
-              >
-                Finish ChatGPT sign-in
-              </button>
-            </>
-          )}
+            settings={settings}
+          />
+          {draft.inference_mode === "litellm" &&
+            form.field(
+              "inference_base_url",
+              "Endpoint address",
+              "http://127.0.0.1:4000/v1",
+            )}
+          {form.field("model", "Model")}
         </>
       )}
-      <details>
-        <summary>Models and optional paid search</summary>
-        {form.field("model", "Default evaluated model")}
-        <label>
-          Optional research search
-          <select
-            aria-label="Optional research search"
-            value={draft.research_search || "disabled"}
-            onChange={(e) =>
-              setDraft({ ...draft, research_search: e.target.value })
-            }
-          >
-            <option value="disabled">Disabled</option>
-            <option value="openai_web_search">Metered OpenAI web search</option>
-          </select>
-        </label>
-        <p className="fine">
-          At most two metered searches per company, within the preparation
-          budget, when official pages lack useful context. Saving this choice
-          makes no paid request.
-        </p>
-        {form.field("script_write_model", "Script-writing model")}
-        {form.field("scorecard_review_model", "Optional stronger review model")}
-      </details>
-      <div className="settings-save">
-        <LockKeyhole size={16} />
-        <span>
-          Write-only secrets · never shown again after saving snapshots
-        </span>
-        <button
-          className="primary"
-          disabled={!settings.data || form.busy}
-          onClick={() =>
-            void run(() => form.save("Provider configuration saved securely."))
-          }
-        >
-          Save provider settings
-        </button>
-        <button
-          className="secondary"
-          disabled={form.busy}
-          onClick={() =>
-            void run(async () => {
-              await settings.load();
-              notice("Current provider settings loaded.");
-            })
-          }
-        >
-          Reload provider settings
-        </button>
-      </div>
-    </section>
+      <button
+        className="secondary"
+        disabled={!settings.data || form.busy}
+        onClick={() => void run(() => form.save("AI route saved."))}
+      >
+        Save AI route
+      </button>
+    </div>
   );
 }
 

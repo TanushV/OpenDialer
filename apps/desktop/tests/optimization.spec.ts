@@ -1,4 +1,9 @@
 import { expect, test } from "./fixtures";
+import {
+  openMoreSettings,
+  openScriptSection,
+  openSettingsCard,
+} from "./navigation";
 import { importLead, chooseOutcome } from "./simulation";
 
 async function simulation(page: import("@playwright/test").Page) {
@@ -153,8 +158,7 @@ test("optimization goals, forecast, learning state and provider settings persist
   page,
 }) => {
   await simulation(page);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByTestId("setup-campaign").locator(":scope > summary").click();
+  await openMoreSettings(page, "Campaign goal and team schedule");
   await page.getByLabel("Conversion goal").selectOption("sale_won");
   await page.getByLabel("Outcome window (days)").fill("30");
   await page.getByRole("button", { name: "Save campaign goal" }).click();
@@ -162,8 +166,7 @@ test("optimization goals, forecast, learning state and provider settings persist
     .getByRole("button", { name: "Apply reviewed goal change" })
     .click();
   await expect(page.getByText("Campaign goal saved").first()).toBeVisible();
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
-  await page.getByText("Stats & statistical learning", { exact: true }).click();
+  await openScriptSection(page, "Call statistics");
   await page
     .getByRole("button", { name: "Refresh learning and capacity" })
     .click();
@@ -173,8 +176,7 @@ test("optimization goals, forecast, learning state and provider settings persist
   await expect(page.getByTestId("saved-goal")).toContainText("Sale won");
   // Latency breakdowns are diagnostics that no longer sit in the normal view.
   await expect(page.getByText(/p95 inference/)).toHaveCount(0);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByText("Advanced", { exact: true }).click();
+  await openMoreSettings(page, "Learning experiments and trackers");
   await expect(
     page.getByText("Operational training dataset", { exact: true }),
   ).toBeVisible();
@@ -199,19 +201,13 @@ test("optimization goals, forecast, learning state and provider settings persist
     .click();
   await expect(page.getByText(/Saved cohort report:/)).toBeVisible();
   await page.reload();
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByTestId("setup-campaign").locator(":scope > summary").click();
+  await openMoreSettings(page, "Campaign goal and team schedule");
   await expect(page.getByLabel("Conversion goal")).toHaveValue("sale_won");
-  await page.getByTestId("setup-helper").locator(":scope > summary").click();
-  await page.getByText("Live coaching model", { exact: true }).click();
-  await page.getByLabel("Live coach provider").selectOption("openrouter");
+  // ChatGPT and the live help key share the AI card.
+  const ai = await openSettingsCard(page, "AI");
   await expect(
-    page
-      .getByRole("region", { name: "Optional model routes" })
-      .getByText(/Cerebras only/),
+    ai.getByLabel("Live help key (OpenRouter, Cerebras)", { exact: true }),
   ).toBeVisible();
-  // The key and route now share the same setup step.
-  await expect(page.getByLabel("OpenRouter API key")).toBeVisible();
 });
 
 test("live events deliver cached guidance and conversion recording without call polling", async ({

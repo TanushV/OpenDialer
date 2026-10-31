@@ -6,7 +6,7 @@ import {
   Activity,
   ArrowRight,
   BookOpen,
-  ChartNoAxesCombined,
+  FileText,
   ChevronRight,
   Headphones,
   LayoutDashboard,
@@ -41,11 +41,7 @@ import {
 } from "./api/client";
 import { DialerPage } from "./components/DialerPage";
 import { LiveConnection, type LiveEvent } from "./api/live";
-import {
-  IntelligencePage,
-  LeadsPage,
-  NumbersPage,
-} from "./components/Operations";
+import { ScriptPage, LeadsPage, NumbersPage } from "./components/Operations";
 import { ReviewPage } from "./components/ReviewPage";
 import { SettingsPage } from "./components/SettingsPage";
 import { Context, isAdmin, type WorkspaceContext } from "./context";
@@ -56,19 +52,13 @@ import {
   type Workspace,
 } from "./types";
 
-type View =
-  | "Dialer"
-  | "Leads"
-  | "Review"
-  | "Numbers"
-  | "Intelligence"
-  | "Settings";
+type View = "Dialer" | "Leads" | "Review" | "Numbers" | "Script" | "Settings";
 const navigation = [
   { title: "Dialer", icon: Phone, admin: false },
   { title: "Leads", icon: Users, admin: false },
   { title: "Review", icon: BookOpen, admin: false },
   { title: "Numbers", icon: Radio, admin: true },
-  { title: "Intelligence", icon: ChartNoAxesCombined, admin: false },
+  { title: "Script", icon: FileText, admin: false },
   { title: "Settings", icon: Settings, admin: false },
 ] as const;
 export function Brand() {
@@ -100,7 +90,7 @@ export function App() {
   const [focusTask, setFocusTask] = useState<string | null>(null);
   const openTask = useCallback((id: string) => {
     setFocusTask(id);
-    setView("Intelligence");
+    setView("Review");
   }, []);
   const [offline, setOffline] = useState(false);
   // An authentication failure is not an outage: it needs a new session.
@@ -922,13 +912,13 @@ export function App() {
               <DialerPage visible={view === "Dialer"} />
             </div>
             {view === "Dialer" ? null : view === "Leads" ? (
-              <LeadsPage />
+              <LeadsPage onNavigate={setView} />
             ) : view === "Review" ? (
               <ReviewPage />
             ) : view === "Numbers" && isAdmin(snapshot.user.role) ? (
               <NumbersPage />
-            ) : view === "Intelligence" ? (
-              <IntelligencePage />
+            ) : view === "Script" ? (
+              <ScriptPage />
             ) : (
               <SettingsPage
                 onDisconnect={() => void run(disconnect)}

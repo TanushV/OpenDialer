@@ -1,10 +1,10 @@
 import { expect, test } from "./fixtures";
-import { chooseOutcome } from "./simulation";
+import { openMoreSettings } from "./navigation";
+import { chooseOutcome, waitForPreparation } from "./simulation";
 
-/** The campaign goal is a setup step; it opens collapsed. */
+/** The campaign goal lives under Settings → More settings. */
 async function openGoal(page: import("@playwright/test").Page) {
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByTestId("setup-campaign").locator(":scope > summary").click();
+  await openMoreSettings(page, "Campaign goal and team schedule");
 }
 
 test("campaign goal changes are previewed before application and survive reload", async ({
@@ -74,9 +74,10 @@ test("rep explicitly reviews a reopened prospect before resuming outreach", asyn
   await page
     .getByLabel("CSV lead data")
     .fill(
-      "name,phone,company,timezone,region\nGoal Fixture,+14155550181,Example,America/Los_Angeles,415",
+      "name,phone,company,timezone,region\nGoal Fixture,+14155550181,Goal Fixture Co,America/Los_Angeles,415",
     );
   await page.getByRole("button", { name: "Import leads", exact: true }).click();
+  await waitForPreparation(page);
   await openGoal(page);
   if (
     (await page.getByLabel("Conversion goal").inputValue()) !==

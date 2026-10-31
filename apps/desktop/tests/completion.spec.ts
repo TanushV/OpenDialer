@@ -1,41 +1,8 @@
 import { expect, test, type Page } from "./fixtures";
-import { importLead, finishCall } from "./simulation";
+import { openMoreSettings, openSettingsCard } from "./navigation";
+import { importLead, finishCall, waitForPreparation } from "./simulation";
 
-test("late superseded settings load cannot replace a rep's template edits", async ({
-  page,
-}) => {
-  await enter(page, false);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  let release!: () => void;
-  const held = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  let loads = 0;
-  let delivered = false;
-  await page.route("**/v1/admin/operating-policy", async (route) => {
-    if (route.request().method() !== "GET") return route.continue();
-    const index = ++loads;
-    const response = await route.fetch();
-    if (index === 1) await held;
-    await route.fulfill({ response });
-    if (index === 1) delivered = true;
-  });
-  try {
-    await page.getByRole("button", { name: "Operations", exact: true }).click();
-    const topic = page.getByLabel("Script topic", { exact: true });
-    await expect(topic).toBeVisible();
-    await topic.fill("Reviewed approval process");
-    release();
-    await expect.poll(() => delivered).toBeTruthy();
-    await expect(topic).toHaveValue("Reviewed approval process");
-  } finally {
-    release();
-  }
-});
-
-test("setup shows capability evidence and saves a write-only provider key", async ({
-  page,
-}) => {
+test("setup saves a write-only live help key", async ({ page }) => {
   await enter(page, false);
   const requests: string[] = [];
   page.on("request", (r) => {
@@ -51,22 +18,18 @@ test("setup shows capability evidence and saves a write-only provider key", asyn
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   const settingsVersion = (await (await settingsRead).json()).version;
   await page
-    .getByRole("button", { name: "Run preflight", exact: true })
+    .getByRole("button", { name: "Check readiness", exact: true })
     .click();
-  await expect(page.getByTestId("capability-offline_callback")).toContainText(
-    "Unavailable",
-  );
-  await expect(page.getByTestId("capability-live_helper")).toContainText(
-    "Software verified",
-  );
-  await page.getByTestId("setup-helper").locator(":scope > summary").click();
+  await expect(page.getByRole("region", { name: "Readiness" })).toBeVisible();
+  await openSettingsCard(page, "AI");
   const field = page.getByTestId("credential-openrouter_api_key");
-  await field.getByLabel("OpenRouter API key").fill("sk-or-test-only");
+  const name = "Live help key (OpenRouter, Cerebras)";
+  await field.getByLabel(name).fill("sk-or-test-only");
   await field
-    .getByRole("button", { name: "Save OpenRouter API key", exact: true })
+    .getByRole("button", { name: `Save ${name}`, exact: true })
     .click();
   await expect(field).toContainText("Configured");
-  await expect(field.getByLabel("OpenRouter API key")).toHaveValue("");
+  await expect(field.getByLabel(name)).toHaveValue("");
   expect(requests).toHaveLength(1);
   expect(JSON.parse(requests[0])).toMatchObject({
     openrouter_api_key: "sk-or-test-only",
@@ -74,7 +37,7 @@ test("setup shows capability evidence and saves a write-only provider key", asyn
   });
 });
 
-test("settings preserve saved budgets and expose only supported treatments", async ({
+test("settings show the per-list budget and expose only supported treatments", async ({
   page,
 }) => {
   await enter(page, false);
@@ -85,21 +48,15 @@ test("settings preserve saved budgets and expose only supported treatments", asy
       response,
       json: {
         ...data,
-        budget: {
-          daily_limit_usd: 23,
-          monthly_limit_usd: 321,
-          number_purchase_limit_usd: 0,
-        },
+        budget: { per_list_usd: 23, number_purchase_limit_usd: 0 },
       },
     });
   });
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByTestId("setup-budget").locator(":scope > summary").click();
-  await expect(page.getByLabel("Daily optional-work limit (USD)")).toHaveValue(
+  await openMoreSettings(page, "AI budget");
+  await expect(page.getByLabel("AI budget per lead list (USD)")).toHaveValue(
     "23",
   );
-  await expect(page.getByLabel("Monthly limit (USD)")).toHaveValue("321");
-  await page.getByRole("button", { name: "Policy & DNC", exact: true }).click();
+  await openMoreSettings(page, "Do-not-call checks and consent");
   await expect(
     page.getByRole("checkbox", { name: "Recording", exact: true }),
   ).toHaveCount(0);
@@ -133,7 +90,7 @@ test("inbound arrival exposes call controls while an admin page is open", async 
     });
     await route.fulfill({ response, json: data });
   });
-  await page.getByTestId("setup-telnyx").locator(":scope > summary").click();
+  await openSettingsCard(page, "Calling");
   const active = page.getByRole("region", {
     name: "Active return call",
     exact: true,
@@ -214,12 +171,13 @@ for (const connected of [false, true]) {
     await page
       .getByLabel("CSV lead data")
       .fill(
-        `name,phone,company,timezone,region\nAuthority,+1415555015${connected ? "1" : "2"},Example,America/Los_Angeles,415`,
+        `name,phone,company,timezone,region\nAuthority,+1415555015${connected ? "1" : "2"},Authority ${connected ? "hosted" : "local"} Co,America/Los_Angeles,415`,
       );
     await page
       .getByRole("button", { name: "Import leads", exact: true })
       .click();
     await expect(page.getByText(/1 imported/)).toBeVisible();
+    await waitForPreparation(page);
     await page.getByRole("button", { name: "Dialer", exact: true }).click();
     if (await page.getByRole("button", { name: "Go ready" }).isVisible())
       await page.getByRole("button", { name: "Go ready" }).click();
@@ -261,12 +219,13 @@ for (const connected of [false, true]) {
       await page
         .getByLabel("CSV lead data")
         .fill(
-          `name,phone,company,timezone,region\nCompletion ${width},+1415555${width === 1024 ? "0131" : "0132"},Example,America/Los_Angeles,415`,
+          `name,phone,company,timezone,region\nCompletion ${width},+1415555${width === 1024 ? "0131" : "0132"},Completion ${width} ${connected ? "hosted" : "local"} Co,America/Los_Angeles,415`,
         );
       await page
         .getByRole("button", { name: "Import leads", exact: true })
         .click();
       await expect(page.getByText(/1 imported/)).toBeVisible();
+      await waitForPreparation(page);
       await page.getByRole("button", { name: "Dialer", exact: true }).click();
       if (await page.getByRole("button", { name: "Go ready" }).isVisible())
         await page.getByRole("button", { name: "Go ready" }).click();
@@ -410,8 +369,7 @@ test("seller DNC authorization saves with its loaded version and stable request 
       json: { ...(await response.json()), version: 4 },
     });
   });
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Policy & DNC", exact: true }).click();
+  await openMoreSettings(page, "Privacy and spending rules");
   await page
     .getByText("Seller authorization and source freshness", { exact: true })
     .click();

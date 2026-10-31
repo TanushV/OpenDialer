@@ -1,4 +1,6 @@
 import { expect, test } from "./fixtures";
+import { waitForPreparation } from "./simulation";
+import { openMoreSettings } from "./navigation";
 
 test("number route recovery preserves its original target and does not offer call controls", async ({
   page,
@@ -73,7 +75,7 @@ test("number route recovery preserves its original target and does not offer cal
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Operations", exact: true }).click();
+  await openMoreSettings(page, "Users, backups and recovery");
   const recovery = page.getByRole("region", {
     name: "Work needing recovery",
     exact: true,
@@ -159,7 +161,7 @@ test("recovery offers verified reconciliation and keeps failed actions retryable
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Operations", exact: true }).click();
+  await openMoreSettings(page, "Users, backups and recovery");
   const recovery = page.getByRole("region", {
     name: "Work needing recovery",
     exact: true,
@@ -235,7 +237,7 @@ test("an unconfirmed dial is confirmed not placed only with a recorded reason", 
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Operations", exact: true }).click();
+  await openMoreSettings(page, "Users, backups and recovery");
   const recovery = page.getByRole("region", {
     name: "Work needing recovery",
     exact: true,
@@ -285,10 +287,11 @@ test("an administrator releases a temporary safety hold with a recorded reason",
   await page
     .getByLabel("CSV lead data")
     .fill(
-      "name,phone,company,timezone,region\nHold Fixture,+14155550889,Example,America/Los_Angeles,415",
+      "name,phone,company,timezone,region\nHold Fixture,+14155550889,Hold Fixture Co,America/Los_Angeles,415",
     );
   await page.getByRole("button", { name: "Import leads", exact: true }).click();
   await expect(page.getByText(/1 imported/)).toBeVisible();
+  await waitForPreparation(page);
   expect(authorization).not.toBe("");
   const held = await page.request.post(
     "http://127.0.0.1:8765/v1/suppressions",

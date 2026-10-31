@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures";
+import { openMoreSettings, openSettingsCard } from "./navigation";
 
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: "ignoreErrors" });
@@ -18,8 +19,7 @@ async function enter(page: import("@playwright/test").Page) {
 
 test("app updates explain the 0.4.0 fresh workspace", async ({ page }) => {
   await enter(page);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "App updates", exact: true }).click();
+  await openMoreSettings(page, "Workspace and app updates");
   await expect(page.getByText(/0.4.0 starts a fresh workspace/)).toBeVisible();
   await expect(page.getByText(/old data stays untouched/)).toBeVisible();
 });
@@ -87,10 +87,7 @@ test("lead search continues beyond an empty bounded page without hiding older le
   await expect(page.getByText("Rare Needle", { exact: true })).toBeVisible();
   expect(found).toBe(true);
   await expect(
-    page.getByRole("button", {
-      name: "Prepare displayed lead packets",
-      exact: true,
-    }),
+    page.getByRole("region", { name: "Lead preparation" }),
   ).toBeVisible();
 });
 
@@ -180,8 +177,7 @@ test("registry history remains accessible beyond the workspace preview", async (
     }),
   );
   await enter(page);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Policy & DNC", exact: true }).click();
+  await openSettingsCard(page, "Do-not-call list");
   await page
     .getByRole("button", { name: "Load older registry snapshots", exact: true })
     .click();
@@ -289,7 +285,7 @@ test("editing an older follow-up keeps the returned version beyond the preview",
     }),
   );
   await enter(page);
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page.getByRole("button", { name: "Review", exact: true }).click();
   await page
     .getByRole("button", { name: "Load more follow-ups", exact: true })
     .click();

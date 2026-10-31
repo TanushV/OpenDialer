@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures";
+import { openMoreSettings } from "./navigation";
 import { prepareSimulationCall, chooseOutcome } from "./simulation";
 
 test("leaving review prevents an in-flight refresh from reopening the old call", async ({
@@ -111,7 +112,7 @@ test("campaign scoring anchors persist and a rep can correct the call purpose", 
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Operations", exact: true }).click();
+  await openMoreSettings(page, "Call scoring");
   const editor = page.getByRole("region", {
     name: "Call scoring rubrics",
     exact: true,
@@ -130,7 +131,7 @@ test("campaign scoring anchors persist and a rep can correct the call purpose", 
   await page.reload();
   await expect(page.getByText("Opening your workspace…")).toBeHidden();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Operations", exact: true }).click();
+  await openMoreSettings(page, "Call scoring");
   await editor
     .getByLabel("Rubric to edit", { exact: true })
     .selectOption("discovery");

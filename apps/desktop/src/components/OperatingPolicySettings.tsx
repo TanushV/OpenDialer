@@ -25,13 +25,6 @@ type Cost = {
 type Policy = {
   version: number;
   dnc_source_max_age_days: number;
-  dnc_refresh: {
-    enabled: boolean;
-    interval_hours: number;
-    batch_size: number;
-    max_run_usd: string;
-    max_day_usd: string;
-  };
   auto_coach_interval_seconds: number;
   transcription_privacy_verified: boolean;
   transcription_privacy_reference: string;
@@ -80,7 +73,6 @@ export function OperatingPolicySettings() {
   const { api, run, notice } = useWorkspace();
   const bounds = useDefinitions();
   const o = bounds?.operating;
-  const r = bounds?.dnc_refresh;
   const [policy, setPolicy] = useState<Policy | null>(null);
   const [credential, setCredential] = useState<{
     version: number;
@@ -169,7 +161,6 @@ export function OperatingPolicySettings() {
                     transcription_privacy_reference:
                       policy.transcription_privacy_reference,
                     dnc_source_max_age_days: policy.dnc_source_max_age_days,
-                    dnc_refresh: policy.dnc_refresh,
                   },
                 ),
               );
@@ -224,92 +215,7 @@ export function OperatingPolicySettings() {
             deletion cannot certify upstream deletion. Cerebras uses ZDR with
             data collection denied and no alternate-provider fallback.
           </p>
-          <h3>Scheduled prepaid screening</h3>
-          <p className="fine">
-            Uses only existing authorized credits. Each run checks local
-            opt-outs and current cache first. Unknown charges require review;
-            they are never automatically retried. No account is funded by this
-            setting.
-          </p>
-          <label className="check-label">
-            <input
-              type="checkbox"
-              checked={policy.dnc_refresh.enabled}
-              onChange={(e) =>
-                setPolicy({
-                  ...policy,
-                  dnc_refresh: {
-                    ...policy.dnc_refresh,
-                    enabled: e.target.checked,
-                  },
-                })
-              }
-            />
-            Authorize scheduled prepaid DNC checks
-          </label>
           <div className="two-column">
-            {(
-              [
-                ["max_run_usd", "DNC maximum per run (USD)"],
-                ["max_day_usd", "DNC maximum per day (USD)"],
-              ] as const
-            ).map(([field, title]) => (
-              <label key={field}>
-                {title}
-                <input
-                  type="number"
-                  min={limits(r?.[field]).min}
-                  step="0.000001"
-                  required
-                  value={policy.dnc_refresh[field]}
-                  onChange={(e) =>
-                    setPolicy({
-                      ...policy,
-                      dnc_refresh: {
-                        ...policy.dnc_refresh,
-                        [field]: e.target.value,
-                      },
-                    })
-                  }
-                />
-              </label>
-            ))}
-            <label>
-              Screening interval (hours)
-              <input
-                type="number"
-                {...limits(r?.interval_hours)}
-                required
-                value={policy.dnc_refresh.interval_hours}
-                onChange={(e) =>
-                  setPolicy({
-                    ...policy,
-                    dnc_refresh: {
-                      ...policy.dnc_refresh,
-                      interval_hours: Number(e.target.value),
-                    },
-                  })
-                }
-              />
-            </label>
-            <label>
-              Endpoints per screening page
-              <input
-                type="number"
-                {...limits(r?.batch_size)}
-                required
-                value={policy.dnc_refresh.batch_size}
-                onChange={(e) =>
-                  setPolicy({
-                    ...policy,
-                    dnc_refresh: {
-                      ...policy.dnc_refresh,
-                      batch_size: Number(e.target.value),
-                    },
-                  })
-                }
-              />
-            </label>
             <label>
               Maximum national source age (days)
               <input

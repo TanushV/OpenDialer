@@ -2,37 +2,17 @@ import { expect, test, type Page } from "./fixtures";
 
 const AUTHORITY = "http://127.0.0.1:8765";
 
-test("setup inventory failures have a working retry", async ({ page }) => {
-  let failed = true;
-  await page.route("**/v1/admin/numbers/summary", (route) =>
-    failed
-      ? route.fulfill({
-          status: 503,
-          json: { detail: "Inventory temporarily unavailable" },
-        })
-      : route.continue(),
-  );
-  await enter(page);
-  await openSettings(page);
-  await page.getByTestId("setup-numbers").locator(":scope > summary").click();
-  const retry = page.getByRole("button", { name: "Retry number totals" });
-  await expect(retry).toBeVisible();
-  failed = false;
-  await retry.click();
-  await expect(page.getByTestId("setup-numbers")).toContainText("2 owned");
-});
-
 test("saving Telnyx saves the pasted key and connection together", async ({
   page,
 }) => {
   await enter(page);
   await openSettings(page);
-  await page.getByTestId("setup-telnyx").locator(":scope > summary").click();
+  await openCard(page, "Calling");
   await page
     .getByLabel("Telnyx API key", { exact: true })
     .fill("synthetic-onboarding-key");
   const connection = `synthetic-connection-${Date.now()}`;
-  await page.getByLabel("Call Control connection ID").fill(connection);
+  await page.getByLabel("Voice API connection ID").fill(connection);
   const saved = page.waitForResponse(
     (r) =>
       r.url().endsWith("/v1/admin/settings") && r.request().method() === "PUT",
@@ -65,8 +45,8 @@ test("a failed script load offers retry instead of a permanently disabled editor
       : route.continue(),
   );
   await enter(page);
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
-  const retry = page.getByRole("button", { name: "Retry loading script" });
+  await page.getByRole("button", { name: "Script", exact: true }).click();
+  const retry = page.getByRole("button", { name: "Try again" });
   await expect(retry).toBeVisible();
   // Background optimization events can reload this panel. Keep the injected outage
   // active until the actual user click, so automatic recovery cannot remove the target.
@@ -80,16 +60,14 @@ test("a failed script load offers retry instead of a permanently disabled editor
     ),
   );
   await retry.click();
-  await expect(
-    page.getByRole("button", { name: "Upload or paste script" }),
-  ).toBeEnabled();
+  await expect(page.getByLabel("Script Markdown")).toBeVisible();
 });
 
 test("provider edits can clear saved optional values", async ({ page }) => {
   await enter(page);
   await openSettings(page);
-  await page.getByTestId("setup-telnyx").locator(":scope > summary").click();
-  const reference = page.getByLabel("Public HTTPS webhook URL");
+  await openCard(page, "Calling");
+  const reference = page.getByLabel("Webhook address");
   await reference.fill("https://example.test/webhooks/telnyx");
   const save = async () => {
     const response = page.waitForResponse(
@@ -105,25 +83,67 @@ test("provider edits can clear saved optional values", async ({ page }) => {
   await save();
   await page.reload();
   await openSettings(page);
-  await page.getByTestId("setup-telnyx").locator(":scope > summary").click();
+  await openCard(page, "Calling");
   await expect(reference).toHaveValue("");
 });
 
-test("ChatGPT setup is discoverable without opening advanced settings", async ({
+test("the AI card connects ChatGPT and the live help key in one place", async ({
   page,
 }) => {
   await enter(page);
   await openSettings(page);
-  await page.getByTestId("setup-helper").locator(":scope > summary").click();
-  await page
-    .getByLabel("Preparation and analysis route")
-    .selectOption("chatgpt_plan");
+  const card = await openCard(page, "AI");
+  await expect(card).toContainText("ChatGPT");
+  await expect(card.getByText("Import Codex login")).toBeVisible();
+  await expect(card.getByLabel("Import Codex login")).toBeAttached();
   await expect(
-    page.getByRole("button", { name: "Continue with ChatGPT" }),
+    card.getByLabel("Live help key (OpenRouter, Cerebras)", { exact: true }),
   ).toBeVisible();
-  await expect(page.getByLabel("OpenAI API key", { exact: true })).toHaveCount(
+  await expect(card.getByLabel("OpenAI API key", { exact: true })).toHaveCount(
     0,
   );
+  await card.getByText("Use an OpenAI API key instead of ChatGPT").click();
+  await card.getByLabel("Research and scripts use").selectOption("api");
+  await expect(
+    card.getByLabel("OpenAI API key", { exact: true }),
+  ).toBeVisible();
+  for (const gone of ["Continue with ChatGPT", "Optional research search"])
+    await expect(page.getByText(gone)).toHaveCount(0);
+});
+
+test("the script editor parses as you type and lists every problem with its line", async ({
+  page,
+}) => {
+  await enter(page);
+  await page.getByRole("button", { name: "Script", exact: true }).click();
+  const editor = page.getByLabel("Script Markdown");
+  await expect(editor).toHaveValue(/# Opening/);
+  await editor.fill("# Opening\nHello there\n# Pitch\nBuy now\n");
+  const errors = page.locator(".script-errors");
+  await expect(errors).toContainText("Line 1");
+  await expect(errors).toContainText("Every Opening must say who is calling");
+  await expect(errors).toContainText("Unknown section '# Pitch'");
+  await expect(errors).toContainText("Add a '# Screening' section");
+  await expect(
+    page.getByRole("button", { name: "Save script" }),
+  ).toBeDisabled();
+  await editor.fill(
+    "# Opening\nHi {first_name}, {rep} from {seller}. {{ why now, from research }}\n\n# Screening\n{rep} from {seller} about roofs.\n\n# Discovery\n- When was the roof checked?\n- Who handles repairs?\n\n# Offers\n## Inspection\nA free inspection.\n\n# Close\nWould Tuesday work?\n",
+  );
+  const outline = page.locator(".script-outline");
+  await expect(outline).toContainText("2 options · AI picks up to 3 per lead");
+  await expect(outline.locator(".ai-chip")).toContainText(
+    "why now, from research",
+  );
+  const saved = page.waitForResponse(
+    (r) =>
+      r.url().endsWith("/v1/admin/script/import") &&
+      r.request().postDataJSON().preview === false,
+  );
+  await page.getByRole("button", { name: "Save script" }).click();
+  expect((await saved).ok()).toBeTruthy();
+  await expect(page.getByText(/Script saved/).first()).toBeVisible();
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible();
 });
 
 test.afterEach(async ({ page }) => {
@@ -142,9 +162,26 @@ async function enter(page: Page) {
 
 async function openSettings(page: Page) {
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await expect(
-    page.getByRole("region", { name: "Setup checklist" }),
-  ).toBeVisible();
+  await expect(page.getByTestId("setting-Calling")).toBeVisible();
+}
+
+async function openCard(page: Page, title: string) {
+  const card = page.getByTestId(`setting-${title}`);
+  if (!(await card.evaluate((d) => (d as HTMLDetailsElement).open)))
+    await card.locator(":scope > summary").click();
+  return card;
+}
+
+async function openMore(page: Page, section: string) {
+  const more = page.locator("details.more-settings");
+  if (!(await more.evaluate((d) => (d as HTMLDetailsElement).open)))
+    await more.locator(":scope > summary").click();
+  const item = more
+    .locator(".more-list > details")
+    .filter({ has: page.locator(":scope > summary", { hasText: section }) });
+  if (!(await item.evaluate((d) => (d as HTMLDetailsElement).open)))
+    await item.locator(":scope > summary").click();
+  return item;
 }
 
 /** Visible interactive controls in the page body: the first-screen budget. */
@@ -202,7 +239,7 @@ test("a rep sees only rep settings and never fires an administrator read", async
   await expect(
     page.getByRole("button", { name: "Numbers", exact: true }),
   ).toHaveCount(0);
-  for (const view of ["Leads", "Review", "Intelligence", "Settings"]) {
+  for (const view of ["Leads", "Review", "Script", "Settings"]) {
     await page.getByRole("button", { name: view, exact: true }).click();
     await page.waitForLoadState("networkidle");
   }
@@ -210,61 +247,57 @@ test("a rep sees only rep settings and never fires an administrator read", async
   await expect(
     page.getByRole("button", { name: "Switch workspace or server" }),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Run preflight" })).toHaveCount(
-    0,
-  );
-  await expect(page.getByRole("button", { name: "Policy & DNC" })).toHaveCount(
-    0,
-  );
+  await expect(
+    page.getByRole("button", { name: "Check readiness" }),
+  ).toHaveCount(0);
+  await expect(page.getByText("More settings")).toHaveCount(0);
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   await expect(page.getByRole("button", { name: "Import leads" })).toHaveCount(
     0,
   );
-  await expect(
-    page.getByRole("button", { name: "Prepare displayed lead packets" }),
-  ).toHaveCount(0);
+  await expect(page.getByText("Agent settings")).toHaveCount(0);
   expect(adminReads).toEqual([]);
   expect(forbidden).toEqual([]);
 });
 
-test("setup is a short checklist that reads cached capability evidence on open", async ({
+test("settings is one short page with everything else folded away", async ({
   page,
 }) => {
   await enter(page);
   await openSettings(page);
-  const steps = page.locator(".setup-step");
-  await expect(steps).toHaveCount(9);
-  for (const id of [
-    "identity",
-    "telnyx",
-    "helper",
-    "dnc",
-    "numbers",
-    "leads",
-    "campaign",
-    "schedule",
-    "budget",
+  for (const title of [
+    "Calling",
+    "AI",
+    "Script",
+    "Leads",
+    "Calling hours",
+    "Do-not-call list",
   ])
-    await expect(page.getByTestId(`setup-${id}`)).toBeVisible();
-  // Steps open collapsed: the first screen stays within a small control budget.
-  expect(await visibleControls(page)).toBeLessThanOrEqual(16);
-  await expect(page.getByLabel("Call Control connection ID")).toBeHidden();
-  await page.getByRole("button", { name: "Run preflight" }).click();
-  await expect(page.getByTestId("capability-live_helper")).toContainText(
-    "Software verified",
-  );
-  // A fresh open reads the authority's cached evidence without another preflight.
-  const preflights: string[] = [];
-  page.on("request", (r) => {
-    if (r.url().endsWith("/v1/admin/preflight")) preflights.push(r.url());
-  });
-  await page.reload();
-  await openSettings(page);
-  await expect(page.getByTestId("capability-offline_callback")).toContainText(
-    "Unavailable",
-  );
-  await expect(page.getByText(/Capability evidence checked/)).toBeVisible();
-  expect(preflights).toEqual([]);
+    await expect(page.getByTestId(`setting-${title}`)).toBeVisible();
+  await expect(page.locator(".tabs")).toHaveCount(0);
+  await expect(page.getByLabel("Voice API connection ID")).toBeHidden();
+  expect(await visibleControls(page)).toBeLessThanOrEqual(30);
+  await page.getByRole("button", { name: "Check readiness" }).click();
+  await expect(page.getByRole("region", { name: "Readiness" })).toBeVisible();
+  for (const gone of [
+    "Publication reason",
+    "Business identity evidence",
+    "Scheduled prepaid screening",
+    "Capability evidence",
+  ])
+    await expect(page.getByText(gone)).toHaveCount(0);
+  const more = await openMore(page, "AI budget");
+  await expect(more.getByLabel("AI budget per lead list (USD)")).toBeVisible();
+  for (const section of [
+    "Campaign goal and team schedule",
+    "Do-not-call checks and consent",
+    "Callbacks",
+    "Call scoring",
+    "Users, backups and recovery",
+  ])
+    await expect(
+      page.locator(".more-list > details > summary", { hasText: section }),
+    ).toBeVisible();
 });
 
 test("calling policy publication is version-fenced and reloads after a conflict", async ({
@@ -289,51 +322,39 @@ test("calling policy publication is version-fenced and reloads after a conflict"
     }
     await route.continue();
   });
-  await page.getByTestId("setup-campaign").locator(":scope > summary").click();
-  await expect(
-    page.getByLabel("Require current national registry coverage"),
-  ).toHaveCount(0);
-  await page.getByLabel("Attempt limit").fill("3");
-  await page.getByLabel("Publication reason").fill("Fewer attempts");
+  await openCard(page, "Calling hours");
+  await page.getByLabel("Attempts per lead").fill("3");
   await page
-    .getByRole("button", { name: "Publish calling window", exact: true })
+    .getByRole("button", { name: "Save calling hours", exact: true })
     .click();
   await expect(
-    page.getByText(/A newer calling policy is current/).first(),
+    page.getByText(/Someone else changed this/).first(),
   ).toBeVisible();
   expect(bodies[0]).toMatchObject({
     max_attempts: 3,
+    reason: "Edited in Settings",
     expected_version: expect.any(Number),
   });
   expect(bodies[0]).not.toHaveProperty("registry_required");
-  await page
-    .getByRole("button", { name: "Reload calling policy", exact: true })
-    .click();
-  await expect(page.getByLabel("Attempt limit")).not.toHaveValue("3");
-  await page.getByLabel("Attempt limit").fill("3");
-  await page.getByLabel("Publication reason").fill("Fewer attempts");
+  await page.getByRole("button", { name: "Reload", exact: true }).click();
+  await expect(page.getByLabel("Attempts per lead")).not.toHaveValue("3");
+  await page.getByLabel("Attempts per lead").fill("3");
   const published = page.waitForResponse(
     (r) => r.url().endsWith("/publish") && r.request().method() === "POST",
   );
   await page
-    .getByRole("button", { name: "Publish calling window", exact: true })
+    .getByRole("button", { name: "Save calling hours", exact: true })
     .click();
   expect((await published).ok()).toBeTruthy();
-  // The new version is current once the workspace refresh lands.
-  await expect(
-    page
-      .getByText("New policy version published. Queued calls will recheck it.")
-      .first(),
-  ).toBeVisible();
-  await expect(page.getByLabel("Attempt limit")).toHaveValue("3");
+  await expect(page.getByText("Saved.").first()).toBeVisible();
+  await expect(page.getByLabel("Attempts per lead")).toHaveValue("3");
   // Restore the shared fixture policy for later journeys.
-  await page.getByLabel("Attempt limit").fill("4");
-  await page.getByLabel("Publication reason").fill("Restore fixture");
+  await page.getByLabel("Attempts per lead").fill("4");
   const restored = page.waitForResponse(
     (r) => r.url().endsWith("/publish") && r.request().method() === "POST",
   );
   await page
-    .getByRole("button", { name: "Publish calling window", exact: true })
+    .getByRole("button", { name: "Save calling hours", exact: true })
     .click();
   expect((await restored).ok()).toBeTruthy();
 });
@@ -343,17 +364,15 @@ test("form bounds come from the authority's definitions", async ({ page }) => {
     const response = await route.fetch();
     const body = await response.json();
     body.bounds.policy.max_attempts.max = 7;
-    body.bounds.budget.daily_limit_usd.max = 55;
     await route.fulfill({ response, json: body });
   });
   await enter(page);
   await openSettings(page);
-  await page.getByTestId("setup-campaign").locator(":scope > summary").click();
-  await expect(page.getByLabel("Attempt limit")).toHaveAttribute("max", "7");
-  await page.getByTestId("setup-budget").locator(":scope > summary").click();
-  await expect(
-    page.getByLabel("Daily optional-work limit (USD)"),
-  ).toHaveAttribute("max", "55");
+  await openCard(page, "Calling hours");
+  await expect(page.getByLabel("Attempts per lead")).toHaveAttribute(
+    "max",
+    "7",
+  );
 });
 
 test("the weekly schedule and dated periods share one picked IANA zone", async ({
@@ -361,7 +380,7 @@ test("the weekly schedule and dated periods share one picked IANA zone", async (
 }) => {
   await enter(page);
   await openSettings(page);
-  await page.getByTestId("setup-schedule").locator(":scope > summary").click();
+  await openMore(page, "Campaign goal and team schedule");
   const zone = page.getByRole("combobox", { name: "Staffing time zone" });
   await zone.selectOption("America/New_York");
   const saved = page.waitForResponse(
@@ -371,7 +390,7 @@ test("the weekly schedule and dated periods share one picked IANA zone", async (
   );
   await page.getByRole("button", { name: "Save rep schedule" }).click();
   expect((await saved).ok()).toBeTruthy();
-  await page.getByText("Advanced", { exact: true }).click();
+  await openMore(page, "Learning experiments and trackers");
   await page.getByRole("button", { name: "Add staffed period" }).click();
   await page.getByLabel("Staffed start 1").fill("2026-10-19T09:00");
   await page.getByLabel("Staffed end 1").fill("2026-10-19T12:00");
@@ -414,7 +433,7 @@ test("advanced detail is one collapsed view and debug controls are gone", async 
       strategyReads.push(r.url());
   });
   await enter(page);
-  await page.getByRole("button", { name: "Intelligence", exact: true }).click();
+  await page.getByRole("button", { name: "Script", exact: true }).click();
   for (const gone of [
     "Process queued work",
     "Publish approved variant",
@@ -425,7 +444,7 @@ test("advanced detail is one collapsed view and debug controls are gone", async 
   await expect(page.getByLabel("Conversion goal")).toHaveCount(0);
   await openSettings(page);
   expect(strategyReads).toEqual([]);
-  await page.getByText("Advanced", { exact: true }).click();
+  await openMore(page, "Learning experiments and trackers");
   const experiments = page.getByRole("region", { name: "Experiments" });
   await expect(experiments).toBeVisible();
   await expect(page.getByRole("region", { name: "Experiments" })).toHaveCount(
@@ -476,7 +495,7 @@ test("trial review and activation send only identities, never evidence", async (
   });
   await enter(page);
   await openSettings(page);
-  await page.getByText("Advanced", { exact: true }).click();
+  await openMore(page, "Learning experiments and trackers");
   const experiments = page.getByRole("region", { name: "Experiments" });
   await experiments
     .getByRole("combobox", { name: "Pilot candidate" })
@@ -556,25 +575,41 @@ test("numbers show whole-inventory counts and one capacity view without a planni
   ).toBeVisible();
 });
 
-test("lead preparation previews its count and budget before queueing", async ({
+test("an imported list is researched and scripted before it can be called", async ({
   page,
 }) => {
-  const queued: string[] = [];
-  page.on("request", (r) => {
-    if (r.url().endsWith("/v1/research/batches") && r.method() === "POST")
-      queued.push(r.url());
-  });
   await enter(page);
   await page.getByRole("button", { name: "Leads", exact: true }).click();
+  const list = `Prep list ${Date.now()}`;
+  await page.getByLabel("List name").fill(list);
+  const phone = `+1415${String(Date.now()).slice(-7)}`;
   await page
-    .getByRole("button", { name: "Prepare displayed lead packets" })
+    .getByLabel("CSV lead data")
+    .fill(
+      `name,phone,company,city\nDana Reyes,${phone},Hilltop Apartments,Fresno`,
+    );
+  const imported = page.waitForResponse((r) =>
+    r.url().endsWith("/v1/leads/import"),
+  );
+  await page.getByRole("button", { name: "Import leads" }).click();
+  const body = (await imported).request().postDataJSON();
+  expect(body.prepare).toBe(true);
+  await expect(page.getByText(/Agents are researching them now/)).toBeVisible();
+  const panel = page.getByRole("region", { name: "Lead preparation" });
+  await expect(panel.getByText(list)).toBeVisible();
+  await expect(panel.getByText(/1 of 1 ready to call/)).toBeVisible({
+    timeout: 30000,
+  });
+  await page.getByLabel("Search leads").fill("Dana Reyes");
+  await page.getByRole("button", { name: "Search lead history" }).click();
+  await page
+    .getByRole("button", { name: "Open lead Dana Reyes" })
+    .first()
     .click();
-  const preview = page.getByRole("region", { name: "Preparation preview" });
-  await expect(preview).toContainText(/Prepare \d+ displayed lead/);
-  expect(queued).toEqual([]);
-  await preview.getByRole("button", { name: "Queue preparation" }).click();
-  await expect(page.getByText(/Preparation queued/)).toBeVisible();
-  expect(queued).toHaveLength(1);
+  const packet = page.getByRole("dialog", { name: "Lead packet" });
+  await expect(packet.getByText("Script for this lead")).toBeVisible();
+  await expect(packet.locator(".ai-text").first()).toBeVisible();
+  await expect(packet.getByText("What the agent found")).toBeVisible();
 });
 
 test("disabled actions say why and settings failures stay recoverable", async ({
@@ -599,15 +634,13 @@ test("disabled actions say why and settings failures stay recoverable", async ({
   });
   await enter(page);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await expect(
-    page.getByText(/Saved settings could not be loaded/),
-  ).toBeVisible();
+  await expect(page.getByText(/Settings could not be loaded/)).toBeVisible();
   failSettings = false;
-  await page.getByRole("button", { name: "Retry loading settings" }).click();
-  await expect(page.locator(".setup-step")).toHaveCount(9);
-  await page.getByRole("button", { name: "Operations", exact: true }).click();
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(page.getByTestId("setting-Calling")).toBeVisible();
+  await openMore(page, "Workspace and app updates");
   await expect(page.getByText("Finish first: Active call.")).toBeVisible();
-  await page.getByRole("button", { name: "Policy & DNC", exact: true }).click();
+  await openCard(page, "Do-not-call list");
   await expect(page.getByLabel("Authorization reference")).toBeVisible();
   await expect(
     page.getByLabel("Subscription / authorization reference"),
@@ -653,7 +686,7 @@ test("managed setup import shows connection and hides tunnel fields", async ({
   });
   await enter(page);
   await openSettings(page);
-  await page.getByTestId("setup-telnyx").locator(":scope > summary").click();
+  await openCard(page, "Calling");
   await page.getByLabel("Import calling setup (.json)").setInputFiles({
     name: "caller.json",
     mimeType: "application/json",
@@ -662,8 +695,8 @@ test("managed setup import shows connection and hides tunnel fields", async ({
   await expect(
     page.getByRole("status").filter({ hasText: "Test caller" }),
   ).toContainText("Connected");
-  await expect(page.getByLabel("Public HTTPS webhook URL")).toHaveCount(0);
-  await expect(page.getByLabel("Call Control connection ID")).toHaveCount(0);
+  await expect(page.getByLabel("Webhook address")).toHaveCount(0);
+  await expect(page.getByLabel("Voice API connection ID")).toHaveCount(0);
   await expect(
     page.getByLabel("Telnyx API key", { exact: true }),
   ).toBeVisible();

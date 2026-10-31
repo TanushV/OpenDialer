@@ -64,9 +64,6 @@ class Service(ReservationPlanner):
         from app.coaching.engine import CoachEngine
 
         self.coach = CoachEngine()
-        self.preparation_capacity = asyncio.Semaphore(LIMITS.company_units)
-        self.research_capacity = asyncio.Semaphore(LIMITS.company_units)
-        self.script_capacity = asyncio.Semaphore(LIMITS.script_generations)
         self.screening_capacity = asyncio.Semaphore(2)
         self.research_flights = {}
         self.job_admission = {
@@ -75,7 +72,7 @@ class Service(ReservationPlanner):
                 "webhook": LIMITS.live_active,
                 "live_coach": LIMITS.live_active,
                 "postcall": LIMITS.postcall_active,
-                "preparation": LIMITS.company_units,
+                "preparation": LIMITS.agent_threads,
                 "ml": 2,
             }.items()
         }

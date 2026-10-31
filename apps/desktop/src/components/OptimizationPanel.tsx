@@ -283,7 +283,7 @@ export function OptimizationPanel() {
               Goal: {label(response.settings.conversion_goal)} within{" "}
               {response.settings.window_days} days.
               {isAdmin(w.user.role) &&
-                " Change the goal and schedule in Settings → Setup."}
+                " Change the goal and schedule in Settings → More settings."}
             </p>
           )}
           {isAdmin(w.user.role) && (

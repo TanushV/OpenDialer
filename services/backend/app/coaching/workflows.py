@@ -17,9 +17,9 @@ from app.coaching.context import (
     guidance_sources,
     lineage_key,
     merge_semantic_state,
+    normalized_turn,
     persistent_state,
     retrieve_cards,
-    normalized_turn,
     reviewed_guidance,
     upgrade_state,
 )

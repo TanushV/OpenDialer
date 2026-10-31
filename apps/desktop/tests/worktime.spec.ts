@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures";
+import { openMoreSettings } from "./navigation";
 import { isolatedSimulationWorkspace } from "./simulation";
 
 test("work time is visible, supported by a heartbeat and correctable after pause", async ({
@@ -51,7 +52,7 @@ test("work time is visible, supported by a heartbeat and correctable after pause
     page.getByRole("button", { name: "Go ready", exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Operations", exact: true }).click();
+  await openMoreSettings(page, "Work time");
   await page.getByText("Working time & corrections", { exact: true }).click();
   await expect(
     page.getByText(/Heartbeats expire after 90 seconds/),
@@ -81,7 +82,7 @@ test("work time is visible, supported by a heartbeat and correctable after pause
   ).toBeVisible();
   await page.reload();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Operations", exact: true }).click();
+  await openMoreSettings(page, "Work time");
   await page.getByText("Working time & corrections", { exact: true }).click();
   await expect(
     page.getByText("Reviewed actual preparation time", { exact: true }),

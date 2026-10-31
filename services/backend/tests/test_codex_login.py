@@ -284,3 +284,30 @@ async def test_agent_threads_use_terra_max_web_search_and_only_offered_tools(tmp
     (log.parent / "limit").write_text("1")
     with pytest.raises(codex.PlanLimit):
         await client.run("Prepare", tools, handle, "first", lambda: None)
+
+
+def test_a_local_workspace_can_use_the_chatgpt_login_already_on_this_computer(
+    workspace, app, monkeypatch, tmp_path
+):
+    import json
+
+    from app.providers.codex import CodexRuntime, profile_home
+
+    async def account(self, refresh=False):
+        return {"type": "chatgpt", "email": "owner@example.test", "planType": "pro"}
+
+    monkeypatch.setattr(CodexRuntime, "account", account)
+    client, headers = workspace["client"], workspace["headers"]
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
+    status = client.get("/v1/inference/codex", headers=headers).json()
+    assert status["computer_login"] is False
+    assert client.post("/v1/inference/codex/import-computer", headers=headers).status_code == 404
+    (tmp_path / "codex").mkdir()
+    (tmp_path / "codex" / "auth.json").write_text(json.dumps(login()))
+    assert client.get("/v1/inference/codex", headers=headers).json()["computer_login"] is True
+    imported = client.post("/v1/inference/codex/import-computer", headers=headers)
+    assert imported.status_code == 200 and imported.json()["account"]["email"] == "owner@example.test"
+    home = profile_home(app.state.service.settings.data_dir, workspace["user_id"])
+    assert read_private(home / "auth.json")["tokens"]["account_id"] == login()["tokens"]["account_id"]
+    monkeypatch.setattr(app.state.service.settings, "mode", "connected")
+    assert client.get("/v1/inference/codex", headers=headers).json()["computer_login"] is False
