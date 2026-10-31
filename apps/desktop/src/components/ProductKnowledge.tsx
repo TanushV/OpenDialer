@@ -51,7 +51,7 @@ export function ProductKnowledge() {
         claims: lines(draft.claims),
         prohibited_claims: lines(draft.limits),
         cards: draft.cards,
-        reason: draft.reason,
+        reason: "Edited on the Script page",
         // An administrator's explicit publication is the approval decision; it is audited.
         approved: true,
         expected_previous_id: draft.id,
@@ -59,29 +59,26 @@ export function ProductKnowledge() {
       });
       setDraft(fields(saved));
       await refresh();
-      notice(
-        "New playbook version published. Active call scripts stay stable.",
-      );
+      notice("Saved. The live helper uses it from the next suggestion.");
     } finally {
       setSaving(false);
     }
   }
   return (
     <section className="card padded" aria-label="Business knowledge">
-      <span className="eyebrow">APPROVED BUSINESS KNOWLEDGE</span>
-      <h2>{draft.name}</h2>
       <p className="small muted">
-        Describe what you sell, supported capabilities, pricing and limits. The
-        helper uses this context to compose its own guidance.
+        What you sell, prices and limits, in your own words. The live helper
+        uses it. Facts you can state and things never to say come from your
+        script's <code># Facts</code> and <code># Never say</code> sections.
       </p>
       {changed && (
         <p role="status">
-          A newer version is available. Reload and review it before publishing.
+          A newer version was saved. Reload it before saving yours.
         </p>
       )}
       <fieldset disabled={!admin || saving}>
         <label>
-          Product and pricing knowledge
+          What you sell
           <textarea
             aria-label="Product and pricing knowledge"
             value={draft.knowledge}
@@ -90,63 +87,12 @@ export function ProductKnowledge() {
             onChange={(e) => setDraft({ ...draft, knowledge: e.target.value })}
           />
         </label>
-        <label>
-          Approved factual claims
-          <textarea
-            aria-label="Approved factual claims"
-            value={draft.claims}
-            rows={4}
-            onChange={(e) => setDraft({ ...draft, claims: e.target.value })}
-          />
-        </label>
-        <p className="fine">
-          One reviewed fact per line, up to 32. Include any conditions on prices
-          or claims.
-        </p>
-        <label>
-          Limits and prohibited claims
-          <textarea
-            aria-label="Limits and prohibited claims"
-            value={draft.limits}
-            rows={3}
-            onChange={(e) => setDraft({ ...draft, limits: e.target.value })}
-          />
-        </label>
-        <label>
-          Opener
-          <textarea
-            aria-label="Opener"
-            value={draft.opener}
-            rows={3}
-            maxLength={600}
-            onChange={(e) => setDraft({ ...draft, opener: e.target.value })}
-          />
-        </label>
-        <label>
-          Screening introduction
-          <textarea
-            aria-label="Screening introduction"
-            value={draft.intro}
-            rows={3}
-            maxLength={400}
-            onChange={(e) => setDraft({ ...draft, intro: e.target.value })}
-          />
-        </label>
-        <label>
-          Publication reason
-          <input
-            aria-label="Publication reason"
-            value={draft.reason}
-            maxLength={1200}
-            onChange={(e) => setDraft({ ...draft, reason: e.target.value })}
-          />
-        </label>
         <button
           className="primary"
-          disabled={!draft.reason.trim() || changed || saving}
+          disabled={changed || saving}
           onClick={() => void run(save)}
         >
-          Publish reviewed version
+          Save
         </button>
       </fieldset>
       <button

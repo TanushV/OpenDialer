@@ -65,3 +65,30 @@ def publish(service, p, data):
         if obj.data["approved"]:
             emit(s, p["tenant_id"], "knowledge.updated", obj, service.clock())
         return doc(obj)
+
+
+def sync_from_script(service, p, template):
+    """The script's Facts and Never say are the helper's approved and prohibited claims: one place."""
+    with service.db.transaction(False) as s:
+        previous = service.approved_playbook(s, p)
+    if previous is None:
+        return None
+    claims, prohibited = template.get("facts", [])[:32], template.get("never_say", [])[:32]
+    data = previous.data
+    if data.get("claims", []) == claims and data.get("prohibited_claims", []) == prohibited:
+        return None
+    return publish(
+        service,
+        p,
+        Edit(
+            **{key: data[key] for key in ("name", "opener", "screening_intro") if data.get(key)},
+            product_description=data.get("product_description", ""),
+            claims=claims,
+            prohibited_claims=prohibited,
+            cards=data.get("cards", []),
+            approved=True,
+            reason="Facts and Never say from the saved script",
+            expected_previous_id=previous.id,
+            expected_previous_version=previous.version,
+        ).model_dump(),
+    )

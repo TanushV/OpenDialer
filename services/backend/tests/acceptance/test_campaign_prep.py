@@ -291,3 +291,22 @@ def test_opted_out_numbers_are_never_researched(workspace):
     blocked, open_lead = (lead["id"] for lead in imported["leads"])
     assert lead_row(ws, blocked)["status"] == "eligible" and lead_row(ws, open_lead)["status"] == "preparing"
     assert post(ws, "/v1/preparation/lists", {"list_name": "Opt-outs"})["marked"] == 0
+
+
+def test_the_scripts_facts_and_never_say_become_the_helpers_approved_knowledge(workspace):
+    ws = workspace
+    before = get(ws, "/v1/workspace")["active_playbook"]
+    save_script(ws, SCRIPT + "\n# Facts\n- Licensed and insured since 2009.\n")
+    after = get(ws, "/v1/workspace")["active_playbook"]
+    assert after["version"] == before["version"] + 1
+    assert after["claims"] == ["Licensed and insured since 2009."]
+    assert after["prohibited_claims"] == ["Guaranteed savings"]
+    assert after.get("product_description", "") == before.get("product_description", "")
+    assert [(c["id"], c["text"]) for c in after["cards"]] == [(c["id"], c["text"]) for c in before["cards"]]
+    # Saving the same facts again does not publish another knowledge version.
+    save_script(
+        ws,
+        SCRIPT.replace("Would Tuesday work?", "Does Tuesday work?")
+        + "\n# Facts\n- Licensed and insured since 2009.\n",
+    )
+    assert get(ws, "/v1/workspace")["active_playbook"]["version"] == after["version"]

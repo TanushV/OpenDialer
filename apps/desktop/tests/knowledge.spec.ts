@@ -19,31 +19,13 @@ test("reviewed business knowledge and current version survive publication and re
     .fill(
       "Workflow training with three guided onboarding sessions. Pricing is confirmed by the rep.",
     );
-  await page
-    .getByRole("textbox", { name: "Approved factual claims", exact: true })
-    .fill(
-      "We provide workflow training.\nThree guided onboarding sessions are included.",
-    );
-  await page
-    .getByRole("textbox", { name: "Limits and prohibited claims", exact: true })
-    .fill("Do not promise a revenue increase.");
-  await page
-    .getByRole("textbox", { name: "Opener", exact: true })
-    .fill(
-      "Hello from Example Seller. Is this a good time for a quick introduction?",
-    );
-  await page
-    .getByRole("textbox", { name: "Publication reason", exact: true })
-    .fill("Reviewed product context for calling");
-  await page
-    .getByRole("button", { name: "Publish reviewed version", exact: false })
-    .click();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(
-    page.getByText(
-      "New playbook version published. Active call scripts stay stable.",
-      { exact: true },
-    ),
+    page.getByText("Saved. The live helper uses it from the next suggestion.", {
+      exact: true,
+    }),
   ).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Opener" })).toHaveCount(0);
   await page.reload();
   await openScriptSection(page, "What you sell");
   await expect(
@@ -53,22 +35,6 @@ test("reviewed business knowledge and current version survive publication and re
     }),
   ).toHaveValue(
     "Workflow training with three guided onboarding sessions. Pricing is confirmed by the rep.",
-  );
-  await expect(
-    page.getByRole("textbox", { name: "Approved factual claims", exact: true }),
-  ).toHaveValue(
-    "We provide workflow training.\nThree guided onboarding sessions are included.",
-  );
-  await expect(
-    page.getByRole("textbox", {
-      name: "Limits and prohibited claims",
-      exact: true,
-    }),
-  ).toHaveValue("Do not promise a revenue increase.");
-  await expect(
-    page.getByRole("textbox", { name: "Opener", exact: true }),
-  ).toHaveValue(
-    "Hello from Example Seller. Is this a good time for a quick introduction?",
   );
 });
 
@@ -135,12 +101,7 @@ for (const failure of ["conflict", "lost response", "failed refresh"]) {
           exact: true,
         })
         .fill("This saved product knowledge.");
-      await panel
-        .getByRole("textbox", { name: "Publication reason", exact: true })
-        .fill("Updated approved context");
-      await panel
-        .getByRole("button", { name: "Publish reviewed version" })
-        .click();
+      await panel.getByRole("button", { name: "Save", exact: true }).click();
       await expect(
         panel.getByRole("button", { name: "Reload current knowledge" }),
       ).toBeEnabled();
@@ -157,11 +118,8 @@ for (const failure of ["conflict", "lost response", "failed refresh"]) {
           ? "Another admin's reviewed current knowledge."
           : "This saved product knowledge.",
       );
-      await panel
-        .getByRole("textbox", { name: "Publication reason", exact: true })
-        .fill("Next considered edit");
       await expect(
-        panel.getByRole("button", { name: "Publish reviewed version" }),
+        panel.getByRole("button", { name: "Save", exact: true }),
       ).toBeEnabled();
     } finally {
       await page.unrouteAll({ behavior: "wait" });
@@ -224,7 +182,7 @@ test("published knowledge withdraws obsolete live advice without changing the ac
     // packet arrives: a late first packet is not a mid-call replacement.
     await expect(
       page.getByTestId("prepared-script").locator(".card-eyebrow .pill"),
-    ).not.toHaveText("Approved playbook");
+    ).not.toHaveText("Waiting for a lead");
     const script = await page.getByTestId("prepared-script").innerText();
     published = true;
     const result = await page.request.post(
