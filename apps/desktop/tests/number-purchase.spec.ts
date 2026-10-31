@@ -111,9 +111,7 @@ for (const connected of [false, true]) {
     await page
       .getByRole("button", { name: "Import leads", exact: true })
       .click();
-    await expect(
-      page.getByText("1 leads imported", { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByText(/^1 imported/)).toBeVisible();
     await waitForPreparation(page);
     await page.getByRole("button", { name: "Numbers", exact: true }).click();
     await page

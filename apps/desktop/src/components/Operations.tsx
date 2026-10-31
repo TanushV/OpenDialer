@@ -235,10 +235,11 @@ export function LeadsPage({
                     setReport(report);
                     setCSV("");
                     await refresh();
+                    const count = `${report.imported} lead${report.imported === 1 ? "" : "s"} imported.`;
                     notice(
                       report.preparing
-                        ? `${report.imported} leads imported. Agents are researching them now.`
-                        : `${report.imported} leads imported.`,
+                        ? `${count} Agents are researching them now.`
+                        : count,
                     );
                   })
                 }

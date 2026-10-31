@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures";
-import { openScriptSection } from "./navigation";
+import { openMoreSettings, openScriptSection } from "./navigation";
 
 test("an unfinished report shows pending evidence without invented totals", async ({
   page,
@@ -92,8 +92,7 @@ const savedReport = {
 };
 
 async function openAdvanced(page: import("@playwright/test").Page) {
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByText("Advanced", { exact: true }).click();
+  await openMoreSettings(page, "Learning experiments and trackers");
 }
 
 async function openIntelligence(page: import("@playwright/test").Page) {

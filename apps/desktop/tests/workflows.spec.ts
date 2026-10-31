@@ -93,6 +93,7 @@ test("admin inventory, lead import, policy, preparation and real readiness bound
     .fill(
       "name,phone,company,timezone\nTaylor Example,+12125550177,Example Co,America/New_York",
     );
+  await page.getByLabel("List name").fill("Workflow journey list");
   await page.getByRole("button", { name: "Import leads" }).click();
   await expect(page.getByText(/^1 imported/)).toBeVisible();
   await waitForPreparation(page);
@@ -100,7 +101,9 @@ test("admin inventory, lead import, policy, preparation and real readiness bound
   await expect(
     page
       .getByRole("region", { name: "Lead preparation" })
-      .getByText(/ready to call/),
+      .getByRole("listitem")
+      .filter({ hasText: "Workflow journey list" })
+      .getByText("1 of 1 ready to call"),
   ).toBeVisible();
   await page.getByLabel("Search leads").fill("Taylor Example");
   await page

@@ -108,8 +108,7 @@ test("capacity discloses screening exclusions without spending on refresh", asyn
 
 test("pending report refresh preserves comparison input", async ({ page }) => {
   await simulation(page);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByText("Advanced", { exact: true }).click();
+  await openMoreSettings(page, "Learning experiments and trackers");
   await page
     .getByLabel("Experiment review reference")
     .fill("Retain this draft during refresh");

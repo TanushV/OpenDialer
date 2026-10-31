@@ -352,11 +352,12 @@ test("failed call filtering keeps the previously displayed filter honest", async
   );
   await enter(page);
   await page.getByRole("button", { name: "Review", exact: true }).click();
-  await page.getByRole("combobox").selectOption("wrong_party");
+  const filter = page.getByLabel(/^Filter/);
+  await filter.selectOption("wrong_party");
   await expect(
     page.getByText("History temporarily unavailable", { exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole("combobox")).toHaveValue("all");
+  await expect(filter).toHaveValue("all");
 });
 
 for (const integrity of [null, false]) {

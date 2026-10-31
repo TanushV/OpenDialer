@@ -55,7 +55,10 @@ for (const connected of [false, true]) {
       await page.evaluate(() => JSON.stringify(localStorage)),
     ).not.toContain("fixture-refresh");
     await page.getByRole("button", { name: "Disconnect ChatGPT" }).click();
-    await expect(page.getByLabel("Import Codex login")).toBeVisible();
+    // The file input itself is hidden; its label is the visible picker.
+    await expect(
+      page.getByText("Import Codex login", { exact: true }),
+    ).toBeVisible();
   });
 }
 

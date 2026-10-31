@@ -257,7 +257,8 @@ class Preparation:
             script.update(render(template, lead=doc(lead), seller=seller, rep=rep))
         base = self.lead_script_base(s, p, lead)
         script.update(
-            template=template,
+            # Calls snapshot this script; the parsed sections are kept, the pasted Markdown is not.
+            template={k: v for k, v in template.items() if k != "markdown"} if template else None,
             base_version=base["version"],
             script_arm=arm,
             proposal_id=proposal["id"] if proposal else None,

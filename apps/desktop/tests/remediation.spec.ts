@@ -1,6 +1,11 @@
 import { expect, test, type Page } from "./fixtures";
 import { openMoreSettings, openSettingsCard } from "./navigation";
-import { importLead, chooseOutcome } from "./simulation";
+import {
+  chooseOutcome,
+  importLead,
+  isolatedSimulationWorkspace,
+  waitForPreparation,
+} from "./simulation";
 
 async function enter(page: Page, connected = false) {
   await page.goto("/");
@@ -97,10 +102,10 @@ test("a requested lead's own script shows its gatekeeper and screening sections"
   page,
 }) => {
   await enter(page);
+  // Earlier specs replace the shared workspace's script; use the seeded one.
+  await isolatedSimulationWorkspace(page, "gatekeeper-script");
   await page.getByRole("button", { name: "Leads", exact: true }).click();
-  await expect(
-    page.getByRole("region", { name: "Lead preparation" }),
-  ).toBeVisible();
+  await waitForPreparation(page);
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
   const ready = page.getByRole("button", { name: "Go ready", exact: true });
   if (await ready.isVisible()) await ready.click();

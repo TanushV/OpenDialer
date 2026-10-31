@@ -1,5 +1,6 @@
 import { expect, test } from "./fixtures";
 import { importLead } from "./simulation";
+import { openMoreSettings } from "./navigation";
 
 for (const connected of [false, true]) {
   test(`sparse support and reviewed model evidence ${connected ? "postgres" : "local"}`, async ({
@@ -92,8 +93,7 @@ for (const connected of [false, true]) {
     await page
       .getByRole("button", { name: "Pause dialing", exact: true })
       .click();
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await page.getByText("Advanced", { exact: true }).click();
+    await openMoreSettings(page, "Learning experiments and trackers");
     // Starting weights are read-only assumptions; changing them needs re-evaluation.
     await page
       .getByText("Sparse estimate assumptions", { exact: true })
@@ -171,8 +171,7 @@ test("reviewed finite approaches keep freeform help and require a source for ada
     name: "Try a simulated workspace",
   });
   if (await sample.isVisible()) await sample.click();
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByText("Advanced", { exact: true }).click();
+  await openMoreSettings(page, "Learning experiments and trackers");
   await page.getByLabel("Experiment type").selectOption("approach");
   await page
     .getByRole("combobox", { name: "Reviewed response approach", exact: true })

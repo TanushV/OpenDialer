@@ -123,8 +123,7 @@ for (const connected of [false, true]) {
     await expect(page.getByLabel("Reviewed daily limit")).toHaveValue(
       String(original - 1),
     );
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await page.getByText("Advanced", { exact: true }).click();
+    await openMoreSettings(page, "Learning experiments and trackers");
     await page
       .getByText("Advanced number evidence policy", { exact: true })
       .click();
@@ -139,8 +138,7 @@ for (const connected of [false, true]) {
       .click();
     expect((await policy).ok()).toBeTruthy();
     await page.reload();
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await page.getByText("Advanced", { exact: true }).click();
+    await openMoreSettings(page, "Learning experiments and trackers");
     await page
       .getByText("Advanced number evidence policy", { exact: true })
       .click();
@@ -612,6 +610,5 @@ async function clearStaffing(page: import("@playwright/test").Page) {
 
 /** Dated periods and planning assumptions live in Settings → Advanced. */
 async function openAdvanced(page: import("@playwright/test").Page) {
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByText("Advanced", { exact: true }).click();
+  await openMoreSettings(page, "Learning experiments and trackers");
 }
