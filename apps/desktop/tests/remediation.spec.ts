@@ -11,9 +11,12 @@ async function enter(page: Page, connected = false) {
   await page.goto("/");
   await expect(page.getByText("Opening your workspace…")).toBeHidden();
   if (connected) {
-    if (await page.getByTitle("Sign out").isVisible())
-      await page.getByTitle("Sign out").click();
-    await page.getByRole("button", { name: "Connect to a server" }).click();
+    // The previous journey may leave a workspace open; wait for either screen before choosing.
+    const signOut = page.getByTitle("Sign out");
+    const connect = page.getByRole("button", { name: "Connect to a server" });
+    await expect(signOut.or(connect).first()).toBeVisible();
+    if (await signOut.isVisible()) await signOut.click();
+    await connect.click();
     await page.getByLabel("Server URL").fill("http://127.0.0.1:8766");
     await page.getByLabel("Email").fill("team@example.test");
     await page
