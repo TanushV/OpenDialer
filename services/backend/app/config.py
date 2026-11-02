@@ -43,6 +43,13 @@ class LIMITS:
     agent_threads = 4
     postcall_active = 2
     automatic_deadline_ms = 1500
+    # A streamed conversational reply may take longer than one structured window; new speech
+    # waits for it rather than cancelling it.
+    conversation_deadline_ms = 8000
+    conversation_retry_ms = 1000
+    # Interpretation (observations, commitments) runs as a checkpoint, not on every reply.
+    interpretation_seconds = 60
+    interpretation_before_expiry_ms = 120000
     manual_connect_ms = 1000
     manual_first_ms = 3000
     manual_full_ms = 8000

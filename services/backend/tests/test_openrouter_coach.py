@@ -382,3 +382,110 @@ async def test_finalization_asks_only_for_the_rundown_at_medium_effort():
     assert "Work on:" in instructions and "How:" in instructions
     assert "own words" in instructions and "never stale" in instructions
     assert "at most twelve words" in instructions
+
+
+def stream_frames(texts, provider="Cerebras", finish="stop"):
+    frames = [
+        {
+            "id": "gen-1",
+            "provider": provider,
+            "model": "fixture",
+            "choices": [{"index": 0, "delta": {"content": t}}],
+        }
+        for t in texts
+    ]
+    frames.append(
+        {
+            "id": "gen-1",
+            "provider": provider,
+            "model": "fixture",
+            "choices": [{"index": 0, "delta": {}, "finish_reason": finish}],
+            "usage": {"cost": 0.0003},
+        }
+    )
+    return "".join(f"data: {json.dumps(f)}\n\n" for f in frames) + "data: [DONE]\n\n"
+
+
+def conversation_request():
+    return {
+        "state_version": 3,
+        "prepared_script": {
+            "sections": [
+                {"key": "opening", "title": "Opening", "options": [{"text": "Hi there", "picked": True}]}
+            ],
+            "template": {"facts": ["Plans start at $40"], "never_say": ["Guaranteed savings"]},
+        },
+        "seller": {"name": "Agite"},
+        "lead_context": {"name": "Robin", "company": "Example Co"},
+        "recent_dialogue": [
+            {"segment_id": "r1", "side": "rep", "text": "How do you handle this today?"},
+            {"segment_id": "s1", "side": "remote", "text": "Spreadsheets, mostly."},
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_conversation_streams_plain_text_on_the_pinned_route_and_shows_it_as_it_grows():
+    sent, shown = [], []
+
+    def handler(request):
+        sent.append(json.loads(request.content))
+        words = ["Ask ", "how long ", "the spreadsheet ", "takes each ", "week, ", "and who ", "keeps it."]
+        return httpx.Response(200, text=stream_frames(words), headers={"content-type": "text/event-stream"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        adapter = OpenRouterCoach("key", http=http)
+
+        async def progress(card):
+            shown.append(card["say_or_ask"])
+
+        adapter.on_progress = progress
+        card = await adapter.converse(conversation_request(), deadline_ms=5000)
+    body = sent[0]
+    assert body["stream"] is True and "response_format" not in body and "tools" not in body
+    assert body["provider"]["only"] == ["cerebras"] and body["provider"]["allow_fallbacks"] is False
+    prompt = body["messages"][1]["content"]
+    assert "Prospect: Spreadsheets, mostly." in prompt and "Rep: How do you handle this today?" in prompt
+    assert "Plans start at $40" in prompt and "Guaranteed savings" in prompt
+    assert card["action"] == "SHOW_CARD" and card["kind"] == "CONVERSATION"
+    assert card["say_or_ask"] == "Ask how long the spreadsheet takes each week, and who keeps it."
+    assert card["evidence_segment_ids"] == ["s1"] and card["state_version"] == 3
+    assert shown and all(card["say_or_ask"].startswith(partial) for partial in shown)
+    assert adapter.first_text_ms is not None and adapter.last_request_id == "gen-1"
+
+
+@pytest.mark.asyncio
+async def test_a_quiet_conversation_reply_shows_nothing():
+    shown = []
+
+    def handler(request):
+        return httpx.Response(
+            200, text=stream_frames(["(noth", "ing)"]), headers={"content-type": "text/event-stream"}
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        adapter = OpenRouterCoach("key", http=http)
+
+        async def progress(card):
+            shown.append(card)
+
+        adapter.on_progress = progress
+        card = await adapter.converse(conversation_request(), deadline_ms=5000)
+    assert card["action"] == "NO_ACTION" and shown == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["OpenAI", None])
+async def test_a_conversation_reply_from_another_route_is_refused(provider):
+    from app.providers.openrouter import RouteNotVerified
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            text=stream_frames(["Ask about timing."], provider=provider),
+            headers={"content-type": "text/event-stream"},
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        with pytest.raises(RouteNotVerified):
+            await OpenRouterCoach("key", http=http).converse(conversation_request(), deadline_ms=5000)

@@ -151,6 +151,29 @@ def truncated_turn(content):
     }
 
 
+URL = "https://openrouter.ai/api/v1/chat/completions"
+# Cerebras only, no fallback provider, no data collection or retention.
+ROUTE = {
+    "only": ["cerebras"],
+    "order": ["cerebras"],
+    "allow_fallbacks": False,
+    "require_parameters": True,
+    "data_collection": "deny",
+    "zdr": True,
+}
+# A streamed reply is shown as it grows, at most this often, never one write per token.
+PROGRESS_SECONDS = 0.25
+PROGRESS_CHARS = 24
+
+
+def headers(api_key):
+    return {
+        "Authorization": "Bearer " + api_key,
+        "X-OpenRouter-Title": "OpenDialer",
+        "X-OpenRouter-Metadata": "enabled",
+    }
+
+
 class OpenRouterCoach:
     def __init__(self, api_key, model=PROVIDER_DEFAULTS.coach_model, *, http=None):
         self.api_key, self.model, self.http = api_key, model, http
@@ -282,13 +305,9 @@ class OpenRouterCoach:
         async def send(http, first_answer):
             payload = await self._send(
                 http,
-                "https://openrouter.ai/api/v1/chat/completions",
+                URL,
                 first_answer=first_answer,
-                headers={
-                    "Authorization": "Bearer " + self.api_key,
-                    "X-OpenRouter-Title": "OpenDialer",
-                    "X-OpenRouter-Metadata": "enabled",
-                },
+                headers=headers(self.api_key),
                 json={
                     "model": self.model,
                     "stream": stream,
@@ -299,14 +318,7 @@ class OpenRouterCoach:
                         "effort": "medium" if request.get("mode") == "finalize" else "low",
                         "exclude": True,
                     },
-                    "provider": {
-                        "only": ["cerebras"],
-                        "order": ["cerebras"],
-                        "allow_fallbacks": False,
-                        "require_parameters": True,
-                        "data_collection": "deny",
-                        "zdr": True,
-                    },
+                    "provider": ROUTE,
                     "messages": [
                         {
                             "role": "system",
@@ -399,6 +411,108 @@ class OpenRouterCoach:
             return card_view(result)
         except ValueError as exc:
             raise InferenceError("Invalid structured conversation turn") from exc
+
+    async def converse(self, request, deadline_ms=8000):
+        """One streamed plain-text reply in the call's helper conversation.
+
+        No response schema: the reply only advises the rep. Partial text is offered through
+        `on_progress` once the route is verified as Cerebras; `first_text_ms` measures the
+        time from request to the first useful text.
+        """
+        from app.coaching.conversation import QUIET, messages, reply_card
+
+        self.last_usage, self.last_request_id, self.last_provider = {}, None, None
+        self.first_text_ms = None
+        started = time.perf_counter()
+        content, identity, state = [], {}, {"finished": None, "done": False, "at": 0.0, "length": 0}
+
+        async def stream(http):
+            body = {
+                "model": self.model,
+                "stream": True,
+                "max_completion_tokens": MAX_COMPLETION_TOKENS,
+                "reasoning": {"effort": "low", "exclude": True},
+                "provider": ROUTE,
+                "messages": messages(request),
+            }
+            timeout = httpx.Timeout(deadline_ms / 1000, connect=min(self.connect_ms, deadline_ms) / 1000)
+            async with http.stream(
+                "POST", URL, headers=headers(self.api_key), json=body, timeout=timeout
+            ) as r:
+                r.raise_for_status()
+                received = 0
+                async for line in r.aiter_lines():
+                    received += len(line.encode())
+                    if received > RESPONSE_BYTES:
+                        raise InferenceError("Coach stream exceeds its response budget")
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        state["done"] = True
+                        break
+                    try:
+                        frame = json.loads(data)
+                    except ValueError as exc:
+                        raise InferenceError("Invalid coach stream") from exc
+                    if not isinstance(frame, dict) or frame.get("error"):
+                        raise InferenceError("Coach stream failed")
+                    for key, value in (
+                        ("id", frame.get("id")),
+                        ("provider", provider_identity(frame)),
+                        ("model", frame.get("model")),
+                    ):
+                        if value is not None:
+                            if not isinstance(value, str) or (key in identity and identity[key] != value):
+                                raise InferenceError("Conflicting coach receipt identity")
+                            identity[key] = value
+                    if frame.get("usage"):
+                        self.last_usage = frame["usage"]
+                    for choice in frame.get("choices") or []:
+                        delta = (choice or {}).get("delta") or {}
+                        if delta.get("refusal"):
+                            raise InferenceError("Coach refused")
+                        if isinstance(delta.get("content"), str):
+                            content.append(delta["content"])
+                        if choice.get("finish_reason"):
+                            state["finished"] = choice["finish_reason"]
+                    text = "".join(content).strip()
+                    if (
+                        not text
+                        or QUIET.startswith(text[: len(QUIET)])
+                        or not is_cerebras(identity.get("provider"))
+                    ):
+                        continue
+                    now = time.perf_counter()
+                    if self.first_text_ms is None:
+                        self.first_text_ms = round((now - started) * 1000, 3)
+                    if (
+                        self.on_progress is not None
+                        and len(text) - state["length"] >= PROGRESS_CHARS
+                        and now - state["at"] >= PROGRESS_SECONDS
+                    ):
+                        state["at"], state["length"] = now, len(text)
+                        await self.on_progress(reply_card(text, request))
+
+        try:
+            async with asyncio.timeout(deadline_ms / 1000):
+                if self.http:
+                    await stream(self.http)
+                else:
+                    async with httpx.AsyncClient() as http:
+                        await stream(http)
+        finally:
+            self.last_latency_ms = round((time.perf_counter() - started) * 1000, 3)
+            self.last_request_id = identity.get("id")
+            self.last_provider = identity.get("provider")
+            self.last_model = identity.get("model", self.model)
+        if self.last_provider is None:
+            raise RouteNotVerified("provider_unverified")
+        if not is_cerebras(self.last_provider):
+            raise RouteNotVerified("provider_mismatch")
+        if not state["done"] or state["finished"] not in {"stop", "length"}:
+            raise InferenceError("Coach stream did not finish")
+        return reply_card("".join(content), request)
 
     async def finalize(self, request, deadline_ms=1200):
         """After the call: write the rundown and remaining interpretations, never live guidance."""

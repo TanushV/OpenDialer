@@ -246,8 +246,11 @@ class LiveHelper:
                 continue
             is_pinned = identity == pinned
             deadline = dt(row.data["raw_expires_at"] if is_pinned else row.data["expires_at"])
+            # A conversational reply stays readable for its short life while speech continues.
             if deadline <= self.clock() or (
-                not is_pinned and row.data["state_version"] != call.data["transcript_version"]
+                not is_pinned
+                and row.data.get("kind") != "CONVERSATION"
+                and row.data["state_version"] != call.data["transcript_version"]
             ):
                 continue
             content = self.coach_content(p, doc(row))
@@ -303,7 +306,9 @@ class LiveHelper:
             or call.data.get("transcription_disabled")
         )
 
-    def _help_context(self, p, call_id, urgent, question, identity=None, *, mode="live"):
+    def _help_context(
+        self, p, call_id, urgent, question, identity=None, *, mode="live", conversational=False
+    ):
         started = time.perf_counter()
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
@@ -326,7 +331,28 @@ class LiveHelper:
             if not stable and not urgent:
                 return None
             pending = [item for item in stable if item.get("interpretation_revision") != item["revision"]]
-            if not pending and not urgent:
+            state_record = self._by_key(s, p, "conversation_states", call_id)
+            checkpoint = False
+            if conversational and mode == "live":
+                # Replies follow new speech; interpretation runs as a periodic checkpoint so
+                # early context is kept before its raw speech expires.
+                cursor = (state_record.data if state_record else {}).get("conversation_cursor") or ""
+                fresh = [item for item in stable if item.get("server_received_at", "") > cursor]
+                checkpoint = bool(
+                    pending
+                    and not urgent
+                    and (
+                        min(dt(item["server_received_at"]) for item in pending)
+                        <= self.clock() - timedelta(seconds=LIMITS.interpretation_seconds)
+                        or min(item.get("raw_remaining_ms", 0) for item in pending)
+                        <= LIMITS.interpretation_before_expiry_ms
+                    )
+                )
+                if not fresh and not checkpoint and not urgent:
+                    return None
+                conversational = not checkpoint
+                pending = pending if checkpoint else fresh
+            elif not pending and not urgent:
                 return None
             useful_until = self.clock() + timedelta(seconds=8 if urgent else 1.5)
             recent = [item for item in stable if dt(item["raw_expires_at"]) > useful_until or item in pending]
@@ -334,7 +360,6 @@ class LiveHelper:
             selected = {item["segment_id"] for item in [*pending[:16], *recent[-16:]]}
             stable = [item for item in stable if item["segment_id"] in selected]
             version = call.data.get("transcript_version", 0)
-            state_record = self._by_key(s, p, "conversation_states", call_id)
             from app.postcall.rubrics import effective
 
             previous = upgrade_state(
@@ -546,6 +571,20 @@ class LiveHelper:
                 if pending_times
                 else 0,
             }
+            if conversational:
+                request["conversational"] = True
+                latest = state_record.data.get("latest_coach_event_id")
+                shown = self.raw.get("help:" + p["tenant_id"] + ":" + latest) if latest else None
+                request["previous_reply"] = (shown or {}).get("say_or_ask")
+                update(
+                    state_record,
+                    conversation_cursor=max(item.get("server_received_at", "") for item in stable)
+                    if stable
+                    else state_record.data.get("conversation_cursor"),
+                )
+            elif checkpoint:
+                request["automatic_tips_muted"] = True
+                request["interpretation_checkpoint"] = True
             if mode == "live":
                 update(state_record, last_request_at=self.clock().isoformat())
             deadline = min(
@@ -608,18 +647,31 @@ class LiveHelper:
 
     async def _coach_turn(self, p, call_id, urgent=False, question=None, identity=None):
         request_started = engine.monotonic()
-        prepared = await asyncio.to_thread(self._help_context, p, call_id, urgent, question, identity)
+        # The config read is file I/O: keep it off the event loop.
+        provider, route = await asyncio.to_thread(self.configured_coach, p)
+        conversational = bool(provider and hasattr(provider, "converse") and not self.settings.simulation)
+        if conversational and not urgent and self.coach.busy(call_id):
+            # Coalesce: the next request carries everything said while this reply is written.
+            await asyncio.to_thread(self._defer_busy_help, p, call_id, LIMITS.conversation_retry_ms)
+            return {"action": "NO_ACTION", "status": "busy", "private": False}
+        prepared = await asyncio.to_thread(
+            self._help_context, p, call_id, urgent, question, identity, conversational=conversational
+        )
         if not prepared:
             return {"action": "NO_ACTION", "status": "no_action", "private": bool(question)}
         request, fallback, expires, state_ms, retrieval_ms, comparison = prepared
         remaining = (expires - self.clock()).total_seconds()
-        allowed_ms = LIMITS.manual_full_ms if urgent else LIMITS.automatic_deadline_ms
+        allowed_ms = (
+            LIMITS.manual_full_ms
+            if urgent
+            else LIMITS.conversation_deadline_ms
+            if request.get("conversational")
+            else LIMITS.automatic_deadline_ms
+        )
         # Every ceiling is clipped to the original raw-speech expiry.
         monotonic_deadline = min(request_started + allowed_ms / 1000, engine.monotonic() + remaining)
         if remaining <= 0:
             return {"action": "NO_ACTION", "status": "expired", "private": bool(question)}
-        # The config read is file I/O: keep it off the event loop.
-        provider, route = await asyncio.to_thread(self.configured_coach, p)
         if provider:
             # The first-useful ceiling bounds the first displayable content only; generation
             # and any review of a factual answer may run to the full ceiling.
@@ -659,7 +711,7 @@ class LiveHelper:
                 progress_id = shown.get("id")
                 return bool(progress_id)
 
-            if question:
+            if question or request.get("conversational"):
 
                 async def progress(result):
                     # A cancelled storage thread still runs: retain its identity
@@ -786,11 +838,11 @@ class LiveHelper:
         self._defer_help(s, p, call, dt(admitted[0]["at"]) + timedelta(seconds=60), "rate")
         return None
 
-    def _defer_busy_help(self, p, call_id):
+    def _defer_busy_help(self, p, call_id, wait_ms=LIMITS.prospect_debounce_ms):
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", call_id, p)
             if call.data["state"] not in TERMINAL | {"ENDING"}:
-                due = self.clock() + timedelta(milliseconds=LIMITS.prospect_debounce_ms)
+                due = self.clock() + timedelta(milliseconds=wait_ms)
                 self._defer_help(s, p, call, due, "capacity:" + due.isoformat())
 
     async def _validated_help(
@@ -811,6 +863,23 @@ class LiveHelper:
         deadline=None,
     ):
         review_ms = 0.0
+        if result.get("kind") == "CONVERSATION":
+            # Plain advice for the rep: no structured audit, never a business effect.
+            return await self._publish_validated(
+                p,
+                call_id,
+                request,
+                result,
+                source,
+                provider,
+                expires,
+                state_ms,
+                retrieval_ms,
+                inference_ms,
+                progressive,
+                event_id,
+                review_ms,
+            )
         try:
             result = normalized_turn(card_view(result), request)
             try:
@@ -843,6 +912,38 @@ class LiveHelper:
                 if isinstance(result, dict) and result.get("state_version") == request["state_version"]
                 else None,
             }
+        return await self._publish_validated(
+            p,
+            call_id,
+            request,
+            result,
+            source,
+            provider,
+            expires,
+            state_ms,
+            retrieval_ms,
+            inference_ms,
+            progressive,
+            event_id,
+            review_ms,
+        )
+
+    async def _publish_validated(
+        self,
+        p,
+        call_id,
+        request,
+        result,
+        source,
+        provider,
+        expires,
+        state_ms,
+        retrieval_ms,
+        inference_ms,
+        progressive,
+        event_id,
+        review_ms,
+    ):
         unavailable = result.get("status") == "unavailable"  # A failed request, not a quiet one.
         result = {
             **result,
@@ -1053,8 +1154,13 @@ class LiveHelper:
                         s, p, call, self.clock() + timedelta(seconds=interval), state_record.version
                     )
             emit(s, p["tenant_id"], "conversation.updated", call, self.clock())
+            conversational = request.get("conversational")
+            if conversational and result["action"] != "NO_ACTION":
+                newer = state_record.data.get("reply_state_version", -1) > request["state_version"]
+                if newer:
+                    return {"action": "NO_ACTION", "status": "superseded", "private": result["private"]}
             if (
-                call.data["transcript_version"] != request["state_version"]
+                (call.data["transcript_version"] != request["state_version"] and not conversational)
                 or call.data["state"] in TERMINAL | {"ENDING"}
                 or (call.data.get("coach_preferences", {}).get("muted") and not request["manual_help"])
                 or request.get("guidance_display") == "approved_static_only"
@@ -1096,6 +1202,7 @@ class LiveHelper:
                             "retrieval_ms": retrieval_ms,
                             "state_retrieval_ms": state_ms,
                             "generation_ms": inference_ms,
+                            "first_text_ms": getattr(provider, "first_text_ms", None),
                             "review_ms": review_ms,
                             "inference_ms": inference_ms + review_ms,
                             "total_server_ms": request.get("timing", {}).get("coalescing_ms", 0)
@@ -1119,6 +1226,8 @@ class LiveHelper:
                 else:
                     obj = put(s, "coach_events", p["tenant_id"], p["seller_id"], metadata, now=self.clock())
                 update(state_record, latest_coach_event_id=obj.id)
+                if conversational:
+                    update(state_record, reply_state_version=request["state_version"])
                 if request.get("manual_request_id"):
                     receipts = [dict(r) for r in state_record.data.get("manual_help_requests", [])]
                     for receipt in receipts:

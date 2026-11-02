@@ -258,7 +258,9 @@ export function LiveCoach({
         </strong>
         <span className="fine">
           {advice?.status === "streaming"
-            ? "Answer ready · finishing explanation…"
+            ? advice.kind === "CONVERSATION"
+              ? "Writing…"
+              : "Answer ready · finishing explanation…"
             : waiting
               ? "Thinking with your call context…"
               : call?.coach_preferences?.muted

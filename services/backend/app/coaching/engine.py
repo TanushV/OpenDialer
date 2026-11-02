@@ -106,6 +106,12 @@ class CoachEngine:
                 task.get_loop().call_soon_threadsafe(task.cancel)
             return task is not None
 
+    def busy(self, call_id):
+        """A reply for this call is still being written."""
+        with self._lock:
+            task = self.active.get(call_id)
+            return bool(task and not task.done())
+
     def current(self, call_id, identity):
         with self._lock:
             task = self.active.get(call_id)
@@ -168,10 +174,9 @@ class CoachEngine:
                 if admitted and can_submit and current() and remaining > 0:
                     submitted = True
                     try:
+                        respond = provider.converse if request.get("conversational") else provider.suggest
                         async with asyncio.timeout(remaining) as limit:
-                            result = await provider.suggest(
-                                request, deadline_ms=max(1, int(remaining * 1000))
-                            )
+                            result = await respond(request, deadline_ms=max(1, int(remaining * 1000)))
                         # A provider can swallow cancellation and return late advice.
                         if limit.expired():
                             raise TimeoutError()
@@ -199,6 +204,11 @@ class CoachEngine:
         with self._lock:
             if call_id in self._manual and not manual:
                 return {"action": "NO_ACTION", "status": "manual_pending"}
+            running = self.active.get(call_id)
+            if request.get("conversational") and not manual and running and not running.done():
+                # New speech waits for the reply being written instead of cancelling it, so a
+                # slower model still finishes; the waiting text joins the next request.
+                return {"action": "NO_ACTION", "status": "busy"}
             if len(self._pending) >= self.max_pending or (
                 owner_key is not None and list(self._pending.values()).count(owner_key) >= LIMITS.live_per_rep
             ):
