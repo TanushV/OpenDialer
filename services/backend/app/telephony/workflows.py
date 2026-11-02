@@ -16,6 +16,15 @@ KEYPAD_STATES = {"DIALING", "RINGING", "ANSWERED_UNCLASSIFIED", "HUMAN", "SCREEN
 TRANSCRIPTION_ENGINE = "Soniox"
 
 
+# How long the final-stage second attempt stays offered after the unanswered one ends.
+SECOND_ATTEMPT_WINDOW = timedelta(minutes=5)
+AGENT_STEPS = {
+    "AUDIO_SETUP_MISSING": "This computer has no calling audio login. Import your calling setup in Settings.",
+    "NO_CALLER_NUMBER": "Add a caller number: sync a number you already own in Telnyx, or buy one in Numbers.",
+    "CALLER_NUMBER_ROUTE_REQUIRED": "Set up your caller number's route in Numbers before going ready.",
+}
+
+
 class TelephonyWorkflows:
     def _keypad_intent(self, p, call_id, digits, request_id):
         with self.db.transaction() as s:
@@ -122,11 +131,22 @@ class TelephonyWorkflows:
                         outcome = "voicemail"
                     if outcome:
                         update(call, carrier_outcome=outcome)
+                        self._offer_second_attempt(s, call, lead, policy)
                 if event_type in {
                     "call.machine.detection.ended:machine",
                     "call.machine.premium.detection.ended:machine",
-                }:
+                } and not call.data.get("human_answered_at"):
                     update(call, machine_detected=True)
+                    final = call.data.get("attempt_ordinal", 0) >= call.data.get(
+                        "attempt_allowance", policy.get("max_attempts", 4)
+                    )
+                    if final:
+                        # The last attempt keeps the line open for the rep's own short message.
+                        update(call, voicemail_turn=True)
+                    elif call.data["state"] not in TERMINAL | {"ENDING"}:
+                        self.control_intent(s, p, call_id, "hangup", {}, suffix="machine-hangup")
+                        update(call, end_reason="machine_detected")
+                    emit(s, p["tenant_id"], "call.updated", call, self.clock())
                 if event_type in HUMAN_EVENTS | {"human.confirmed"}:
                     update(
                         call,
@@ -525,24 +545,62 @@ class TelephonyWorkflows:
             )
         return {"agent_call_control_id": provider_id}
 
+    def _offer_second_attempt(self, s, call, lead, policy):
+        """The final stage may pair an unanswered next-to-last attempt with one immediate retry.
+
+        It is only a suggestion for the same rep's next Space press, open five minutes; it never
+        dials by itself, and it is not offered after a conversation, a pair or a pending callback.
+        """
+        allowance = call.data.get("attempt_allowance", policy.get("max_attempts", 4))
+        if (
+            call.data.get("attempt_ordinal") != allowance - 1
+            or call.data.get("pair_of")
+            or lead.data.get("callback_due_at")
+            or lead.data.get("outreach_hold")
+            or lead.data.get("status") != "eligible"
+        ):
+            return
+        now = self.clock()
+        update(
+            lead,
+            pair_of=call.id,
+            pair_rep_id=call.data["rep_id"],
+            pair_opened_at=now.isoformat(),
+            pair_until=(now + SECOND_ATTEMPT_WINDOW).isoformat(),
+        )
+
     def _agent_context(self, p):
+        """The rep's audio login and a routed caller number to present on the rep's own leg.
+
+        Each missing piece has its own next step; an empty inventory says nothing about the
+        audio credential.
+        """
         conf = self.configs.read(p["tenant_id"])
         with self.db.transaction(False) as s:
             user = self.required(s, "users", p["user_id"], p)
             sip = user.data.get("sip_username") or (
                 conf.get("sip_username") if p["role"] in {"owner", "admin"} else None
             )
-            inventory = [
-                n
-                for n in self.scoped(s, "number_inventory", p)
-                if n.data["lifecycle"] in {"healthy", "limited_real_use"}
-            ]
             credential = user.data.get("telephony_credential_id") or (
                 conf.get("telephony_credential_id") if p["role"] in {"owner", "admin"} else None
             )
-            if not sip or not re.fullmatch(r"[A-Za-z0-9_.+-]{1,128}", sip) or not credential or not inventory:
-                fail(503, "Configure a scoped incoming-only SIP credential and an owned healthy caller ID")
-        return sip, credential, inventory[0].data["phone"]
+            if not sip or not re.fullmatch(r"[A-Za-z0-9_.+-]{1,128}", sip) or not credential:
+                fail(503, {"code": "AUDIO_SETUP_MISSING", "message": AGENT_STEPS["AUDIO_SETUP_MISSING"]})
+            numbers = [
+                n
+                for n in self.scoped(s, "number_inventory", p)
+                if n.data["lifecycle"] not in {"retired_callback_only", "paused_for_outbound"}
+            ]
+            routed = [
+                n
+                for n in numbers
+                if n.data.get("identity_configured") and n.data.get("provider_present") is not False
+            ]
+            if not routed:
+                code = "CALLER_NUMBER_ROUTE_REQUIRED" if numbers else "NO_CALLER_NUMBER"
+                fail(503, {"code": code, "message": AGENT_STEPS[code]})
+            ready = [n for n in routed if n.data["lifecycle"] in {"healthy", "limited_real_use"}]
+        return sip, credential, (ready or routed)[0].data["phone"]
 
     def _claim_agent(self, p, leg_id, owner):
         with self.db.transaction() as s:

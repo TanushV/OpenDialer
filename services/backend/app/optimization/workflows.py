@@ -1,7 +1,8 @@
 import hashlib
 import json
 import math
-from datetime import timedelta
+from collections import defaultdict
+from datetime import UTC, timedelta
 
 from sqlalchemy import func, or_, select
 
@@ -14,6 +15,7 @@ from app.optimization.numbering import (
     capacity_forecast,
     number_health,
     timestamp,
+    warmup_allowance,
 )
 from app.scheduling.models import (
     OPTIMIZATION_DEFAULTS,
@@ -23,6 +25,8 @@ from app.scheduling.models import (
     saved_prediction,
 )
 
+# A finished attempt is resolved evidence for warmup growth.
+RESOLVED_STATES = {"ENDED", "FINALIZED", "BUSY", "NO_ANSWER", "TEMPORARY_FAILURE", "INVALID_ENDPOINT"}
 STAGES = ("p_human", "p_right_party_given_human", "p_conversion_given_right_party")
 
 DEFAULTS = OPTIMIZATION_DEFAULTS
@@ -377,7 +381,8 @@ class OptimizationWorkflows(ComparisonWorkflows):
         s.info["active_claims"] = claims
         s.info["expired_claims"] = [claim.id for claim, lapsed in found if not claim.call_id and lapsed]
         attempt = MODELS["call_attempts"]
-        today = self.clock().replace(hour=0, minute=0, second=0, microsecond=0)
+        # A rolling day, so a reset at midnight can never double a number's traffic.
+        today = self.clock() - timedelta(days=1)
         used = dict(
             s.execute(
                 select(attempt.op_number_id, func.count())
@@ -428,8 +433,28 @@ class OptimizationWorkflows(ComparisonWorkflows):
                     "busy_until": max(finishes).isoformat() if finishes else None,
                 }
             )
+        warming = {
+            v["id"]: v
+            for v in result
+            if v.get("lifecycle") == "limited_real_use" and v.get("warmup_started_at")
+        }
+        history = defaultdict(list)
+        if warming:
+            for number_id, at, lead_id, status in s.execute(
+                select(attempt.op_number_id, attempt.op_at, attempt.op_lead_id, attempt.op_status).where(
+                    attempt.tenant_id == p["tenant_id"],
+                    attempt.seller_id == p["seller_id"],
+                    attempt.op_number_id.in_(warming),
+                    attempt.op_at >= min(timestamp(v["warmup_started_at"]) for v in warming.values()),
+                )
+            ):
+                if at is not None:
+                    at = at if at.tzinfo else at.replace(tzinfo=UTC)
+                    history[number_id].append((at, lead_id, status in RESOLVED_STATES))
         for value in result:
             value["approved_daily_limit"] = value["daily_limit"]
+            if value["id"] in warming:
+                value["warmup_allowance"] = warmup_allowance(value, history[value["id"]], self.clock())
             value["daily_limit"] = adaptive_daily_limit(value, value["health"])
             value["capacity_mode"] = "adaptive"
         return result
@@ -725,9 +750,17 @@ class OptimizationWorkflows(ComparisonWorkflows):
                         bindings[row.data["lead_id"]] = row.data["number_id"]
                     elif row.data.get("active", True):
                         denied.add(row.data["phone"])
-            screening = screening_page(self, s, p, [row.data["phone"] for row in page], denied)
+            # With screening off nothing is looked up and no lead is excluded as "not cleared".
+            screening = (
+                screening_page(self, s, p, [row.data["phone"] for row in page], denied)
+                if policy_row.data.get("dnc_screening")
+                else {}
+            )
             for row in page:
-                decision = screening[row.data["phone"]]
+                decision = screening.get(row.data["phone"])
+                if decision is None:
+                    screening_counts["not_checked_count"] += 1
+                    continue
                 screening_counts["cleared_count" if decision["decision"] == "clear" else "blocked_count"] += 1
                 if decision["decision"] != "clear":
                     screening_reasons.update(decision["reason_codes"])
@@ -737,7 +770,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                     "suppressed": row.data["phone"] in denied,
                     "bound_number_id": bindings.get(row.id),
                     "active_obligation": row.id in claimed_leads,
-                    "screening": screening[row.data["phone"]],
+                    **({"screening": screening[row.data["phone"]]} if row.data["phone"] in screening else {}),
                 }
                 for row in page
             )
@@ -825,6 +858,8 @@ class OptimizationWorkflows(ComparisonWorkflows):
             "list_staffing_fingerprint": list_staffing_fingerprint,
             "minimum_expansion_age_hours": config["minimum_expansion_age_hours"],
             "screening": {
+                "enabled": bool(policy_row.data.get("dnc_screening")),
+                "not_checked_count": screening_counts["not_checked_count"],
                 "cleared_count": screening_counts["cleared_count"],
                 "blocked_count": screening_counts["blocked_count"],
                 "blocked_reasons": dict(screening_reasons),

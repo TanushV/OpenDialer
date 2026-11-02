@@ -9,6 +9,11 @@ from app.optimization.numbering import capacity_forecast
 from test_time_capacity import NOW, lead, number, window
 
 
+def days(minutes=180, count=3):
+    """Staffed time on consecutive days: ordinary retries wait at least 24 hours."""
+    return [window(NOW + timedelta(days=d), minutes=minutes) for d in range(count)]
+
+
 def plan(leads, inventory, **overrides):
     options = dict(
         now=NOW,
@@ -50,6 +55,7 @@ def test_conservation_known_and_contingent(reverse):
         leads,
         [number(daily_limit=80)],
         rep_minutes=360,
+        horizon_hours=72,
         staffed_windows=[window(minutes=360)],
         policy={"max_attempts": 4, "local_start_hour": 9, "local_end_hour": 20},
     )
@@ -280,7 +286,10 @@ def test_retry_forecast_uses_only_matured_conditioned_support(success, total):
         rows,
         [number()],
         retry_observations=history,
-        policy={"max_attempts": 3, "min_retry_seconds": 3600, "local_start_hour": 9, "local_end_hour": 20},
+        horizon_hours=72,
+        staffed_windows=days(),
+        rep_minutes=540,
+        policy={"max_attempts": 3, "local_start_hour": 9, "local_end_hour": 20},
     )
     retry = result["contingent_retry_low_mean_high"]
     assert 0 <= retry["low"] <= retry["mean"] <= retry["high"] <= 2
@@ -748,22 +757,23 @@ def test_retry_evidence_uses_observed_progress_and_pending_work_not_censored_fai
 def test_retry_capacity_shares_rep_and_number_ledgers_and_keeps_known_minimum():
     result = plan(
         [lead("one", bound_number_id="owned"), lead("two", bound_number_id="owned")],
-        [number(daily_limit=2)],
-        staffed_windows=[window(minutes=180)],
-        rep_minutes=180,
-        policy={"max_attempts": 2, "min_retry_seconds": 3600, "local_start_hour": 9, "local_end_hour": 20},
+        [number(daily_limit=1)],
+        staffed_windows=days(),
+        horizon_hours=72,
+        rep_minutes=540,
+        policy={"max_attempts": 2, "local_start_hour": 9, "local_end_hour": 20},
     )
     assert result["minimum_additional_numbers"] == 0
     scenarios = result.get("contingent_capacity")
     assert scenarios, "Later retry demand must pass through the same capacity engine"
     high = scenarios["high"]
     assert high["planned_attempts"] == 4
-    assert high["existing_capacity"] == 2
+    assert high["existing_capacity"] == 3
     assert high["additional_numbers"] == 0, (
         "Retries retain their original identity; extra DIDs cannot fix that cap"
     )
-    assert high["binding_shortfall"] == 2
-    assert high["unserved_attempts"] == 2
+    assert high["binding_shortfall"] == 1
+    assert high["unserved_attempts"] == 1
     assert high["purchase_allowed"] is False
 
 
@@ -771,9 +781,10 @@ def test_retry_capacity_respects_cadence_occupancy_and_stable_identity():
     result = plan(
         [lead("one", predicted_work_seconds=120), lead("two", predicted_work_seconds=120)],
         [number(daily_limit=20)],
-        staffed_windows=[window(minutes=180)],
-        rep_minutes=180,
-        policy={"max_attempts": 3, "min_retry_seconds": 3600, "local_start_hour": 9, "local_end_hour": 20},
+        staffed_windows=days(),
+        horizon_hours=72,
+        rep_minutes=540,
+        policy={"max_attempts": 3, "local_start_hour": 9, "local_end_hour": 20},
     )
     scenarios = result.get("contingent_capacity")
     assert scenarios, "Retry capacity scenarios missing"
@@ -792,7 +803,7 @@ def test_retry_capacity_respects_cadence_occupancy_and_stable_identity():
         )
         assert len({r["number_id"] for r in attempts}) == 1
         assert all(
-            (datetime.fromisoformat(b["at"]) - datetime.fromisoformat(a["at"])).total_seconds() >= 3600
+            (datetime.fromisoformat(b["at"]) - datetime.fromisoformat(a["at"])).total_seconds() >= 86400
             for a, b in itertools.pairwise(attempts)
         )
     assert all(a["end_at"] <= b["at"] for a, b in itertools.pairwise(rows))
@@ -832,11 +843,12 @@ def test_full_internal_schedule_does_not_truncate_retry_publication():
 def test_retry_capacity_can_propose_one_shared_addition_for_unbound_work():
     result = plan(
         [lead("one"), lead("two")],
-        [number(daily_limit=2)],
-        daily_capacity_per_number=2,
-        staffed_windows=[window(minutes=180)],
-        rep_minutes=180,
-        policy={"max_attempts": 2, "min_retry_seconds": 3600, "local_start_hour": 9, "local_end_hour": 20},
+        [number(daily_limit=1)],
+        daily_capacity_per_number=1,
+        staffed_windows=days(),
+        horizon_hours=72,
+        rep_minutes=540,
+        policy={"max_attempts": 2, "local_start_hour": 9, "local_end_hour": 20},
     )
     high = result["contingent_capacity"]["high"]
     assert result["minimum_additional_numbers"] == 0

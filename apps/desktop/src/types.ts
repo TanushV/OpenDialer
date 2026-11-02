@@ -140,6 +140,9 @@ export interface Coach {
   evidence_segment_ids: string[];
 }
 export interface Call {
+  /** Telnyx found a mailbox on the final attempt: the line stays open for the rep's message. */
+  voicemail_turn?: boolean;
+  machine_detected?: boolean;
   transcription_source?: string;
   transcription_layout?: string;
   transcription_disabled?: boolean;
@@ -418,14 +421,15 @@ export interface Policy {
   id: string;
   /** Row version of this immutable publication; publishing an older one is a conflict. */
   version?: number;
-  approved: boolean;
-  registry_required: boolean;
+  approved?: boolean;
+  /** Optional national do-not-call screening before calls; off by default. */
+  dnc_screening?: boolean;
   state_registry_required: boolean;
   local_start_hour: number;
   local_end_hour: number;
   max_attempts: number;
   permissions: string[];
-  review_reference: string;
+  review_reference?: string;
   reason?: string;
   voicemail_enabled?: boolean;
   voicemail_optout_supported?: boolean;

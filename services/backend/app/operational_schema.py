@@ -342,7 +342,12 @@ def sync_columns(row):
         # Usage has no campaign; its indexed slot holds the budget scope (one lead list).
         row.op_campaign_id = data.get("budget_scope")
     row.op_owner_id = data.get("rep_id", data.get("owner_id"))
-    row.op_due_at = as_time(data.get("callback_due_at") or data.get("next_attempt_at") or data.get("due_at"))
+    row.op_due_at = as_time(
+        data.get("pair_opened_at")
+        or data.get("callback_due_at")
+        or data.get("next_attempt_at")
+        or data.get("due_at")
+    )
     row.op_coverage_at = as_time(data.get("coverage_due_at"))
     if row.__tablename__ == "leads" and row.op_coverage_at is None:
         # Missing deadlines sort first on every database; the queue index has no NULLs.
@@ -351,7 +356,15 @@ def sync_columns(row):
         as_time(data.get("started_at") or data.get("at") or data.get("as_of") or data.get("occurred_at"))
         or row.created_at
     )
-    row.op_priority = 2 if data.get("callback_due_at") else 1 if data.get("requested_contact") else 0
+    row.op_priority = (
+        3
+        if data.get("pair_opened_at")
+        else 2
+        if data.get("callback_due_at")
+        else 1
+        if data.get("requested_contact")
+        else 0
+    )
     row.op_active = bool(data.get("active"))
     row.op_amount = float(
         data.get("cost_usd") if data.get("cost_usd") is not None else data.get("reserved_usd") or 0

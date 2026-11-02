@@ -110,11 +110,30 @@ function useAdminSettings() {
 type AdminSettingsState = ReturnType<typeof useAdminSettings>;
 
 const READINESS: Record<string, string> = {
-  POLICY_NOT_PUBLISHED: "Approve your calling hours for live calls.",
-  SELLER_NOT_APPROVED: "Confirm your business is allowed to make these calls.",
   NO_CAMPAIGN: "Create a campaign.",
   RESTORE_RECONCILIATION_REQUIRED: "Finish checking the restored backup.",
   BUDGET_NOT_CONFIGURED: "Set an AI budget.",
+  TELNYX_NOT_CONFIGURED: "Connect Telnyx under Calling.",
+  AUDIO_SETUP_MISSING:
+    "This computer has no calling audio login. Import your calling setup under Calling.",
+  WEBHOOK_SIGNATURE_KEY_MISSING: "Import your calling setup under Calling.",
+  MANAGED_CONNECTION_UNAVAILABLE:
+    "Call events are reconnecting. Keep OpenDialer open; reconnect under Calling if it stays off.",
+  NO_CALLER_NUMBER:
+    "Add a caller number: in Numbers, sync a number you already own in Telnyx, or buy one.",
+  CALLER_NUMBER_ROUTE_REQUIRED:
+    "In Numbers, choose Set up route on your caller number.",
+  CALLER_NUMBER_CALLBACK_TEST_REQUIRED:
+    "Go ready, then call your caller number once from your own phone and answer it here. That proves callbacks reach you and starts its warmup.",
+  CALLER_NUMBER_PAUSED:
+    "Your caller numbers are paused. Review them in Numbers.",
+  NO_LEADS: "Import a lead list.",
+  TIMEZONE_UNCERTAIN:
+    "Some leads have no usable state or time zone. Add a state column to the CSV.",
+  INTERNAL_SUPPRESSION: "Every remaining lead is on your do-not-call list.",
+  ATTEMPT_LIMIT: "Every remaining lead has used all its attempts.",
+  OUTREACH_HOLD:
+    "The remaining leads are on hold (booked, waiting or held by you).",
 };
 
 function AdminSettings({
@@ -232,24 +251,20 @@ function AdminSettings({
           </SettingCard>
           <SettingCard
             title="Calling hours"
-            done={w.policy.approved}
-            summary={`${w.policy.local_start_hour}:00 to ${w.policy.local_end_hour}:00 in each lead's time zone · up to ${w.policy.max_attempts} attempts${w.policy.approved ? "" : " · not approved for live calls yet"}`}
+            summary={`${w.policy.local_start_hour}:00 to ${w.policy.local_end_hour}:00 in each lead's time zone · up to ${w.policy.max_attempts} attempts · retries at least a day apart`}
           >
             <CallingWindow />
-            <BusinessConfirmation />
           </SettingCard>
           <SettingCard
-            title="Do-not-call list"
-            done={w.registries.some(
-              (r) => r.kind === "national" && r.published,
-            )}
+            title="Do-not-call check"
             summary={
-              w.registries.some((r) => r.kind === "national" && r.published)
-                ? "A national do-not-call list is loaded. Your own opt-outs always apply."
-                : "Load the national do-not-call list for your area codes before live calls."
+              w.policy.dnc_screening
+                ? "On: leads are checked against the national do-not-call list before calls. Your own opt-outs always apply."
+                : "Optional and off: leads are not looked up. Your own opt-outs always apply."
             }
           >
-            <RegistrySettings />
+            <ScreeningChoice />
+            {w.policy.dnc_screening && <RegistrySettings />}
           </SettingCard>
         </div>
       )}
@@ -304,25 +319,28 @@ function SettingCard({
   );
 }
 
-function BusinessConfirmation() {
-  const { snapshot: w, api, run, refresh, notice } = useWorkspace();
-  if (w.seller.approved)
-    return <p className="fine">Business confirmed for calling.</p>;
+const screeningChoice = (policy: Policy) => ({
+  dnc_screening: !!policy.dnc_screening,
+});
+
+function ScreeningChoice() {
+  const { run } = useWorkspace();
+  const editor = usePolicyEditor(screeningChoice);
   return (
-    <button
-      className="secondary"
-      onClick={() =>
-        void run(async () => {
-          await api("/v1/admin/seller/approve", "POST", {
-            identity_reference: `Confirmed in Settings by ${w.user.name}`,
-          });
-          await refresh();
-          notice("Business confirmed.");
-        })
-      }
-    >
-      Confirm our business is allowed to call these leads
-    </button>
+    <div className="setup-form">
+      <label className="check-label">
+        <input
+          type="checkbox"
+          checked={editor.draft.dnc_screening}
+          onChange={(e) => editor.change({ dnc_screening: e.target.checked })}
+        />
+        Check leads against the national do-not-call list before calling
+      </label>
+      <button className="secondary" onClick={() => void run(editor.publish)}>
+        Save
+      </button>
+      {editor.conflict && <PolicyConflict onReload={editor.reload} />}
+    </div>
   );
 }
 
@@ -589,7 +607,6 @@ function TelnyxStep({ settings }: { settings: AdminSettingsState }) {
     "webhook_url",
     "telephony_credential_id",
     "sip_username",
-    "traffic_approval_reference",
   ]);
   const [ingress, setIngress] = useState<Record<string, unknown> | null>(null);
   return (
@@ -645,17 +662,8 @@ function TelnyxStep({ settings }: { settings: AdminSettingsState }) {
             "Scoped telephony credential ID",
           )}
           {form.field("sip_username", "Agent SIP username")}
-          {form.field(
-            "traffic_approval_reference",
-            "Carrier traffic approval reference",
-          )}
         </details>
       )}
-      {configured &&
-        form.field(
-          "traffic_approval_reference",
-          "Carrier traffic approval reference",
-        )}
       <div className="button-row">
         <button
           className="primary"
@@ -913,8 +921,6 @@ const callingWindow = (policy: Policy) => ({
   local_start_hour: policy.local_start_hour,
   local_end_hour: policy.local_end_hour,
   max_attempts: policy.max_attempts,
-  approved: policy.approved,
-  review_reference: policy.review_reference || "",
 });
 
 function CallingWindow() {
@@ -956,14 +962,6 @@ function CallingWindow() {
           />
         </label>
       </div>
-      <label className="check-label">
-        <input
-          type="checkbox"
-          checked={draft.approved}
-          onChange={(e) => change({ approved: e.target.checked })}
-        />
-        Approved for live calls
-      </label>
       <button className="primary" onClick={() => void run(editor.publish)}>
         Save calling hours
       </button>

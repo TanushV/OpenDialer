@@ -460,9 +460,48 @@ def capacity_forecast(
     )
 
 
-def adaptive_daily_limit(number, health):
-    """Adapt observed delivery workload without exceeding the reviewed daily cap."""
+# Warmup is a product assumption to qualify, not a carrier rule: a new number starts at five real
+# attempts per rolling day and may grow at most 20% per day, only after enough resolved calls.
+WARMUP = {
+    "start": 5,
+    "attempts": 20,
+    "leads": 10,
+    "days": 3,
+    "growth": 0.2,
+}
+
+
+def warmup_allowance(number, attempts, now):
+    """Effective rolling-day attempts while a number is in limited warmup use.
+
+    `attempts` are this number's real attempts as (at, lead_id, resolved). Each completed day
+    since warmup began may add max(1, 20%) only when the evidence so far reaches the thresholds
+    and that day itself used at least half the allowance; waiting alone earns nothing.
+    """
     maximum = max(0, int(number.get("daily_limit", 0)))
+    start = timestamp(number.get("warmup_started_at"))
+    if number.get("lifecycle") != "limited_real_use" or not start:
+        return maximum
+    allowance, day = min(WARMUP["start"], maximum), 1
+    attempts = sorted(a for a in attempts if a[0] >= start)
+    while start + timedelta(days=day) <= now and allowance < maximum:
+        cutoff = start + timedelta(days=day)
+        resolved = [a for a in attempts if a[0] < cutoff and a[2]]
+        used = sum(cutoff - timedelta(days=1) <= a[0] < cutoff for a in attempts)
+        if (
+            len(resolved) >= WARMUP["attempts"]
+            and len({a[1] for a in resolved}) >= WARMUP["leads"]
+            and len({a[0].date() for a in resolved}) >= WARMUP["days"]
+            and used * 2 >= allowance
+        ):
+            allowance = min(maximum, allowance + max(1, int(allowance * WARMUP["growth"])))
+        day += 1
+    return allowance
+
+
+def adaptive_daily_limit(number, health):
+    """Adapt observed delivery workload without exceeding the reviewed cap or warmup allowance."""
+    maximum = max(0, int(number.get("warmup_allowance", number.get("daily_limit", 0))))
     if number.get("outbound_ready") is False or health.get("recommended_action") == "hold_outbound":
         return 0
     if health.get("recommended_action") == "review_workload":

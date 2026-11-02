@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from app.compliance.phone import normalize_phone
-from app.compliance.policy import CallContext, authorize
+from app.compliance.policy import ORDINARY_RETRY_SECONDS, CallContext, authorize
 from app.compliance.registry import RegistryBitmap, RegistryError
 
 NOW = datetime(2026, 10, 14, 18, tzinfo=UTC)
@@ -14,8 +14,6 @@ NOW = datetime(2026, 10, 14, 18, tzinfo=UTC)
 def context():
     return CallContext(
         now=NOW,
-        seller_approved=True,
-        policy_published=True,
         endpoint_valid=True,
         ownership="confirmed_match",
         timezone="America/Los_Angeles",
@@ -53,8 +51,6 @@ def test_valid_context_is_authorized(context):
 @pytest.mark.parametrize(
     "changes,reason",
     [
-        ({"seller_approved": False}, "SELLER_NOT_APPROVED"),
-        ({"policy_published": False}, "POLICY_NOT_PUBLISHED"),
         ({"endpoint_valid": False}, "INVALID_ENDPOINT"),
         ({"ownership": "wrong_party"}, "WRONG_PARTY"),
         ({"internal_suppressed": True}, "INTERNAL_SUPPRESSION"),
@@ -70,6 +66,7 @@ def test_valid_context_is_authorized(context):
         ({"timezone": None}, "TIMEZONE_UNCERTAIN"),
         ({"timezone_confidence": "unknown"}, "TIMEZONE_UNCERTAIN"),
         ({"timezone": "made/up"}, "TIMEZONE_UNCERTAIN"),
+        ({"timezone": None, "timezones": ("America/New_York", "made/up")}, "TIMEZONE_UNCERTAIN"),
         ({"now": datetime(2026, 10, 14, 4, tzinfo=UTC)}, "OUTSIDE_CALLING_WINDOW"),
         ({"rep_ready": False}, "REP_NOT_READY"),
         ({"audio_ready": False}, "AUDIO_NOT_READY"),
@@ -93,6 +90,61 @@ def test_fail_closed_on_each_independent_rule(context, changes, reason):
 
 def test_revocation_cannot_be_bypassed_by_requested_callback(context):
     assert not authorize(replace(context, consent_revoked=True, registry_required=False)).allowed
+    for changes in ({"consent_revoked": True}, {"internal_suppressed": True}, {"rep_ready": False}):
+        due = replace(context, callback_due=True, last_attempt_at=NOW - timedelta(minutes=5), **changes)
+        assert not authorize(due).allowed
+
+
+def test_do_not_call_screening_is_optional_and_off_by_default(context):
+    unscreened = CallContext(**{**context.__dict__, "registry_required": False, "registry_decision": None})
+    assert authorize(unscreened).allowed
+    assert CallContext(now=NOW).registry_required is False
+
+
+def test_ordinary_retries_wait_a_full_day_by_default(context):
+    default = CallContext(**{**context.__dict__, "min_retry_seconds": ORDINARY_RETRY_SECONDS})
+    assert ORDINARY_RETRY_SECONDS == 86400 and CallContext(now=NOW).min_retry_seconds == 86400
+    assert "CADENCE_LIMIT" in authorize(replace(default, last_attempt_at=NOW - timedelta(hours=23))).reasons
+    assert authorize(replace(default, last_attempt_at=NOW - timedelta(hours=24))).allowed
+
+
+def test_a_due_requested_callback_skips_the_ordinary_cooldown_and_attempt_count(context):
+    recent = replace(
+        context, last_attempt_at=NOW - timedelta(minutes=5), attempt_count=4, min_retry_seconds=86400
+    )
+    assert {"CADENCE_LIMIT", "ATTEMPT_LIMIT"} <= set(authorize(recent).reasons)
+    assert authorize(replace(recent, callback_due=True)).allowed
+
+
+def test_the_offered_second_attempt_skips_cooldown_but_not_the_attempt_budget(context):
+    first = replace(
+        context, last_attempt_at=NOW - timedelta(minutes=1), next_attempt_at=NOW + timedelta(days=1)
+    )
+    assert {"CADENCE_LIMIT", "NOT_DUE"} <= set(authorize(first).reasons)
+    assert authorize(replace(first, pair_open=True, attempt_count=3)).allowed
+    assert authorize(replace(first, pair_open=True, attempt_count=4)).reasons == ["ATTEMPT_LIMIT"]
+
+
+@pytest.mark.parametrize(
+    "now,allowed",
+    [
+        (datetime(2026, 10, 14, 14, tzinfo=UTC), True),  # 10:00 New York, 9:00 Chicago
+        (datetime(2026, 10, 14, 13, 30, tzinfo=UTC), False),  # 8:30 in Chicago
+        (datetime(2026, 10, 14, 23, 30, tzinfo=UTC), True),  # 19:30 New York, 18:30 Chicago
+        (datetime(2026, 10, 15, 0, 30, tzinfo=UTC), False),  # 20:30 in New York
+    ],
+)
+def test_inferred_zones_must_all_be_inside_the_calling_window(context, now, allowed):
+    inferred = replace(
+        context,
+        now=now,
+        next_attempt_at=None,
+        timezone=None,
+        timezones=("America/New_York", "America/Chicago"),
+    )
+    assert authorize(inferred).allowed is allowed
+    if not allowed:
+        assert authorize(inferred).reasons == ["OUTSIDE_CALLING_WINDOW"]
 
 
 @pytest.mark.parametrize(

@@ -344,6 +344,7 @@ class ReservationPlanner:
                 for c in candidates
                 if (
                     c.get("requested_contact")
+                    or (timestamp(c.get("pair_until")) and now < timestamp(c["pair_until"]))
                     or (timestamp(c.get("callback_due_at")) and timestamp(c["callback_due_at"]) <= now)
                     or (timestamp(c.get("coverage_due_at")) and timestamp(c["coverage_due_at"]) <= now)
                 )
@@ -491,7 +492,7 @@ class ReservationPlanner:
                 expires_at=now + timedelta(minutes=2),
             )
         )
-        binding = next(iter(self.scoped(s, "lead_number_bindings", p)), None)
+        binding = self._by_key(s, p, "lead_number_bindings", lead.id)
         if binding:
             update(binding, number_id=number.id)
         else:

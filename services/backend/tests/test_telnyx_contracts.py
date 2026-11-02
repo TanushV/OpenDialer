@@ -268,23 +268,49 @@ def test_revoked_transcription_permission_stops_both_streams(workspace, app, car
     assert stops == {call["provider_id"], "agent-test-id"}
 
 
-def test_old_voicemail_policy_cannot_enable_drop_specific_beep_detection(workspace, app, carrier):
+def test_every_attempt_requests_standard_machine_detection_and_bridges_the_rep(workspace, app, carrier):
     voicemail_policy(app, workspace, 1)
     start(workspace)
     dial = carrier.dials[-1]
-    assert "answering_machine_detection" not in dial
+    assert dial["answering_machine_detection"] == "detect"
     assert dial["bridge_on_answer"] is True and dial["link_to"] == "agent-test-id"
 
 
-@pytest.mark.parametrize(
-    "change", [{"max_attempts": 4}, {"voicemail_enabled": False}, {"approved_assets": []}]
-)
-def test_ordinary_attempts_never_pay_for_machine_detection(workspace, app, carrier, change):
-    voicemail_policy(app, workspace, 1)
+def test_a_machine_on_an_ordinary_attempt_ends_the_call(workspace, app, carrier):
+    call = start(workspace)
+    event(workspace, call, "call.answered")
+    event(workspace, call, "call.machine.detection.ended:machine")
+    run_controls(workspace)
+    assert [h["provider_id"] for h in carrier.hangups] == [call["provider_id"]]
+    with app.state.db.transaction(False) as s:
+        saved = get(s, "call_attempts", call["id"]).data
+    assert saved["machine_detected"] is True and not saved.get("voicemail_turn")
+
+
+def test_a_machine_on_the_final_attempt_keeps_the_line_for_the_reps_message(workspace, app, carrier):
+    from app.db import MODELS
+    from sqlalchemy import select
+
     with app.state.db.transaction() as s:
-        update(get(s, "policy_versions", workspace["policy_id"]), **change)
-    start(workspace)
-    assert "answering_machine_detection" not in carrier.dials[-1]
+        for lead in s.scalars(select(MODELS["leads"])):
+            update(lead, attempt_count=3)
+    call = start(workspace)
+    event(workspace, call, "call.answered")
+    event(workspace, call, "call.machine.detection.ended:machine")
+    run_controls(workspace)
+    assert carrier.hangups == []
+    with app.state.db.transaction(False) as s:
+        saved = get(s, "call_attempts", call["id"]).data
+    assert saved["voicemail_turn"] is True and saved["attempt_ordinal"] == 4
+
+
+def test_a_human_answer_is_never_hung_up_by_a_late_machine_result(workspace, app, carrier):
+    call = start(workspace)
+    event(workspace, call, "call.answered")
+    event(workspace, call, "call.machine.detection.ended:human")
+    event(workspace, call, "call.machine.detection.ended:machine")
+    run_controls(workspace)
+    assert carrier.hangups == []
 
 
 @pytest.mark.parametrize(
@@ -543,3 +569,27 @@ async def test_number_recording_comes_from_voice_settings(enabled):
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
         result = await TelnyxCarrier("test", "app", http=http).get_number("number-1")
     assert result["data"]["call_recording_enabled"] is enabled
+
+
+@pytest.mark.asyncio
+async def test_an_area_code_without_stock_is_an_empty_search_not_an_error():
+    # Recorded from the live API on November 2, 2026 for area code 415.
+    sold_out = {
+        "errors": [
+            {
+                "code": "10031",
+                "title": "Invalid request filter",
+                "detail": "No numbers found for the given filters. Please try again with best_effort=true.",
+            }
+        ]
+    }
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(400, json=sold_out))
+    ) as http:
+        assert await TelnyxCarrier("key", "app", http=http).search_numbers("415") == []
+    other = {"errors": [{"code": "10015", "title": "Bad request"}]}
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(400, json=other))
+    ) as http:
+        with pytest.raises(httpx.HTTPStatusError):
+            await TelnyxCarrier("key", "app", http=http).search_numbers("415")

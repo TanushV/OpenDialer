@@ -22,7 +22,8 @@ def queue_decision(context, lead, *, own_claim=None, endpoint_claimed=False):
 def rank_candidates(candidates, now):
     def key(c):
         callback, coverage = parsed(c.get("callback_due_at")), parsed(c.get("coverage_due_at"))
-        if callback and callback <= now:
+        pair = parsed(c.get("pair_until"))
+        if (callback and callback <= now) or (pair and now < pair):
             priority = 0
         elif c.get("requested_contact"):
             priority = 1

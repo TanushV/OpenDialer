@@ -55,7 +55,38 @@ class CallbackRoutingEdit(BaseModel):
         return valid_destination(value) if value is not None else value
 
 
+WARMUP_FROM = {"identity_configured", "callback_tested"}
+
+
 class InboundCallbacks:
+    def _start_warmup(self, s, p, task):
+        """A routed number whose own inbound call reached a rep starts its limited warmup use."""
+        number = get(s, "number_inventory", task.data["number_id"], p["tenant_id"])
+        if (
+            not number
+            or not number.data.get("identity_configured")
+            or number.data.get("lifecycle") not in WARMUP_FROM
+        ):
+            return
+        update(
+            number,
+            callback_proof=task.data["callback_evidence"],
+            callback_tested=True,
+            lifecycle="limited_real_use",
+            warmup_started_at=self.clock().isoformat(),
+            inbound_retained=True,
+        )
+        audit(
+            s,
+            p["tenant_id"],
+            p["seller_id"],
+            p.get("user_id"),
+            "number.warmup_started",
+            number.id,
+            self.clock(),
+        )
+        emit(s, p["tenant_id"], "number.updated", number, self.clock())
+
     def callback_config(self, s, p):
         seller = self.required(s, "sellers", p["seller_id"], p)
         return {**DEFAULTS, **seller.data.get("callback_routing", {})}
@@ -460,6 +491,7 @@ class InboundCallbacks:
                                     "simulated": self.settings.simulation,
                                 },
                             )
+                            self._start_warmup(s, p, task)
                     if (
                         attempt.get("rep_id")
                         and not task.data.get("human_edited")

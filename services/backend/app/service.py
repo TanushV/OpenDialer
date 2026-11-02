@@ -13,10 +13,11 @@ from fastapi import HTTPException
 from sqlalchemy import delete, or_, select
 
 from app.compliance.phone import normalize_phone
-from app.compliance.policy import CallContext, authorize
+from app.compliance.policy import CallContext, authorize, retry_seconds
 from app.config import LIMITS
 from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, rows, uid, update
 from app.jobs.queue import JobQueue
+from app.optimization.geography import plausible_zones
 from app.privacy import event_metadata
 from app.providers.simulated import CarrierNotSubmitted, SimulatedCarrier
 from app.providers.telnyx import TelnyxCarrier
@@ -189,14 +190,13 @@ class Service(ReservationPlanner):
                 seller_id,
                 {
                     "campaign_id": campaign_id,
-                    "approved": False,
-                    "registry_required": True,
+                    "dnc_screening": False,
                     "state_registry_required": False,
-                    "permissions": ["live"],
+                    "permissions": ["live", "transcription"],
                     "local_start_hour": 8,
                     "local_end_hour": 21,
                     "max_attempts": 4,
-                    "min_retry_seconds": 3600,
+                    "min_retry_seconds": 86400,
                     "allowed_country_codes": ["1"],
                     "voicemail_enabled": False,
                     "approved_assets": [],
@@ -580,12 +580,21 @@ class Service(ReservationPlanner):
             screening_snapshot(self, s, p, lead.data["phone"], internal_suppressed=internal_suppressed),
             lead.data["phone"],
         )
+        callback_due = bool(
+            not active
+            and (due := dt(lead.data.get("callback_due_at")))
+            and due <= self.clock()
+            and lead.data.get("callback_owner_id") in {None, p["user_id"]}
+        )
+        pair_open = bool(
+            not active
+            and (until := dt(lead.data.get("pair_until")))
+            and self.clock() < until
+            and lead.data.get("pair_rep_id") in {None, p["user_id"]}
+        )
         return CallContext(
             now=self.clock(),
-            seller_approved=seller.data.get("approved", False),
             authorization_reconciled=not seller.data.get("restore_hold", False),
-            policy_published=config.get("approved", False)
-            and (self.settings.simulation or not config.get("synthetic")),
             outreach_hold=bool(lead.data.get("outreach_hold") or lead.data.get("conversion_goal_achieved"))
             and not active,
             callback_owner_matches=active
@@ -597,7 +606,8 @@ class Service(ReservationPlanner):
             ownership=endpoint.data.get("ownership_status", "unknown"),
             timezone=lead.data.get("timezone"),
             timezone_confidence=lead.data.get("timezone_confidence", "unknown"),
-            registry_required=True,
+            timezones=plausible_zones(lead.data),
+            registry_required=bool(config.get("dnc_screening")),
             registry_decision=national,
             state_registry_required=config.get("state_registry_required", False),
             state_registry_current=state_current,
@@ -618,7 +628,9 @@ class Service(ReservationPlanner):
             max_attempts=config.get("max_attempts", 4),
             next_attempt_at=None if active else dt(lead.data.get("next_attempt_at")),
             last_attempt_at=None if active else dt(lead.data.get("last_attempt_at")),
-            min_retry_seconds=config.get("min_retry_seconds", 3600),
+            min_retry_seconds=retry_seconds(config),
+            callback_due=callback_due,
+            pair_open=pair_open,
             # AI budgets are per lead list and never gate calling.
             budget_available=True,
             route_allowed=lead.data["phone"].startswith("+1")
@@ -626,7 +638,9 @@ class Service(ReservationPlanner):
             local_start_hour=config.get("local_start_hour", 8),
             local_end_hour=config.get("local_end_hour", 21),
             permission=permission,
-            permitted_permissions=set(config.get("permissions", [])),
+            # Live calls carry the speech-to-text the live helper needs; nothing is recorded.
+            permitted_permissions=set(config.get("permissions", []))
+            | ({"transcription"} if "live" in config.get("permissions", []) else set()),
         )
 
     def record_decision(self, s, p, lead, decision):
@@ -809,6 +823,8 @@ class Service(ReservationPlanner):
                 "from": number.data["phone"],
                 "link_to": agent,
                 "bridge_on_answer": True,
+                # Standard Telnyx detection on every attempt; a machine ends non-final attempts.
+                "answering_machine_detection": "detect",
                 "park_after_unbridge": "self",
                 "prevent_double_bridge": True,
                 "time_limit_secs": self.settings.max_call_seconds,
@@ -922,14 +938,15 @@ class Service(ReservationPlanner):
                 submitted_at=self.clock().isoformat(),
             )
             update(call, attempt_ordinal=ordinal, attempt_allowance=allowance)
+            if dt(lead.data.get("pair_until")) and self.clock() < dt(lead.data["pair_until"]):
+                update(call, pair_of=lead.data.get("pair_of"))
+            update(lead, pair_until=None, pair_rep_id=None, pair_of=None, pair_opened_at=None)
             update(
                 lead,
                 attempt_count=ordinal,
                 attempt_allowance=allowance,
                 last_attempt_at=self.clock().isoformat(),
-                next_attempt_at=(
-                    self.clock() + timedelta(seconds=policy.data.get("min_retry_seconds", 3600))
-                ).isoformat(),
+                next_attempt_at=(self.clock() + timedelta(seconds=retry_seconds(policy.data))).isoformat(),
             )
             return command.id, doc(call), lead.data["phone"], payload
 

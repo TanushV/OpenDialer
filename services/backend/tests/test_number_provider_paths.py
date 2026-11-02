@@ -69,3 +69,49 @@ def test_number_configuration_confirms_reconciles_or_reports_rejection(workspace
             assert row["configuration_status"] == "failed" and row["identity_configured"] is False
     finally:
         client.portal.call(http.aclose)
+
+
+def test_shared_webhook_sync_finds_owned_numbers_not_yet_routed_anywhere(workspace, app, monkeypatch):
+    from time import monotonic
+
+    service = app.state.service
+    service.settings.simulation = False
+    service.configs.write(workspace["tenant_id"], {"telnyx_connection_id": "test-route"})
+    service.managed.config = {"tenant_id": workspace["tenant_id"], "workspace_id": "test"}
+    service.managed.last_probe, service.managed.caught_up = monotonic(), True
+    owned = [
+        {"id": "unrouted", "phone_number": "+14155550901", "connection_id": None, "status": "active"},
+        {"id": "ours", "phone_number": "+14155550902", "connection_id": "test-route", "status": "active"},
+        {
+            "id": "elsewhere",
+            "phone_number": "+14155550903",
+            "connection_id": "another-app",
+            "status": "active",
+        },
+    ]
+
+    def handler(request):
+        if request.url.path == "/v2/phone_numbers":
+            return httpx.Response(200, json={"data": owned, "meta": {"page_number": 1, "total_pages": 1}})
+        return httpx.Response(
+            200, json={"data": {"call_recording": {"inbound_call_recording_enabled": False}}}
+        )
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(
+        service, "carrier", lambda tenant: TelnyxCarrier("synthetic", "test-route", http=http)
+    )
+    try:
+        response = workspace["client"].post("/v1/admin/numbers/sync", headers=workspace["headers"])
+        assert response.status_code == 200, response.text
+        receipt = response.json()
+        assert receipt["added"] == 2 and receipt["on_other_connection"] == 1
+        phones = {
+            n["phone"]
+            for n in workspace["client"]
+            .get("/v1/workspace/numbers", headers=workspace["headers"])
+            .json()["items"]
+        }
+        assert {"+14155550901", "+14155550902"} <= phones and "+14155550903" not in phones
+    finally:
+        workspace["client"].portal.call(http.aclose)

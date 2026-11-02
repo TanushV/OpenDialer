@@ -995,7 +995,13 @@ export function DialerPage({ visible = true }: { visible?: boolean }) {
           </div>
         </div>
       )}
-      {call?.state === "VOICEMAIL_READY" && (
+      {call?.voicemail_turn && !["ENDED", "FINALIZED"].includes(call.state) && (
+        <p className="alert" role="status">
+          Final attempt reached a mailbox. Leave a short message in your own
+          words: who you are, why you called, and your number. Then hang up.
+        </p>
+      )}
+      {call?.state === "VOICEMAIL_READY" && !call.voicemail_turn && (
         <p className="fine" role="status">
           Mailbox reached. Hang up when ready.
         </p>

@@ -106,6 +106,7 @@ def test_a_permanent_denial_is_never_released_as_a_hold(workspace, reason):
 
 
 def test_national_registry_snapshot_blocks_a_listed_number_until_replaced(workspace, clock):
+    publish(workspace, dnc_screening=True)
     listed = offered(workspace)
     suppress_all_but(workspace, keep=listed)
     source = {
@@ -326,22 +327,49 @@ def test_policy_publish_validates_the_window_and_refuses_a_stale_editor(workspac
     assert "POLICY_VERSION_CONFLICT" in str(stale)
 
 
-def test_seller_approval_and_preflight_gate_the_queue_and_report_the_blocker(workspace):
+def test_calling_needs_no_approval_paperwork_and_screening_is_optional(workspace, clock):
     check = get(workspace, "/v1/admin/preflight")
     assert check["integrity_ok"] is True and check["integrity_check"] == "quick"
-    assert "SELLER_NOT_APPROVED" not in check["blockers"] and "POLICY_NOT_PUBLISHED" not in check["blockers"]
     assert get(workspace, "/v1/admin/preflight?deep=true")["integrity_check"] == "full"
-    post(workspace, "/v1/admin/seller/approve", {}, status=422)
+    assert check["screening"]["enabled"] is False
+    for code in ("SELLER_NOT_APPROVED", "POLICY_NOT_PUBLISHED", "CARRIER_TRAFFIC_APPROVAL_MISSING"):
+        assert code not in check["blockers"]
+    # Withdrawing the old business confirmation no longer gates the queue.
     post(
         workspace,
         "/v1/admin/seller/approve",
         {"identity_reference": "Identity record 2026-10-01", "approved": False},
     )
-    blocked = get(workspace, "/v1/admin/preflight")
-    assert "SELLER_NOT_APPROVED" in blocked["blockers"] and blocked["ready_to_call"] is False
-    assert "SELLER_NOT_APPROVED" in refused(workspace)
-    post(workspace, "/v1/admin/seller/approve", {"identity_reference": "Identity record 2026-10-01"})
-    assert offered(workspace) in PHONES
+    # A fresh list with no registry coverage and no time zone column is callable when screening is off.
+    for phone in PHONES:
+        post(workspace, "/v1/suppressions", {"phone": phone, "reason": "opt_out"})
+    import_leads(workspace, [{"name": "Avery Plain", "phone": "+14155550188", "company": "Plain Example"}])
+    assert offered(workspace) == "+14155550188"
+    publish(workspace, dnc_screening=True)
+    assert get(workspace, "/v1/admin/preflight")["screening"]["enabled"] is True
+    listing = {
+        "kind": "national",
+        "subscription_reference": "own-national-registry-2026",
+        "npas": ["212", "415", "512"],
+        "refreshed_at": clock.now.isoformat(),
+        "numbers": ["+14155550188"],
+        "request_id": str(uuid4()),
+    }
+    post(workspace, "/v1/admin/registry/import", listing)
+    assert "REGISTRY_LISTED" in refused(workspace)
+    # Turning screening off stops registry checks; the internal opt-out list always applies.
+    publish(workspace, dnc_screening=False)
+    assert offered(workspace) == "+14155550188"
     capabilities = {item["id"]: item for item in get(workspace, "/v1/admin/preflight")["capabilities"]}
     assert capabilities["telephony"]["state"] == "software_verified"
-    assert capabilities["national_dnc"]["state"] == "software_verified"
+    assert capabilities["national_dnc"]["blocks"] == "none"
+
+
+def test_a_lead_without_a_time_zone_uses_every_zone_its_state_and_area_code_allow(workspace, clock):
+    for phone in PHONES:
+        post(workspace, "/v1/suppressions", {"phone": phone, "reason": "opt_out"})
+    # A New York area code with a California address: calls only when both are inside 8:00-21:00.
+    import_leads(workspace, [{"name": "Rowan Moved", "phone": "+12125550189", "state": "CA"}])
+    assert offered(workspace) == "+12125550189"  # 11:00 Los Angeles, 14:00 New York
+    clock.now += timedelta(hours=7, minutes=30)  # 18:30 Los Angeles, 21:30 New York
+    assert "OUTSIDE_CALLING_WINDOW" in refused(workspace)

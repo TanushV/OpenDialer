@@ -213,7 +213,8 @@ class PolicyUpdate(Strict):
     approved: bool | None = None
     reason: str = Field(default="", max_length=1000)
     review_reference: str | None = None
-    # National screening is mandatory and not a publishable setting.
+    # Optional national do-not-call screening before calls (off by default).
+    dnc_screening: bool | None = None
     state_registry_required: bool | None = None
     consent_required: bool | None = None
     permissions: list[Literal["live", "prerecorded", "transcription", "recording", "messaging"]] | None = None

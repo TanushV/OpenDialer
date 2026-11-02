@@ -29,6 +29,18 @@ from app.telephony.reducer import TERMINAL
 from app.telephony.workflows import TelephonyWorkflows
 from app.workspace import WorkspaceReads
 
+NUMBER_BLOCKERS = {
+    "NO_CALLER_NUMBER",
+    "CALLER_NUMBER_ROUTE_REQUIRED",
+    "CALLER_NUMBER_CALLBACK_TEST_REQUIRED",
+    "CALLER_NUMBER_PAUSED",
+}
+NUMBER_REASONS = {"NUMBER_UNHEALTHY", "NUMBER_NOT_AUTHORIZED"}
+SETUP_REASONS = {"REP_NOT_READY", "AUDIO_NOT_READY", "LIVE_OBLIGATION", "RESERVATION_EXISTS"}
+TIMING_REASONS = {"OUTSIDE_CALLING_WINDOW", "NOT_DUE", "CADENCE_LIMIT", "ENDPOINT_CLAIMED"}
+REGISTRY_REASONS = {"REGISTRY_NOT_CLEARED_FOR_ENDPOINT", "SCREENING_PENDING"}
+NO_LEAD_DUE_NOW = "No lead is inside calling hours and due right now; the queue offers them when they are."
+
 
 def capability_statuses(
     conf, policy, screening, *, simulation, source_version, ingress=None, inference=False
@@ -97,9 +109,11 @@ def capability_statuses(
         else "degraded"
         if screening.get("configured")
         else "unconfigured",
-        "none" if screening_ready else "voice",
+        "none" if screening_ready or not screening.get("enabled") else "voice",
         ["SIMULATION_ONLY"]
         if simulation
+        else ["SCREENING_OFF"]
+        if not screening.get("enabled")
         else list(
             screening.get("reason_codes")
             or (["CURRENT_AUTHORIZED_COVERAGE"] if screening_ready else ["SCREENING_PENDING"])
@@ -190,27 +204,18 @@ class Dialer(
             source_version = f"{conf.get('version', 0)}:{seller.version}:{policy.version if policy else 0}"
             if not campaign:
                 blockers.append("NO_CAMPAIGN")
-            elif not policy.data.get("approved"):
-                blockers.append("POLICY_NOT_PUBLISHED")
-            if not seller.data.get("approved"):
-                blockers.append("SELLER_NOT_APPROVED")
             if seller.data.get("restore_hold"):
                 blockers.append("RESTORE_RECONCILIATION_REQUIRED")
             numbers = self.scoped(s, "number_inventory", p)
-            # The same gate as call authorization: current callback proof for the current route,
-            # confirmed configuration and health. A lifecycle label alone is not readiness.
-            if not any(self.number_readiness_in(s, p, n)["outbound_ready"] for n in numbers):
-                blockers.append("NO_HEALTHY_NUMBERS")
+            number_blocker = self.number_setup_blocker(s, p, numbers)
+            if number_blocker:
+                blockers.append(number_blocker)
             from app.compliance.operating import screening_capability, screening_snapshot
 
             screening = screening_capability(screening_snapshot(self, s, p))
+            screening["enabled"] = bool(policy and policy.data.get("dnc_screening"))
             state_required = bool(policy and policy.data.get("state_registry_required", False))
             screening["state_registry_required"] = state_required
-            if not state_required:
-                warnings.append(
-                    "State do-not-call lists are not required by this campaign policy; only the internal "
-                    "do-not-call list and the national registry are checked"
-                )
             if campaign:
                 self._preflight_queue(s, p, campaign, numbers, screening, blockers, warnings)
             if not self.scoped(s, "budgets", p):
@@ -225,16 +230,12 @@ class Dialer(
                 blockers.append("TELNYX_NOT_CONFIGURED")
             if not conf.get("telnyx_public_key"):
                 blockers.append("WEBHOOK_SIGNATURE_KEY_MISSING")
-            if not conf.get("webhook_url", self.settings.webhook_public_url).startswith("https://"):
+            if not self.managed.enabled(p["tenant_id"]) and not conf.get(
+                "webhook_url", self.settings.webhook_public_url
+            ).startswith("https://"):
                 blockers.append("PUBLIC_WEBHOOK_URL_MISSING")
-            if not conf.get("traffic_approval_reference"):
-                blockers.append("CARRIER_TRAFFIC_APPROVAL_MISSING")
-            warnings.extend(
-                [
-                    "Live carrier/media behavior requires permissioned test calls",
-                    "Each calling attempt is authorized again at submission",
-                ]
-            )
+            if not conf.get("sip_username") or not conf.get("telephony_credential_id"):
+                blockers.append("AUDIO_SETUP_MISSING")
         else:
             warnings.append("Simulated providers: no real calls, purchases, inference, or carrier billing")
         inference = bool(self.inference(p["tenant_id"], "research_extract", p["user_id"]))
@@ -345,14 +346,37 @@ class Dialer(
             queue_reason_codes=sorted(queue_reasons),
             queue_scope="inspected candidates for the current rep; not reserved capacity",
         )
-        if not counts["cleared_count"]:
+        if screening["enabled"] and not counts["cleared_count"]:
             blockers.extend(screening["reason_codes"] or ["SCREENING_PENDING"])
         if "STATE_REGISTRY_MISSING" in reasons:
             warnings.append("Some leads require a current authorized state registry source")
-        if not counts["dialable_queue_count"]:
-            blockers.extend(sorted(queue_reasons) or ["NO_CURRENTLY_DIALABLE_WORK"])
+        if not total:
+            blockers.append("NO_LEADS")
+        elif not counts["dialable_queue_count"]:
+            # Rep presence, number setup and timing are reported once, not per lead.
+            setup = SETUP_REASONS | (NUMBER_REASONS if any(b in NUMBER_BLOCKERS for b in blockers) else set())
+            lead_reasons = queue_reasons - setup - TIMING_REASONS
+            if not screening["enabled"]:
+                lead_reasons -= REGISTRY_REASONS
+            blockers.extend(sorted(lead_reasons))
+            if queue_reasons & TIMING_REASONS and not lead_reasons:
+                warnings.append(NO_LEAD_DUE_NOW)
             if total > len(leads):
                 warnings.append("Queue inspection is bounded; further candidates may be eligible")
+
+    def number_setup_blocker(self, s, p, numbers):
+        """The one next step for caller numbers, or None when any number can call now."""
+        active = [n for n in numbers if n.data.get("lifecycle") != "retired_callback_only"]
+        readiness = [(n, self.number_readiness_in(s, p, n)) for n in active]
+        if any(r["outbound_ready"] for _, r in readiness):
+            return None
+        if not active:
+            return "NO_CALLER_NUMBER"
+        if all(r["configuration_errors"] or not n.data.get("identity_configured") for n, r in readiness):
+            return "CALLER_NUMBER_ROUTE_REQUIRED"
+        if not any(r["callback_evidence_current"] for _, r in readiness):
+            return "CALLER_NUMBER_CALLBACK_TEST_REQUIRED"
+        return "CALLER_NUMBER_PAUSED"
 
     def _ingress_start(self, p, data):
         conf = self.configs.read(p["tenant_id"])
@@ -550,8 +574,6 @@ class Dialer(
             }
             if not 0 <= config["local_start_hour"] < config["local_end_hour"] <= 24:
                 fail(422, "Invalid reviewed local calling window")
-            if config.get("approved") and not self.settings.simulation and not config.get("review_reference"):
-                fail(422, "Reviewed campaign policy reference is required")
             if config.get("detached_topology_verified") and not self.settings.simulation:
                 if not config.get("topology_test_reference") or not config.get(
                     "late_human_recovery_destination"

@@ -19,6 +19,8 @@ from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app import priority
+from app.compliance.policy import retry_seconds
+from app.optimization.geography import plausible_zones
 from app.optimization.numbering import number_ready, timestamp, wilson
 from app.scheduling.models import OPTIMIZATION_DEFAULTS
 
@@ -197,8 +199,15 @@ def work_items(leads, now, end, policy, handling_seconds=OPTIMIZATION_DEFAULTS["
             or lead.get("attempt_count", 0) >= policy.get("max_attempts", 4)
         ):
             continue
+        # The same zones the call check uses: a confirmed zone, else every plausible one.
+        zones = (
+            (lead["timezone"],)
+            if lead.get("timezone") and lead.get("timezone_confidence", "confirmed") in {"confirmed", "high"}
+            else plausible_zones(lead)
+        )
         try:
-            zone = ZoneInfo(lead.get("timezone") or "unknown")
+            if not zones or not all(ZoneInfo(zone) for zone in zones):
+                raise ValueError("no zone")
         except (ZoneInfoNotFoundError, ValueError):
             unknown += 1
             continue
@@ -208,7 +217,7 @@ def work_items(leads, now, end, policy, handling_seconds=OPTIMIZATION_DEFAULTS["
         if lead.get("last_attempt_at"):
             due = max(
                 due,
-                timestamp(lead["last_attempt_at"]) + timedelta(seconds=policy.get("min_retry_seconds", 3600)),
+                timestamp(lead["last_attempt_at"]) + timedelta(seconds=retry_seconds(policy)),
             )
         if due >= end:
             continue
@@ -252,7 +261,7 @@ def work_items(leads, now, end, policy, handling_seconds=OPTIMIZATION_DEFAULTS["
                         if isinstance(v, (int, float)) and math.isfinite(v) and 0 <= v <= 1
                     )
                 ),
-                zone.key,
+                "|".join(zones),
                 lead.get("region") or "general",
                 str(lead.get("segment") or "unknown"),
                 lead.get("version", 1),
@@ -453,11 +462,15 @@ class Assignment:
         return self.local[zone]
 
     def window_mask(self, item, length):
-        """Starts whose whole occupied run is staffed and inside the lead's local window."""
-        mask, zone = 0, ZoneInfo(item.timezone)
+        """Starts whose whole run is staffed and inside the local window in every plausible zone."""
+        masks = [self.zone_mask(item, length, zone) for zone in item.timezone.split("|")]
+        return functools.reduce(lambda a, b: a & b, masks)
+
+    def zone_mask(self, item, length, zone_name):
+        mask, zone = 0, ZoneInfo(zone_name)
         start, finish, weekdays, closed = item.allowed_local_windows
         duration = timedelta(seconds=length * self.seconds, microseconds=-1)
-        for index, local in enumerate(self.local_times(item.timezone)):
+        for index, local in enumerate(self.local_times(zone_name)):
             if index + length > len(self.starts):
                 break
             at = self.starts[index]
@@ -490,7 +503,8 @@ class Assignment:
         )
 
     def value_at(self, index, start):
-        return self.cell_value(self.estimates[index], self.local_times(self.work[index].timezone)[start])
+        zone = self.work[index].timezone.split("|")[0]
+        return self.cell_value(self.estimates[index], self.local_times(zone)[start])
 
     def value_groups(self, index):
         """Starts merged by equal predicted value, best first; one pass per zone/estimate."""
@@ -603,9 +617,7 @@ class Assignment:
                     return
                 parent, parent_start, parent_number = previous[-1]
                 earliest = self.starts[parent_start] + timedelta(
-                    seconds=max(
-                        self.lengths[parent] * self.seconds, self.policy.get("min_retry_seconds", 3600)
-                    )
+                    seconds=max(self.lengths[parent] * self.seconds, retry_seconds(self.policy))
                 )
             else:
                 if previous:
@@ -922,15 +934,15 @@ def contingent_retries(work, history, now, end, policy, budget):
                 mean = (s + 10 * outside) / (n + 10)
                 low, high = wilson(s, n)
                 estimates[key] = (min(low, mean), mean, max(high, mean))
-            due += timedelta(seconds=max(w.predicted_work_seconds, policy.get("min_retry_seconds", 3600)))
-            zone, (start, finish, weekdays, closed) = ZoneInfo(w.timezone), w.allowed_local_windows
+            due += timedelta(seconds=max(w.predicted_work_seconds, retry_seconds(policy)))
+            zones, (start, finish, weekdays, closed) = w.timezone.split("|"), w.allowed_local_windows
             # Bounded by the horizon at 30-minute steps; one projected attempt is one operation.
             while due < end:
-                local = due.astimezone(zone)
-                if (
-                    start <= local.hour < finish
+                if all(
+                    start <= (local := due.astimezone(ZoneInfo(zone))).hour < finish
                     and local.weekday() in weekdays
                     and local.date().isoformat() not in closed
+                    for zone in zones
                 ):
                     break
                 due += timedelta(minutes=30)
@@ -1073,7 +1085,7 @@ def retry_capacity(
                 count = math.floor(len(items) * probability + 0.5)
                 for item in sorted(items, key=lambda w: w.lead_id)[:count]:
                     due = item.earliest_at + timedelta(
-                        seconds=max(item.predicted_work_seconds, policy.get("min_retry_seconds", 3600))
+                        seconds=max(item.predicted_work_seconds, retry_seconds(policy))
                     )
                     if due < snapshot.horizon_end:
                         parents.append(

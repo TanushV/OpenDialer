@@ -636,5 +636,6 @@ def test_large_proposal_takes_the_greedy_path_and_respects_its_lower_bound(works
     low, mean, high = scenarios["low"], scenarios["mean"], scenarios["high"]
     assert low["planned_attempts"] == plan["forecast_attempts"] and low["retry_attempts"] == 0
     assert low["additional_numbers"] == plan["proposed_additional_numbers"]
-    assert 0 < mean["retry_attempts"] <= high["retry_attempts"]
+    # Ordinary retries wait a full day, so none lands inside the default 24-hour horizon.
+    assert mean["retry_attempts"] == high["retry_attempts"] == 0
     assert low["planned_attempts"] <= mean["planned_attempts"] <= high["planned_attempts"]

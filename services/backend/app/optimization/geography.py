@@ -2,7 +2,8 @@
 
 NPA snapshot: https://reports.nanpa.com/public/npa_report.csv, file date 2026-10-30.
 Metro preferences below are product defaults, not population or pickup-rate rankings.
-No network lookup or location inference is used for compliance or calling hours.
+No network lookup is used. Calling hours use every zone a lead plausibly sits in (its supplied
+state and its area code's state), so an uncertain location narrows the window instead of widening it.
 """
 
 from collections import Counter
@@ -78,12 +79,39 @@ for _line in _STATE_DATA.strip().splitlines():
 
 STATE_NAMES = {info["name"].upper(): code for code, info in STATES.items()}
 
+# Every IANA zone in use across each state; most states have one.
+_ZONES = {
+    "America/New_York": "CT DE DC GA ME MD MA NH NJ NY NC OH PA RI SC VT VA WV FL IN KY MI TN",
+    "America/Chicago": "AL AR IL IA LA MN MS MO OK WI FL IN KS KY MI NE ND SD TN TX",
+    "America/Denver": "CO MT NM UT WY ID KS NE ND OR SD TX",
+    "America/Phoenix": "AZ",
+    "America/Los_Angeles": "CA NV WA ID OR",
+    "America/Anchorage": "AK",
+    "America/Adak": "AK",
+    "Pacific/Honolulu": "HI",
+}
+STATE_ZONES = {}
+for _zone, _codes in _ZONES.items():
+    for _code in _codes.split():
+        STATE_ZONES.setdefault(_code, []).append(_zone)
+
 
 def normalize_state(value):
     text = str(value or "").strip().upper()
     if text.startswith("US-"):
         text = text[3:]
     return text if text in STATES else STATE_NAMES.get(text)
+
+
+def plausible_zones(record):
+    """Zones of the supplied state and of the phone's area code; empty when neither is known."""
+    states = {
+        normalize_state(record.get("state")) or normalize_state(record.get("jurisdiction")),
+        AREA_STATES.get(str(record.get("phone") or "")[2:5])
+        if str(record.get("phone") or "").startswith("+1")
+        else None,
+    } - {None}
+    return tuple(sorted({zone for state in states for zone in STATE_ZONES.get(state, ())}))
 
 
 def area_code(record):

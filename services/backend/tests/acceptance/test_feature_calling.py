@@ -72,6 +72,14 @@ def offer(ws, headers=None):
     return lead
 
 
+def sign_in(ws):
+    response = ws["client"].post(
+        "/v1/auth/session", json={"email": "operator@example.test", "password": "a-test-only-password-123"}
+    )
+    assert response.status_code == 200, response.text
+    ws["headers"] = bearer(response.json()["access_token"])
+
+
 def lead_row(ws, lead_id):
     return next(item for item in get(ws, "/v1/workspace/leads")["items"] if item["id"] == lead_id)
 
@@ -200,6 +208,49 @@ def test_due_callback_is_offered_first_and_opt_out_removes_a_lead(workspace, clo
             post(ws, "/v1/suppressions", {"phone": lead["phone"], "reason": "opt_out"})
     ready_as(ws)
     assert "NO_ELIGIBLE_LEADS" in str(next_lead(ws, status=409))
+
+
+def test_a_five_minute_callback_is_due_at_five_minutes_and_ordinary_retries_wait_a_day(workspace, clock):
+    ws = workspace
+    started = start(ws)
+    answered_by_human(ws, started["id"])
+    hang_up(ws, started["id"])
+    due = clock.now + timedelta(minutes=5)
+    wrap_up(
+        ws, started["id"], outcome="callback_requested", callback_at=due.isoformat(), callback_note="In five"
+    )
+    clock.now = due
+    ready_as(ws)
+    assert next_lead(ws)["lead"]["id"] == started["lead_id"]
+    pause(ws)
+    # Every other lead gets one unanswered attempt; none is offered again within a day.
+    post(ws, "/v1/suppressions", {"phone": lead_row(ws, started["lead_id"])["phone"], "reason": "opt_out"})
+    unanswered = []
+    while True:
+        ready_as(ws)
+        response = ws["client"].post(
+            "/v1/queue/next", headers=ws["headers"], json={"campaign_id": ws["campaign_id"]}
+        )
+        if response.status_code == 409 and response.json()["detail"]["code"] == "NO_ELIGIBLE_LEADS":
+            break
+        assert response.status_code == 200, response.text
+        offered = response.json()
+        attempt = post(
+            ws,
+            "/v1/calls/start",
+            {"reservation_id": offered["reservation_id"], "idempotency_key": str(uuid4())},
+        )
+        event(ws, attempt["id"], "call.hangup", hangup_cause="no_answer")
+        run_jobs(ws, rounds=2)
+        unanswered.append(attempt["lead_id"])
+    assert unanswered  # The Texas lead has no caller number in this seed.
+    clock.now += timedelta(hours=23, minutes=59)
+    sign_in(ws)
+    ready_as(ws)
+    assert next_lead(ws, status=409)["detail"]["code"] == "NO_ELIGIBLE_LEADS"
+    clock.now += timedelta(minutes=1)
+    ready_as(ws)
+    assert next_lead(ws)["lead"]["id"] in unanswered
 
 
 def test_call_start_is_idempotent_bridges_the_agent_leg_and_hangs_up_once(workspace, carrier):
@@ -637,3 +688,29 @@ def test_return_call_nobody_answers_is_ended_by_the_watchdog_at_its_deadline(wor
     assert task["recovery_reason"] == "No terminal routing receipt before deadline"
     assert "in-1" in [h["provider_id"] for h in carrier.hangups]
     assert transfers(carrier) == ["sip:rep-line-1@sip.telnyx.com"]
+
+
+def test_one_answered_inbound_test_call_starts_a_routed_numbers_limited_warmup(workspace, clock, carrier):
+    ws = workspace
+    number = next(n for n in get(ws, "/v1/workspace/numbers")["items"] if n["phone"] == "+14155550100")
+    body = {
+        "request_id": str(uuid4()),
+        "expected_version": number["version"],
+        "lifecycle": "identity_configured",
+    }
+    call(ws, "PATCH", f"/v1/admin/numbers/{number['id']}", json=body)
+    rep_id, rep = add_user(ws, "rep@example.test", sip="rep-line-1")
+    ready_as(ws, rep)
+    telnyx = Telnyx(ws, clock)
+    telnyx.deliver("call.initiated", inbound("test-in", "+12025550123"), "evt-test-in")
+    run_jobs(ws)
+    call(ws, "POST", "/v1/admin/control/run")
+    task = inbound_task(ws, "test-in")
+    leg = {"inbound_task": task["id"], "attempt": task["routing_attempts"][0]["id"]}
+    state = base64.b64encode(json.dumps(leg).encode()).decode()
+    telnyx.deliver("call.bridged", {"call_control_id": "test-leg", "client_state": state}, "evt-test-leg")
+    run_jobs(ws)
+    promoted = next(n for n in get(ws, "/v1/workspace/numbers")["items"] if n["id"] == number["id"])
+    assert promoted["lifecycle"] == "limited_real_use"
+    assert promoted["callback_tested"] is True and promoted["callback_proof"]["number_id"] == number["id"]
+    assert promoted["warmup_started_at"] == clock.now.isoformat()

@@ -12,6 +12,7 @@ from sqlalchemy import select
 from app.compliance.phone import normalize_phone
 from app.db import MODELS, ActiveClaim, audit, doc, emit, put, uid, update
 from app.optimization.numbering import assess_number_health, callback_current, number_ready
+from app.scheduling.models import OPTIMIZATION_DEFAULTS
 from app.service import dt, fail
 
 
@@ -397,16 +398,22 @@ class NumberOperations:
     async def sync_numbers(self, p):
         # Provider pagination must complete before any missing-inventory decisions.
         inventory = await self.carrier(p["tenant_id"]).list_numbers()
+        elsewhere = 0
         if self.managed.enabled(p["tenant_id"]):
             self.managed.require_ready(p["tenant_id"])
             connection = self.configs.read(p["tenant_id"]).get("telnyx_connection_id")
-            inventory = [
+            # Owned numbers routed nowhere yet can be set up here; a number routed to another
+            # application belongs to that application and is only counted.
+            mine = [
                 n
                 for n in inventory
                 if n.get("phone_number") in self.managed.numbers
-                or str(n.get("connection_id") or "") == connection
+                or str(n.get("connection_id") or "") in {"", connection}
             ]
-        return await asyncio.to_thread(self._merge_inventory, p, inventory)
+            elsewhere = len(inventory) - len(mine)
+            inventory = mine
+        result = await asyncio.to_thread(self._merge_inventory, p, inventory)
+        return {**result, "on_other_connection": elsewhere}
 
     def _merge_inventory(self, p, inventory):
         normalized = {}
@@ -467,7 +474,8 @@ class NumberOperations:
                             "phone": phone,
                             "region": phone[2:5] if phone.startswith("+1") else "general",
                             "lifecycle": "purchased",
-                            "daily_limit": 5,
+                            # The owner's maximum; warmup starts lower and grows only with evidence.
+                            "daily_limit": OPTIMIZATION_DEFAULTS["daily_capacity_per_number"],
                             "capacity": 1,
                             "identity_configured": False,
                             "callback_tested": False,

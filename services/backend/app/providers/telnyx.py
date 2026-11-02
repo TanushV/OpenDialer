@@ -25,6 +25,15 @@ def verify_webhook(body, signature, timestamp, public_key, *, now=None):
         return False
 
 
+def _errors(response):
+    try:
+        body = response.json()
+    except ValueError:
+        return []
+    errors = body.get("errors") if isinstance(body, dict) else None
+    return [e for e in errors if isinstance(e, dict)] if isinstance(errors, list) else []
+
+
 class TelnyxCarrier:
     simulated = False
 
@@ -168,7 +177,15 @@ class TelnyxCarrier:
                 "filter[limit]": 10,
             }
         )
-        response = await self.request("GET", "/available_phone_numbers?" + query)
+        try:
+            response = await self.request("GET", "/available_phone_numbers?" + query)
+        except httpx.HTTPStatusError as exc:
+            # Telnyx answers an area code with no stock as a 400 "no numbers found" (code 10031).
+            if exc.response.status_code == 400 and any(
+                str(e.get("code")) == "10031" for e in _errors(exc.response)
+            ):
+                return []
+            raise
         return response.get("data", [])
 
     async def purchase_number(self, phone, reference):

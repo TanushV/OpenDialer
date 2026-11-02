@@ -757,11 +757,12 @@ export function NumbersPage() {
                   added: number;
                   updated: number;
                   missing: number;
+                  on_other_connection?: number;
                 }>("/v1/admin/numbers/sync", "POST");
                 await refresh();
                 await plan.load();
                 notice(
-                  `${r.added} added, ${r.updated} updated, ${r.missing} missing at provider. Existing identities retained.`,
+                  `${r.added} added, ${r.updated} updated, ${r.missing} missing at provider.${r.on_other_connection ? ` ${r.on_other_connection} routed to another Telnyx app were left alone.` : ""} Existing identities retained.`,
                 );
               })
             }
@@ -1414,9 +1415,18 @@ function NumberRow({
               >
                 {number.configuration_status === "uncertain"
                   ? "Reconcile routing"
-                  : "Configure voice route"}
+                  : "Set up route"}
               </button>
             )}
+            {number.identity_configured &&
+              ["identity_configured", "callback_tested"].includes(
+                number.lifecycle,
+              ) && (
+                <small>
+                  Next: go ready, call this number from your own phone and
+                  answer it here. That starts its warmup at 5 calls a day.
+                </small>
+              )}
             {number.provider_id && number.provider_present === false && (
               <small>
                 Not found in your Telnyx account. Sync existing numbers before
