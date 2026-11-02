@@ -1,5 +1,9 @@
-# OpenDialer 0.8.0
+# OpenDialer 0.8.1
 
+- **Better objection help.** When a prospect objects, live help now sees every objection response in your script
+  (not just the first four), plus your approved talk tracks and reviewed examples, and is told to adapt the closest
+  response to the prospect's words, acknowledge, ask one clarifying question and use a listed fact only if it
+  answers the concern. A stray "(nothing)" marker no longer shows at the end of an answer.
 - **Calling needs no paperwork.** Business, campaign and carrier approval records no longer gate calls. The national
   do-not-call check is optional and off by default (Settings, Do-not-call check); your own opt-outs, holds and calling
   hours always apply. Leads without a time zone column are callable: the app uses every zone their state and area code

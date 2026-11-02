@@ -1,0 +1,35 @@
+{
+  "date": "2026-11-02",
+  "purpose": "Owner-requested update of this Mac to 0.8.0 and real checks that Telnyx and the AI work, without buying a number or placing a call.",
+  "update": {
+    "method": "In-app signed updater (Settings > More settings > Workspace and app updates), then quit and reopen.",
+    "installed_version": "0.8.0",
+    "codesign": "verify --deep --strict passed (ad-hoc signature, as in earlier releases)",
+    "workspace": "Reopened with the same workspace, 3 leads and settings."
+  },
+  "installed_app": [
+    {"check": "Check readiness", "result": "1 thing left: Add a caller number (0.7.1 listed ten blockers)."},
+    {"check": "Settings", "result": "Calling hours show no approval step; Do-not-call check is optional and off."},
+    {"check": "Numbers > Sync existing Telnyx numbers", "result": "0 added, 0 updated, 0 missing (real account, no numbers, no error)."},
+    {"check": "Number search 415", "result": "No priced numbers found (Telnyx has none; 0.7.1 showed an error)."},
+    {"check": "Number search 559", "result": "Live quotes, $2.00 initially and $1.00 per month; nothing bought (purchase limits are zero)."},
+    {"check": "Go ready", "result": "Stopped at a macOS system prompt (likely microphone access for the updated app); left for the owner."}
+  ],
+  "live_helper_real_route": {
+    "method": "0.8.0/0.8.1 OpenRouterCoach.converse from source with the saved key in memory, using the real prepared Blue Bottle Coffee lead, its script and 7 research facts. Nothing written to the workspace.",
+    "route": "Cerebras, openai/gpt-oss-120b, verified on every reply",
+    "first_text_ms": [267, 533],
+    "cost_per_reply_usd": 0.0003,
+    "replies": [
+      {"prospect": "We already work with someone for this and we're happy.", "reply": "Fair enough, Jordan, so is it because you already have it handled, or just that now isn't the right time?"},
+      {"prospect": "Can you just send me an email?", "reply": "Happy to send something over, what specific info would be most helpful for you to review so it's worth opening?"},
+      {"prospect": "Not interested, thanks.", "reply": "Fair enough. Is that because you already have a process in place, or just a timing issue right now?"},
+      {"private_question": "How should I answer price without inventing a number?", "reply": "Use the free 20-minute review from the script and send a proposal afterwards; no number invented."}
+    ],
+    "defect_found": "A reply could end with the quiet marker '(nothing)'; fixed in 0.8.1 with a regression test."
+  },
+  "chatgpt_route": {
+    "result": "Saved login is a Pro plan with an access token valid about 7 more days and a refresh token. All 3 leads were researched (17 facts) and scripted by GPT-6.1 Terra on October 31.",
+    "not_done": "A fresh in-app research run on 0.8.x waits for the owner to clear the macOS prompt; calling the login from outside the app could rotate its token, so it was not attempted."
+  }
+}
