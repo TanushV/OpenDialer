@@ -37,3 +37,9 @@ Happy to. What should it cover so it's worth opening?
 
 # Never say
 - Guaranteed results
+
+# Follow-up
+Keep it short: recap what they said last time and offer the review again.
+
+# Voicemail
+Hi {first_name}, this is {rep} with {seller}. I have tried you a few times; if a short call would help, call me back at this number.

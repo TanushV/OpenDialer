@@ -1,0 +1,26 @@
+{
+  "date": "2026-11-02",
+  "purpose": "Owner-requested check that the saved Telnyx account can do everything calling needs, without buying a number or placing a call.",
+  "method": "The installed workspace's saved key was decrypted in memory only (no file written, no key printed). Only GET requests, one short-lived WebRTC token, and deliberately invalid POSTs that Telnyx must reject were sent. Scripts were kept outside the repository.",
+  "results": [
+    {"check": "GET /v2/balance", "status": 200, "observed": "15.00 USD prepaid, credit limit 0"},
+    {"check": "GET /v2/phone_numbers", "status": 200, "observed": "0 owned numbers"},
+    {"check": "GET /v2/call_control_applications/{connection}", "status": 200, "observed": "Voice API app active, webhooks to the shared Supabase relay, API v2, outbound voice profile attached"},
+    {"check": "GET /v2/outbound_voice_profiles/{id}", "status": 200, "observed": "enabled, conversational traffic, destinations US and CA, no daily spend limit set"},
+    {"check": "GET /v2/telephony_credentials/{id}", "status": 200, "observed": "rep audio credential not expired, resource is a credential connection, SIP username matches saved setup"},
+    {"check": "GET /v2/credential_connections/{id}", "status": 200, "observed": "active, sip_uri_calling_preference internal, no outbound voice profile (correct for the rep leg)"},
+    {"check": "POST /v2/telephony_credentials/{id}/token", "status": 201, "observed": "WebRTC token issued (not shown)"},
+    {"check": "GET /v2/available_phone_numbers (area code 415)", "status": 400, "observed": "code 10031 'No numbers found ... try best_effort=true'; the app treated this as an error and now treats it as an empty search"},
+    {"check": "GET /v2/available_phone_numbers (state CA)", "status": 200, "observed": "numbers available at $1.00 upfront and $1.00 monthly"},
+    {"check": "GET /v2/number_orders", "status": 200, "observed": "read access"},
+    {"check": "POST /v2/number_orders with no numbers", "status": 422, "observed": "validation error, not a permission error; nothing ordered"},
+    {"check": "POST /v2/calls with no destination", "status": 422, "observed": "10004 missing parameter /to; not a permission error; nothing dialed"},
+    {"check": "GET /v2/number_reservations", "status": 403, "observed": "10038 'This feature is not permitted at this account level'; not used by the app, but shows the account is not at the highest verification level"},
+    {"check": "WSS /v2/speech-to-text/transcription (Soniox)", "status": 101, "observed": "authenticated handshake; closed without sending audio"}
+  ],
+  "conclusion": "Calling, rep audio, speech-to-text, webhooks, number search and number ordering are all reachable with the saved key. A real order, a real call, machine detection and caller-name listing can only be proven with an owned number.",
+  "open_items": [
+    "The account level blocks at least one feature. Third-party guides report Level 1 accounts cap outbound calling (about 10 calls per hour, 100 per day); confirm the level in the Telnyx portal and complete Level 2 verification before campaign volume.",
+    "No number is owned; buying or syncing one, the inbound test call and a live outbound call remain owner steps."
+  ]
+}

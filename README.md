@@ -13,8 +13,8 @@ practice.
 
 | Computer | Download | Install |
 | --- | --- | --- |
-| Apple Silicon Mac, macOS 14 or newer | [Mac installer (.dmg)](https://github.com/TanushV/OpenDialer/releases/download/v0.7.1/OpenDialer_0.7.1_aarch64.dmg) | Open it and drag OpenDialer to Applications. |
-| Windows PC, Intel/AMD 64-bit | [Windows installer (.exe)](https://github.com/TanushV/OpenDialer/releases/download/v0.7.1/OpenDialer_0.7.1_x64-setup.exe) | Run it and follow the prompts. |
+| Apple Silicon Mac, macOS 14 or newer | [Mac installer (.dmg)](https://github.com/TanushV/OpenDialer/releases/download/v0.8.0/OpenDialer_0.8.0_aarch64.dmg) | Open it and drag OpenDialer to Applications. |
+| Windows PC, Intel/AMD 64-bit | [Windows installer (.exe)](https://github.com/TanushV/OpenDialer/releases/download/v0.8.0/OpenDialer_0.8.0_x64-setup.exe) | Run it and follow the prompts. |
 
 Already installed? Open **Settings → More settings → Workspace and app updates → Check for updates**.
 Nothing else needs installing. This is a preview: it is not Apple-notarized or Windows publisher-signed,
@@ -26,7 +26,7 @@ so your computer may ask you to confirm the first open. See [installation help](
 | --- | --- | --- |
 | 1. Open a workspace | First screen | **Start a local workspace** (just you, data stays on this computer) or **Connect to a server** (your team's). |
 | 2. Connect services | **Settings** | **Calling:** import your calling setup file or paste your Telnyx key. **AI:** click **Use the ChatGPT login on this computer**, then save the live help key (OpenRouter). |
-| 3. Set the rules | **Settings** | **Calling hours:** set the hours, confirm your business, tick **Approved for live calls**. **Do-not-call list:** load it for the area codes you call. |
+| 3. Set the rules | **Settings** | **Calling hours:** set the hours and attempts. **Do-not-call check:** optional; turn it on and load your list if you want leads screened. |
 | 4. Add your script | **Script** | Paste your Markdown script (start from the [example](docs/examples/script.md)) and click **Save script**. |
 | 5. Import leads | **Leads** | Name the list, paste or choose a CSV with `name` and `phone`, click **Import leads**. Agents research each lead and write its script; the panel shows progress. |
 | 6. Call | **Dialer** | Get phone numbers ready in **Numbers**, click **Check readiness** in Settings, then **Go ready** and press **Space** for the next call. |

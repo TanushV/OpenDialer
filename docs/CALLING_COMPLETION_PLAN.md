@@ -1,7 +1,8 @@
 # Finish the manual calling workflow
 
 **Owner scope:** November 2, 2026. **Source inspected:** `e2fa30f`, runtime 0.7.1.
-**Status:** implementation plan only. No runtime, provider account, number purchase or installed workspace was changed.
+**Status:** implemented in 0.8.0 (November 2, 2026) except the Calendly button, which the owner dropped: reps keep
+Calendly in a browser tab. See the checkpoint in section 14 for what is verified and what still needs a real number.
 This is the calling-workflow implementation detail under [LEAN_PLAN.md](LEAN_PLAN.md), which remains the active plan.
 The [architecture review](ARCHITECTURE.md) records the current source and earlier findings.
 
@@ -398,3 +399,29 @@ November 2: source and installed UI inspected; current zero-number readiness cau
 dependency identified. Calendly booking/notification/plan limitations checked against official documentation.
 This file records the selected implementation scope. No runtime work, provider mutation, purchase, live call,
 release publication or installed update has occurred in this planning step.
+
+November 2 implementation (0.8.0, owner-approved on main with commits, push, release and Mac update):
+
+- Telnyx access was checked with the saved key without buying or dialing
+  ([receipt](evidence/lean/telnyx-access-20261102.json)): dialing app, outbound profile (US/CA), rep audio credential,
+  WebRTC token, Soniox speech-to-text, number search and ordering are reachable. The account owns no numbers, and one
+  feature reports "not permitted at this account level"; confirm Level 2 verification before campaign volume. The
+  app's area-code search treated Telnyx's sold-out answer (400, code 10031) as an error; it is now an empty search.
+- Steps 1-3 and 9: one specific readiness step per problem; no approval paperwork; optional DNC off by default in
+  call authorization, readiness and forecasts; plausible-zone calling windows for leads without a time zone;
+  24-hour ordinary retries with separate callback timing; managed sync of unrouted owned numbers; automatic limited
+  warmup after an answered inbound test call; bounded evidence-based warmup on a rolling day; outbound CNAM listing
+  with read-back and a Free Caller Registry pointer. A claimed lead now binds its own caller number (it could rewrite
+  another lead's binding). Live calls carry the transcription permission the helper needs.
+- Step 4: every dial requests standard Telnyx detection (`answering_machine_detection: detect`, about $0.002 per call
+  on Telnyx's price list); a machine ends non-final attempts and keeps the line for the rep on the final one. An
+  unanswered next-to-last attempt offers the same rep one immediate final attempt for five minutes, on their own
+  Space press only.
+- Step 5: a This call section is assembled from saved notes, callback promises and outcomes when a script is read
+  (no model run, so it survives a model pause); optional Follow-up and Voicemail script sections. Outbound callbacks
+  that reach the person complete the promise.
+- Step 6: streamed plain-text live help on the Cerebras route, one in-flight reply per call that new speech does not
+  cancel, interpretation checkpoints about once a minute or before speech expires, first-text latency recorded.
+- Step 7 was already in place (named tools, prose cannot act, AI outcomes are not training labels) and keeps passing.
+- Not verified without a number: a real order, outbound call, machine detection accuracy, inbound test call,
+  headset audio, live Cerebras reply quality and latency, and caller-name display.

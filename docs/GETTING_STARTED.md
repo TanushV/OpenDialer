@@ -9,7 +9,7 @@ This guide takes you from a fresh install to your first call, in the order the a
 | --- | --- | --- |
 | [1. Open a workspace](#1-open-a-workspace) | First screen | You see the Dialer. |
 | [2. Connect calling and AI](#2-connect-calling-and-ai) | Settings | The Calling and AI cards say **Done**. |
-| [3. Set calling hours and the do-not-call list](#3-set-calling-hours-and-the-do-not-call-list) | Settings | Both cards say **Done**. |
+| [3. Set calling hours and the do-not-call check](#3-set-calling-hours-and-the-do-not-call-check) | Settings | Hours saved; DNC check on or off as you choose. |
 | [4. Add your script](#4-add-your-script) | Script | The checker says **Looks good** and you saved. |
 | [5. Import leads](#5-import-leads) | Leads | The list shows **N of N ready to call**. |
 | [6. Get phone numbers ready](#6-get-phone-numbers-ready) | Numbers | At least one number is in limited use. |
@@ -56,20 +56,22 @@ Keep the app open and the computer awake while calling. Callbacks cannot reach a
 
 No ChatGPT plan? Open **Use an OpenAI API key instead of ChatGPT** on the same card. That route is billed per use.
 
-## 3. Set calling hours and the do-not-call list
+## 3. Set calling hours and the do-not-call check
 
 ### Calling hours card
 
-1. Set **Start (hour)**, **End (hour)** and **Attempts per lead**. Hours are in each lead's own time zone; new
-   workspaces start at 8:00 to 21:00.
-2. Click **Confirm our business is allowed to call these leads** once.
-3. Tick **Approved for live calls** and click **Save calling hours**. Until you do, nothing is dialed for real.
+Set **Start (hour)**, **End (hour)** and **Attempts per lead**, then click **Save calling hours**. Hours are in
+each lead's own time zone; new workspaces start at 8:00 to 21:00. A lead with no time zone column is called only when
+the time is inside your hours in every zone its state and area code could be in. Ordinary retries wait at least a
+day. No approval step is needed.
 
-### Do-not-call list card
+### Do-not-call check card
 
-Paste the numbers from your do-not-call download, one per line, choose **National** or **State**, enter the area
-codes it covers and a reference (for example your download ID), then click **Validate & publish dataset**.
-Leads in area codes without a current list are not called. People who opt out during a call are blocked forever.
+The national do-not-call check is optional and off by default. To use it, tick **Check leads against the national
+do-not-call list before calling**, click **Save**, then paste the numbers from your download, one per line, choose
+**National** or **State**, enter the area codes it covers and a reference, and click **Validate & publish dataset**.
+With the check on, leads in area codes without a current list are not called. With it off, nothing is looked up.
+Either way, people who opt out are blocked forever.
 
 ### More settings
 
@@ -140,13 +142,15 @@ Fair enough. Is that because it's handled, or because now isn't the time?
 | Part | Meaning |
 | --- | --- |
 | `# Opening`, `# Screening`, `# Discovery`, `# Close` | Required sections. |
-| `# Gatekeeper`, `# Offers`, `# Objections`, `# Facts`, `# Never say` | Optional sections. |
+| `# Gatekeeper`, `# Offers`, `# Objections`, `# Facts`, `# Never say`, `# Follow-up`, `# Voicemail` | Optional sections. |
 | `- bullet` | An option. The AI picks the best opening, up to three discovery questions, a lead offer and a backup, and so on, for each lead. |
 | `## Heading` | One offer or one objection, with its text underneath. |
 | `{{ instruction }}` | A line the AI writes for each lead from research, following your instruction. |
 | `{first_name}` `{name}` `{company}` `{rep}` `{seller}` | Filled in for you. Every opening needs `{rep}` and `{seller}`; Screening needs `{seller}`. |
 | `# Facts` | True things about your product the AI and live helper may say. |
 | `# Never say` | Phrases the AI must never use. |
+| `# Follow-up` | Your own wording added to calls after the first (plain text, `{fields}` allowed). |
+| `# Voicemail` | What to say when the final attempt reaches a mailbox. Without it, the app writes a short default. |
 
 Text outside `{{ }}` is said exactly as you wrote it. The AI never invents facts, prices or promises; every line it
 writes must cite something it found or a column from your lead list.
@@ -195,15 +199,17 @@ Contacts at the same company are never called back to back, and when one books a
 
 ## 6. Get phone numbers ready
 
-Open **Numbers**. Each number goes through the same short path before it is used: **Purchased → Identity →
-Callback tested → Limited use → Healthy**. Nothing is bought or started automatically.
+Open **Numbers**. Each number goes through the same short path before it is used: **Owned → Route set up →
+Callback tested → Limited use (warmup) → Healthy**. Nothing is bought automatically.
 
 **Numbers you already own on Telnyx**
 
-1. Click **Sync existing numbers**.
-2. For each number, click **Configure voice route**.
-3. Call the number from another phone to prove callbacks reach you.
-4. Click **Review number evidence**, then **Start or resume limited use**.
+1. Click **Sync existing Telnyx numbers**. Numbers routed to a different Telnyx app are left alone.
+2. For each number, click **Set up route**.
+3. In Dialer click **Go ready**, then call the number from your own phone and answer it in OpenDialer. That proves
+   callbacks reach you and starts warmup at 5 calls a day; it grows by at most 20% a day as real calls succeed.
+4. Under **Caller name**, enter your business name (15 letters at most) and click **List on N numbers**, and register
+   the numbers once at the Free Caller Registry.
 
 **Buying new numbers for a list**
 
@@ -233,8 +239,11 @@ Open **Dialer**.
    Bookings and callback times ask you to confirm.
 7. Tick **Pause after call** to stop after this one, or click **Pause dialing** any time.
 
-The scheduler only calls within calling hours, respects attempts and the do-not-call list, and decides when
-another try is worthwhile. There is no automatic double dial.
+The scheduler only calls within calling hours, respects attempts, opt-outs and (when on) the do-not-call check,
+and waits at least a day between ordinary tries. Requested callbacks come first at their time. When the next-to-last
+try goes unanswered, your next **Space** offers that lead once more right away; nothing dials by itself. Telnyx
+detects answering machines: an ordinary try ends at the machine, and on the final try the screen shows the voicemail
+to leave. Calls after the first open with a **This call** section from the lead's history.
 
 ## 8. After calls
 
@@ -254,10 +263,10 @@ Quit and reopen the app when it finishes. Your workspace is kept.
 
 | Problem | What to do |
 | --- | --- |
-| **Next call** does nothing | Leads may still be researching (see Leads). Otherwise click **Check readiness** in Settings: it names the blocker, such as calling hours not approved, no do-not-call list for an area code, or no ready number. |
+| **Next call** does nothing | Leads may still be researching (see Leads). Otherwise click **Check readiness** in Settings: it names the next step, such as add a caller number, set up its route, or test it with one call. |
 | A lead was skipped | Open **Why N leads were skipped** on Leads. Fix the row and import it again, or call it with your script as written. |
 | ChatGPT is not connected | Settings → AI → **Use the ChatGPT login on this computer**, or import the login file. |
-| A number cannot call | Finish its setup in Numbers: voice route, a real callback test, then limited use. Syncing alone is not enough. |
+| A number cannot call | Finish its setup in Numbers: set up route, then answer one call to it from your phone. Syncing alone is not enough. |
 | Calling says it is not connected | Keep this computer awake and the app open. Resolve any unfinished calls, then click **Reconnect** in Settings → Calling. |
 | A key fails after saving | Check the account's balance and settings with the [provider guide](../deploy/runbooks/providers.md). A saved key alone does not prove the service works. |
 | No microphone | Allow microphone access for OpenDialer in your system settings, then pick the headset under **Check audio**. |

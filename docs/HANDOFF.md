@@ -1,12 +1,12 @@
 # OpenDialer testing handoff (CURRENT)
 
-> **Status: CURRENT — 0.7.1 released; calling completion planning**, November 2, 2026. Earlier sections are history.
-> Read [CALLING_COMPLETION_PLAN.md](CALLING_COMPLETION_PLAN.md) for the latest owner selection: manual Space/Next
-> call, optional DNC without approval paperwork, follow-up scripts, conversational live help and simpler calling
-> readiness. These changes are planned, not shipped. The installed app still has zero caller numbers.
-> Read [ARCHITECTURE.md](ARCHITECTURE.md) for current flows, number setup/warmup, statistical learning,
-> the confirmed short-callback cooldown defect, and the owner's requested initial/overdue preference,
-> day-apart ordinary retries, late double-dials and final-call-only voicemail. Those new rules are not implemented.
+> **Status: CURRENT — 0.8.0 calling completion**, November 2, 2026. Earlier sections are history.
+> [CALLING_COMPLETION_PLAN.md](CALLING_COMPLETION_PLAN.md) section 14 lists what 0.8.0 implemented and verified:
+> optional DNC without approval paperwork, follow-up sections, streamed conversational live help, specific readiness,
+> number onboarding and warmup, machine detection and the final-stage second attempt. The Telnyx account owns no
+> numbers yet, so live calls, audio and detection are unverified. Earlier text below describes 0.7.1 and before;
+> its short-callback cooldown defect and missing day-apart retries, late double-dials and final-call voicemail
+> are fixed in 0.8.0.
 
 The installed setup check found that the released Python runtime had no usable default CA path for
 WebSockets, although HTTPS login succeeded. 0.6.1 selects bundled trusted roots without disabling

@@ -1,5 +1,33 @@
-# OpenDialer 0.7.1
+# OpenDialer 0.8.0
 
+- **Calling needs no paperwork.** Business, campaign and carrier approval records no longer gate calls. The national
+  do-not-call check is optional and off by default (Settings, Do-not-call check); your own opt-outs, holds and calling
+  hours always apply. Leads without a time zone column are callable: the app uses every zone their state and area code
+  allow and only calls when all are inside your hours.
+- **Readiness says what to do next.** Instead of one SIP message, Check readiness and Go ready name the single next
+  step: connect Telnyx, import this computer's audio login, add a caller number, set up its route, or call it once to
+  test callbacks.
+- **Existing Telnyx numbers.** Sync finds numbers you own that are not routed anywhere yet; numbers routed to another
+  Telnyx app are counted and left alone. After you set up a number's route, calling it once from your own phone and
+  answering in OpenDialer starts its warmup automatically.
+- **Warmup.** A new number starts at 5 real calls per rolling 24 hours and may grow by at most 20% a day, only after
+  20 resolved calls across 10 leads and 3 calling days, never past the number's maximum. Waiting alone earns nothing.
+  Two reps calling at once never share a number that is reserved or on a call.
+- **Caller name.** Numbers has one action that lists your business name for outbound caller ID with Telnyx (the paid
+  inbound name lookup is never turned on) and a link to the Free Caller Registry.
+- **Call timing.** Ordinary retries wait at least a day. A requested callback is due at its own time (a five-minute
+  callback is no longer blocked by the old one-hour cooldown) and is completed when you reach the person. When the
+  next-to-last attempt goes unanswered, your next Space press offers that lead once more right away (for five minutes);
+  nothing dials by itself.
+- **Voicemail.** Every call asks Telnyx to detect answering machines. A machine on an ordinary attempt ends the call;
+  on the final attempt the line stays open and the app shows the voicemail wording for you to say.
+- **Follow-up calls.** Calls after the first open with a This call section from the lead's real history: a fresh
+  introduction after missed calls, the promise for a requested callback, last conversation's summary, objections and
+  open questions, and the voicemail wording on the final attempt. Scripts may add optional Follow-up and Voicemail
+  sections.
+- **Live help is a conversation.** New speech gets a short streamed reply about what to say or ask next; silence gets
+  nothing, a slower reply is not cut off by new speech, and observations are saved about once a minute so long calls
+  keep their early context. Replies only advise; they never change records.
 - **Fixes from running 0.7.0 on a real list.** The Leads page shows a list's research progress right after import
   instead of after the first lead finishes. Agents no longer skip a lead over its phone number; the app checks numbers
   before calling. When an agent skips a lead, the list and the lead show why. The AI card in Settings shows Done once
@@ -32,7 +60,7 @@
 - Removed: scheduled prepaid DNC screening (the manual prepaid check stays), the separate ChatGPT plan sign-in, and
   the rolling preparation settings.
 
-Updates from 0.4.x through 0.6.x keep the workspace. Your existing script, if any, needs to be pasted again in the
+Updates from 0.4.x through 0.7.x keep the workspace. Your existing script, if any, needs to be pasted again in the
 new format; until then leads are prepared once a script is saved. Desktop credentials use a private local key file
 without OS password prompts; upgrades from 0.6.0/0.6.1 may require you to re-enter keys and re-import setup/login
 files. Versions 0.2/0.3 start a fresh workspace; old data stays untouched in its previous folder and is not migrated.

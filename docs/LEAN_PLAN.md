@@ -156,6 +156,14 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
+- November 2 calling completion implemented (0.8.0): see the checkpoint at the end of
+  [CALLING_COMPLETION_PLAN.md](CALLING_COMPLETION_PLAN.md). Optional DNC and no approval paperwork, plausible-zone
+  calling windows, day-apart retries with separate callbacks, final-stage second attempt, Telnyx machine detection,
+  history-based follow-up sections, streamed conversational live help with interpretation checkpoints, managed sync
+  of unrouted numbers, automatic limited warmup after an inbound test call, bounded warmup and caller-name listing.
+  Telnyx access verified read-only with the saved key ([receipt](evidence/lean/telnyx-access-20261102.json)); the
+  account owns no numbers, so live calls, audio and detection remain owner gates. Regression tests preceded each fix.
+
 - November 2 calling completion plan (planning only): [CALLING_COMPLETION_PLAN.md](CALLING_COMPLETION_PLAN.md)
   records the latest owner scope under this plan. Keep manual Space/Next call; do not add the general automatic
   loop proposed November 1. Make list DNC screening optional through authorization, readiness and forecasts,
