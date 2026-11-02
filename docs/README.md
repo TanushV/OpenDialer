@@ -18,6 +18,7 @@
 ## Develop and operate
 
 - [Architecture and calling-policy review](ARCHITECTURE.md): diagrams, current behavior, requested cadence and warmup, learning loops, and feature gaps
+- [Calling completion plan](CALLING_COMPLETION_PLAN.md): November 2 scope, optional screening, manual calling, follow-up scripts, live conversation helper and setup fixes
 - [Development and tests](DEVELOPMENT.md)
 - [Current verification and remaining live gates](VALIDATION.md)
 - [Current handoff](HANDOFF.md) and [code map](HANDOFF_AST.md)

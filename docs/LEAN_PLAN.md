@@ -156,6 +156,17 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
+- November 2 calling completion plan (planning only): [CALLING_COMPLETION_PLAN.md](CALLING_COMPLETION_PLAN.md)
+  records the latest owner scope under this plan. Keep manual Space/Next call; do not add the general automatic
+  loop proposed November 1. Make list DNC screening optional through authorization, readiness and forecasts,
+  remove approval paperwork from the internal workflow, add history-aware follow-up scripts and streamed
+  conversational live help, and retain the requested cadence, final-stage pair, final rep-spoken voicemail,
+  registration assistance, adaptive warmup and named post-call action tools. Meetings use a side-by-side Calendly
+  page with explicit external-booking confirmation. Installed UI shows connected delivery, configured AI and
+  zero numbers; the generic SIP error combines credentials and empty inventory. The source also hardcodes
+  registry requirements and excludes call history from the preparation key. These are findings and planned
+  corrections, not shipped fixes. No runtime/provider/installed-data change, spending or call occurred.
+
 - November 1 architecture and calling-policy review (documentation only): [ARCHITECTURE.md](ARCHITECTURE.md)
   maps source `b577ffe` / 0.7.1, all feature areas, current/local/hosted data flows, number registration and
   warmup, callbacks, voicemail, tool boundaries, statistical/script learning and releases. It records the owner's

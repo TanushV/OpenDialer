@@ -1,6 +1,9 @@
 # OpenDialer testing handoff (CURRENT)
 
-> **Status: CURRENT — 0.7.1 released; architecture/calling-policy review**, November 1, 2026. Earlier sections are history.
+> **Status: CURRENT — 0.7.1 released; calling completion planning**, November 2, 2026. Earlier sections are history.
+> Read [CALLING_COMPLETION_PLAN.md](CALLING_COMPLETION_PLAN.md) for the latest owner selection: manual Space/Next
+> call, optional DNC without approval paperwork, follow-up scripts, conversational live help and simpler calling
+> readiness. These changes are planned, not shipped. The installed app still has zero caller numbers.
 > Read [ARCHITECTURE.md](ARCHITECTURE.md) for current flows, number setup/warmup, statistical learning,
 > the confirmed short-callback cooldown defect, and the owner's requested initial/overdue preference,
 > day-apart ordinary retries, late double-dials and final-call-only voicemail. Those new rules are not implemented.
