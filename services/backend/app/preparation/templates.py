@@ -20,6 +20,10 @@ HEADINGS = {
     "close": ("close", True, "choice"),
     "facts": ("facts", False, "bullets"),
     "never say": ("never_say", False, "bullets"),
+    # Optional wording for calls after the first and for the final attempt's mailbox; not
+    # picked per lead and not spoken on a first call.
+    "follow-up": ("follow_up", False, "notes"),
+    "voicemail": ("voicemail", False, "notes"),
 }
 TITLES = {
     "opening": "Opening",
@@ -313,6 +317,18 @@ def parse_markdown(markdown):
             if BLOCK.search(text):
                 errors.append({"line": number, "message": "Facts and Never say cannot contain {{ }}"})
             target.append(text[:400])
+    notes = {}
+    for key in ("follow_up", "voicemail"):
+        if key not in raw:
+            continue
+        text = paragraphs(raw[key]["lines"])
+        if BLOCK.search(text):
+            errors.append(
+                {"line": raw[key]["line"], "message": "Follow-up and Voicemail cannot contain {{ }}"}
+            )
+        elif text:
+            _placeholders(text, raw[key]["line"], errors)
+            notes[key] = text[:1000]
     if len(blocks) > MAX_BLOCKS:
         errors.append({"line": 0, "message": f"Use at most {MAX_BLOCKS} {{{{ }}}} blocks"})
     if errors:
@@ -324,6 +340,7 @@ def parse_markdown(markdown):
         "blocks": blocks,
         "facts": facts,
         "never_say": never,
+        **notes,
     }
 
 

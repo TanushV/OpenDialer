@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 
 from app.db import MODELS, Job, doc, emit, put, uid, update
 from app.preparation.agent import INSTRUCTIONS, TOOLS, SimulatedAgent, ThreadWork, simulated_page
-from app.preparation.templates import PreparationPolicy, render, template_version
+from app.preparation.templates import PreparationPolicy, fill_fields, render, template_version
 from app.service import dt
 
 # A failing provider costs at most this many attempts per lead and input, then the lead is
@@ -255,6 +255,9 @@ class Preparation:
             seller = self.required(s, "sellers", p["seller_id"], p).data["name"]
             rep = self.required(s, "users", p["user_id"], p).data["name"]
             script.update(render(template, lead=doc(lead), seller=seller, rep=rep))
+        follow = self.follow_up_in(s, p, lead, template)
+        if follow:
+            script.update(sections=[follow, *script.get("sections", [])], call_purpose=follow["purpose"])
         base = self.lead_script_base(s, p, lead)
         script.update(
             # Calls snapshot this script; the parsed sections are kept, the pasted Markdown is not.
@@ -265,6 +268,99 @@ class Preparation:
             preparation_status=state["status"],
         )
         return script, state
+
+    def follow_up_in(self, s, p, lead, template):
+        """What this call is for, assembled now from the lead's real history (None on a first call).
+
+        Built from saved call notes, callback promises and outcomes rather than a new model
+        run, so it is current after every call or correction and needs no model to be up.
+        It never mentions a conversation that did not happen.
+        """
+        from app.postcall.commitments import ACTIVE as ACTIVE_TASKS
+        from app.telephony.reducer import TERMINAL
+
+        attempts = lead.data.get("attempt_count", 0)
+        calls = self.lead_records(
+            s,
+            p,
+            "call_attempts",
+            lead.id,
+            MODELS["call_attempts"].op_status.in_(TERMINAL),
+            limit=10,
+            newest=True,
+        )
+        callback = next(
+            (
+                t
+                for t in self.lead_records(s, p, "followup_tasks", lead.id)
+                if t.data.get("kind") == "callback" and t.data.get("status") in ACTIVE_TASKS
+            ),
+            None,
+        )
+        if not attempts and not calls and not callback:
+            return None
+        campaign = self.required(s, "campaigns", lead.data["campaign_id"], p)
+        policy = self.required(s, "policy_versions", campaign.data["policy_id"], p).data
+        name = (lead.data.get("name") or "").strip()
+        values = {
+            "name": name or "there",
+            "first_name": name.split()[0] if name and name.casefold() != "unknown" else "there",
+            "company": lead.data.get("company") or "your company",
+            "seller": self.required(s, "sellers", p["seller_id"], p).data["name"],
+            "rep": self.required(s, "users", p["user_id"], p).data["name"],
+        }
+        spoken = [c for c in calls if c.data.get("human_answered_at")]
+        lines = []
+        if callback:
+            purpose, note = "callback", (callback.data.get("note") or "").strip()
+            lines.append(
+                "They asked for this callback"
+                + (f": {note}" if note else ".")
+                + " Open by saying you are calling back as promised."
+            )
+        elif spoken:
+            purpose = "follow_up"
+        else:
+            purpose = "retry"
+            lines.append(
+                f"No one has answered the {attempts} earlier call{'s' if attempts != 1 else ''}."
+                " Introduce yourself fresh and do not mention earlier calls."
+            )
+        if spoken:
+            latest = spoken[0]
+            note = self._by_key(s, p, "notes", latest.id)
+            view = self.note_view_in(s, p, note, latest) if note else {}
+            notes, memory = view.get("notes") or {}, view.get("call_memory") or {}
+            when = (dt(latest.data.get("started_at")) or self.clock()).date().isoformat()
+            if notes.get("summary"):
+                lines.append(f"Last conversation ({when}): {notes['summary']}")
+            else:
+                lines.append(f"You spoke on {when}; no summary was saved.")
+            if notes.get("objections"):
+                lines.append("They raised: " + "; ".join(str(o) for o in notes["objections"][:3]))
+            answered = [str(a.get("text", a)) for a in memory.get("answered_questions", [])[:3]]
+            if answered:
+                lines.append("Already answered, do not ask again: " + "; ".join(answered))
+            open_questions = [
+                str(q.get("text", q))
+                for q in memory.get("open_questions", [])
+                if q.get("status") not in {"resolved", "retracted", "stale"}
+            ]
+            if open_questions:
+                lines.append("Pick up from: " + open_questions[0])
+        if template and template.get("follow_up"):
+            lines.append(fill_fields(template["follow_up"], values))
+        if not callback and attempts + 1 >= policy.get("max_attempts", 4):
+            purpose = "final"
+            voicemail = (template or {}).get("voicemail") or (
+                "Hi {first_name}, this is {rep} with {seller}. I have tried you a few times about"
+                " {company}. If a short conversation would help, call me back at this number. Thanks."
+            )
+            lines.append(
+                "Final attempt. If it reaches voicemail, leave this message: "
+                + fill_fields(voicemail, values)
+            )
+        return {"key": "follow_up", "title": "This call", "text": "\n".join(lines), "purpose": purpose}
 
     def pending_preparation(self, s, p, finishing=None):
         """Lead IDs with a queued or running thread for this seller."""

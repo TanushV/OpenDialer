@@ -148,12 +148,15 @@ class TelephonyWorkflows:
                         update(call, end_reason="machine_detected")
                     emit(s, p["tenant_id"], "call.updated", call, self.clock())
                 if event_type in HUMAN_EVENTS | {"human.confirmed"}:
+                    first_answer = not call.data.get("human_answered_at")
                     update(
                         call,
                         human_answered_at=self.clock().isoformat(),
                         machine_detected=False,
                         carrier_outcome=None,
                     )
+                    if first_answer:
+                        self._keep_callback_promise(s, p, call, lead)
                 if event_type == "call.answered" and call.data["state"] not in TERMINAL | {"ENDING"}:
                     decision = authorize(
                         self.context(s, p, lead, number, permission="transcription", active=True)
@@ -544,6 +547,31 @@ class TelephonyWorkflows:
                 now=self.clock(),
             )
         return {"agent_call_control_id": provider_id}
+
+    def _keep_callback_promise(self, s, p, call, lead):
+        """Reaching the person on a call at or after a promised callback time keeps that promise."""
+        from app.postcall.commitments import ACTIVE
+
+        due_now = [
+            t
+            for t in self.lead_records(s, p, "followup_tasks", lead.id)
+            if t.data.get("kind") == "callback"
+            and t.data.get("status") in ACTIVE
+            and (due := dt(t.data.get("due_at")))
+            and due <= self.clock() + timedelta(minutes=1)
+        ]
+        for task in due_now:
+            update(
+                task,
+                status="completed",
+                owner_id=call.data["rep_id"],
+                completion_source="outbound_rep_connected",
+                completed_call_id=call.id,
+                completed_at=self.clock().isoformat(),
+            )
+            emit(s, p["tenant_id"], "task.updated", task, self.clock())
+        if due_now:
+            self._sync_callback(s, p, lead)
 
     def _offer_second_attempt(self, s, call, lead, policy):
         """The final stage may pair an unanswered next-to-last attempt with one immediate retry.

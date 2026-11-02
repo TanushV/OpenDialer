@@ -204,3 +204,19 @@ def test_one_section_can_be_replaced_for_script_tests():
     assert [o["text"] for o in changed["sections"][-1]["options"]] == ["Does Tuesday work?", "Or Thursday?"]
     with pytest.raises(ValueError):
         replace_section(template, "gatekeeper", "Who handles roofs?")
+
+
+def test_follow_up_and_voicemail_are_optional_plain_wording_kept_off_the_first_call():
+    template = parse_markdown(
+        STARTER + "\n# Follow-up\nOffer the review again.\n\n# Voicemail\nHi {first_name}, {rep} here.\n"
+    )
+    assert template["follow_up"] == "Offer the review again."
+    assert template["voicemail"] == "Hi {first_name}, {rep} here."
+    assert "follow_up" not in {section["key"] for section in template["sections"]}
+    assert "follow_up" not in parse_markdown(STARTER)
+    with pytest.raises(ScriptError) as error:
+        parse_markdown(STARTER + "\n# Voicemail\n{{ write one }} and {nickname}\n")
+    assert "cannot contain {{ }}" in str(error.value.errors)
+    with pytest.raises(ScriptError) as error:
+        parse_markdown(STARTER + "\n# Voicemail\nHi {nickname}\n")
+    assert "Unknown field {nickname}" in str(error.value.errors)
