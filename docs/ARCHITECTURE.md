@@ -145,6 +145,28 @@ The normal session is: open app → check audio/readiness → Go ready → Space
 next eligible person and their prepared script. A rep can preview the next lead before starting. It is not an
 unattended prospect-calling agent.
 
+### Intended rep experience: upload a list and take the conversations
+
+The owner clarified that, after one-time business/provider/number/script setup, the rep should only need to import
+lead lists and speak to prospects. While the rep is ready and their headset is connected, the system should research
+the list, prepare each script, select eligible work, start the next permitted call, assist during it, interpret
+the outcome, update commitments/memory/statistics, and continue automatically. Waiting for a future window or
+requested callback is normal scheduling, not a reason for the rep to maintain a manual queue. Prep can run ahead;
+the first ready leads need not wait for the entire list. Pause, opt-out and immediate hangup stay under rep control.
+
+**Current gap:** Space/Next call is the normal start/advance action. The only general automatic advance currently
+implemented here is the optional path after a finalized voicemail. The desired automatic loop after other ended
+calls and after list import is not shipped. It needs to respect rep readiness/idle pause, pending opt-outs,
+unresolved carrier effects, analysis-dependent holds and explicit requested commitments. Never place a prospect
+call merely because an upload finished while the rep is away or audio is unavailable.
+
+**Learning gap:** automatic interpretation is not the same as observed ground truth. The existing learner excludes
+AI-only/provisional outcomes from observed labels, and a held meeting or sale needs external evidence or human
+confirmation. To make most daily operation automatic, use trusted carrier/CRM/calendar receipts where available
+and ask for only the remaining material corrections. No current calendar/CRM integration proves meetings held
+without the rep. A model should not train on its own unverified summaries as if they were successful outcomes.
+
+
 ## 6. Numbers, registration and warmup
 
 ### 6.1 Current lifecycle
@@ -326,13 +348,15 @@ all opportunities after their cooldown. This is distinct from the confirmed shor
 assumptions and update them from outcomes; ordinary attempts at least about a day apart; double-dial only near
 the end; allow voicemail only on the final decided call; honor requested callbacks.
 
-The exact meaning of "near the end" and whether voicemail delivery should be automated are pending preferences.
-Until clarified, this design uses **one optional immediate second attempt in the final outreach stage** and
-**rep-spoken voicemail only**. These are proposed defaults, not permission to reintroduce prerecorded drop.
+The owner confirmed **rep-spoken voicemail only** and **a double-dial in the final outreach stage**, with that
+stage policy allowed to change later. Start with at most one immediate second attempt in that stage. The current
+final-stage restriction is a versioned policy setting, not an unchangeable constant. Statistical evidence can
+inform future policy changes; the model chooses whether to use the action within the currently allowed stages.
+Do not silently treat a new model score as a change to the active stage restriction. Prerecorded drop stays off.
 
 ```mermaid
 flowchart TD
-    Event["Rep asks for next call / state changes"] --> Eligible["Apply hard eligibility and current capacity"]
+    Event["List uploaded / rep ready / state changes"] --> Eligible["Apply hard eligibility and current capacity"]
     Eligible --> Callback{"Confirmed callback due?"}
     Callback -->|Yes| Promised["Honor promised time / owner<br/>ordinary cold-retry gap exception"]
     Callback -->|No| Candidates["Build initial, overdue and eligible retry opportunities"]
@@ -343,7 +367,7 @@ flowchart TD
     Promised --> Plan
     Plan --> Final{"Is this the committed final attempt?"}
     Final -->|No| NoVM["No voicemail permitted<br/>machine handling must enforce chosen behavior"]
-    Final -->|Yes| VM["Voicemail permitted if a machine is confirmed<br/>otherwise converse or end normally"]
+    Final -->|Yes| VM["Rep-spoken voicemail permitted on confirmed machine<br/>no automatic recorded message"]
     NoVM --> Call["Recheck, claim and execute"]
     VM --> Call
     Call --> Outcome["Actual receipt + outcome + corrections"]
@@ -357,7 +381,7 @@ flowchart TD
 |---|---|
 | Opt-out, ownership, screening, time window, rep/audio, account limits | Hard eligibility. The model cannot learn to violate them. |
 | Ordinary repeat spacing | At least **24 elapsed hours** as a conservative reading of "a day", then a permitted business/calling window. A confirmed requested callback is a separate action. |
-| Double-dial eligibility | A single second dial only in an allowed late stage, after an eligible non-conversation outcome. Never after opt-out, wrong/invalid endpoint, a live conversation, booking or a pending requested callback. |
+| Double-dial eligibility | A single second dial in the final stage under the initial active policy, after an eligible non-conversation outcome. Allowed stages can be changed through a recorded policy version. Never after opt-out, wrong/invalid endpoint, a live conversation, booking or a pending requested callback. |
 | Attempt and pair limits | Both actual dials consume attempts and number capacity. No recursive retry pairs or counter reset through number reassignment/restart. |
 | Voicemail | Only the committed final attempt of the current ordinary outreach sequence. If a late pair is selected, the first dial cannot leave voicemail. |
 | Initial/overdue preference | Seed the policy toward first contact and aging overdue work. Learn ranking strength from sufficient data, with a maximum-wait/coverage safeguard against starvation. |
@@ -442,7 +466,9 @@ There is a mechanical distinction: a UI instruction cannot prevent a rep who is 
 voicemail early. Strict automatic enforcement requires a qualified media/AMD path that can terminate a non-final
 mailbox attempt before message delivery while protecting late human answers. That must be tested with real
 carrier timings and false-positive cases. Until then, a rep-spoken restriction is a visible operational rule,
-not a guaranteed machine-enforced feature. Automatic recorded drop is a separate feature decision and remains off.
+not a guaranteed machine-enforced feature. The owner confirmed rep-spoken delivery only; automatic recorded drop
+remains off and is outside the selected design.
+
 
 ## 11. "Call me back" and inbound callbacks
 
@@ -697,6 +723,7 @@ a dated code snapshot. "Current" below means source exists, not that the current
 | Machine detection / screening / voicemail outcomes | `telephony/reducer.py`, `telephony/workflows.py` | **Partial**; dial-side enablement and live behavior need verification. |
 | Automatic prerecorded drop | Outbound control guard in `telephony/workflows.py` | Removed/blocked; not reauthorized by a final-call restriction alone. |
 | Next after ended voicemail / Space / pause | `DialerPage.tsx`, `CallControls.tsx` | Current; next selected lead, not forced repeat. |
+| Automatic calling loop after upload and other ended calls | Current normal flow still uses Space/Next call | **Required** for the upload-and-call rep experience; the voicemail-only advance does not cover it. |
 | Requested callbacks / time extraction / task editing | `postcall/commitments.py`, `postcall/dates.py`, `rep_workflows.py`, `FollowupTasks.tsx` | Current plus **confirmed short-callback cooldown defect**. |
 | Inbound owner/teammate/fallback routing | `telephony/callbacks.py`, `CallbackRouting.tsx` | Current; real/offline fallback qualification needed. |
 | Internal opt-outs / DTMF 9 / local pending journal | compliance modules, `state/optouts.ts` | Current; always rechecked. |
@@ -736,7 +763,7 @@ All backend paths in this table are relative to `services/backend/app/`; UI path
 | G2 | **First: explicit cadence state** | One normal attempt sets the next normal opportunity at least 24 hours later. Restart/correction does not reset counts. A request for an earlier callback is a distinct, evidenced action. |
 | G3 | **First: initial/overdue base policy and coverage** | A fresh list starts with documented prior preference for uncontacted/aging work; repeats do not starve initial attempts. Observed updates change allowed ranking, not hard boundaries. |
 | G4 | Late-stage double-dial | Early-stage, answered, opted-out, wrong/invalid, booked and callback-held leads cannot get the action. One eligible final-stage pair uses at most two actual attempts; race/restart/lost response cannot create a third. |
-| G5 | Final-attempt voicemail gate | Persist the final decision before dialing. A non-final machine cannot trigger automated message delivery; a final machine may. Live human answers cancel the pending retry. Manual-enforcement limitations are explicit. |
+| G5 | Final-attempt voicemail gate | Persist the final decision before dialing. Offer rep-spoken voicemail only on that final attempt; no prerecorded delivery on any attempt. Live human answers cancel the pending retry. Manual-enforcement limitations are explicit. |
 | G6 | AMD and carrier qualification | Verify documented request settings, signed machine/human/beep events, greeting timing, late human, false-positive, silent, screening and unknown outcomes on real permitted calls. |
 | G7 | Registration checklist and assistance | No number shows enrolled merely because routing succeeded. Save provider/registry receipt/status; owner supplies real business details and any required verification. No unsupported automatic enrollment or paid subscription. |
 | G8 | Warmup/pacing policy | Sparse evidence starts conservatively; cumulative use/reservations stay within per-number and account/rep limits. Quality trouble lowers/holds use; any permitted increase is bounded and explained. Existing identities remain stable. |
@@ -746,6 +773,8 @@ All backend paths in this table are relative to `services/backend/app/`; UI path
 | G12 | Long-call privacy/summary expectations | A call longer than five minutes produces a summary from permitted live chunks plus accumulated structured state; expired raw text never reappears. Partial coverage remains visible. |
 | G13 | End-to-end readiness | An owned number receives a callback, a real headset connects, an authorized first call works, costs reconcile, and local restart preserves results. Repeat representative checks on Windows and a clean machine. |
 | G14 | Warmup reset and pacing windows | Define rolling versus calendar limits explicitly; attempts just before and after UTC midnight cannot create an unintended warmup burst. Count reservations, failed/uncertain submissions and both dials in a pair consistently. |
+| G15 | Automatic rep calling loop | With a ready rep/audio and an eligible prepared lead, import/completion wakes the same scheduler and advances automatically after terminal calls. Pause, idle/offline, suppression, stale state and uncertain effects prevent new dials. No double submission across refresh/restart. |
+| G16 | Automatic learning with trusted outcomes | Carrier/authorized integration receipts can update observed labels; unsupported AI summaries cannot. Ask for necessary human confirmation without making every outcome a mandatory manual form. Measure label coverage and show what cannot yet be learned. |
 
 Implement by extending the current calling policy, decision records, planner and number lifecycle. Do not add a
 parallel scheduler, another cloud control plane or an LLM that bypasses the same authorization path. New behavior
@@ -765,16 +794,21 @@ Real carrier/audio/registration and outcome lift retain their own evidence.
   this review explicitly supersedes claims that automatic registration, an adaptive contact sequence or reliable
   final-call voicemail control are already complete.
 
-Decisions to resolve without losing the owner's requirements:
+Confirmed owner choices:
 
-1. Is a double-dial allowed only in the final stage, or in a wider late-stage range? Start with one pair maximum.
-2. Does "last call" mean the last attempt of the committed ordinary outreach sequence? A later requested callback
+1. Rep-spoken voicemail only, on the final decided call. Do not reintroduce automated voicemail drop.
+2. A double-dial is initially allowed in the final stage, with a versioned stage policy that can change later.
+3. After one-time setup, the desired rep workflow is list upload and live conversations; AI, scheduling and routine
+   updates should operate in the background.
+
+Remaining design details:
+
+1. Does "last call" mean the last attempt of the committed ordinary outreach sequence? A later requested callback
    should be a separate promise, not retroactively make a previous final-call decision false.
-3. Is voicemail rep-spoken only, or should automatic recorded delivery return as a separately approved feature?
-4. Confirm 24 elapsed hours for ordinary retries versus the looser "next local calling day" interpretation.
-5. What ramp envelope may the app increase automatically, and which business-registration steps can use supported
+2. Confirm 24 elapsed hours for ordinary retries versus the looser "next local calling day" interpretation.
+3. What ramp envelope may the app increase automatically, and which business-registration steps can use supported
    APIs versus owner verification? There is no need to buy a separate warmup service for the existing limited-use flow.
-6. How much initial/overdue preference may outcomes change while preserving a minimum coverage guarantee?
+4. How much initial/overdue preference may outcomes change while preserving a minimum coverage guarantee?
 
 The owner should see these decisions as a simple calling strategy and one per-number setup checklist. The
 implementation details belong here; reps should see who is next, why now, the script, the outcome and the next step.

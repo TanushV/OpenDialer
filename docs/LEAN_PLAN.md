@@ -161,8 +161,9 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
   warmup, callbacks, voicemail, tool boundaries, statistical/script learning and releases. It records the owner's
   new requirements: initial/overdue preference seeded in the statistical policy, ordinary retries at least about
   a day apart, double-dials near the end, and voicemail only on the committed final call. These are not shipped.
-  Final-stage scope and rep-spoken versus automated voicemail remain preferences to resolve; the document labels
-  its conservative defaults as proposed. The preceding source audit passed 68 scoped SQLite software cases and
+  Owner confirmed rep-spoken voicemail only and final-stage double-dials, with a versioned policy that can change
+  later. The desired rep experience is upload lists and take conversations; the general automatic advance loop
+  and trusted outcome-to-learning pipeline still have gaps. The preceding audit passed 68 scoped SQLite cases and
   reproduced a five-minute requested callback being blocked by the generic cooldown. No runtime/app/provider
   changes or real calls are part of this documentation task.
 
