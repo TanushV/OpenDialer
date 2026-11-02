@@ -75,6 +75,13 @@ export interface FollowupTask {
   } | null;
 }
 export interface NumberRecord {
+  /** Outbound caller-name listing sent to Telnyx and what it read back. */
+  caller_name?: {
+    requested: string;
+    listed: string | null;
+    status: string;
+    at: string;
+  };
   id: string;
   version: number;
   outbound_ready?: boolean;

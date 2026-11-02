@@ -621,6 +621,74 @@ function useNumbersSummary(listName: string | null) {
   };
 }
 
+/** The business name carriers may show with outbound calls, and the free spam-label registry. */
+function CallerIdentity({
+  numbers,
+  onChanged,
+}: {
+  numbers: NumberRecord[];
+  onChanged: () => Promise<void>;
+}) {
+  const { api, run, notice } = useWorkspace();
+  const owned = numbers.filter(
+    (n) => n.provider_id && n.lifecycle !== "retired_callback_only",
+  );
+  const listed = owned.find((n) => n.caller_name?.listed)?.caller_name?.listed;
+  const [name, setName] = useState(listed ?? "");
+  const valid = /^[A-Za-z0-9 ]{1,15}$/.test(name.trim());
+  return (
+    <section className="card padded">
+      <h3>Caller name</h3>
+      <p className="fine">
+        The business name some phones show with your calls (15 letters, digits
+        or spaces). Telnyx lists it with carriers; phones update over days and
+        no carrier guarantees display.
+      </p>
+      <div className="button-row">
+        <input
+          aria-label="Business name for caller ID"
+          maxLength={15}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="YOUR BUSINESS"
+        />
+        <button
+          className="secondary"
+          disabled={!valid || !owned.length}
+          onClick={() =>
+            void run(async () => {
+              for (const number of owned)
+                await api(
+                  `/v1/admin/numbers/${number.id}/caller-name`,
+                  "POST",
+                  { name: name.trim() },
+                );
+              await onChanged();
+              notice(
+                `Caller name sent to Telnyx for ${owned.length} number(s).`,
+              );
+            })
+          }
+        >
+          List on {owned.length || "no"} number{owned.length === 1 ? "" : "s"}
+        </button>
+      </div>
+      <p className="fine">
+        Also register your numbers and business once at the{" "}
+        <button
+          className="text-button"
+          onClick={() =>
+            void run(() => openSource("https://www.freecallerregistry.com/"))
+          }
+        >
+          Free Caller Registry
+        </button>{" "}
+        so AT&amp;T, T-Mobile and Verizon spam labels know who you are.
+      </p>
+    </section>
+  );
+}
+
 export function NumbersPage() {
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
   const history = useHistory("numbers", w.numbers);
@@ -744,6 +812,13 @@ export function NumbersPage() {
           await refresh();
           await history.load();
           await plan.load();
+        }}
+      />
+      <CallerIdentity
+        numbers={history.items}
+        onChanged={async () => {
+          await refresh();
+          await history.load();
         }}
       />
       <section className="card table-card">

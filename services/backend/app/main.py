@@ -207,6 +207,11 @@ class NumberPurchase(Strict):
     approve_recurring: bool = Field(strict=True)
 
 
+class CallerName(Strict):
+    # Telnyx lists up to 15 letters, digits and spaces for outbound caller name.
+    name: str = Field(pattern=r"^[A-Za-z0-9 ]{1,15}$")
+
+
 class PolicyUpdate(Strict):
     # The path names the version being edited; it must still be current (see publish).
     expected_version: int | None = Field(default=None, ge=1)
@@ -1120,6 +1125,10 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.post("/v1/admin/numbers/{number_id}/configure")
     async def configure_number(number_id: str, data: dict | None = None, p=Depends(administrator)):
         return await service.configure_owned_number(p, number_id, data)
+
+    @app.post("/v1/admin/numbers/{number_id}/caller-name")
+    async def caller_name(number_id: str, data: CallerName, p=Depends(administrator)):
+        return await service.list_caller_name(p, number_id, data.name)
 
     @app.post("/v1/admin/numbers/search")
     async def search_numbers(data: dict, p=Depends(administrator)):

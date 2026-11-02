@@ -66,6 +66,10 @@ class SimulatedCarrier:
     async def get_number(self, number_id):
         return dict(self.numbers[number_id])
 
+    async def list_caller_name(self, number_id, name):
+        self.caller_names = {**getattr(self, "caller_names", {}), number_id: name}
+        return {"cnam_listing_enabled": True, "cnam_listing_details": name}
+
     async def search_numbers(self, region):
         return [
             {

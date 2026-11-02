@@ -1,5 +1,7 @@
 """Owned-number operations through HTTP with simulation off and all carrier IO mocked."""
 
+import json
+
 import httpx
 import pytest
 from app.providers.telnyx import TelnyxCarrier
@@ -115,3 +117,47 @@ def test_shared_webhook_sync_finds_owned_numbers_not_yet_routed_anywhere(workspa
         assert {"+14155550901", "+14155550902"} <= phones and "+14155550903" not in phones
     finally:
         workspace["client"].portal.call(http.aclose)
+
+
+def test_caller_name_lists_outbound_cnam_only_and_records_the_read_back(workspace, app, monkeypatch):
+    service = app.state.service
+    service.settings.simulation = False
+    sent = []
+    stored = {}
+
+    def handler(request):
+        if request.method == "PATCH":
+            body = json.loads(request.content)
+            sent.append(body)
+            stored.update(body["cnam_listing"])
+            return httpx.Response(200, json={"data": {}})
+        return httpx.Response(200, json={"data": {"cnam_listing": stored}})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(service, "carrier", lambda tenant: TelnyxCarrier("synthetic", "route", http=http))
+    client, headers = workspace["client"], workspace["headers"]
+    number = next(n for n in client.get("/v1/workspace/numbers", headers=headers).json()["items"])
+    from app.db import get as get_row
+    from app.db import update
+
+    with service.db.transaction() as s:
+        update(
+            get_row(s, "number_inventory", number["id"], workspace["tenant_id"]),
+            provider_id="telnyx-number-1",
+        )
+    path = f"/v1/admin/numbers/{number['id']}/caller-name"
+    try:
+        assert (
+            client.post(path, headers=headers, json={"name": "Too long a business name"}).status_code == 422
+        )
+        assert client.post(path, headers=headers, json={"name": "Agite; DROP"}).status_code == 422
+        response = client.post(path, headers=headers, json={"name": "Agite  Systems"})
+        assert response.status_code == 200, response.text
+        assert response.json()["caller_name"]["listed"] == "AGITE SYSTEMS"
+        assert response.json()["caller_name"]["status"] == "submitted"
+        assert sent == [
+            {"cnam_listing": {"cnam_listing_enabled": True, "cnam_listing_details": "AGITE SYSTEMS"}}
+        ]
+        assert "caller_id_name_enabled" not in str(sent)
+    finally:
+        client.portal.call(http.aclose)

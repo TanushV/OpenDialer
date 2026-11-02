@@ -231,6 +231,18 @@ class TelnyxCarrier:
         )
         return await self.get_number(number_id)
 
+    async def list_caller_name(self, number_id, name):
+        """Outbound caller-name (CNAM) listing only; the separately priced inbound lookup
+        (`caller_id_name_enabled`) is never sent. Returns the listing Telnyx reads back."""
+        from urllib.parse import quote
+
+        path = f"/phone_numbers/{quote(number_id, safe='')}/voice"
+        await self.request(
+            "PATCH", path, {"cnam_listing": {"cnam_listing_enabled": True, "cnam_listing_details": name}}
+        )
+        response = await self.request("GET", path)
+        return (response.get("data") or {}).get("cnam_listing") or {}
+
     async def get_number(self, number_id):
         from urllib.parse import quote
 

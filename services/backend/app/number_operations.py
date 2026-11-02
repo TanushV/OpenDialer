@@ -415,6 +415,53 @@ class NumberOperations:
         result = await asyncio.to_thread(self._merge_inventory, p, inventory)
         return {**result, "on_other_connection": elsewhere}
 
+    async def list_caller_name(self, p, number_id, name):
+        """Ask Telnyx to list the business name shown with this number's outbound calls.
+
+        Read-back confirms Telnyx stored it; carriers' own databases update later and display
+        on the called phone is never guaranteed."""
+        name = " ".join(name.split()).upper()
+
+        def provider_id():
+            with self.db.transaction(False) as s:
+                self._configuration_actor(s, p)
+                number = self.required(s, "number_inventory", number_id, p)
+                if not number.data.get("provider_id") and not self.settings.simulation:
+                    fail(409, "Sync this number from Telnyx first")
+                return number.data.get("provider_id") or number.id
+
+        listing = await self.carrier(p["tenant_id"]).list_caller_name(
+            await asyncio.to_thread(provider_id), name
+        )
+        stored = listing.get("cnam_listing_details") if listing.get("cnam_listing_enabled") else None
+
+        def save():
+            with self.db.transaction() as s:
+                self.db.authorize_stream(s, p)
+                number = self.required(s, "number_inventory", number_id, p)
+                update(
+                    number,
+                    caller_name={
+                        "requested": name,
+                        "listed": stored,
+                        "status": "submitted" if stored == name else "not_confirmed",
+                        "at": self.clock().isoformat(),
+                    },
+                )
+                audit(
+                    s,
+                    p["tenant_id"],
+                    p["seller_id"],
+                    p["user_id"],
+                    "number.caller_name",
+                    number.id,
+                    self.clock(),
+                )
+                emit(s, p["tenant_id"], "number.updated", number, self.clock())
+                return doc(number)
+
+        return await asyncio.to_thread(save)
+
     def _merge_inventory(self, p, inventory):
         normalized = {}
         for item in inventory:
