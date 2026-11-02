@@ -17,6 +17,7 @@
 
 ## Develop and operate
 
+- [Architecture and calling-policy review](ARCHITECTURE.md): diagrams, current behavior, requested cadence and warmup, learning loops, and feature gaps
 - [Development and tests](DEVELOPMENT.md)
 - [Current verification and remaining live gates](VALIDATION.md)
 - [Current handoff](HANDOFF.md) and [code map](HANDOFF_AST.md)

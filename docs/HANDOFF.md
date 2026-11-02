@@ -1,12 +1,15 @@
 # OpenDialer testing handoff (CURRENT)
 
-> **Status: CURRENT — 0.7.0 simple setup and per-lead preparation**, October 30, 2026. Earlier sections are history.
+> **Status: CURRENT — 0.7.1 released; architecture/calling-policy review**, November 1, 2026. Earlier sections are history.
+> Read [ARCHITECTURE.md](ARCHITECTURE.md) for current flows, number setup/warmup, statistical learning,
+> the confirmed short-callback cooldown defect, and the owner's requested initial/overdue preference,
+> day-apart ordinary retries, late double-dials and final-call-only voicemail. Those new rules are not implemented.
 
 The installed setup check found that the released Python runtime had no usable default CA path for
 WebSockets, although HTTPS login succeeded. 0.6.1 selects bundled trusted roots without disabling
 verification or replacing explicit operator certificate settings. The failing regression, 40 scoped
 checks on each database, and real shared-service heartbeat on the corrected release runtime pass.
-Publication and signed installation are pending; see the current checkpoint in `LEAN_PLAN.md`.
+This historical 0.6.1 fix has since shipped; 0.7.1 is installed. See the current checkpoint in `LEAN_PLAN.md`.
 > Historical 0.5.0 release: `096c55f`, CI 40164184233 passed all jobs including 164 browser cases.
 > Includes script learning and the review fixes described below. This is the single current handoff.
 > Read with [HANDOFF_AST.md](HANDOFF_AST.md) and [SCRIPT_LEARNING.md](SCRIPT_LEARNING.md).

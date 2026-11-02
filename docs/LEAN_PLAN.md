@@ -156,6 +156,16 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
+- November 1 architecture and calling-policy review (documentation only): [ARCHITECTURE.md](ARCHITECTURE.md)
+  maps source `b577ffe` / 0.7.1, all feature areas, current/local/hosted data flows, number registration and
+  warmup, callbacks, voicemail, tool boundaries, statistical/script learning and releases. It records the owner's
+  new requirements: initial/overdue preference seeded in the statistical policy, ordinary retries at least about
+  a day apart, double-dials near the end, and voicemail only on the committed final call. These are not shipped.
+  Final-stage scope and rep-spoken versus automated voicemail remain preferences to resolve; the document labels
+  its conservative defaults as proposed. The preceding source audit passed 68 scoped SQLite software cases and
+  reproduced a five-minute requested callback being blocked by the generic cooldown. No runtime/app/provider
+  changes or real calls are part of this documentation task.
+
 - October 30 simplification checkpoint (planning only): the owner requested one Markdown script with options and
   AI-written blocks, per-lead deep research and script writing by agent threads before calling (ChatGPT route on
   `gpt-6.1-terra` at `max` effort), company-aware calling, removal of scheduled prepaid screening and a one-page
