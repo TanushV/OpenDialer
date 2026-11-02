@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures";
-import { openMoreSettings, openSettingsCard } from "./navigation";
+import { openMoreSettings, openScreening } from "./navigation";
 
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: "ignoreErrors" });
@@ -177,7 +177,7 @@ test("registry history remains accessible beyond the workspace preview", async (
     }),
   );
   await enter(page);
-  await openSettingsCard(page, "Do-not-call list");
+  await openScreening(page);
   await page
     .getByRole("button", { name: "Load older registry snapshots", exact: true })
     .click();

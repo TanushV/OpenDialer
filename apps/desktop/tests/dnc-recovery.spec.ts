@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "./fixtures";
-import { openMoreSettings, openSettingsCard } from "./navigation";
+import { openMoreSettings, openScreening } from "./navigation";
 
 async function enter(page: Page, connected: boolean) {
   await page.goto("/");
@@ -49,7 +49,7 @@ for (const connected of [false, true]) {
           return route.continue();
         });
         async function fill() {
-          await openSettingsCard(page, "Do-not-call list");
+          await openScreening(page);
           await page
             .getByLabel("Authorized area codes (comma separated)")
             .fill("415, 212, 512");

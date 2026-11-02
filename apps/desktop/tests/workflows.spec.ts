@@ -162,9 +162,11 @@ test("advanced administration exposes evidence-controlled workflows", async ({
   await expect(
     page.getByText("Existing supplier", { exact: true }),
   ).toBeVisible();
-  // Business confirmation is one button in Calling hours.
+  // Calling needs no business or campaign approval paperwork.
   const hours = await openSettingsCard(page, "Calling hours");
-  await expect(hours).toContainText(/Business confirmed|Confirm our business/);
+  await expect(hours).not.toContainText(
+    /Approved for live calls|Confirm our business|not approved/,
+  );
 });
 
 test("script wording is tested from the script memory and purchases are never offered", async ({

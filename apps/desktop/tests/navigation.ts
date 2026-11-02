@@ -10,6 +10,20 @@ export async function openSettingsCard(page: Page, title: string) {
   return card;
 }
 
+/** Opens the do-not-call card with optional screening turned on, so its lists are shown. */
+export async function openScreening(page: Page) {
+  const card = await openSettingsCard(page, "Do-not-call check");
+  const box = card.getByLabel(
+    "Check leads against the national do-not-call list before calling",
+  );
+  if (!(await box.isChecked())) {
+    await box.check();
+    await card.getByRole("button", { name: "Save", exact: true }).click();
+    await card.getByRole("heading", { name: "Loaded lists" }).waitFor();
+  }
+  return card;
+}
+
 export async function openMoreSettings(page: Page, section: string) {
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   const more = page.locator("details.more-settings");

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "./fixtures";
+import { openScreening } from "./navigation";
 
 const AUTHORITY = "http://127.0.0.1:8765";
 
@@ -271,7 +272,7 @@ test("settings is one short page with everything else folded away", async ({
     "Script",
     "Leads",
     "Calling hours",
-    "Do-not-call list",
+    "Do-not-call check",
   ])
     await expect(page.getByTestId(`setting-${title}`)).toBeVisible();
   await expect(page.locator(".tabs")).toHaveCount(0);
@@ -641,7 +642,7 @@ test("disabled actions say why and settings failures stay recoverable", async ({
   await expect(page.getByTestId("setting-Calling")).toBeVisible();
   await openMore(page, "Workspace and app updates");
   await expect(page.getByText("Finish first: Active call.")).toBeVisible();
-  await openCard(page, "Do-not-call list");
+  await openScreening(page);
   await expect(page.getByLabel("Authorization reference")).toBeVisible();
   await expect(
     page.getByLabel("Subscription / authorization reference"),

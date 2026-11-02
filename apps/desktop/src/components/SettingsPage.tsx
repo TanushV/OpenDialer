@@ -134,6 +134,10 @@ const READINESS: Record<string, string> = {
   ATTEMPT_LIMIT: "Every remaining lead has used all its attempts.",
   OUTREACH_HOLD:
     "The remaining leads are on hold (booked, waiting or held by you).",
+  REGISTRY_NOT_CLEARED_FOR_ENDPOINT:
+    "The do-not-call check is on, but no current list covers these leads. Load one or turn the check off.",
+  SCREENING_PENDING:
+    "The do-not-call check is on, but no current list covers these leads. Load one or turn the check off.",
 };
 
 function AdminSettings({
