@@ -31,10 +31,13 @@ def rank_candidates(candidates, now):
             priority = 2
         else:
             priority = 3
+        # Among equally urgent work, a lead never called before goes first (the owner's starting
+        # preference); the statistical estimate orders the rest.
+        tried = int(c.get("attempt_count", 0) > 0)
         return (
-            (priority, coverage or now, -c.get("propensity", 0.1))
+            (priority, tried, coverage or now, -c.get("propensity", 0.1))
             if priority < 3
-            else (priority, -c.get("propensity", 0.1), coverage or now)
+            else (priority, -c.get("propensity", 0.1), tried, coverage or now)
         )
 
     return sorted(candidates, key=key)

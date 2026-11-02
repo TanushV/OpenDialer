@@ -947,6 +947,8 @@ class Service(ReservationPlanner):
                 attempt_allowance=allowance,
                 last_attempt_at=self.clock().isoformat(),
                 next_attempt_at=(self.clock() + timedelta(seconds=retry_seconds(policy.data))).isoformat(),
+                # Coverage restarts from this attempt, so tried leads cannot crowd out first calls.
+                coverage_due_at=(self.clock() + timedelta(seconds=retry_seconds(policy.data))).isoformat(),
             )
             return command.id, doc(call), lead.data["phone"], payload
 

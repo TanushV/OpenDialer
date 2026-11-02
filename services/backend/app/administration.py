@@ -314,7 +314,13 @@ class Dialer(
         claimed = {c.endpoint_id for c in claims}
         bindings = {r.data["lead_id"]: r.data["number_id"] for r in self.scoped(s, "lead_number_bindings", p)}
         by_number = {n.id: n for n in numbers}
-        counts = {"cleared_count": 0, "pending_count": 0, "blocked_count": 0, "dialable_queue_count": 0}
+        counts = {
+            "cleared_count": 0,
+            "pending_count": 0,
+            "blocked_count": 0,
+            "dialable_queue_count": 0,
+            "callable_when_ready_count": 0,
+        }
         reasons, queue_reasons = set(), set()
         for lead in leads:
             allocation = select_number(doc(lead), inventory, bound_id=bindings.get(lead.id))
@@ -333,6 +339,8 @@ class Dialer(
                 context, lead.data, own_claim=own, endpoint_claimed=lead.data["endpoint_id"] in claimed
             )
             counts["dialable_queue_count"] += int(decision.allowed)
+            # Would be dialable once the rep goes ready: their own presence is not a lead problem.
+            counts["callable_when_ready_count"] += int(set(decision.reasons) <= SETUP_REASONS)
             queue_reasons.update(decision.reasons)
             if context.state_registry_required and not context.state_registry_current:
                 reasons.add("STATE_REGISTRY_MISSING")
@@ -352,7 +360,7 @@ class Dialer(
             warnings.append("Some leads require a current authorized state registry source")
         if not total:
             blockers.append("NO_LEADS")
-        elif not counts["dialable_queue_count"]:
+        elif not counts["callable_when_ready_count"]:
             # Rep presence, number setup and timing are reported once, not per lead.
             setup = SETUP_REASONS | (NUMBER_REASONS if any(b in NUMBER_BLOCKERS for b in blockers) else set())
             lead_reasons = queue_reasons - setup - TIMING_REASONS

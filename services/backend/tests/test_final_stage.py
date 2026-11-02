@@ -116,3 +116,32 @@ def test_no_second_attempt_after_a_conversation_or_outside_the_final_stage(works
             update(lead, attempt_count=1, next_attempt_at=None, last_attempt_at=None)
     unanswered(workspace)  # The second of four is not in the final stage.
     assert next_lead(workspace, 409)["detail"]["code"] == "NO_ELIGIBLE_LEADS"
+
+
+def sign_in(ws):
+    token = ws["client"].post(
+        "/v1/auth/session", json={"email": "operator@example.test", "password": PASSWORD}
+    )
+    ws["headers"] = {"Authorization": f"Bearer {token.json()['access_token']}"}
+
+
+def test_never_called_leads_come_before_retries_once_both_are_due(workspace, clock):
+    """Coverage is re-anchored after each attempt, so tried leads cannot crowd out first calls."""
+    for lead in call(workspace, "GET", "/v1/workspace/leads")["items"]:
+        if not lead["phone"].startswith("+1415"):
+            post(workspace, "/v1/suppressions", {"phone": lead["phone"], "reason": "opt_out"})
+    clock.now += timedelta(hours=23)
+    sign_in(workspace)
+    tried = unanswered(workspace)
+    post(
+        workspace,
+        "/v1/leads/import",
+        {
+            "campaign_id": workspace["campaign_id"],
+            "rows": [{"name": "Fresh", "phone": "+14155550166", "state": "CA"}],
+        },
+    )
+    clock.now += timedelta(hours=25)
+    sign_in(workspace)
+    offered = next_lead(workspace)["lead"]
+    assert offered["phone"] == "+14155550166" and offered["id"] != tried["lead_id"]
