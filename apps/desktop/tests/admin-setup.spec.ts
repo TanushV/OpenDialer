@@ -583,8 +583,9 @@ test("an imported list is researched and scripted before it can be called", asyn
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   const list = `Prep list ${Date.now()}`;
   await page.getByLabel("List name").fill(list);
-  // Fictional 555-01xx range: a clock-derived exchange can start with 0 and be invalid.
-  const phone = `+141555501${String(Date.now()).slice(-2)}`;
+  // Fictional 555-01xx range: a clock-derived exchange can start with 0 and be invalid. Fresno's
+  // area code keeps it clear of the fixed 415 fixtures other journeys import.
+  const phone = `+155955501${String(Date.now()).slice(-2)}`;
   await page
     .getByLabel("CSV lead data")
     .fill(
