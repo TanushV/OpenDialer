@@ -587,6 +587,18 @@ async def test_an_area_code_without_stock_is_an_empty_search_not_an_error():
         transport=httpx.MockTransport(lambda r: httpx.Response(400, json=sold_out))
     ) as http:
         assert await TelnyxCarrier("key", "app", http=http).search_numbers("415") == []
+    asked = []
+
+    def nearby(request):
+        asked.append(dict(request.url.params))
+        return httpx.Response(200, json={"data": [{"phone_number": "+16285611507"}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(nearby)) as http:
+        found = await TelnyxCarrier("key", "app", http=http).search_numbers("415")
+    assert [n["phone_number"] for n in found] == ["+16285611507"]
+    # Telnyx only offers numbers near a sold-out area code when asked for best effort.
+    assert asked[0]["filter[national_destination_code]"] == "415"
+    assert asked[0]["filter[best_effort]"] == "true"
     other = {"errors": [{"code": "10015", "title": "Bad request"}]}
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(lambda r: httpx.Response(400, json=other))

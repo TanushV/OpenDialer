@@ -175,12 +175,14 @@ class TelnyxCarrier:
                 "filter[national_destination_code]": region,
                 "filter[features]": "voice",
                 "filter[limit]": 10,
+                # Without this a sold-out area code (415) finds nothing instead of its overlay (628).
+                "filter[best_effort]": "true",
             }
         )
         try:
             response = await self.request("GET", "/available_phone_numbers?" + query)
         except httpx.HTTPStatusError as exc:
-            # Telnyx answers an area code with no stock as a 400 "no numbers found" (code 10031).
+            # Telnyx answers an area with no stock at all as a 400 "no numbers found" (code 10031).
             if exc.response.status_code == 400 and any(
                 str(e.get("code")) == "10031" for e in _errors(exc.response)
             ):

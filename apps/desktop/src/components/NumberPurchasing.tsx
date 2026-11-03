@@ -5,6 +5,8 @@ import { useWorkspace, label } from "../context";
 type Quote = {
   id: string;
   phone: string;
+  region: string;
+  area_code?: string;
   monthly_cost_usd: number;
   initial_commitment_usd: number;
   expires_at: string;
@@ -239,7 +241,7 @@ export function NumberPurchasing({
                 setApproved(false);
                 if (!result.numbers.length)
                   notice(
-                    "No priced numbers found. Try another area code in this state.",
+                    "Telnyx has no numbers in or near that area right now. Try another area code in this state.",
                   );
               })
             }
@@ -255,7 +257,11 @@ export function NumberPurchasing({
           {quotes.map((q) => (
             <div className="button-row" key={q.id}>
               <span>
-                {q.phone} · ${q.initial_commitment_usd.toFixed(2)} initially · $
+                {q.phone}
+                {q.area_code && q.area_code !== q.region
+                  ? ` · near ${q.region}`
+                  : ""}{" "}
+                · ${q.initial_commitment_usd.toFixed(2)} initially · $
                 {q.monthly_cost_usd.toFixed(2)}/month
               </span>
               <button

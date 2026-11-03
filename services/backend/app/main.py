@@ -1165,6 +1165,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
         results = await asyncio.gather(*(carrier.search_numbers(area) for area in areas))
         for area, candidates in zip(areas, results, strict=True):
             found.extend((area, candidate) for candidate in candidates[:10])
+        found.sort(key=lambda item: str(item[1].get("phone_number", ""))[2:5] != item[0])
 
         def save_quotes():
             quotes = []
@@ -1181,9 +1182,10 @@ def create_app(settings=None, *, clock=None, carrier=None):
                     phone = candidate.get("phone_number", "")
                     if cost.get("currency") != "USD" or not re.fullmatch(r"\+1[2-9][0-9]{9}", phone):
                         continue
+                    # A sold-out area code is answered with nearby numbers; keep those in the same state.
                     if (
                         phone in seen
-                        or phone[2:5] != area
+                        or (phone[2:5] != area and AREA_STATES.get(phone[2:5]) != AREA_STATES.get(area, "?"))
                         or (state and AREA_STATES.get(phone[2:5]) != state)
                     ):
                         continue
@@ -1191,6 +1193,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
                     value = {
                         "phone": phone,
                         "region": area,
+                        "area_code": phone[2:5],
                         "state": AREA_STATES.get(area),
                         "monthly_cost_usd": float(monthly),
                         "initial_commitment_usd": float(upfront + monthly),

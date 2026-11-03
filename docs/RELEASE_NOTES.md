@@ -1,6 +1,9 @@
-# OpenDialer 0.8.1
+# OpenDialer 0.8.2
 
-- **Better objection help.** When a prospect objects, live help now sees every objection response in your script
+- **Number search finds nearby numbers.** When an area code is sold out at Telnyx (415 is), the search now offers
+  numbers from the same area in the same state, such as the 628 overlay for San Francisco, marked "near 415". Numbers
+  from other states are never offered. Before, a sold-out area code showed "No priced numbers found".
+- **Better objection help (0.8.1).** When a prospect objects, live help now sees every objection response in your script
   (not just the first four), plus your approved talk tracks and reviewed examples, and is told to adapt the closest
   response to the prospect's words, acknowledge, ask one clarifying question and use a listed fact only if it
   answers the concern. A stray "(nothing)" marker no longer shows at the end of an answer.

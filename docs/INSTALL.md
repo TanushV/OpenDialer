@@ -37,7 +37,7 @@ Your workspace, leads and keys are kept. Do not uninstall or delete workspace da
 The updater checks the repository's pinned signing key; that verifies the download, separately from Apple
 notarization or Windows publisher trust. Versions before 0.7 show the same steps under **Settings → App updates**.
 
-**0.8.1** is the current version: calling without approval paperwork (do-not-call checks optional), specific
+**0.8.2** is the current version: nearby-number search, calling without approval paperwork (do-not-call checks optional), specific
 readiness steps, existing-number setup and warmup, machine detection, follow-up scripts from call history and
 conversational live help, on top of 0.7's one Markdown script and per-lead research. [What's new](RELEASE_NOTES.md). After updating from 0.6.x, paste
 your script again on the **Script** page in the new format ([example](examples/script.md)); the

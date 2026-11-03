@@ -235,3 +235,33 @@ def test_telnyx_purchase_and_reconciliation_use_original_reference(workspace, ap
         assert seen.count(("POST", "/v2/number_orders")) == 1
     finally:
         workspace["client"].portal.call(http.aclose)
+
+
+def test_a_sold_out_area_code_offers_nearby_numbers_in_the_same_state(workspace, carrier, monkeypatch):
+    # Recorded November 3, 2026: Telnyx has no 415 numbers left and its best-effort search
+    # answers with the 628 overlay for the same San Francisco area.
+    def offer(phone):
+        return {
+            "phone_number": phone,
+            "cost_information": {"currency": "USD", "upfront_cost": "1.00000", "monthly_cost": "1.00000"},
+        }
+
+    searched = []
+
+    async def nearby(region):
+        searched.append(region)
+        return [offer("+16285611507"), offer("+17755550100"), offer("+14155550142")]
+
+    monkeypatch.setattr(carrier, "search_numbers", nearby)
+    found = request(workspace, "POST", "/v1/admin/numbers/search", {"region": "415"})["numbers"]
+    # The exact area code comes first, the same-state overlay next, another state never.
+    assert [(q["phone"], q["area_code"], q["region"]) for q in found] == [
+        ("+14155550142", "415", "415"),
+        ("+16285611507", "628", "415"),
+    ]
+    limits(workspace)
+    assert approve(workspace, found[1])["status"] == "ordered"
+    assert searched == ["415", "415"], "The price recheck repeats the search the quote came from"
+    assert len(carrier.purchases) == 1
+    owned = request(workspace, "GET", "/v1/workspace/numbers")["items"]
+    assert any(n["phone"] == "+16285611507" for n in owned)
