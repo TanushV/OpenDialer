@@ -1,6 +1,6 @@
 # Numbers and connect rate plan
 
-Updated November 4, 2026. Both numbers are active and ready in the installed 0.8.11 app. A live rep answer passed the shared callback test, and Telnyx confirmed outbound delivery from each number. Two-way audio and outbound through the Dialer still need live verification.
+Updated November 4, 2026. Both numbers are active and ready. A live rep answer passed the shared callback test, and Telnyx confirmed outbound delivery from each number. The Dialer also completed a live call between the owned numbers. Two-way speech between people still needs verification.
 
 ## Goal
 
@@ -103,7 +103,9 @@ Telnyx account: the owner reports it is now Verified. The hourly cap and automat
 - [x] With **Go ready** complete before dialing, answer a live test call in OpenDialer.
 - [ ] Confirm two-way audio on a live call with a separate phone.
 - [x] Verify carrier outbound delivery from each purchased number using an authorized test destination.
-- [ ] Start and complete a live test call from the Dialer without dialing a campaign lead.
+- [x] Start and complete a live test call from the Dialer without dialing a campaign lead.
+- [x] Verify the new callback greeting plays and ends on a live Telnyx call.
+- [ ] Install the signed 0.8.12 update with the new greeting on the Mac.
 - [ ] Resolve failures before ramping.
 
 ### D. Ramp
@@ -237,8 +239,15 @@ fresh reputation checks before each dial. No audio recording unless the owner as
   **Pause dialing** then disconnected the idle session normally.
 - The two short Telnyx tests to the owner-authorized destination produced signed initiated, answered and normal
   hangup events from each owned caller number. These calls used the carrier API and produced no campaign attempts.
-  An answer event proves delivery to an answering endpoint. A Dialer bridge and audible speech in both directions
-  still need separate proof.
+  An answer event proves delivery to an answering endpoint.
+- At 3:38 p.m. Pacific, the installed 0.8.11 Dialer called from the number ending in 8854 to the owned number
+  ending in 8693. Telnyx signed the initiated, answered, bridged, machine-detection and hangup events. The bridge
+  followed answer by 540 ms in carrier timestamps. The receiving number played the fallback greeting. The saved
+  outcome marks this as a delivery test, the test contact is held, and the test callback tasks are closed.
+- The shorter 0.8.12 greeting uses Telnyx's Kokoro voice. The Mac's workspace briefly ran the patched authority
+  for an owned-line test. Telnyx confirmed speech start, speech end and hangup, and the command receipt recorded
+  the Kokoro voice. The affected suites passed 50 cases on SQLite and 50 on PostgreSQL. The owner declined
+  Apple Developer ID signing, so new preview builds may still trigger a fresh macOS microphone grant.
 
 ## Sources
 
