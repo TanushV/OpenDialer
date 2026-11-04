@@ -233,7 +233,8 @@ fresh reputation checks before each dial. No audio recording unless the owner as
 - This Mac installed 0.8.11 through the signed updater. The installed bundle passed deep strict verification, the
   local service reported 0.8.11, and the existing workspace reopened. Both order receipts show **Ordered · Active**
   and **Set up and in your numbers**, Numbers shows **2 Ready for outbound use**, and the Settings readiness check
-  shows **Ready to call**. macOS requested a fresh microphone grant for this build.
+  shows **Ready to call**. After macOS granted microphone access for this build, **Go ready** reached **Audio ready**.
+  **Pause dialing** then disconnected the idle session normally.
 - The two short Telnyx tests to the owner-authorized destination produced signed initiated, answered and normal
   hangup events from each owned caller number. These calls used the carrier API and produced no campaign attempts.
   An answer event proves delivery to an answering endpoint. A Dialer bridge and audible speech in both directions
